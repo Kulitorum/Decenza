@@ -41,7 +41,8 @@ WeightProcessor::WeightProcessor(QObject* parent)
 {
 }
 
-void WeightProcessor::clearAwaitingTare(bool zeroObserved, const QString& reason)
+void WeightProcessor::clearAwaitingTare(bool zeroObserved, qint64 wallClockMs,
+                                        const QString& reason)
 {
     if (!m_awaitingTare) return;
     m_awaitingTare = false;
@@ -49,7 +50,7 @@ void WeightProcessor::clearAwaitingTare(bool zeroObserved, const QString& reason
     m_tareGraceSamples = -1;  // disarmed
     // Only on the observed path. The grace path stamped its own anchor at the last
     // granted arrival, which is earlier and is the honest one — see processWeight().
-    if (zeroObserved) m_tareWaitEndedMs = m_wallClock();
+    if (zeroObserved) m_tareWaitEndedMs = wallClockMs;
     if (m_preTareSamplesSkipped > 0) {
         SAWW_LOG(QStringLiteral("Tare wait ended (%1): %2 pre-tare sample(s) skipped")
                      .arg(reason).arg(m_preTareSamplesSkipped));
@@ -74,7 +75,8 @@ void WeightProcessor::processWeight(double weight)
     // what makes "granted" mean granted.
     if (m_tareGraceSamples >= 0) {
         if (m_tareGraceSamples == 0) {
-            clearAwaitingTare(false, QStringLiteral("no zero within grace after flow start"));
+            clearAwaitingTare(false, wallClock,
+                              QStringLiteral("no zero within grace after flow start"));
         } else if (--m_tareGraceSamples == 0) {
             // The last granted arrival. Stamp the window anchor HERE rather than letting
             // clearAwaitingTare() stamp it above: the wait ends lazily, on whatever
@@ -136,7 +138,8 @@ void WeightProcessor::processWeight(double weight)
             // full pre-tare reading — firing exactly the skipFrame the gate below
             // exists to prevent. Same shape as the oscillation detector's settle
             // count, and it costs ~200 ms of preheat.
-            clearAwaitingTare(true, QStringLiteral("zero confirmed across the tare step"));
+            clearAwaitingTare(true, wallClock,
+                              QStringLiteral("zero confirmed across the tare step"));
             m_consecutiveRejections = 0;
         } else if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
             // Near zero but unconfirmed. Hold it: do NOT let it become the baseline,
@@ -197,7 +200,7 @@ void WeightProcessor::processWeight(double weight)
         // same way. Samples here are accepted normally either way; only the flag waits.
         if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
             if (++m_tareLandedSamples >= kTareLandedConfirmations)
-                clearAwaitingTare(true, QStringLiteral("zero confirmed"));
+                clearAwaitingTare(true, wallClock, QStringLiteral("zero confirmed"));
         } else {
             m_tareLandedSamples = 0;
         }
@@ -639,7 +642,27 @@ void WeightProcessor::processWeight(double weight)
         // consume the whole window before the first sample can be judged — a genuinely
         // untared cup would then never warn and never raise the popup, on exactly the
         // hardware where the pour is longest.
-        const double judgedTime = (wallClock - qMax(m_extractionStartTime, m_tareWaitEndedMs)) / 1000.0;
+        //
+        // CLAMPED, because arrivals carry no wall-clock bound and a stalled feed can
+        // otherwise put this window anywhere in the pour. Late is the dangerous
+        // direction: past ~10 s a >50 g reading is real coffee on a large target, and a
+        // false positive here is not merely a wrong banner — the signal latches
+        // (m_untaredCupSignalled below freezes the streak, which holds withinWindow
+        // true through the streak clause), so every later heavy sample returns from
+        // here ahead of the SAW stop and the per-frame exit. One spurious verdict would
+        // disable stop-at-weight for the rest of the shot.
+        //
+        // The bound is the grace's own worst case: six arrivals at the slowest cadence
+        // this file supports (2 Hz, ~3.0 s) plus margin. So the window can never extend
+        // past ~7 s of flow, where yield is single-digit grams and nowhere near 50 g.
+        // Residual, accepted: if the feed stalls longer than the window between the last
+        // granted arrival and the next one, this shot is not judged at all. That is a
+        // multi-second gap, which is the scale-stall detector's business (kScaleStaleMs)
+        // rather than something to widen this window for.
+        constexpr qint64 kMaxAnchorShiftMs = 4000;
+        const qint64 windowAnchor = qMin(qMax(m_extractionStartTime, m_tareWaitEndedMs),
+                                         m_extractionStartTime + kMaxAnchorShiftMs);
+        const double judgedTime = (wallClock - windowAnchor) / 1000.0;
         // Once a streak is under way, let it keep confirming past the 3.0s mark
         // rather than discarding it — otherwise a streak that starts right at the
         // boundary (e.g. 2.9s) can have its confirming sample land just after 3.0s

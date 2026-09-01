@@ -30,10 +30,14 @@ inline void feed(WeightProcessor& wp, double weight, int count, qint64& clock,
 // "Flow has started and the scale is tared" — the state a real shot reaches before any
 // weight accumulates. The two near-zero samples are the point, not scaffolding: they are
 // what ends the tare wait, so the samples a test feeds afterwards are judged.
-inline void armExtraction(WeightProcessor& wp, qint64& clock)
+// preheatGapMs is the gap between the tare landing and flow starting. Real shots tare
+// during preheat, seconds to tens of seconds ahead of flow; the default 0 keeps the
+// arming instant for tests that do not care.
+inline void armExtraction(WeightProcessor& wp, qint64& clock, qint64 preheatGapMs = 0)
 {
     wp.startExtraction();
     feed(wp, 0.0, 2, clock);  // kTareLandedConfirmations near-zero samples
+    clock += preheatGapMs;
     wp.markExtractionStart();
     wp.setTareComplete(true);
 }

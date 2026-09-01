@@ -409,9 +409,10 @@ private slots:
         }
         QCOMPARE(cupSpy.count(), 1);
 
-        // A cup-placed-during-preheat retare mid-extraction (MachineState::
-        // flowBeforeAutoTare) resets extraction timing and the tare state — including
-        // a fresh tare wait, so the grace has to be spent again.
+        // A retare resets extraction timing and the tare state — including a fresh
+        // tare wait, so the grace has to be spent again. A state-machine exercise: the
+        // preheat retare this mirrors (MachineState::flowBeforeAutoTare) is gated on a
+        // pre-flow substate, so production reaches this state before flow, not after.
         wp.resetForRetare();
         wp.markExtractionStart();
         wp.setTareComplete(true);
@@ -449,6 +450,79 @@ private slots:
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
             wp.processWeight(80.0);
             m_fakeClock += 500;
+        }
+
+        QCOMPARE(cupSpy.count(), 1);
+    }
+
+    // ===== The window cannot drift into the pour, in either direction =====
+
+    void untaredCupWindowDoesNotReopenAfterAStallPastGrace() {
+        // The window anchor is the LAST GRANTED arrival, not the arrival that ends the
+        // wait. Those differ whenever the feed goes quiet in between, and anchoring on
+        // the latter would restart a 3 s window wherever the feed happened to resume.
+        // An earlier revision of this fix did exactly that.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+
+        TareWait::armExtractionUntared(wp, 80.0, m_fakeClock);
+        wp.setCurrentFrame(0);
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        m_fakeClock += 5000;  // feed stalls right after the last granted arrival
+        wp.processWeight(80.0);
+        m_fakeClock += 500;
+        wp.processWeight(80.0);
+
+        QCOMPARE(cupSpy.count(), 0);  // window closed where judging became possible
+    }
+
+    void untaredCupWindowIsClampedAgainstALateAnchor() {
+        // Late is the dangerous direction: a >50 g reading deep into a pour is real
+        // coffee on a large target, and the verdict LATCHES — one false positive
+        // freezes the streak, which holds the window open and makes every later heavy
+        // sample return ahead of the SAW stop. Stop-at-weight would be off for the rest
+        // of the shot. The anchor is clamped so the window cannot reach that far.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 60.0, 0);  // target above the 50 g sanity bar
+        wp.setCurrentFrame(0);
+
+        // Six granted arrivals dragged out over 8 s by a limping feed. The arithmetic is
+        // the test: unclamped the anchor lands at 8.0 s and the samples below fall 1.6 s
+        // and 2.1 s into its window, so the popup fires on real coffee. Clamped, the
+        // anchor is pinned at 4.0 s, its window shuts at 7.0 s, and both samples are
+        // outside it. Get this spacing wrong in either direction and the test passes
+        // whether or not the clamp exists — the first draft of it did.
+        TareWait::armExtractionUntared(wp, 55.0, m_fakeClock, /*intervalMs*/ 1600);
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        wp.processWeight(55.0);
+        m_fakeClock += 500;
+        wp.processWeight(55.0);
+
+        QCOMPARE(cupSpy.count(), 0);
+    }
+
+    void untaredCupWindowAnchorsToFlowStartAfterALongPreheat() {
+        // The tare normally lands during preheat, well before flow. The anchor is then
+        // OLDER than flow start and qMax must discard it — without that the window
+        // would already read as expired at flow start, on every ordinary shot.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+
+        // No setCurrentFrame() here: it is what drives the scale-feed stall check, and a
+        // 30 s preheat with no samples is a stall by that check's reckoning. Unrelated
+        // subsystem, and the sanity check does not read the frame.
+        TareWait::armExtraction(wp, m_fakeClock, /*preheatGapMs*/ 30000);
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        for (int i = 0; i < 2; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+            wp.processWeight(80.0);
+            m_fakeClock += 100;
         }
 
         QCOMPARE(cupSpy.count(), 1);

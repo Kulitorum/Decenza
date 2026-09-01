@@ -145,7 +145,7 @@ private:
     // half-cleared and the pre-tare sample tally is reported wherever the wait ends.
     // zeroObserved separates the two ways out: the scale's zero arrived (consumers are
     // told, via tareLanded), or the grace after flow start ran out without it.
-    void clearAwaitingTare(bool zeroObserved, const QString& reason);
+    void clearAwaitingTare(bool zeroObserved, qint64 wallClockMs, const QString& reason);
     // Closes the constant-weight liveness run and reports its tally — see
     // m_constantSampleLog.
     void flushConstantSampleLog();
