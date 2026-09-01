@@ -185,6 +185,37 @@ Qt's `QLowEnergyController::disconnected()` signal only fires on a Connected→D
 
 Symptom if this is broken: DE1 reboot drops BLE, app attempts one reconnect, the attempt fails, then app stays silent forever until restarted. The Scan Devices button also appears dead because the `de1Discovered` handler's `!isConnecting()` guard never clears.
 
+### Connection Priority: A Latched Device Stays BALANCED Forever
+
+A device that fails dual-HIGH detection is latched to BALANCED on both BLE links, and
+**that latch is meant to be permanent**. It is not re-tested, it does not expire, and
+nothing in the app re-arms it. The only thing that clears one is a deliberate
+`kBleDetectionEpoch` bump in `blemanager.h`, which re-classifies every device once.
+
+**Why it never re-tests:** the upside of HIGH connection priority is very small for
+almost everyone, and the downside of finding out again is re-inflicting the fault the
+latch was set to avoid — broken scale discovery and a ~70 s DE1 GATT collapse before
+the detector can re-latch. Permanently BALANCED is the cheap side of that trade.
+
+**Reading it in a log**, the startup line looks like a warning and is not:
+
+```
+[Scale][ConnectionPriority] Loaded persisted dual-HIGH-incapable classification
+(epoch 1, build 3391 [diagnostic], trigger=de1-fault-cluster) — BOTH BLE links will
+start at BALANCED this run (no detection window)
+```
+
+The build code is **provenance, not staleness**: it records which build first
+classified the device, and it does not gate rehydration. A record set on build 3391
+still loading on build 3576 is the design working, not a stale classification — so do
+not report it as one, and do not propose an expiry, a re-detect, or an epoch bump to
+"check whether the device got better". Same for the per-connect
+`skipping HIGH (dual-HIGH-incapable latch set, trigger=…) — link stays at BALANCED`
+lines that follow.
+
+Mechanism (epoch scoping, legacy migration, the SDK<30 seed, observe mode) is
+specified in `openspec/specs/ble-connection-priority/spec.md`.
+
 ### Profile Upload Frame-ACK Verification
 
 `DE1Device::uploadProfile()` and `uploadProfileAndStartEspresso()` don't just count write completions — they verify that each `FRAME_WRITE` ACK's leading byte (the `FrameToWrite` field) matches the sequence we queued, in order. Modeled on de1app's `confirm_de1_send_shot_frames_worked` in `de1_comms.tcl`.
