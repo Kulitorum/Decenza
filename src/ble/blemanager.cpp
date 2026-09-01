@@ -2961,8 +2961,8 @@ void BLEManager::startReconnectBrowseIfNeeded() {
     m_reconnectDiscovery->browse(kReconnectBrowseTimeoutMs);
 }
 
-void BLEManager::requestScaleReconnectRampRestart() {
-    emit scaleReconnectRampRestartRequested();
+void BLEManager::requestScaleReconnectRampRestart(const QString& reason, int firstDelayMs) {
+    emit scaleReconnectRampRestartRequested(reason, firstDelayMs);
 }
 
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
