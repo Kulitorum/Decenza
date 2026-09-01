@@ -3162,6 +3162,54 @@ private slots:
         QCOMPARE(obj->property("themeName").toString(), QStringLiteral("qml-chain-written"));
     }
 
+    // GrinderAliases::findEntry() memoizes its last (brand, model) lookup. Its
+    // failure shape is a STALE HIT: answer the second grinder with the first
+    // one's entry. Nothing else in the suite alternates grinders within one call
+    // sequence, so nothing else can catch it.
+    //
+    // Asserted through stepGrinderSetting() because the notation reached through
+    // the memo is what the picker consumes, and the grinders below disagree
+    // about it.
+    void findEntryMemoDoesNotServeAStaleGrinder() {
+        SettingsDye* dye = m_settings.dye();
+
+        // Alternate, so every call but the first is a memo hit for the WRONG
+        // grinder if the key is ignored. Repeated to outlive a one-deep memo
+        // that happens to be refreshed by the previous line.
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+            QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", 1.0),
+                     QString("1+5"));
+        }
+
+        // Same brand, different model: the MODEL half of the key alone must
+        // invalidate. The pair has to DISAGREE or the assertion proves nothing —
+        // Niche Zero and Duo are both NumericWithSuffix, so "5"+1 is "6" either
+        // way and this passed with the model dropped from the key.
+        //
+        // 1Zpresso J-Max and K-Max are both Compound but carry at 30 vs 90
+        // positions/rev, so 0+29 stepped by 1 reaches 30 = a full revolution on
+        // one and 30 into the first on the other.
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(dye->stepGrinderSetting("1Zpresso", "J-Max", "0+29", 1.0), QString("1+0"));
+            QCOMPARE(dye->stepGrinderSetting("1Zpresso", "K-Max", "0+29", 1.0), QString("0+30"));
+        }
+
+        // A negative result is cached too — the custom-grinder case, which is
+        // the WORST caller (it walks the whole table) and so the one most worth
+        // memoizing. It must stay "" on repeat, and must not poison the next
+        // real lookup.
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(dye->stepGrinderSetting("Homebuilt", "No Such Grinder", "20", 2.0), QString());
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+
+        // Case-insensitivity is the lookup's contract; the memo compares keys
+        // exactly, so a differently-cased repeat must MISS and re-resolve rather
+        // than fall through to nullptr.
+        QCOMPARE(dye->stepGrinderSetting("turin", "df83v", "20", 2.0), QString("22"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)

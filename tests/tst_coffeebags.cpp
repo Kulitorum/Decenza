@@ -890,7 +890,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 39);  // chain runs on to the latest (shots.flow_calibration)
+            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
         });
     }
 
@@ -1288,7 +1288,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 39);  // chain runs on to the latest (shots.flow_calibration)
+            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
         });
     }
 
@@ -1321,7 +1321,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 39);  // chain runs on to the latest (shots.flow_calibration)
+            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.

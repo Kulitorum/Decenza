@@ -57,7 +57,10 @@ struct LookupResult {
     bool found = false;
 };
 
-inline QVector<GrinderEntry> allGrinders()
+// By const reference: findEntry() returns a POINTER INTO this, and while it
+// returned by value that pointer stayed valid only because QVector is implicitly
+// shared, so the copy's buffer was the static's. Correct by luck, not lifetime.
+inline const QVector<GrinderEntry>& allGrinders()
 {
     static const QVector<GrinderEntry> entries = {
         // --- Niche ---
@@ -351,15 +354,41 @@ inline QStringList modelsForBrand(const QString& brand)
 // Returns nullptr when not found; the dialing-context payload code
 // gracefully falls back to a default-constructed entry's notation
 // (NumericWithSuffix) so unknown grinders behave like plain numeric.
+//
+// Memoized on the last (brand, model): GrindRowSource.grindRowsFor() builds 801
+// rows (grindWindowSteps: 400) and every one reaches here through
+// SettingsDye::stepGrinderSetting with the grinder fixed — 801 linear scans of a
+// 93-entry table, two case-insensitive QString compares each, on the main thread
+// in front of the picker painting.
+//
+// NEGATIVE results are cached too: a custom grinder matches nothing, so it walks
+// all 93 entries and is the worst caller, not the cheapest.
+//
+// thread_local because dialing_blocks and the ShotServer reach the registry from
+// their own threads. Cached pointers never dangle — allGrinders() returns a
+// function-local static by reference.
 inline const GrinderEntry* findEntry(const QString& brand, const QString& model)
 {
-    const auto& grinders = allGrinders();
-    for (const auto& e : grinders) {
+    struct Memo {
+        QString brand;
+        QString model;
+        const GrinderEntry* entry = nullptr;
+        bool valid = false;
+    };
+    thread_local Memo memo;
+    if (memo.valid && memo.brand == brand && memo.model == model)
+        return memo.entry;
+
+    const GrinderEntry* found = nullptr;
+    for (const auto& e : allGrinders()) {
         if (e.brand.compare(brand, Qt::CaseInsensitive) == 0
-            && e.model.compare(model, Qt::CaseInsensitive) == 0)
-            return &e;
+            && e.model.compare(model, Qt::CaseInsensitive) == 0) {
+            found = &e;
+            break;
+        }
     }
-    return nullptr;
+    memo = Memo{brand, model, found, true};
+    return found;
 }
 
 // Convenience: resolve a raw grinder string (e.g. shot.grinderModel) to

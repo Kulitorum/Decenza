@@ -2175,6 +2175,72 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // The grind picker's two reads (grinderWideNumericSettings, grinderWideRpms)
+    // filter on equipment_id with nothing indexed on it, so SQLite scans every
+    // row — and cost tracks table BYTES, because profile_json and debug_log are
+    // TEXT on `shots` and a page read drags them along. Both run synchronously
+    // from GrindPickerDialog.onAboutToShow, in front of the dialog painting.
+    //
+    // Measured: 435 ms and 483 ms on a 5,788-shot field database (Android
+    // tablet, user log 2026-09-01) — a ~0.9 s hang on open. Desktop SQLite on
+    // synthetic copies: 3.6/5.1/10.5 ms at 13.6/24.2/61.1 MB before, 0.17 ms
+    // after, the plan moving from `SCAN shots` to `SEARCH shots USING COVERING
+    // INDEX`. Both indexes together cost 0.15 MB.
+    //
+    // Covering is the point, not the constant factor: the indexed plan never
+    // opens the table, so what is eliminated is exactly the cold random I/O a
+    // slow device is worst at. The win grows on weaker storage.
+    //
+    // getDistinctGrinderSettingsForGrinder() is the same shape and is covered by
+    // the first index too.
+    //
+    // NOT in createTables(): equipment_id and rpm arrive in migration 23, so a
+    // fresh database has no such column when createTables() runs — the trap the
+    // idx_shots_grinder comment there records.
+    if (currentVersion >= 39 && currentVersion < 40) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 40 "
+                    "(grind-step covering indexes)";
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 40 grind step indexes", 1);
+        if (!txn.ok()) {
+            qWarning() << "ShotHistoryStorage: migration 40 could not start a transaction"
+                          " - will retry next launch (the grind picker stays slow until"
+                          " it completes; nothing else is affected)";
+        } else {
+            // The bump is NOT gated on the CREATE INDEXes. An index is not a
+            // schema fact — both queries return identical results without it —
+            // so gating would buy a database that fails once and re-runs this
+            // block on every launch forever. Log and move on.
+            //
+            // The schema_version stamp IS a correctness fact and stays in the
+            // transaction: a DELETE committing without its INSERT empties the
+            // table, createTables() re-seeds it to 1, and the whole chain re-runs.
+            if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_grind "
+                            "ON shots(equipment_id, grinder_setting)")) {
+                qWarning() << "ShotHistoryStorage: migration 40 could not create"
+                              " idx_shots_equip_grind -" << query.lastError().text()
+                           << "- the grind picker falls back to a full scan";
+            }
+            if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_rpm "
+                            "ON shots(equipment_id, rpm)")) {
+                qWarning() << "ShotHistoryStorage: migration 40 could not create"
+                              " idx_shots_equip_rpm -" << query.lastError().text()
+                           << "- the grind picker falls back to a full scan";
+            }
+            const bool stamped =
+                query.exec("DELETE FROM schema_version")
+                && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (40)"));
+            if (stamped && txn.commit()) {
+                currentVersion = 40;
+                qDebug() << "ShotHistoryStorage: migration 40 complete";
+            } else {
+                qWarning() << "ShotHistoryStorage: migration 40 incomplete - will retry"
+                              " next launch (the grind picker stays slow until it"
+                              " completes; nothing else is affected)";
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
