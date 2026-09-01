@@ -274,6 +274,15 @@ private:
     // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.
     double m_hotWaterTareBaseline = 0.0;
     qint64 m_hotWaterTareTimeMs = 0;  // For burst logging first 2s after tare
+    // True between scheduling the hot-water tare and running it. The tare is delayed to
+    // keep it off the timer commands' heels, and the DE1 delivers weight samples in the
+    // meantime — samples that carry the PREVIOUS pour's zero. Without this the SAW check
+    // reported them as "Tare not completed", which reads as a tare that failed rather
+    // than one that has not been sent yet.
+    bool m_hotWaterTarePending = false;
+    // Throttle anchor for the warning above it. Per-object and reset with the flag, so
+    // a pour's first genuinely-untared sample always gets a line.
+    qint64 m_lastHotWaterTareWarnMs = 0;
     double m_hotWaterMaxEffectiveWeight = 0.0;  // Peak effective weight seen (guards baseline clearing)
     double m_hotWaterFrozenWeight = -1.0;       // Effective weight at SAW trigger (-1 = not frozen). Reset on every new flow cycle start.
     double m_hotWaterSawTriggerWeight = -1.0;  // Raw scale weight at SAW trigger for learning overshoot (-1 = no trigger)

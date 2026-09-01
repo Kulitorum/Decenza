@@ -3,6 +3,7 @@
 #include <QRegularExpression>
 
 #include "machine/weightprocessor.h"
+#include "support/TareWaitTestHelpers.h"
 
 // Test SAW (stop-at-weight) logic in WeightProcessor across profile types.
 // WeightProcessor has a clean public interface — no friend access needed.
@@ -50,9 +51,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);  // 0 preinfuse frames
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);  // Past preinfusion (0 >= 0)
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -73,9 +72,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -106,9 +103,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, preinfuseFrames);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);  // Still in preinfusion
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -141,9 +136,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 0.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -163,9 +156,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -188,9 +179,7 @@ private slots:
         QVector<double> frameExits = {0.0, 0.2, 0.0};  // Frame 1 exits at 0.2g
         QVector<double> learningDrips, learningFlows;
         wp.configure(36.0, 2, frameExits, {}, learningDrips, learningFlows, false, 0.38);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(1);  // In frame 1 which has 0.2g exit
 
         QSignalSpy spy(&wp, &WeightProcessor::skipFrame);
@@ -209,9 +198,7 @@ private slots:
         QVector<double> frameExits = {0.0, 0.2, 0.0};
         QVector<double> learningDrips, learningFlows;
         wp.configure(36.0, 2, frameExits, {}, learningDrips, learningFlows, false, 0.38);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(1);
 
         QSignalSpy spy(&wp, &WeightProcessor::skipFrame);
@@ -229,9 +216,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);  // No preinfusion
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);  // Frame 0 >= preinfuseFrameCount(0) → past preinfusion
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
@@ -252,9 +237,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);
 
         QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
@@ -288,25 +271,22 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtractionUntared(wp, 80.0, m_fakeClock);  // grace spent, no zero ever arrived
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
         QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
 
-        // Feed weight > 50g within first 3 seconds, persisting across enough
-        // consecutive samples (UNTARED_CUP_CONFIRM_SAMPLES = 4 — event-based, not
-        // a timer) so the popup fires.
-        for (int i = 0; i < 3; i++) {
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-            wp.processWeight(80.0);
-            QCOMPARE(cupSpy.count(), 0);  // Not confirmed yet
-            m_fakeClock += 150;
-        }
+        // Past the grace the reading is judged, and the cup is the verdict. The popup
+        // still needs it to repeat (UNTARED_CUP_CONFIRM_SAMPLES = 2 — one corrupt
+        // packet must not accuse the user), so the first warned sample does not fire.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-        wp.processWeight(80.0);  // 4th consecutive sample confirms
+        wp.processWeight(80.0);
+        QCOMPARE(cupSpy.count(), 0);  // Not confirmed yet
+        m_fakeClock += 150;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+        wp.processWeight(80.0);  // second consecutive sample confirms
 
         QCOMPARE(cupSpy.count(), 1);  // Should detect untared cup once persisted
         QCOMPARE(stopSpy.count(), 0); // Should NOT trigger SAW stop
@@ -319,29 +299,32 @@ private slots:
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
-        wp.markExtractionStart();
+        wp.markExtractionStart();  // DE1 starts flow; the app's tare is still in flight
         wp.setTareComplete(true);
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
 
         // Hot Water leaves e.g. 139.5g on the scale; Espresso re-tares, but the
-        // scale's zeroed BLE notification lands after extraction has already
-        // started, so the stale weight reads for a few arrivals before the real
-        // zero arrives. Matches #1837's log: the worst of the three logged
-        // incidents saw 3 consecutive stale samples before the real zero — one
-        // short of the 4-sample confirmation. That must not show the popup.
+        // scale's zeroed BLE notification lands after extraction has already started,
+        // so the stale weight reads for a few arrivals before the real zero arrives.
+        // Matches #1837's log: the worst of the three logged incidents saw 3
+        // consecutive stale samples before the real zero.
+        //
+        // NOTHING here may warn, and init()'s failOnWarning() enforces it. That is the
+        // whole fix: these samples are pre-tare, so calling them an untared cup was a
+        // wrong verdict, and the drop to zero is the app's own tare rather than a
+        // spike. Both used to be reported, twice over, on every shot poured into a cup
+        // the previous pour had left heavy.
         for (int i = 0; i < 3; i++) {
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 139.5"));
             wp.processWeight(139.5);
             m_fakeClock += 100;
         }
-        // The real zero also trips the unrelated spike-rejection guard (a 139.5g
-        // drop in one sample), matching #1837's log — not what this test covers.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected"));
-        wp.processWeight(0.0);  // Real tare-confirmed zero arrives
+        wp.processWeight(0.0);  // Real zero arrives — held, one packet is not proof
+        m_fakeClock += 100;
+        wp.processWeight(0.0);  // Confirmed: the tare landed
 
-        QCOMPARE(cupSpy.count(), 0);  // Never reached the 4-sample confirmation
+        QCOMPARE(cupSpy.count(), 0);
     }
 
     // ===== A stale reading that keeps recurring after a spike-rejected real zero
@@ -351,9 +334,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtractionUntared(wp, 139.5, m_fakeClock);  // grace spent on the stale reading
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
@@ -385,25 +366,25 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtractionUntared(wp, 80.0, m_fakeClock);  // grace spent, no zero ever arrived
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
 
-        // First qualifying sample lands just inside the 3s window; later
-        // confirming samples land just past it. A streak already under way must
-        // be allowed to finish confirming, or a late-starting genuine untared cup
-        // is silently swallowed instead of showing the popup.
-        m_fakeClock += 2850;  // extractionTime = 2.85s — still < 3.0s
-        for (int i = 0; i < 3; i++) {
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-            wp.processWeight(80.0);
-            m_fakeClock += 100;  // 2.85, 2.95, 3.05, 3.15s across the loop + final call
-        }
+        // First qualifying sample lands just inside the 3s window; the confirming one
+        // lands just past it. A streak already under way must be allowed to finish
+        // confirming, or a late-starting genuine untared cup is silently swallowed
+        // instead of showing the popup.
+        // 2.95 s past the window's anchor, which is the LAST GRANTED arrival, not flow
+        // start — burnGrace leaves the clock one interval past it.
+        m_fakeClock += 2950 - 100;
+
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-        wp.processWeight(80.0);  // extractionTime = 3.15s — past the window, but streak in progress
+        wp.processWeight(80.0);  // 2.95s — starts the streak just inside the window
+        m_fakeClock += 100;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+        wp.processWeight(80.0);  // 3.05s — past the window, but the streak is in progress
 
         QCOMPARE(cupSpy.count(), 1);  // Confirmed streak fires even though it crossed 3.0s
     }
@@ -415,15 +396,13 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtractionUntared(wp, 90.0, m_fakeClock);  // grace spent, no zero ever arrived
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
 
         // First untared-cup condition confirms and fires once.
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 90"));
             wp.processWeight(90.0);
             m_fakeClock += 100;
@@ -431,19 +410,48 @@ private slots:
         QCOMPARE(cupSpy.count(), 1);
 
         // A cup-placed-during-preheat retare mid-extraction (MachineState::
-        // flowBeforeAutoTare) resets extraction timing and the tare state.
+        // flowBeforeAutoTare) resets extraction timing and the tare state — including
+        // a fresh tare wait, so the grace has to be spent again.
         wp.resetForRetare();
         wp.markExtractionStart();
         wp.setTareComplete(true);
+        TareWait::burnGrace(wp, 90.0, m_fakeClock);
 
         // A genuinely new untared-cup condition after the retare must be able to
         // fire the popup again, not stay silenced by the first one's latch.
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 90"));
             wp.processWeight(90.0);
             m_fakeClock += 100;
         }
         QCOMPARE(cupSpy.count(), 2);
+    }
+
+    // ===== The detection window survives a slow scale (2 Hz) =====
+
+    void untaredCupStillDetectedOnASlowScale() {
+        // The grace is bounded in ARRIVALS and the detection window in SECONDS, so on a
+        // 2 Hz scale six granted arrivals are 3.0 s — the whole window, spent before a
+        // single sample could be judged. Measured from flow start, a genuinely untared
+        // cup would then never warn and never raise the popup, and only on the slowest
+        // scales, which is the shape of bug that reaches users and not tests. The window
+        // is anchored to the end of the tare wait for exactly this reason.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+
+        TareWait::armExtractionUntared(wp, 80.0, m_fakeClock, /*intervalMs*/ 500);
+        wp.setCurrentFrame(0);
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        // 3.0 s into extraction already — every one of those arrivals was pre-tare.
+        for (int i = 0; i < 2; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+            wp.processWeight(80.0);
+            m_fakeClock += 500;
+        }
+
+        QCOMPARE(cupSpy.count(), 1);
     }
 
     // ===== Untared cup does NOT fire after 3 seconds =====
@@ -452,9 +460,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
-        wp.startExtraction();
-        wp.markExtractionStart();
-        wp.setTareComplete(true);
+        TareWait::armExtraction(wp, m_fakeClock);
         wp.setCurrentFrame(0);
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
