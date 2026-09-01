@@ -354,11 +354,24 @@ QtObject {
     // value — and the text <-> wheel toggle, which rebuilds — regenerate an
     // identical array, so they are served from here.
     //
-    // `step` is part of the KEY and is re-read from the (indexed) query on every
-    // rebuild, so a step that moves misses by construction. The array is only
-    // ever read by its consumers, never mutated, so handing back the same object
-    // is safe — and returning an identical reference means QML does not signal a
-    // change, so the Tumbler skips rebuilding a model it already has.
+    // ONLY the lattice path is stored. Its rows are generated from the key's own
+    // four inputs and nothing else, and `step` is re-read from the query on every
+    // rebuild, so a step that moves misses by construction.
+    //
+    // The two history-derived paths are deliberately NOT memoized:
+    // _observedFallback() and _medianObservedAnchor() both read
+    // getDistinctGrinderSettingsForGrinder(), which is a second input the key does
+    // not name. Storing them was a real bug — a grinder with non-numeric settings
+    // ("coarse"/"fine") takes the fallback on every open, and recording a new
+    // setting does not move `cur`, `step`, brand or model, so the memo kept
+    // serving a list the new setting was missing from for the rest of the session.
+    // That is the same invalidated-on-the-wrong-axis failure as the distinct-value
+    // cache CLAUDE.md records as deleted.
+    //
+    // The array is only ever read by its consumers, never mutated, so handing back
+    // the same object is safe. Returning an identical reference also means QML
+    // signals no change, so the Tumbler skips rebuilding a model it already has —
+    // measured as assign=0ms on a hit against 3ms on a miss.
     property var _rowsMemoKey: ""
     property var _rowsMemo: null
 
@@ -420,12 +433,12 @@ QtObject {
                         return win
                 }
             }
+            // Not memoized — see the memo declaration. This list comes from shot
+            // history, which the key does not name.
             var _fb = root._observedFallback(cur)
-            root._rowsMemoKey = _key
-            root._rowsMemo = _fb
             console.info("[Equipment] grind picker: grindRowsFor step-query="
                          + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
-                         + "ms rows=" + _fb.length + " (observed-fallback)")
+                         + "ms rows=" + _fb.length + " (observed-fallback, not memoized)")
             return _fb
         }
         root._rowsMemoKey = _key

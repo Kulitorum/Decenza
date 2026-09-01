@@ -2736,7 +2736,12 @@ private slots:
             QVERIFY(hasIndex(db, "idx_shots_equip_rpm"));
 
             // Rows so the planner is choosing against real content rather than
-            // an empty table.
+            // an empty table. Deliberately NO ANALYZE: nothing in src/history
+            // ever runs it, so a shipped database has no sqlite_stat1 and SQLite
+            // plans these from default row-count estimates. Creating stats here
+            // would assert a configuration no install is in — and if a future
+            // change made the indexed plan win only WITH stats, this would stay
+            // green while every real database fell back to a full scan.
             ShotRow r;
             r.grinderBrand = QStringLiteral("DF");
             r.grinderModel = QStringLiteral("DF83V");
@@ -2748,8 +2753,6 @@ private slots:
                 r.rpm = 600 + i * 100;
                 QVERIFY(ShotRowFixtures::insertShot(db, r) > 0);
             }
-            QVERIFY(QSqlQuery(db).exec(QStringLiteral("ANALYZE")));
-
             const QString match = ShotHistoryStorage::grinderModelMatchSql(QStringLiteral(":model"));
             const struct { const char* label; QString sql; QString index; } cases[] = {
                 { "grind_setting",
