@@ -609,11 +609,12 @@ private:
     // A report can be the answer to an OLDER write than our newest: the app
     // writes ShotSettings several times in a burst (profile activation goes
     // through uploadCurrentProfile, applySteamSettings and applyHotWaterSettings
-    // in ~12 ms, measured in the log on issue #1900's debug-2.log), and the
-    // answers come back one at a time behind them. Scoring every report against
-    // the NEWEST write therefore accused the DE1 of dropping writes it had
-    // honoured — 12 such WARNs in that one log, every one "resolving" by itself
-    // once the last answer landed.
+    // in ~12 ms) and the answers come back one at a time behind them. Scoring
+    // every report against the NEWEST write therefore accused the DE1 of
+    // dropping writes it had honoured. Measured on a user-submitted debug log,
+    // 2026-09-01: 12 such WARNs across six bursts, in every case the reported
+    // payload equal to an earlier write of ours and the episode "resolving" by
+    // itself once the last answer landed.
     //
     // So a report is an in-flight echo, not drift, when it matches ANY write
     // still unconfirmed. Deliberately a match rather than a positional pop:
