@@ -2588,6 +2588,30 @@ int main(int argc, char *argv[])
                              QStringLiteral("main"));
     });
 
+    // Every "a scale might be here now" event restarts the ladder through here.
+    // The gates were previously spelled out at each site and had drifted: four
+    // tested the `usb:` prefix instead of scaleAddressIsLadderDialable(), which
+    // also excludes the simulator's `sim:` entry, so they armed a ladder the
+    // first tick permanently terminates. Callers that mean "the user is back"
+    // clear scaleAutoReconnectSuppressed before calling; that is a judgement
+    // about intent, not a gate, so it stays with them.
+    QObject::connect(&bleManager, &BLEManager::scaleReconnectRampRestartRequested,
+                     handlerScope.get(),
+                     [&settings, &physicalScale, &bleManager, &scaleReconnectTimer,
+                      &scaleReconnectAttempt, &reconnectDelays,
+                      &scaleAutoReconnectSuppressed](const QString& reason,
+                                                     int firstDelayMs) {
+        if (physicalScale && physicalScale->isConnected()) return;
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
+        if (scaleAutoReconnectSuppressed) return;
+        const int delayMs = firstDelayMs >= 0 ? firstDelayMs : reconnectDelays[0];
+        scaleReconnectAttempt = 0;
+        scaleReconnectTimer.start(delayMs);
+        bleManager.scaleInfo(QStringLiteral("%1 — restarting scale reconnect ramp, first retry in %2 ms")
+                                 .arg(reason).arg(delayMs),
+                             QStringLiteral("main"));
+    });
+
     // === Proactive switch-back to the WiFi primary scale ===
     // When the saved primary is a WiFi scale but we're currently on the BLE
     // backup (the WiFi->BLE fallback connected after WiFi was unreachable),
@@ -2825,7 +2849,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered, handlerScope.get(),
-                     [&physicalScale, &flowScale, &machineState, &mainController, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
+                     [&physicalScale, &flowScale, &machineState, &mainController, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
                      // By value: this lambda outlives nothing, but the scale
                      // connection it makes below needs the same lifetime guard.
                      , handlerScopePtr = handlerScope.get()
@@ -3077,7 +3101,7 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged, handlerScopePtr,
-                         [&physicalScale, &flowScale, &machineState, &bleManager, &mainController, &timingController, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
+                         [&physicalScale, &flowScale, &machineState, &bleManager, &mainController, &timingController, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
@@ -3143,11 +3167,9 @@ int main(int argc, char *argv[])
                 // DE1-wake handler re-arms the reconnect.
                 if (scaleAutoReconnectSuppressed) {
                     qDebug() << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
-                } else if (scaleAddressIsLadderDialable(settings.scaleAddress())) {
-                    // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
-                    scaleReconnectAttempt = 0;
-                    scaleReconnectTimer.start(reconnectDelays[0]);
-                    qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms";
+                } else {
+                    bleManager.requestScaleReconnectRampRestart(
+                        QStringLiteral("Scale disconnected"));
                 }
             }
         });
@@ -4300,7 +4322,7 @@ int main(int argc, char *argv[])
     // when app is suspended/resumed. Neither DE1 nor scale are put to sleep when
     // backgrounded — users may switch apps while the machine heats up.
     QObject::connect(&app, &QGuiApplication::applicationStateChanged, handlerScope.get(),
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt, &mainController](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt, &mainController](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         // Log every state transition so the debug log captures pre-suspend
@@ -4425,19 +4447,8 @@ int main(int argc, char *argv[])
             scaleAutoReconnectSuppressed = false;
             if (physicalScale && physicalScale->isConnected()) {
                 qDebug() << "App resumed - scale still connected";
-            } else if (!settings.scaleAddress().isEmpty()
-                       && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-                // Scale disconnected while suspended - restart reconnect sequence.
-                // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
-                // Deliberately NOT gated on !scaleReconnectTimer.isActive(): the
-                // timer is single-shot and re-armed every tick, so it is always
-                // active while the ladder runs, and that gate made this branch
-                // dead for the one case that matters — returning to the app after
-                // the ladder has slowed to the 5-min tail. start() on an active
-                // single-shot timer restarts it, so re-arming is safe.
-                scaleReconnectAttempt = 0;
-                scaleReconnectTimer.start(reconnectDelays[0]);
-                qDebug() << "App resumed - starting scale reconnect sequence";
+            } else {
+                bleManager.requestScaleReconnectRampRestart(QStringLiteral("App resumed"));
             }
 
             // Refractometer disconnected while suspended - (re)start its
@@ -4481,9 +4492,8 @@ int main(int argc, char *argv[])
     // refractometer restart only does real work while the review-page hunt is
     // active — off that page its tick fires once and self-stops.
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
-                     handlerScope.get(), [&screensaverManager, &physicalScale, &bleManager, &settings,
-                      &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays,
-                      &scaleAutoReconnectSuppressed,
+                     handlerScope.get(), [&screensaverManager, &bleManager, &settings,
+                      &scaleReconnectTimer, &reconnectDelays,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         const bool active = screensaverManager.screensaverActive();
         if (active) {
@@ -4498,23 +4508,10 @@ int main(int argc, char *argv[])
             return;
         }
 
-        // Screensaver dismissed — resume scanning under the same gates the
-        // app-resume path uses. We deliberately do NOT clear
-        // scaleAutoReconnectSuppressed here: a brief glance at the tablet
-        // isn't the same signal as switching back from another app, and DE1
-        // sleep semantics already manage that flag.
-        // (No !scaleReconnectTimer.isActive() gate — screensaver ENTRY above stops
-        // the timer, so it would be redundant here, and relying on that made the
-        // identical gate on the app-resume path silently dead. Restarting an
-        // already-armed single-shot timer is safe.)
-        if (!(physicalScale && physicalScale->isConnected())
-            && !settings.scaleAddress().isEmpty()
-            && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
-            && !scaleAutoReconnectSuppressed) {
-            scaleReconnectAttempt = 0;
-            scaleReconnectTimer.start(reconnectDelays[0]);
-            qDebug() << "Screensaver exited - resuming scale reconnect sequence";
-        }
+        // We deliberately do NOT clear scaleAutoReconnectSuppressed here: a brief
+        // glance at the tablet isn't the same signal as switching back from
+        // another app, and DE1 sleep semantics already manage that flag.
+        bleManager.requestScaleReconnectRampRestart(QStringLiteral("Screensaver exited"));
 
         if (!bleManager.isRefractometerConnected()
             && !settings.savedRefractometerAddress().isEmpty()
@@ -4561,9 +4558,8 @@ int main(int argc, char *argv[])
     // handler can clear them when the user swaps to a different scale.
     QObject::connect(&machineState, &MachineState::phaseChanged, handlerScope.get(),
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
-                      &wasInSleep, &scaleLcdRestorePending,
-                      &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
-                      &scaleReconnectAttempt, &reconnectDelays]() {
+                      &wasInSleep, &scaleLcdRestorePending, &bleManager,
+                      &scaleAutoReconnectSuppressed, &scaleReconnectTimer]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;
@@ -4639,27 +4635,15 @@ int main(int argc, char *argv[])
                     // close path above. Re-arm the reconnect sequence now that
                     // the DE1 is back. A fresh reconnect's onConnected() will
                     // send `display on` itself, so no wake() needed here.
-                    qDebug() << "DE1 woke up - re-arming scale reconnect";
                     scaleAutoReconnectSuppressed = false;
-                    // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
-                    // (No !isActive() gate — see the ladder comment near
-                    // kScaleFastTailAttempts; it is always active while the ladder
-                    // runs, and skipping here after clearing the suppression flag
-                    // would leave nothing armed at all.)
-                    if (!settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-                        scaleReconnectAttempt = 0;
-                        // Short first-attempt delay for the wake-from-sleep path:
-                        // the WiFi scale is known alive (we closed the WS ourselves
-                        // and the HDS is still up), and a powered-off BT scale will
-                        // fail this attempt quickly and fall into the normal
-                        // reconnectDelays backoff for retry #2 onward. The full 5 s
-                        // default (reconnectDelays[0]) was sized for unexpected
-                        // drops where the radio/firmware might need to settle —
-                        // neither applies here. Saves ~4.8 s of perceived
-                        // "scale disconnected" UI time after DE1 wake.
-                        constexpr int kWakeReconnectFirstAttemptMs = 200;
-                        scaleReconnectTimer.start(kWakeReconnectFirstAttemptMs);
-                    }
+                    // Short first attempt on this path only: the WiFi scale is
+                    // known alive (we closed the WS ourselves) and a powered-off
+                    // BT scale fails fast into the normal backoff. reconnectDelays[0]
+                    // was sized for unexpected drops where the radio might need to
+                    // settle; neither applies here.
+                    constexpr int kWakeReconnectFirstAttemptMs = 200;
+                    bleManager.requestScaleReconnectRampRestart(
+                        QStringLiteral("DE1 woke up"), kWakeReconnectFirstAttemptMs);
                 } else {
                     // Neither branch fired: scale exists but is mid-reconnect
                     // (BT link dropped during sleep — connectedChanged armed a
@@ -4679,12 +4663,12 @@ int main(int argc, char *argv[])
                     // rather than up to 5 min. Only when the ladder is actually
                     // running: with no saved scale, or a USB primary (owned by
                     // UsbScaleManager), there is nothing to re-arm.
-                    if (scaleReconnectTimer.isActive()
-                        && !(physicalScale && physicalScale->isConnected())
-                        && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-                        scaleReconnectAttempt = 0;
-                        scaleReconnectTimer.start(reconnectDelays[0]);
-                        qDebug() << "DE1 woke up - restarting scale reconnect ramp from 5 s";
+                    // isActive stays a caller gate: the ladder is deliberately
+                    // stopped while the screensaver runs, and a DE1 wake behind it
+                    // should not resurrect it.
+                    if (scaleReconnectTimer.isActive()) {
+                        bleManager.requestScaleReconnectRampRestart(
+                            QStringLiteral("DE1 woke up"));
                     }
                 }
             }

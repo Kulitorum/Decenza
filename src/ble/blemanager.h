@@ -705,6 +705,12 @@ public slots:
     // Connecting for ~30s and starves the DE1 link (issue #1303). A saved scale
     // still auto-connects via onDeviceDiscovered when it's seen advertising.
     Q_INVOKABLE void tryDirectConnectToScale(bool allowDirectConnect = true);
+
+    // Ask main.cpp, which owns the reconnect ladder, to restart it from the top.
+    // firstDelayMs < 0 means the ramp's own first step.
+    Q_INVOKABLE void requestScaleReconnectRampRestart(
+        const QString& reason = QStringLiteral("Scale notice dismissed"),
+        int firstDelayMs = -1);
     /**
      * The DE1's connect attempt started or ended. OBSERVABILITY ONLY.
      *
@@ -785,6 +791,7 @@ signals:
     void scaleRetryNeeded();   // Emitted on EVERY connection-failure path (including the post-WiFi→BLE-fallback give-up), regardless of the flowScaleFallback gate, so the persistent reconnect ladder in main.cpp survives the scale-type-change timer stop. Don't bind UI to this — it's for re-arming the retry timer only.
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scaleConnected();     // Emitted when a physical scale (re)connects — lets the UI dismiss the scale-disconnect / no-scale notice
+    void scaleReconnectRampRestartRequested(const QString& reason, int firstDelayMs);
     void scanStarted();  // Emitted when BLE scan actually begins
     // Emitted when a saved WiFi scale fails to connect within the connection
     // timeout and BLEManager has started a BLE scan as a fallback. UI binds

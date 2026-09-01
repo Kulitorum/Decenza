@@ -1753,7 +1753,11 @@ T.ApplicationWindow {
                 text: trCommonOk.text
                 accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
-                onClicked: flowScaleDialog.close()
+                onClicked: {
+                    flowScaleDialog.close()
+                    BLEManager.requestScaleReconnectRampRestart(
+                        "No-scale notice dismissed")
+                }
             }
         }
     }
@@ -1807,7 +1811,11 @@ T.ApplicationWindow {
                 text: trCommonOk.text
                 accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
-                onClicked: scaleDisconnectedDialog.close()
+                onClicked: {
+                    scaleDisconnectedDialog.close()
+                    BLEManager.requestScaleReconnectRampRestart(
+                        "Scale-disconnected notice dismissed")
+                }
             }
         }
     }
