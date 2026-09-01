@@ -358,6 +358,54 @@ private slots:
         assertShortFlowNear(spy, 2.0, 3, "5 Hz bursty feed after a >2 s reconnect gap");
     }
 
+    // A transport stall must not latch the cadence estimate onto the catch-up burst.
+    //
+    // The estimator was a MINIMUM of three windows, justified by a claim that a
+    // hiccup can only push a window's measured interval UP. A stall does not drop
+    // samples, it queues them, so the backlog lands in ONE window that then holds
+    // twice the arrivals its span deserves and measures half the true interval. The
+    // minimum latched onto that and held it for the ring's full depth.
+    //
+    // The window trace this fixture produces, measured: 100 100 100 100, then 240
+    // (starved), then 42 (catch-up), then 100 100. Committed under the minimum is
+    // 42 for the last three; under the median it is 100 throughout.
+    //
+    // 1400 ms of stall on purpose — under kReconnectGapMs (2000), so calibration is
+    // NOT reset and the latch path is live. Above it the estimator starts over and
+    // the fixture proves nothing.
+    void stallCatchUpDoesNotLatchTheCadenceEstimateLow() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+
+        constexpr int kCadenceMs = 100;
+        constexpr double kFlow = 2.0;
+        qint64 sentMs = 0;
+
+        // Weight follows the time the sample was TAKEN, not the time it arrived —
+        // the queued samples carry the weights they were measured at.
+        auto send = [&](qint64 arrivalStepMs) {
+            wp.processWeight(kFlow * sentMs / 1000.0);
+            sentMs += kCadenceMs;
+            m_fakeClock += arrivalStepMs;
+        };
+
+        for (int i = 0; i < 50; ++i) send(kCadenceMs);   // 5 s even: commits 100 ms
+        QCOMPARE(wp.estimatedIntervalMsForTest(), 100);
+
+        m_fakeClock += 1400;                             // transport stalls
+        for (int i = 0; i < 14; ++i) send(2);            // backlog released together
+
+        int lowest = wp.estimatedIntervalMsForTest();
+        for (int i = 0; i < 40; ++i) {                   // feed resumes at 10 Hz
+            send(kCadenceMs);
+            lowest = qMin(lowest, wp.estimatedIntervalMsForTest());
+        }
+
+        QVERIFY2(lowest >= 90,
+                 qPrintable(QString("cadence estimate fell to %1 ms after a 1.4 s "
+                                    "transport stall on a true 100 ms feed").arg(lowest)));
+    }
+
     // KNOWN DEFECT, held here on purpose: jittered burst timing over-reads flow.
     //
     // This test FAILS by design (QEXPECT_FAIL). It reproduces a real defect that

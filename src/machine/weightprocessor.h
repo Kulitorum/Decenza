@@ -91,6 +91,11 @@ public:
         Q_ASSERT(thread() == QThread::currentThread());
         m_wallClock = std::move(fn);
     }
+    // Test support: the committed cadence estimate. Asserted directly rather than
+    // through flow, because the estimate only reaches flow via the batched branch —
+    // a test that watched flow would pass on any feed that stopped batching, which
+    // is most of them.
+    int estimatedIntervalMsForTest() const { return m_estimatedIntervalMs; }
 #endif
 
 signals:
@@ -323,6 +328,24 @@ private:
     // A closing rate window this far from the committed estimate (percent) is worth
     // a line. Loose enough that ordinary jitter stays silent.
     static constexpr int kRateDisagreementPct = 15;
+    // A WINDOW, not kChangesOnly, and logcollapse.h names this exact case: a source
+    // already gated on a problem wants a real window, because its repeats are
+    // evidence rather than reassurance. kChangesOnly would also do nothing here —
+    // the line carries three changing numbers, so no two are ever byte-identical.
+    //
+    // 5 s because one transport hitch is one episode of 2-3 s: the window is sized
+    // to collapse an episode to a line, not to rate-limit a bad feed. Measured on a
+    // 31 h field log, disagreements fell 93 -> 39; widening to 60 s bought 6 more
+    // lines and would have started merging separate episodes.
+    //
+    // TWO keys, high and low, so an episode's starved window and its catch-up window
+    // both speak — collapsing them together would hide whichever arrived second, and
+    // the catch-up window is the one that moves the estimate.
+    //
+    // EPISODIC: flushed in resetRateCalibration(), the estimator's own run end. Not
+    // in endShotCycle() — this line fires at idle too, so a shot boundary would file
+    // an idle tally under a shot.
+    LogCollapse m_rateDisagreeLog{5000};
 
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
