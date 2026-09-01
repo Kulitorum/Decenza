@@ -1807,7 +1807,10 @@ T.ApplicationWindow {
                 text: trCommonOk.text
                 accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
-                onClicked: scaleDisconnectedDialog.close()
+                onClicked: {
+                    BLEManager.requestScaleReconnectRampRestart()
+                    scaleDisconnectedDialog.close()
+                }
             }
         }
     }

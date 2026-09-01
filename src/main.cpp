@@ -2588,6 +2588,18 @@ int main(int argc, char *argv[])
                              QStringLiteral("main"));
     });
 
+    QObject::connect(&bleManager, &BLEManager::scaleReconnectRampRestartRequested,
+                     handlerScope.get(),
+                     [&settings, &physicalScale, &scaleReconnectTimer,
+                      &scaleReconnectAttempt, &reconnectDelays,
+                      &scaleAutoReconnectSuppressed]() {
+        if (physicalScale && physicalScale->isConnected()) return;
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
+        if (scaleAutoReconnectSuppressed) return;
+        scaleReconnectAttempt = 0;
+        scaleReconnectTimer.start(reconnectDelays[0]);
+    });
+
     // === Proactive switch-back to the WiFi primary scale ===
     // When the saved primary is a WiFi scale but we're currently on the BLE
     // backup (the WiFi->BLE fallback connected after WiFi was unreachable),

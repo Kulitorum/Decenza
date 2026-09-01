@@ -2961,6 +2961,10 @@ void BLEManager::startReconnectBrowseIfNeeded() {
     m_reconnectDiscovery->browse(kReconnectBrowseTimeoutMs);
 }
 
+void BLEManager::requestScaleReconnectRampRestart() {
+    emit scaleReconnectRampRestartRequested();
+}
+
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // See connectToSavedScale: the DE1 simulator must not gate real scale connects.
     // This early-return on m_disabled is why a WiFi scale could never recover
