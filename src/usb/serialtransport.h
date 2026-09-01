@@ -113,9 +113,11 @@ private:
     // ever changes, re-check that this detector still gets fed.)
     //
     // Diagnostic only: it warns and does nothing else. BleTransport's equivalent
-    // tears the link down, which is why that one is evaluated solely at a reconnect
-    // attempt — a false positive there costs a reconnect. Here it costs one log
-    // line, which is what makes the threshold below acceptable to ship.
+    // tears the link down: its 30 s zombie check is evaluated solely at a
+    // reconnect attempt, and it additionally tears down on a much shorter
+    // silence when a write has just been abandoned to corroborate it — a false
+    // positive on either costs a reconnect. Here it costs one log line, which is
+    // what makes the threshold below acceptable to ship.
     //
     // The threshold is PROVISIONAL and deliberately double BleTransport's 30 s. The
     // DE1's minimum push cadence is unmeasured across machine phases — the same

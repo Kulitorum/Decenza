@@ -72,6 +72,67 @@ stall, three times in one connect.
 starve every other device — a worse failure than the one being fixed — and unlike a
 GATT operation it is radio-scheduler work the host stack already interleaves.
 
+### Recovering a DE1 link that has gone silent
+
+A DE1 link can stop working while `QLowEnergyController` still reports it connected. Measured
+twice in one user log (`debug-2.log`, builds 3571/3572): the app held an abandoned-write fault
+**22.5 s before** Qt reported the controller `Unconnected`, and spent all 22.5 s discarding every
+command sent to the machine — a stop press or a stop-at-weight stop in that window does nothing.
+
+`m_notificationLiveness` (restarted by any inbound traffic — notifications and read responses alike, since `onCharacteristicRead()` delivers through `onCharacteristicChanged()`) always tracked this, but it was read in
+exactly one place: `connectToDevice()`, to turn an incoming reconnect into a teardown. Nothing
+calls `connectToDevice()` while the link claims to be connected, so the check never ran in the case
+it exists for.
+
+`BleTransport::evaluateLinkLiveness()` now runs it when a write is **abandoned** — the moment the
+app first has hard evidence the link is not working — and tears the link down when the DE1 has
+also been sending nothing. The teardown emits `disconnected()` and stops there; the existing
+reconnect ladder in `main.cpp` owns the reconnect, its backoff and its attempt budget. Recovery
+lands around 10 s instead of 22.5 s.
+
+**Two signals have to agree, and silence alone is not enough.** An abandoned write on its own is
+not conclusive (writes fail transiently); silence on its own is only suspicious against a cadence
+nobody has measured. Together they say the link is carrying nothing in either direction.
+
+| | Value | Role |
+|---|---|---|
+| `NOTIFICATION_STALE_CORROBORATED_MS` | 5 s | Silence required alongside an abandoned write. The only thing this transport acts on by itself. |
+| `NOTIFICATION_STALE_MS` | 30 s | Unchanged, and used only by `connectToDevice()`'s zombie check. |
+
+Both are **provisional** — the DE1's true minimum push cadence needs on-device measurement
+(`harden-de1-ble-reliability` tasks 5.2 / 8.5); the app's own inbound logging is de-duplicated and
+cannot supply it.
+
+A silence-alone teardown was written and removed. It could not be justified from anything measured:
+it would have been evaluated on every 60 s keepalive — roughly 5,850 times across the 97.6 h of the
+log this change came from — betting each time on that unmeasured cadence, and it caught neither of
+the two real episodes that the corroborated path does not already catch. Both of them began with an
+abandoned write.
+
+**There is no mid-operation guard, and that is deliberate.** One was written and removed: it
+deferred the teardown while the machine was in an operating phase and writes still succeeded, on
+the reasoning that a stop could still be delivered over such a link. It could never release — the
+busy state came from `MachineState::phaseChanged`, which is driven by the very notifications whose
+absence is being measured, so once the link went quiet mid-operation the phase froze at its last
+value and the deferral held forever. Any future guard here needs an input that does not travel over
+the link being judged.
+
+The teardown also raises **no** `de1LinkFault`. That signal is wired unconditionally to the scale's
+dual-HIGH priority detector, whose latch persists across restarts and whose own comment marks it
+KNOWN OVER-EAGER — so a new fault kind sourced from an unmeasured silence threshold could
+permanently demote every scale to BALANCED. The teardown's own `disconnected()` already drives the
+reconnect.
+
+The decision itself is `shouldRecoverAfterAbandonedWrite()` — pure, no link state — because `isConnected()`
+needs a real controller and cannot be faked in a test. `tests/tst_bletransporterror.cpp` drives it,
+including the assertion that the silence threshold stays below the platform's own notice.
+
+Scale and refractometer paths are untouched by this. The scale has its own weight-sample stall
+detection (`WeightProcessor`, `kScaleStaleMs`/`kScaleStallConfirmMs`); the refractometers
+deliberately have none and must not gain it — an R2 is active only in short bursts on a page that
+is already looking for it, so "no inbound data" is its normal idle state and a silence detector
+would fire on correct behaviour.
+
 ### BLE Write Retry & Timeout (like de1app)
 
 BLE writes can fail or hang. The implementation includes retry logic similar to de1app:

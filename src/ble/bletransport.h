@@ -309,9 +309,11 @@ private:
     // successful write and by a disconnect. Recognises a link that has stopped
     // accepting writes while still reporting itself connected — the one state
     // where every other indicator looks healthy: the controller says
-    // ConnectedState and notifications can keep arriving, so neither
-    // m_notificationLiveness below nor the wedge detector (which gates on
-    // !m_de1Connected in evaluateBleWedge, blemanager.cpp:379) can see it.
+    // ConnectedState and notifications can keep arriving, so the wedge detector
+    // (which gates on !m_de1Connected in evaluateBleWedge, blemanager.cpp:379)
+    // cannot see it. m_notificationLiveness below CAN now be correlated with it:
+    // evaluateLinkLiveness() reads this signal as corroboration, which is what
+    // lets a link that is silent AND not writing be recovered promptly.
     //
     // Separation in the corpus is wide: nine logs peak at 1 abandoned write,
     // #1713 at 2, and the pathological ones sit at 7, 8, 11 and 89. The bound
@@ -320,10 +322,14 @@ private:
     // so runs were computed resetting only at disconnects and session
     // boundaries — which is a further argument for the low end.
     //
-    // Reporting only. Nothing is torn down on this signal and no user-facing
-    // error is raised; the point is to make the condition visible in a
-    // submitted log before deciding what to do about it. (decaid does tear
-    // down on its equivalent detector: _maxConsecutiveOpTimeouts = 3 at
+    // No user-facing error is raised from this signal. It was reporting-only
+    // when introduced — "visible in a submitted log before deciding what to do
+    // about it" — and that decision has since been made: an abandoned write now
+    // also triggers evaluateLinkLiveness(), which tears the link down when the
+    // DE1 has ALSO gone silent. The count itself still tears down nothing on its
+    // own; a link that discards writes while still pushing notifications is
+    // reported here and left in service. (decaid does tear down on its
+    // equivalent detector: _maxConsecutiveOpTimeouts = 3 at
     // universal_ble_transport.dart:42, compared at :426, tearing down via
     // _declareLinkDead at :491. That number does not transfer: it counts
     // operations carrying no per-write retries, whereas one unit here is an
@@ -376,15 +382,23 @@ private:
     QTimer m_connectWatchdogTimer;
     static constexpr int CONNECT_WATCHDOG_MS = 35000;
 
-    // Zombie-link detection: a link that stays GATT-connected and keeps ACKing
-    // writes but has silently stopped delivering push notifications (Decaid
-    // PR #246/#431 describe the same failure on the same DE1 protocol). Every
-    // inbound notification restarts m_notificationLiveness; connectToDevice()
-    // treats an already-"connected" link whose last notification is older than
-    // NOTIFICATION_STALE_MS as a zombie and tears it down instead of the
-    // usual "already connected" early return. Checked only at a reconnect
-    // attempt (never a background poll), so a false positive costs one extra
-    // reconnect, not a spurious disconnect of a healthy in-use link.
+    // Zombie-link detection: a link that stays GATT-connected but has silently
+    // stopped delivering push notifications (Decaid PR #246/#431 describe the
+    // same failure on the same DE1 protocol). connectToDevice() treats an
+    // already-"connected" link whose last inbound traffic is older than
+    // NOTIFICATION_STALE_MS as a zombie and tears it down instead of the usual
+    // "already connected" early return. It is checked only at a reconnect
+    // attempt, so a false positive there costs one extra reconnect, never a
+    // spurious disconnect of a healthy in-use link — and the corroborated
+    // teardown below bounds its own false-positive cost the same way, by
+    // requiring an abandoned write AND silence, neither of which a healthy link
+    // produces.
+    //
+    // m_notificationLiveness is restarted by inbound NOTIFICATIONS and by READ
+    // RESPONSES alike, because onCharacteristicRead() delivers through
+    // onCharacteristicChanged(). So "silent" here means the DE1 answered
+    // nothing at all, not merely that it stopped pushing — a link that still
+    // services reads while pushing nothing does not read as silent.
     //
     // The threshold is deliberately conservative and PROVISIONAL: the DE1's
     // real minimum push cadence across machine phases still needs on-device
@@ -393,4 +407,37 @@ private:
     // rate. See tasks 5.2 / 8.5 in the harden-de1-ble-reliability change.
     QElapsedTimer m_notificationLiveness;
     static constexpr int NOTIFICATION_STALE_MS = 30000;
+    // Silence measured at the moment a write has just exhausted its retries,
+    // which is the ONLY thing this transport acts on of its own accord.
+    //
+    // Why not silence alone: it cannot be justified from anything measured. The
+    // cadence above is unmeasured, so a bare silence threshold is a bet, and
+    // the exposure is enormous — it would be evaluated on every keepalive, ~5850
+    // times across the 97.6 h of the log this change came from, each one able to
+    // tear down a healthy link. It would also buy nothing: BOTH episodes in that
+    // log began with an abandoned write, so the corroborated path catches both
+    // and silence alone catches neither that this one misses.
+    //
+    // An abandoned write is direct evidence the link is not working, so a short
+    // bound is defensible here where it is not for silence on its own. It has to
+    // be short: the app's only guaranteed periodic write is the 60 s MMR
+    // keepalive, so this is evaluated once a minute at idle, and the platform
+    // reported the drop on its own after 22.5 s in both logged episodes —
+    // anything slower than that would be worse than doing nothing. PROVISIONAL
+    // for the same reason as the constant above.
+    static constexpr int NOTIFICATION_STALE_CORROBORATED_MS = 5000;
+    // True once a teardown has been started for this episode, so a burst of
+    // failing writes triggers one teardown rather than one per write. Cleared
+    // when the link is established again.
+    bool m_livenessTeardownStarted = false;
+    // Runs the stale check against the live link after a write was abandoned:
+    // gates on the connection and the liveness baseline, then defers the
+    // decision to the pure helper below and performs the teardown.
+    void evaluateLinkLiveness();
+    // The decision alone, with no link state in it. Split out because
+    // isConnected() needs a real QLowEnergyController in a connected state,
+    // which a unit test cannot produce — so without this seam the thresholds
+    // and the busy guard would ship with no coverage that can fail. Same reason
+    // BlePriorityDetector is pure and clock-free.
+    static bool shouldRecoverAfterAbandonedWrite(qint64 silentMs);
 };
