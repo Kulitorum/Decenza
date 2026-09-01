@@ -72,6 +72,67 @@ stall, three times in one connect.
 starve every other device — a worse failure than the one being fixed — and unlike a
 GATT operation it is radio-scheduler work the host stack already interleaves.
 
+### Recovering a DE1 link that has gone silent
+
+A DE1 link can stop working while `QLowEnergyController` still reports it connected. Measured
+twice in one user log (`debug-2.log`, builds 3571/3572): the app held an abandoned-write fault
+**22.5 s before** Qt reported the controller `Unconnected`, and spent all 22.5 s discarding every
+command sent to the machine — a stop press or a stop-at-weight stop in that window does nothing.
+
+`m_notificationLiveness` (restarted by any inbound traffic — notifications and read responses alike, since `onCharacteristicRead()` delivers through `onCharacteristicChanged()`) always tracked this, but it was read in
+exactly one place: `connectToDevice()`, to turn an incoming reconnect into a teardown. Nothing
+calls `connectToDevice()` while the link claims to be connected, so the check never ran in the case
+it exists for.
+
+`BleTransport::evaluateLinkLiveness()` now runs it when a write is **abandoned** — the moment the
+app first has hard evidence the link is not working — and tears the link down when the DE1 has
+also been sending nothing. The teardown emits `disconnected()` and stops there; the existing
+reconnect ladder in `main.cpp` owns the reconnect, its backoff and its attempt budget. Recovery
+lands around 10 s instead of 22.5 s.
+
+**Two signals have to agree, and silence alone is not enough.** An abandoned write on its own is
+not conclusive (writes fail transiently); silence on its own is only suspicious against a cadence
+nobody has measured. Together they say the link is carrying nothing in either direction.
+
+| | Value | Role |
+|---|---|---|
+| `NOTIFICATION_STALE_CORROBORATED_MS` | 5 s | Silence required alongside an abandoned write. The only thing this transport acts on by itself. |
+| `NOTIFICATION_STALE_MS` | 30 s | Unchanged, and used only by `connectToDevice()`'s zombie check. |
+
+Both are **provisional** — the DE1's true minimum push cadence needs on-device measurement
+(`harden-de1-ble-reliability` tasks 5.2 / 8.5); the app's own inbound logging is de-duplicated and
+cannot supply it.
+
+A silence-alone teardown was written and removed. It could not be justified from anything measured:
+it would have been evaluated on every 60 s keepalive — roughly 5,850 times across the 97.6 h of the
+log this change came from — betting each time on that unmeasured cadence, and it caught neither of
+the two real episodes that the corroborated path does not already catch. Both of them began with an
+abandoned write.
+
+**There is no mid-operation guard, and that is deliberate.** One was written and removed: it
+deferred the teardown while the machine was in an operating phase and writes still succeeded, on
+the reasoning that a stop could still be delivered over such a link. It could never release — the
+busy state came from `MachineState::phaseChanged`, which is driven by the very notifications whose
+absence is being measured, so once the link went quiet mid-operation the phase froze at its last
+value and the deferral held forever. Any future guard here needs an input that does not travel over
+the link being judged.
+
+The teardown also raises **no** `de1LinkFault`. That signal is wired unconditionally to the scale's
+dual-HIGH priority detector, whose latch persists across restarts and whose own comment marks it
+KNOWN OVER-EAGER — so a new fault kind sourced from an unmeasured silence threshold could
+permanently demote every scale to BALANCED. The teardown's own `disconnected()` already drives the
+reconnect.
+
+The decision itself is `shouldRecoverAfterAbandonedWrite()` — pure, no link state — because `isConnected()`
+needs a real controller and cannot be faked in a test. `tests/tst_bletransporterror.cpp` drives it,
+including the assertion that the silence threshold stays below the platform's own notice.
+
+Scale and refractometer paths are untouched by this. The scale has its own weight-sample stall
+detection (`WeightProcessor`, `kScaleStaleMs`/`kScaleStallConfirmMs`); the refractometers
+deliberately have none and must not gain it — an R2 is active only in short bursts on a page that
+is already looking for it, so "no inbound data" is its normal idle state and a silence detector
+would fire on correct behaviour.
+
 ### BLE Write Retry & Timeout (like de1app)
 
 BLE writes can fail or hang. The implementation includes retry logic similar to de1app:
@@ -123,6 +184,37 @@ was 5. Grep for the corpus's wording when re-deriving from those logs, not this 
 Qt's `QLowEnergyController::disconnected()` signal only fires on a Connected→Disconnected transition — it is **not** emitted when a connection attempt fails part-way (Connecting→Unconnected without ever reaching Connected). To avoid leaving `DE1Device::m_connecting` stuck at `true` forever after a failed retry (which would block all subsequent reconnect attempts and the `de1Discovered` auto-connect path), `BleTransport::setupController()` watches the controller's `stateChanged` signal and synthesizes a `disconnected()` signal when the state reaches `UnconnectedState` without a preceding native `disconnected()`. A flag (`m_disconnectedEmittedForAttempt`) prevents double-emission and is reset to `false` at every point where a fresh BLE-level `QLowEnergyController::connectToDevice()` is about to fire: the outer `BleTransport::connectToDevice()`, the internal service-discovery retry timer, and (defensively) at the tail of `BleTransport::disconnect()`.
 
 Symptom if this is broken: DE1 reboot drops BLE, app attempts one reconnect, the attempt fails, then app stays silent forever until restarted. The Scan Devices button also appears dead because the `de1Discovered` handler's `!isConnecting()` guard never clears.
+
+### Connection Priority: A Latched Device Stays BALANCED Forever
+
+A device that fails dual-HIGH detection is latched to BALANCED on both BLE links, and
+**that latch is meant to be permanent**. It is not re-tested, it does not expire, and
+nothing in the app re-arms it. The only thing that clears one is a deliberate
+`kBleDetectionEpoch` bump in `blemanager.h`, which re-classifies every device once.
+
+**Why it never re-tests:** the upside of HIGH connection priority is very small for
+almost everyone, and the downside of finding out again is re-inflicting the fault the
+latch was set to avoid — broken scale discovery and a ~70 s DE1 GATT collapse before
+the detector can re-latch. Permanently BALANCED is the cheap side of that trade.
+
+**Reading it in a log**, the startup line looks like a warning and is not:
+
+```
+[Scale][ConnectionPriority] Loaded persisted dual-HIGH-incapable classification
+(epoch 1, build 3391 [diagnostic], trigger=de1-fault-cluster) — BOTH BLE links will
+start at BALANCED this run (no detection window)
+```
+
+The build code is **provenance, not staleness**: it records which build first
+classified the device, and it does not gate rehydration. A record set on build 3391
+still loading on build 3576 is the design working, not a stale classification — so do
+not report it as one, and do not propose an expiry, a re-detect, or an epoch bump to
+"check whether the device got better". Same for the per-connect
+`skipping HIGH (dual-HIGH-incapable latch set, trigger=…) — link stays at BALANCED`
+lines that follow.
+
+Mechanism (epoch scoping, legacy migration, the SDK<30 seed, observe mode) is
+specified in `openspec/specs/ble-connection-priority/spec.md`.
 
 ### Profile Upload Frame-ACK Verification
 

@@ -276,6 +276,19 @@ public:
     // Bumping it on a release that fixes the dual-HIGH contention is how the
     // fix reaches already-latched devices. A legacy pre-epoch record (no
     // stored epoch) is migrated forward, NOT re-detected (see setSettings).
+    //
+    // A LATCH IS MEANT TO LAST FOREVER, and a bump is the ONLY thing that ends
+    // one — which is why it is not routine maintenance. Once a device has
+    // proved it cannot carry two HIGH-priority links, BALANCED is where it
+    // stays: the upside of HIGH is very small for almost everyone, and the
+    // downside of re-testing is re-inflicting the fault the latch was set to
+    // avoid (broken scale discovery, a ~70 s DE1 GATT collapse). The asymmetry
+    // is the whole argument — do not bump to "recheck whether the device got
+    // better", to expire an old classification, or because the diagnostic
+    // build code in the persisted record looks ancient. That build code is
+    // provenance, not staleness (see "Build code does not gate" in
+    // openspec/specs/ble-connection-priority/spec.md); a record set on build
+    // 3391 rehydrating on build 3576 is the design working.
     static constexpr int kBleDetectionEpoch = 1;
 
     bool scaleSkipHighPriority() const { return m_scaleSkipHigh.latched; }

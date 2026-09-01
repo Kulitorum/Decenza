@@ -356,6 +356,67 @@ private slots:
                                "The run reached 3"));
     }
 
+    // --- Recovering a link that has gone silent ------------------------------
+    //
+    // Both episodes in the user's debug-2.log ran the same way: a write exhausted
+    // its retries while the DE1 was also sending nothing, and the app held that
+    // evidence 22.5 s before Qt reported the controller Unconnected — spending
+    // all 22.5 s discarding every command sent to the machine. These pin the
+    // decision that closes that window. They drive the pure helper rather than
+    // the transport, because isConnected() needs a real QLowEnergyController in
+    // a connected state.
+
+    // The bound that makes the whole thing worth doing. If it is raised above
+    // what the platform itself takes to report the drop, recovery stops beating
+    // the thing it exists to beat — silently, because everything still compiles
+    // and every other test passes.
+    void theCorroboratedThresholdBeatsThePlatformsOwnNotice() {
+        // Measured twice in debug-2.log (builds 3571 and 3572): abandoned write
+        // at 189.14 -> Unconnected at 211.65, and 1929.62 -> 1952.13.
+        constexpr qint64 kPlatformNoticedAfterMs = 22500;
+        QVERIFY(BleTransport::NOTIFICATION_STALE_CORROBORATED_MS < kPlatformNoticedAfterMs);
+    }
+
+    void aLinkIsRecoveredOnlyWhenSilenceAccompaniesTheAbandonedWrite_data() {
+        QTest::addColumn<qint64>("silentMs");
+        QTest::addColumn<bool>("expected");
+
+        const qint64 bound = BleTransport::NOTIFICATION_STALE_CORROBORATED_MS;
+
+        // The episode shape: the write dies ~7.5 s after dispatch, and the DE1
+        // has been sending nothing across that whole window.
+        QTest::newRow("silent across the write's own window") << bound + 2500 << true;
+        QTest::newRow("just past the bound") << bound + 1 << true;
+        // A write can fail transiently on a link that is otherwise fine. Without
+        // the silence requirement this would bounce a working link.
+        QTest::newRow("still delivering") << bound - 1 << false;
+        QTest::newRow("delivering right up to the failure") << qint64(0) << false;
+    }
+
+    void aLinkIsRecoveredOnlyWhenSilenceAccompaniesTheAbandonedWrite() {
+        QFETCH(qint64, silentMs);
+        QFETCH(bool, expected);
+        QCOMPARE(BleTransport::shouldRecoverAfterAbandonedWrite(silentMs), expected);
+    }
+
+    // Recovery is driven by an abandoned write corroborated by silence, and by
+    // nothing else. Two arms were written and removed: one keyed to machine
+    // state (unreleasable — its input rode the link being judged) and one on
+    // silence alone (unjustifiable — an unmeasured cadence, evaluated ~5850
+    // times over the source log's 97.6 h, catching no episode this path misses).
+    // NOTIFICATION_STALE_MS remains the connectToDevice() zombie check's own
+    // threshold and is deliberately NOT what this path uses. This test records
+    // that rationale; it cannot enforce it — the helper is static and stateless,
+    // so a new silence-alone CALL SITE elsewhere would not turn it red.
+    void recoveryDoesNotFireOnSilenceAlone() {
+        QVERIFY(BleTransport::NOTIFICATION_STALE_CORROBORATED_MS
+                < BleTransport::NOTIFICATION_STALE_MS);
+        // A silence long enough to trip any silence-alone rule still decides
+        // nothing on its own — the only entry point is the abandoned-write path.
+        QVERIFY(BleTransport::shouldRecoverAfterAbandonedWrite(
+            BleTransport::NOTIFICATION_STALE_MS + 1));
+    }
+
     // The run is restated as it grows, so a log carries how bad the link got
     // rather than only that it went bad. Without this the line always prints
     // the threshold, and a reader seeing "3" would take the mildest possible
