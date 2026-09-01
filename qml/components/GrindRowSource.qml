@@ -201,7 +201,7 @@ QtObject {
 
     // Return the grind setting `n` steps from `currentString`,
     // or "" to skip (unparseable / below a click-indexed dial floor).
-    function stepGrind(currentString, n, step) {
+    function stepGrind(currentString, n, step, precomputed) {
         var s = String(currentString == null ? "" : currentString).trim()
         if (s.length === 0)
             return ""
@@ -210,8 +210,15 @@ QtObject {
         //    "a+b") step through the notation-aware pipeline. Returns "" for a
         //    custom grinder, an unparseable value, or a click-indexed
         //    below-floor candidate — then the JS branches take over.
-        var viaCatalog = Settings.dye.stepGrinderSetting(root.grinderBrand, root.grinderModel,
-                                                         s, n * step, _stepDecimals(step, s))
+        //
+        // `precomputed` is this row's catalog answer when the caller already has
+        // it from stepGrinderSettingRange(). Same value, one crossing for the
+        // whole wheel instead of 801 — see that function. Undefined means "ask",
+        // which is what every single-row caller does.
+        var viaCatalog = (precomputed !== undefined)
+            ? precomputed
+            : Settings.dye.stepGrinderSetting(root.grinderBrand, root.grinderModel,
+                                              s, n * step, _stepDecimals(step, s))
         if (viaCatalog && viaCatalog.length > 0)
             return viaCatalog
 
@@ -321,11 +328,14 @@ QtObject {
     // May return a short (or empty) array when the anchor seeds few rows; the
     // caller (grindRowsFor) treats <= 2 rows as failure and falls through.
     function _windowAround(anchor, step) {
-        var canon = root.stepGrind(anchor, 0, step)
+        var catalog = Settings.dye.stepGrinderSettingRange(
+            root.grinderBrand, root.grinderModel, anchor, step,
+            -root.grindWindowSteps, root.grindWindowSteps, root._stepDecimals(step, anchor))
+        var canon = root.stepGrind(anchor, 0, step, catalog[root.grindWindowSteps])
         var out = []
         var seen = ({})
         for (var n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
-            var v = root.stepGrind(anchor, n, step)
+            var v = root.stepGrind(anchor, n, step, catalog[n + root.grindWindowSteps])
             if (v === "" || v === undefined) continue
             if (seen[v]) continue
             seen[v] = true
@@ -337,17 +347,54 @@ QtObject {
     // Candidate rows around an arbitrary value — the picker calls this with its
     // PENDING value when re-seeding after typed entry, so the wheel rebases on
     // what the user typed rather than snapping back to the old lattice.
+    // One-entry memo of the last generated row set.
+    //
+    // The rows are a pure function of (cur, step, grinderBrand, grinderModel):
+    // same inputs, same 801 strings. Reopening the picker without changing the
+    // value — and the text <-> wheel toggle, which rebuilds — regenerate an
+    // identical array, so they are served from here.
+    //
+    // `step` is part of the KEY and is re-read from the (indexed) query on every
+    // rebuild, so a step that moves misses by construction. The array is only
+    // ever read by its consumers, never mutated, so handing back the same object
+    // is safe — and returning an identical reference means QML does not signal a
+    // change, so the Tumbler skips rebuilding a model it already has.
+    property var _rowsMemoKey: ""
+    property var _rowsMemo: null
+
+    function _rowsKeyFor(cur, step) {
+        return String(cur) + "\u0000" + String(step) + "\u0000"
+             + String(root.grinderBrand) + "\u0000" + String(root.grinderModel)
+    }
+
     function grindRowsFor(cur) {
+        // TEMPORARY instrumentation (grind-picker open cost) — see
+        // GrindPickerDialog._rebuildRows. Remove with those.
+        var _t0 = Date.now()
         cur = String(cur == null ? "" : cur).trim()
         var step = root.grindStep()
+        var _tQuery = Date.now()
+        var _key = root._rowsKeyFor(cur, step)
+        if (root._rowsMemo !== null && root._rowsMemoKey === _key) {
+            console.info("[Equipment] grind picker: grindRowsFor step-query="
+                         + (_tQuery - _t0) + "ms generate=0ms rows="
+                         + root._rowsMemo.length + " (memo hit)")
+            return root._rowsMemo
+        }
         // Canonical current = the value reformatted to the step's decimals
         // (exactly what n === 0 produces); highlight whichever surviving row
         // equals it so clamp-edge dedup can't lose the highlight.
-        var canonicalCurrent = root.stepGrind(cur, 0, step)
+        // One crossing for the whole wheel. Entry i is row (i - grindWindowSteps);
+        // empty entries mean the catalog declined that row and stepGrind falls
+        // through to its JS branches, exactly as when it asked per row.
+        var catalog = Settings.dye.stepGrinderSettingRange(
+            root.grinderBrand, root.grinderModel, cur, step,
+            -root.grindWindowSteps, root.grindWindowSteps, root._stepDecimals(step, cur))
+        var canonicalCurrent = root.stepGrind(cur, 0, step, catalog[root.grindWindowSteps])
         var generated = []
         var seen = ({})
         for (var n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
-            var v = root.stepGrind(cur, n, step)
+            var v = root.stepGrind(cur, n, step, catalog[n + root.grindWindowSteps])
             if (v === "" || v === undefined) continue
             if (seen[v]) continue
             seen[v] = true
@@ -373,8 +420,19 @@ QtObject {
                         return win
                 }
             }
-            return root._observedFallback(cur)
+            var _fb = root._observedFallback(cur)
+            root._rowsMemoKey = _key
+            root._rowsMemo = _fb
+            console.info("[Equipment] grind picker: grindRowsFor step-query="
+                         + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
+                         + "ms rows=" + _fb.length + " (observed-fallback)")
+            return _fb
         }
+        root._rowsMemoKey = _key
+        root._rowsMemo = generated
+        console.info("[Equipment] grind picker: grindRowsFor step-query="
+                     + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
+                     + "ms rows=" + generated.length)
         return generated
     }
 
@@ -385,7 +443,9 @@ QtObject {
         var rpmSet = base > 0
         var anchor = rpmSet ? base : root.rpmDefaultAnchor
         // Once per snapshot, not once per row — this runs a query.
+        var _t0 = Date.now()  // TEMPORARY — see grindRowsFor
         var rpmStepValue = root.rpmStep()
+        var _tQuery = Date.now()
         var out = []
         var seen = ({})
         for (var n = -root.rpmWindowSteps; n <= root.rpmWindowSteps; n++) {
@@ -396,6 +456,9 @@ QtObject {
             seen[v] = true
             out.push({ value: v, isCurrent: rpmSet && n === 0 })
         }
+        console.info("[Equipment] grind picker: rpmRowsFor step-query="
+                     + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
+                     + "ms rows=" + out.length)
         return out
     }
 

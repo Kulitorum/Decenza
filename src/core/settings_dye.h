@@ -8,6 +8,10 @@
 
 class CoffeeBagStorage;
 class EquipmentStorage;
+// Forward-declared rather than including grinderaliases.h: only the private
+// stepFromParsed() helper names it, and the header comment above is explicit
+// that this file exists to keep settings.h's include footprint small.
+namespace GrinderAliases { struct GrinderEntry; }
 
 // DYE (Describe Your Espresso) metadata. Split from Settings to keep
 // settings.h's transitive-include footprint small.
@@ -233,6 +237,18 @@ public:
                                            const QString& current, double deltaUnits,
                                            int decimals = 1) const;
 
+    // Batch form: one call for a whole wheel of candidates, n running fromN..toN
+    // with a delta of n * stepUnits. Entry i is what stepGrinderSetting would
+    // return for n = fromN + i, empty strings included — the caller falls back
+    // per row on an empty, so they carry meaning and are not collapsed.
+    //
+    // Exists because the grind picker made 801 of these calls per open and the
+    // crossings, not the work behind them, were the cost. See the definition.
+    Q_INVOKABLE QStringList stepGrinderSettingRange(const QString& brand, const QString& model,
+                                                    const QString& current, double stepUnits,
+                                                    int fromN, int toN,
+                                                    int decimals = 1) const;
+
     // True when the grinder's registry notation is click-indexed (Compound,
     // e.g. Eureka Mignon "a+b", 1Zpresso). Callers whose own numeric stepping
     // runs after stepGrinderSetting's "" fall-through use this to keep skipping
@@ -396,6 +412,13 @@ signals:
     void activeBagYieldSpecChanged();
 
 private:
+    // Shared core of stepGrinderSetting and stepGrinderSettingRange — the
+    // per-delta rules, once the grinder and current value are resolved.
+    static QString stepFromParsed(const GrinderAliases::GrinderEntry& entry,
+                                  double linear, const QString& current,
+                                  double deltaUnits, int decimals);
+
+
     void ensureDyeCacheLoaded() const;
     // Copy the bag's fields into the dye cache (bean identity always —
     // including empties, absence is silence; grinder/dose only when the bag

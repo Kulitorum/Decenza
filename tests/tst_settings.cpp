@@ -3210,6 +3210,74 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
     }
 
+    // stepGrinderSettingRange must be indistinguishable from calling
+    // stepGrinderSetting once per row. The picker builds its wheel from the
+    // batch form and falls back per row on an empty entry, so a divergence in
+    // EITHER direction is a wrong wheel: a spurious value hides the JS fallback
+    // that should have run, and a spurious empty invents a fallback row.
+    //
+    // Both forms now share stepFromParsed(), so this is the test that keeps the
+    // extraction honest — it is the only thing that would catch the batch loop
+    // drifting from the single-row rules.
+    void stepGrinderSettingRangeMatchesTheSingleRowForm_data() {
+        QTest::addColumn<QString>("brand");
+        QTest::addColumn<QString>("model");
+        QTest::addColumn<QString>("current");
+        QTest::addColumn<double>("step");
+        QTest::addColumn<int>("decimals");
+
+        // Registry plain-numeric, including a step that reaches below zero (a
+        // stepless collar keeps negatives; the batch must not clamp them away).
+        QTest::newRow("niche-zero-0.25")   << "Niche" << "Zero" << "8"    << 0.25 << 2;
+        QTest::newRow("niche-zero-below0") << "Niche" << "Zero" << "0.5"  << 0.25 << 2;
+        // Compound, in its own notation — exercises rev carry AND the
+        // click-indexed below-floor skip, which is where empties come from.
+        QTest::newRow("mignon-compound")   << "Eureka" << "Mignon Specialita" << "1+4" << 1.0 << 1;
+        QTest::newRow("mignon-floor")      << "Eureka" << "Mignon Specialita" << "0+2" << 1.0 << 1;
+        // Compound grinder recorded as a plain number: must stay numeric, not
+        // be re-notated — a rule that lives in stepFromParsed and could be lost.
+        QTest::newRow("mignon-plain")      << "Eureka" << "Mignon Specialita" << "2.5" << 0.5 << 2;
+        // Different revolution length, so a shared-entry bug shows up.
+        QTest::newRow("jmax-compound")     << "1Zpresso" << "J-Max" << "0+29" << 1.0 << 1;
+        // Not in the registry: every row must decline, and the list must still
+        // be full length or the caller's window silently shifts.
+        QTest::newRow("custom-grinder")    << "Homebuilt" << "No Such" << "20" << 0.5 << 1;
+        // In the registry but unparseable (pure letters) — same, via the other
+        // early return.
+        QTest::newRow("unparseable")       << "Niche" << "Zero" << "AB" << 1.0 << 1;
+        QTest::newRow("empty-current")     << "Niche" << "Zero" << ""   << 1.0 << 1;
+    }
+
+    void stepGrinderSettingRangeMatchesTheSingleRowForm() {
+        QFETCH(QString, brand);
+        QFETCH(QString, model);
+        QFETCH(QString, current);
+        QFETCH(double, step);
+        QFETCH(int, decimals);
+
+        SettingsDye* dye = m_settings.dye();
+        // Narrower than the picker's ±400 so the table stays quick; the loop is
+        // uniform in n, so the window width is not what could break.
+        const int span = 12;
+        const QStringList batch =
+            dye->stepGrinderSettingRange(brand, model, current, step, -span, span, decimals);
+
+        QCOMPARE(batch.size(), 2 * span + 1);
+        for (int n = -span; n <= span; ++n) {
+            const QString one = dye->stepGrinderSetting(brand, model, current, n * step, decimals);
+            QCOMPARE(batch.at(n + span), one);
+        }
+    }
+
+    // Degenerate window: toN < fromN yields an empty list rather than a
+    // one-element one. The caller indexes by offset, so an off-by-one here
+    // shifts every row of the wheel.
+    void stepGrinderSettingRangeHandlesAnEmptyWindow() {
+        SettingsDye* dye = m_settings.dye();
+        QVERIFY(dye->stepGrinderSettingRange("Niche", "Zero", "8", 0.25, 1, 0, 2).isEmpty());
+        QCOMPARE(dye->stepGrinderSettingRange("Niche", "Zero", "8", 0.25, 0, 0, 2).size(), 1);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)
