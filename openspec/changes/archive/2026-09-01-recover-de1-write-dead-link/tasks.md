@@ -22,5 +22,5 @@
 ## 4. Verification and review
 
 - [x] 4.1 Run the full test suite through the Qt Creator MCP (asking first, since it is shared) and verify it is green with no new warnings
-- [ ] 4.2 Open a PR, run `/pr-review-toolkit:review-pr`, address findings before merge
-- [ ] 4.3 Archive the change with spec sync as the final commit on the same PR
+- [x] 4.2 Open a PR, run `/pr-review-toolkit:review-pr`, address findings before merge
+- [x] 4.3 Archive the change with spec sync as the final commit on the same PR
