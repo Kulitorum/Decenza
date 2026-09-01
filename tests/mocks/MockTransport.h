@@ -20,6 +20,8 @@ public:
 
     // Captured writes
     QList<QPair<QBluetoothUuid, QByteArray>> writes;
+    // Captured reads, in submission order.
+    QList<QBluetoothUuid> reads;
 
     // Captured subscribe() calls. Firmware update uses on-demand A009
     // subscription (not always-on) — tests verify subscribe/unsubscribe
@@ -42,7 +44,9 @@ public:
     void write(const QBluetoothUuid& uuid, const QByteArray& data) override {
         writes.append({uuid, data});
     }
-    void read(const QBluetoothUuid&) override {}
+    // Recorded, not answered: a read on the real transport queues behind the
+    // write and comes back as dataReceived() later, which tests drive by hand.
+    void read(const QBluetoothUuid& uuid) override { reads.append(uuid); }
     void subscribe(const QBluetoothUuid& uuid) override { subscribes.append(uuid); }
     void subscribeAll() override {}
     void disconnect() override {

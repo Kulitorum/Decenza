@@ -391,21 +391,22 @@ private slots:
         QCOMPARE(f.transport.writes.size(), 1);  // fired despite same values
     }
 
-    // ===== Read-backs are matched to the write they answer =====
+    // ===== Reports are scored against the write they plausibly answer =====
     //
-    // Writes queue a read behind themselves on a serial GATT queue, so N rapid
-    // writes produce N reports in write order, each carrying the state after
-    // its own write. The drift check must compare each report against THAT
-    // write, not against the newest one — comparing against the newest is what
-    // made a profile activation (three writes ~10 ms apart) warn twice that the
-    // DE1 had dropped a write it had in fact honoured.
+    // The app writes ShotSettings several times in a burst, and the DE1's
+    // answers come back one at a time behind them. A report matching a write
+    // still awaiting confirmation is an in-flight echo, not drift. See
+    // DE1Device::m_pendingShotSettings.
 
-    void burstOfWritesMatchesEachReportToItsOwnWrite() {
+    void burstOfWritesScoresEachReportAgainstItsOwnWrite() {
         TestFixture f;
         f.device.setShotSettings(160, 43, 76, 0, 88.0);   // write 1
         f.device.setShotSettings(0, 43, 76, 0, 88.0);     // write 2
         f.device.setShotSettings(0, 43, 72, 0, 88.0);     // write 3
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(3));
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(3));
+        // Each write queues its own read-back; that is what produces one
+        // answer per write on BLE.
+        QCOMPARE(f.transport.reads.size(), 3);
 
         f.report(160, 43, 76, 0, 88.0);                   // answers write 1
         QCOMPARE(f.device.expectedSteamTargetC(), 160.0);
@@ -421,32 +422,44 @@ private slots:
         QCOMPARE(f.device.expectedSteamDurationSec(), 43);
         QCOMPARE(f.device.expectedHotWaterVolMl(), 0);
         QCOMPARE(f.device.expectedGroupTargetC(), 88.0);
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(0));
     }
 
-    void dedupedWriteQueuesNoReadBack() {
-        // A write elided as unchanged issues no BLE write and therefore no
-        // read, so it must not add an expectation — one that never gets popped
-        // would offset every later report by one.
+    void dedupedWriteQueuesNothing() {
+        // An elided write issues no BLE write and no read, so it must not be
+        // recorded as awaiting confirmation.
         TestFixture f;
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
         f.device.setShotSettings(160, 120, 80, 200, 93.0);  // identical, elided
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(1));
+        QCOMPARE(f.transport.reads.size(), 1);
     }
 
-    void unsolicitedReportComparesAgainstLastCommanded() {
-        // With nothing in flight, a report the DE1 volunteered (or the
-        // connect-time read) has no queued write to answer. The last commanded
-        // values are then the right expectation — nothing outstanding can make
-        // them stale.
+    void reportMatchingNoPendingWriteIsScoredAgainstTheNewest() {
+        // The drift case: the DE1 answers with something we never wrote.
         TestFixture f;
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        f.report(160, 120, 80, 200, 93.0);
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        f.device.setShotSettings(160, 43, 76, 0, 88.0);
+        f.device.setShotSettings(160, 43, 72, 0, 88.0);
 
-        f.report(0, 120, 80, 200, 93.0);
-        QCOMPARE(f.device.expectedSteamTargetC(), 160.0);  // what we commanded
-        QCOMPARE(f.device.deviceSteamTargetC(), 0.0);      // what it reported
+        f.report(160, 43, 55, 0, 88.0);                   // never written
+        QCOMPARE(f.device.expectedHotWaterTempC(), 72.0);  // newest write
+        QCOMPARE(f.device.deviceHotWaterTempC(), 55.0);
+    }
+
+    void anEchoDropsTheWritesItSuperseded() {
+        // Matching write 3 means the answers for 1 and 2 are never coming —
+        // holding them would let a later report pass as an echo of a value the
+        // machine has long since moved off.
+        TestFixture f;
+        f.device.setShotSettings(160, 43, 76, 0, 88.0);
+        f.device.setShotSettings(0, 43, 76, 0, 88.0);
+        f.device.setShotSettings(0, 43, 72, 0, 88.0);
+
+        f.report(0, 43, 72, 0, 88.0);                     // answers write 3
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(0));
+
+        f.report(160, 43, 76, 0, 88.0);                   // write 1's value, stale
+        QCOMPARE(f.device.expectedHotWaterTempC(), 72.0);  // scored as drift
     }
 
     void reportBeforeAnyWriteHasNoExpectation() {
@@ -462,36 +475,62 @@ private slots:
     }
 
     void resendQueuesItsOwnReadBack() {
-        // The resend has to be verifiable on its own. Before it queued a read,
-        // the drift ladder could only advance on a read some earlier write
-        // happened to have left in flight, so a genuine drop with nothing else
-        // outstanding produced a resend and then no terminal line at all.
+        // Without a read of its own the resend has no answer, so the drift
+        // ladder cannot advance to its own terminal line.
         TestFixture f;
         f.device.setShotSettings(160, 43, 76, 0, 88.0);
         f.report(160, 43, 76, 0, 88.0);
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        f.transport.reads.clear();
 
         f.device.resendLastShotSettings();
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
 
-        f.report(160, 43, 76, 0, 88.0);
-        QCOMPARE(f.device.expectedSteamTargetC(), 160.0);
-        QCOMPARE(f.device.expectedHotWaterTempC(), 76.0);
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        QCOMPARE(f.transport.reads.size(), 1);
+        QCOMPARE(f.transport.reads.first(), DE1::Characteristic::SHOT_SETTINGS);
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(1));
     }
 
-    void disconnectClearsPendingReadBacks() {
-        // Reads for the old connection will never arrive. Left queued, the
-        // first report after reconnect would be matched to a write from the
-        // previous session.
+    void unansweredWritesAreBounded() {
+        // SerialTransport sends no read at all and a BLE read can be abandoned,
+        // so writes can go unanswered indefinitely. Unbounded, they would let a
+        // stale value keep passing as an echo.
+        TestFixture f;
+        for (int i = 0; i < 20; ++i) {
+            f.device.setShotSettings(160, 20 + i, 76, 0, 88.0);
+        }
+        QVERIFY(f.device.pendingShotSettingsWrites() <= qsizetype(8));
+        // The newest write survives the trim — it is the one a report is most
+        // likely to be answering.
+        f.report(160, 39, 76, 0, 88.0);
+        QCOMPARE(f.device.expectedSteamDurationSec(), 39);
+    }
+
+    void clearCommandQueueDropsUnconfirmedWrites() {
+        // clearCommandQueue() discards our queued read-backs, so their answers
+        // are never coming. Left behind, the first write after a shot would be
+        // scored against one from before it.
+        TestFixture f;
+        f.device.setShotSettings(160, 43, 76, 0, 88.0);
+        f.device.setShotSettings(0, 43, 76, 0, 88.0);
+        f.transport.pendingQueueSize = 2;
+
+        f.device.clearCommandQueue();
+
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(0));
+    }
+
+    void disconnectClearsUnconfirmedWrites() {
+        // Reads for the old connection will never arrive.
         TestFixture f;
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(1));
 
         f.transport.setConnectedSim(false);
 
-        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        QCOMPARE(f.device.pendingShotSettingsWrites(), qsizetype(0));
         QCOMPARE(f.device.expectedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.expectedSteamDurationSec(), -1);
+        QCOMPARE(f.device.expectedHotWaterTempC(), -1.0);
+        QCOMPARE(f.device.expectedHotWaterVolMl(), -1);
         QCOMPARE(f.device.expectedGroupTargetC(), -1.0);
     }
 };

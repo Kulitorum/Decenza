@@ -2527,10 +2527,9 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // down cannot fire, because nothing between it and the WARN above pumps the
     // event loop.
     if (!m_device || !m_device->isConnected() || !m_settings) {
-        if (m_shotSettingsResendInFlight || m_shotSettingsDriftResendCount > 0) {
+        if (m_shotSettingsDriftResendCount > 0) {
             DRIFT_INFO(QStringLiteral(
                 "device gone with a resend outstanding — ladder abandoned, drift unresolved"));
-            m_shotSettingsResendInFlight = false;
             m_shotSettingsDriftResendCount = 0;
             flushDriftGiveUpLog();
         }
@@ -2557,10 +2556,9 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    // Tolerances cover BLE encoding rounding. Temperatures use u8p0 (1°C
-    // quantum) or u16p8; 0.5°C absorbs FP noise. Integer fields (duration,
-    // volume) must match exactly.
-    constexpr double kTempToleranceC = 0.5;
+    // Same tolerance DE1Device matches in-flight echoes with — one definition,
+    // so the two cannot disagree about whether a value came back unchanged.
+    constexpr double kTempToleranceC = DE1Device::kShotSettingsTempToleranceC;
 
     // Compare reported against what WE WROTE — "did the DE1 honor this write?"
     // — never against a Settings-derived value. Several paths deliberately
@@ -2623,13 +2621,11 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         // which is what flush() itself tests, and coupling it to a counter it
         // does not depend on is how the next edit to that counter breaks this.
         flushDriftGiveUpLog();
-        m_shotSettingsResendInFlight = false;
         return;
     }
 
-    // Drift detected: the DE1 answered a specific write of ours with something
-    // other than what that write carried. Reports for writes still in flight
-    // have not arrived yet and cannot be mistaken for this one.
+    // Drift: the report matched no write still awaiting confirmation, so it is
+    // the DE1's answer to our newest one and it does not carry what we sent.
 
     // Classify for the log so we can scan `grep SettingsDrift` in bug
     // reports and immediately see what happened.
@@ -2686,33 +2682,14 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         .arg(expectedHotWaterVol)
         .arg(expectedGroup, 0, 'f', 2));
 
-    // If a resend is already in flight (we sent one and haven't yet received
-    // its indication), wait for that to resolve before firing another. This
-    // is the event-based replacement for a 2s wall-clock rate limit.
-    if (m_shotSettingsResendInFlight) {
-        // A drifting report while a resend is outstanding still shows the DE1
-        // not holding what we sent. Consume it by clearing the flag, so the
-        // NEXT report can fire attempt N+1.
-        //
-        // Without this clear the flag was set once and never reset on a drifting
-        // path (the only other resets are the no-drift branch and a reconnect),
-        // so the ladder stalled at one attempt: kMaxResendAttempts was never
-        // reached and the "giving up" WARN below could not execute on any
-        // connection. What a user saw instead was DE1-dropped-write re-warned on
-        // every indication, forever, with no terminal line.
-        //
-        // de1app has no ShotSettings drift detection to compare against. Its
-        // nearest equivalent — confirm_de1_send_shot_frames_worked — detects the
-        // same class of fault and then deliberately does NOT auto-resend
-        // (de1plus/de1_comms.tcl:1566, commented out to avoid a 500ms retry
-        // loop). That hazard does not apply here: this ladder is bounded at
-        // kMaxResendAttempts and advances only when the DE1 sends an
-        // indication, so it cannot spin.
-        m_shotSettingsResendInFlight = false;
-        DRIFT_LOG(QStringLiteral("resend already in flight — this report answers it, still drifting"));
-        return;
-    }
-
+    // No rate limiter here. Each resend queues its own read-back
+    // (DE1Device::resendLastShotSettings), so a still-drifting report is that
+    // resend's answer and must advance the ladder to the next rung. Gating on an
+    // "is a resend in flight" flag consumed exactly that report without counting
+    // it, so the ladder stalled at attempt 1, kMaxResendAttempts was never
+    // reached, and the episode ended on a WARN with no terminal line — the
+    // failure half of a narrative, which LOGGING.md exists to prevent. The ladder
+    // cannot spin: it is bounded below and advances only on a report.
     constexpr int kMaxResendAttempts = 3;
     if (m_shotSettingsDriftResendCount >= kMaxResendAttempts) {
         // Collapsed, because this branch returns without latching and is
@@ -2744,7 +2721,6 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     }
 
     m_shotSettingsDriftResendCount++;
-    m_shotSettingsResendInFlight = true;
     DRIFT_WARN(QString(
         "resending last ShotSettings payload (attempt %1 of %2)")
         .arg(m_shotSettingsDriftResendCount).arg(kMaxResendAttempts));
@@ -2789,8 +2765,8 @@ void MainController::sendMachineSettings(const QString& reason) {
     qDebug() << "sendMachineSettings: steam=" << steamTemp << "°C, groupTemp=" << groupTemp << "°C";
 
     // 1. ShotSettings (single write with all temperatures).
-    // DE1Device::setShotSettings() internally records the commanded values
-    // so onShotSettingsReported() can compare reported against commanded.
+    // DE1Device::setShotSettings() records the write so onShotSettingsReported()
+    // can score the DE1's answer against it.
     m_device->setShotSettings(
         steamTemp,
         m_settings->brew()->steamTimeout(),
@@ -2987,14 +2963,13 @@ void MainController::applyAllSettings() {
     // report, because that line is gated on the counter being non-zero — so a
     // drift that ended in a reconnect left the WARN as the last word a reader
     // ever saw.
-    if (m_shotSettingsDriftResendCount > 0 || m_shotSettingsResendInFlight) {
+    if (m_shotSettingsDriftResendCount > 0) {
         DRIFT_INFO(QString("drift ladder reset by reconnect after %1 resend(s) — "
                            "the previous session's drift was never resolved")
                        .arg(m_shotSettingsDriftResendCount));
     }
     flushDriftGiveUpLog();
     m_shotSettingsDriftResendCount = 0;
-    m_shotSettingsResendInFlight = false;
 
     // 1. Upload current profile (espresso)
     if (m_profileManager->currentProfile().mode() == Profile::Mode::FrameBased) {
