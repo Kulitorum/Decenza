@@ -298,9 +298,8 @@ private slots:
     // kScaleStaleMs and kReconnectGapMs are both 2000, so a 1.5 s gap is by
     // definition neither a stall nor a reconnect, and an averaging estimator folded
     // it in as ordinary spacing: 145 ms learned for a 100 ms feed, and ~1 s of pour
-    // reading 1.38-1.53 g/s. Taking the minimum of recent windows discards the
-    // contaminated one instead — contamination is one-directional, since nothing
-    // can deliver MORE samples than the scale sent.
+    // reading 1.38-1.53 g/s. Taking the median of recent windows discards the
+    // contaminated one instead.
     void subReconnectHiccupDoesNotPoisonTheInterval() {
         WeightProcessor wp;
         installFakeClock(wp);
@@ -316,9 +315,9 @@ private slots:
     // measurement it just discarded.
     //
     // The reconnect branch clears the ring's fill count, and that count doubles as
-    // the index bound for the minimum loop — so it only means anything while the
+    // the index bound for the median — so it only means anything while the
     // write index is also back at zero. Clearing one and not the other left the
-    // next window writing at a stale index: the loop read the pre-reconnect value
+    // next window writing at a stale index: the median read the pre-reconnect value
     // it had been told to drop and never read the fresh one, for two windows, at
     // the exact moment a feed came back. Both fields now move through
     // resetRateCalibration().
@@ -359,20 +358,13 @@ private slots:
     }
 
     // A transport stall must not latch the cadence estimate onto the catch-up burst.
+    // A stall queues samples rather than dropping them, so the backlog lands in one
+    // window measuring half the true interval — see processWeight().
     //
-    // The estimator was a MINIMUM of three windows, justified by a claim that a
-    // hiccup can only push a window's measured interval UP. A stall does not drop
-    // samples, it queues them, so the backlog lands in ONE window that then holds
-    // twice the arrivals its span deserves and measures half the true interval. The
-    // minimum latched onto that and held it for the ring's full depth.
-    //
-    // The window trace this fixture produces, measured: 100 100 100 100, then 240
-    // (starved), then 42 (catch-up), then 100 100. Committed under the minimum is
-    // 42 for the last three; under the median it is 100 throughout.
-    //
-    // 1400 ms of stall on purpose — under kReconnectGapMs (2000), so calibration is
-    // NOT reset and the latch path is live. Above it the estimator starts over and
-    // the fixture proves nothing.
+    // The stall gives a 1500 ms inter-arrival gap (1400 plus the trailing step), under
+    // kReconnectGapMs (2000, weightprocessor.cpp:245): calibration is NOT reset, so the
+    // latch path is live. Above it the estimator starts over and the fixture proves
+    // nothing.
     void stallCatchUpDoesNotLatchTheCadenceEstimateLow() {
         WeightProcessor wp;
         installFakeClock(wp);
@@ -390,20 +382,21 @@ private slots:
         };
 
         for (int i = 0; i < 50; ++i) send(kCadenceMs);   // 5 s even: commits 100 ms
-        QCOMPARE(wp.estimatedIntervalMsForTest(), 100);
+        QCOMPARE(wp.estimatedIntervalMsForTesting(), 100);
 
         m_fakeClock += 1400;                             // transport stalls
         for (int i = 0; i < 14; ++i) send(2);            // backlog released together
 
-        int lowest = wp.estimatedIntervalMsForTest();
-        for (int i = 0; i < 40; ++i) {                   // feed resumes at 10 Hz
-            send(kCadenceMs);
-            lowest = qMin(lowest, wp.estimatedIntervalMsForTest());
-        }
+        // The latching window closes on the 10th sample of the resumed feed, so assert
+        // at a DEFINED point rather than min-tracking a loop whose length is load-
+        // bearing but unstated: at 8 samples the catch-up window never closes and the
+        // test would pass while discriminating nothing.
+        for (int i = 0; i < 12; ++i) send(kCadenceMs);   // feed resumes at 10 Hz
+        const int committed = wp.estimatedIntervalMsForTesting();
 
-        QVERIFY2(lowest >= 90,
-                 qPrintable(QString("cadence estimate fell to %1 ms after a 1.4 s "
-                                    "transport stall on a true 100 ms feed").arg(lowest)));
+        QVERIFY2(committed >= 90,
+                 qPrintable(QString("cadence estimate fell to %1 ms after a 1.5 s "
+                                    "transport stall on a true 100 ms feed").arg(committed)));
     }
 
     // KNOWN DEFECT, held here on purpose: jittered burst timing over-reads flow.
@@ -435,12 +428,11 @@ private slots:
     // irregularly — gaps followed by tight runs — which is a different problem the
     // 65%-fill rule handles badly and which this fixture does not model.
     //
-    // What it is NOT: a choice of averaging statistic. The estimate was switched
-    // from minimum-of-three to median-of-three specifically to fix this. Measured
-    // at MATCHING sample positions the median gives 2.16 2.96 2.96 2.16 0.04 —
-    // the same shape, the same near-zero. An earlier version of this comment
-    // claimed the median was "twice as wrong" at 2.96 against 2.25; those were two
-    // different frames of the oscillation above, compared against each other.
+    // What it is NOT: a choice of averaging statistic. The estimate is a
+    // median-of-three, switched from minimum-of-three to fix the stall latch (a
+    // different defect — see processWeight()), and measured at MATCHING sample
+    // positions the median gives 2.16 2.96 2.96 2.16 0.04 against the minimum's
+    // 2.25 2.92 2.92 2.25 0.04: the same shape, the same near-zero.
     // Recorded because the wrong comparison was convincing enough to ship.
     //
     // Do not compare statistics on a single sample from this fixture. Any one frame
@@ -491,10 +483,10 @@ private slots:
             hi = qMax(hi, f);
         }
         QEXPECT_FAIL("", "Jittered burst timing makes short flow oscillate within "
-                         "each burst (measured 0.04-2.92 g/s on a true 2.00, with the "
+                         "each burst (measured 0.04-2.96 g/s on a true 2.00, with the "
                          "last sample of every burst near zero). Open. NOT a choice "
-                         "of averaging statistic — median measures the same. See the "
-                         "comment above this test.", Abort);
+                         "of averaging statistic — the minimum measures the same. See "
+                         "the comment above this test.", Abort);
         QVERIFY2(hi - lo < 0.2 * kFlow,
                  qPrintable(QString("short flow swung %1 to %2 g/s within one burst "
                                     "on a steady %3 g/s feed").arg(lo).arg(hi).arg(kFlow)));

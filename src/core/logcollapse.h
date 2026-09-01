@@ -194,6 +194,18 @@ public:
             .arg(c.spanMs / 1000);
     }
 
+    // For a caller whose key is a BUCKET rather than the whole line: the suppressed
+    // lines were alike, not identical, and saying "identical" would tell a reader the
+    // numbers never moved when they moved within the bucket.
+    static QString suffixSimilar(const Collapsed& c)
+    {
+        if (c.suppressed <= 0)
+            return QString();
+        return QStringLiteral(" (+%1 similar in the preceding %2 s)")
+            .arg(c.suppressed)
+            .arg(c.spanMs / 1000);
+    }
+
 private:
     struct Entry
     {
