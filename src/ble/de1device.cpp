@@ -277,6 +277,8 @@ void DE1Device::onTransportDisconnected() {
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
+    m_pendingShotSettings.clear();
+    m_expectedShotSettings = {};
     // Clear the MMR dedup cache so a reconnect re-writes real values rather
     // than trusting cached values from the previous session (the DE1 may have
     // power-cycled or had its firmware state reset between sessions).
@@ -1591,6 +1593,10 @@ void DE1Device::clearCommandQueue() {
         const qsizetype dropped = m_transport->clearQueue();
         if (dropped > 0) {
             m_lastMMRValues.clear();
+            // Same reason, one characteristic over: a discarded read-back is an
+            // answer that will never come, and a write left unconfirmed here can
+            // only make a later report look like an echo of it.
+            m_pendingShotSettings.clear();
         }
     }
 }
@@ -2581,6 +2587,8 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_lastShotSettingsPayload = data;
+    pushPendingShotSettings({steamTemp, steamDuration, hotWaterTemp,
+                             hotWaterVolume, groupTemp});
 
     // Trace every write so the timeline of commanded values is visible in the
     // debug log alongside the DE1-reported values from parseShotSettings().
@@ -2606,6 +2614,34 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_transport->read(DE1::Characteristic::SHOT_SETTINGS);
 }
 
+// Index of the oldest unconfirmed write this report could be the answer to, or
+// -1. Compared field-by-field rather than by raw payload because bytes 5-6 are
+// hardcoded on write and we only ever assert the five values we control.
+qsizetype DE1Device::indexOfPendingShotSettings(const ShotSettingsValues& v) const {
+    for (qsizetype i = 0; i < m_pendingShotSettings.size(); ++i) {
+        const ShotSettingsValues& p = m_pendingShotSettings.at(i);
+        if (std::abs(p.steamTargetC - v.steamTargetC) <= kShotSettingsTempToleranceC
+            && p.steamDurationSec == v.steamDurationSec
+            && std::abs(p.hotWaterTempC - v.hotWaterTempC) <= kShotSettingsTempToleranceC
+            && p.hotWaterVolMl == v.hotWaterVolMl
+            && std::abs(p.groupTargetC - v.groupTargetC) <= kShotSettingsTempToleranceC) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Record a write as unconfirmed. Bounded because nothing guarantees an answer
+// for every write: SerialTransport sends no read at all, and a BLE read can be
+// abandoned. An unanswered entry would otherwise sit here for the connection,
+// and enough of them would let a stale value keep passing as an echo.
+void DE1Device::pushPendingShotSettings(const ShotSettingsValues& v) {
+    m_pendingShotSettings.append(v);
+    if (m_pendingShotSettings.size() > kMaxPendingShotSettings) {
+        m_pendingShotSettings.removeFirst();
+    }
+}
+
 void DE1Device::parseShotSettings(const QByteArray& data) {
     // Wire format matches de1app's hotwater_steam_settings_spec:
     //   byte 0   SteamSettings flags (u8)
@@ -2618,6 +2654,7 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     //   bytes 7-8 TargetGroupTemp    (u16p8 big-endian, °C)
     if (data.size() < 9) {
         DEVICE_WARN(QStringLiteral("parseShotSettings: short payload, size=%1").arg(data.size()));
+        m_expectedShotSettings = {};
         return;
     }
     const auto d = reinterpret_cast<const uint8_t*>(data.constData());
@@ -2639,6 +2676,23 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
         .arg(hotWaterVolMl)
         .arg(groupTargetC, 0, 'f', 2)
         .arg(data.size()));
+
+    // Score this report against the write it plausibly answers. A match on any
+    // still-unconfirmed write means it is an in-flight echo; everything written
+    // before that one has been superseded, so drop those too. No match means the
+    // report is answering our newest write (or nothing of ours at all), which is
+    // the case the drift check exists for. See m_pendingShotSettings.
+    const ShotSettingsValues reported{steamTargetC, steamDurationSec,
+                                      hotWaterTempC, hotWaterVolMl, groupTargetC};
+    const qsizetype echoed = indexOfPendingShotSettings(reported);
+    if (echoed >= 0) {
+        m_expectedShotSettings = m_pendingShotSettings.at(echoed);
+        m_pendingShotSettings.remove(0, echoed + 1);
+    } else {
+        m_expectedShotSettings = {m_commandedSteamTargetC, m_commandedSteamDurationSec,
+                                  m_commandedHotWaterTempC, m_commandedHotWaterVolMl,
+                                  m_commandedGroupTargetC};
+    }
 
     m_deviceSteamTargetC = steamTargetC;
     m_deviceSteamDurationSec = steamDurationSec;
@@ -2662,7 +2716,7 @@ void DE1Device::resendLastShotSettings() {
     // "never wrote one": disconnect clears the payload AND resets the commanded
     // values together (see onTransportDisconnected). So the tier has to suit the
     // benign reading. MainController's own path cannot reach here empty anyway —
-    // it only resends once haveCommanded is true, which requires a prior write.
+    // it only resends once it has an expectation, which requires a prior write.
     if (!m_transport || m_lastShotSettingsPayload.isEmpty()) {
         SHOTSETTINGS_LOG(QStringLiteral(
             "resend requested but nothing was sent — %1")
@@ -2680,5 +2734,11 @@ void DE1Device::resendLastShotSettings() {
         .arg(m_commandedHotWaterVolMl)
         .arg(m_commandedGroupTargetC, 0, 'f', 2));
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
+    pushPendingShotSettings({m_commandedSteamTargetC, m_commandedSteamDurationSec,
+                             m_commandedHotWaterTempC, m_commandedHotWaterVolMl,
+                             m_commandedGroupTargetC});
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
+    // Read back, as setShotSettings() does, so the resend has an answer of its
+    // own and the drift ladder can reach its own terminal line.
+    m_transport->read(DE1::Characteristic::SHOT_SETTINGS);
 }

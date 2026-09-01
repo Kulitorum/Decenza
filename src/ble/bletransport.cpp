@@ -233,7 +233,7 @@ void BleTransport::subscribeAll() {
     // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
     // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
     // Verification happens via explicit read() after each write in
-    // DE1Device::setShotSettings().
+    // DE1Device::setShotSettings() and resendLastShotSettings().
 
     submitReadyMarker();
 

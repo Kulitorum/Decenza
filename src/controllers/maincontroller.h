@@ -747,17 +747,11 @@ private:
     int m_frameWeightSkipSent = -1;  // Frame number for which we've sent a weight-based skip command
     double m_frameStartTime = 0;     // Shot-relative time when current frame started
 
-    // ShotSettings drift auto-heal tracking. The commanded values live on
-    // DE1Device (so every call site — MainController, ProfileManager —
-    // feeds the same tracker); we only keep the retry
-    // bookkeeping here. Both fields are reset in applyAllSettings() so every
-    // reconnect / initial-settings cycle starts with a fresh retry budget.
+    // ShotSettings drift auto-heal tracking. The written values live on
+    // DE1Device (so every call site — MainController, ProfileManager — feeds
+    // the same tracker); only the retry bookkeeping is here. Reset in
+    // applyAllSettings() so every reconnect starts with a fresh budget.
     int m_shotSettingsDriftResendCount = 0;
-    // Event-based "is a resend in flight?" flag, cleared when the DE1's
-    // next indication matches commanded (in onShotSettingsReported). Replaces
-    // a wall-clock rate limiter — see CLAUDE.md's "never timers as guards"
-    // rule.
-    bool m_shotSettingsResendInFlight = false;
     // Closes a "giving up" episode and reports its tally — see m_driftGiveUpLog.
     void flushDriftGiveUpLog();
     // The "giving up after N resend attempts" WARN, collapsed.

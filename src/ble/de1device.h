@@ -136,14 +136,39 @@ public:
     int deviceHotWaterVolMl() const { return m_deviceHotWaterVolMl; }
     double deviceGroupTargetC() const { return m_deviceGroupTargetC; }
     // Last ShotSettings values we actually wrote over BLE (-1 if none yet).
-    // Used by MainController's drift check to distinguish "DE1 dropped the
-    // write" from "DE1 reported its power-on state before we wrote anything".
     double commandedSteamTargetC() const { return m_commandedSteamTargetC; }
     int commandedSteamDurationSec() const { return m_commandedSteamDurationSec; }
     double commandedHotWaterTempC() const { return m_commandedHotWaterTempC; }
     int commandedHotWaterVolMl() const { return m_commandedHotWaterVolMl; }
     double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
     qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
+
+    // The five ShotSettings values the drift check compares. All -1 means
+    // "nothing to compare against"; entries in m_pendingShotSettings always
+    // hold real written values.
+    struct ShotSettingsValues {
+        double steamTargetC = -1.0;
+        int steamDurationSec = -1;
+        double hotWaterTempC = -1.0;
+        int hotWaterVolMl = -1;
+        double groupTargetC = -1.0;
+    };
+
+    // What the CURRENT report should have carried. -1 in every field until our
+    // first write. Valid from the shotSettingsReported() emission until the next
+    // report. See m_pendingShotSettings for why this is not always the newest
+    // write.
+    double expectedSteamTargetC() const { return m_expectedShotSettings.steamTargetC; }
+    int expectedSteamDurationSec() const { return m_expectedShotSettings.steamDurationSec; }
+    double expectedHotWaterTempC() const { return m_expectedShotSettings.hotWaterTempC; }
+    int expectedHotWaterVolMl() const { return m_expectedShotSettings.hotWaterVolMl; }
+    double expectedGroupTargetC() const { return m_expectedShotSettings.groupTargetC; }
+    qsizetype pendingShotSettingsWrites() const { return m_pendingShotSettings.size(); }
+
+    // Temperatures round-trip through u8p0 / u16p8, so 0.5C absorbs the encoding
+    // quantum and FP noise. One definition: the drift check in MainController
+    // compares with the same tolerance this class matches echoes with.
+    static constexpr double kShotSettingsTempToleranceC = 0.5;
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
     int waterLevelMl() const { return m_waterLevelMl; }
@@ -462,6 +487,8 @@ private:
     void parseStateInfo(const QByteArray& data);
     void parseShotSample(const QByteArray& data);
     void parseShotSettings(const QByteArray& data);
+    qsizetype indexOfPendingShotSettings(const ShotSettingsValues& v) const;
+    void pushPendingShotSettings(const ShotSettingsValues& v);
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
@@ -576,6 +603,31 @@ private:
     int m_commandedHotWaterVolMl = -1;
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;
+    // Writes we have not yet seen the DE1 confirm, oldest first, and what the
+    // most recent report should have carried.
+    //
+    // A report can be the answer to an OLDER write than our newest: the app
+    // writes ShotSettings several times in a burst (profile activation goes
+    // through uploadCurrentProfile, applySteamSettings and applyHotWaterSettings
+    // in ~12 ms) and the answers come back one at a time behind them. Scoring
+    // every report against the NEWEST write therefore accused the DE1 of
+    // dropping writes it had honoured. Measured on a user-submitted debug log,
+    // 2026-09-01: 12 such WARNs across six bursts, in every case the reported
+    // payload equal to an earlier write of ours and the episode "resolving" by
+    // itself once the last answer landed.
+    //
+    // So a report is an in-flight echo, not drift, when it matches ANY write
+    // still unconfirmed. Deliberately a match rather than a positional pop:
+    // a pop assumes exactly one answer per write, which is true only of
+    // BleTransport (it queues a read behind each write) and false on
+    // SerialTransport, whose read() is a no-op once subscribed
+    // (serialtransport.cpp:115) — and breakable even on BLE by clearCommandQueue()
+    // or an abandoned read. A positional queue that slips stays slipped for the
+    // connection; matching cannot slip, and when nothing matches it falls back
+    // to the newest write, which is what this code did before the FIFO existed.
+    static constexpr qsizetype kMaxPendingShotSettings = 8;
+    QList<ShotSettingsValues> m_pendingShotSettings;
+    ShotSettingsValues m_expectedShotSettings;
     // Raw 9-byte payload of the most recent ShotSettings write, used by
     // resendLastShotSettings() to re-emit the exact bytes we originally sent.
     // This is the only way to resend bytes 5-6 (TargetHotWaterLength,
