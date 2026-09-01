@@ -2537,14 +2537,17 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    const double commandedSteam = m_device->commandedSteamTargetC();
-    const int commandedDuration = m_device->commandedSteamDurationSec();
-    const double commandedHotWaterTemp = m_device->commandedHotWaterTempC();
-    const int commandedHotWaterVol = m_device->commandedHotWaterVolMl();
-    const double commandedGroup = m_device->commandedGroupTargetC();
-    const bool haveCommanded = (commandedSteam >= 0.0 && commandedDuration >= 0
-                                && commandedHotWaterTemp >= 0.0 && commandedHotWaterVol >= 0
-                                && commandedGroup >= 0.0);
+    // What THIS report was expected to carry, not the newest write — reading
+    // commanded* here is what made a burst of writes warn about a dropped write
+    // that never happened. See DE1Device::m_pendingShotSettings.
+    const double expectedSteam = m_device->expectedSteamTargetC();
+    const int expectedDuration = m_device->expectedSteamDurationSec();
+    const double expectedHotWaterTemp = m_device->expectedHotWaterTempC();
+    const int expectedHotWaterVol = m_device->expectedHotWaterVolMl();
+    const double expectedGroup = m_device->expectedGroupTargetC();
+    const bool haveExpected = (expectedSteam >= 0.0 && expectedDuration >= 0
+                               && expectedHotWaterTemp >= 0.0 && expectedHotWaterVol >= 0
+                               && expectedGroup >= 0.0);
 
     // Sentinel values emitted by DE1Device on disconnect — skip, there's
     // nothing to compare against.
@@ -2559,28 +2562,27 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // volume) must match exactly.
     constexpr double kTempToleranceC = 0.5;
 
-    // Compare reported against COMMANDED — "did the DE1 honor our last
-    // write?" This is the authoritative question for #746, and it correctly
-    // handles code paths that write values diverging from Settings
-    // (startSteamHeating forces heater on regardless of the resolved heater policy,
-    // softStopSteam writes a 1s timeout, etc.). Comparing against
-    // Settings-derived "expected" would make the drift handler clobber
-    // those writes.
-    const bool steamDrift = haveCommanded &&
-        std::abs(deviceSteamTargetC - commandedSteam) > kTempToleranceC;
-    const bool durationDrift = haveCommanded &&
-        deviceSteamDurationSec != commandedDuration;
-    const bool hotWaterTempDrift = haveCommanded &&
-        std::abs(deviceHotWaterTempC - commandedHotWaterTemp) > kTempToleranceC;
-    const bool hotWaterVolDrift = haveCommanded &&
-        deviceHotWaterVolMl != commandedHotWaterVol;
-    const bool groupDrift = haveCommanded &&
-        std::abs(deviceGroupTargetC - commandedGroup) > kTempToleranceC;
+    // Compare reported against what WE WROTE — "did the DE1 honor this write?"
+    // — never against a Settings-derived value. Several paths deliberately
+    // write values diverging from Settings (startSteamHeating forces the heater
+    // on regardless of the resolved heater policy, softStopSteam writes a 1s
+    // timeout), and re-deriving would make the drift handler clobber them.
+    // #746.
+    const bool steamDrift = haveExpected &&
+        std::abs(deviceSteamTargetC - expectedSteam) > kTempToleranceC;
+    const bool durationDrift = haveExpected &&
+        deviceSteamDurationSec != expectedDuration;
+    const bool hotWaterTempDrift = haveExpected &&
+        std::abs(deviceHotWaterTempC - expectedHotWaterTemp) > kTempToleranceC;
+    const bool hotWaterVolDrift = haveExpected &&
+        deviceHotWaterVolMl != expectedHotWaterVol;
+    const bool groupDrift = haveExpected &&
+        std::abs(deviceGroupTargetC - expectedGroup) > kTempToleranceC;
 
     // Skip before we've ever written — DE1's initial indication on subscribe
     // reflects its power-on state, not ours, and racing against that would
     // log a bogus drift on every connect.
-    if (!haveCommanded) {
+    if (!haveExpected) {
         DRIFT_LOG(QString(
             "pre-commanded report ignored: "
             "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) — waiting for first write")
@@ -2625,45 +2627,46 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    // Drift detected. The received indication is the post-write state
-    // (read is queued after the write), so any mismatch is real drift.
+    // Drift detected: the DE1 answered a specific write of ours with something
+    // other than what that write carried. Reports for writes still in flight
+    // have not arrived yet and cannot be mistaken for this one.
 
     // Classify for the log so we can scan `grep SettingsDrift` in bug
     // reports and immediately see what happened.
     QString summary;
     if (steamDrift) {
-        if (commandedSteam == 0.0 && deviceSteamTargetC > 0.0) {
+        if (expectedSteam == 0.0 && deviceSteamTargetC > 0.0) {
             summary = QStringLiteral("steam heater ON at %1C but we commanded OFF")
                           .arg(deviceSteamTargetC, 0, 'f', 0);
-        } else if (commandedSteam > 0.0 && deviceSteamTargetC == 0.0) {
+        } else if (expectedSteam > 0.0 && deviceSteamTargetC == 0.0) {
             summary = QStringLiteral("steam heater OFF but we commanded %1C")
-                          .arg(commandedSteam, 0, 'f', 0);
+                          .arg(expectedSteam, 0, 'f', 0);
         } else {
             summary = QStringLiteral("steam target %1C but we commanded %2C")
                           .arg(deviceSteamTargetC, 0, 'f', 0)
-                          .arg(commandedSteam, 0, 'f', 0);
+                          .arg(expectedSteam, 0, 'f', 0);
         }
     }
     if (durationDrift) {
         QString note = QStringLiteral("steam duration %1s but we commanded %2s")
-                           .arg(deviceSteamDurationSec).arg(commandedDuration);
+                           .arg(deviceSteamDurationSec).arg(expectedDuration);
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
     if (hotWaterTempDrift) {
         QString note = QStringLiteral("hot water temp %1C but we commanded %2C")
                            .arg(deviceHotWaterTempC, 0, 'f', 1)
-                           .arg(commandedHotWaterTemp, 0, 'f', 1);
+                           .arg(expectedHotWaterTemp, 0, 'f', 1);
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
     if (hotWaterVolDrift) {
         QString note = QStringLiteral("hot water vol %1ml but we commanded %2ml")
-                           .arg(deviceHotWaterVolMl).arg(commandedHotWaterVol);
+                           .arg(deviceHotWaterVolMl).arg(expectedHotWaterVol);
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
     if (groupDrift) {
         QString note = QStringLiteral("group target %1C but we commanded %2C")
                            .arg(deviceGroupTargetC, 0, 'f', 2)
-                           .arg(commandedGroup, 0, 'f', 2);
+                           .arg(expectedGroup, 0, 'f', 2);
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
 
@@ -2677,19 +2680,19 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         .arg(deviceHotWaterTempC, 0, 'f', 1)
         .arg(deviceHotWaterVolMl)
         .arg(deviceGroupTargetC, 0, 'f', 2)
-        .arg(commandedSteam, 0, 'f', 1)
-        .arg(commandedDuration)
-        .arg(commandedHotWaterTemp, 0, 'f', 1)
-        .arg(commandedHotWaterVol)
-        .arg(commandedGroup, 0, 'f', 2));
+        .arg(expectedSteam, 0, 'f', 1)
+        .arg(expectedDuration)
+        .arg(expectedHotWaterTemp, 0, 'f', 1)
+        .arg(expectedHotWaterVol)
+        .arg(expectedGroup, 0, 'f', 2));
 
     // If a resend is already in flight (we sent one and haven't yet received
     // its indication), wait for that to resolve before firing another. This
     // is the event-based replacement for a 2s wall-clock rate limit.
     if (m_shotSettingsResendInFlight) {
-        // This indication IS that resend's answer — the read is queued after the
-        // write, per the comment above — and it still shows drift. Consume it by
-        // clearing the flag, so the NEXT report can fire attempt N+1.
+        // A drifting report while a resend is outstanding still shows the DE1
+        // not holding what we sent. Consume it by clearing the flag, so the
+        // NEXT report can fire attempt N+1.
         //
         // Without this clear the flag was set once and never reset on a drifting
         // path (the only other resets are the no-drift branch and a reconnect),

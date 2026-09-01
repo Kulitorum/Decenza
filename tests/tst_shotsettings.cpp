@@ -39,6 +39,22 @@ private:
             device.setShotSettings(steamTemp, steamDuration, hotWaterTemp, hotWaterVolume, groupTemp);
             return transport.lastWriteData();
         }
+
+        // Deliver one SHOT_SETTINGS read-back, as the DE1 answering a write.
+        void report(double steamTemp, int steamDuration,
+                    double hotWaterTemp, int hotWaterVolume, double groupTemp) {
+            QByteArray payload(9, 0);
+            payload[1] = char(BinaryCodec::encodeU8P0(steamTemp));
+            payload[2] = char(BinaryCodec::encodeU8P0(steamDuration));
+            payload[3] = char(BinaryCodec::encodeU8P0(hotWaterTemp));
+            payload[4] = char(BinaryCodec::encodeU8P0(hotWaterVolume));
+            payload[5] = char(60);
+            payload[6] = char(200);
+            const uint16_t groupRaw = BinaryCodec::encodeU16P8(groupTemp);
+            payload[7] = char((groupRaw >> 8) & 0xFF);
+            payload[8] = char(groupRaw & 0xFF);
+            emit transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+        }
     };
 
 private slots:
@@ -373,6 +389,110 @@ private slots:
         f.transport.clearWrites();
         f.device.setShotSettings(160, 120, 80, 200, 93.0);  // same values
         QCOMPARE(f.transport.writes.size(), 1);  // fired despite same values
+    }
+
+    // ===== Read-backs are matched to the write they answer =====
+    //
+    // Writes queue a read behind themselves on a serial GATT queue, so N rapid
+    // writes produce N reports in write order, each carrying the state after
+    // its own write. The drift check must compare each report against THAT
+    // write, not against the newest one — comparing against the newest is what
+    // made a profile activation (three writes ~10 ms apart) warn twice that the
+    // DE1 had dropped a write it had in fact honoured.
+
+    void burstOfWritesMatchesEachReportToItsOwnWrite() {
+        TestFixture f;
+        f.device.setShotSettings(160, 43, 76, 0, 88.0);   // write 1
+        f.device.setShotSettings(0, 43, 76, 0, 88.0);     // write 2
+        f.device.setShotSettings(0, 43, 72, 0, 88.0);     // write 3
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(3));
+
+        f.report(160, 43, 76, 0, 88.0);                   // answers write 1
+        QCOMPARE(f.device.expectedSteamTargetC(), 160.0);
+        QCOMPARE(f.device.expectedHotWaterTempC(), 76.0);
+
+        f.report(0, 43, 76, 0, 88.0);                     // answers write 2
+        QCOMPARE(f.device.expectedSteamTargetC(), 0.0);
+        QCOMPARE(f.device.expectedHotWaterTempC(), 76.0);
+
+        f.report(0, 43, 72, 0, 88.0);                     // answers write 3
+        QCOMPARE(f.device.expectedSteamTargetC(), 0.0);
+        QCOMPARE(f.device.expectedHotWaterTempC(), 72.0);
+        QCOMPARE(f.device.expectedSteamDurationSec(), 43);
+        QCOMPARE(f.device.expectedHotWaterVolMl(), 0);
+        QCOMPARE(f.device.expectedGroupTargetC(), 88.0);
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+    }
+
+    void dedupedWriteQueuesNoReadBack() {
+        // A write elided as unchanged issues no BLE write and therefore no
+        // read, so it must not add an expectation — one that never gets popped
+        // would offset every later report by one.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // identical, elided
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
+    }
+
+    void unsolicitedReportComparesAgainstLastCommanded() {
+        // With nothing in flight, a report the DE1 volunteered (or the
+        // connect-time read) has no queued write to answer. The last commanded
+        // values are then the right expectation — nothing outstanding can make
+        // them stale.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        f.report(160, 120, 80, 200, 93.0);
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+
+        f.report(0, 120, 80, 200, 93.0);
+        QCOMPARE(f.device.expectedSteamTargetC(), 160.0);  // what we commanded
+        QCOMPARE(f.device.deviceSteamTargetC(), 0.0);      // what it reported
+    }
+
+    void reportBeforeAnyWriteHasNoExpectation() {
+        // The DE1's power-on state, read on connect. -1 tells MainController
+        // there is nothing to compare against.
+        TestFixture f;
+        f.report(160, 120, 80, 200, 93.0);
+        QCOMPARE(f.device.expectedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.expectedSteamDurationSec(), -1);
+        QCOMPARE(f.device.expectedHotWaterTempC(), -1.0);
+        QCOMPARE(f.device.expectedHotWaterVolMl(), -1);
+        QCOMPARE(f.device.expectedGroupTargetC(), -1.0);
+    }
+
+    void resendQueuesItsOwnReadBack() {
+        // The resend has to be verifiable on its own. Before it queued a read,
+        // the drift ladder could only advance on a read some earlier write
+        // happened to have left in flight, so a genuine drop with nothing else
+        // outstanding produced a resend and then no terminal line at all.
+        TestFixture f;
+        f.device.setShotSettings(160, 43, 76, 0, 88.0);
+        f.report(160, 43, 76, 0, 88.0);
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+
+        f.device.resendLastShotSettings();
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
+
+        f.report(160, 43, 76, 0, 88.0);
+        QCOMPARE(f.device.expectedSteamTargetC(), 160.0);
+        QCOMPARE(f.device.expectedHotWaterTempC(), 76.0);
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+    }
+
+    void disconnectClearsPendingReadBacks() {
+        // Reads for the old connection will never arrive. Left queued, the
+        // first report after reconnect would be matched to a write from the
+        // previous session.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(1));
+
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(f.device.pendingShotSettingsReads(), qsizetype(0));
+        QCOMPARE(f.device.expectedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.expectedGroupTargetC(), -1.0);
     }
 };
 

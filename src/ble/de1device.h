@@ -136,14 +136,23 @@ public:
     int deviceHotWaterVolMl() const { return m_deviceHotWaterVolMl; }
     double deviceGroupTargetC() const { return m_deviceGroupTargetC; }
     // Last ShotSettings values we actually wrote over BLE (-1 if none yet).
-    // Used by MainController's drift check to distinguish "DE1 dropped the
-    // write" from "DE1 reported its power-on state before we wrote anything".
     double commandedSteamTargetC() const { return m_commandedSteamTargetC; }
     int commandedSteamDurationSec() const { return m_commandedSteamDurationSec; }
     double commandedHotWaterTempC() const { return m_commandedHotWaterTempC; }
     int commandedHotWaterVolMl() const { return m_commandedHotWaterVolMl; }
     double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
     qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
+
+    // What the CURRENT report was expected to carry: the payload whose read-back
+    // it answers, which is NOT necessarily the most recent write. -1 when it
+    // answered no write of ours. Valid from the shotSettingsReported() emission
+    // until the next report. See m_pendingShotSettings.
+    double expectedSteamTargetC() const { return m_expectedShotSettings.steamTargetC; }
+    int expectedSteamDurationSec() const { return m_expectedShotSettings.steamDurationSec; }
+    double expectedHotWaterTempC() const { return m_expectedShotSettings.hotWaterTempC; }
+    int expectedHotWaterVolMl() const { return m_expectedShotSettings.hotWaterVolMl; }
+    double expectedGroupTargetC() const { return m_expectedShotSettings.groupTargetC; }
+    qsizetype pendingShotSettingsReads() const { return m_pendingShotSettings.size(); }
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
     int waterLevelMl() const { return m_waterLevelMl; }
@@ -576,6 +585,24 @@ private:
     int m_commandedHotWaterVolMl = -1;
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;
+    // One ShotSettings payload, as the five values the drift check compares.
+    // -1 members mean "no expectation" (see expectedSteamTargetC()).
+    struct ShotSettingsValues {
+        double steamTargetC = -1.0;
+        int steamDurationSec = -1;
+        double hotWaterTempC = -1.0;
+        int hotWaterVolMl = -1;
+        double groupTargetC = -1.0;
+    };
+    // FIFO of writes awaiting their read-back, and the entry the most recent
+    // report answered. Every write queues a read behind itself on the same
+    // serial GATT queue, so reports arrive one per write, in write order, each
+    // carrying the state after ITS OWN write. Profile activation issues three
+    // writes ~10 ms apart; checking each report against the NEWEST write made
+    // the first two look like dropped writes, and shipped as a WARN accusing
+    // the machine of a fault it never had.
+    QList<ShotSettingsValues> m_pendingShotSettings;
+    ShotSettingsValues m_expectedShotSettings;
     // Raw 9-byte payload of the most recent ShotSettings write, used by
     // resendLastShotSettings() to re-emit the exact bytes we originally sent.
     // This is the only way to resend bytes 5-6 (TargetHotWaterLength,

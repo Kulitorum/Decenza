@@ -277,6 +277,8 @@ void DE1Device::onTransportDisconnected() {
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
+    m_pendingShotSettings.clear();
+    m_expectedShotSettings = {};
     // Clear the MMR dedup cache so a reconnect re-writes real values rather
     // than trusting cached values from the previous session (the DE1 may have
     // power-cycled or had its firmware state reset between sessions).
@@ -2581,6 +2583,9 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_lastShotSettingsPayload = data;
+    // Queue what the read below is expected to bring back.
+    m_pendingShotSettings.append({steamTemp, steamDuration, hotWaterTemp,
+                                  hotWaterVolume, groupTemp});
 
     // Trace every write so the timeline of commanded values is visible in the
     // debug log alongside the DE1-reported values from parseShotSettings().
@@ -2640,6 +2645,17 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
         .arg(groupTargetC, 0, 'f', 2)
         .arg(data.size()));
 
+    // Match this report to the write it answers. Empty means nothing is in
+    // flight — an unsolicited report, or the connect-time read — and the last
+    // commanded values are then the right expectation.
+    if (!m_pendingShotSettings.isEmpty()) {
+        m_expectedShotSettings = m_pendingShotSettings.takeFirst();
+    } else {
+        m_expectedShotSettings = {m_commandedSteamTargetC, m_commandedSteamDurationSec,
+                                  m_commandedHotWaterTempC, m_commandedHotWaterVolMl,
+                                  m_commandedGroupTargetC};
+    }
+
     m_deviceSteamTargetC = steamTargetC;
     m_deviceSteamDurationSec = steamDurationSec;
     m_deviceHotWaterTempC = hotWaterTempC;
@@ -2680,5 +2696,11 @@ void DE1Device::resendLastShotSettings() {
         .arg(m_commandedHotWaterVolMl)
         .arg(m_commandedGroupTargetC, 0, 'f', 2));
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
+    m_pendingShotSettings.append({m_commandedSteamTargetC, m_commandedSteamDurationSec,
+                                  m_commandedHotWaterTempC, m_commandedHotWaterVolMl,
+                                  m_commandedGroupTargetC});
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
+    // Read back, as setShotSettings() does: without it the ladder can only
+    // advance on a read some earlier write happened to leave in flight.
+    m_transport->read(DE1::Characteristic::SHOT_SETTINGS);
 }
