@@ -276,8 +276,18 @@ private slots:
 
         q.noteFailed(de1());
         q.noteFailed(de1());   // same window, same generation
-        pump(80);
 
+        // QTRY_COMPARE for the arrival, then a settle for the absence — the two
+        // halves need opposite waits and a single fixed pump() cannot serve both.
+        // The retry is a real QTimer::singleShot (blegattqueue.cpp:267), NOT
+        // something advanceQueueClock() can drive: m_testClockSkewMs feeds nowMs()
+        // for the dispatch-wait log and nothing else. So this slot must wait real
+        // time, and a fixed pump(80) against a 40 ms delay left 40 ms of slack that
+        // a full parallel ctest run consumed — observed failing here at issued=1,
+        // i.e. the retry had not fired yet, which is the opposite of the 3 this
+        // slot exists to catch.
+        QTRY_COMPARE(rec.issued.size(), 2);
+        pump(80);
         QCOMPARE(rec.issued.size(), 2);   // not 3
     }
 

@@ -4,6 +4,7 @@
 #include "sawprediction.h"
 #include <QtMath>
 #include <QDebug>
+#include <algorithm>
 #include <chrono>
 
 // Aliases, not copies — see sawlogging.h. This class runs on a worker thread and
@@ -22,6 +23,11 @@
 // line's text, and m_constantSampleLog's declaration says why: the text carries
 // the weight, so keying on it would open a run per value and close none of them.
 constexpr auto kConstantSampleLogKey = QLatin1String("constantWeightAlive");
+// Collapse key for the disagreement line: measured interval in 50 ms buckets, capped.
+// Bucketed rather than constant so an episode's worst window still speaks; capped
+// because logcollapse.h requires a caller keying on measured data to bound its keys.
+constexpr int kRateDisagreeBucketMs = 50;
+constexpr int kRateDisagreeMaxBucket = 20;
 
 // Largest pre-shot zero we will treat as drift and subtract. Measured drift is
 // 0.1-0.5 g; 2 g leaves room for a worse scale while staying far below any cup, so a
@@ -261,10 +267,10 @@ void WeightProcessor::processWeight(double weight)
     if (m_rateWindowStartMs == 0 || sinceLast > kReconnectGapMs) {
         // Measurements from before a reconnect describe a different stream.
         // Through the helper, never field-by-field: m_rateRecentCount is a FILL
-        // count that the minimum loop below uses as an index bound, which is only
+        // count that the median below uses as an index bound, which is only
         // valid while writes restart at zero. Clearing the count here and leaving
         // m_rateRecentNext where it was is a two-line edit that reads correct and
-        // is not — the next window writes at the stale index, the loop reads
+        // is not — the next window writes at the stale index, the median reads
         // [0, count) and so reads the pre-reconnect value it was just told to
         // discard while never reading the fresh one. Two windows, ~2 s, of the
         // wrong cadence, arriving exactly when a feed has just come back.
@@ -278,55 +284,38 @@ void WeightProcessor::processWeight(double weight)
         // every synthetic timestamp identical, the exact failure being fixed here.
         const int measured =
             qMax(1, static_cast<int>(rateSpanMs / (m_rateWindowCount - 1)));
-        // MINIMUM of the last few windows, not an average and not the latest.
+        // MEDIAN of the last few windows, not the minimum and not the latest.
         //
-        // Contamination here is one-directional: a dropped frame or a sub-reconnect
-        // hiccup removes arrivals from a window and can only ever push `measured`
-        // UP, since nothing delivers more samples than the scale sent. So the
-        // smallest recent window is the least contaminated, and taking it discards a
-        // bad window outright instead of blending its error in. An EMA was tried
-        // first and is worse: simulated on a 10 Hz feed with one 1.5 s hiccup it
-        // pulled the estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against
-        // a true 2.00 g/s.
+        // A stalled transport does not DROP samples, it QUEUES them: the backlog lands
+        // in one window that then holds twice the arrivals its span deserves and
+        // measures half the true interval. The minimum this replaced assumed
+        // contamination could only push `measured` UP — true of the stream, false of
+        // one window — and latched onto that catch-up value for the ring's full depth.
+        // From a field log, one main-thread hitch:
         //
-        // A MEDIAN was tried, and the honest answer is that IT MAKES NO DIFFERENCE
-        // to the problem it was reached for. The argument was that ordinary jitter
-        // is two-directional, so the minimum of three noisy windows sits on their
-        // low tail. Measured at matching sample positions on the jittered bursty
-        // fixture in cadenceEstimateDoesNotTrackTheLowTail, one burst reads:
+        //     measured=609 committed=99  (arrivals=4  over 1828 ms)  starved window
+        //     measured=96  committed=42  (arrivals=12 over 1066 ms)  42 latched
+        //     measured=100 committed=42  (arrivals=11 over 1004 ms)  still latched
         //
-        //     minimum   2.25  2.92  2.92  2.25  0.04
-        //     median    2.16  2.96  2.96  2.16  0.04
+        // 42 ms against a true ~100 ms spaces synthetic timestamps 2.4x too tightly
+        // for ~3 s — flow over-read 2.4x, right after a hitch.
         //
-        // Same shape, same magnitude, same near-zero at the burst boundary. An
-        // earlier version of this comment claimed the median was "twice as wrong"
-        // at 2.96 against 2.25; that was two different FRAMES of the oscillation
-        // above compared against each other, not one measurement under two
-        // statistics. Recorded because the wrong comparison looked convincing.
-        //
-        // The real defect is the oscillation itself — flow swinging from 0.04 to
-        // ~2.9 g/s inside a single burst on a true 2.00 g/s feed, with the last
-        // sample of every burst reading near zero. Which statistic is committed to
-        // does not touch it, so do not spend another pass on the statistic. It is
-        // held by cadenceEstimateDoesNotTrackTheLowTail as a QEXPECT_FAIL.
-        //
-        // A genuine rate change still lands asymmetrically: a scale speeding UP
-        // takes effect on the next closed window, since a smaller value wins the
-        // minimum immediately, while a slowdown waits for the stale entries to age
-        // out.
+        // Does NOT address the burst oscillation held as a QEXPECT_FAIL by
+        // cadenceEstimateDoesNotTrackTheLowTail: that fixture has a majority of
+        // contaminated windows, the one shape a median cannot reject.
         m_rateRecent[m_rateRecentNext] = measured;
         m_rateRecentNext = (m_rateRecentNext + 1) % kRateRecentWindows;
         if (m_rateRecentCount < kRateRecentWindows) ++m_rateRecentCount;
-        int committed = m_rateRecent[0];
-        for (int i = 1; i < m_rateRecentCount; ++i) {
-            committed = qMin(committed, m_rateRecent[i]);
-        }
+        // Upper of the two while filling. Pinned so it cannot flip silently, NOT argued
+        // as safer: a larger interval under-reads flow, so SAW fires late.
+        int sorted[kRateRecentWindows];
+        std::copy(m_rateRecent, m_rateRecent + m_rateRecentCount, sorted);
+        std::sort(sorted, sorted + m_rateRecentCount);
+        const int committed = sorted[m_rateRecentCount / 2];
 
-        // Disagreement between this window and what we are committing to. Silent
-        // while the estimator is stable, which is most of the time — it exists to
-        // catch the shape that was invisible until now: the per-window measurements
-        // are the input, and only their aggregate was ever logged, so an estimator
-        // walking the low tail of its own noise could not be seen from a field log.
+        // Silent while the estimator is stable. Both tails speak: a starved window and
+        // the catch-up window behind it are one episode, and the catch-up one moves
+        // the estimate.
         if (committed > 0
             && qAbs(measured - committed) * 100 > kRateDisagreementPct * committed) {
             // SCALEFEED, not SAWW: this answers "were the readings timed right",
@@ -335,10 +324,27 @@ void WeightProcessor::processWeight(double weight)
             // filed under [SAW] first, where a reader chasing a stop-at-weight
             // problem would meet rate-estimator noise and a reader checking feed
             // health would never see it.
-            SCALEFEED_LOG(QStringLiteral("De-jitter rate window disagrees: measured=%1 ms "
-                                    "committed=%2 ms (arrivals=%3 over %4 ms)")
-                         .arg(measured).arg(committed)
-                         .arg(m_rateWindowCount).arg(rateSpanMs));
+            const QString key =
+                QString::number(qMin(measured / kRateDisagreeBucketMs, kRateDisagreeMaxBucket));
+            LogCollapse::Collapsed collapsed;
+            if (m_rateDisagreeLog.shouldLog(key, key, wallClock, &collapsed)) {
+                SCALEFEED_LOG(QStringLiteral("De-jitter rate window disagrees: measured=%1 ms "
+                                        "committed=%2 ms (arrivals=%3 over %4 ms)")
+                             .arg(measured).arg(committed)
+                             .arg(m_rateWindowCount).arg(rateSpanMs)
+                             + LogCollapse::suffixSimilar(collapsed));
+            }
+        } else if (committed > 0) {
+            // An agreeing window ends the episode. Event-based and within one window of
+            // the real end, which is what keeps the span honest: flush() dates a tally
+            // to the moment it fires, so deferring to a shot boundary printed an idle
+            // episode inside the next shot (the bug m_constantSampleLog already carries).
+            for (const auto& [bucket, collapsed] : m_rateDisagreeLog.flushAll(wallClock)) {
+                SCALEFEED_LOG(QStringLiteral("De-jitter rate window disagreement run ended "
+                                             "(measured ~%1 ms)")
+                                  .arg(bucket.toInt() * kRateDisagreeBucketMs)
+                              + LogCollapse::suffixSimilar(collapsed));
+            }
         }
         m_estimatedIntervalMs = committed;
         if (m_djIntervalMinMs == 0 || committed < m_djIntervalMinMs)

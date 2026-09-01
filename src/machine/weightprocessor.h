@@ -91,6 +91,10 @@ public:
         Q_ASSERT(thread() == QThread::currentThread());
         m_wallClock = std::move(fn);
     }
+    // The committed cadence estimate. Asserted directly rather than through flow: the
+    // estimate only reaches flow via the batched branch, so a flow-watching test would
+    // pass on any evenly-paced feed.
+    int estimatedIntervalMsForTesting() const { return m_estimatedIntervalMs; }
 #endif
 
 signals:
@@ -290,11 +294,9 @@ private:
     // WiFi scale until synthetic timestamps outran wall-clock. See processWeight().
     qint64 m_rateWindowStartMs = 0;     // Wall-clock start of the current rate window
     int m_rateWindowCount = 0;          // Arrivals seen in the current rate window
-    // Recent closed-window measurements, of which the MINIMUM is the estimate.
-    // Dropped frames and sub-reconnect hiccups can only inflate a window's
-    // measurement, never deflate it, so the smallest is the least contaminated.
-    // Three windows is the shortest run that survives one bad window while still
-    // following a genuine rate change within a few seconds. See processWeight().
+    // Recent closed-window measurements; the MEDIAN of them is the estimate — see
+    // processWeight() for why not the minimum. Three windows is the shortest run that
+    // rejects one bad window while still following a genuine rate change.
     static constexpr int kRateRecentWindows = 3;
     int m_rateRecent[kRateRecentWindows] = {0, 0, 0};
     int m_rateRecentNext = 0;           // Ring write position
@@ -323,6 +325,12 @@ private:
     // A closing rate window this far from the committed estimate (percent) is worth
     // a line. Loose enough that ordinary jitter stays silent.
     static constexpr int kRateDisagreementPct = 15;
+    // A WINDOW, not kChangesOnly: a source already gated on a problem wants its
+    // repeats, which are evidence rather than reassurance (logcollapse.h).
+    // 5 s sizes one transport hitch (a 2-3 s episode) to a line rather than
+    // rate-limiting a bad feed — on a 31 h field log, 93 -> 45 with the bucket key.
+    // EPISODIC: flushed by the first agreeing window, in processWeight().
+    LogCollapse m_rateDisagreeLog{5000};
 
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;

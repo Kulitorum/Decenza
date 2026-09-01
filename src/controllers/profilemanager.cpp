@@ -2500,11 +2500,6 @@ void ProfileManager::uploadProfile(const QVariantMap& profileData) {
         }
         // Replace all steps atomically
         m_currentProfile.setSteps(newSteps);
-
-        qDebug() << "uploadProfile: Updated" << newSteps.size() << "steps";
-        for (int i = 0; i < newSteps.size(); i++) {
-            qDebug() << "  Frame" << i << ":" << newSteps[i].name << "temp=" << newSteps[i].temperature;
-        }
     }
 
     // Mark as modified
