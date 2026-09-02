@@ -125,24 +125,10 @@ DecenzaDialog {
         // the two history queries, so the split between query, row generation
         // and view positioning has to be measured rather than guessed. Remove
         // these four console.info lines once the dominant term is known.
-        var _t0 = Date.now()
-        // Split the ASSIGNMENT out of the call: handing a fresh 801-element
-        // array to the Tumbler rebuilds its view, and that turned out to be the
-        // dominant term once row generation moved to one batch call.
-        var _gRows = root.rowSource
+        root._grindRows = root.rowSource
             ? root.rowSource.grindRowsFor(root._pendingGrind) : []
-        var _tBuilt = Date.now()
-        root._grindRows = _gRows
-        var _tGrind = Date.now()
-        var _rRows = (root.rowSource && root.rowSource.rpmCapable)
+        root._rpmRows = (root.rowSource && root.rowSource.rpmCapable)
             ? root.rowSource.rpmRowsFor(parseInt(root._pendingRpm) || 0) : []
-        var _tRpmBuilt = Date.now()
-        root._rpmRows = _rRows
-        console.info("[Equipment] grind picker: _rebuildRows grind-build="
-                     + (_tBuilt - _t0) + "ms grind-assign=" + (_tGrind - _tBuilt)
-                     + "ms rpm-build=" + (_tRpmBuilt - _tGrind)
-                     + "ms rpm-assign=" + (Date.now() - _tRpmBuilt)
-                     + "ms total=" + (Date.now() - _t0) + "ms")
     }
 
     // Index of the current value within a rows array (-1 if none is current).
@@ -219,6 +205,26 @@ DecenzaDialog {
         // redundant second traversal that could just be dropped. `from` and
         // `count` are logged so the traversal DISTANCE is on the record rather
         // than inferred — the 15 ms open and the 728 ms open had the same target.
+        // TEMPORARY probe. The tablet measured `idx` at 629-643 ms across three
+        // opens while pos1 (the 400-row traversal) stayed at 16 ms — so the cost
+        // is this assignment, which is exactly what the two lines above claim to
+        // have disarmed. Read back what they actually achieved:
+        //
+        // The `!== undefined` guards fail SILENTLY. If the resolved view has no
+        // such property the disarm is a no-op and nothing says so, which reads
+        // identical to a disarm that worked and was later undone. Logging the
+        // values after setting them separates those two.
+        //
+        // `view` names what _view() resolved, because Tumbler's internal view is
+        // a ListView or a PathView depending on `wrap`, and they do not honour
+        // these properties the same way.
+        //
+        // The open at t=20s had idx=0ms with the same from/to/count; the slow
+        // ones were an hour in. Whatever differs is not visible from the timings
+        // alone, so this logs state rather than more durations.
+        var _dur = lv ? lv.highlightMoveDuration : undefined
+        var _vel = lv ? lv.highlightMoveVelocity : undefined
+        var _viewType = lv ? (lv.toString().split("(")[0]) : "none"
         var _from = tumbler.currentIndex
         var _t0 = Date.now()
         if (lv)
@@ -234,7 +240,10 @@ DecenzaDialog {
                      + " pos1=" + (_tPos1 - _t0) + "ms"
                      + " idx=" + (_tIdx - _tPos1) + "ms"
                      + " pos2=" + (_tPos2 - _tIdx) + "ms"
-                     + " view=" + (lv ? "yes" : "NO"))
+                     + " view=" + _viewType
+                     + " dur=" + _dur + " vel=" + _vel
+                     + " durNow=" + (lv ? lv.highlightMoveDuration : "n/a")
+                     + " velNow=" + (lv ? lv.highlightMoveVelocity : "n/a"))
     }
 
     // Centre each wheel on its current row. A wheel with no current value (an
@@ -242,7 +251,6 @@ DecenzaDialog {
     // taking the middle: the window is wide and clamps at zero, so the middle
     // row is no longer the anchor.
     function _centerWheels() {
-        var _t0 = Date.now()  // TEMPORARY — see _rebuildRows
         var gi = root._currentIndex(root._grindRows)
         root._snapTo(grindTumbler, gi >= 0 ? gi : Math.floor(root._grindRows.length / 2))
         var ri = root._currentIndex(root._rpmRows)
@@ -256,9 +264,6 @@ DecenzaDialog {
         // Remember where we parked it, so a later currentIndex that differs is
         // proof the user moved it themselves.
         root._rpmSnapIndex = rpmTumbler.count > 0 ? rpmIndex : -1
-        console.info("[Equipment] grind picker: _centerWheels " + (Date.now() - _t0)
-                     + "ms (grindRows=" + root._grindRows.length
-                     + " rpmRows=" + root._rpmRows.length + ")")
     }
 
     // All setup happens BEFORE the dialog is visible, so its first frame
@@ -266,7 +271,10 @@ DecenzaDialog {
     // place flicker, no travel. onOpened repeats the (idempotent) snap once
     // in case the ListView finished layout only after showing.
     onAboutToShow: {
-        var _t0 = Date.now()  // TEMPORARY — see _rebuildRows
+        // TEMPORARY — the one open-path total still worth keeping: it is the
+        // number a fix to _snapTo has to move. Everything else that was timed
+        // here has been answered and removed.
+        var _t0 = Date.now()
         root._rpmTouched = false
         root._rpmSnapIndex = -1
         root._pendingGrind = root.currentGrind
@@ -290,13 +298,10 @@ DecenzaDialog {
                      + (Date.now() - _t0) + "ms textMode=" + root.textMode)
     }
     onOpened: {
-        var _t0 = Date.now()  // TEMPORARY — see _rebuildRows
         if (root.textMode)
             grindText.forceActiveFocus()
         else
             root._centerWheels()
-        console.info("[Equipment] grind picker: onOpened TOTAL "
-                     + (Date.now() - _t0) + "ms")
     }
 
     // The header toggle. The icon names the DESTINATION, so switching is
