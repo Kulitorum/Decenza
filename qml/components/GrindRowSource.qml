@@ -381,19 +381,11 @@ QtObject {
     }
 
     function grindRowsFor(cur) {
-        // TEMPORARY instrumentation (grind-picker open cost) — see
-        // GrindPickerDialog._rebuildRows. Remove with those.
-        var _t0 = Date.now()
         cur = String(cur == null ? "" : cur).trim()
         var step = root.grindStep()
-        var _tQuery = Date.now()
         var _key = root._rowsKeyFor(cur, step)
-        if (root._rowsMemo !== null && root._rowsMemoKey === _key) {
-            console.info("[Equipment] grind picker: grindRowsFor step-query="
-                         + (_tQuery - _t0) + "ms generate=0ms rows="
-                         + root._rowsMemo.length + " (memo hit)")
+        if (root._rowsMemo !== null && root._rowsMemoKey === _key)
             return root._rowsMemo
-        }
         // Canonical current = the value reformatted to the step's decimals
         // (exactly what n === 0 produces); highlight whichever surviving row
         // equals it so clamp-edge dedup can't lose the highlight.
@@ -435,17 +427,10 @@ QtObject {
             }
             // Not memoized — see the memo declaration. This list comes from shot
             // history, which the key does not name.
-            var _fb = root._observedFallback(cur)
-            console.info("[Equipment] grind picker: grindRowsFor step-query="
-                         + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
-                         + "ms rows=" + _fb.length + " (observed-fallback, not memoized)")
-            return _fb
+            return root._observedFallback(cur)
         }
         root._rowsMemoKey = _key
         root._rowsMemo = generated
-        console.info("[Equipment] grind picker: grindRowsFor step-query="
-                     + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
-                     + "ms rows=" + generated.length)
         return generated
     }
 
@@ -456,9 +441,7 @@ QtObject {
         var rpmSet = base > 0
         var anchor = rpmSet ? base : root.rpmDefaultAnchor
         // Once per snapshot, not once per row — this runs a query.
-        var _t0 = Date.now()  // TEMPORARY — see grindRowsFor
         var rpmStepValue = root.rpmStep()
-        var _tQuery = Date.now()
         var out = []
         var seen = ({})
         for (var n = -root.rpmWindowSteps; n <= root.rpmWindowSteps; n++) {
@@ -469,9 +452,6 @@ QtObject {
             seen[v] = true
             out.push({ value: v, isCurrent: rpmSet && n === 0 })
         }
-        console.info("[Equipment] grind picker: rpmRowsFor step-query="
-                     + (_tQuery - _t0) + "ms generate=" + (Date.now() - _tQuery)
-                     + "ms rows=" + out.length)
         return out
     }
 
