@@ -31,8 +31,23 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
 
     private static final String TAG = "DecenzaUsbHotplug";
 
+    /** Permission-result actions, owned here because this is what listens for them. */
+    public static final String SCALE_PERMISSION_ACTION =
+            "io.github.kulitorum.decenza_de1.USB_SCALE_PERMISSION";
+    public static final String DE1_PERMISSION_ACTION =
+            "io.github.kulitorum.decenza_de1.USB_PERMISSION";
+
     /** Reported to C++, which decides whether the ids are a DE1 or a scale. */
     static native void nativeOnUsbDeviceChanged(int vendorId, int productId, boolean attached);
+
+    /**
+     * A permission dialog closed. Carries no device and no verdict on purpose: the
+     * PendingIntent is FLAG_IMMUTABLE, so the Intent the system fills in at send()
+     * time — the only carrier of EXTRA_DEVICE and EXTRA_PERMISSION_GRANTED — is
+     * discarded. The action tells us which manager; that manager re-runs its probe
+     * pass and reads the real permission state itself.
+     */
+    static native void nativeOnUsbPermissionResult(boolean isScale);
 
     private static UsbHotplugReceiver sInstance;
 
@@ -68,12 +83,15 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
             // works, scale hotplug never matches" is a far worse failure than retrying.
             sSupported = out;
         } catch (Exception e) {
-            // Left uncached so the next event retries. Reported to C++ by register()'s
-            // return value: android.util.Log goes to logcat only, and Decenza's own log
-            // comes from a Qt message handler — so this line alone would leave a
-            // user-submitted log with no trace of why hotplug matched nothing.
+            // EMPTY, not the partial list the loop had built. A partial list is the
+            // worse failure: the DE1 is listed first, so a mid-document throw yields
+            // a working DE1 and a scale that never matches — and register() would
+            // return 1, so the "yielded no ids" warning that is the only C++-visible
+            // signal never fires. Failing whole is visible; failing half is not.
+            //
+            // Left uncached either way, so the next event retries.
             Log.e(TAG, "Could not read device_filter.xml", e);
-            return out;
+            return new ArrayList<>();
         }
         return sSupported;
     }
@@ -104,6 +122,10 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
         IntentFilter filter = new IntentFilter();
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        // The grant is otherwise seen only by a later hasDevice() poll, and with USB
+        // scanning off there is no later poll.
+        filter.addAction(SCALE_PERMISSION_ACTION);
+        filter.addAction(DE1_PERMISSION_ACTION);
         // Not exported: these are system broadcasts, and RECEIVER_NOT_EXPORTED is
         // required from API 34 for a runtime-registered receiver.
         androidx.core.content.ContextCompat.registerReceiver(
@@ -133,6 +155,16 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
         if (action == null) {
             return;
         }
+        // Permission results carry no usable extras (see nativeOnUsbPermissionResult),
+        // so they are handled before any EXTRA_DEVICE lookup. A denial costs one
+        // probe pass that finds no permission and stops; UsbScaleManager/USBManager
+        // latch m_androidPermissionRequested until the device goes absent, so no
+        // dialog is re-raised.
+        if (SCALE_PERMISSION_ACTION.equals(action) || DE1_PERMISSION_ACTION.equals(action)) {
+            nativeOnUsbPermissionResult(SCALE_PERMISSION_ACTION.equals(action));
+            return;
+        }
+
         final boolean attached = UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action);
         if (!attached && !UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
             return;

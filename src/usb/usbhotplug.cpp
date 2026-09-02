@@ -53,6 +53,27 @@ void nativeOnUsbDeviceChanged(JNIEnv*, jclass, jint vendorId, jint productId, jb
     }, Qt::QueuedConnection);
 }
 
+// A permission dialog closed. Carries no device and no verdict: the PendingIntent
+// is FLAG_IMMUTABLE, so the Intent the system fills in at send() — the only carrier
+// of EXTRA_DEVICE and EXTRA_PERMISSION_GRANTED — is discarded. The action says which
+// manager, and that manager reads the real permission state itself.
+void nativeOnUsbPermissionResult(JNIEnv*, jclass, jboolean isScale)
+{
+    const bool scale = (isScale == JNI_TRUE);
+    QMetaObject::invokeMethod(qApp, [scale]() {
+        // Logged apart from a cable attach: one physical plug-in otherwise produced
+        // two identical "attached" lines, and a reader could not tell which was which.
+        const QString what = QStringLiteral("USB permission dialog closed");
+        if (scale) {
+            HOTPLUG_INFO(what);
+            if (s_scaleManager) s_scaleManager->onPermissionResult();
+        } else {
+            DE1_INFO_TAGGED("USB", what);
+            if (s_de1Manager) s_de1Manager->onPermissionResult();
+        }
+    }, Qt::QueuedConnection);
+}
+
 bool registerNatives()
 {
     static bool registered = false;
@@ -61,8 +82,10 @@ bool registerNatives()
     const JNINativeMethod methods[] = {
         {"nativeOnUsbDeviceChanged", "(IIZ)V",
          reinterpret_cast<void*>(nativeOnUsbDeviceChanged)},
+        {"nativeOnUsbPermissionResult", "(Z)V",
+         reinterpret_cast<void*>(nativeOnUsbPermissionResult)},
     };
-    if (!env.registerNativeMethods(kReceiverClass, methods, 1)) {
+    if (!env.registerNativeMethods(kReceiverClass, methods, 2)) {
         HOTPLUG_WARN(QStringLiteral(
             "Could not register USB hotplug native methods — attach/detach will not "
             "be reported; the fallback scan is the only detection path"));
@@ -93,7 +116,8 @@ void UsbHotplug::start(UsbScaleManager* scaleManager, USBManager* de1Manager)
         // comes from a Qt message handler.
         HOTPLUG_WARN(QStringLiteral(
             "Hotplug armed but device_filter.xml yielded no ids — no attach or detach "
-            "will be recognised; turn on Scan for USB devices to fall back to scanning"));
+            "will be recognised (permission results still are); turn on Scan for USB "
+            "devices to fall back to scanning"));
         return;
     }
     HOTPLUG_INFO(QStringLiteral("Hotplug armed for %1 supported device id(s)").arg(supported));
