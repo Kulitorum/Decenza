@@ -3219,16 +3219,23 @@ private slots:
         const QString prior = QStringLiteral("How did this taste?");
         const QString reply = QStringLiteral("82, actually the roast is dark");
 
+        // Installed BEFORE the producers run, not after. requestUpdateShotMetadata()
+        // posts to a background SerialDbWorker and "No shot with id ... to update"
+        // is emitted from THAT thread, so nothing orders it against the main thread
+        // reaching these lines. With init()'s failOnWarning() in force, losing that
+        // race fails the test with "Received a warning that resulted in a failure"
+        // — which is how it failed on a loaded machine. The sibling test above gets
+        // this order right; this one was the outlier.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+
         mgr.maybePersistRatingFromReply(reply, prior, 8473);
         mgr.maybePersistBeanCorrectionFromReply(reply, prior, 8473);
         // The premise of the refcount, asserted rather than assumed: both
         // producers registered a write against the same shot id.
         QCOMPARE(mgr.m_pendingMetadataWrites.value(8473), 2);
-
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
 
         QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 2, 5000);
         QVERIFY(!mgr.m_pendingMetadataWrites.contains(8473));
