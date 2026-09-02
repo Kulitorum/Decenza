@@ -419,6 +419,53 @@ private slots:
         QVERIFY(!f.state.standbySwitchOpen());
     }
 
+    void standbySwitchIgnoredWhenTheMachineWasHeating_data() {
+        QTest::addColumn<int>("heatingSubState");
+        QTest::newRow("Heating") << int(DE1::SubState::Heating);
+        QTest::newRow("FinalHeating") << int(DE1::SubState::FinalHeating);
+        QTest::newRow("Stabilising") << int(DE1::SubState::Stabilising);
+    }
+
+    // Field reports on firmware v1363 — inside the range the 1337 gate calls
+    // trustworthy — show a machine that is heating blipping into Error_NoAC for
+    // ~3 s and back out untouched. A machine that reached a heating substate has
+    // AC, so the blip is not the standby switch.
+    void standbySwitchIgnoredWhenTheMachineWasHeating() {
+        QFETCH(int, heatingSubState);
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, static_cast<DE1::SubState>(heatingSubState));
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(!f.state.standbySwitchOpen());
+    }
+
+    // The restart sighting reached the screen through the firmware-arrival recheck
+    // below, not through the substate change — so the suppression has to survive a
+    // re-evaluation that sees the substate unchanged.
+    void standbySwitchStaysIgnoredWhenFirmwareArrivesDuringTheBlip() {
+        TestFixture f;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+
+        f.device.m_firmwareBuildNumber = 1363;
+        emit f.device.firmwareVersionChanged();
+        QVERIFY(!f.state.standbySwitchOpen());
+    }
+
+    // The suppression lasts one episode. A machine that leaves Error_NoAC and later
+    // re-enters it from a non-heating substate is the real thing again.
+    void standbySwitchWarnsAgainAfterTheBlipEnds() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(!f.state.standbySwitchOpen());
+
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(f.state.standbySwitchOpen());
+    }
+
     void standbySwitchRecheckedWhenFirmwareArrivesLate() {
         // The substate STATE_INFO read is queued before sendInitialSettings()'s MMR
         // read populates firmwareBuildNumber(), so a machine already sitting in
