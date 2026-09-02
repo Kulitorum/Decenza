@@ -155,8 +155,32 @@ QtObject {
     // close and reopen the picker to keep going (a Niche 9 -> -1 move is 40
     // steps at 0.25). The REAL limits are semantic and live in the stepper:
     // click-indexed grinders floor at 0, letters clamp A..Z. Only ~5 rows are
-    // visible at a time, so a wide window costs nothing to look at.
-    readonly property int grindWindowSteps: 400
+    // visible at a time, so a wide window costs nothing to LOOK at.
+    //
+    // TEMPORARY: 400 -> 200 as a MEASUREMENT, not a proposed change. The tablet
+    // puts 635 ms of a 765 ms open inside `tumbler.currentIndex = index`, and
+    // Qt's own source says why the target's distance might be what costs:
+    // assigning a new array to Tumbler.model replaces the model object, and
+    // QQuickItemViewPrivate::setModel then forces currentIndex back to 0 and
+    // refills around 0 (qquickitemview.cpp:1163-1169). The target is always the
+    // window's middle, so it sits `grindWindowSteps` rows outside what was just
+    // realised.
+    //
+    // Halving the window halves that distance. Read `idx` in the [Equipment]
+    // grind picker log on a Samsung SM-X210, on the SECOND or later open with
+    // the grind CHANGED (the first open of a session is free — Qt takes a
+    // degenerate path while the view is not yet valid, :1813 — and an unchanged
+    // value hits the row memo and never reassigns the model):
+    //
+    //   ~320 ms -> the cost scales with distance; the window size is the answer
+    //   ~640 ms -> flat; distance is not it, and the cost is inside createItem
+    //              or applyPendingChanges and needs its own instrumentation
+    //
+    // REVERT THIS whichever way it lands. If it scales, the real change is a
+    // deliberate choice of range with the tradeoff stated, not a number halved
+    // to take a reading. pos1 (the view traversal) measured 16 ms across 400
+    // rows and is NOT the reason this is here.
+    readonly property int grindWindowSteps: 200
     readonly property int rpmWindowSteps: 40
 
     // --- Stepping algorithm -------------------------------------------------
