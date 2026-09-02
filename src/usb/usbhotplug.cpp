@@ -12,6 +12,8 @@
 #include <QPointer>
 #endif
 
+// _STDERR forms throughout: everything here is a free function, and the non-STDERR
+// macros expand to `emit logMessage(...)`.
 #define HOTPLUG_INFO(msg) SCALE_INFO_STDERR_TAGGED("USB Scale", msg)
 #define HOTPLUG_WARN(msg) SCALE_WARN_STDERR_TAGGED("USB Scale", msg)
 
@@ -43,7 +45,7 @@ void nativeOnUsbDeviceChanged(JNIEnv*, jclass, jint vendorId, jint productId, jb
                                                : QStringLiteral("detached"),
                                       QString::number(vid, 16), QString::number(pid, 16));
         if (isScale) HOTPLUG_INFO(what);
-        else         DE1_INFO_TAGGED("USB", what);
+        else         DE1_INFO_STDERR_TAGGED("USB", what);
 
         if (isScale) {
             if (s_scaleManager) s_scaleManager->onHotplugEvent();
@@ -68,7 +70,7 @@ void nativeOnUsbPermissionResult(JNIEnv*, jclass, jboolean isScale)
             HOTPLUG_INFO(what);
             if (s_scaleManager) s_scaleManager->onPermissionResult();
         } else {
-            DE1_INFO_TAGGED("USB", what);
+            DE1_INFO_STDERR_TAGGED("USB", what);
             if (s_de1Manager) s_de1Manager->onPermissionResult();
         }
     }, Qt::QueuedConnection);
