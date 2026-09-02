@@ -3317,7 +3317,7 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
              << bestCount << "samples)"
              << "meanMachineFlow=" << meanMachineFlow
              << "meanWeightFlow=" << meanWeightFlow
-             << "ratio=" << windowRatio
+             << "rawRatio=" << windowRatio
              << "currentFactor=" << currentEffective;
 
     // Guard against division by zero. Should be impossible since every sample
@@ -3468,8 +3468,13 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     // "two or three" the doc quotes for a 20% error.
     const double densityAdjustedRatio = windowRatio * kAutoFlowCalWaterDensity93C;
     if (densityAdjustedRatio > kMaxWindowRatio || densityAdjustedRatio < kMinWindowRatio) {
-        CAL_DETAIL("AutoFlow") << windowModeLabel << "window ratio" << densityAdjustedRatio
-                 << "(reported" << meanMachineFlow << "ml/s vs weight" << meanWeightFlow
+        // Both ratios, both named: the bound tests raw * density, and printing
+        // only the adjusted one beside the two raw flows invited a reader to
+        // divide them and get a different number.
+        CAL_DETAIL("AutoFlow") << windowModeLabel << "window density-adjusted ratio"
+                 << densityAdjustedRatio << "(raw" << windowRatio << "x density"
+                 << kAutoFlowCalWaterDensity93C << "; reported" << meanMachineFlow
+                 << "ml/s vs weight" << meanWeightFlow
                  << "g/s) outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio
                  << "] - skipping (scale data or extraction suspect)";
         noteAutoFlowCalRejection(profileName,
