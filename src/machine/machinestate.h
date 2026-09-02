@@ -238,6 +238,10 @@ private:
     // See updatePhase().
     bool m_noAcSettled = false;
     QTimer* m_noAcSettleTimer = nullptr;
+    // Measured length of the current Error_NoAC episode. Logged on every exit, because
+    // the settle interval is an estimate from one reported episode and only field logs
+    // can say whether it is the right one.
+    QElapsedTimer m_noAcEpisode;
 
     QTimer* m_shotTimer = nullptr;
     qint64 m_shotStartTime = 0;

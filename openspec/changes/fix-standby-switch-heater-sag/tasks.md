@@ -6,5 +6,8 @@
       argument for why no event-based rule works for this signal.
 - [x] 3. Add `[DE1][StandbySwitch]` logging at INFO: when the warning is shown,
       when it clears, and once per suppressed episode.
-- [x] 4. Regression tests in `tests/tst_machinestate.cpp`.
+- [x] 4. Regression tests in `tests/tst_machinestate.cpp`, including one that lets the
+      real timer fire rather than hand-firing its effect.
+- [x] 6. Stop the shot timer on disconnect — pre-existing, in the branch this change
+      edits.
 - [x] 5. Full test suite green before opening the PR.

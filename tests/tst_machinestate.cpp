@@ -35,6 +35,19 @@ private:
         }
     };
 
+    // Elapses the settle wait by shortening the REAL timer and letting it fire, so the
+    // production connect() in the constructor is what sets m_noAcSettled. Setting that
+    // flag by hand instead would leave the wiring — the whole mechanism — uncovered:
+    // deleting the connect() would then fail no test at all.
+    // (QTimer::timeout takes a QPrivateSignal, so it cannot be emitted from here.)
+    static void elapseNoAcWait(TestFixture& f) {
+        QVERIFY(f.state.m_noAcSettleTimer->isActive());
+        f.state.m_noAcSettleTimer->stop();
+        f.state.m_noAcSettleTimer->setInterval(1);
+        f.state.m_noAcSettleTimer->start();
+        QTRY_VERIFY(f.state.m_noAcSettled);
+    }
+
     // Puts the fixture in the pre-flow window with a completed tare, which is the
     // only state in which either gate is live.
     void armPreheat(TestFixture& f) {
@@ -406,6 +419,9 @@ private slots:
         TestFixture f;
         f.device.m_firmwareBuildNumber = firmwareBuildNumber;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        // Elapse the wait, or this passes because of the wait rather than the firmware
+        // gate — and deleting the gate would not fail it.
+        elapseNoAcWait(f);
         QVERIFY(!f.state.standbySwitchOpen());
     }
 
@@ -419,14 +435,6 @@ private slots:
         f.device.m_simulationMode = false;  // No transport + no sim = disconnected
         f.state.onDE1StateChanged();
         QVERIFY(!f.state.standbySwitchOpen());
-    }
-
-    // Fires the settle wait without the test waiting 6 s of wall clock.
-    static void elapseNoAcWait(TestFixture& f) {
-        QVERIFY(f.state.m_noAcSettleTimer->isActive());
-        f.state.m_noAcSettleTimer->stop();
-        f.state.m_noAcSettled = true;
-        f.state.updatePhase();
     }
 
     // A snapshot cannot tell an open switch from the machine's own brief report —
@@ -443,8 +451,30 @@ private slots:
         QVERIFY(f.state.standbySwitchOpen());
     }
 
-    // The entry point varies — Ready on a tap-to-wake, a heating substate mid warm-up
-    // — so none of them may shortcut the wait.
+    // Found by the review of this change: the disconnect early return skips the only
+    // stopShotTimer() call, so the shot clock kept ticking after a mid-shot BLE drop.
+    void shotTimerStopsWhenTheDE1Disconnects() {
+        TestFixture f;
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
+        QVERIFY(f.state.m_shotTimer->isActive());
+
+        f.device.m_simulationMode = false;  // No transport + no sim = disconnected
+        f.state.onDE1StateChanged();
+        QVERIFY(!f.state.m_shotTimer->isActive());
+    }
+
+    // The interval is a deliberate figure, and the spec names it. Pinned so a change to
+    // it is a decision rather than a typo.
+    void standbySwitchWaitIsSixSeconds() {
+        TestFixture f;
+        QCOMPARE(f.state.m_noAcSettleTimer->interval(), 6000);
+        QVERIFY(f.state.m_noAcSettleTimer->isSingleShot());
+    }
+
+    // Guards against a future history-based shortcut, not against current behaviour:
+    // there is no branch on the preceding substate, so all four rows take one path
+    // today. They are here because the design that keyed on the arriving substate
+    // shipped once and missed the tap-to-wake entry point (Ready) entirely.
     void standbySwitchWaitsWhateverItArrivedFrom_data() {
         QTest::addColumn<int>("fromSubState");
         QTest::newRow("Ready (tap-to-wake)") << int(DE1::SubState::Ready);

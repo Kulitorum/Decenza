@@ -13,8 +13,9 @@ reports `Error_NoAC` unreliably.
 The system SHALL NOT show the warning until the `Error_NoAC` substate has persisted
 continuously for a settling interval, because firmware in the supported range also reports it
 briefly while the machine wakes or heats and clears it with no user action. An episode that
-clears before the interval elapses SHALL never show the warning. The interval SHALL match
-de1app's, which is 6 seconds.
+clears before the interval elapses SHALL never show the warning. The interval SHALL be 6 seconds,
+an estimate derived from the one reported episode (about three seconds) plus margin, and not a
+figure taken from any other implementation.
 
 The settling SHALL be judged on duration alone, not on which substate the episode arrived from:
 a snapshot cannot distinguish the two cases (both report state `Idle` with substate
@@ -58,16 +59,22 @@ a snapshot cannot distinguish the two cases (both report state `Idle` with subst
 ### Requirement: The warning's decisions are logged
 
 The system SHALL log, under the DE1 subsystem, when the warning is shown and when it clears, and
-SHALL log once per episode that clears before the settling interval elapses. All three SHALL be
-at INFO so they reach the user-facing log views: the last is what answers "why did no warning
+SHALL log once per episode that ends before the settling interval elapses. All three SHALL be at
+INFO so they reach the user-facing log views: the last is what answers "why did no warning
 appear", which is the half a reader needs when the suppression is wrong.
+
+Each of those lines SHALL carry the episode's measured duration and the configured interval,
+so a submitted log establishes how long real episodes run. The interval is an estimate from a
+single report, and this is the only evidence that can correct it.
 
 #### Scenario: A shown warning is traceable in a submitted log
 
 - **WHEN** the warning is shown and later clears
-- **THEN** the log carries an INFO line for each, naming the machine state and firmware build
+- **THEN** the log carries an INFO line for each, naming the machine state, firmware build, and
+  the episode's measured duration
 
 #### Scenario: A self-clearing episode is traceable
 
 - **WHEN** an `Error_NoAC` episode clears before the settling interval elapses
-- **THEN** the log carries one INFO line naming the substate the machine moved to
+- **THEN** the log carries one INFO line naming the substate the machine moved to, the episode's
+  measured duration, and the configured interval

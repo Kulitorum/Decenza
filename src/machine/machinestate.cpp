@@ -53,9 +53,11 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     connect(m_shotTimer, &QTimer::timeout, this, &MachineState::onShotTimerTick);
 
     // How long Error_NoAC must persist before it counts as the standby switch.
-    // 6 s is de1app's own figure (de1_de1.tcl:946) — Decent write the firmware that
-    // emits this substate, so their number is the calibrated one and there is no
-    // reason for us to pick a different one.
+    //
+    // 6 s is OUR estimate, not a figure from anywhere: the one field observation we
+    // have is a spurious episode of "about three seconds" on a single machine
+    // (firmware v1363, #1893), and this is that plus margin. de1app is NOT precedent
+    // for it — see the note at the standbySwitchOpen computation.
     m_noAcSettleTimer = new QTimer(this);
     m_noAcSettleTimer->setSingleShot(true);
     m_noAcSettleTimer->setInterval(6000);
@@ -375,6 +377,12 @@ void MachineState::updatePhase() {
         }
         m_noAcSettleTimer->stop();
         m_noAcSettled = false;
+        m_noAcEpisode.invalidate();
+        // Pre-existing, found while adding the two lines above: this early return skips
+        // the phase-transition logic that owns the only stopShotTimer() call, and
+        // onShotTimerTick() has no connectivity guard — so a mid-shot BLE drop left the
+        // shot clock running and emitting shotTimeChanged() every 100 ms.
+        stopShotTimer();
         return;
     }
 
@@ -392,25 +400,46 @@ void MachineState::updatePhase() {
     // (field reports on v1363, seen on every tap-to-wake). A snapshot cannot tell that
     // apart from the real thing — an open switch reports "Idle, Error_NoAC" and so
     // does the blip — so DURATION is the only discriminator, and this is a
-    // measurement of the hardware rather than a guard against a race. de1app reaches
-    // the same conclusion and waits 6 s (de1_de1.tcl:946).
+    // measurement of the hardware rather than a guard against a race.
+    //
+    // de1app does NOT do this, and the difference is unexplained. It shows its warning
+    // immediately (machine.tcl:1354, no duration test; commit 04d3b02e reports "page
+    // appears ~1ms after the switch is flipped" on firmware 1352). Its only timer here
+    // is a one-shot `after 6000` on connect (de1_de1.tcl:946) that re-checks a machine
+    // already latched in Error_NoAC — the gap our firmwareVersionChanged hook covers,
+    // not a settling wait. So either their users tolerate the same flash (a page blink
+    // costs far less than this full-screen dialog), or 1352 and 1363 differ. Recorded
+    // because an earlier revision of this comment cited that `after 6000` AS a
+    // settling wait, which it is not.
     //
     // Deliberately not keyed on what preceded the episode: the substate it arrives
     // from varies by entry point (Ready on a tap-to-wake, a heating substate mid
     // warm-up, nothing at all on a fresh connect), so every history-based rule misses
     // at least one path. Duration covers them all.
+    //
+    // Every line below carries the episode's measured length in ms. That is the whole
+    // diagnostic value here: the 6 s is an estimate from ONE reported episode, so a
+    // submitted log has to say how long real episodes actually run, both the ones that
+    // cleared themselves and the ones that reached the user. Without it a report of
+    // "still happening" cannot distinguish a longer blip from a different mechanism.
     const bool noAc = (subState == DE1::SubState::Error_NoAC);
     if (!noAc) {
-        if (m_noAcSettleTimer->isActive()) {
-            STANDBY_INFO(QStringLiteral("machine reported no AC but cleared it within "
-                                        "%1 s, so the switch is not open (substate is "
-                                        "now %2)")
-                             .arg(m_noAcSettleTimer->interval() / 1000)
-                             .arg(DE1::subStateToString(subState)));
+        if (m_noAcEpisode.isValid()) {
+            STANDBY_INFO(QStringLiteral("machine reported no AC for %1 ms then cleared "
+                                        "it (substate is now %2); the wait is %3 ms, so "
+                                        "%4")
+                             .arg(m_noAcEpisode.elapsed())
+                             .arg(DE1::subStateToString(subState))
+                             .arg(m_noAcSettleTimer->interval())
+                             .arg(m_standbySwitchOpen
+                                      ? QStringLiteral("the warning had already shown")
+                                      : QStringLiteral("no warning was shown")));
+            m_noAcEpisode.invalidate();
         }
         m_noAcSettleTimer->stop();
         m_noAcSettled = false;
     } else if (!m_noAcSettled && !m_noAcSettleTimer->isActive()) {
+        m_noAcEpisode.start();
         m_noAcSettleTimer->start();
     }
 
@@ -422,8 +451,10 @@ void MachineState::updatePhase() {
         m_standbySwitchOpen = standbySwitchOpen;
         if (standbySwitchOpen) {
             STANDBY_INFO(QStringLiteral("warning shown: machine has reported no AC for "
-                                        "%1 s (state=%2, firmware build %3)")
-                             .arg(m_noAcSettleTimer->interval() / 1000)
+                                        "%1 ms, past the %2 ms wait (state=%3, firmware "
+                                        "build %4)")
+                             .arg(m_noAcEpisode.isValid() ? m_noAcEpisode.elapsed() : -1)
+                             .arg(m_noAcSettleTimer->interval())
                              .arg(DE1::stateToString(state))
                              .arg(m_device->firmwareBuildNumber()));
         } else {

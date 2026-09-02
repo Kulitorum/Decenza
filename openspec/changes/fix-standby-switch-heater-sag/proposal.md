@@ -27,8 +27,14 @@ full-screen takeover with no wait at all.
 
 ## What changes
 
-- `Error_NoAC` must persist for 6 seconds before the warning shows. The interval is
-  de1app's own figure: Decent write the firmware that emits this substate.
+- `Error_NoAC` must persist for 6 seconds before the warning shows. That interval is
+  our own estimate — the one reported episode ran about three seconds, and this is
+  that plus margin. It is explicitly NOT de1app's: de1app shows its warning
+  immediately, and its `after 6000` is a one-shot post-connect re-check for a machine
+  already latched in `Error_NoAC`, not a settling wait. An earlier revision of this
+  change cited it as one, wrongly.
+- Every standby-switch log line carries the episode's measured duration, so a field log
+  can correct the interval rather than leaving it an estimate.
 - The no-timers rule in CLAUDE.md gains a narrow, argued hardware carve-out.
 - The subsystem gets logging. It previously emitted nothing at all, which is why a
   20,578-line user log could neither confirm nor deny when the warning fired.
