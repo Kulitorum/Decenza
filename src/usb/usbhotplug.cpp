@@ -37,20 +37,19 @@ void nativeOnUsbDeviceChanged(JNIEnv*, jclass, jint vendorId, jint productId, jb
     const bool isAttach = (attached == JNI_TRUE);
 
     QMetaObject::invokeMethod(qApp, [vid, pid, isAttach]() {
-        const bool isScale = (usbDeviceKindForPid(pid) == UsbDeviceKind::Scale);
-        // Marker follows the DEVICE, not this file: one shared receiver does not
-        // make the DE1's cable a scale event.
         const QString what = QStringLiteral("Hotplug: %1 (vid=0x%2 pid=0x%3)")
                                  .arg(isAttach ? QStringLiteral("attached")
                                                : QStringLiteral("detached"),
                                       QString::number(vid, 16), QString::number(pid, 16));
-        if (isScale) HOTPLUG_INFO(what);
-        else         DE1_INFO_STDERR_TAGGED("USB", what);
-
-        if (isScale) {
-            if (s_scaleManager) s_scaleManager->onHotplugEvent();
-        } else {
+        // Both, when the id is ambiguous. A manager whose device did not answer its
+        // probe gives up on its own; the cost of asking is one handshake.
+        if (usbPidMayBeDe1(pid)) {
+            DE1_INFO_STDERR_TAGGED("USB", what);
             if (s_de1Manager) s_de1Manager->onHotplugEvent();
+        }
+        if (usbPidMayBeScale(pid)) {
+            HOTPLUG_INFO(what);
+            if (s_scaleManager) s_scaleManager->onHotplugEvent();
         }
     }, Qt::QueuedConnection);
 }

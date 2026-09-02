@@ -5,19 +5,27 @@
 class UsbScaleManager;
 class USBManager;
 
-// Anything not a scale id is assumed to be the DE1, so a scale id added to
-// device_filter.xml but not here is silently routed to the wrong manager.
-// tst_usbdecentscale.cpp's deviceFilterIdsRouteToTheRightManager binds the two.
-enum class UsbDeviceKind { Scale, De1 };
+// Which manager(s) a hotplug event belongs to. NOT either/or: the Half Decent
+// Scale ships with a CH9102 (0x55D3), the same bridge chip the DE1 uses, so that
+// id alone cannot tell them apart. Observed on hardware — an HDS attached as
+// vid=0x1a86 pid=0x55d3 (serial HDS-900910), was routed to the DE1 manager, and
+// timed out on the DE1's <+M> probe while never reaching the scale manager.
+//
+// So an ambiguous id notifies both, and the protocol probes decide: each manager's
+// pass gives up on a device that does not answer its own handshake.
+constexpr int kUsbScalePidCh340a = 0x7522;
+constexpr int kUsbScalePidCh340b = 0x7523;
+constexpr int kUsbSharedPidCh9102 = 0x55D3;   // DE1 *and* HDS
 
-constexpr int kUsbScalePid1 = 0x7522;
-constexpr int kUsbScalePid2 = 0x7523;
-
-constexpr UsbDeviceKind usbDeviceKindForPid(int productId)
+constexpr bool usbPidMayBeScale(int pid)
 {
-    return (productId == kUsbScalePid1 || productId == kUsbScalePid2)
-               ? UsbDeviceKind::Scale
-               : UsbDeviceKind::De1;
+    return pid == kUsbScalePidCh340a || pid == kUsbScalePidCh340b
+        || pid == kUsbSharedPidCh9102;
+}
+
+constexpr bool usbPidMayBeDe1(int pid)
+{
+    return pid == kUsbSharedPidCh9102;
 }
 
 /**
