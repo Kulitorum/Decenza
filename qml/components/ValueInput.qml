@@ -10,6 +10,31 @@ Item {
 
     // Value properties
     property real value: 0
+
+    // The value this widget displays and steps from, which is `value` except
+    // while an interaction is outrunning the consumer.
+    //
+    // Nothing here ever assigns `value` — that would destroy the consumer's
+    // binding — so an adjustment is a REQUEST: valueModified is emitted and the
+    // consumer is expected to write the new value back through its binding.
+    // Consumers bound to non-notifying data cannot do that synchronously: a
+    // plain JS object, or a C++ value behind a manual version bump, leaves
+    // `value` frozen for the whole gesture. Every drag step then recomputed
+    // frozenValue + one step and overwrote the last, so a drag of ANY length
+    // moved the value exactly one step (#1894, the frame fields in
+    // ProfileEditorPage). Holding +/- froze the same way, less visibly.
+    //
+    // So the widget carries the value itself until the consumer catches up. An
+    // echo clears the flag in onValueChanged, which is why a consumer that does
+    // echo — BrewDialog and most others — behaves exactly as it did before.
+    property real _pendingValue: 0
+    property bool _hasPending: false
+    readonly property real effectiveValue: _hasPending ? _pendingValue : value
+
+    // Authority returns to `value` the moment the consumer reports one, whether
+    // that is the value we asked for or a different one it clamped to.
+    onValueChanged: _hasPending = false
+
     property real from: 0
     property real to: 100
     property real stepSize: 1
@@ -23,6 +48,16 @@ Item {
     // Display
     property string suffix: ""
     property string displayText: ""  // Optional override for value display
+
+    // displayText is computed by the consumer FROM `value` — a unit conversion
+    // ("2.4 mL/s" for an internal 24), or a sentinel label ("off" at 0). Either
+    // way it describes `value`, so it is only usable while `value` is what the
+    // widget is showing. While _hasPending it is describing a number the user
+    // has already dragged away from, which is how a field sitting at "off" went
+    // on reading "off" for the whole gesture. Falling back to the raw number
+    // costs an echoing consumer nothing: its echo clears _hasPending inside the
+    // emit, so displayText is in force at every repaint.
+    readonly property string effectiveDisplayText: _hasPending ? "" : displayText
     property string rangeText: ""   // Optional override for range display in popup
     property string accessibleName: ""  // Optional override for accessibility announcement
     property color valueColor: Theme.textColor
@@ -66,6 +101,10 @@ Item {
     // Internal helper used in place of raw root.valueModified() emission so
     // the dirty flag is kept consistent.
     function _emitValueModified(newVal) {
+        // Take the value BEFORE emitting, so an echoing consumer's write lands
+        // on top of it (onValueChanged clears the flag) rather than racing it.
+        _pendingValue = newVal
+        _hasPending = true
         root.valueModified(newVal)
         _dirtySinceCommit = true
     }
@@ -76,8 +115,12 @@ Item {
     function commitValue() {
         if (_dirtySinceCommit) {
             _dirtySinceCommit = false
-            root.valueCommitted(root.value)
+            root.valueCommitted(root.effectiveValue)
         }
+        // Interaction over — `value` is authoritative again, so whatever the
+        // consumer actually stored shows through instead of the widget going on
+        // displaying a number nobody kept.
+        _hasPending = false
     }
 
     // Enable keyboard focus
@@ -87,7 +130,7 @@ Item {
     // Accessibility - expose as a slider with contextual label
     Accessible.role: Accessible.Slider
     Accessible.name: (root.accessibleName ? root.accessibleName + " " : "") +
-                     (root.displayText || (root.value.toFixed(root.decimals) + root.suffix))
+                     (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
     Accessible.description: TranslationManager.translate("valueinput.accessibility.description", "Use plus and minus buttons to adjust. Tap center for full-screen editor. Double-tap value to type a number.")
     Accessible.focusable: true
 
@@ -130,7 +173,7 @@ Item {
     // Announce value when focused (for accessibility)
     onActiveFocusChanged: {
         if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var text = root.accessibleName || root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix)
+            var text = root.accessibleName || root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix)
             AccessibilityManager.announce(text)
         }
     }
@@ -145,7 +188,7 @@ Item {
         id: textMetrics
         font.pixelSize: root.valueFontPixelSize
         font.bold: true
-        text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+        text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
     }
 
     // Focus indicator around the entire control
@@ -191,7 +234,7 @@ Item {
                     text: "\u2212"
                     font.pixelSize: root.valueFontPixelSize
                     font.bold: true
-                    color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                    color: root.effectiveValue <= root.from ? Theme.textSecondaryColor : Theme.textColor
                     Accessible.ignored: true
                 }
 
@@ -233,7 +276,7 @@ Item {
                     anchors.centerIn: parent
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+                    text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                     font.pixelSize: root.valueFontPixelSize
                     font.bold: true
                     color: root.valueColor
@@ -264,10 +307,13 @@ Item {
                         dragReady = false
                         hasMoved = false
                         currentGear = 0
+                        // Start from what the consumer holds. A canceled gesture
+                        // never commits, so this is where its leftovers go.
+                        root._hasPending = false
 
                         // Announce parameter name when touched (accessibility)
                         if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                            var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                            var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                             AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                         }
                     }
@@ -415,7 +461,7 @@ Item {
                             Text {
                                 id: bubbleText
                                 anchors.centerIn: parent
-                                text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+                                text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                                 font.pixelSize: root.sc(30)
                                 font.bold: true
                                 color: speechBubble.getContrastColor(root.valueColor)
@@ -505,7 +551,7 @@ Item {
                     text: "+"
                     font.pixelSize: root.valueFontPixelSize
                     font.bold: true
-                    color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                    color: root.effectiveValue >= root.to ? Theme.textSecondaryColor : Theme.textColor
                     Accessible.ignored: true
                 }
 
@@ -548,12 +594,13 @@ Item {
         padding: 0
 
         onOpened: {
+            root._hasPending = false
             popupContent.currentGear = 0
             popupContent.editMode = false
             popupValueContainer.forceActiveFocus()
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 var announcement = root.accessibleName ? root.accessibleName + ". " : ""
-                var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                 announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
                 AccessibilityManager.announce(announcement, true)
             }
@@ -620,7 +667,7 @@ Item {
                             text: "\u2212"
                             font.pixelSize: root.sc(32)
                             font.bold: true
-                            color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                            color: root.effectiveValue <= root.from ? Theme.textSecondaryColor : Theme.textColor
                             Accessible.ignored: true
                         }
 
@@ -654,7 +701,7 @@ Item {
                         focus: !popupContent.editMode
 
                         Accessible.role: Accessible.Slider
-                        Accessible.name: root.accessibleName || (root.displayText || (root.value.toFixed(root.decimals) + root.suffix))
+                        Accessible.name: root.accessibleName || (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
                         Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
                         Accessible.focusable: true
 
@@ -681,7 +728,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             visible: !popupContent.editMode
-                            text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+                            text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                             font.pixelSize: root.sc(40)
                             font.bold: true
                             color: root.valueColor
@@ -709,7 +756,7 @@ Item {
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
                                     var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
                                     parsed = Math.round(parsed / roundTo) * roundTo
-                                    if (parsed !== root.value) {
+                                    if (parsed !== root.effectiveValue) {
                                         root._emitValueModified(parsed)
                                     }
                                     // Typing a number is a deliberate, final adjustment.
@@ -718,7 +765,7 @@ Item {
                                     // the same number back is a no-op.
                                     root.commitValue()
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                        AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
+                                        AccessibilityManager.announce(root.effectiveDisplayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
                                     }
                                 }
                                 popupContent.editMode = false
@@ -766,10 +813,11 @@ Item {
                                 // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
                                 startY = mouse.y - popupContent.currentGear * root.sc(50)
                                 isDragging = false
+                                root._hasPending = false
 
                                 // Announce parameter name when bubble appears (accessibility)
                                 if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                    var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                                    var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                                     AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                                 }
                             }
@@ -818,7 +866,7 @@ Item {
 
                             onDoubleClicked: {
                                 popupContent.editMode = true
-                                popupTextInput.text = root.value.toFixed(root.decimals)
+                                popupTextInput.text = root.effectiveValue.toFixed(root.decimals)
                                 popupTextInput.forceActiveFocus()
                                 popupTextInput.selectAll()
                             }
@@ -878,7 +926,7 @@ Item {
                                     Text {
                                         id: popupBubbleText
                                         anchors.centerIn: parent
-                                        text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+                                        text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                                         font.pixelSize: root.sc(30)
                                         font.bold: true
                                         color: dragBubble.getContrastColor(root.valueColor)
@@ -932,7 +980,7 @@ Item {
                             text: "+"
                             font.pixelSize: root.sc(32)
                             font.bold: true
-                            color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                            color: root.effectiveValue >= root.to ? Theme.textSecondaryColor : Theme.textColor
                             Accessible.ignored: true
                         }
 
@@ -1084,16 +1132,16 @@ Item {
     }
 
     function adjustValueWithStep(steps, effectiveStep) {
-        var newVal = root.value + (steps * effectiveStep)
+        var newVal = root.effectiveValue + (steps * effectiveStep)
         newVal = Math.max(root.from, Math.min(root.to, newVal))
         // Round to fineStepSize if available (allows sub-stepSize precision),
         // otherwise round to stepSize
         var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
         newVal = Math.round(newVal / roundTo) * roundTo
-        if (newVal !== root.value) {
+        if (newVal !== root.effectiveValue) {
             _emitValueModified(newVal)
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                AccessibilityManager.announce(root.displayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
+                AccessibilityManager.announce(root.effectiveDisplayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
             }
         }
     }
