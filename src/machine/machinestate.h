@@ -69,8 +69,10 @@ class MachineState : public QObject {
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
     // True while the DE1's front standby switch is cutting AC power (substate
     // Error_NoAC), on firmware new enough to report it reliably. Always false while
-    // disconnected — see updatePhase(). Firmware < 1337 reports this substate
-    // spuriously, matching de1app's own gate.
+    // disconnected, and for the first few seconds of any Error_NoAC episode — the
+    // machine reports the substate briefly while waking or heating and clears it
+    // untouched. See updatePhase(). Firmware < 1337 reports this substate spuriously,
+    // matching de1app's own gate.
     Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY standbySwitchOpenChanged)
 public:
     enum class Phase {
@@ -231,6 +233,15 @@ private:
     double m_pourVolume = 0.0;          // Volume during pouring substate (ml)
     int m_lastEmittedPourVolumeMl = -1;         // Throttle: only emit when rounded ml changes
     bool m_standbySwitchOpen = false;
+    // Set when the current Error_NoAC episode has outlasted m_noAcSettleTimer, i.e.
+    // it is the standby switch rather than one of the machine's own brief reports.
+    // See updatePhase().
+    bool m_noAcSettled = false;
+    QTimer* m_noAcSettleTimer = nullptr;
+    // Measured length of the current Error_NoAC episode. Logged on every exit, because
+    // the settle interval is an estimate from one reported episode and only field logs
+    // can say whether it is the right one.
+    QElapsedTimer m_noAcEpisode;
 
     QTimer* m_shotTimer = nullptr;
     qint64 m_shotStartTime = 0;

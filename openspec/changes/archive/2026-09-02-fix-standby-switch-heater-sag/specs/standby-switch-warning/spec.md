@@ -1,11 +1,4 @@
-# standby-switch-warning Specification
-
-## Purpose
-
-Warns the user when the DE1's front standby switch is cutting AC power to the machine, so a
-tablet showing a frozen or unresponsive UI is understood as "flip the switch" rather than a fault.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: A live Error_NoAC substate shows a dismissible full-screen warning
 
@@ -61,32 +54,7 @@ a snapshot cannot distinguish the two cases (both report state `Idle` with subst
 - **THEN** the warning is dismissed and the system returns to the page shown before the warning
   appeared
 
-### Requirement: The warning clears when power is restored
-
-Once a shown warning's substate is no longer `Error_NoAC` — because the switch was flipped back,
-or the DE1 disconnected — the system SHALL clear the warning and return to the page shown before
-it appeared, without requiring the user to dismiss it.
-
-#### Scenario: Power is restored while the warning is showing
-
-- **WHEN** the warning is shown and the connected DE1's substate changes away from `Error_NoAC`
-- **THEN** the warning clears automatically and the system returns to the prior page
-
-#### Scenario: The DE1 disconnects while the warning is showing
-
-- **WHEN** the warning is shown and the DE1 connection is lost
-- **THEN** the warning clears; a stale `Error_NoAC` value SHALL NOT persist across the
-  disconnect and cannot re-show the warning on reconnect unless the machine reports it again
-
-### Requirement: The warning is not tied to a specific skin or page
-
-The warning SHALL be driven by the DE1's substate regardless of which layout, skin, or page the
-user is currently viewing, so it appears consistently rather than only from specific screens.
-
-#### Scenario: Warning appears regardless of current page
-
-- **WHEN** `Error_NoAC` becomes the live substate while the user is on any page of the app
-- **THEN** the warning appears
+## ADDED Requirements
 
 ### Requirement: The warning's decisions are logged
 
