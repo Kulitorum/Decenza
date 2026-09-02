@@ -860,16 +860,17 @@ private:
     // Stamp a tweak onto the active recipe row (no-op when none is active
     // or activation is applying).
     void stampActiveRecipe(const QString& field, const QVariant& value);
+    // True when the pitcher the recipe's steam block names is still one of the
+    // stored presets. Distinguishes "the user picked another pitcher" from
+    // "the recipe's pitcher was deleted", which reach the selection watcher
+    // identically. A heater-off recipe names the built-in, which cannot be
+    // deleted, so it always counts as present.
+    bool recipeSteamPitcherStillExists(const QString& steamJson) const;
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // cached result of the last checkRecipesUpgradeEligibility() background
     // pass, consumed by acceptRecipesFirstUpgrade().
     bool m_recipesUpgradeWillCreate = false;
     ShotRecord m_recipesUpgradeShotRecord;
-    // Rebuild + stamp the active recipe's steam block from live settings.
-    void stampActiveRecipeSteam();
-    // Rebuild + stamp the active recipe's hot-water block from live settings
-    // (selected water vessel). No-op unless a hot-water recipe is active.
-    void stampActiveRecipeHotWater();
     // THE single ShotSettings write for every steam entry point. The four
     // non-steam fields are read live from Settings here, so no caller can push
     // a half-stale payload — four call sites used to hand-roll this identical

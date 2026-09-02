@@ -1430,6 +1430,30 @@ void MainController::setupRecipeConnections() {
             deactivateRecipe();
             return;
         }
+        // The pitcher and vessel are ingredients too, so the same two windows
+        // this block exists for — the startup restore, and an external edit
+        // that re-points the recipe — have to reconcile them. Nothing else
+        // can: the live watchers only see the USER change a selection, and
+        // with the write-through gone the divergence no longer self-heals.
+        {
+            auto* brew = m_settings->brew();
+            const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+            const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+            const bool pitcherGone = Recipe::steamPitcherDiverged(
+                recipe.value(QStringLiteral("steamJson")).toString(),
+                pitcher.value(QStringLiteral("name")).toString(),
+                SettingsBrew::isHeaterOffPitcher(pitcher));
+            const bool vesselGone = Recipe::waterVesselDiverged(
+                recipe.value(QStringLiteral("hotWaterJson")).toString(),
+                vessel.value(QStringLiteral("name")).toString());
+            if (pitcherGone || vesselGone) {
+                qWarning() << "[recipe] restored/refreshed recipe" << recipeId
+                           << "names a" << (pitcherGone ? "pitcher" : "water vessel")
+                           << "that is not the live selection - deactivating";
+                deactivateRecipe();
+                return;
+            }
+        }
         const qint64 resolvedBagId = m_activeRecipe.value(
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
         m_activeRecipe = recipe;
@@ -1531,6 +1555,42 @@ void MainController::setupRecipeConnections() {
         if (recipeEq > 0 && m_settings->dye()->activeEquipmentId() != recipeEq)
             deactivateRecipe();
     });
+    // The steam pitcher and the water vessel are ingredients too (#1895): the
+    // user picking a different one is making a different drink, not editing
+    // this one. Only the SELECTION deactivates — a preset edit is not a swap,
+    // and the milk weight is captured automatically at the end of steaming, so
+    // deactivating on it would drop every milk recipe just before its own shot
+    // is saved.
+    connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this, [this]() {
+        if (m_applyingRecipe || m_activeRecipe.isEmpty())
+            return;
+        auto* brew = m_settings->brew();
+        const QString steamJson = m_activeRecipe.value(QStringLiteral("steamJson")).toString();
+        const QVariantMap live = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+        if (!Recipe::steamPitcherDiverged(steamJson, live.value(QStringLiteral("name")).toString(),
+                                          SettingsBrew::isHeaterOffPitcher(live)))
+            return;
+        // Dropping the parked standing selection stops deactivateRecipe's
+        // override unwind from re-selecting it over the pick that got us here.
+        // Only when there WAS a pick: deleting the preset the recipe names
+        // lands here too (shiftedForRemoval answers with the Heater off
+        // sentinel for the entry that was deleted) and nobody chose anything,
+        // so the user's parked pitcher has to survive to be unwound to. The
+        // recipe's own pitcher still being present is what tells the two
+        // apart.
+        if (recipeSteamPitcherStillExists(steamJson))
+            brew->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
+        deactivateRecipe();
+    });
+    connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this, [this]() {
+        if (m_applyingRecipe || m_activeRecipe.isEmpty())
+            return;
+        auto* brew = m_settings->brew();
+        const QVariantMap live = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+        if (Recipe::waterVesselDiverged(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString(),
+                                        live.value(QStringLiteral("name")).toString()))
+            deactivateRecipe();
+    });
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
@@ -1605,22 +1665,9 @@ void MainController::setupRecipeConnections() {
         if (DrinkTypes::hasGrind(m_activeRecipe.value("drinkType").toString()))
             stampActiveRecipe(QStringLiteral("rpmPinned"), m_settings->dye()->dyeGrinderRpm());
     });
-    // Steam tweaks (pitcher selection/edits, milk weight) refresh the block.
-    connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-    connect(m_settings->brew(), &SettingsBrew::steamPitcherPresetsChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-    connect(m_settings->brew(), &SettingsBrew::lastSteamMilkGChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-
-    // Hot-water tweaks (vessel selection/edits) refresh the block the same way.
-    // Only fires for a hot-water recipe: stampActiveRecipeHotWater re-snapshots
-    // the selected vessel, and stampActiveRecipe's equality guard means
-    // re-selecting the same vessel is a no-op (never deactivates).
-    connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this,
-            [this]() { stampActiveRecipeHotWater(); });
-    connect(m_settings->brew(), &SettingsBrew::waterVesselPresetsChanged, this,
-            [this]() { stampActiveRecipeHotWater(); });
+    // The steam and hot-water blocks have NO write-through (#1895) — the
+    // selection watchers above deactivate instead. tst_RecipeStorage's
+    // onlyDialInValuesStampTheActiveRecipe holds the absence.
 
     // selectedRecipeId (the synchronous pill-selection marker) follows
     // activeRecipeId in steady state: a successful activation sets activeRecipeId
@@ -2364,6 +2411,24 @@ void MainController::loadAutoLoadRecipeIfNeeded() {
     m_recipeStorage->requestRecipe(recipeId);
 }
 
+bool MainController::recipeSteamPitcherStillExists(const QString& steamJson) const {
+    if (!m_settings)
+        return false;
+    const QJsonObject o = QJsonDocument::fromJson(steamJson.toUtf8()).object();
+    if (o.value(QStringLiteral("heaterOff")).toBool())
+        return true;  // the built-in entry, which no delete can remove
+    const QString name = o.value(QStringLiteral("pitcherName")).toString().trimmed();
+    if (name.isEmpty())
+        return false;
+    const QVariantList presets = m_settings->brew()->steamPitcherPresets();
+    for (const QVariant& v : presets) {
+        if (v.toMap().value(QStringLiteral("name")).toString()
+                .compare(name, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
 void MainController::stampActiveRecipe(const QString& field, const QVariant& value) {
     if (m_applyingRecipe || m_activeRecipe.isEmpty() || !m_recipeStorage || !m_settings)
         return;
@@ -2375,12 +2440,6 @@ void MainController::stampActiveRecipe(const QString& field, const QVariant& val
     m_activeRecipe.insert(field, value);
     m_pendingRecipeSelfWrites++;
     m_recipeStorage->requestUpdateRecipe(recipeId, {{field, value}});
-}
-
-void MainController::stampActiveRecipeSteam() {
-    if (m_applyingRecipe || m_activeRecipe.isEmpty())
-        return;
-    stampActiveRecipe(QStringLiteral("steamJson"), currentSteamSpecJson());
 }
 
 QString MainController::currentSteamSpecJson() const {
@@ -2412,20 +2471,6 @@ QString MainController::currentSteamSpecJson() const {
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());
     return compactJson(o);
-}
-
-void MainController::stampActiveRecipeHotWater() {
-    if (m_applyingRecipe || m_activeRecipe.isEmpty())
-        return;
-    // Only write through for a recipe that actually uses hot water. Otherwise a
-    // brew-screen vessel change (unrelated to this recipe) would stamp an empty
-    // block over a dormant hasWater:false recipe, erasing its remembered vessel
-    // and pour order. currentHotWaterSpecJson() returns "" when hasWater is
-    // false, so without this guard the equality check would persist that "".
-    if (!parseHotWaterBlock(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString())
-             .value(QStringLiteral("hasWater")).toBool())
-        return;
-    stampActiveRecipe(QStringLiteral("hotWaterJson"), currentHotWaterSpecJson());
 }
 
 QString MainController::currentHotWaterSpecJson() const {
@@ -3829,11 +3874,8 @@ void MainController::snapshotForDescaleHeaterHold() {
     // outranks every veto. Clearing it on entry is correct and final.
     //
     // Deliberately NOT the selected pitcher either. turnOffSteamHeater() does not touch the
-    // selection, so there is nothing to restore — and setSelectedSteamCup() is not inert: it
-    // emits selectedSteamPitcherChanged, which is wired to stampActiveRecipeSteam()
-    // (maincontroller.cpp, constructor) and rewrites the ACTIVE recipe's persisted steamJson.
-    // Restoring a stale pitcher an hour later would overwrite the steam spec of whatever
-    // recipe the user had activated meanwhile.
+    // selection, so there is nothing to restore, and putting a stale pitcher back an hour
+    // later would silently change what the user has since chosen to steam with.
     m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
 }
 

@@ -1209,6 +1209,62 @@ private slots:
                      .value("name").toString(), QStringLiteral("R2"));
     }
 
+    // The water side clamped instead of shifting until recipe-blocks-editor-only
+    // made the vessel selection an activation-lifetime input: deleting a vessel
+    // BELOW the selection left the index alone while the array shifted under
+    // it, so the selection silently named a different vessel AND no
+    // selectedWaterVesselChanged was emitted for anyone to notice.
+    void removingAVesselShiftsTheSelectionRatherThanClampingIt() {
+        auto* brew = m_settings.brew();
+        // THREE vessels, and the selection is the MIDDLE one. With only two,
+        // clamping lands on the right vessel by accident: the selection is then
+        // the last index, the clamp fires, and size-1 happens to be where the
+        // survivor slid to. The bug needs a vessel AFTER the selected one.
+        brew->addWaterVesselPreset(QStringLiteral("W1"), 70, QStringLiteral("weight"), 4, 85.0);
+        brew->addWaterVesselPreset(QStringLiteral("W2"), 140, QStringLiteral("weight"), 4, 85.0);
+        brew->addWaterVesselPreset(QStringLiteral("W3"), 210, QStringLiteral("weight"), 4, 85.0);
+        const int w3 = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        const int w2 = w3 - 1;
+        const int w1 = w2 - 1;
+        brew->setSelectedWaterCup(w2);
+
+        brew->removeWaterVesselPreset(w1);        // delete the one BELOW the selection
+        // Clamping only rescues a selection that ran off the END, so this one
+        // was left pointing at what is now W3.
+        QCOMPARE(brew->getWaterVesselPreset(brew->selectedWaterVessel())
+                     .value("name").toString(), QStringLiteral("W2"));
+    }
+
+    // Water has no built-in entry to fall back on, so the sentinel
+    // shiftedForRemoval answers with must resolve to a surviving vessel rather
+    // than a no-vessel state its consumers would render as a default volume.
+    void removingTheSelectedVesselLandsOnASurvivingVessel() {
+        auto* brew = m_settings.brew();
+        brew->addWaterVesselPreset(QStringLiteral("Keeper"), 70, QStringLiteral("weight"), 4, 85.0);
+        brew->addWaterVesselPreset(QStringLiteral("Doomed"), 140, QStringLiteral("weight"), 4, 85.0);
+        const int doomed = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        brew->setSelectedWaterCup(doomed);
+
+        brew->removeWaterVesselPreset(doomed);
+        QVERIFY(brew->selectedWaterVessel() >= 0);
+        QVERIFY(!brew->getWaterVesselPreset(brew->selectedWaterVessel()).isEmpty());
+    }
+
+    void movingAVesselKeepsTheSelectionOnTheSameVessel() {
+        auto* brew = m_settings.brew();
+        brew->addWaterVesselPreset(QStringLiteral("M1"), 70, QStringLiteral("weight"), 4, 85.0);
+        brew->addWaterVesselPreset(QStringLiteral("M2"), 140, QStringLiteral("weight"), 4, 85.0);
+        brew->addWaterVesselPreset(QStringLiteral("M3"), 210, QStringLiteral("weight"), 4, 85.0);
+        const int m3 = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        const int m2 = m3 - 1;
+        const int m1 = m2 - 1;
+        brew->setSelectedWaterCup(m2);
+
+        brew->moveWaterVesselPreset(m1, m3);      // drag the one below past it
+        QCOMPARE(brew->getWaterVesselPreset(brew->selectedWaterVessel())
+                     .value("name").toString(), QStringLiteral("M2"));
+    }
+
     void removingTheSelectedPresetFallsBackToHeaterOff() {
         auto* brew = m_settings.brew();
         brew->addSteamPitcherPreset(QStringLiteral("Doomed"), 33, 150, 150.0);
