@@ -98,10 +98,16 @@ page for that coffee, using the provider's own web tool. The request SHALL be ma
 bag: a search that returns nothing SHALL NOT be repeated on a later launch, so the feature cannot
 bill the user twice for the same question.
 
-A returned URL SHALL be probed before use and SHALL be adopted only when it resolves. The user
-SHALL be shown the URL, with its host legible, and SHALL confirm it before it is stored as the
-bag's `link` — a model's guess is not evidence, and an unconfirmed guess written into `link` would
-be read by every downstream consumer as fact.
+The provider's **web-search** tool SHALL be used, not its fetch-a-named-URL tool: only one
+provider's tool does both, and a fetch tool asked to FIND a page answers from memory, which is a
+hallucinated URL wearing a tool's credibility. A provider with no search tool SHALL report that
+rather than answer.
+
+A returned URL SHALL be probed before it is offered, and SHALL be discarded only when the probe
+PROVES it dead. An inconclusive probe is not evidence, so the URL SHALL still be offered — the
+user, who is shown the host and must accept, is the check that matters. The user SHALL confirm it
+before it is stored as the bag's `link`: a model's guess is not evidence either, and an unconfirmed
+guess written into `link` would be read by every downstream consumer as fact.
 
 Once confirmed, the URL SHALL feed photo resolution and detail extraction exactly as a URL the user
 typed. A URL that is itself dead SHALL fall through to archive recovery like any other.
@@ -121,9 +127,18 @@ typed. A URL that is itself dead SHALL fall through to archive recovery like any
 - **THEN** no search SHALL be attempted and no provider SHALL be substituted
 
 #### Scenario: Search returns nothing
-- **WHEN** the configured provider returns no URL, or one that does not resolve
+- **WHEN** the configured provider returns no URL, or one the probe proves dead
 - **THEN** the bag SHALL be left unchanged
 - **AND** the search SHALL NOT be repeated for that bag on a later launch
+
+#### Scenario: The probe reaches no verdict
+- **WHEN** a returned URL's probe cannot resolve either way
+- **THEN** the URL SHALL still be offered for confirmation
+- **AND** the suggestion SHALL NOT be left pending with nothing shown
+
+#### Scenario: A provider that cannot search
+- **WHEN** the selected provider has no web-search tool
+- **THEN** the search SHALL report that, and no answer SHALL be taken from the model's memory
 
 #### Scenario: Found URL is itself delisted
 - **WHEN** the AI returns a URL that resolves as dead

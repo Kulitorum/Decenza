@@ -908,13 +908,17 @@ void BeanBaseClient::finishLinkStateProbe(const QString& url, const QString& sta
     m_linkStateInFlight.remove(url);
     if (!state.isEmpty()) {
         m_linkStateByUrl.insert(url, state);
-        emit linkStateResolved(url, state);
     } else {
         // Unresolvable stays "unknown" to every reader — but remember that we
         // asked, or an offline device re-probes every row on every rebuild, and
         // rebuild runs per lane arrival and per debounced keystroke.
         m_linkStateUnresolvable.insert(url);
     }
+    // EVERY probe answers, including the one with no verdict. A consumer that
+    // waits for a specific state otherwise waits forever — which is exactly
+    // what stranded an AI-suggested page the user had already paid for,
+    // silently, when its probe came back inconclusive.
+    emit linkStateResolved(url, state.isEmpty() ? QStringLiteral("unknown") : state);
     while (!m_linkStateQueued.isEmpty() && m_linkStateInFlight.size() < kMaxLinkProbesInFlight) {
         const QString next = m_linkStateQueued.takeFirst();
         if (!m_linkStateByUrl.contains(next) && !m_linkStateInFlight.contains(next))

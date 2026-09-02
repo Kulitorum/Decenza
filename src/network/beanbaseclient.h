@@ -280,8 +280,11 @@ signals:
     // dead URL still being in the blob at that moment.
     void bagLinkArchived(const QString& canonicalId, const QString& link);
 
-    // A probed URL's state settled. Only ever fires with a REAL state — an
-    // unresolvable probe stays unknown rather than being reported as nothing.
+    // A probed URL's state settled: "live", "archived", "none", or "unknown"
+    // when the probe reached no verdict. Every probe emits exactly once — a
+    // consumer waiting on this must never be left waiting — and "unknown" is
+    // reported as itself rather than as "none", because an inconclusive probe
+    // is not evidence that a page is gone.
     void linkStateResolved(const QString& url, const QString& state);
 
 private:

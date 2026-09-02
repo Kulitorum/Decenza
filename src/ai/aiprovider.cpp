@@ -380,6 +380,37 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     sendResponsesRequest(requestBody);
 }
 
+void OpenAIProvider::searchWeb(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed(tr_("ai.openai.keyMissing", "OpenAI API key not configured"));
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+
+    // The same Responses web_search tool analyzeUrl uses — OpenAI is the one
+    // provider whose single tool both searches and opens a page, so this
+    // differs from analyzeUrl only in what the prompt asks for.
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    requestBody["instructions"] = systemPrompt;
+    requestBody["input"] = userPrompt;
+    QJsonObject searchTool;
+    searchTool["type"] = QString("web_search");
+    requestBody["tools"] = QJsonArray{searchTool};
+    QJsonObject reasoning;
+    reasoning["effort"] = QString("low");
+    requestBody["reasoning"] = reasoning;
+    requestBody["max_output_tokens"] = MAX_OUTPUT_TOKENS;
+
+    sendResponsesRequest(requestBody);
+}
+
+
 void OpenAIProvider::sendResponsesRequest(const QJsonObject& requestBody)
 {
     QString urlStr = m_baseUrl.isEmpty()
@@ -845,6 +876,41 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
     fetchTool["max_uses"] = 2;
     fetchTool["max_content_tokens"] = 20000;
     requestBody["tools"] = QJsonArray{fetchTool};
+
+    sendRequest(requestBody);
+}
+
+void AnthropicProvider::searchWeb(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed(tr_("ai.anthropic.keyMissing", "Anthropic API key not configured"));
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
+    requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
+    QJsonArray messages;
+    QJsonObject userMsg;
+    userMsg["role"] = QString("user");
+    userMsg["content"] = userPrompt;
+    messages.append(userMsg);
+    requestBody["messages"] = messages;
+    // web_search, NOT web_fetch: this path has no URL to fetch — finding one is
+    // the whole question. web_fetch validates that the URL appears in the
+    // message, so it cannot serve a search at all.
+    QJsonObject searchTool;
+    searchTool["type"] = QString("web_search_20250305");
+    searchTool["name"] = QString("web_search");
+    searchTool["max_uses"] = 3;
+    requestBody["tools"] = QJsonArray{searchTool};
 
     sendRequest(requestBody);
 }
@@ -1330,6 +1396,48 @@ void GeminiProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     QJsonObject urlContextTool;
     urlContextTool["url_context"] = QJsonObject{};
     requestBody["tools"] = QJsonArray{urlContextTool};
+
+    sendRequest(requestBody);
+}
+
+void GeminiProvider::searchWeb(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed(tr_("ai.gemini.keyMissing", "Gemini API key not configured"));
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+
+    QJsonObject requestBody;
+    QJsonObject sysInstruction;
+    QJsonArray sysParts;
+    QJsonObject sysTextPart;
+    sysTextPart["text"] = systemPrompt;
+    sysParts.append(sysTextPart);
+    sysInstruction["parts"] = sysParts;
+    requestBody["system_instruction"] = sysInstruction;
+
+    QJsonArray contents;
+    QJsonObject userContent;
+    userContent["role"] = QString("user");
+    QJsonArray userParts;
+    QJsonObject userTextPart;
+    userTextPart["text"] = userPrompt;
+    userParts.append(userTextPart);
+    userContent["parts"] = userParts;
+    contents.append(userContent);
+    requestBody["contents"] = contents;
+
+    // google_search grounding, NOT url_context: url_context only fetches URLs
+    // the prompt already names, so asked to FIND a page the model answers from
+    // memory — a hallucinated URL wearing a tool's credibility.
+    QJsonObject searchTool;
+    searchTool["google_search"] = QJsonObject{};
+    requestBody["tools"] = QJsonArray{searchTool};
 
     sendRequest(requestBody);
 }

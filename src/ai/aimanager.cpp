@@ -1182,6 +1182,12 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     provider->analyzeUrl(systemPrompt, userPrompt);
 }
 
+bool AIManager::supportsProductPageSearch() const
+{
+    AIProvider* provider = const_cast<AIManager*>(this)->currentProvider();
+    return provider && provider->supportsWebSearch();
+}
+
 void AIManager::findProductPage(const QString& requestToken, const QString& roaster,
                                 const QString& coffee, const QString& kind)
 {
@@ -1201,8 +1207,12 @@ void AIManager::findProductPage(const QString& requestToken, const QString& roas
         emit productPageSearchFailed(requestToken, QStringLiteral("notConfigured"));
         return;
     }
-    if (!provider->supportsUrlAnalysis()) {
-        emit productPageSearchFailed(requestToken, QStringLiteral("urlFetchUnsupported"));
+    // SEARCH, not fetch. Only OpenAI's tool does both; Anthropic's web_fetch
+    // and Gemini's url_context can only open a URL the prompt already names,
+    // so routing this through analyzeUrl left two of the three providers
+    // answering from memory.
+    if (!provider->supportsWebSearch()) {
+        emit productPageSearchFailed(requestToken, QStringLiteral("webSearchUnsupported"));
         return;
     }
 
@@ -1228,7 +1238,7 @@ void AIManager::findProductPage(const QString& requestToken, const QString& roas
     m_lastSystemPrompt = systemPrompt;
     m_lastUserPrompt = userPrompt;
     logPrompt(selectedProvider(), systemPrompt, userPrompt);
-    provider->analyzeUrl(systemPrompt, userPrompt);
+    provider->searchWeb(systemPrompt, userPrompt);
 }
 
 // static

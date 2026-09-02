@@ -185,6 +185,9 @@ DecenzaDialog {
         case "urlFetchUnsupported":
             return TranslationManager.translate("changebeans.form.getInfo.urlFetchUnsupported",
                 "This page needs the AI to fetch it, which the configured provider can't do")
+        case "webSearchUnsupported":
+            return TranslationManager.translate("changebeans.form.getInfo.webSearchUnsupported",
+                "The configured provider can't search the web")
         case "invalidUrl":
             return TranslationManager.translate("changebeans.form.getInfo.invalidUrl", "Not a valid web address")
         case "notAWebPage":
@@ -424,7 +427,7 @@ DecenzaDialog {
         if (root.formBeanBase.linkDead)
             return
         if (!MainController.aiManager || !MainController.aiManager.isConfigured
-                || !MainController.aiManager.supportsUrlExtraction())
+                || !MainController.aiManager.supportsProductPageSearch())
             return
         if (root.fRoaster.trim().length === 0 || root.fCoffee.trim().length === 0)
             return
@@ -469,6 +472,11 @@ DecenzaDialog {
     function acceptOrDropSuggestion(state) {
         if (root._pendingSuggestion.length === 0)
             return
+        // Only a PROVEN "none" discards it. An inconclusive probe is not
+        // evidence the page is gone, and the user — who is shown the host and
+        // has to accept — is the check that matters; refusing to show a page we
+        // already paid to find, because our own probe timed out, loses the
+        // feature to a flaky network and tells the user nothing.
         if (state === "none") {
             root._pendingSuggestion = ""
             root.markNoProductPage()
@@ -1468,10 +1476,15 @@ DecenzaDialog {
                             // the user to confirm a dead URL wastes the one
                             // decision this feature asks of them.
                             root._pendingSuggestion = String(url)
-                            MainController.beanbase.probeLinkState(root._pendingSuggestion)
                             var known = MainController.beanbase.linkState(root._pendingSuggestion)
-                            if (known !== "unknown")
+                            if (known !== "unknown") {
+                                // Already known this session: no probe, no wait.
                                 root.acceptOrDropSuggestion(known)
+                                return
+                            }
+                            // Every probe answers (with "unknown" when it
+                            // reaches no verdict), so this cannot wait forever.
+                            MainController.beanbase.probeLinkState(root._pendingSuggestion)
                         }
                         function onProductPageSearchFailed(requestToken, error) {
                             if (requestToken !== root._pageSearchToken) return
@@ -1490,7 +1503,7 @@ DecenzaDialog {
                                 root._pageSearchDone = false
                                 return
                             }
-                            // notConfigured / urlFetchUnsupported / a provider
+                            // notConfigured / webSearchUnsupported / a provider
                             // error (expired key, 401, 429, quota). Actionable,
                             // and invisible otherwise.
                             root.infoStatus = TranslationManager.translate(

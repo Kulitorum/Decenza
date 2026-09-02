@@ -271,6 +271,10 @@ public:
     // bag-detail-editing spec.
     Q_INVOKABLE void findProductPage(const QString& requestToken, const QString& roaster,
                                      const QString& coffee, const QString& kind);
+    // Whether the SELECTED provider can search the web (Anthropic, OpenAI and
+    // Gemini all can, each with its own tool). Distinct from
+    // supportsUrlExtraction(), which is about fetching a URL already known.
+    Q_INVOKABLE bool supportsProductPageSearch() const;
     // The URL out of that reply's JSON, or empty when the model found none or
     // answered with something that is not an https URL. Static + public for tests.
     static QString parseProductPageUrl(const QString& response);

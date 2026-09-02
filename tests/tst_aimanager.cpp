@@ -28,6 +28,7 @@
 #include <QDate>
 
 #include "ai/aimanager.h"
+#include "ai/aiprovider.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "ai/conversationkey.h"
@@ -145,6 +146,28 @@ private slots:
     // parseProductPageUrl: the last-rung search's reply contract. A model's
     // guess is about to be offered as a bag's product page, so anything that
     // is not plainly an https URL is treated as "found nothing".
+    // Finding a page is a SEARCH, and only one provider's web tool does both
+    // search and fetch. Anthropic's web_fetch and Gemini's url_context can only
+    // open a URL the prompt already names — routed through those, the model
+    // answers from memory, which is a hallucinated URL wearing a tool's
+    // credibility. All three must therefore declare a real search tool.
+    void everyKeyedProviderCanSearchTheWeb()
+    {
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QStringLiteral("k"));
+        AnthropicProvider anthropic(&nam, QStringLiteral("k"));
+        GeminiProvider gemini(&nam, QStringLiteral("k"));
+        QVERIFY(openai.supportsWebSearch());
+        QVERIFY(anthropic.supportsWebSearch());
+        QVERIFY(gemini.supportsWebSearch());
+
+        // Ollama has no server-side web tool; the caller must see that rather
+        // than be handed a fabricated answer.
+        OllamaProvider ollama(&nam, QStringLiteral("http://localhost:11434"),
+                              QStringLiteral("llama3"));
+        QVERIFY(!ollama.supportsWebSearch());
+    }
+
     void parseProductPageUrlAcceptsOnlyAnHttpsUrl()
     {
         QCOMPARE(AIManager::parseProductPageUrl(
