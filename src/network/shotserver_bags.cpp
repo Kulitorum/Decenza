@@ -238,13 +238,8 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 const QString& token, const QVariantMap& fields) {
                 if (st->done || token != url)
                     return;
-                // roastLevel is the extraction's name for what the blob and the
-                // form call `degree`.
-                QVariantMap extracted = fields;
-                if (fields.contains(QStringLiteral("roastLevel")))
-                    extracted.insert(QStringLiteral("degree"), fields.value(QStringLiteral("roastLevel")));
                 const auto outcome =
-                    BeanBaseBlob::applyExtraction(editorBlob, extracted, editorCurrent);
+                    BeanBaseBlob::applyExtraction(editorBlob, fields, editorCurrent);
                 finish([respondJson, st, kind, url, fields, outcome]() {
                     respondJson(QJsonObject{
                         {"stage", st->stage}, {"kind", kind}, {"url", url},
@@ -1163,17 +1158,22 @@ QString ShotServer::generateBeansPage() const
                     const applied = d.applied || {};
                     const corrections = d.corrections || [];
                     let filled = 0, occupied = 0;
-                    const write = (fid, key) => {
+                    // `fields` speaks the extraction's vocabulary and `applied`
+                    // the blob's, and they differ for exactly one key — so the
+                    // occupied count needs both names or roast level can never
+                    // reach the "already filled in" branch.
+                    const write = (fid, key, pageKey) => {
                         const e = el(fid);
                         if (!e) return;
+                        const stated = f[pageKey || key];
                         if (applied[key] == null) {
-                            if (f[key] != null && f[key] !== '' && e.value.trim()) occupied++;
+                            if (stated != null && stated !== '' && e.value.trim()) occupied++;
                             return;
                         }
                         e.value = applied[key];
                         filled++;
                     };
-                    write('fRoastLevel', 'degree');   // column, not a blob key
+                    write('fRoastLevel', 'degree', 'roastLevel');   // column, not a blob key
                     (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => write(fid, key));
                     // Stage 2 (JS-rendered shops) returns the product photo's
                     // URL directly. Stage 2 runs when the page yielded almost no
@@ -1194,9 +1194,14 @@ QString ShotServer::generateBeansPage() const
                     // A correction is named, never slipped in silently: the
                     // user has to be able to see that a value they were shown
                     // has changed, and which one.
-                    const correctedNames = corrections.map(c => c.field).join(', ');
+                    // Name the old and new value, not just the field: a value
+                    // the user was shown changing under them has to be legible
+                    // as a change, not as a count.
+                    const correctedNames = corrections
+                        .map(c => c.field + ' ' + c.from + ' \u2192 ' + c.to).join(', ');
+                    const justFilled = filled - corrections.length;
                     editorStatus(corrections.length > 0
-                        ? 'Filled ' + (filled - corrections.length) + ', corrected '
+                        ? (justFilled > 0 ? 'Filled ' + justFilled + ', corrected ' : 'Corrected ')
                           + corrections.length + ' from the page (' + correctedNames + ') — review and Save.'
                         : (filled > 0
                             ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'

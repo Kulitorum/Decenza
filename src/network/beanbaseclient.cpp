@@ -219,6 +219,24 @@ QString BeanBaseClient::imageCacheDir() const {
 }
 
 namespace {
+// Magic numbers for the formats a roaster's product photo is actually in.
+// Enough to tell a picture from the HTML a soft-404 serves; not a decoder.
+bool looksLikeImage(const QByteArray& bytes) {
+    static const QList<QByteArray> kSignatures{
+        QByteArrayLiteral("\x89PNG\r\n\x1a\n"),  // PNG
+        QByteArrayLiteral("\xff\xd8\xff"),          // JPEG
+        QByteArrayLiteral("GIF87a"), QByteArrayLiteral("GIF89a"),
+        QByteArrayLiteral("RIFF"),                    // WebP (RIFF….WEBP)
+        QByteArrayLiteral("BM"),                      // BMP
+        QByteArrayLiteral("<svg"), QByteArrayLiteral("<?xml"),  // SVG
+    };
+    for (const QByteArray& signature : kSignatures) {
+        if (bytes.startsWith(signature))
+            return true;
+    }
+    return false;
+}
+
 // The canonical id doubles as the cache filename. Ids are Visualizer UUIDs,
 // but the value round-trips through blobs, backups, and device migration —
 // refuse anything that isn't a plain filename component so a crafted id can
@@ -368,6 +386,11 @@ void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& r
 void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& productUrl) {
     if (!isSafeCacheFilename(canonicalId))
         return;
+    // Recovery is terminal. Validating a snapshot URL would churn the stored
+    // link (the archive redirects to a neighbouring timestamp) and, on a
+    // snapshot 404, leave the bag re-probing every session forever.
+    if (isArchiveUrl(productUrl))
+        return;
     if (m_linkValidated.contains(canonicalId))
         return;
     const QUrl url(productUrl);
@@ -452,14 +475,40 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, canonicalId, fallbackImageUrl]() {
         reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            if (!fallbackImageUrl.isEmpty())
+        const QByteArray bytes = reply->error() == QNetworkReply::NoError ? reply->readAll()
+                                                                         : QByteArray();
+        // A parked domain or a CDN soft-404 answers 200 with an HTML body. Left
+        // unchecked those bytes become the bag's photo, and because the file
+        // then EXISTS the resolution never runs again — on disk, across
+        // restarts. fetchPageText already checks its content type; this is the
+        // path that did not.
+        //
+        // Either evidence suffices: the header, or the bytes themselves. A CDN
+        // that mislabels a real photo (application/octet-stream is common) must
+        // not lose the bag its picture, and a shop that labels its 404 page
+        // image/jpeg must not gain one.
+        const QString contentType =
+            reply->header(QNetworkRequest::ContentTypeHeader).toString();
+        const bool usable = !bytes.isEmpty() && bytes.size() <= kBagImageMaxBytes
+                            && (contentType.startsWith(QLatin1String("image/"))
+                                || looksLikeImage(bytes));
+        if (!usable) {
+            // Every unusable answer, not just a transport error, is what the
+            // archived copy exists to rescue.
+            if (!fallbackImageUrl.isEmpty()) {
                 downloadBagImage(canonicalId, fallbackImageUrl);
+                return;
+            }
+            // An oversized or empty body is an ordinary, expected miss and stays
+            // silent like every other. Bytes that arrived fine and simply are
+            // not a picture mean the URL points at something else — worth
+            // saying, because the bag will show a placeholder forever.
+            if (reply->error() == QNetworkReply::NoError && !bytes.isEmpty()
+                && bytes.size() <= kBagImageMaxBytes)
+                qWarning() << "BeanBase: refusing unusable bag image" << contentType
+                           << bytes.size() << "bytes";
             return;
         }
-        const QByteArray bytes = reply->readAll();
-        if (bytes.isEmpty() || bytes.size() > kBagImageMaxBytes)
-            return;
 
         // File write + eviction off the main thread (disk-I/O rule). The write
         // is atomic (QSaveFile: temp file, verified write, commit-or-discard) so
@@ -673,23 +722,38 @@ QString BeanBaseClient::archiveAssetForm(const QString& snapshotUrl, const QStri
     const auto m = archiveSnapshotRe(host).match(snapshotUrl.trimmed());
     if (!m.hasMatch() || assetUrl.trimmed().isEmpty())
         return {};
+    // A capture whose og:image was already absolute-to-the-archive needs no
+    // wrapping; doing it anyway yields `…im_/https://web.archive.org/…im_/…`.
+    if (isArchiveUrl(assetUrl, host))
+        return assetUrl.trimmed();
     return m.captured(1) + m.captured(2) + QStringLiteral("im_/") + assetUrl.trimmed();
 }
 
 QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
+    auto fault = [ok]() {
+        if (ok)
+            *ok = false;
+        return QString();
+    };
+
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
-    const bool wellFormed = (parseError.error == QJsonParseError::NoError && doc.isObject());
-    if (ok)
-        *ok = wellFormed;
-    if (!wellFormed)
-        return {};
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+        return fault();
 
-    const QJsonObject closest = doc.object()
-                                    .value(QStringLiteral("archived_snapshots"))
-                                    .toObject()
-                                    .value(QStringLiteral("closest"))
-                                    .toObject();
+    // `archived_snapshots` is the availability API's own envelope, and its
+    // presence is what makes this an ANSWER rather than merely some JSON. Well-
+    // formedness alone is not enough: an archive error body ({"error": …}), a
+    // proxy interstitial, or a renamed envelope in a future API version would
+    // all parse — and a wrong "no capture" verdict permanently clears a bag's
+    // only remaining URL, which nothing can re-derive.
+    const QJsonValue snapshots = doc.object().value(QStringLiteral("archived_snapshots"));
+    if (!snapshots.isObject())
+        return fault();
+    if (ok)
+        *ok = true;
+
+    const QJsonObject closest = snapshots.toObject().value(QStringLiteral("closest")).toObject();
     if (!closest.value(QStringLiteral("available")).toBool())
         return {};
     // status is a string in this API ("200"), not a number.
@@ -697,8 +761,14 @@ QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
         return {};
 
     QString url = closest.value(QStringLiteral("url")).toString().trimmed();
-    if (!isArchiveUrl(url))
-        return {};
+    if (!isArchiveUrl(url)) {
+        // The archive has just SAID a good capture exists. Failing our own
+        // parse of its URL means this code is out of date, not that the page is
+        // unarchived — and reporting a miss here would stamp dead a bag whose
+        // capture demonstrably exists.
+        qWarning() << "BeanBase: availability API reported a capture at an unparseable URL" << url;
+        return fault();
+    }
     // The API answers in http even for an https capture; the app never stores
     // an http URL it could have stored as https.
     if (url.startsWith(QLatin1String("http://")))
@@ -768,6 +838,14 @@ QString BeanBaseClient::linkState(const QString& url) const {
     return m_linkStateByUrl.value(key, QStringLiteral("unknown"));
 }
 
+void BeanBaseClient::cancelQueuedLinkProbes() {
+    // Queued probes belong to the query that enqueued them. Left in place they
+    // drain ahead of the rows the user is now looking at — head-of-line
+    // blocking on exactly the data the ordering needs first. In-flight requests
+    // are left alone; their answers are still cached and still useful.
+    m_linkStateQueued.clear();
+}
+
 void BeanBaseClient::probeLinkState(const QString& url) {
     const QString key = url.trimmed();
     const QUrl parsed(key);
@@ -776,7 +854,7 @@ void BeanBaseClient::probeLinkState(const QString& url) {
     // An archive URL is already its own answer, and a state we know is a state
     // we keep — the session cache is what stops a repeated search re-probing.
     if (isArchiveUrl(key) || m_linkStateByUrl.contains(key) || m_linkStateInFlight.contains(key)
-        || m_linkStateQueued.contains(key))
+        || m_linkStateQueued.contains(key) || m_linkStateUnresolvable.contains(key))
         return;
 
     if (m_linkStateInFlight.size() >= kMaxLinkProbesInFlight) {
@@ -831,6 +909,11 @@ void BeanBaseClient::finishLinkStateProbe(const QString& url, const QString& sta
     if (!state.isEmpty()) {
         m_linkStateByUrl.insert(url, state);
         emit linkStateResolved(url, state);
+    } else {
+        // Unresolvable stays "unknown" to every reader — but remember that we
+        // asked, or an offline device re-probes every row on every rebuild, and
+        // rebuild runs per lane arrival and per debounced keystroke.
+        m_linkStateUnresolvable.insert(url);
     }
     while (!m_linkStateQueued.isEmpty() && m_linkStateInFlight.size() < kMaxLinkProbesInFlight) {
         const QString next = m_linkStateQueued.takeFirst();

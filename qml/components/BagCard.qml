@@ -131,7 +131,11 @@ Rectangle {
             if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
                 return
             var blob = card.beanBase
-            if (blob.link === link)
+            // The markers matter as much as the URL: returning early on an
+            // equal link (recovered in an earlier session whose write did not
+            // land, or set by another surface) would leave linkDead standing,
+            // and the bag would keep looking recovered while behaving dead.
+            if (blob.link === link && blob.linkChecked && blob.linkDead === undefined)
                 return
             blob.link = link
             blob.linkChecked = true

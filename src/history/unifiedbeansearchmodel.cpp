@@ -99,14 +99,28 @@ void UnifiedBeanSearchModel::setSources(CoffeeBagStorage* bagStorage, BeanBaseCl
                     // Only touch the list when the answer is about a row it
                     // actually holds — probes outlive the query that started
                     // them, and a stale answer must not disturb a newer list.
-                    bool relevant = false;
-                    for (const QVariant& v : std::as_const(m_results)) {
-                        if (rowLink(v.toMap()) == url) { relevant = true; break; }
+                    int changedRow = -1;
+                    for (qsizetype i = 0; i < m_results.size(); ++i) {
+                        if (rowLink(m_results[i].toMap()) == url) {
+                            changedRow = static_cast<int>(i);
+                            break;
+                        }
                     }
-                    if (!relevant)
+                    if (changedRow < 0)
                         return;
+
+                    // Most answers are "live", which is where an unresolved row
+                    // already sat — so the order does not move. Resetting anyway
+                    // would rebuild every delegate and throw the user's scroll
+                    // position back to the top, per resolved probe, mid-read.
+                    const QVariantList reordered = orderedByCurrentLinkState();
+                    if (reordered == m_results) {
+                        const QModelIndex idx = index(changedRow, 0);
+                        emit dataChanged(idx, idx, {LinkStateRole});
+                        return;
+                    }
                     beginResetModel();
-                    applyLinkStateOrder();
+                    m_results = reordered;
                     endResetModel();
                 });
         connect(m_beanBase, &BeanBaseClient::searchFailed, this,
@@ -478,6 +492,8 @@ void UnifiedBeanSearchModel::rebuild()
     // Kick the probes AFTER publishing the rows: results appear immediately
     // and only re-order as answers arrive, rather than waiting on the network.
     if (m_beanBase) {
+        // Anything still queued belongs to a result set that is now gone.
+        m_beanBase->cancelQueuedLinkProbes();
         for (const QVariant& v : std::as_const(m_results)) {
             const QString link = rowLink(v.toMap());
             if (!link.isEmpty())
@@ -531,7 +547,7 @@ QVariantList UnifiedBeanSearchModel::orderByLinkState(const QVariantList& rows,
     return out;
 }
 
-void UnifiedBeanSearchModel::applyLinkStateOrder()
+QVariantList UnifiedBeanSearchModel::orderedByCurrentLinkState() const
 {
     QHash<QString, QString> states;
     if (m_beanBase) {
@@ -541,7 +557,12 @@ void UnifiedBeanSearchModel::applyLinkStateOrder()
                 states.insert(link, m_beanBase->linkState(link));
         }
     }
-    m_results = orderByLinkState(m_results, states);
+    return orderByLinkState(m_results, states);
+}
+
+void UnifiedBeanSearchModel::applyLinkStateOrder()
+{
+    m_results = orderedByCurrentLinkState();
 }
 
 void UnifiedBeanSearchModel::setSearching(bool searching)

@@ -18,6 +18,15 @@
 // the bean_search gather bridge without a MainController.
 void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
 
+// A body the image pipeline will accept as a picture: PNG magic plus whatever
+// the test wants to recognise on the way out. downloadBagImage refuses bytes
+// that are neither labelled nor shaped like an image, which is what stops a
+// soft-404 HTML page being cached as a bag photo — so a test that wants the
+// bytes cached has to supply something that looks like one.
+static QByteArray pngBody(const QByteArray& tag) {
+    return QByteArrayLiteral("\x89PNG\r\n\x1a\n") + tag;
+}
+
 // Minimal canned-response HTTP server for driving BeanBaseClient. Serves the
 // configured status + body to every request, records request lines so tests
 // can assert how many requests were actually sent (the whole point of the
@@ -372,11 +381,16 @@ private slots:
             "{\"archived_snapshots\":{\"closest\":{\"status\":\"404\",\"available\":true,"
             "\"url\":\"http://web.archive.org/web/1/https://r.example/p\"}}}", &ok).isEmpty());
         QVERIFY(ok);
-        // Available, but the URL is not a snapshot URL at all.
+        // Available and 200, but the URL does not parse as a snapshot: the
+        // archive has just SAID a capture exists, so this is OUR parser being
+        // out of date, not a miss. Reporting it as answered would stamp dead a
+        // bag whose capture demonstrably exists.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("availability API reported a capture at an unparseable URL"));
         QVERIFY(BeanBaseClient::parseArchiveSnapshot(
             "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
             "\"url\":\"https://r.example/p\"}}}", &ok).isEmpty());
-        QVERIFY(ok);
+        QVERIFY(!ok);
 
         // Unparseable: `ok` false, so the caller treats it as an archive FAULT
         // and leaves the bag alone rather than stamping it permanently dead.
@@ -384,6 +398,72 @@ private slots:
         QVERIFY(!ok);
         QVERIFY(BeanBaseClient::parseArchiveSnapshot("[]", &ok).isEmpty());
         QVERIFY(!ok);
+
+        // JSON, but NOT this API's answer. Well-formedness alone used to count
+        // as "the archive said no", so an error body, a proxy interstitial, or
+        // a renamed envelope permanently cleared a bag's only URL.
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot(
+            "{\"error\":\"rate limited\"}", &ok).isEmpty());
+        QVERIFY(!ok);
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot("{}", &ok).isEmpty());
+        QVERIFY(!ok);
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot(
+            "{\"archived_snapshots\":\"soon\"}", &ok).isEmpty());
+        QVERIFY(!ok);
+    }
+
+    // A content type that is not an image must not be cached as one: the file
+    // would exist, so resolution would never run again — across restarts.
+    void bagImageRefusesANonImageBody() {
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/product",
+            "<html><meta property=\"og:image\" content=\"" + base + "/soft404.png\"></html>");
+        server.respondForPath("/soft404.png", "<html>not found</html>");
+        server.setContentType("text/html");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("refusing unusable bag image"));
+        client.ensureBagImage("canon-soft404", "X", server.baseUrl() + "/product");
+        QTest::qWait(1200);
+        QVERIFY(!QFile::exists(cacheDir.path() + "/canon-soft404"));
+    }
+
+    // An unresolvable probe is asked ONCE. Without the negative cache an
+    // offline device re-probes every row on every rebuild, all session.
+    void linkStateUnresolvableIsNotReProbed() {
+        FakeBeanBaseServer server;
+        server.respondForPathWithStatus("/flaky", "503 Service Unavailable", "down");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        client.probeLinkState(server.baseUrl() + "/flaky");
+        QTest::qWait(700);
+        QCOMPARE(client.linkState(server.baseUrl() + "/flaky"), QString("unknown"));
+        const qsizetype after = server.requestCount();
+
+        client.probeLinkState(server.baseUrl() + "/flaky");
+        QTest::qWait(300);
+        QCOMPARE(server.requestCount(), after);
+    }
+
+    // An archive URL is terminal: validating it would churn the stored link
+    // (the archive redirects to a neighbouring capture) and, on a 404, leave
+    // the bag re-probing forever.
+    void validateBagLinkIgnoresAnArchiveUrl() {
+        FakeBeanBaseServer server;
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+
+        client.validateBagLink("canon-arch-5",
+                               "https://web.archive.org/web/20260106073238/https://r.example/p");
+        QTest::qWait(300);
+        QCOMPARE(server.requestCount(), qsizetype(0));
+        QCOMPARE(resolvedSpy.count(), 0);
     }
 
     void validateBagLinkArchivesOn404WithCapture() {
@@ -591,7 +671,7 @@ private slots:
             "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
         server.respondForPath("/product",
             "<html><head><meta property=\"og:image\" content=\"" + base + "/photo.jpg\"></head></html>");
-        server.respondForPath("/photo.jpg", "JPEGBYTES");
+        server.respondForPath("/photo.jpg", pngBody("JPEGBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -608,7 +688,7 @@ private slots:
         QVERIFY(QFile::exists(path));
         QFile f(path);
         QVERIFY(f.open(QIODevice::ReadOnly));
-        QCOMPARE(f.readAll(), QByteArray("JPEGBYTES"));
+        QCOMPARE(f.readAll(), QByteArray(pngBody("JPEGBYTES")));
         QCOMPARE(client.bagImagePath("canon-img-1"), path);
 
         // Cached: a second ensure re-emits (deferred) with the same payload
@@ -629,7 +709,7 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("/product",
             "<html><meta property=\"og:image\" content=\"" + base + "/photo.jpg\"></html>");
-        server.respondForPath("/photo.jpg", "DIRECTBYTES");
+        server.respondForPath("/photo.jpg", pngBody("DIRECTBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -663,10 +743,10 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("/product-old",
             "<html><meta property=\"og:image\" content=\"" + base + "/old.jpg\"></html>");
-        server.respondForPath("/old.jpg", "OLDBYTES");
+        server.respondForPath("/old.jpg", pngBody("OLDBYTES"));
         server.respondForPath("/product-new",
             "<html><meta property=\"og:image\" content=\"" + base + "/new.jpg\"></html>");
-        server.respondForPath("/new.jpg", "NEWBYTES");
+        server.respondForPath("/new.jpg", pngBody("NEWBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -681,13 +761,13 @@ private slots:
         QSignalSpy first(&client, &BeanBaseClient::bagImageReady);
         client.ensureBagImage("bag-42", "Milk Blend", server.baseUrl() + "/product-old");
         QVERIFY(first.wait(5000));
-        QCOMPARE(cachedBytes(), QByteArray("OLDBYTES"));
+        QCOMPARE(cachedBytes(), QByteArray(pngBody("OLDBYTES")));
 
         QSignalSpy refreshed(&client, &BeanBaseClient::bagImageReady);
         client.refreshBagImage("bag-42", "Milk Blend", server.baseUrl() + "/product-new");
         QVERIFY(refreshed.wait(5000));
         QCOMPARE(refreshed.first().at(0).toString(), QString("bag-42"));
-        QCOMPARE(cachedBytes(), QByteArray("NEWBYTES"));
+        QCOMPARE(cachedBytes(), QByteArray(pngBody("NEWBYTES")));
     }
 
     void replaceBagImageFromUrlOverwritesWhereCacheFromUrlDeclines() {
@@ -698,8 +778,8 @@ private slots:
         // photo is the only one that page will give up). Pinned together so a
         // future edit cannot quietly collapse them into one behaviour.
         FakeBeanBaseServer server;
-        server.respondForPath("/first.jpg", "FIRSTBYTES");
-        server.respondForPath("/second.jpg", "SECONDBYTES");
+        server.respondForPath("/first.jpg", pngBody("FIRSTBYTES"));
+        server.respondForPath("/second.jpg", pngBody("SECONDBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -714,20 +794,20 @@ private slots:
         QSignalSpy first(&client, &BeanBaseClient::bagImageReady);
         client.cacheBagImageFromUrl("bag-77", server.baseUrl() + "/first.jpg");
         QVERIFY(first.wait(5000));
-        QCOMPARE(cachedBytes(), QByteArray("FIRSTBYTES"));
+        QCOMPARE(cachedBytes(), QByteArray(pngBody("FIRSTBYTES")));
 
         // cacheBagImageFromUrl declines: the entry already exists, no request.
         const qsizetype afterFirst = server.requestCount();
         client.cacheBagImageFromUrl("bag-77", server.baseUrl() + "/second.jpg");
         QTest::qWait(200);
         QCOMPARE(server.requestCount(), afterFirst);
-        QCOMPARE(cachedBytes(), QByteArray("FIRSTBYTES"));
+        QCOMPARE(cachedBytes(), QByteArray(pngBody("FIRSTBYTES")));
 
         // replaceBagImageFromUrl overwrites it.
         QSignalSpy replaced(&client, &BeanBaseClient::bagImageReady);
         client.replaceBagImageFromUrl("bag-77", server.baseUrl() + "/second.jpg");
         QVERIFY(replaced.wait(5000));
-        QCOMPARE(cachedBytes(), QByteArray("SECONDBYTES"));
+        QCOMPARE(cachedBytes(), QByteArray(pngBody("SECONDBYTES")));
 
         // And it refuses a traversal-shaped key like every sibling entry point.
         client.replaceBagImageFromUrl("../escape", server.baseUrl() + "/second.jpg");
@@ -745,7 +825,7 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("/product-old",
             "<html><meta property=\"og:image\" content=\"" + base + "/old.jpg\"></html>");
-        server.respondForPath("/old.jpg", "OLDBYTES");
+        server.respondForPath("/old.jpg", pngBody("OLDBYTES"));
         server.respondForPath("/product-bare", "<html><body>no og:image here</body></html>");
 
         QTemporaryDir cacheDir;
@@ -769,7 +849,7 @@ private slots:
         QVERIFY2(QFile::exists(path), "a refresh that resolves nothing must not blank the bag");
         QFile f(path);
         QVERIFY(f.open(QIODevice::ReadOnly));
-        QCOMPARE(f.readAll(), QByteArray("OLDBYTES"));
+        QCOMPARE(f.readAll(), QByteArray(pngBody("OLDBYTES")));
         QCOMPARE(client.bagImagePath(QStringLiteral("bag-43")), path);
     }
 
@@ -829,7 +909,7 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("id_/",
             "<html><meta property=\"og:image\" content=\"" + base + "/original.png\"></html>");
-        server.respondForPath("/original.png", "ORIGINALBYTES");
+        server.respondForPath("/original.png", pngBody("ORIGINALBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -842,7 +922,7 @@ private slots:
 
         QFile cached(cacheDir.path() + "/canon-snap-1");
         QVERIFY(cached.open(QIODevice::ReadOnly));
-        QCOMPARE(cached.readAll(), QByteArray("ORIGINALBYTES"));
+        QCOMPARE(cached.readAll(), QByteArray(pngBody("ORIGINALBYTES")));
 
         bool sawRawForm = false;
         for (const QString& line : server.requestLines())
@@ -864,7 +944,7 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         // Order matters: the archived-asset route is registered first, because
         // its request line also contains the original asset's path.
-        server.respondForPath("im_/", "ARCHIVEDBYTES");
+        server.respondForPath("im_/", pngBody("ARCHIVEDBYTES"));
         server.respondForPath("id_/",
             "<html><meta property=\"og:image\" content=\"" + base + "/original-gone.png\"></html>");
         server.respondForPathWithStatus("/original-gone.png", "404 Not Found", "gone");
@@ -880,7 +960,7 @@ private slots:
 
         QFile cached(cacheDir.path() + "/canon-snap-2");
         QVERIFY(cached.open(QIODevice::ReadOnly));
-        QCOMPARE(cached.readAll(), QByteArray("ARCHIVEDBYTES"));
+        QCOMPARE(cached.readAll(), QByteArray(pngBody("ARCHIVEDBYTES")));
     }
 
     // The archived route reuses downloadBagImage, so the cache's own rules
@@ -896,7 +976,7 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("id_/",
             "<html><meta property=\"og:image\" content=\"" + base + "/huge.png\"></html>");
-        server.respondForPath("/huge.png", QByteArray(9 * 1024 * 1024, 'x'));
+        server.respondForPath("/huge.png", pngBody(QByteArray(9 * 1024 * 1024, 'x')));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -925,10 +1005,10 @@ private slots:
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("id_/",
             "<html><meta property=\"og:image\" content=\"" + base + "/snap.png\"></html>");
-        server.respondForPath("/snap.png", "SNAPBYTES");
+        server.respondForPath("/snap.png", pngBody("SNAPBYTES"));
         server.respondForPath("/live-product",
             "<html><meta property=\"og:image\" content=\"" + base + "/live.png\"></html>");
-        server.respondForPath("/live.png", "LIVEBYTES");
+        server.respondForPath("/live.png", pngBody("LIVEBYTES"));
 
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
@@ -943,10 +1023,10 @@ private slots:
 
         QFile live(cacheDir.path() + "/canon-noai-1");
         QVERIFY(live.open(QIODevice::ReadOnly));
-        QCOMPARE(live.readAll(), QByteArray("LIVEBYTES"));
+        QCOMPARE(live.readAll(), QByteArray(pngBody("LIVEBYTES")));
         QFile snap(cacheDir.path() + "/canon-noai-2");
         QVERIFY(snap.open(QIODevice::ReadOnly));
-        QCOMPARE(snap.readAll(), QByteArray("SNAPBYTES"));
+        QCOMPARE(snap.readAll(), QByteArray(pngBody("SNAPBYTES")));
     }
 
     void ensureBagImageRejectsUnsafeIds() {
@@ -1352,6 +1432,17 @@ private slots:
 
     // A corrupt blob is refused, not rebuilt — the same non-destructive rule
     // mergeBeanDetails follows.
+    // The extraction speaks `roastLevel`; the blob and every form call it
+    // `degree`. The alias belongs to the shared rule, not to each caller —
+    // the MCP surface had no copy and silently dropped the field.
+    void extractionAliasesRoastLevelToDegree() {
+        const auto out = BeanBaseBlob::applyExtraction(
+            "{\"id\":\"canon-5\"}", QVariantMap{{"roastLevel", "Medium-Light"}});
+        QCOMPARE(out.applied.value("degree").toString(), QString("Medium-Light"));
+        const QJsonObject obj = QJsonDocument::fromJson(out.blob.toUtf8()).object();
+        QCOMPARE(obj.value("degree").toString(), QString("Medium-Light"));
+    }
+
     void extractionRefusesACorruptBlob() {
         QTest::ignoreMessage(QtWarningMsg,
             "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)");

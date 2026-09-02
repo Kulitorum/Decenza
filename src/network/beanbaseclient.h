@@ -147,6 +147,8 @@ public:
     // Resolve a URL's state if it is not already known. Bounded: at most
     // kMaxLinkProbesInFlight run at once, the rest queue.
     Q_INVOKABLE void probeLinkState(const QString& url);
+    // Drop probes queued for a superseded result set (see the definition).
+    Q_INVOKABLE void cancelQueuedLinkProbes();
 
     // Parse of the availability API's answer: the snapshot URL for a usable
     // capture, empty otherwise. `ok` distinguishes a well-formed answer (a
@@ -188,9 +190,9 @@ public:
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
     // Apply AI-extracted page values to a blob: fill empty fields, correct
-    // values that came from Bean Base, never touch a value the user typed.
-    // Returns {"blob", "corrections"} — see BeanBaseBlob::applyExtraction, the
-    // single definition every surface (bag editor, ShotServer, MCP) shares.
+    // values that came from Bean Base, never touch a value the user typed. See
+    // BeanBaseBlob::applyExtraction — the single definition every surface (bag
+    // editor, ShotServer, MCP) shares.
     // `current` carries the caller's own live values where they are not in the
     // blob yet (the bag editor's form fields); keys absent from it fall back to
     // the blob. Returns {"blob", "applied", "corrections"}.
@@ -334,6 +336,7 @@ private:
     QHash<QString, QString> m_linkStateByUrl;
     QSet<QString> m_linkStateInFlight;
     QStringList m_linkStateQueued;
+    QSet<QString> m_linkStateUnresolvable;  // asked, no verdict — do not ask again this session
     // Ids whose image resolution is waiting on link recovery (legacy blobs).
     QSet<QString> m_imageAwaitingLink;
 };

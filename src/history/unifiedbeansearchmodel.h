@@ -156,8 +156,10 @@ signals:
 private:
     void requestHistory();
     void rebuild();
-    // Re-apply the within-tier link ordering to the CURRENT rows, reading each
-    // state from the client's session cache.
+    // The current rows in link-state order, reading each state from the
+    // client's session cache. Separate from applying it so a resolution that
+    // does not move anything can be published as dataChanged instead of a reset.
+    QVariantList orderedByCurrentLinkState() const;
     void applyLinkStateOrder();
     void setSearching(bool searching);
 

@@ -1432,6 +1432,24 @@ private slots:
     // outranks an entry with no usable page at all — the case that started
     // this: two Bean Base entries for one coffee whose every displayed
     // attribute is identical and whose links are both dead.
+    // A resolution that does not move anything must not be published as a
+    // reset: doing so rebuilds every delegate and throws the user's scroll
+    // position to the top, once per resolved probe, while they are reading.
+    void orderByLinkStateIsIdenticalWhenNothingMoves() {
+        QVariantList rows;
+        for (int i = 0; i < 3; ++i) {
+            rows.append(QVariant(QVariantMap{
+                {"coffeeName", QStringLiteral("row%1").arg(i)}, {"tier", 2},
+                {"beanBaseData", QStringLiteral("{\"link\":\"https://r.example/%1\"}").arg(i)}}));
+        }
+        QHash<QString, QString> before;   // nothing probed yet: all "unknown"
+        QHash<QString, QString> after;
+        after.insert("https://r.example/1", "live");  // the common answer
+
+        QCOMPARE(UnifiedBeanSearchModel::orderByLinkState(rows, before),
+                 UnifiedBeanSearchModel::orderByLinkState(rows, after));
+    }
+
     void orderByLinkStateRanksWithinTier() {
         auto row = [](const QString& name, int tier, const QString& link) {
             const QString blob = link.isEmpty()

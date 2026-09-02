@@ -159,8 +159,19 @@ DecenzaDialog {
     // the photo chain, the extraction, and every shot snapshot after.
     property string _suggestedUrl: ""
     property bool _searchingForPage: false
-    // One search per bag per dialog session: every run is a paid provider call.
+    // Guards ONE search per dialog session. The durable "never again for this
+    // bag" fact is `linkDead` on the bag's own blob — a session flag alone
+    // re-bills the user on every open, which is what this used to do.
     property bool _pageSearchDone: false
+    // Captured at send time, NOT a binding over the form: a token that tracks
+    // live fields stops matching the moment the user types, which strands the
+    // in-flight reply and leaves the "asking the AI…" line on screen forever.
+    // Same rule `_fetchUrl` follows for the extraction.
+    property string _pageSearchToken: ""
+    property int _pageSearchSeq: 0
+    // A found URL is probed before it is offered: the user must not be asked to
+    // confirm a page that is already gone.
+    property string _pendingSuggestion: ""
     // URL captured at click time — completion signals are gated on THIS, not
     // the live field: editing the URL mid-fetch must neither wedge the busy
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
@@ -407,6 +418,11 @@ DecenzaDialog {
             return
         if (root.fLink.trim().length > 0)
             return
+        // linkDead means "no usable URL is known — stop looking", which is what
+        // a fruitless search leaves behind. Without this the search re-runs,
+        // and re-bills, every time the bag is opened.
+        if (root.formBeanBase.linkDead)
+            return
         if (!MainController.aiManager || !MainController.aiManager.isConfigured
                 || !MainController.aiManager.supportsUrlExtraction())
             return
@@ -414,12 +430,68 @@ DecenzaDialog {
             return
         root._pageSearchDone = true
         root._searchingForPage = true
+        root._pageSearchSeq++
+        // The bag id and a counter, so a reply for a bag the user has moved on
+        // from is discarded even when the next bag is the same coffee.
+        root._pageSearchToken = "findpage:" + root.editBagId + ":" + root._pageSearchSeq
         MainController.aiManager.findProductPage(
-            root.pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind)
+            root._pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind)
     }
-    // Echoed back on the signals so a reply for a bag the user has moved on
-    // from is discarded rather than applied to whatever is on screen now.
-    readonly property string pageSearchToken: "findpage:" + fRoaster + "|" + fCoffee
+
+    // The user-facing name of a blob detail key, for the correction report —
+    // the same labels the fields themselves carry, never the raw key, which is
+    // both untranslated and meaningless to a reader.
+    function detailFieldLabel(key) {
+        switch (key) {
+        case "origin": return TranslationManager.translate("beanbase.details.origin", "Origin")
+        case "region": return TranslationManager.translate("beanbase.details.region", "Region")
+        case "farm": return TranslationManager.translate("beanbase.details.farm", "Farm")
+        case "producer": return TranslationManager.translate("beanbase.details.producer", "Producer")
+        case "variety": return TranslationManager.translate("beanbase.details.variety", "Variety")
+        case "elevation": return TranslationManager.translate("beanbase.details.elevation", "Elevation")
+        case "process": return TranslationManager.translate("beanbase.details.process", "Process")
+        case "harvest": return TranslationManager.translate("beanbase.details.harvest", "Harvest")
+        case "tastingNotes": return TranslationManager.translate("beanbase.details.tastingNotes", "Tasting notes")
+        case "degree": return TranslationManager.translate("changebeans.form.roastLevel", "Roast level")
+        case "teaType": return TranslationManager.translate("beanbase.details.teaType", "Tea type")
+        case "garden": return TranslationManager.translate("beanbase.details.garden", "Garden")
+        case "cultivar": return TranslationManager.translate("beanbase.details.cultivar", "Cultivar")
+        case "flush": return TranslationManager.translate("beanbase.details.flush", "Flush")
+        case "brewTempC": return TranslationManager.translate("beanbase.details.brewTemp", "Brew temperature")
+        case "leafGramsPer100Ml": return TranslationManager.translate("beanbase.details.leafRatio", "Leaf per 100 ml")
+        case "steepTime": return TranslationManager.translate("beanbase.details.steepTime", "Steep time")
+        }
+        return key
+    }
+
+    // A probed suggestion: offered when the URL resolves (live, or dead with a
+    // capture the recovery path can use), dropped when it resolves to nothing.
+    function acceptOrDropSuggestion(state) {
+        if (root._pendingSuggestion.length === 0)
+            return
+        if (state === "none") {
+            root._pendingSuggestion = ""
+            root.markNoProductPage()
+            return
+        }
+        root._suggestedUrl = root._pendingSuggestion
+        root._pendingSuggestion = ""
+    }
+
+    // Remember that the search found nothing, on the bag itself. Edit mode only
+    // — a bag being created has no row to write to yet, and its next open is an
+    // edit, which is where the marker starts mattering.
+    function markNoProductPage() {
+        if (root.formMode !== "edit" || root.editBagId <= 0)
+            return
+        var blob = root.formBeanBase
+        if (blob.linkDead)
+            return
+        blob.linkDead = true
+        root.fBeanBaseData = JSON.stringify(blob)
+        MainController.bagStorage.requestUpdateBag(root.editBagId,
+            { "beanBaseData": root.fBeanBaseData })
+    }
 
     function linkStateLabel(linkState) {
         switch (linkState) {
@@ -474,6 +546,8 @@ DecenzaDialog {
         _extractedImageUrl = ""
         _extractionCorrections = []
         _suggestedUrl = ""
+        _pendingSuggestion = ""
+        _pageSearchToken = ""
         _searchingForPage = false
         _pageSearchDone = false
         errorMessage = ""
@@ -1348,6 +1422,10 @@ DecenzaDialog {
 
                     Connections {
                         target: MainController.beanbase
+                        function onLinkStateResolved(url, state) {
+                            if (url === root._pendingSuggestion)
+                                root.acceptOrDropSuggestion(state)
+                        }
                         function onPageTextReady(url, text) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
@@ -1383,16 +1461,41 @@ DecenzaDialog {
                         // like any other link, so nothing here needs to
                         // re-check it.
                         function onProductPageFound(requestToken, url) {
-                            if (requestToken !== root.pageSearchToken) return
+                            if (requestToken !== root._pageSearchToken) return
                             root._searchingForPage = false
-                            root._suggestedUrl = String(url)
+                            // Probe before offering: a model can return a
+                            // plausible page that is already gone, and asking
+                            // the user to confirm a dead URL wastes the one
+                            // decision this feature asks of them.
+                            root._pendingSuggestion = String(url)
+                            MainController.beanbase.probeLinkState(root._pendingSuggestion)
+                            var known = MainController.beanbase.linkState(root._pendingSuggestion)
+                            if (known !== "unknown")
+                                root.acceptOrDropSuggestion(known)
                         }
                         function onProductPageSearchFailed(requestToken, error) {
-                            if (requestToken !== root.pageSearchToken) return
+                            if (requestToken !== root._pageSearchToken) return
                             root._searchingForPage = false
-                            // Silent: the user did not ask for this rung, so a
-                            // miss is not a failure to report at them. The bag
-                            // is simply as it was.
+                            if (error === "notFound") {
+                                // The honest empty answer: silent (the user did
+                                // not ask for this rung), and remembered, so the
+                                // same question is never bought twice.
+                                root.markNoProductPage()
+                                return
+                            }
+                            if (error === "busy") {
+                                // Another AI request happened to be in flight.
+                                // Transient, and nothing was spent — so it must
+                                // not consume the one-shot.
+                                root._pageSearchDone = false
+                                return
+                            }
+                            // notConfigured / urlFetchUnsupported / a provider
+                            // error (expired key, 401, 429, quota). Actionable,
+                            // and invisible otherwise.
+                            root.infoStatus = TranslationManager.translate(
+                                "changebeans.form.findPage.failed",
+                                "Couldn't search for a product page: %1").arg(root.infoErrorText(error))
                         }
                         // Fill empty fields, correct values that came from Bean
                         // Base, never touch one the user typed. The rule itself
@@ -1403,15 +1506,6 @@ DecenzaDialog {
                         function onBagDetailsExtracted(requestToken, fields) {
                             if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
                             root.fetchingInfo = false
-                            // The extraction speaks the blob's own vocabulary
-                            // except for roastLevel, which the form (and the
-                            // blob) call `degree`.
-                            var extracted = {}
-                            for (var k in fields)
-                                extracted[k] = fields[k]
-                            if (fields["roastLevel"] !== undefined)
-                                extracted["degree"] = fields["roastLevel"]
-
                             var current = {
                                 "origin": root.fOrigin, "region": root.fRegion,
                                 "farm": root.fFarm, "producer": root.fProducer,
@@ -1425,7 +1519,7 @@ DecenzaDialog {
                                 "steepTime": root.fSteepTime
                             }
                             var outcome = MainController.beanbase.applyExtraction(
-                                root.fBeanBaseData, extracted, current)
+                                root.fBeanBaseData, fields, current)
                             var written = outcome.applied || ({})
                             var setters = {
                                 "origin": function(v) { root.fOrigin = v },
@@ -1479,13 +1573,25 @@ DecenzaDialog {
                             // user is the thing this must never look like.
                             var corrected = root._extractionCorrections.length
                             if (corrected > 0) {
+                                // Name the field, the old value and the new one.
+                                // A count alone does not let the user see that
+                                // something they were shown has changed.
                                 var names = []
-                                for (var c = 0; c < root._extractionCorrections.length; ++c)
-                                    names.push(root._extractionCorrections[c].field)
-                                root.infoStatus = TranslationManager.translate(
-                                    "changebeans.form.getInfo.corrected",
-                                    "%1 field(s) filled, %2 corrected from the page: %3")
-                                    .arg(applied - corrected).arg(corrected).arg(names.join(", "))
+                                for (var c = 0; c < root._extractionCorrections.length; ++c) {
+                                    var corr = root._extractionCorrections[c]
+                                    names.push(root.detailFieldLabel(corr.field)
+                                               + " " + corr.from + " \u2192 " + corr.to)
+                                }
+                                var justFilled = applied - corrected
+                                root.infoStatus = justFilled > 0
+                                    ? TranslationManager.translate(
+                                        "changebeans.form.getInfo.corrected",
+                                        "%1 field(s) filled, %2 corrected from the page: %3")
+                                        .arg(justFilled).arg(corrected).arg(names.join(", "))
+                                    : TranslationManager.translate(
+                                        "changebeans.form.getInfo.correctedOnly",
+                                        "%1 field(s) corrected from the page: %2")
+                                        .arg(corrected).arg(names.join(", "))
                             } else {
                                 root.infoStatus = applied > 0
                                     ? TranslationManager.translate("changebeans.form.getInfo.applied",
@@ -1776,8 +1882,9 @@ DecenzaDialog {
 
                         // "Get info from page": Visualizer-style extraction —
                         // fetch the page text, let the configured AI pull out
-                        // the details, fill only fields still empty. Hidden
-                        // without a URL or a configured AI provider.
+                        // the details, then fill what is empty and correct what
+                        // came from Bean Base (never what the user typed).
+                        // Hidden without a URL or a configured AI provider.
                         RowLayout {
                             Layout.leftMargin: Theme.scaled(20)
                             Layout.rightMargin: Theme.scaled(20)

@@ -262,13 +262,20 @@ struct ExtractionApplication {
 // `current` lets a caller whose live values are not (yet) in the blob — the bag
 // editor, whose form fields are the working copy — have its own values judged.
 // Keys absent from it fall back to the blob's.
-inline ExtractionApplication applyExtraction(const QString& blob, const QVariantMap& extracted,
+inline ExtractionApplication applyExtraction(const QString& blob, const QVariantMap& raw,
                                              const QVariantMap& current = {})
 {
     if (isCorruptBlob(blob)) {
         qWarning() << "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)";
         return {blob, {}, {}};
     }
+    // The extraction prompt's one name that is not a blob key. Aliased HERE, in
+    // the shared rule, because every caller would otherwise need its own copy —
+    // and the MCP surface, having none, silently dropped the field.
+    QVariantMap extracted = raw;
+    if (raw.contains(QStringLiteral("roastLevel")))
+        extracted.insert(QStringLiteral("degree"), raw.value(QStringLiteral("roastLevel")));
+
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     captureCanonicalIfNeeded(obj);
     const bool hasCanonical = obj.contains(QStringLiteral("canonical"));

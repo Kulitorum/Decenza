@@ -257,8 +257,17 @@ AIProvider* AIManager::providerById(const QString& providerId) const
 
 AIProvider* AIManager::currentProvider() const
 {
+    // No silent substitution. An unrecognised id (a value written by a newer
+    // build, a provider since removed, a corrupted setting) used to resolve to
+    // OpenAI, which meant a user could be billed on a provider they had not
+    // selected — and `logPrompt(selectedProvider(), …)` would record the name
+    // they DID select, so the substitution was invisible in the one place you
+    // would look for it. Every caller already handles null by reporting
+    // "no provider configured", which names the real problem.
     AIProvider* provider = providerById(selectedProvider());
-    return provider ? provider : m_openaiProvider.get();  // Default
+    if (!provider && !selectedProvider().isEmpty())
+        qWarning() << "AIManager: no provider for selected id" << selectedProvider();
+    return provider;
 }
 
 std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assistantMessage)
