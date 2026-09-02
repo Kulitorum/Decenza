@@ -22,9 +22,7 @@ namespace {
 constexpr const char* kReceiverClass =
     "io/github/kulitorum/decenza_de1/UsbHotplugReceiver";
 
-// The managers the JNI callback routes to. QPointer so a manager destroyed before
-// stop() runs leaves a null rather than a dangling pointer. Read on the Qt thread,
-// not the binder thread — the queued hop below is what makes that safe.
+// QPointer so a manager destroyed before stop() leaves a null, not a dangle.
 QPointer<UsbScaleManager> s_scaleManager;
 QPointer<USBManager> s_de1Manager;
 
@@ -38,9 +36,8 @@ void nativeOnUsbDeviceChanged(JNIEnv*, jclass, jint vendorId, jint productId, jb
 
     QMetaObject::invokeMethod(qApp, [vid, pid, isAttach]() {
         const bool isScale = (usbDeviceKindForPid(pid) == UsbDeviceKind::Scale);
-        // Marker follows the DEVICE, not this file: a [DE1] filter must return the
-        // DE1's own attach, and a [Scale] filter must not. One shared receiver does
-        // not make the DE1's cable a scale event.
+        // Marker follows the DEVICE, not this file: one shared receiver does not
+        // make the DE1's cable a scale event.
         const QString what = QStringLiteral("Hotplug: %1 (vid=0x%2 pid=0x%3)")
                                  .arg(isAttach ? QStringLiteral("attached")
                                                : QStringLiteral("detached"),
@@ -48,9 +45,6 @@ void nativeOnUsbDeviceChanged(JNIEnv*, jclass, jint vendorId, jint productId, jb
         if (isScale) HOTPLUG_INFO(what);
         else         DE1_INFO_TAGGED("USB", what);
 
-        // Both paths run the manager's normal probe pass, which is driven by
-        // whether the device is present rather than by what triggered it — so
-        // attach and detach need no separate handling here.
         if (isScale) {
             if (s_scaleManager) s_scaleManager->onHotplugEvent();
         } else {
@@ -95,9 +89,8 @@ void UsbHotplug::start(UsbScaleManager* scaleManager, USBManager* de1Manager)
     const jint supported = QJniObject::callStaticMethod<jint>(
         kReceiverClass, "register", "(Landroid/content/Context;)I", context.object());
     if (supported <= 0) {
-        // The Java side cannot report this itself: android.util.Log goes to logcat,
-        // while Decenza's log comes from a Qt message handler. Without this line a
-        // submitted log would show hotplug armed and simply never firing.
+        // Java cannot report this: android.util.Log goes to logcat, Decenza's log
+        // comes from a Qt message handler.
         HOTPLUG_WARN(QStringLiteral(
             "Hotplug armed but device_filter.xml yielded no ids — no attach or detach "
             "will be recognised; turn on Scan for USB devices to fall back to scanning"));

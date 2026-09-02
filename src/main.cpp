@@ -2143,16 +2143,8 @@ int main(int argc, char *argv[])
     checkpoint("Managers wired");
 
 #ifndef Q_OS_IOS
-    // USB SCANNING is opt-in (off by default) to avoid the polling battery drain on
-    // devices that never attach anything over USB. It covers the DE1 and the scale
-    // together — the scale's poll used to be unconditional and cost a JNI tick for the
-    // life of the process on every Android device, most of which use BLE.
-    //
-    // The setting gates SCANNING ONLY. It does not gate hotplug (which costs nothing
-    // while idle — see UsbScaleManager's attach/detach entry points), the on-demand
-    // probe behind "Scan for Devices", or an already-connected device. On Android a
-    // plugged-in device therefore works with this off; on desktop, which has no
-    // hotplug, scanning is the only automatic path.
+    // Scanning is opt-in for both the DE1 and the scale — see
+    // Settings::usbSerialEnabled for what it does and does not gate.
     const auto applyUsbScanning = [&]() {
         if (settings.usbSerialEnabled()) {
             usbManager.startPolling();
@@ -2160,35 +2152,24 @@ int main(int argc, char *argv[])
         } else {
             usbManager.stopPolling();
             usbScaleManager.stopPolling();
-            // The only trace that USB detection is deliberately idle. Without it a
-            // submitted log carries no USB lines at all, and "scanning is off" reads
-            // exactly like "the subsystem is broken" — the question this line exists
-            // to answer is a user asking why their USB scale was never found.
+            // Without this a submitted log carries no USB lines at all, and "off"
+            // reads exactly like "broken".
             SCALE_INFO_STDERR_TAGGED("USB Scale",
                 QStringLiteral("Scanning disabled (Settings > Connections > Scan for USB "
                                "devices). Hotplug and Scan for Devices still work."));
         }
     };
-    // Safe to run unconditionally at startup: stopPolling() on a manager that never
-    // started stops an inactive timer and cleans up null probe state, and its
-    // finishScanProbe() early-returns with no scan pending, so nothing is emitted.
+    // Safe on a never-started manager: finishScanProbe() early-returns with no scan
+    // pending, so stopPolling() emits nothing.
     applyUsbScanning();
     QObject::connect(&settings, &Settings::usbSerialEnabledChanged, applyUsbScanning);
 
-    // Hotplug is deliberately OUTSIDE the setting: an idle receiver costs nothing,
-    // so gating it would trade no battery saving for a plugged-in device that does
-    // not work. Android only — see UsbHotplug for why no other platform can.
+    // Outside the setting: an idle receiver costs nothing.
     UsbHotplug::start(&usbScaleManager, &usbManager);
 
-    // One probe pass at startup, regardless of the scanning setting. Hotplug only
-    // reports devices attached WHILE the app runs — a device already plugged in when
-    // the app starts had its broadcast fire before the receiver existed, and the
-    // manifest's USB_DEVICE_ATTACHED intent is a launch hook nothing reads at
-    // runtime. Without this, booting the tablet with the cable in left the device
-    // invisible until the user replugged it or pressed Scan for Devices.
-    //
-    // Not what the gate is for: it bounds a per-tick cost repeated for the life of
-    // the process, and this is one hasDevice() call per launch.
+    // Hotplug only reports devices attached WHILE the app runs, so one plugged in
+    // before launch is otherwise invisible until a replug or a Scan. Ungated: the
+    // setting bounds a per-tick cost, and this is one hasDevice() per launch.
     usbScaleManager.onHotplugEvent();
     usbManager.onHotplugEvent();
     QObject::connect(&app, &QCoreApplication::aboutToQuit, []() { UsbHotplug::stop(); });

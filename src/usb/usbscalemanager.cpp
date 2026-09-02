@@ -125,22 +125,11 @@ void UsbScaleManager::connectToScale()
         return;
     }
 
-    // Tear down when the scale itself reports the link is gone, rather than waiting
-    // for a scan tick to notice the port vanished. Idempotent with the poll's own
-    // unplug detection (teardownConnectedScale() early-returns once m_scale is null)
-    // and guarded on m_scale.
-    //
-    // Was Android-only, for a stale-but-enumerated link: there the device can stay
-    // plugged in while its serial connection silently dies, leaving nothing for the
-    // poll to catch. Desktop looked covered because the 2 s poll saw the port
-    // disappear within two seconds.
-    //
-    // It is NOT covered any more, which is why this is now unconditional. With USB
-    // scanning off — the default — desktop has no poll and no hotplug, so the only
-    // remaining trigger was a manual "Scan for Devices". Measured on macOS before
-    // this fix: the port died at t=253.7 and the manager still held the scale until
-    // a scan at t=272.9, 19 seconds of stale state during which the app had neither
-    // the USB scale nor its FlowScale fallback.
+    // Unconditional, not Android-only: with USB scanning off (the default) desktop
+    // has no poll and no hotplug, so a manual "Scan for Devices" was the only
+    // trigger left. Measured on macOS before this: port died t=253.7, scale still
+    // held until the scan at t=272.9 — 19 s with neither the USB scale nor its
+    // FlowScale fallback.
     connect(m_scale, &ScaleDevice::connectedChanged, this, [this] {
         if (m_scale && !m_scale->isConnected()) {
             warn(QStringLiteral("Connection lost — scale reported disconnected"));
@@ -233,8 +222,7 @@ void UsbScaleManager::startPolling()
 
 void UsbScaleManager::onHotplugEvent()
 {
-    // info(), not log(): "did the app see my cable" is a user-facing question, and
-    // the views default to minLevel INFO. Its DE1 twin already uses USB_INFO.
+    // info(), not log(): the views default to minLevel INFO.
     info(QStringLiteral("Hotplug event — running a probe pass now"));
     onPollTimerTick();
 }

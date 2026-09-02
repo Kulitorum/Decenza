@@ -44,19 +44,11 @@ public:
     void startPolling();
     void stopPolling();
 
-    // A USB device was attached or detached, reported by the platform rather than
-    // found by the timer. Runs the SAME pass the timer runs — the tick is driven by
-    // hasDevice(), not by having been called on a schedule, so "a device appeared"
-    // and "a device vanished" are already the only two things it decides between.
-    // Routing hotplug through it is what stops a second detection path existing to
-    // drift from this one.
+    // Platform-reported attach/detach. Runs the timer's own pass, which is
+    // hasDevice()-driven, so attach and detach need no separate handling.
     //
-    // Deliberately NOT probeNow(): that carries user-scan semantics (it forgets
-    // probed ports and emits probeFinished for the scanning indicator), which a
-    // cable event is not.
-    //
-    // Not gated by the USB scanning setting — see main.cpp. A registered receiver
-    // costs nothing while idle, so a plugged-in device works with scanning off.
+    // Not probeNow(): that carries user-scan semantics (forgets probed ports, emits
+    // probeFinished for the scanning indicator), which a cable event is not.
     void onHotplugEvent();
 
     // Run a poll pass NOW instead of waiting up to POLL_INTERVAL_MS for the next
@@ -166,19 +158,10 @@ private:
     QString m_confirmedPortName;
 #endif
 
-    // Two intervals, because they answer different questions.
-    //
-    // Android has hotplug (attach/detach broadcasts), so the timer is only there to
-    // notice a broadcast that never arrived — backgrounded, or an OEM build that
-    // does not deliver one. It is a safety net, not the mechanism, so it is slow.
-    // Provisional: it can go to zero once field evidence shows the broadcast is
-    // reliable across the builds in use, which is why it is named rather than
-    // inlined.
-    //
-    // Everywhere else there is no hotplug to fall back on — Qt offers none
-    // (QSerialPortInfo is not even a QObject, and qtserialport contains no
-    // udev_monitor / IOServiceAddMatchingNotification / WM_DEVICECHANGE), so the
-    // timer IS the detection path and has to stay responsive.
+    // Android has hotplug, so the timer only catches a broadcast that never
+    // arrived (backgrounded, or an OEM build that drops it) — a safety net, hence
+    // slow. Elsewhere there is no hotplug (see usbhotplug.h) and the timer IS the
+    // detection path.
 #ifdef Q_OS_ANDROID
     static constexpr int POLL_INTERVAL_MS = 60000;   // hotplug fallback
 #else
@@ -186,11 +169,8 @@ private:
 #endif
     static constexpr int PROBE_TIMEOUT_MS = 3000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
-    // Scale ids live in usbhotplug.h, which is where hotplug's DE1/scale routing
-    // reads them. They were declared in both files, and the copies were free to
-    // drift: the hotplug classifier treats anything not in its list as a DE1, so a
-    // scale id added here alone would have routed that scale to the DE1 manager
-    // with nothing failing.
+    // Ids live in usbhotplug.h — one declaration, since its classifier treats
+    // anything unlisted as the DE1.
     static bool isScalePid(uint16_t pid)
     {
         return usbDeviceKindForPid(static_cast<int>(pid)) == UsbDeviceKind::Scale;
