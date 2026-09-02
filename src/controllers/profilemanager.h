@@ -508,6 +508,11 @@ public slots:
     bool persistCurrentProfile();  // Save to downloaded folder if not already installed (no re-upload)
     void refreshProfiles();
     Q_INVOKABLE void uploadCurrentProfile();
+
+    // Connect/reconnect variant: defers while the DE1 is still asleep, because
+    // the connect sequence wakes the machine and would otherwise upload into
+    // the wake transition. See the definition for the failure it prevents.
+    void uploadCurrentProfileOnConnect();
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);

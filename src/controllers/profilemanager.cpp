@@ -113,8 +113,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     , m_steamHeaterPolicy(steamHeaterPolicy)
     , m_profileStorage(profileStorage)
 {
-    // Retry pending profile upload when machine reaches Idle, Ready, Sleep, or
-    // Heating — phases where it's safe to write a new profile to the DE1.
+    // Retry pending profile upload when machine reaches Idle, Ready or Heating
+    // — phases where it's safe to write a new profile to the DE1. Sleep is not
+    // one of them: uploadCurrentProfile() defers there, so listing it would
+    // only bounce the pending upload straight back into deferral.
     if (m_machineState) {
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
             if (!m_profileUploadPending) return;
@@ -125,7 +127,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 return;
             }
             if (phase == MachineState::Phase::Idle || phase == MachineState::Phase::Ready ||
-                phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Heating) {
+                phase == MachineState::Phase::Heating) {
                 qDebug() << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
                 uploadCurrentProfile();
             }
@@ -2295,6 +2297,34 @@ void ProfileManager::acknowledgeDe1CommunicationFailure() {
     m_profileUploadRetryAttempts = 0;
     m_lastUploadFailureReason.clear();
     updateProfileUploadRetrying();
+}
+
+void ProfileManager::uploadCurrentProfileOnConnect() {
+    // Sleep is not the hazard — writing INTO a wake we just triggered is.
+    // DE1Device::onTransportConnected() sends requestState(Idle) and this
+    // upload follows ~120 ms later, so the frames land mid-transition: every
+    // frame ACKs and telemetry streams, but the GHC blinks red and never picks
+    // the profile up. Re-uploading with the machine awake clears it, which is
+    // also why restarting the app fixes it (the DE1 is already awake by then).
+    //
+    // That is why only the connect path defers. Picking a profile on a stably
+    // sleeping machine is routine and works — it races nothing — so
+    // uploadCurrentProfile() must stay immediate or the edit is stranded.
+    //
+    // Waiting costs nothing here: the machine has to heat before it can brew,
+    // and the firmware drops cold start requests on a GHC machine anyway.
+    //
+    // Hypothesis, not a reproduction: the blink is weekly and the mechanism was
+    // inferred from it clearing on app restart and on a manual profile change.
+    // If it recurs with the DE1 already AWAKE at app start, this is the wrong
+    // cause and the queue depth at connect is the next suspect.
+    if (m_machineState && m_machineState->phase() == MachineState::Phase::Sleep) {
+        qDebug() << "uploadCurrentProfileOnConnect() deferred: machine asleep, "
+                    "will upload when it wakes";
+        m_profileUploadPending = true;
+        return;
+    }
+    uploadCurrentProfile();
 }
 
 void ProfileManager::uploadCurrentProfile() {

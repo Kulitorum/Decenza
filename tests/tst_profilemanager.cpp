@@ -707,6 +707,44 @@ private slots:
         QVERIFY(!f.profileManager.isProfileModified());
     }
 
+    // A profile written while the DE1 is still asleep can be lost inside the
+    // wake transition — every frame ACKs but the GHC never picks it up. These
+    // two pin the deferral and the flush; without them the fix is invisible to
+    // the suite, since a lost upload looks identical to a successful one here.
+
+    void uploadDeferredWhileMachineAsleep() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.transport.writes.clear();
+
+        f.machineState.m_phase = MachineState::Phase::Sleep;
+        f.profileManager.uploadCurrentProfileOnConnect();
+
+        QVERIFY(f.writesTo(DE1::Characteristic::HEADER_WRITE).isEmpty());
+        QVERIFY(f.writesTo(DE1::Characteristic::FRAME_WRITE).isEmpty());
+
+        // The narrow gate is the point: a user edit on a sleeping machine
+        // must still upload. Without this the fix could silently widen.
+        f.profileManager.uploadCurrentProfile();
+        QCOMPARE(f.writesTo(DE1::Characteristic::HEADER_WRITE).size(), 1);
+    }
+
+    void deferredUploadRunsOnceMachineLeavesSleep() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.transport.writes.clear();
+
+        f.machineState.m_phase = MachineState::Phase::Sleep;
+        f.profileManager.uploadCurrentProfileOnConnect();
+        QVERIFY(f.writesTo(DE1::Characteristic::HEADER_WRITE).isEmpty());
+
+        f.machineState.m_phase = MachineState::Phase::Idle;
+        emit f.machineState.phaseChanged();
+
+        QCOMPARE(f.writesTo(DE1::Characteristic::HEADER_WRITE).size(), 1);
+        QVERIFY(!f.writesTo(DE1::Characteristic::FRAME_WRITE).isEmpty());
+    }
+
     void loadProfileIsRecipe() {
         McpTestFixture f;
         loadDFlowProfile(f);
