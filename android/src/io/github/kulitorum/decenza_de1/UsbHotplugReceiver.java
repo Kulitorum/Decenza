@@ -83,12 +83,15 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
             // works, scale hotplug never matches" is a far worse failure than retrying.
             sSupported = out;
         } catch (Exception e) {
-            // Left uncached so the next event retries. Reported to C++ by register()'s
-            // return value: android.util.Log goes to logcat only, and Decenza's own log
-            // comes from a Qt message handler — so this line alone would leave a
-            // user-submitted log with no trace of why hotplug matched nothing.
+            // EMPTY, not the partial list the loop had built. A partial list is the
+            // worse failure: the DE1 is listed first, so a mid-document throw yields
+            // a working DE1 and a scale that never matches — and register() would
+            // return 1, so the "yielded no ids" warning that is the only C++-visible
+            // signal never fires. Failing whole is visible; failing half is not.
+            //
+            // Left uncached either way, so the next event retries.
             Log.e(TAG, "Could not read device_filter.xml", e);
-            return out;
+            return new ArrayList<>();
         }
         return sSupported;
     }
