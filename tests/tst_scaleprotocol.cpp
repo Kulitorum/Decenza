@@ -630,6 +630,85 @@ private slots:
         QCOMPARE(spy.count(), 0);
     }
 
+    // Build the 10-byte weight frame the original Decent Scale's v1.2 firmware
+    // notifies: the 7-byte layout with minutes/seconds/milliseconds after the
+    // weight short, two unused bytes, and the XOR in byte 9 (de1app
+    // decent_scale_weight_read_spec_v12, binary.tcl:350-364).
+    static QByteArray buildDecentV12WeightFrame(double grams) {
+        const int16_t raw = static_cast<int16_t>(qRound(grams * 10.0));
+        QByteArray pkt(10, 0);
+        pkt[0] = 0x03;
+        pkt[1] = static_cast<char>(0xCE);
+        pkt[2] = static_cast<char>((raw >> 8) & 0xFF);
+        pkt[3] = static_cast<char>(raw & 0xFF);
+        pkt[4] = 0x01;  // minutes
+        pkt[5] = 0x1E;  // seconds
+        pkt[6] = 0x05;  // milliseconds — the byte a 7-byte frame checksums on
+        uint8_t xorSum = 0;
+        for (int i = 0; i < 9; i++)
+            xorSum ^= static_cast<uint8_t>(pkt[i]);
+        pkt[9] = static_cast<char>(xorSum);
+        return pkt;
+    }
+
+    void decentV12TenByteWeightFrameDecodes() {
+        // #1891 dispatched every non-0x25 notification at exactly 7 bytes, so a
+        // v1.2 scale's 10-byte weight frames became undecodable: no weight, and
+        // — because the watchdog is now fed only by a decoded frame — ten
+        // "no initial weight data" retries and a disconnect loop.
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentV12WeightFrame(42.0));
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.last().at(0).toDouble(), 42.0);
+    }
+
+    void decentV12FrameChecksumIsReadAtByteNine() {
+        // The checksum must be evaluated over the frame's own length. Checked at
+        // byte 6 the frame reads as corrupt, which spends the v1 auto-disable
+        // budget and retires checksum validation for the session.
+        DecentScale scale(nullptr);
+        MessageCapture capture;
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        for (int i = 0; i < DecentScale::kChecksumFailureThreshold + 2; i++)
+            scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentV12WeightFrame(10.0 + i));
+
+        QCOMPARE(capture.count(QStringLiteral("Checksum validation disabled")), 0);
+        QCOMPARE(capture.count(QStringLiteral("Invalid checksum")), 0);
+        QCOMPARE(spy.count(), DecentScale::kChecksumFailureThreshold + 2);
+    }
+
+    void decentTenByteFrameOfAnotherTypeStaysUndecodable() {
+        // Only weight is decoded at ten bytes: the LED response's battery and
+        // firmware bytes have no known v1.2 position, so guessing at them would
+        // report a wrong battery level rather than nothing.
+        DecentScale scale(nullptr);
+        MessageCapture capture;
+
+        QByteArray led = buildDecentV12WeightFrame(42.0);
+        led[1] = 0x0A;
+        scale.onCharacteristicChanged(Scale::Decent::READ, led);
+
+        QCOMPARE(capture.count(QStringLiteral("Undecodable frame, type 0x0a, 10 bytes")), 1);
+    }
+
+    void decentWeightPacketFoundAtAnOffset() {
+        // The USB probes open a port mid-stream, so the packet that identifies
+        // the scale rarely starts at byte 0 -- and a run of leading bytes must
+        // not be mistaken for one.
+        const QByteArray packet = buildDecentWeightPacket(42.0);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(packet), 0);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(QByteArray("noise") + packet), 5);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(QByteArray("noise")), qsizetype(-1));
+
+        QByteArray corrupt = packet;
+        corrupt[6] = static_cast<char>(static_cast<uint8_t>(corrupt[6]) ^ 0xFF);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(corrupt), qsizetype(-1));
+    }
+
     void decentUndecodedFrameLoggedOnceWithItsBytes() {
         // One line per shape, carrying the hex, and nothing on repeats — the
         // payload here changes every frame, which is exactly what defeats a

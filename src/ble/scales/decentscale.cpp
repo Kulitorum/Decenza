@@ -355,16 +355,16 @@ bool DecentScale::parseWeightData(const QByteArray& data) {
 
     uint8_t command = d[1];
 
-    // Dispatch on LENGTH before checksum, so a frame that is not a 7-byte packet
+    // Dispatch on LENGTH before checksum, so a frame this driver cannot decode
     // never reaches the v1 auto-disable counter below.
     //
-    // The exactness is enforced here, not by notifiedFrameLength(), which asks
-    // only whether enough bytes have arrived -- the right question for the USB
-    // stream framer, the wrong one for a notification, which carries exactly one
-    // frame. Without this a 12-byte frame of any other type would be read as a
-    // 7-byte packet and spend the auto-disable budget.
-    const qsizetype frameLen = DecentScaleProtocol::notifiedFrameLength(command, data.size());
-    if (frameLen != data.size()) {
+    // A notification carries exactly one frame, so the length is known and the
+    // exact form of the question is the right one -- notifiedFrameLength() asks
+    // only whether enough bytes have arrived, which suits the USB stream framer.
+    // Without this a 12-byte frame of any type would be read as a 7-byte packet
+    // and spend the auto-disable budget.
+    const qsizetype frameLen = DecentScaleProtocol::notifiedFrameLengthExact(command, data.size());
+    if (frameLen == 0) {
         logFrameShapeOnce(QString("Undecodable frame, type 0x%1, %2 bytes")
                               .arg(command, 2, 16, QChar('0'))
                               .arg(data.size()),
@@ -403,7 +403,7 @@ bool DecentScale::parseWeightData(const QByteArray& data) {
         }
     }
 
-    if (command == 0xCE || command == 0xCA) {
+    if (command == DecentScaleProtocol::TypeWeight || command == DecentScaleProtocol::TypeWeightAlt) {
         // Weight data
         int16_t weightRaw = (static_cast<int16_t>(d[2]) << 8) | d[3];
         double weight = weightRaw / 10.0;  // Weight in grams

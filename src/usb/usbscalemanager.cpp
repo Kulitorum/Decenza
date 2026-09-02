@@ -1,5 +1,6 @@
 #include "usb/usbscalemanager.h"
 #include "usb/usbdecentscale.h"
+#include "ble/protocol/decentscaleprotocol.h"
 
 #include "ble/scales/scalelogging.h"
 
@@ -439,31 +440,18 @@ void UsbScaleManager::onAndroidProbeRead()
 
     m_probeBuffer.append(data);
 
-    // Look for a valid weight packet: 0x03 followed by 0xCE or 0xCA
-    for (int i = 0; i <= m_probeBuffer.size() - 7; i++) {
-        uint8_t b0 = static_cast<uint8_t>(m_probeBuffer[i]);
-        uint8_t b1 = static_cast<uint8_t>(m_probeBuffer[i + 1]);
+    if (DecentScaleProtocol::indexOfWeightPacket(m_probeBuffer) < 0)
+        return;
 
-        if (b0 == 0x03 && (b1 == 0xCE || b1 == 0xCA)) {
-            // Validate XOR checksum
-            uint8_t xorVal = 0;
-            for (int j = i; j < i + 6; j++) {
-                xorVal ^= static_cast<uint8_t>(m_probeBuffer[j]);
-            }
-            if (xorVal == static_cast<uint8_t>(m_probeBuffer[i + 6])) {
-                info(QStringLiteral("Half Decent Scale confirmed (weight packet received)"));
+    info(QStringLiteral("Half Decent Scale confirmed (weight packet received)"));
 
-                // Stop probe timers but DON'T close — connectToScale() reuses
-                // the JNI connection when the user selects the USB entry.
-                cleanupAndroidProbe(false);
+    // Stop probe timers but DON'T close — connectToScale() reuses the JNI
+    // connection when the user selects the USB entry.
+    cleanupAndroidProbe(false);
 
-                // Record availability only — do NOT auto-connect. main.cpp lists
-                // it as selectable and connects on selection / saved-primary.
-                setScaleAvailable(true);
-                return;
-            }
-        }
-    }
+    // Record availability only — do NOT auto-connect. main.cpp lists it as
+    // selectable and connects on selection / saved-primary.
+    setScaleAvailable(true);
 }
 
 void UsbScaleManager::onAndroidProbeTimeout()
@@ -653,32 +641,20 @@ void UsbScaleManager::onProbeReadyRead()
         return;
     }
 
-    // Look for valid weight packet: 0x03, 0xCE/0xCA, ..., XOR
-    for (int i = 0; i <= m_probeBuffer.size() - 7; i++) {
-        uint8_t b0 = static_cast<uint8_t>(m_probeBuffer[i]);
-        uint8_t b1 = static_cast<uint8_t>(m_probeBuffer[i + 1]);
+    if (DecentScaleProtocol::indexOfWeightPacket(m_probeBuffer) < 0)
+        return;
 
-        if (b0 == 0x03 && (b1 == 0xCE || b1 == 0xCA)) {
-            uint8_t xorVal = 0;
-            for (int j = i; j < i + 6; j++) {
-                xorVal ^= static_cast<uint8_t>(m_probeBuffer[j]);
-            }
-            if (xorVal == static_cast<uint8_t>(m_probeBuffer[i + 6])) {
-                QString confirmedPort = m_probingPortInfo.portName();
-                info(QStringLiteral("Half Decent Scale found on %1 (binary weight packet)")
-                        .arg(confirmedPort));
+    const QString confirmedPort = m_probingPortInfo.portName();
+    info(QStringLiteral("Half Decent Scale found on %1 (binary weight packet)")
+            .arg(confirmedPort));
 
-                // Close the probe port — connectToScale() reopens it on demand.
-                cleanupProbe();
+    // Close the probe port — connectToScale() reopens it on demand.
+    cleanupProbe();
 
-                // Record availability only — do NOT auto-connect. main.cpp lists
-                // it as selectable and connects on selection / saved-primary.
-                m_confirmedPortName = confirmedPort;
-                setScaleAvailable(true);
-                return;
-            }
-        }
-    }
+    // Record availability only — do NOT auto-connect. main.cpp lists it as
+    // selectable and connects on selection / saved-primary.
+    m_confirmedPortName = confirmedPort;
+    setScaleAvailable(true);
 }
 
 void UsbScaleManager::onProbeTimeout()
