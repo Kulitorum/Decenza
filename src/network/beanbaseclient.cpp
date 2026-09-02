@@ -20,6 +20,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <utility>
+
 namespace {
 // Visualizer's official canonical search API (open-source: miharekar/visualizer,
 // Api::CanonicalCoffeeBagsController — unauthenticated, substring + multi-word
@@ -226,15 +228,21 @@ bool looksLikeImage(const QByteArray& bytes) {
         QByteArrayLiteral("\x89PNG\r\n\x1a\n"),  // PNG
         QByteArrayLiteral("\xff\xd8\xff"),          // JPEG
         QByteArrayLiteral("GIF87a"), QByteArrayLiteral("GIF89a"),
-        QByteArrayLiteral("RIFF"),                    // WebP (RIFF….WEBP)
         QByteArrayLiteral("BM"),                      // BMP
-        QByteArrayLiteral("<svg"), QByteArrayLiteral("<?xml"),  // SVG
     };
     for (const QByteArray& signature : kSignatures) {
         if (bytes.startsWith(signature))
             return true;
     }
-    return false;
+    // WebP is RIFF with WEBP at offset 8 — bare "RIFF" is also WAV and AVI.
+    if (bytes.size() >= 12 && bytes.startsWith(QByteArrayLiteral("RIFF"))
+        && bytes.mid(8, 4) == QByteArrayLiteral("WEBP"))
+        return true;
+    // SVG needs an actual <svg element. Accepting a bare "<?xml" prolog let
+    // through the XML error bodies S3/GCS-backed CDNs return for a missing
+    // object — the very soft-404 shape this check exists to reject.
+    const QByteArray head = bytes.left(512).toLower();
+    return head.contains(QByteArrayLiteral("<svg"));
 }
 
 // The canonical id doubles as the cache filename. Ids are Visualizer UUIDs,
@@ -485,8 +493,10 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
         //
         // Either evidence suffices: the header, or the bytes themselves. A CDN
         // that mislabels a real photo (application/octet-stream is common) must
-        // not lose the bag its picture, and a shop that labels its 404 page
-        // image/jpeg must not gain one.
+        // not lose the bag its picture. The converse is NOT covered — a server
+        // that labels an error page image/jpeg still gets cached — because
+        // requiring both would drop legitimate photos from the mislabelling
+        // CDNs, which are far commoner than a lying one.
         const QString contentType =
             reply->header(QNetworkRequest::ContentTypeHeader).toString();
         const bool usable = !bytes.isEmpty() && bytes.size() <= kBagImageMaxBytes
@@ -843,7 +853,15 @@ void BeanBaseClient::cancelQueuedLinkProbes() {
     // drain ahead of the rows the user is now looking at — head-of-line
     // blocking on exactly the data the ordering needs first. In-flight requests
     // are left alone; their answers are still cached and still useful.
-    m_linkStateQueued.clear();
+    //
+    // Every dropped entry still ANSWERS. The queue is shared with the bag
+    // editor's suggestion probe, which waits on linkStateResolved before it can
+    // offer a page the user has already paid to find; dropping it silently
+    // stranded exactly the case this signal's every-probe-answers contract
+    // exists to prevent.
+    const QStringList dropped = std::exchange(m_linkStateQueued, {});
+    for (const QString& url : dropped)
+        emit linkStateResolved(url, QStringLiteral("unknown"));
 }
 
 void BeanBaseClient::probeLinkState(const QString& url) {
@@ -854,8 +872,20 @@ void BeanBaseClient::probeLinkState(const QString& url) {
     // An archive URL is already its own answer, and a state we know is a state
     // we keep — the session cache is what stops a repeated search re-probing.
     if (isArchiveUrl(key) || m_linkStateByUrl.contains(key) || m_linkStateInFlight.contains(key)
-        || m_linkStateQueued.contains(key) || m_linkStateUnresolvable.contains(key))
+        || m_linkStateQueued.contains(key))
         return;
+    if (m_linkStateUnresolvable.contains(key)) {
+        // Asked once already, no verdict. Do not ask again — but DO answer, or
+        // a caller waiting on the signal (the suggestion probe) waits forever
+        // for a request that was never going to be sent. Deferred so a consumer
+        // that connects right after invoking this still hears it.
+        QPointer<BeanBaseClient> self(this);
+        QMetaObject::invokeMethod(this, [self, key]() {
+            if (self)
+                emit self->linkStateResolved(key, QStringLiteral("unknown"));
+        }, Qt::QueuedConnection);
+        return;
+    }
 
     if (m_linkStateInFlight.size() >= kMaxLinkProbesInFlight) {
         m_linkStateQueued.append(key);

@@ -453,6 +453,51 @@ void CoffeeBagStorage::requestMarkEmpty(qint64 bagId)
     requestUpdateBag(bagId, {{"inInventory", false}});
 }
 
+void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
+{
+    // A one-key patch of the STORED blob, read-modify-write on the worker
+    // thread. The caller (the bag editor) has a working copy that may carry
+    // unsaved edits — a canonical pick or an unlink made while the AI search
+    // was in flight — and persisting that copy would save them behind the
+    // user's back, past a Cancel they are entitled to expect.
+    runAsync("bags_ai_searched",
+        [bagId](QSqlDatabase& db) {
+            QSqlQuery read(db);
+            read.prepare("SELECT beanbase_json FROM coffee_bags WHERE id = :id");
+            read.bindValue(":id", bagId);
+            if (!read.exec() || !read.next()) {
+                qWarning() << "CoffeeBagStorage: ai-search marker read failed:"
+                           << read.lastError().text();
+                return;
+            }
+            const QString stored = read.value(0).toString();
+            QJsonObject obj = stored.isEmpty()
+                ? QJsonObject()
+                : QJsonDocument::fromJson(stored.toUtf8()).object();
+            if (!stored.isEmpty() && obj.isEmpty()) {
+                // Corrupt blob: the same non-destructive rule the merge helpers
+                // follow — never rebuild what we cannot parse.
+                qWarning() << "CoffeeBagStorage: refusing ai-search marker on corrupt blob, bag"
+                           << bagId;
+                return;
+            }
+            if (obj.value(QStringLiteral("aiPageSearched")).toBool())
+                return;
+            obj[QStringLiteral("aiPageSearched")] = true;
+
+            QSqlQuery write(db);
+            write.prepare("UPDATE coffee_bags SET beanbase_json = :blob, "
+                          "updated_at = strftime('%s', 'now') WHERE id = :id");
+            write.bindValue(":blob",
+                            QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+            write.bindValue(":id", bagId);
+            if (!write.exec())
+                qWarning() << "CoffeeBagStorage: ai-search marker write failed:"
+                           << write.lastError().text();
+        },
+        [](bool) {});
+}
+
 void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
 {
     runAsync("bags_touch",

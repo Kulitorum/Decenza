@@ -126,10 +126,27 @@ typed. A URL that is itself dead SHALL fall through to archive recovery like any
 - **WHEN** a bag has no URL and no AI provider is configured
 - **THEN** no search SHALL be attempted and no provider SHALL be substituted
 
+The "already asked" fact SHALL be recorded under its OWN key, never by reusing
+the dead-link mark: a bag whose stored URL died is exactly the bag this rung
+exists for, and one key cannot mean both "the URL died" and "stop looking".
+Recording it SHALL patch the STORED blob only — a bag editor holding unsaved
+edits must not have them persisted by a background search completing.
+
 #### Scenario: Search returns nothing
 - **WHEN** the configured provider returns no URL, or one the probe proves dead
-- **THEN** the bag SHALL be left unchanged
+- **THEN** the bag's own fields SHALL be left unchanged apart from the
+  already-searched marker
 - **AND** the search SHALL NOT be repeated for that bag on a later launch
+
+#### Scenario: A bag whose URL died still reaches the search
+- **WHEN** a bag's stored URL was found dead and the archive had no capture
+- **THEN** the AI product-page search SHALL still be attempted for it
+
+#### Scenario: A search completing does not save the editor's unsaved edits
+- **WHEN** the user changes the bag's link or identity while the search is in
+  flight, and the search then returns nothing
+- **THEN** only the already-searched marker SHALL be written
+- **AND** the unsaved edits SHALL remain unsaved, so Cancel still discards them
 
 #### Scenario: The probe reaches no verdict
 - **WHEN** a returned URL's probe cannot resolve either way

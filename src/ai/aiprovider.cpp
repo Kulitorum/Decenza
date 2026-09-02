@@ -382,32 +382,11 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
 
 void OpenAIProvider::searchWeb(const QString& systemPrompt, const QString& userPrompt)
 {
-    if (!isConfigured()) {
-        emit analysisFailed(tr_("ai.openai.keyMissing", "OpenAI API key not configured"));
-        return;
-    }
-
-    setStatus(Status::Busy);
-    m_retryCount = 0;
-    ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
-
-    // The same Responses web_search tool analyzeUrl uses — OpenAI is the one
-    // provider whose single tool both searches and opens a page, so this
-    // differs from analyzeUrl only in what the prompt asks for.
-    QJsonObject requestBody;
-    requestBody["model"] = m_model;
-    requestBody["instructions"] = systemPrompt;
-    requestBody["input"] = userPrompt;
-    QJsonObject searchTool;
-    searchTool["type"] = QString("web_search");
-    requestBody["tools"] = QJsonArray{searchTool};
-    QJsonObject reasoning;
-    reasoning["effort"] = QString("low");
-    requestBody["reasoning"] = reasoning;
-    requestBody["max_output_tokens"] = MAX_OUTPUT_TOKENS;
-
-    sendResponsesRequest(requestBody);
+    // OpenAI is the one provider whose single Responses `web_search` tool both
+    // searches and opens a page, so this request is analyzeUrl's request. An
+    // alias, not a copy: two bodies that must stay identical are two bodies
+    // free to drift.
+    analyzeUrl(systemPrompt, userPrompt);
 }
 
 
@@ -789,7 +768,7 @@ QString AnthropicProvider::shortModelName() const
     return m_model;
 }
 
-void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
+void AnthropicProvider::sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature)
 {
     QString urlStr = m_baseUrl.isEmpty()
         ? QString::fromLatin1(API_URL)
@@ -800,6 +779,10 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
+    // Beta opt-in, for the request bodies that carry a beta tool. Empty for
+    // everything else — the header is per-feature, not a blanket flag.
+    if (!betaFeature.isEmpty())
+        req.setRawHeader("anthropic-beta", betaFeature);
     // 1-hour cache TTL is set on each cache_control block in the request
     // body (see buildCachedSystemPrompt + messagesWithCachedFirstUser).
     // The 1-hour TTL tier is GA — no beta header required. Cache writes
@@ -877,7 +860,10 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
     fetchTool["max_content_tokens"] = 20000;
     requestBody["tools"] = QJsonArray{fetchTool};
 
-    sendRequest(requestBody);
+    // web_fetch is a BETA tool: without the opt-in header the API rejects the
+    // request outright, so stage-2 extraction on Anthropic could never have
+    // worked. (web_search, used by searchWeb, is GA and needs no header.)
+    sendRequest(requestBody, QByteArrayLiteral("web-fetch-2025-09-10"));
 }
 
 void AnthropicProvider::searchWeb(const QString& systemPrompt, const QString& userPrompt)

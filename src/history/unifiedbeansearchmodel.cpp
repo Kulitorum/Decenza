@@ -99,14 +99,16 @@ void UnifiedBeanSearchModel::setSources(CoffeeBagStorage* bagStorage, BeanBaseCl
                     // Only touch the list when the answer is about a row it
                     // actually holds — probes outlive the query that started
                     // them, and a stale answer must not disturb a newer list.
-                    int changedRow = -1;
+                    // EVERY row carrying this URL, not just the first:
+                    // near-duplicate canonical entries for one coffee sharing a
+                    // product URL are the case this ordering exists for, and
+                    // labelling only one of them is worse than labelling none.
+                    QList<int> changedRows;
                     for (qsizetype i = 0; i < m_results.size(); ++i) {
-                        if (rowLink(m_results[i].toMap()) == url) {
-                            changedRow = static_cast<int>(i);
-                            break;
-                        }
+                        if (rowLink(m_results[i].toMap()) == url)
+                            changedRows.append(static_cast<int>(i));
                     }
-                    if (changedRow < 0)
+                    if (changedRows.isEmpty())
                         return;
 
                     // Most answers are "live", which is where an unresolved row
@@ -115,8 +117,10 @@ void UnifiedBeanSearchModel::setSources(CoffeeBagStorage* bagStorage, BeanBaseCl
                     // position back to the top, per resolved probe, mid-read.
                     const QVariantList reordered = orderedByCurrentLinkState();
                     if (reordered == m_results) {
-                        const QModelIndex idx = index(changedRow, 0);
-                        emit dataChanged(idx, idx, {LinkStateRole});
+                        for (int row : std::as_const(changedRows)) {
+                            const QModelIndex idx = index(row, 0);
+                            emit dataChanged(idx, idx, {LinkStateRole});
+                        }
                         return;
                     }
                     beginResetModel();

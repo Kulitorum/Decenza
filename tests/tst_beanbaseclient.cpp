@@ -414,6 +414,26 @@ private slots:
 
     // A content type that is not an image must not be cached as one: the file
     // would exist, so resolution would never run again — across restarts.
+    // The soft-404 shapes a CDN actually returns: an S3/GCS XML error body and
+    // a RIFF container that is not WebP. Both used to pass the sniff.
+    void imageSniffRejectsXmlErrorsAndNonWebpRiff() {
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/product",
+            "<html><meta property=\"og:image\" content=\"" + base + "/missing.png\"></html>");
+        server.respondForPath("/missing.png",
+            "<?xml version=\"1.0\"?><Error><Code>NoSuchKey</Code></Error>");
+        server.setContentType("application/xml");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing unusable bag image"));
+        client.ensureBagImage("canon-xml", "X", server.baseUrl() + "/product");
+        QTest::qWait(1200);
+        QVERIFY(!QFile::exists(cacheDir.path() + "/canon-xml"));
+    }
+
     void bagImageRefusesANonImageBody() {
         FakeBeanBaseServer server;
         const QByteArray base = server.baseUrl().toUtf8();
@@ -431,6 +451,51 @@ private slots:
         client.ensureBagImage("canon-soft404", "X", server.baseUrl() + "/product");
         QTest::qWait(1200);
         QVERIFY(!QFile::exists(cacheDir.path() + "/canon-soft404"));
+    }
+
+    // Every probe ANSWERS, including the one that reaches no verdict — the bag
+    // editor's suggestion waits on this signal before it can offer a page the
+    // user already paid to find, so a silent drop strands it forever.
+    void everyProbeAnswersEvenWithoutAVerdict() {
+        FakeBeanBaseServer server;
+        server.respondForPathWithStatus("/flaky", "503 Service Unavailable", "down");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy spy(&client, &BeanBaseClient::linkStateResolved);
+
+        client.probeLinkState(server.baseUrl() + "/flaky");
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(1).toString(), QString("unknown"));
+
+        // Asked again after the negative cache: no second request, but still an
+        // answer, or a caller waiting on the signal waits for a request that
+        // was never going to be sent.
+        const qsizetype after = server.requestCount();
+        client.probeLinkState(server.baseUrl() + "/flaky");
+        QVERIFY(spy.wait(2000));
+        QCOMPARE(spy.count(), 2);
+        QCOMPARE(spy.last().at(1).toString(), QString("unknown"));
+        QCOMPARE(server.requestCount(), after);
+    }
+
+    // A queued probe dropped when the result set changes answers too: the queue
+    // is shared with the suggestion probe, and the drop used to be silent.
+    void cancelledQueuedProbesStillAnswer() {
+        FakeBeanBaseServer server;
+        server.hangWithoutResponding();
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy spy(&client, &BeanBaseClient::linkStateResolved);
+
+        // Fill the in-flight slots, then queue one more.
+        for (int i = 0; i < 5; ++i)
+            client.probeLinkState(server.baseUrl() + QStringLiteral("/p%1").arg(i));
+        QTest::qWait(200);
+        client.cancelQueuedLinkProbes();
+
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(spy.first().at(1).toString(), QString("unknown"));
     }
 
     // An unresolvable probe is asked ONCE. Without the negative cache an

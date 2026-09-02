@@ -172,6 +172,11 @@ DecenzaDialog {
     // A found URL is probed before it is offered: the user must not be asked to
     // confirm a page that is already gone.
     property string _pendingSuggestion: ""
+    // The search's own status line. NOT infoStatus: that one lives in the
+    // "Get info from page" row, which is hidden unless a URL is present — and
+    // the search only runs when there is none, so a provider error written
+    // there could never be seen.
+    property string findPageStatus: ""
     // URL captured at click time — completion signals are gated on THIS, not
     // the live field: editing the URL mid-fetch must neither wedge the busy
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
@@ -421,10 +426,11 @@ DecenzaDialog {
             return
         if (root.fLink.trim().length > 0)
             return
-        // linkDead means "no usable URL is known — stop looking", which is what
-        // a fruitless search leaves behind. Without this the search re-runs,
-        // and re-bills, every time the bag is opened.
-        if (root.formBeanBase.linkDead)
+        // Its own key, NOT linkDead. linkDead means "the stored URL died", and a
+        // bag in exactly that state — delisted roaster, no archive capture — is
+        // the one this rung exists for; reusing it locked the search out of the
+        // case that motivated the feature.
+        if (root.formBeanBase.aiPageSearched)
             return
         if (!MainController.aiManager || !MainController.aiManager.isConfigured
                 || !MainController.aiManager.supportsProductPageSearch())
@@ -489,16 +495,24 @@ DecenzaDialog {
     // Remember that the search found nothing, on the bag itself. Edit mode only
     // — a bag being created has no row to write to yet, and its next open is an
     // edit, which is where the marker starts mattering.
+    //
+    // Patches the STORED blob, never the form's working copy: the AI reply
+    // lands seconds after the dialog opens, and by then the user may have
+    // picked a canonical entry or unlinked. Persisting the working copy would
+    // save those unsaved edits behind the user's back — Cancel could not undo
+    // them — and would write `beanBaseData` while leaving the `beanBaseId`
+    // column at its old value, so row and blob would disagree.
     function markNoProductPage() {
         if (root.formMode !== "edit" || root.editBagId <= 0)
             return
+        MainController.bagStorage.requestMarkAiPageSearched(root.editBagId)
+        // Keep the open form in step, so closing and reopening does not search
+        // again before the storage round-trip is visible.
         var blob = root.formBeanBase
-        if (blob.linkDead)
-            return
-        blob.linkDead = true
-        root.fBeanBaseData = JSON.stringify(blob)
-        MainController.bagStorage.requestUpdateBag(root.editBagId,
-            { "beanBaseData": root.fBeanBaseData })
+        if (!blob.aiPageSearched) {
+            blob.aiPageSearched = true
+            root.fBeanBaseData = JSON.stringify(blob)
+        }
     }
 
     function linkStateLabel(linkState) {
@@ -555,6 +569,7 @@ DecenzaDialog {
         _extractionCorrections = []
         _suggestedUrl = ""
         _pendingSuggestion = ""
+        findPageStatus = ""
         _pageSearchToken = ""
         _searchingForPage = false
         _pageSearchDone = false
@@ -1506,9 +1521,12 @@ DecenzaDialog {
                             // notConfigured / webSearchUnsupported / a provider
                             // error (expired key, 401, 429, quota). Actionable,
                             // and invisible otherwise.
-                            root.infoStatus = TranslationManager.translate(
+                            root.findPageStatus = TranslationManager.translate(
                                 "changebeans.form.findPage.failed",
                                 "Couldn't search for a product page: %1").arg(root.infoErrorText(error))
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null
+                                    && AccessibilityManager.enabled)
+                                AccessibilityManager.announce(root.findPageStatus)
                         }
                         // Fill empty fields, correct values that came from Bean
                         // Base, never touch one the user typed. The rule itself
@@ -1835,13 +1853,27 @@ DecenzaDialog {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(4)
                             visible: root._searchingForPage || root._suggestedUrl.length > 0
+                                      || root._pendingSuggestion.length > 0
+                                      || root.findPageStatus.length > 0
 
                             Text {
                                 Layout.fillWidth: true
                                 visible: root._searchingForPage
+                                         || root._pendingSuggestion.length > 0
                                 text: TranslationManager.translate(
                                     "changebeans.form.findPage.searching",
                                     "No product URL — asking the AI to find one…")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.Wrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root.findPageStatus.length > 0
+                                text: root.findPageStatus
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.Wrap

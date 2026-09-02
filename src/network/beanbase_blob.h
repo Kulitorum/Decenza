@@ -269,11 +269,12 @@ inline ExtractionApplication applyExtraction(const QString& blob, const QVariant
         qWarning() << "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)";
         return {blob, {}, {}};
     }
-    // The extraction prompt's one name that is not a blob key. Aliased HERE, in
-    // the shared rule, because every caller would otherwise need its own copy —
-    // and the MCP surface, having none, silently dropped the field.
+    // The extraction prompt's one name that is not a blob key. Aliased HERE so
+    // that every caller of THIS function shares it rather than repeating it;
+    // the MCP bag-update path maps the same pair for its own arguments
+    // (mcptools_write.cpp) and does not come through here.
     QVariantMap extracted = raw;
-    if (raw.contains(QStringLiteral("roastLevel")))
+    if (raw.contains(QStringLiteral("roastLevel")) && !raw.contains(QStringLiteral("degree")))
         extracted.insert(QStringLiteral("degree"), raw.value(QStringLiteral("roastLevel")));
 
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();

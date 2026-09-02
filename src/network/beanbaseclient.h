@@ -191,8 +191,8 @@ public:
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
     // Apply AI-extracted page values to a blob: fill empty fields, correct
     // values that came from Bean Base, never touch a value the user typed. See
-    // BeanBaseBlob::applyExtraction — the single definition every surface (bag
-    // editor, ShotServer, MCP) shares.
+    // BeanBaseBlob::applyExtraction — the single definition shared by the bag
+    // editor and the ShotServer's /api/beans/extract.
     // `current` carries the caller's own live values where they are not in the
     // blob yet (the bag editor's form fields); keys absent from it fall back to
     // the blob. Returns {"blob", "applied", "corrections"}.
@@ -307,9 +307,10 @@ private:
                                   std::function<void(const QString&, bool)> done);
     void startLinkStateProbe(const QString& url, bool useGet);
     void finishLinkStateProbe(const QString& url, const QString& state);
-    // fallbackImageUrl is tried when the first URL is unreachable — the
-    // archive's own copy of an asset whose roaster-hosted original is gone.
-    // Empty for every non-archived page, which is the common case.
+    // fallbackImageUrl is tried whenever the first URL yields nothing usable
+    // (unreachable, empty, oversized, or not a picture) — the archive's own
+    // copy of an asset whose roaster-hosted original is gone. Empty for every
+    // non-archived page, which is the common case.
     void downloadBagImage(const QString& canonicalId, const QString& imageUrl,
                           const QString& fallbackImageUrl = QString());
     QString imageCacheDir() const;

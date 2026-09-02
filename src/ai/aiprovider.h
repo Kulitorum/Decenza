@@ -310,7 +310,9 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
-    void sendRequest(const QJsonObject& requestBody);
+    // betaFeature sets `anthropic-beta` for a body carrying a beta tool
+    // (web_fetch); empty for the GA paths.
+    void sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature = {});
     static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
 
     // Wrap the first user message's content in a structured block carrying
