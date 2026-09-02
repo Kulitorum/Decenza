@@ -3018,7 +3018,7 @@ void MainController::applyAllSettings() {
 
     // 1. Upload current profile (espresso)
     if (m_profileManager->currentProfile().mode() == Profile::Mode::FrameBased) {
-        m_profileManager->uploadCurrentProfile();
+        m_profileManager->uploadCurrentProfileOnConnect();
     }
 
     // 2. Apply steam/hot water/flush settings (unified)
