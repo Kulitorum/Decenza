@@ -120,11 +120,6 @@ DecenzaDialog {
     property var _rpmRows: []
 
     function _rebuildRows() {
-        // TEMPORARY instrumentation (grind-picker open cost). The reported
-        // symptom is "several seconds" and only ~0.9 s of it is accounted for by
-        // the two history queries, so the split between query, row generation
-        // and view positioning has to be measured rather than guessed. Remove
-        // these four console.info lines once the dominant term is known.
         root._grindRows = root.rowSource
             ? root.rowSource.grindRowsFor(root._pendingGrind) : []
         root._rpmRows = (root.rowSource && root.rowSource.rpmCapable)
@@ -195,55 +190,17 @@ DecenzaDialog {
         // StrictlyEnforceRange re-animates — a visible tug-of-war. Positioned
         // first, the currentIndex assignment is a zero-distance move.
         //
-        // TEMPORARY instrumentation. _centerWheels measured 728 ms on one open
-        // of a Samsung SM-X210 (15 ms on the open before it, same target index),
-        // against 0-5 ms on a Mac — so the Mac cannot see this and the split has
-        // to come off the tablet. The three steps below are timed separately
-        // because they fail differently: a slow pos1 is the view walking from
-        // row 0 to the target, a slow idx is the highlight move the two
-        // assignments above are meant to have disarmed, and a slow pos2 is a
-        // redundant second traversal that could just be dropped. `from` and
-        // `count` are logged so the traversal DISTANCE is on the record rather
-        // than inferred — the 15 ms open and the 728 ms open had the same target.
-        // TEMPORARY probe. The tablet measured `idx` at 629-643 ms across three
-        // opens while pos1 (the 400-row traversal) stayed at 16 ms — so the cost
-        // is this assignment, which is exactly what the two lines above claim to
-        // have disarmed. Read back what they actually achieved:
-        //
-        // The `!== undefined` guards fail SILENTLY. If the resolved view has no
-        // such property the disarm is a no-op and nothing says so, which reads
-        // identical to a disarm that worked and was later undone. Logging the
-        // values after setting them separates those two.
-        //
-        // `view` names what _view() resolved, because Tumbler's internal view is
-        // a ListView or a PathView depending on `wrap`, and they do not honour
-        // these properties the same way.
-        //
-        // The open at t=20s had idx=0ms with the same from/to/count; the slow
-        // ones were an hour in. Whatever differs is not visible from the timings
-        // alone, so this logs state rather than more durations.
-        var _dur = lv ? lv.highlightMoveDuration : undefined
-        var _vel = lv ? lv.highlightMoveVelocity : undefined
-        var _viewType = lv ? (lv.toString().split("(")[0]) : "none"
-        var _from = tumbler.currentIndex
-        var _t0 = Date.now()
+        // The assignment is the expensive line, not the positioning. Timed on a
+        // Samsung SM-X210 it ran 629-643 ms against 16 ms for the traversal, and
+        // the disarm above was confirmed applied and never re-armed
+        // (highlightMoveDuration 0, highlightMoveVelocity -1, read back after the
+        // call). What made it cheap was shrinking the model — see
+        // GrindRowSource.grindWindowSteps. Measure there, not here.
         if (lv)
             lv.positionViewAtIndex(index, ListView.Center)
-        var _tPos1 = Date.now()
         tumbler.currentIndex = index
-        var _tIdx = Date.now()
         if (lv)
             lv.positionViewAtIndex(index, ListView.Center)
-        var _tPos2 = Date.now()
-        console.info("[Equipment] grind picker: _snapTo count=" + tumbler.count
-                     + " from=" + _from + " to=" + index
-                     + " pos1=" + (_tPos1 - _t0) + "ms"
-                     + " idx=" + (_tIdx - _tPos1) + "ms"
-                     + " pos2=" + (_tPos2 - _tIdx) + "ms"
-                     + " view=" + _viewType
-                     + " dur=" + _dur + " vel=" + _vel
-                     + " durNow=" + (lv ? lv.highlightMoveDuration : "n/a")
-                     + " velNow=" + (lv ? lv.highlightMoveVelocity : "n/a"))
     }
 
     // Centre each wheel on its current row. A wheel with no current value (an
@@ -271,10 +228,6 @@ DecenzaDialog {
     // place flicker, no travel. onOpened repeats the (idempotent) snap once
     // in case the ListView finished layout only after showing.
     onAboutToShow: {
-        // TEMPORARY — the one open-path total still worth keeping: it is the
-        // number a fix to _snapTo has to move. Everything else that was timed
-        // here has been answered and removed.
-        var _t0 = Date.now()
         root._rpmTouched = false
         root._rpmSnapIndex = -1
         root._pendingGrind = root.currentGrind
@@ -294,8 +247,6 @@ DecenzaDialog {
         rpmText.text = root._pendingRpm
         if (!root.textMode)
             root._centerWheels()
-        console.info("[Equipment] grind picker: onAboutToShow TOTAL "
-                     + (Date.now() - _t0) + "ms textMode=" + root.textMode)
     }
     onOpened: {
         if (root.textMode)

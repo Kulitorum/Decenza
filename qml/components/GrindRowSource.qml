@@ -150,36 +150,28 @@ QtObject {
     // is adjustable on the first tap. Only a seed — nothing written until picked.
     readonly property int rpmDefaultAnchor: 1000
 
-    // Wheel window half-width, in steps. Deliberately far beyond any physical
-    // dial so spinning is effectively unbounded — the user must never have to
-    // close and reopen the picker to keep going (a Niche 9 -> -1 move is 40
-    // steps at 0.25). The REAL limits are semantic and live in the stepper:
-    // click-indexed grinders floor at 0, letters clamp A..Z. Only ~5 rows are
-    // visible at a time, so a wide window costs nothing to LOOK at.
+    // Wheel window half-width, in steps. The number is load-bearing, not taste.
     //
-    // TEMPORARY: 400 -> 200 as a MEASUREMENT, not a proposed change. The tablet
-    // puts 635 ms of a 765 ms open inside `tumbler.currentIndex = index`, and
-    // Qt's own source says why the target's distance might be what costs:
-    // assigning a new array to Tumbler.model replaces the model object, and
+    // Was 400. The wheel's target row is always the window's middle, and
+    // assigning a new array to Tumbler.model replaces the model object —
     // QQuickItemViewPrivate::setModel then forces currentIndex back to 0 and
-    // refills around 0 (qquickitemview.cpp:1163-1169). The target is always the
-    // window's middle, so it sits `grindWindowSteps` rows outside what was just
-    // realised.
+    // refills around 0 (qquickitemview.cpp:1163-1169), so `currentIndex = middle`
+    // has to reach that far outside what was just realised. Measured on a Samsung
+    // SM-X210, three opens each with the grind changed:
     //
-    // Halving the window halves that distance. Read `idx` in the [Equipment]
-    // grind picker log on a Samsung SM-X210, on the SECOND or later open with
-    // the grind CHANGED (the first open of a session is free — Qt takes a
-    // degenerate path while the view is not yet valid, :1813 — and an unchanged
-    // value hits the row memo and never reassigns the model):
+    //   801 rows (±400):  currentIndex= 629/640/633 ms   open 768/770/753 ms
+    //   401 rows (±200):  currentIndex=     0/3/2 ms     open   35/41/38 ms
     //
-    //   ~320 ms -> the cost scales with distance; the window size is the answer
-    //   ~640 ms -> flat; distance is not it, and the cost is inside createItem
-    //              or applyPendingChanges and needs its own instrumentation
+    // A CLIFF, not a slope — halving the rows cut it ~300x, not 2x, so something
+    // between 401 and 801 crosses a threshold in QQuickListView. Where exactly is
+    // NOT established; 200 is on the good side of it with margin. Do not raise it
+    // without re-measuring on a slow tablet. The view TRAVERSAL is not the reason:
+    // positionViewAtIndex crossed 400 rows in 16 ms.
     //
-    // REVERT THIS whichever way it lands. If it scales, the real change is a
-    // deliberate choice of range with the tradeoff stated, not a number halved
-    // to take a reading. pos1 (the view traversal) measured 16 ms across 400
-    // rows and is NOT the reason this is here.
+    // The range given up costs nothing. ±200 steps is ±50 dial units at a 0.25
+    // step — five times the widest real move (a Niche 9 -> -1 is 40 steps) — and
+    // only ~5 rows are visible at a time. The REAL limits are semantic and live in
+    // the stepper: click-indexed grinders floor at 0, letters clamp A..Z.
     readonly property int grindWindowSteps: 200
     readonly property int rpmWindowSteps: 40
 
