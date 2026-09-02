@@ -6,10 +6,11 @@ The dial-in values (grind, RPM, dose) are things the user physically did and sho
 
 ## What Changes
 
-- **BREAKING (behavioral)**: steam-block and hot-water-block changes made while a recipe is active no longer write through to that recipe. Selecting a different water vessel or steam pitcher, editing a vessel/pitcher preset, or changing the steamed-milk weight applies to the current brew only.
+- **BREAKING (behavioral)**: the steam pitcher and the water vessel become **ingredients**. Selecting a different one while a recipe is active deactivates the recipe — the same rule the bean, equipment package and profile already follow — instead of rewriting it.
+- The recipe's stored block is left untouched, so one tap on its pill re-activates and restores the pitcher and vessel. Deactivation is what makes that one tap work: a deselected pill activates on the first tap, where the selected pill would have started a shot.
 - Grind, RPM, and dose write-through are untouched — grind stays on the recipe (and mirrors to the bag), dose stays welded to the dose-source-precedence ladder.
-- The steam and hot-water blocks change only through the recipe editor (wizard summary), MCP `recipe_update`, and the ShotServer recipe form — the same routes that already own yield and `tempOffsetC`.
-- Re-activating the recipe restores its stored vessel/pitcher, so the live setting is recoverable without any new UI. No "Update Recipe" button is added for these blocks; no revert-on-dispense machinery is added.
+- Two things deliberately do NOT deactivate: editing a pitcher/vessel preset (not an ingredient swap — the block is a by-value snapshot), and the steamed-milk weight (captured automatically at the end of steaming, so deactivating on it would cost every milk drink's shot its recipe attribution).
+- The blocks change only through the wizard, MCP `recipe_update`, and the ShotServer recipe form. No "Update Recipe" button is added for them, and no revert-on-dispense machinery.
 
 ## Capabilities
 
@@ -19,12 +20,13 @@ The dial-in values (grind, RPM, dose) are things the user physically did and sho
 
 ### Modified Capabilities
 
-- `recipe-activation`: the "Tweaks write through; ingredient swaps deactivate" requirement moves steam values, milk weight, and the hot-water vessel selection from the write-through set to the per-brew-override set, alongside yield and temperature. Dose and grind/RPM stay where they are.
+- `recipe-activation`: the "Tweaks write through; ingredient swaps deactivate" requirement moves the steam-pitcher and water-vessel selections from the write-through set to the ingredient-swap set, alongside bean, equipment and profile. Preset edits and the measured milk weight leave the recipe alone entirely. Dose and grind/RPM stay where they are.
 
 ## Impact
 
-- `src/controllers/maincontroller.cpp`: five write-through connections removed (`selectedSteamPitcherChanged`, `steamPitcherPresetsChanged`, `lastSteamMilkGChanged`, `selectedWaterVesselChanged`, `waterVesselPresetsChanged`). `stampActiveRecipeSteam()` / `stampActiveRecipeHotWater()` and their `currentSteamSpecJson()` / `currentHotWaterSpecJson()` helpers lose their only auto callers — the JSON builders stay, since shot-metadata and editor paths still assemble the blocks.
-- `src/controllers/maincontroller.h`: the two stamp declarations.
-- Activation is unchanged: `applyActivatedRecipe`'s steam and hot-water stages already re-push the recipe's stored block, which is what makes the live value recoverable.
-- Docs: `docs/CLAUDE_MD/RECIPES.md` ("Tweaks write through" paragraph) and the wiki manual page covering recipes.
+- `src/controllers/maincontroller.cpp`: five write-through connections removed (`selectedSteamPitcherChanged`, `steamPitcherPresetsChanged`, `lastSteamMilkGChanged`, `selectedWaterVesselChanged`, `waterVesselPresetsChanged`); two deactivation watchers added beside the bean/equipment/profile ones, on the two SELECTION signals only. `stampActiveRecipeSteam()` / `stampActiveRecipeHotWater()` go with them; the `currentSteamSpecJson()` / `currentHotWaterSpecJson()` builders stay, since shot-metadata and promote-from-shot still assemble the blocks.
+- `src/history/recipestorage.h`: the ownership + divergence rules as `Recipe::` statics beside `profileDiverged`, so both watchers and their tests ask one definition.
+- `MainController::deactivateRecipe()` / the steam watcher: a user-driven pitcher pick becomes the standing selection before deactivating, so the override unwind cannot re-select the parked pitcher over the user's own choice.
+- Activation is unchanged: `applyActivatedRecipe`'s steam and hot-water stages already re-push the recipe's stored block.
+- Docs: `docs/CLAUDE_MD/RECIPES.md` and the wiki manual page covering recipes.
 - No schema change, no migration, no MCP or web surface change.

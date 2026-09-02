@@ -701,68 +701,107 @@ private slots:
         });
     }
 
-    // A live steam/hot-water change is a per-brew choice and must never reach
-    // the recipe row (#1895: an americano poured at 140 ml for someone else
-    // redefined the recipe). Only the dial-in values — grind, RPM, dose — write
-    // through. MainController is not constructible here (the MCP suites stub it
-    // out), so the wiring is asserted against its source, the way
-    // tst_recipesearch guards the QML search predicate.
-    void liveBlockChangesNeverStampTheRecipe() {
-        QFile f(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/src/controllers/maincontroller.cpp"));
-        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), "maincontroller.cpp is not readable");
-        // Comments are stripped first: the file discusses these stamps in prose,
-        // and a sentence naming a signal near the word stampActiveRecipe would
-        // otherwise satisfy the assertion on its own. It did — the first draft
-        // of this test passed with the grind stamp deleted.
+    // Only the dial-in values write through to the active recipe. A live
+    // steam or hot-water change is a per-brew choice and must never reach the
+    // recipe row (#1895: an americano poured at 140 ml for someone else
+    // redefined the recipe, so every later americano on it poured 140).
+    //
+    // Asserted against the source rather than behaviourally: standing up a
+    // MainController takes five live collaborators (network manager, settings,
+    // device, machine state, shot model) plus real SettingsBrew signal traffic.
+    // Same technique as tst_profilemanager's
+    // currentProfileAssignedOnlyBySetCurrentProfile.
+    //
+    // This is an ALLOWLIST, deliberately. Naming the signals that must NOT
+    // stamp only guards the shapes named: a member-slot connect, a renamed
+    // helper, or a signal nobody thought of all pass such a test while the bug
+    // is back. Enumerating the fields that DO get stamped closes every one of
+    // those routes, because each still has to reach stampActiveRecipe.
+    void onlyDialInValuesStampTheActiveRecipe() {
+        QFile f(QStringLiteral(DECENZA_SOURCE_DIR "/src/controllers/maincontroller.cpp"));
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "could not read maincontroller.cpp — this test is now blind");
+        // Each line is truncated at its first "//" so prose about these stamps
+        // is not read as code. It assumes no "//" inside a string literal on a
+        // line that also calls stampActiveRecipe; if that ever happens the call
+        // drops out of the list below and the QCOMPARE fails loudly.
         QString src;
         const QStringList rawLines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
         for (const QString& line : rawLines) {
-            const qsizetype slashes = line.indexOf(QLatin1String("//"));
-            src += (slashes >= 0 ? line.left(slashes) : line) + QLatin1Char('\n');
+            const qsizetype commentAt = line.indexOf(QLatin1String("//"));
+            src += (commentAt >= 0 ? line.left(commentAt) : line) + QLatin1Char('\n');
         }
 
-        // A stamp is wired by naming the signal and calling stampActiveRecipe*
-        // inside the same connect() — the lambda is at most a couple of short
-        // lines, so a window from the signal name covers it.
-        const auto stampsWithin = [&src](const QString& signalName,
-                                         const QString& call = QStringLiteral("stampActiveRecipe")) {
-            for (qsizetype from = 0; (from = src.indexOf(signalName, from)) >= 0; from += signalName.size()) {
-                if (QStringView(src).mid(from, 200).contains(call))
-                    return true;
-            }
-            return false;
-        };
+        QStringList stamped;
+        const QRegularExpression call(
+            QStringLiteral(R"RX(stampActiveRecipe\s*\(\s*QStringLiteral\("([A-Za-z]+)"\))RX"));
+        auto it = call.globalMatch(src);
+        while (it.hasNext())
+            stamped << it.next().captured(1);
+        stamped.sort();
 
-        const QStringList blockSignals = {
-            QStringLiteral("selectedSteamPitcherChanged"),
-            QStringLiteral("steamPitcherPresetsChanged"),
-            QStringLiteral("lastSteamMilkGChanged"),
-            QStringLiteral("selectedWaterVesselChanged"),
-            QStringLiteral("waterVesselPresetsChanged"),
-        };
-        for (const QString& sig : blockSignals) {
-            QVERIFY2(!stampsWithin(sig),
-                     qPrintable(sig + QStringLiteral(" stamps the active recipe - steam and "
-                                                     "hot-water blocks are per-brew choices and "
-                                                     "change only through a recipe edit (#1895)")));
-        }
-        // Both helpers were deleted with their connections; a re-wire under any
-        // other name still has to go through stampActiveRecipe, caught above.
-        QVERIFY(!src.contains(QLatin1String("stampActiveRecipeSteam")));
-        QVERIFY(!src.contains(QLatin1String("stampActiveRecipeHotWater")));
+        QCOMPARE(stamped, QStringList({QStringLiteral("doseG"), QStringLiteral("grindPinned"),
+                                       QStringLiteral("rpmPinned")}));
 
-        // The other half: this fails if a later change takes the dial-in values
-        // off the recipe too. Each names the field it must still stamp, so
-        // rewiring the signal to some other field does not satisfy it.
-        QVERIFY2(stampsWithin(QStringLiteral("dyeGrinderSettingChanged"),
-                              QStringLiteral("grindPinned")),
-                 "the grind stamp is gone - grind lives on the recipe");
-        QVERIFY2(stampsWithin(QStringLiteral("dyeGrinderRpmChanged"),
-                              QStringLiteral("rpmPinned")),
-                 "the RPM stamp is gone - grind lives on the recipe");
-        QVERIFY2(stampsWithin(QStringLiteral("dyeBeanWeightChanged"),
-                              QStringLiteral("doseG")),
-                 "the dose stamp is gone - dose is dial-in and feeds the dose ladder");
+        // The regex only sees the QStringLiteral form. A call written any other
+        // way would silently drop out of the list above, so account for every
+        // occurrence: the three calls plus the definition of stampActiveRecipe
+        // itself. A fourth call, or a helper renamed out from under the regex,
+        // fails here.
+        QCOMPARE(src.count(QLatin1String("stampActiveRecipe(")), stamped.size() + 1);
+    }
+
+    // The ingredient rules the deactivation watchers ask (#1895). Ownership
+    // gates first, exactly as ownsProfileChoice does, so a recipe that names no
+    // pitcher (or carries no hot-water block) is never dropped by a change to
+    // one it does not own.
+    void steamPitcherOwnershipAndDivergence() {
+        const QString named = QStringLiteral(R"({"hasMilk":true,"pitcherName":"Small"})");
+        const QString off = QStringLiteral(R"({"hasMilk":true,"heaterOff":true})");
+        const QString none = QStringLiteral(R"({"hasMilk":true})");
+
+        QVERIFY(Recipe::ownsSteamPitcherChoice(named));
+        QVERIFY(Recipe::ownsSteamPitcherChoice(off));   // "Heater off" IS a choice
+        QVERIFY(!Recipe::ownsSteamPitcherChoice(none));
+        QVERIFY(!Recipe::ownsSteamPitcherChoice(QString()));
+
+        // Owns none — never diverges, whatever is selected.
+        QVERIFY(!Recipe::steamPitcherDiverged(none, QStringLiteral("Big"), false));
+        QVERIFY(!Recipe::steamPitcherDiverged(none, QString(), true));
+
+        // Names one: same pitcher stays, a different one diverges, and the
+        // Heater off marker diverges even though it has no name to compare.
+        QVERIFY(!Recipe::steamPitcherDiverged(named, QStringLiteral("Small"), false));
+        QVERIFY(!Recipe::steamPitcherDiverged(named, QStringLiteral("small"), false));
+        QVERIFY(Recipe::steamPitcherDiverged(named, QStringLiteral("Big"), false));
+        QVERIFY(Recipe::steamPitcherDiverged(named, QString(), true));
+
+        // Saved with the boiler deliberately cold: a real pitcher diverges,
+        // the marker does not.
+        QVERIFY(!Recipe::steamPitcherDiverged(off, QString(), true));
+        QVERIFY(Recipe::steamPitcherDiverged(off, QStringLiteral("Small"), false));
+    }
+
+    void waterVesselOwnershipAndDivergence() {
+        const QString named = QStringLiteral(R"({"hasWater":true,"vesselName":"Cup","volume":70})");
+        const QString incomplete = QStringLiteral(R"({"hasWater":true})");
+        const QString dormant = QStringLiteral(R"({"hasWater":false,"vesselName":"Cup"})");
+
+        QVERIFY(Recipe::ownsWaterVesselChoice(named));
+        // hasWater with no vessel is a block the user toggled on and never
+        // finished; a dormant block owns nothing either.
+        QVERIFY(!Recipe::ownsWaterVesselChoice(incomplete));
+        QVERIFY(!Recipe::ownsWaterVesselChoice(dormant));
+        QVERIFY(!Recipe::ownsWaterVesselChoice(QString()));
+
+        QVERIFY(!Recipe::waterVesselDiverged(named, QStringLiteral("Cup")));
+        QVERIFY(!Recipe::waterVesselDiverged(named, QStringLiteral("CUP")));
+        QVERIFY(Recipe::waterVesselDiverged(named, QStringLiteral("Mug")));
+        QVERIFY(Recipe::waterVesselDiverged(named, QString()));
+
+        // An espresso recipe is untouched by any vessel change.
+        QVERIFY(!Recipe::waterVesselDiverged(incomplete, QStringLiteral("Mug")));
+        QVERIFY(!Recipe::waterVesselDiverged(QString(), QStringLiteral("Mug")));
     }
 
     void updateFields() {

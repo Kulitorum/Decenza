@@ -1531,6 +1531,37 @@ void MainController::setupRecipeConnections() {
         if (recipeEq > 0 && m_settings->dye()->activeEquipmentId() != recipeEq)
             deactivateRecipe();
     });
+    // The steam pitcher and the water vessel are ingredients too (#1895): the
+    // user picking a different one is making a different drink, not editing
+    // this one. Only the SELECTION deactivates — a preset edit is not a swap,
+    // and the milk weight is captured automatically at the end of steaming, so
+    // deactivating on it would drop every milk recipe just before its own shot
+    // is saved.
+    connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this, [this]() {
+        if (m_applyingRecipe || m_activeRecipe.isEmpty())
+            return;
+        auto* brew = m_settings->brew();
+        const QVariantMap live = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+        if (!Recipe::steamPitcherDiverged(m_activeRecipe.value(QStringLiteral("steamJson")).toString(),
+                                          live.value(QStringLiteral("name")).toString(),
+                                          SettingsBrew::isHeaterOffPitcher(live)))
+            return;
+        // The user has chosen a pitcher themselves, so the standing selection
+        // parked at activation is no longer "the user's own" — dropping it
+        // first stops deactivateRecipe's override unwind from re-selecting the
+        // parked pitcher over the pick that got us here.
+        brew->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
+        deactivateRecipe();
+    });
+    connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this, [this]() {
+        if (m_applyingRecipe || m_activeRecipe.isEmpty())
+            return;
+        auto* brew = m_settings->brew();
+        const QVariantMap live = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+        if (Recipe::waterVesselDiverged(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString(),
+                                        live.value(QStringLiteral("name")).toString()))
+            deactivateRecipe();
+    });
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
@@ -1605,13 +1636,12 @@ void MainController::setupRecipeConnections() {
         if (DrinkTypes::hasGrind(m_activeRecipe.value("drinkType").toString()))
             stampActiveRecipe(QStringLiteral("rpmPinned"), m_settings->dye()->dyeGrinderRpm());
     });
-    // The steam and hot-water blocks have NO write-through: picking a different
-    // pitcher or water vessel is a per-brew choice, like yield and temperature
-    // above, and reaches the recipe only through an explicit edit (recipe
-    // editor, MCP recipe_update, web form). Issue #1895: an americano poured at
-    // 140 ml for someone else redefined the recipe, so every later americano on
-    // it poured 140. Activation re-pushes the stored block, so the live value
-    // is recoverable by re-activating the recipe.
+    // The steam and hot-water blocks have NO write-through. Issue #1895: an
+    // americano poured at 140 ml for someone else redefined the recipe, so
+    // every later americano on it poured 140. A pitcher or vessel change is an
+    // ingredient swap and DEACTIVATES instead — see the watchers below, beside
+    // the bean and equipment ones. tst_RecipeStorage's
+    // onlyDialInValuesStampTheActiveRecipe holds the absence.
 
     // selectedRecipeId (the synchronous pill-selection marker) follows
     // activeRecipeId in steady state: a successful activation sets activeRecipeId

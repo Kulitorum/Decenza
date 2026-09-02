@@ -68,10 +68,11 @@ public:
 
     // PULLED, not pushed: MainController mutates the active recipe from several
     // places — activation, the cache refresh, deactivation, and a shared stamp
-    // helper reached from five field writers — and a pushed copy would only have
-    // to be missed at one of them to resolve against a stale answer. Deliberately
-    // no exact count here: an earlier version of this comment asserted "six
-    // sites", which matched no grouping of the code and was never re-derived.
+    // helper reached from the dial-in field writers — and a pushed copy would
+    // only have to be missed at one of them to resolve against a stale answer.
+    // Deliberately no count here: it drifts. An earlier version asserted "six
+    // sites", matching no grouping of the code; its replacement said five and
+    // went stale the moment the steam and hot-water stamps were removed.
     // MainController installs this once.
     // Unset means NoRecipe, which is the correct answer for any caller that has
     // no recipe layer at all.

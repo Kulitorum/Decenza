@@ -5,9 +5,15 @@ While a recipe is active, a dose change SHALL write through to the active recipe
 
 Yield and temperature are per-brew **overrides**, not tweaks: a Brew Settings change to yield (Stop-at) or temperature (Temp Delta) SHALL apply only as a `Settings.brew` override for the next brew and SHALL NOT write through to the active recipe. The recipe's `yieldG` / `tempOffsetC` SHALL change only via an explicit "Update Recipe" action; when Update Recipe persists a temperature, it SHALL store the delta between the dialed temperature and the profile's espresso_temperature (the offset), never the absolute value. Accordingly, the `MainController` auto-stamp watchers on `SettingsBrew::brewOverridesChanged` (→ `yieldG`) and `SettingsBrew::temperatureOverrideChanged` (→ `tempOffsetC`) SHALL be removed.
 
-The steam block (selected pitcher, its values, and the steamed-milk weight) and the hot-water block (selected water vessel and its values) are per-brew **choices** on the same footing: changing any of them while a recipe is active SHALL apply to the current brew only and SHALL NOT write through to the active recipe. Editing a pitcher or vessel PRESET SHALL likewise leave every recipe's stored block alone — a recipe's block is a by-value snapshot, not a reference. A recipe's `steamJson` / `hotWaterJson` SHALL change only through an explicit recipe edit (the recipe editor, `recipe_update` over MCP, or the web recipe form). Accordingly, the `MainController` auto-stamp watchers on the steam-pitcher selection, the steam-pitcher presets, the steamed-milk weight, the water-vessel selection, and the water-vessel presets SHALL be removed.
+The steam pitcher and the water vessel are **ingredients**, not tweaks. Selecting a different steam pitcher or a different water vessel while a recipe is active SHALL deactivate the recipe, exactly as changing the bean, the equipment package, or the profile does — the user is no longer making that drink, and the change SHALL apply to the live settings while the recipe's stored block is left untouched. Accordingly, the `MainController` auto-stamp watchers on the steam-pitcher selection, the steam-pitcher presets, the steamed-milk weight, the water-vessel selection, and the water-vessel presets SHALL be removed, and two deactivation watchers SHALL take their place.
 
-Because activation re-applies the recipe's stored blocks, re-activating the recipe SHALL restore its pitcher and vessel into the live settings. No separate revert-on-dispense behavior is required, and no "Update Recipe" affordance is added for these blocks.
+Each deactivation watcher SHALL gate on OWNERSHIP first, as the bean, equipment and profile watchers do: a recipe whose steam block names no pitcher owns no pitcher choice and SHALL NOT be deactivated by a pitcher change, and a recipe with no active hot-water block SHALL NOT be deactivated by a vessel change. Re-selecting the pitcher or vessel the recipe itself names SHALL NOT deactivate it. The ownership and divergence questions SHALL each have ONE definition, shared by every site that asks them, in the same place as `Recipe::profileDiverged` — a comparison hand-written per call site is free to drift, and the drift is invisible until a shot is stamped with a recipe it did not run.
+
+Two things SHALL NOT deactivate. Editing, adding, removing or reordering a pitcher or vessel PRESET is not an ingredient swap and SHALL leave the active recipe alone; a recipe's block is a by-value snapshot, not a reference. The steamed-milk weight SHALL NOT deactivate either: it is captured automatically at the end of a steam session, so deactivating on it would drop every milk recipe moments before its own shot is saved, costing that shot its recipe attribution.
+
+Deactivation SHALL NOT undo the selection that triggered it. The recipe pitcher override parks the user's own standing selection on activation and restores it on deactivation, so a deactivation driven by the user's own pitcher pick SHALL first make that pick the standing selection — otherwise the unwind re-selects the parked pitcher and the user's choice disappears.
+
+A recipe's `steamJson` / `hotWaterJson` SHALL change only through an explicit recipe edit (the wizard, `recipe_update` over MCP, or the web recipe form). Because activation re-applies the recipe's stored blocks, re-activating the recipe SHALL restore its pitcher and vessel into the live settings.
 
 Changing the active bag/bean or the equipment package SHALL deactivate the recipe (event-based, no timers); the recipe itself SHALL be unchanged by deactivation.
 
@@ -37,27 +43,38 @@ Editing the loaded profile in place SHALL NOT deactivate the recipe. The recipe 
 
 #### Scenario: Hot-water tweak while active
 - **WHEN** the user selects a different water vessel while a recipe with a hot-water block is active
-- **THEN** the new vessel's amount, temperature, and flow apply to the current brew
-- **AND** the active recipe's stored hot-water block is unchanged
-- **AND** the recipe stays active
+- **THEN** the recipe is deactivated and its pill deselects
+- **AND** the new vessel's amount, temperature, and flow apply to the live settings
+- **AND** the recipe's stored hot-water block is unchanged
 
-#### Scenario: Editing a water-vessel preset does not change the recipe
-- **WHEN** the user edits the amount of the water-vessel preset the active recipe's block names
-- **THEN** the active recipe's stored hot-water block keeps its by-value snapshot
+#### Scenario: Re-selecting the recipe's own vessel does not deactivate
+- **WHEN** the user taps the water vessel the active recipe's block already names
+- **THEN** the recipe stays active
 
-#### Scenario: Steam pitcher or milk weight change while active does not change the recipe
-- **WHEN** the user selects a different steam pitcher, edits a pitcher preset, or changes the steamed-milk weight while a recipe is active
-- **THEN** the change applies to the current brew
-- **AND** the active recipe's stored steam block is unchanged
-- **AND** the recipe stays active
+#### Scenario: A recipe with no hot-water block is not deactivated by a vessel change
+- **WHEN** the user selects a different water vessel while an espresso recipe is active
+- **THEN** the recipe stays active, because it owns no vessel choice
+
+#### Scenario: Steam pitcher change while active deactivates
+- **WHEN** the user selects a different steam pitcher while a recipe whose steam block names one is active
+- **THEN** the recipe is deactivated and the recipe's stored steam block is unchanged
+- **AND** the selected pitcher is the one the user picked, not the parked standing pitcher
+
+#### Scenario: Editing a preset does not deactivate
+- **WHEN** the user edits the amount of the water-vessel preset the active recipe's block names, or edits a steam pitcher preset
+- **THEN** the recipe stays active and its stored block keeps its by-value snapshot
+
+#### Scenario: The measured milk weight does not deactivate
+- **WHEN** a steam session ends and the measured milk weight is captured while a milk recipe is active
+- **THEN** the recipe stays active, so the shot that follows is still attributed to it
 
 #### Scenario: Re-activating the recipe restores its vessel and pitcher
 - **WHEN** the user changes the water vessel (or steam pitcher) while a recipe is active, then activates that same recipe again
 - **THEN** the recipe's stored vessel and pitcher are re-selected and their values re-applied to the live settings
 
-#### Scenario: The recipe editor is the way to keep a block change
+#### Scenario: The wizard is the way to keep a block change
 - **WHEN** the user wants a recipe to pour a different amount of hot water from now on
-- **THEN** the change is made by editing the recipe (recipe editor, MCP `recipe_update`, or the web recipe form), never by a live tweak
+- **THEN** the change is made by editing the recipe (the wizard, MCP `recipe_update`, or the web recipe form), never by a live selection
 
 #### Scenario: Grind tweak while active
 - **WHEN** the user adjusts grind (or RPM) while a non-tea recipe is active

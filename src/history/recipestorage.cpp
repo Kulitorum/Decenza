@@ -219,6 +219,58 @@ bool Recipe::hotWaterActive(const QString& hotWaterJson)
     return doc.isObject() && doc.object().value(QStringLiteral("hasWater")).toBool();
 }
 
+namespace {
+QJsonObject parseBlock(const QString& json)
+{
+    if (json.isEmpty())
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    return doc.isObject() ? doc.object() : QJsonObject();
+}
+}  // namespace
+
+// static
+bool Recipe::ownsSteamPitcherChoice(const QString& steamJson)
+{
+    const QJsonObject o = parseBlock(steamJson);
+    return o.value(QStringLiteral("heaterOff")).toBool()
+        || !o.value(QStringLiteral("pitcherName")).toString().trimmed().isEmpty();
+}
+
+// static
+bool Recipe::steamPitcherDiverged(const QString& steamJson, const QString& livePitcherName,
+                                  bool liveIsHeaterOff)
+{
+    if (!ownsSteamPitcherChoice(steamJson))
+        return false;
+    const QJsonObject o = parseBlock(steamJson);
+    if (o.value(QStringLiteral("heaterOff")).toBool())
+        return !liveIsHeaterOff;
+    // A recipe that names a real pitcher diverges the moment the live selection
+    // is the Heater off marker, whatever the names say.
+    if (liveIsHeaterOff)
+        return true;
+    return o.value(QStringLiteral("pitcherName")).toString()
+             .compare(livePitcherName, Qt::CaseInsensitive) != 0;
+}
+
+// static
+bool Recipe::ownsWaterVesselChoice(const QString& hotWaterJson)
+{
+    return hotWaterActive(hotWaterJson)
+        && !parseBlock(hotWaterJson).value(QStringLiteral("vesselName"))
+                .toString().trimmed().isEmpty();
+}
+
+// static
+bool Recipe::waterVesselDiverged(const QString& hotWaterJson, const QString& liveVesselName)
+{
+    if (!ownsWaterVesselChoice(hotWaterJson))
+        return false;
+    return parseBlock(hotWaterJson).value(QStringLiteral("vesselName")).toString()
+             .compare(liveVesselName, Qt::CaseInsensitive) != 0;
+}
+
 // static
 QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeverageType)
 {
@@ -669,9 +721,9 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                               .object().value(QStringLiteral("beverage_type")).toString();
                 // When the profile didn't change, the stored type already
                 // encodes its profile-derived category — without this, a
-                // block update on a TEA recipe would re-derive it
-                // into "latte" (beverage_type unresolvable
-                // on this thread for installed profiles).
+                // steam/hot-water block edit on a tea or filter recipe would
+                // re-derive it into "latte" (beverage_type is unresolvable on
+                // this thread for installed profiles).
                 if (bev.isEmpty() && !mergedFields.contains(QStringLiteral("profileTitle"))) {
                     if (updated.drinkType == QLatin1String("tea"))
                         bev = QStringLiteral("tea_portafilter");
