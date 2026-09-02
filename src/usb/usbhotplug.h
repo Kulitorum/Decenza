@@ -10,13 +10,13 @@ class USBManager;
 // Free and cross-platform on purpose: it is the one part of hotplug that is pure
 // logic, and it carries a real drift risk — device_filter.xml is the single list
 // of supported ids, and a scale id added there but not here would route that
-// scale's events to the DE1 manager, silently. tst_usbhotplugdispatch asserts
-// every id in that XML is classified, so the two cannot separate.
+// scale's events to the DE1 manager, silently. tst_usbdecentscale.cpp's
+// deviceFilterIdsRouteToTheRightManager binds this list to that XML.
 enum class UsbDeviceKind { Scale, De1 };
 
-// Scale product ids (WCH CH340 variants), mirroring UsbScaleManager's
-// PRODUCT_ID_SCALE_* constants. Everything else supported is the DE1, so adding a
-// scale id is the only edit a new scale needs.
+// Scale product ids (WCH CH340 variants) — the single C++ declaration;
+// UsbScaleManager::isScalePid() defers to the classifier below. Everything else
+// supported is the DE1, so adding a scale id is the only edit a new scale needs.
 constexpr int kUsbScalePid1 = 0x7522;
 constexpr int kUsbScalePid2 = 0x7523;
 

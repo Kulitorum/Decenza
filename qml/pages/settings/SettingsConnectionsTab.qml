@@ -1303,13 +1303,10 @@ Item {
                                         Layout.preferredWidth: Theme.scaled(8)
                                         Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
-                                        // scaleStatusHelper, not a raw ScaleDevice.connected:
-                                        // after a physical scale is released the app falls back
-                                        // to FlowScale, which reports connected — so the raw
-                                        // check lit this dot green beside the name of a device
-                                        // that had just been unplugged, while the Status line
-                                        // two cards up correctly read "Disconnected". One
-                                        // question, one answer.
+                                        // scaleStatusHelper, not ScaleDevice.connected: after a
+                                        // physical scale is released the app falls back to
+                                        // FlowScale, which reports connected — the raw check lit
+                                        // this dot green next to a device just unplugged.
                                         color: scaleStatusHelper.isConnected
                                                ? Theme.successColor
                                                : Theme.textSecondaryColor

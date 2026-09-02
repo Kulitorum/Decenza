@@ -116,12 +116,28 @@ private slots:
     // both sides and the test passed. Verified by breaking it: with
     // kUsbScalePid2 set to 0x9999 the whole suite still went green. A test that
     // cannot fail is a comment that compiles; these literals are what give it teeth.
+private:
+    // ONE table drives both slots below. It was two independent literal lists, and
+    // that made the pair satisfiable by the careless repair it exists to prevent:
+    // add a scale id to device_filter.xml, watch the XML slot go red, append the id
+    // to that slot's own `expected` list — green, with no routing row and no C++
+    // change, and the new scale silently routed to the DE1 manager. Now the only
+    // repair is a row here, and a row must state a kind.
+    struct SupportedId { int pid; UsbDeviceKind kind; const char* name; };
+    static QList<SupportedId> supportedIds() {
+        return {
+            {0x7522, UsbDeviceKind::Scale, "scale CH340 0x7522"},
+            {0x7523, UsbDeviceKind::Scale, "scale CH340 0x7523"},
+            {0x55D3, UsbDeviceKind::De1,   "DE1 CH9102 0x55D3"},
+        };
+    }
+
+private slots:
     void deviceFilterIdsRouteToTheRightManager_data() {
         QTest::addColumn<int>("productId");
         QTest::addColumn<int>("expectedKind");
-        QTest::newRow("scale CH340 0x7522") << 0x7522 << int(UsbDeviceKind::Scale);
-        QTest::newRow("scale CH340 0x7523") << 0x7523 << int(UsbDeviceKind::Scale);
-        QTest::newRow("DE1 CH9102 0x55D3") << 0x55D3 << int(UsbDeviceKind::De1);
+        for (const auto& id : supportedIds())
+            QTest::newRow(id.name) << id.pid << int(id.kind);
     }
 
     void deviceFilterIdsRouteToTheRightManager() {
@@ -147,11 +163,12 @@ private slots:
         while (it.hasNext()) found.append(it.next().captured(1).toInt());
         std::sort(found.begin(), found.end());
 
-        // Decimal in the XML, hex here — same three ids as the table above.
-        const QList<int> expected = {0x55D3, 0x7522, 0x7523};
-        QList<int> expectedSorted = expected;
-        std::sort(expectedSorted.begin(), expectedSorted.end());
-        QCOMPARE(found, expectedSorted);
+        // From the routing table, not a second literal list — that is what makes an
+        // id added to the XML reach usbDeviceKindForPid() rather than stopping here.
+        QList<int> expected;
+        for (const auto& id : supportedIds()) expected.append(id.pid);
+        std::sort(expected.begin(), expected.end());
+        QCOMPARE(found, expected);
     }
 
 private:

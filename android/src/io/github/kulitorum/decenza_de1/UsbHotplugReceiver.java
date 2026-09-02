@@ -62,13 +62,19 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
                 }
                 event = parser.next();
             }
+            // Cached only on a COMPLETE parse. Assigning after the catch would cache
+            // whatever the loop collected before throwing — with the current XML that
+            // is the DE1 and not the scale, since the DE1 is listed first. "DE1 hotplug
+            // works, scale hotplug never matches" is a far worse failure than retrying.
+            sSupported = out;
         } catch (Exception e) {
-            // An empty list means hotplug reports nothing and the fallback poll is
-            // the only detection path — degraded, not broken. Logged loudly because
-            // nothing else would reveal it.
-            Log.e(TAG, "Could not read device_filter.xml; USB hotplug will report nothing", e);
+            // Left uncached so the next event retries. Reported to C++ by register()'s
+            // return value: android.util.Log goes to logcat only, and Decenza's own log
+            // comes from a Qt message handler — so this line alone would leave a
+            // user-submitted log with no trace of why hotplug matched nothing.
+            Log.e(TAG, "Could not read device_filter.xml", e);
+            return out;
         }
-        sSupported = out;
         return sSupported;
     }
 
@@ -82,12 +88,17 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
     }
 
     /**
-     * Registers the receiver. Idempotent — a second call is ignored rather than
-     * leaving two registrations delivering every event twice.
+     * Registers the receiver and returns how many supported device ids were read
+     * from device_filter.xml. Zero means hotplug will match nothing — the caller
+     * reports that, because Java logging never reaches Decenza's own log.
+     *
+     * Idempotent: a second call re-reports the count rather than leaving two
+     * registrations delivering every event twice.
      */
-    public static synchronized void register(Context context) {
+    public static synchronized int register(Context context) {
+        final int supported = supportedDevices(context).size();
         if (sInstance != null) {
-            return;
+            return supported;
         }
         sInstance = new UsbHotplugReceiver();
         IntentFilter filter = new IntentFilter();
@@ -99,6 +110,7 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
                 context.getApplicationContext(), sInstance, filter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.i(TAG, "USB hotplug receiver registered");
+        return supported;
     }
 
     /** Unregisters the receiver. Idempotent, and safe if register() never ran. */

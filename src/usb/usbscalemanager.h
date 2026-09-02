@@ -1,5 +1,7 @@
 #pragma once
 
+#include "usbhotplug.h"
+
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -184,8 +186,13 @@ private:
 #endif
     static constexpr int PROBE_TIMEOUT_MS = 3000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
-    static constexpr uint16_t PRODUCT_ID_SCALE_1 = 0x7522;  // CH340 variant
-    static constexpr uint16_t PRODUCT_ID_SCALE_2 = 0x7523;  // CH340 variant
-
-    static bool isScalePid(uint16_t pid) { return pid == PRODUCT_ID_SCALE_1 || pid == PRODUCT_ID_SCALE_2; }
+    // Scale ids live in usbhotplug.h, which is where hotplug's DE1/scale routing
+    // reads them. They were declared in both files, and the copies were free to
+    // drift: the hotplug classifier treats anything not in its list as a DE1, so a
+    // scale id added here alone would have routed that scale to the DE1 manager
+    // with nothing failing.
+    static bool isScalePid(uint16_t pid)
+    {
+        return usbDeviceKindForPid(static_cast<int>(pid)) == UsbDeviceKind::Scale;
+    }
 };

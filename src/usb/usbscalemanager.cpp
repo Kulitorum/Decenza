@@ -158,8 +158,9 @@ bool UsbScaleManager::teardownConnectedScale()
 
     // Drop the Android connectedChanged watchdog (wired in connectToScale) BEFORE
     // close() below: close() emits connectedChanged synchronously, which would
-    // otherwise re-enter this function and double-free m_scale. No-op on desktop
-    // (no such connection exists there).
+    // otherwise re-enter this function and double-free m_scale. Load-bearing on
+    // EVERY platform — the watchdog stopped being Android-only when USB scanning
+    // became opt-in and desktop lost the poll that used to catch an unplug.
     disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
 
     // Emit scaleLost() FIRST, while m_scale is still valid: main.cpp's handler
@@ -199,7 +200,8 @@ void UsbScaleManager::disconnectScale()
 
     // Drop the Android connectedChanged watchdog before close() — same re-entrancy
     // hazard as teardownConnectedScale(): close() emits connectedChanged, which the
-    // watchdog would turn into a teardownConnectedScale() re-entry. No-op on desktop.
+    // watchdog would turn into a teardownConnectedScale() re-entry. On every
+    // platform now, not just Android — see connectToScale().
     disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
 
     m_scale->close();
@@ -231,7 +233,9 @@ void UsbScaleManager::startPolling()
 
 void UsbScaleManager::onHotplugEvent()
 {
-    log(QStringLiteral("Hotplug event — running a probe pass now"));
+    // info(), not log(): "did the app see my cable" is a user-facing question, and
+    // the views default to minLevel INFO. Its DE1 twin already uses USB_INFO.
+    info(QStringLiteral("Hotplug event — running a probe pass now"));
     onPollTimerTick();
 }
 
