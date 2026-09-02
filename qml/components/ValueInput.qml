@@ -35,6 +35,14 @@ Item {
     // that is the value we asked for or a different one it clamped to.
     onValueChanged: _hasPending = false
 
+    // Hand authority back to `value`. Called wherever an interaction starts or
+    // ends — press, popup open, commit, and every cancel. A cancel neither
+    // commits nor rolls back (valueModified has no undo), so all it can do is
+    // stop carrying a number the consumer was never told to keep.
+    function _dropPending() {
+        _hasPending = false
+    }
+
     property real from: 0
     property real to: 100
     property real stepSize: 1
@@ -120,7 +128,7 @@ Item {
         // Interaction over — `value` is authoritative again, so whatever the
         // consumer actually stored shows through instead of the widget going on
         // displaying a number nobody kept.
-        _hasPending = false
+        _dropPending()
     }
 
     // Enable keyboard focus
@@ -253,7 +261,7 @@ Item {
                             root.commitValue()
                         }
                     }
-                    onCanceled: decrementTimer.stop()
+                    onCanceled: { decrementTimer.stop(); root._dropPending() }
                 }
 
                 Timer {
@@ -307,9 +315,7 @@ Item {
                         dragReady = false
                         hasMoved = false
                         currentGear = 0
-                        // Start from what the consumer holds. A canceled gesture
-                        // never commits, so this is where its leftovers go.
-                        root._hasPending = false
+                        root._dropPending()
 
                         // Announce parameter name when touched (accessibility)
                         if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
@@ -400,6 +406,7 @@ Item {
                         isDragging = false
                         dragReady = false
                         hasMoved = false
+                        root._dropPending()
                     }
                 }
 
@@ -566,7 +573,7 @@ Item {
                             root.commitValue()
                         }
                     }
-                    onCanceled: incrementTimer.stop()
+                    onCanceled: { incrementTimer.stop(); root._dropPending() }
                 }
 
                 Timer {
@@ -594,7 +601,7 @@ Item {
         padding: 0
 
         onOpened: {
-            root._hasPending = false
+            root._dropPending()
             popupContent.currentGear = 0
             popupContent.editMode = false
             popupValueContainer.forceActiveFocus()
@@ -682,7 +689,7 @@ Item {
                                     root.commitValue()
                                 }
                             }
-                            onCanceled: popupDecrementTimer.stop()
+                            onCanceled: { popupDecrementTimer.stop(); root._dropPending() }
                         }
 
                         Timer {
@@ -813,7 +820,7 @@ Item {
                                 // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
                                 startY = mouse.y - popupContent.currentGear * root.sc(50)
                                 isDragging = false
-                                root._hasPending = false
+                                root._dropPending()
 
                                 // Announce parameter name when bubble appears (accessibility)
                                 if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
@@ -862,6 +869,7 @@ Item {
 
                             onCanceled: {
                                 isDragging = false
+                                root._dropPending()
                             }
 
                             onDoubleClicked: {
@@ -995,7 +1003,7 @@ Item {
                                     root.commitValue()
                                 }
                             }
-                            onCanceled: popupIncrementTimer.stop()
+                            onCanceled: { popupIncrementTimer.stop(); root._dropPending() }
                         }
 
                         Timer {
