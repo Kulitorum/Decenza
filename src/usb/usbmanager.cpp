@@ -322,17 +322,19 @@ void USBManager::onAndroidProbeRead()
 
 void USBManager::onAndroidProbeTimeout()
 {
-    // WARN, for the same reason as the desktop timeout below: Android applies the
-    // SAME VID/PID filter (AndroidUsbSerial.findDevice() matches VENDOR_ID_WCH +
-    // PRODUCT_ID_DE1, byte-identical to the constants in usbmanager.h), and
-    // probeAndroid() is only reachable through it. So a device that gets probed
-    // here already advertises itself as DE1 hardware, and failing to answer <+M>
-    // is a machine the user expects to be connected and is not.
+    // DEBUG, not WARN. This was raised to WARN on the premise that Android probes
+    // here only devices that "already advertise themselves as DE1 hardware", so a
+    // silent one is a machine the user expects to be connected. That premise was
+    // wrong: the Half Decent Scale enumerates through the same WCH CH9102 (0x55D3)
+    // the DE1 uses, so an HDS is probed here on every plug-in and never answers
+    // <+M>. Observed on the tablet — one scale connection produced one of these
+    // warnings, in a log a user submits.
     //
-    // This was DEBUG on the belief that Android probes anything attached and
-    // would warn on a keyboard dongle. It does not, and the belief cost the
-    // primary platform its warning for a real failure.
-    USB_WARN(QStringLiteral("Android USB probe timeout — DE1 hardware did not answer <+M> "
+    // Giving up is the dual-routing design working (usbPidMayBeScale/MayBeDe1 in
+    // usbhotplug.h): both managers probe an ambiguous id and the protocol decides.
+    // Re-raise this only if a DE1-EXCLUSIVE id ever exists to gate it on; today
+    // 0x55D3 is the only DE1 id and it is shared.
+    USB_LOG(QStringLiteral("Android USB probe timeout — device did not answer <+M> "
                             "(received %1 bytes: %2)")
                  .arg(m_probeBuffer.size())
                  .arg(QString::fromLatin1(m_probeBuffer.toHex())));
