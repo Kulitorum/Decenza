@@ -69,9 +69,10 @@ class MachineState : public QObject {
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
     // True while the DE1's front standby switch is cutting AC power (substate
     // Error_NoAC), on firmware new enough to report it reliably. Always false while
-    // disconnected, and while the substate blipped in from a heating one — see
-    // updatePhase(). Firmware < 1337 reports this substate spuriously, matching
-    // de1app's own gate.
+    // disconnected, and for any Error_NoAC episode entered from a heating substate —
+    // for as long as that episode lasts, not merely for the few seconds a spurious one
+    // takes. See updatePhase() for what that trades away. Firmware < 1337 reports this
+    // substate spuriously, matching de1app's own gate.
     Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY standbySwitchOpenChanged)
 public:
     enum class Phase {

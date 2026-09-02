@@ -17,10 +17,10 @@
 #include <QDebug>
 #include <QMetaEnum>
 
-// MachineState carries no logMessage signal, so the stderr forms. Aliased, never
-// copied — see de1logging.h.
+// MachineState carries no logMessage signal, so the stderr form. Aliased, never
+// copied — see de1logging.h. INFO throughout: all three lines are the user-facing
+// half of "why did (or didn't) the warning appear".
 #define STANDBY_INFO(msg) DE1_INFO_STDERR_TAGGED("StandbySwitch", msg)
-#define STANDBY_LOG(msg)  DE1_LOG_STDERR_TAGGED("StandbySwitch", msg)
 
 MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)
@@ -316,13 +316,20 @@ void MachineState::onDE1SubStateChanged() {
 
 namespace {
 // The substates in which the machine is heating and water has NOT reached the puck
-// yet. Shared deliberately by three readers: updatePhase() decides
-// Phase::EspressoPreheating from it, the auto-tare gate re-checks the substate
-// directly because m_phase lags behind BLE state changes, and the standby-switch
-// warning uses it as proof the machine had AC. That second read is only sound while
-// both agree — as hand-written copies they could drift apart, and the failure would
-// be silent: a substate added here alone re-opens the window in which a tare can
-// fire on a moving cell.
+// yet. Shared deliberately by three readers, which do NOT all ask the same question:
+// updatePhase() and the auto-tare gate both test the CURRENT substate for "is the
+// puck still dry" (the gate re-checks it directly because m_phase lags behind BLE
+// state changes), while the standby-switch warning tests the PREVIOUS one for "did
+// the machine have AC a moment ago". Those coincide by observation, not by any
+// invariant, so a substate added here lands in all three: it re-opens the window in
+// which a tare can fire on a moving cell, AND it teaches the standby-switch code
+// that the new substate proves AC, silently suppressing a real warning. Both
+// failures are silent, which is why the set lives here once rather than per reader.
+//
+// DE1Device::isMachineHeating() (de1device.cpp) hand-writes these same three plus
+// State::Busy. Not folded in: it answers a third question (may this firmware be sent
+// a cold maintenance request) across a class boundary. Named so the next reader knows
+// the copy exists rather than finding it after changing one of them.
 bool isHeatingSubState(DE1::SubState subState) {
     return subState == DE1::SubState::Heating ||
            subState == DE1::SubState::FinalHeating ||
@@ -375,19 +382,29 @@ void MachineState::updatePhase() {
     // Front standby switch cutting AC (Error_NoAC). Firmware < 1337 reports this
     // substate spuriously, matching de1app's own gate — see DE1::SubState::Error_NoAC.
     //
-    // Firmware >= 1337 reports it spuriously too: a heating machine blips into
-    // Error_NoAC for ~3 s and back out untouched (field reports on v1363). A machine
+    // Firmware >= 1337 reports it spuriously too: a heating machine enters Error_NoAC
+    // and leaves it untouched a few seconds later (field reports on v1363). A machine
     // that reached a heating substate has AC, so such an episode is not the switch.
-    // Latched for the episode rather than tested per call — updatePhase() also re-runs
-    // on connectedChanged and firmwareVersionChanged with the substate unchanged, and
-    // it was that firmware-arrival re-run that put the warning on screen after a restart.
+    //
+    // Latched for the episode rather than tested per call, because updatePhase() also
+    // re-runs on connectedChanged and firmwareVersionChanged with the substate
+    // unchanged; a per-call test sees previousSubState == Error_NoAC on those re-runs
+    // and would let the warning through. Whether such a re-run is what produced the
+    // reported post-restart sighting is NOT established — the subsystem logged nothing
+    // before this change, so no log can say which call showed it. The re-run path is
+    // reachable, which is reason enough to latch.
+    //
+    // The latch has no time bound: it lasts as long as the substate stays Error_NoAC,
+    // not for the few seconds a blip lasts. So a switch genuinely opened right after a
+    // heating substate is never warned about, since an open switch holds the substate
+    // there forever. Accepted — someone flipping the switch is standing at the machine.
     const bool noAc = (subState == DE1::SubState::Error_NoAC);
     if (!noAc) {
         m_noAcHeaterInduced = false;
     } else if (previousSubState != DE1::SubState::Error_NoAC) {
         m_noAcHeaterInduced = isHeatingSubState(previousSubState);
         if (m_noAcHeaterInduced) {
-            STANDBY_LOG(QStringLiteral("ignoring Error_NoAC from %1 — the machine was "
+            STANDBY_INFO(QStringLiteral("ignoring Error_NoAC from %1 — the machine was "
                                        "heating, so it has AC")
                             .arg(DE1::subStateToString(previousSubState)));
         }

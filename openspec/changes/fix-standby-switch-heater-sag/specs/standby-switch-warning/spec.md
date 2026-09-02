@@ -54,8 +54,9 @@ so that a re-evaluation which sees the substate unchanged cannot lift it.
 ### Requirement: The warning's decisions are logged
 
 The system SHALL log, under the DE1 subsystem, when the warning is shown and when it clears, and
-SHALL log once per episode that is suppressed as heater-induced. The shown and cleared lines SHALL
-be at INFO so they reach the user-facing log views; the suppressed line SHALL be at DEBUG.
+SHALL log once per episode that is suppressed as heater-induced. All three SHALL be at INFO so
+they reach the user-facing log views: the suppressed line is what answers "why did no warning
+appear", which is the half a reader needs when the suppression is wrong.
 
 #### Scenario: A shown warning is traceable in a submitted log
 
@@ -65,4 +66,4 @@ be at INFO so they reach the user-facing log views; the suppressed line SHALL be
 #### Scenario: A suppressed episode is traceable
 
 - **WHEN** an `Error_NoAC` episode is suppressed as heater-induced
-- **THEN** the log carries one DEBUG line naming the substate it arrived from
+- **THEN** the log carries one INFO line naming the substate it arrived from
