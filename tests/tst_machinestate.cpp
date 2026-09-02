@@ -395,6 +395,60 @@ private slots:
         QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
     }
 
+    void midFlowDisconnectStopsBothTimersOnce_data() {
+        QTest::addColumn<int>("de1State");
+        QTest::addColumn<int>("de1SubState");
+        // Espresso and steam start both timers down different branches of
+        // updatePhase(), and the stop is deliberately not gated on the espresso
+        // predicate. Without the steam row, moving the stop under the
+        // wasInEspresso gate seven lines below leaves the suite green.
+        QTest::newRow("espresso") << int(DE1::State::Espresso) << int(DE1::SubState::Pouring);
+        QTest::newRow("steam") << int(DE1::State::Steam) << int(DE1::SubState::Steaming);
+    }
+
+    // A drop mid-flow has to stop both clocks, and stop them once: updatePhase()
+    // runs again on every DE1 signal while the link is down, so a stop that is
+    // not latched by the phase would put repeated BLE writes on a scale that is
+    // already stopped.
+    void midFlowDisconnectStopsBothTimersOnce() {
+        QFETCH(int, de1State);
+        QFETCH(int, de1SubState);
+
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.setDE1State(static_cast<DE1::State>(de1State),
+                      static_cast<DE1::SubState>(de1SubState));
+        QVERIFY(f.state.m_shotTimer->isActive());
+        QCOMPARE(f.scale.stopTimerCount(), 0);
+
+        f.device.m_simulationMode = false;
+        f.state.onDE1StateChanged();
+
+        QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
+        QVERIFY(!f.state.m_shotTimer->isActive());
+        QCOMPARE(f.scale.stopTimerCount(), 1);
+
+        f.state.onDE1StateChanged();
+        f.state.onDE1StateChanged();
+        QCOMPARE(f.scale.stopTimerCount(), 1);
+    }
+
+    // The gate that keeps the stop off a scale nobody was timing with. A drop
+    // from Idle has no clock to stop, and the scale's own button is the other
+    // way its timer starts.
+    void disconnectFromIdleSendsNoScaleStop() {
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QVERIFY(!f.state.m_shotTimer->isActive());
+
+        f.device.m_simulationMode = false;
+        f.state.onDE1StateChanged();
+
+        QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(f.scale.stopTimerCount(), 0);
+    }
+
     // ==========================================
     // Standby switch (Error_NoAC) — de1app commit 04d3b02e
     // ==========================================
