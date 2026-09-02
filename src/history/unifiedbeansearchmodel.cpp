@@ -94,6 +94,21 @@ void UnifiedBeanSearchModel::setSources(CoffeeBagStorage* bagStorage, BeanBaseCl
                     setSearching(m_historyInFlight);
                     rebuild();
                 });
+        connect(m_beanBase, &BeanBaseClient::linkStateResolved, this,
+                [this](const QString& url, const QString&) {
+                    // Only touch the list when the answer is about a row it
+                    // actually holds — probes outlive the query that started
+                    // them, and a stale answer must not disturb a newer list.
+                    bool relevant = false;
+                    for (const QVariant& v : std::as_const(m_results)) {
+                        if (rowLink(v.toMap()) == url) { relevant = true; break; }
+                    }
+                    if (!relevant)
+                        return;
+                    beginResetModel();
+                    applyLinkStateOrder();
+                    endResetModel();
+                });
         connect(m_beanBase, &BeanBaseClient::searchFailed, this,
                 [this](const QString& query, const QString&) {
                     if (query.compare(m_query, Qt::CaseInsensitive) != 0)
@@ -456,8 +471,77 @@ void UnifiedBeanSearchModel::rebuild()
     }
     beginResetModel();
     m_results = mergeLanes(inventory, m_canonical, m_history, m_query);
+    applyLinkStateOrder();
     endResetModel();
     emit countChanged();
+
+    // Kick the probes AFTER publishing the rows: results appear immediately
+    // and only re-order as answers arrive, rather than waiting on the network.
+    if (m_beanBase) {
+        for (const QVariant& v : std::as_const(m_results)) {
+            const QString link = rowLink(v.toMap());
+            if (!link.isEmpty())
+                m_beanBase->probeLinkState(link);
+        }
+    }
+}
+
+QString UnifiedBeanSearchModel::rowLink(const QVariantMap& row)
+{
+    const QString blob = row.value(QStringLiteral("beanBaseData")).toString();
+    if (blob.isEmpty())
+        return {};
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    return obj.value(QStringLiteral("link")).toString().trimmed();
+}
+
+// Ordering rank for a link state. "unknown" ranks with "live" on purpose: a
+// row whose probe has not answered must not sink before anything is known
+// about it, and a row that later proves worse only ever moves down.
+int UnifiedBeanSearchModel::linkStateRank(const QString& state)
+{
+    if (state == QLatin1String("archived"))
+        return 1;
+    if (state == QLatin1String("none"))
+        return 2;
+    return 0;  // "live" and "unknown"
+}
+
+QVariantList UnifiedBeanSearchModel::orderByLinkState(const QVariantList& rows,
+                                                      const QHash<QString, QString>& stateByUrl)
+{
+    // Stable, so the tier-and-recency order mergeLanes produced survives
+    // untouched wherever link state does not separate two rows.
+    QVariantList out = rows;
+    std::stable_sort(out.begin(), out.end(), [&stateByUrl](const QVariant& a, const QVariant& b) {
+        const QVariantMap ma = a.toMap();
+        const QVariantMap mb = b.toMap();
+        const int tierA = ma.value(QStringLiteral("tier")).toInt();
+        const int tierB = mb.value(QStringLiteral("tier")).toInt();
+        if (tierA != tierB)
+            return tierA < tierB;  // link state orders WITHIN a tier, never across
+        const QString linkA = rowLink(ma);
+        const QString linkB = rowLink(mb);
+        const QString stateA = linkA.isEmpty() ? QStringLiteral("none")
+                                               : stateByUrl.value(linkA, QStringLiteral("unknown"));
+        const QString stateB = linkB.isEmpty() ? QStringLiteral("none")
+                                               : stateByUrl.value(linkB, QStringLiteral("unknown"));
+        return linkStateRank(stateA) < linkStateRank(stateB);
+    });
+    return out;
+}
+
+void UnifiedBeanSearchModel::applyLinkStateOrder()
+{
+    QHash<QString, QString> states;
+    if (m_beanBase) {
+        for (const QVariant& v : std::as_const(m_results)) {
+            const QString link = rowLink(v.toMap());
+            if (!link.isEmpty())
+                states.insert(link, m_beanBase->linkState(link));
+        }
+    }
+    m_results = orderByLinkState(m_results, states);
 }
 
 void UnifiedBeanSearchModel::setSearching(bool searching)
@@ -497,6 +581,13 @@ QVariant UnifiedBeanSearchModel::data(const QModelIndex& index, int role) const
     case DefrostDateRole: return row.value("defrostDate");
     case LastUsedEpochRole: return row.value("lastUsedEpoch");
     case DetailRole: return row.value("detail");
+    case LinkRole: return rowLink(row);
+    case LinkStateRole: {
+        const QString link = rowLink(row);
+        if (link.isEmpty())
+            return QStringLiteral("none");
+        return m_beanBase ? m_beanBase->linkState(link) : QStringLiteral("unknown");
+    }
     }
     return QVariant();
 }
@@ -515,5 +606,7 @@ QHash<int, QByteArray> UnifiedBeanSearchModel::roleNames() const
         {DefrostDateRole, "defrostDate"},
         {LastUsedEpochRole, "lastUsedEpoch"},
         {DetailRole, "detail"},
+        {LinkRole, "link"},
+        {LinkStateRole, "linkState"},
     };
 }

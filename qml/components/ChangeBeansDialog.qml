@@ -151,6 +151,16 @@ DecenzaDialog {
     // Stage-2 product photo URL for a bag being CREATED — the cache key is
     // the row id, which doesn't exist until onBagCreated.
     property string _extractedImageUrl: ""
+    // What the last extraction REPLACED (not merely filled): [{field, from, to}].
+    property var _extractionCorrections: []
+    // Last rung of the ladder: a product page the configured AI found for a bag
+    // that has no URL by any deterministic route. A SUGGESTION until the user
+    // accepts it — a model's guess written into `link` would be read as fact by
+    // the photo chain, the extraction, and every shot snapshot after.
+    property string _suggestedUrl: ""
+    property bool _searchingForPage: false
+    // One search per bag per dialog session: every run is a paid provider call.
+    property bool _pageSearchDone: false
     // URL captured at click time — completion signals are gated on THIS, not
     // the live field: editing the URL mid-fetch must neither wedge the busy
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
@@ -377,6 +387,50 @@ DecenzaDialog {
             + String(now.getDate()).padStart(2, "0")
     }
 
+    // Link state, shown so two entries that differ in nothing else are still
+    // distinguishable before the user commits to one. "unknown" renders as
+    // nothing at all — a row is never labelled worse than what is known about
+    // it — and "live" needs no label either, being the unremarkable case.
+    // Host only, for the suggestion line: the part that says whether a found
+    // page really belongs to the roaster.
+    function urlHost(url) {
+        var m = String(url).match(/^https?:\/\/([^\/?#]+)/)
+        return m ? m[1] : String(url)
+    }
+
+    // Rung 3 of the ladder: no usable URL by any deterministic route, so ask
+    // the configured provider to find the product page. Once per bag per
+    // dialog session — every run is a paid call — and only for a bag actually
+    // being edited, so spend tracks what the user is looking at.
+    function maybeFindProductPage() {
+        if (root._pageSearchDone || root._searchingForPage)
+            return
+        if (root.fLink.trim().length > 0)
+            return
+        if (!MainController.aiManager || !MainController.aiManager.isConfigured
+                || !MainController.aiManager.supportsUrlExtraction())
+            return
+        if (root.fRoaster.trim().length === 0 || root.fCoffee.trim().length === 0)
+            return
+        root._pageSearchDone = true
+        root._searchingForPage = true
+        MainController.aiManager.findProductPage(
+            root.pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind)
+    }
+    // Echoed back on the signals so a reply for a bag the user has moved on
+    // from is discarded rather than applied to whatever is on screen now.
+    readonly property string pageSearchToken: "findpage:" + fRoaster + "|" + fCoffee
+
+    function linkStateLabel(linkState) {
+        switch (linkState) {
+        case "archived":
+            return TranslationManager.translate("changebeans.link.archived", "Archived page")
+        case "none":
+            return TranslationManager.translate("changebeans.link.none", "No page")
+        }
+        return ""
+    }
+
     function sourceLabel(sources, tier) {
         if (tier === 0)
             return TranslationManager.translate("changebeans.source.inventory", "In inventory")
@@ -418,6 +472,10 @@ DecenzaDialog {
         infoStatus = ""
         _fetchUrl = ""
         _extractedImageUrl = ""
+        _extractionCorrections = []
+        _suggestedUrl = ""
+        _searchingForPage = false
+        _pageSearchDone = false
         errorMessage = ""
     }
 
@@ -515,6 +573,9 @@ DecenzaDialog {
         open()
         if (fBeanBaseId.length === 0)
             editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
+        // Last rung: this bag has no URL, so nothing deterministic can find it
+        // a photo or its details. Runs on the bag being edited only.
+        maybeFindProductPage()
     }
 
     // "Find in Bean Base" on the bag card: edit mode with the link search
@@ -1100,6 +1161,26 @@ DecenzaDialog {
                                     Accessible.ignored: true
                                 }
                             }
+
+                            Rectangle {
+                                Layout.alignment: Qt.AlignVCenter
+                                visible: linkChipText.text.length > 0
+                                implicitWidth: linkChipText.implicitWidth + Theme.scaled(16)
+                                implicitHeight: linkChipText.implicitHeight + Theme.scaled(8)
+                                radius: height / 2
+                                color: Theme.backgroundColor
+                                border.width: 1
+                                border.color: Theme.textSecondaryColor
+
+                                Text {
+                                    id: linkChipText
+                                    anchors.centerIn: parent
+                                    text: root.linkStateLabel(resultRow.model.linkState)
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+                            }
                         }
 
                         AccessibleMouseArea {
@@ -1107,6 +1188,8 @@ DecenzaDialog {
                             accessibleName: resultRow.primaryText
                                 + (resultRow.model.detail ? ", " + resultRow.model.detail : "")
                                 + ", " + root.sourceLabel(resultRow.model.sources, resultRow.model.tier)
+                                + (root.linkStateLabel(resultRow.model.linkState)
+                                    ? ", " + root.linkStateLabel(resultRow.model.linkState) : "")
                                 + (resultRow.isActiveBag
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow
@@ -1294,38 +1377,83 @@ DecenzaDialog {
 
                     Connections {
                         target: MainController.aiManager
-                        // Fill ONLY empty fields — the page never overrides
-                        // something the user (or the canonical entry) set.
+                        // The found page is probed by the photo/extraction
+                        // chain the moment it is accepted; a page that turns
+                        // out to be dead falls through to archive recovery
+                        // like any other link, so nothing here needs to
+                        // re-check it.
+                        function onProductPageFound(requestToken, url) {
+                            if (requestToken !== root.pageSearchToken) return
+                            root._searchingForPage = false
+                            root._suggestedUrl = String(url)
+                        }
+                        function onProductPageSearchFailed(requestToken, error) {
+                            if (requestToken !== root.pageSearchToken) return
+                            root._searchingForPage = false
+                            // Silent: the user did not ask for this rung, so a
+                            // miss is not a failure to report at them. The bag
+                            // is simply as it was.
+                        }
+                        // Fill empty fields, correct values that came from Bean
+                        // Base, never touch one the user typed. The rule itself
+                        // lives in BeanBaseBlob::applyExtraction — this handler
+                        // only hands it the form's live values and writes back
+                        // what it returns, so the web and MCP surfaces cannot
+                        // drift from what the editor does.
                         function onBagDetailsExtracted(requestToken, fields) {
                             if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
                             root.fetchingInfo = false
+                            // The extraction speaks the blob's own vocabulary
+                            // except for roastLevel, which the form (and the
+                            // blob) call `degree`.
+                            var extracted = {}
+                            for (var k in fields)
+                                extracted[k] = fields[k]
+                            if (fields["roastLevel"] !== undefined)
+                                extracted["degree"] = fields["roastLevel"]
+
+                            var current = {
+                                "origin": root.fOrigin, "region": root.fRegion,
+                                "farm": root.fFarm, "producer": root.fProducer,
+                                "variety": root.fVariety, "elevation": root.fElevation,
+                                "process": root.fProcess, "harvest": root.fHarvest,
+                                "tastingNotes": root.fTastingNotes, "degree": root.fRoastLevel,
+                                "teaType": root.fTeaType, "garden": root.fGarden,
+                                "cultivar": root.fCultivar, "flush": root.fFlush,
+                                "brewTempC": root.fBrewTempC,
+                                "leafGramsPer100Ml": root.fLeafRatio,
+                                "steepTime": root.fSteepTime
+                            }
+                            var outcome = MainController.beanbase.applyExtraction(
+                                root.fBeanBaseData, extracted, current)
+                            var written = outcome.applied || ({})
+                            var setters = {
+                                "origin": function(v) { root.fOrigin = v },
+                                "region": function(v) { root.fRegion = v },
+                                "farm": function(v) { root.fFarm = v },
+                                "producer": function(v) { root.fProducer = v },
+                                "variety": function(v) { root.fVariety = v },
+                                "elevation": function(v) { root.fElevation = v },
+                                "process": function(v) { root.fProcess = v },
+                                "harvest": function(v) { root.fHarvest = v },
+                                "tastingNotes": function(v) { root.fTastingNotes = v },
+                                "degree": function(v) { root.fRoastLevel = v },
+                                "teaType": function(v) { root.fTeaType = v },
+                                "garden": function(v) { root.fGarden = v },
+                                "cultivar": function(v) { root.fCultivar = v },
+                                "flush": function(v) { root.fFlush = v },
+                                "brewTempC": function(v) { root.fBrewTempC = v },
+                                "leafGramsPer100Ml": function(v) { root.fLeafRatio = v },
+                                "steepTime": function(v) { root.fSteepTime = v }
+                            }
                             var applied = 0
-                            function take(key, current, apply) {
-                                if (fields[key] && String(current).trim().length === 0) {
-                                    apply(String(fields[key]))
+                            for (var key in written) {
+                                if (setters[key]) {
+                                    setters[key](String(written[key]))
                                     applied++
                                 }
                             }
-                            take("origin", root.fOrigin, function(v) { root.fOrigin = v })
-                            take("region", root.fRegion, function(v) { root.fRegion = v })
-                            take("farm", root.fFarm, function(v) { root.fFarm = v })
-                            take("producer", root.fProducer, function(v) { root.fProducer = v })
-                            take("variety", root.fVariety, function(v) { root.fVariety = v })
-                            take("elevation", root.fElevation, function(v) { root.fElevation = v })
-                            take("process", root.fProcess, function(v) { root.fProcess = v })
-                            take("harvest", root.fHarvest, function(v) { root.fHarvest = v })
-                            take("tastingNotes", root.fTastingNotes, function(v) { root.fTastingNotes = v })
-                            take("roastLevel", root.fRoastLevel, function(v) { root.fRoastLevel = v })
-                            // Tea vocabulary (add-recipe-wizard-tea) — the tea
-                            // prompt's structured keys, incl. the brewing data
-                            // that seeds the recipe wizard.
-                            take("teaType", root.fTeaType, function(v) { root.fTeaType = v })
-                            take("garden", root.fGarden, function(v) { root.fGarden = v })
-                            take("cultivar", root.fCultivar, function(v) { root.fCultivar = v })
-                            take("flush", root.fFlush, function(v) { root.fFlush = v })
-                            take("brewTempC", root.fBrewTempC, function(v) { root.fBrewTempC = v })
-                            take("leafGramsPer100Ml", root.fLeafRatio, function(v) { root.fLeafRatio = v })
-                            take("steepTime", root.fSteepTime, function(v) { root.fSteepTime = v })
+                            root._extractionCorrections = outcome.corrections || []
                             // Stage-2 photo: the model returned the product
                             // image URL directly (no og:image on SPA pages).
                             // Edit mode caches it now; create mode stashes it
@@ -1346,11 +1474,25 @@ DecenzaDialog {
                                     root._extractedImageUrl = String(fields["imageUrl"])
                             }
                             root.detailsExpanded = true
-                            root.infoStatus = applied > 0
-                                ? TranslationManager.translate("changebeans.form.getInfo.applied",
-                                      "%1 field(s) filled from the page").arg(applied)
-                                : TranslationManager.translate("changebeans.form.getInfo.nothing",
-                                      "Nothing new found on the page")
+                            // A correction is reported as a correction, naming
+                            // the fields: a value silently swapped under the
+                            // user is the thing this must never look like.
+                            var corrected = root._extractionCorrections.length
+                            if (corrected > 0) {
+                                var names = []
+                                for (var c = 0; c < root._extractionCorrections.length; ++c)
+                                    names.push(root._extractionCorrections[c].field)
+                                root.infoStatus = TranslationManager.translate(
+                                    "changebeans.form.getInfo.corrected",
+                                    "%1 field(s) filled, %2 corrected from the page: %3")
+                                    .arg(applied - corrected).arg(corrected).arg(names.join(", "))
+                            } else {
+                                root.infoStatus = applied > 0
+                                    ? TranslationManager.translate("changebeans.form.getInfo.applied",
+                                          "%1 field(s) filled from the page").arg(applied)
+                                    : TranslationManager.translate("changebeans.form.getInfo.nothing",
+                                          "Nothing new found on the page")
+                            }
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(root.infoStatus)
                         }
@@ -1562,6 +1704,74 @@ DecenzaDialog {
                             accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
                             value: root.fLink
                             onEdited: function(t) { root.fLink = t }
+                        }
+
+                        // The AI-found product page, offered rather than
+                        // applied. The host is shown on its own line because
+                        // it is the part that says whether this is really the
+                        // roaster's own page.
+                        ColumnLayout {
+                            Layout.leftMargin: Theme.scaled(20)
+                            Layout.rightMargin: Theme.scaled(20)
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+                            visible: root._searchingForPage || root._suggestedUrl.length > 0
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root._searchingForPage
+                                text: TranslationManager.translate(
+                                    "changebeans.form.findPage.searching",
+                                    "No product URL — asking the AI to find one…")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.Wrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root._suggestedUrl.length > 0
+                                text: TranslationManager.translate(
+                                    "changebeans.form.findPage.found",
+                                    "Found a possible product page at %1 — use it?")
+                                    .arg(root.urlHost(root._suggestedUrl))
+                                font: Theme.captionFont
+                                color: Theme.textColor
+                                wrapMode: Text.Wrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root._suggestedUrl.length > 0
+                                text: root._suggestedUrl
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WrapAnywhere
+                                Accessible.ignored: true
+                            }
+
+                            RowLayout {
+                                visible: root._suggestedUrl.length > 0
+                                spacing: Theme.scaled(10)
+
+                                ActionButton {
+                                    text: TranslationManager.translate(
+                                        "changebeans.form.findPage.use", "Use this page")
+                                    onClicked: {
+                                        root.fLink = root._suggestedUrl
+                                        root.fLinkDirty = true
+                                        root._suggestedUrl = ""
+                                    }
+                                }
+                                ActionButton {
+                                    text: TranslationManager.translate("common.button.dismiss", "Dismiss")
+                                    onClicked: root._suggestedUrl = ""
+                                }
+                            }
                         }
 
                         // "Get info from page": Visualizer-style extraction —

@@ -142,6 +142,31 @@ private slots:
     void init() { QTest::failOnWarning(); }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
     // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
+    // parseProductPageUrl: the last-rung search's reply contract. A model's
+    // guess is about to be offered as a bag's product page, so anything that
+    // is not plainly an https URL is treated as "found nothing".
+    void parseProductPageUrlAcceptsOnlyAnHttpsUrl()
+    {
+        QCOMPARE(AIManager::parseProductPageUrl(
+                     "{\"url\": \"https://roaster.example/products/x\"}"),
+                 QString("https://roaster.example/products/x"));
+        // Fences and prose around the object are tolerated, as elsewhere.
+        QCOMPARE(AIManager::parseProductPageUrl(
+                     "Here you go:\n```json\n{\"url\":\"https://r.example/p\"}\n```"),
+                 QString("https://r.example/p"));
+
+        // The honest empty answer.
+        QVERIFY(AIManager::parseProductPageUrl("{}").isEmpty());
+        // Prose instead of JSON.
+        QVERIFY(AIManager::parseProductPageUrl("I could not find it").isEmpty());
+        // http, and other schemes: refused outright — this URL is about to be
+        // fetched and handed to a provider.
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"http://r.example/p\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"file:///etc/passwd\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"https://\"}").isEmpty());
+    }
+
     void parseBagExtractionHandlesFencesWhitelistAndGarbage()
     {
         bool ok = false;

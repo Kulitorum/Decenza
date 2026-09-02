@@ -89,6 +89,8 @@ public:
         FrozenDateRole,
         DefrostDateRole,
         LastUsedEpochRole,
+        LinkRole,          // The entry's product URL, read out of its beanBaseData blob
+        LinkStateRole,     // "live" | "archived" | "none" | "unknown" — see BeanBaseClient::linkState
         DetailRole,        // "roast level · origin · tasting notes" — set on rows sourced
                            // from a Bean Base canonical entry (Tier::HistoryCanonical and
                            // Tier::CanonicalOnly); empty for every other tier. These are
@@ -133,6 +135,18 @@ public:
                                    const QVariantList& historyEntries,
                                    const QString& query);
 
+    // Within-tier ordering by link usefulness: live first, archived next, no
+    // usable link last. Stable, so mergeLanes' tier-and-recency order survives
+    // wherever link state does not separate two rows, and link state never
+    // moves a row across tiers. Pure (the states come in as a map) and static
+    // for unit tests.
+    static QVariantList orderByLinkState(const QVariantList& rows,
+                                         const QHash<QString, QString>& stateByUrl);
+    // The product URL carried in a row's beanBaseData blob; empty when it has
+    // none. Static for unit tests.
+    static QString rowLink(const QVariantMap& row);
+    static int linkStateRank(const QString& state);
+
 signals:
     void queryChanged();
     void searchingChanged();
@@ -142,6 +156,9 @@ signals:
 private:
     void requestHistory();
     void rebuild();
+    // Re-apply the within-tier link ordering to the CURRENT rows, reading each
+    // state from the client's session cache.
+    void applyLinkStateOrder();
     void setSearching(bool searching);
 
     CoffeeBagStorage* m_bagStorage = nullptr;  // Non-owning

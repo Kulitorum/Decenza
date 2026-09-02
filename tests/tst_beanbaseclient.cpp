@@ -5,6 +5,8 @@
 #include <QHostAddress>
 #include <QNetworkAccessManager>
 #include <QRegularExpression>
+#include <QFile>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 
 #include "network/beanbaseclient.h"
@@ -57,13 +59,23 @@ public:
                         sock->disconnectFromHost();
                         return;
                     }
-                    // Per-path routing; falls back to the single canned response.
+                    // Per-path routing, first match wins; falls back to the
+                    // single canned response. The status follows the SAME
+                    // matched route rather than being matched again — an
+                    // archive query embeds the product URL it asks about, so a
+                    // second independent match would give the archive answer
+                    // the product page's status.
                     QByteArray body = m_responseBody;
+                    QString matched;
                     for (const auto& [pathPart, pathBody] : m_pathBodies) {
-                        if (line.contains(pathPart)) { body = pathBody; break; }
+                        if (line.contains(pathPart)) { body = pathBody; matched = pathPart; break; }
+                    }
+                    QByteArray statusLine = m_statusLine;
+                    for (const auto& [pathPart, pathStatus] : m_pathStatuses) {
+                        if (pathPart == matched) { statusLine = pathStatus; break; }
                     }
                     const QByteArray resp =
-                        "HTTP/1.1 " + m_statusLine + "\r\n"
+                        "HTTP/1.1 " + statusLine + "\r\n"
                         "Content-Type: " + m_contentType + "\r\n"
                         "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
                         "Connection: close\r\n"
@@ -89,6 +101,15 @@ public:
 
     // Route requests whose request line contains pathPart to a distinct body
     // (first match wins; checked in insertion order).
+    // Status for one path, overriding the global respondWith() status. Needed
+    // whenever a test serves two different outcomes at once — a dead roaster
+    // page beside a healthy archive answer, say.
+    void respondForPathWithStatus(const QString& pathPart, const QByteArray& statusLine,
+                                  const QByteArray& body) {
+        m_pathStatuses.append({pathPart, statusLine});
+        m_pathBodies.append({pathPart, body});
+    }
+
     void respondForPath(const QString& pathPart, const QByteArray& body) {
         m_pathBodies.append({pathPart, body});
     }
@@ -120,6 +141,7 @@ private:
     // which breaks the test class's vtable at link time.
     QByteArray m_responseBody = "{\"data\":[]}";
     QList<QPair<QString, QByteArray>> m_pathBodies;
+    QList<QPair<QString, QByteArray>> m_pathStatuses;
     QList<QPair<QString, QString>> m_redirects;
     QStringList m_requestLines;
     bool m_hang = false;
@@ -211,9 +233,14 @@ private slots:
     // ====================================================
 
     void validateBagLinkDeadOn404() {
+        // A dead link is only cleared once the archive has CONFIRMED it has no
+        // capture: the availability answer below is the well-formed "nothing
+        // here" shape.
         FakeBeanBaseServer server;
-        server.respondWith("404 Not Found", "gone");
+        server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
+        server.respondForPathWithStatus("/products/gone", "404 Not Found", "gone");
         BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
         QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
         QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
 
@@ -283,6 +310,238 @@ private slots:
         QTest::qWait(800);  // give the reply time to finish; nothing should fire
         QCOMPARE(resolvedSpy.count(), 0);
         QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // ====================================================
+    // Internet Archive fallback for dead product links
+    // ====================================================
+
+    // Pure string rewrites: what the app asks the archive for, given a
+    // snapshot URL. The `id_` form is the ORIGINAL page bytes (no toolbar, no
+    // rewritten asset URLs); the `im_` form is the archive's own copy of one
+    // asset, used only when the roaster's copy is gone.
+    void archiveUrlForms() {
+        const QString snap = "https://web.archive.org/web/20260106073238/"
+                             "https://roaster.example/products/x";
+        QVERIFY(BeanBaseClient::isArchiveUrl(snap));
+        QVERIFY(!BeanBaseClient::isArchiveUrl("https://roaster.example/products/x"));
+        QVERIFY(!BeanBaseClient::isArchiveUrl(QString()));
+
+        QCOMPARE(BeanBaseClient::archiveRawForm(snap),
+                 QString("https://web.archive.org/web/20260106073238id_/"
+                         "https://roaster.example/products/x"));
+        // A URL that already carries a modifier is left alone — re-applying
+        // would produce `…im_id_/…`, which the archive does not serve.
+        const QString already = "https://web.archive.org/web/20260106073238im_/"
+                                "https://roaster.example/a.png";
+        QCOMPARE(BeanBaseClient::archiveRawForm(already), already);
+        // Not a snapshot: unchanged, so every ordinary product URL passes
+        // through the same call site untouched.
+        QCOMPARE(BeanBaseClient::archiveRawForm("https://roaster.example/p"),
+                 QString("https://roaster.example/p"));
+
+        QCOMPARE(BeanBaseClient::archiveAssetForm(snap, "https://cdn.example/a.png"),
+                 QString("https://web.archive.org/web/20260106073238im_/"
+                         "https://cdn.example/a.png"));
+        // No snapshot to hang the asset off, or no asset: nothing to ask for.
+        QCOMPARE(BeanBaseClient::archiveAssetForm("https://roaster.example/p",
+                                                  "https://cdn.example/a.png"), QString());
+        QCOMPARE(BeanBaseClient::archiveAssetForm(snap, QString()), QString());
+    }
+
+    void parseArchiveSnapshotVariants() {
+        bool ok = false;
+        // A usable capture. The API answers in http even for an https capture;
+        // the app never stores an http URL it could store as https.
+        QCOMPARE(BeanBaseClient::parseArchiveSnapshot(
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
+            "\"url\":\"http://web.archive.org/web/20260106073238/https://r.example/p\"}}}", &ok),
+            QString("https://web.archive.org/web/20260106073238/https://r.example/p"));
+        QVERIFY(ok);
+
+        // Well-formed misses. `ok` stays true: the archive ANSWERED, and the
+        // answer was "nothing" — which is what lets the caller clear the link.
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot("{\"archived_snapshots\":{}}", &ok).isEmpty());
+        QVERIFY(ok);
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot(
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":false,"
+            "\"url\":\"http://web.archive.org/web/1/https://r.example/p\"}}}", &ok).isEmpty());
+        QVERIFY(ok);
+        // A capture of the roaster's own 404 page is not a capture of the page.
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot(
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"404\",\"available\":true,"
+            "\"url\":\"http://web.archive.org/web/1/https://r.example/p\"}}}", &ok).isEmpty());
+        QVERIFY(ok);
+        // Available, but the URL is not a snapshot URL at all.
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot(
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
+            "\"url\":\"https://r.example/p\"}}}", &ok).isEmpty());
+        QVERIFY(ok);
+
+        // Unparseable: `ok` false, so the caller treats it as an archive FAULT
+        // and leaves the bag alone rather than stamping it permanently dead.
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot("not json", &ok).isEmpty());
+        QVERIFY(!ok);
+        QVERIFY(BeanBaseClient::parseArchiveSnapshot("[]", &ok).isEmpty());
+        QVERIFY(!ok);
+    }
+
+    void validateBagLinkArchivesOn404WithCapture() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available",
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
+            "\"url\":\"http://web.archive.org/web/20260106073238/"
+            "https://roaster.example/products/gone\"}}}");
+        server.respondForPathWithStatus("/products/gone", "404 Not Found", "gone");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        client.validateBagLink("canon-arch-1", server.baseUrl() + "/products/gone");
+        QVERIFY(archivedSpy.wait(3000));
+        QCOMPARE(archivedSpy.count(), 1);
+        QCOMPARE(archivedSpy.first().at(0).toString(), QString("canon-arch-1"));
+        QCOMPARE(archivedSpy.first().at(1).toString(),
+                 QString("https://web.archive.org/web/20260106073238/"
+                         "https://roaster.example/products/gone"));
+        // The whole point: a recoverable bag is never stamped dead.
+        QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // An archive that errors must not be read as "no capture" — that would
+    // permanently clear a link over a blip, which is exactly the failure the
+    // existing transient-error branch already avoids for the roaster.
+    void validateBagLinkSilentWhenArchiveFails() {
+        FakeBeanBaseServer server;
+        server.respondForPathWithStatus("/wayback/available", "503 Service Unavailable",
+                                        "<html>we are down</html>");
+        server.respondForPathWithStatus("/products/gone", "404 Not Found", "gone");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        client.validateBagLink("canon-arch-2", server.baseUrl() + "/products/gone");
+        QTest::qWait(800);
+        QCOMPARE(archivedSpy.count(), 0);
+        QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // Recovery is terminal: a link that is already a snapshot is never asked
+    // about again, so a snapshot that later goes unreachable cannot cascade
+    // into clearing the bag's only remaining URL.
+    void archivedLinkIsNeverLookedUpAgain() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+
+        client.lookupArchivedLink("canon-arch-3",
+                                  "https://web.archive.org/web/20260106073238/https://r.example/p");
+        QTest::qWait(300);
+        QCOMPARE(archivedSpy.count(), 0);
+        QCOMPARE(server.requestCount(), qsizetype(0));
+    }
+
+    void lookupArchivedLinkEmitsOnHit() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available",
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
+            "\"url\":\"http://web.archive.org/web/20260101000000/https://r.example/p\"}}}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+
+        client.lookupArchivedLink("canon-arch-4", "https://r.example/p");
+        QVERIFY(archivedSpy.wait(3000));
+        QCOMPARE(archivedSpy.first().at(1).toString(),
+                 QString("https://web.archive.org/web/20260101000000/https://r.example/p"));
+
+        // One query per id per session.
+        client.lookupArchivedLink("canon-arch-4", "https://r.example/p");
+        QTest::qWait(200);
+        QCOMPARE(archivedSpy.count(), 1);
+    }
+
+    // ====================================================
+    // Link state for result ordering
+    // ====================================================
+
+    void linkStateProbeResolvesLiveArchivedAndNone() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available",
+            "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
+            "\"url\":\"http://web.archive.org/web/20260101000000/https://r.example/p\"}}}");
+        server.respondForPathWithStatus("/dead-with-capture", "404 Not Found", "gone");
+        server.respondForPath("/alive", "ok");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy spy(&client, &BeanBaseClient::linkStateResolved);
+
+        // An entry with no URL needs no probe to be judged.
+        QCOMPARE(client.linkState(QString()), QString("none"));
+        // An archive URL is its own answer.
+        QCOMPARE(client.linkState("https://web.archive.org/web/20260101000000/https://r.example/p"),
+                 QString("archived"));
+        // Unprobed is "unknown", never "none" — a row is not labelled worse
+        // than what is known about it.
+        QCOMPARE(client.linkState(server.baseUrl() + "/alive"), QString("unknown"));
+
+        client.probeLinkState(server.baseUrl() + "/alive");
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(client.linkState(server.baseUrl() + "/alive"), QString("live"));
+
+        client.probeLinkState(server.baseUrl() + "/dead-with-capture");
+        QTRY_COMPARE_WITH_TIMEOUT(
+            client.linkState(server.baseUrl() + "/dead-with-capture"), QString("archived"), 4000);
+    }
+
+    void linkStateDeadWithNoCaptureIsNone() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
+        server.respondForPathWithStatus("/dead", "404 Not Found", "gone");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        client.probeLinkState(server.baseUrl() + "/dead");
+        QTRY_COMPARE_WITH_TIMEOUT(client.linkState(server.baseUrl() + "/dead"),
+                                  QString("none"), 4000);
+    }
+
+    // A storefront that refuses HEAD is not a dead page.
+    void linkStateRetriesWithGetWhenHeadIsRefused() {
+        FakeBeanBaseServer server;
+        server.respondForPathWithStatus("/no-head", "405 Method Not Allowed", "nope");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        // The 405 is served to HEAD and to GET alike by this stub, so what the
+        // assertion proves is the retry itself: two requests, and no "none".
+        client.probeLinkState(server.baseUrl() + "/no-head");
+        QTest::qWait(900);
+        QCOMPARE(client.linkState(server.baseUrl() + "/no-head"), QString("unknown"));
+        QCOMPARE(server.requestCount(), qsizetype(2));
+    }
+
+    void linkStateIsCachedForTheSession() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/alive", "ok");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy spy(&client, &BeanBaseClient::linkStateResolved);
+
+        client.probeLinkState(server.baseUrl() + "/alive");
+        QVERIFY(spy.wait(3000));
+        const qsizetype after = server.requestCount();
+
+        // Re-running the same search must cost nothing.
+        client.probeLinkState(server.baseUrl() + "/alive");
+        QTest::qWait(300);
+        QCOMPARE(server.requestCount(), after);
+        QCOMPARE(spy.count(), 1);
     }
 
     // ====================================================
@@ -553,6 +812,141 @@ private slots:
         client.recoverBagLink("canon-img-3", "Milk Blend");
         QVERIFY(!linkSpy.wait(300) || linkSpy.count() == 1);
         QCOMPARE(server.requestCount(), 1);
+    }
+
+    // A snapshot page is fetched in its `id_` form, whose og:image still names
+    // the roaster's own asset — so the preference for the original over the
+    // archive proxy needs no logic in the image chain, it falls out of which
+    // form is fetched.
+    void bagImageFromSnapshotFetchesRawFormAndOriginalAsset() {
+        FakeBeanBaseServer server;
+        const QString host = QStringLiteral("127.0.0.1:%1").arg(server.baseUrl().section(':', -1));
+        BeanBaseClient::setArchiveSnapshotHost(host);
+        auto restore = qScopeGuard([]() {
+            BeanBaseClient::setArchiveSnapshotHost(QStringLiteral("web.archive.org"));
+        });
+
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("id_/",
+            "<html><meta property=\"og:image\" content=\"" + base + "/original.png\"></html>");
+        server.respondForPath("/original.png", "ORIGINALBYTES");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("canon-snap-1", "Buenos Aires",
+                              server.baseUrl() + "/web/20260106073238/https://r.example/p");
+        QVERIFY(spy.wait(5000));
+
+        QFile cached(cacheDir.path() + "/canon-snap-1");
+        QVERIFY(cached.open(QIODevice::ReadOnly));
+        QCOMPARE(cached.readAll(), QByteArray("ORIGINALBYTES"));
+
+        bool sawRawForm = false;
+        for (const QString& line : server.requestLines())
+            if (line.contains("20260106073238id_/"))
+                sawRawForm = true;
+        QVERIFY2(sawRawForm, "the snapshot page must be fetched in its id_ form");
+    }
+
+    // The roaster's asset host usually outlives the product page, but not
+    // always. When the original is gone the archive's own copy stands in.
+    void bagImageFallsBackToArchivedAsset() {
+        FakeBeanBaseServer server;
+        const QString host = QStringLiteral("127.0.0.1:%1").arg(server.baseUrl().section(':', -1));
+        BeanBaseClient::setArchiveSnapshotHost(host);
+        auto restore = qScopeGuard([]() {
+            BeanBaseClient::setArchiveSnapshotHost(QStringLiteral("web.archive.org"));
+        });
+
+        const QByteArray base = server.baseUrl().toUtf8();
+        // Order matters: the archived-asset route is registered first, because
+        // its request line also contains the original asset's path.
+        server.respondForPath("im_/", "ARCHIVEDBYTES");
+        server.respondForPath("id_/",
+            "<html><meta property=\"og:image\" content=\"" + base + "/original-gone.png\"></html>");
+        server.respondForPathWithStatus("/original-gone.png", "404 Not Found", "gone");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("canon-snap-2", "Buenos Aires",
+                              server.baseUrl() + "/web/20260106073238/https://r.example/p");
+        QVERIFY(spy.wait(5000));
+
+        QFile cached(cacheDir.path() + "/canon-snap-2");
+        QVERIFY(cached.open(QIODevice::ReadOnly));
+        QCOMPARE(cached.readAll(), QByteArray("ARCHIVEDBYTES"));
+    }
+
+    // The archived route reuses downloadBagImage, so the cache's own rules
+    // still bind: an oversized asset is refused whichever host served it.
+    void archivedAssetStillObeysTheSizeCap() {
+        FakeBeanBaseServer server;
+        const QString host = QStringLiteral("127.0.0.1:%1").arg(server.baseUrl().section(':', -1));
+        BeanBaseClient::setArchiveSnapshotHost(host);
+        auto restore = qScopeGuard([]() {
+            BeanBaseClient::setArchiveSnapshotHost(QStringLiteral("web.archive.org"));
+        });
+
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("id_/",
+            "<html><meta property=\"og:image\" content=\"" + base + "/huge.png\"></html>");
+        server.respondForPath("/huge.png", QByteArray(9 * 1024 * 1024, 'x'));
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("canon-snap-3", "Buenos Aires",
+                              server.baseUrl() + "/web/20260106073238/https://r.example/p");
+        QTest::qWait(1500);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!QFile::exists(cacheDir.path() + "/canon-snap-3"));
+    }
+
+    // The AI rungs are additive: with no provider anywhere near this, a live
+    // link and a dead-link-with-capture must BOTH still produce a photo. The
+    // artwork path is a plain fetch and must never become dependent on the AI
+    // work layered above it.
+    void artworkResolvesWithNoAiInvolved() {
+        FakeBeanBaseServer server;
+        const QString host = QStringLiteral("127.0.0.1:%1").arg(server.baseUrl().section(':', -1));
+        BeanBaseClient::setArchiveSnapshotHost(host);
+        auto restore = qScopeGuard([]() {
+            BeanBaseClient::setArchiveSnapshotHost(QStringLiteral("web.archive.org"));
+        });
+
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("id_/",
+            "<html><meta property=\"og:image\" content=\"" + base + "/snap.png\"></html>");
+        server.respondForPath("/snap.png", "SNAPBYTES");
+        server.respondForPath("/live-product",
+            "<html><meta property=\"og:image\" content=\"" + base + "/live.png\"></html>");
+        server.respondForPath("/live.png", "LIVEBYTES");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("canon-noai-1", "X", server.baseUrl() + "/live-product");
+        QVERIFY(spy.wait(5000));
+        client.ensureBagImage("canon-noai-2", "X",
+                              server.baseUrl() + "/web/20260106073238/https://r.example/p");
+        QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(cacheDir.path() + "/canon-noai-2"), 5000);
+
+        QFile live(cacheDir.path() + "/canon-noai-1");
+        QVERIFY(live.open(QIODevice::ReadOnly));
+        QCOMPARE(live.readAll(), QByteArray("LIVEBYTES"));
+        QFile snap(cacheDir.path() + "/canon-noai-2");
+        QVERIFY(snap.open(QIODevice::ReadOnly));
+        QCOMPARE(snap.readAll(), QByteArray("SNAPBYTES"));
     }
 
     void ensureBagImageRejectsUnsafeIds() {
@@ -873,6 +1267,97 @@ private slots:
             withDetails, {{"id", "forged"}, {"canonical", "forged"}}));
         QVERIFY(!obj.contains("id"));
         QVERIFY(!obj.contains("canonical"));
+    }
+
+    // The apply rule, one row of the spec's table per assertion. The blob
+    // already knows which values came from Bean Base: a flat value equal to its
+    // canonical counterpart did, one that differs was typed by the user.
+    void extractionFillsEmptyAndCorrectsCanonicalOnly() {
+        const QString blob = "{\"id\":\"canon-1\",\"process\":\"Natural\",\"variety\":\"Bourbon\","
+                             "\"canonical\":{\"process\":\"Natural\",\"variety\":\"Caturra\"}}";
+        const auto out = BeanBaseBlob::applyExtraction(
+            blob, QVariantMap{{"process", "Washed"},     // canonical-sourced -> corrected
+                              {"variety", "Gesha"},      // user-edited       -> kept
+                              {"origin", "Colombia"}});  // empty             -> filled
+        const QJsonObject obj = QJsonDocument::fromJson(out.blob.toUtf8()).object();
+        QCOMPARE(obj.value("process").toString(), QString("Washed"));
+        QCOMPARE(obj.value("variety").toString(), QString("Bourbon"));
+        QCOMPARE(obj.value("origin").toString(), QString("Colombia"));
+
+        // Filling is not correcting: only the overwrite is reported.
+        QCOMPARE(out.corrections.size(), qsizetype(1));
+        const QVariantMap correction = out.corrections.first().toMap();
+        QCOMPARE(correction.value("field").toString(), QString("process"));
+        QCOMPARE(correction.value("from").toString(), QString("Natural"));
+        QCOMPARE(correction.value("to").toString(), QString("Washed"));
+
+        // The pristine snapshot is untouched, so Revert still undoes the
+        // correction exactly as it undoes a manual edit.
+        QCOMPARE(obj.value("canonical").toObject().value("process").toString(), QString("Natural"));
+        const QJsonObject reverted =
+            QJsonDocument::fromJson(BeanBaseBlob::revertToCanonical(out.blob).toUtf8()).object();
+        QCOMPARE(reverted.value("process").toString(), QString("Natural"));
+    }
+
+    // A linked blob that has never been edited carries no `canonical` yet, and
+    // its flat values ARE Bean Base's by construction. The snapshot must be
+    // captured before anything is corrected, or Revert would restore the
+    // page's values as though Bean Base had said them.
+    void extractionSnapshotsBeforeCorrectingAnUneditedBlob() {
+        const QString blob = "{\"id\":\"canon-2\",\"process\":\"Natural\"}";
+        const auto out = BeanBaseBlob::applyExtraction(blob, QVariantMap{{"process", "Washed"}});
+        const QJsonObject obj = QJsonDocument::fromJson(out.blob.toUtf8()).object();
+        QCOMPARE(obj.value("process").toString(), QString("Washed"));
+        QCOMPARE(obj.value("canonical").toObject().value("process").toString(), QString("Natural"));
+        QCOMPARE(out.corrections.size(), qsizetype(1));
+    }
+
+    // A manual bag has no canonical entry at all, so every value in it is the
+    // user's. The page fills the gaps and touches nothing else.
+    void extractionNeverOverwritesAManualBag() {
+        const QString blob = "{\"process\":\"Natural\"}";
+        const auto out = BeanBaseBlob::applyExtraction(
+            blob, QVariantMap{{"process", "Washed"}, {"origin", "Peru"}});
+        const QJsonObject obj = QJsonDocument::fromJson(out.blob.toUtf8()).object();
+        QCOMPARE(obj.value("process").toString(), QString("Natural"));
+        QCOMPARE(obj.value("origin").toString(), QString("Peru"));
+        QVERIFY(out.corrections.isEmpty());
+    }
+
+    // The caller's live values win over the blob's where it has them — the bag
+    // editor's form is the working copy while the dialog is open.
+    void extractionJudgesTheCallersLiveValues() {
+        const QString blob = "{\"id\":\"canon-3\",\"process\":\"Natural\","
+                             "\"canonical\":{\"process\":\"Natural\"}}";
+        // The user typed over it in the form but has not saved.
+        const auto out = BeanBaseBlob::applyExtraction(
+            blob, QVariantMap{{"process", "Washed"}}, QVariantMap{{"process", "Anaerobic"}});
+        QVERIFY(out.applied.isEmpty());
+        QVERIFY(out.corrections.isEmpty());
+    }
+
+    // The page stating nothing about a field never clears it, and a page that
+    // agrees with the bag changes nothing at all.
+    void extractionIgnoresEmptyAndAgreeingValues() {
+        const QString blob = "{\"id\":\"canon-4\",\"process\":\"Washed\","
+                             "\"canonical\":{\"process\":\"Washed\"}}";
+        const auto out = BeanBaseBlob::applyExtraction(
+            blob, QVariantMap{{"process", "Washed"}, {"origin", ""}});
+        QVERIFY(out.applied.isEmpty());
+        QVERIFY(out.corrections.isEmpty());
+        const QJsonObject obj = QJsonDocument::fromJson(out.blob.toUtf8()).object();
+        QCOMPARE(obj.value("process").toString(), QString("Washed"));
+        QVERIFY(!obj.contains("origin"));
+    }
+
+    // A corrupt blob is refused, not rebuilt — the same non-destructive rule
+    // mergeBeanDetails follows.
+    void extractionRefusesACorruptBlob() {
+        QTest::ignoreMessage(QtWarningMsg,
+            "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)");
+        const auto out = BeanBaseBlob::applyExtraction("not json", QVariantMap{{"origin", "Peru"}});
+        QCOMPARE(out.blob, QString("not json"));
+        QVERIFY(out.applied.isEmpty());
     }
 
     void revertRestoresCanonicalValuesAndRemovesUserAdditions() {

@@ -15,6 +15,7 @@
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
 #include "../network/beanbaseclient.h"
+#include "../network/beanbase_blob.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/shothistorystorage.h"
 #include "webtemplates/base_css.h"
@@ -184,6 +185,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
         const QString kind = bodyJson.value(QStringLiteral("kind")).toString() == QLatin1String("tea")
             ? QStringLiteral("tea") : QStringLiteral("coffee");
+        // The apply rule (fill empty, correct Bean-Base-sourced, never touch
+        // what the user typed) is decided HERE, by the same helper the app's
+        // editor uses — the page sends its blob and its live field values and
+        // writes back what comes out. The client used to carry its own
+        // fill-empty copy of the rule; two copies of a rule about overwriting
+        // user data is exactly the drift this codebase keeps paying for.
+        const QString editorBlob = bodyJson.value(QStringLiteral("blob")).toString();
+        const QVariantMap editorCurrent =
+            bodyJson.value(QStringLiteral("current")).toObject().toVariantMap();
 
         struct ExtractState {
             QList<QMetaObject::Connection> conns;
@@ -224,12 +234,23 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 }
             });
         st->conns << connect(aiManager, &AIManager::bagDetailsExtracted, this,
-            [st, kind, url, finish, respondJson](const QString& token, const QVariantMap& fields) {
+            [st, kind, url, finish, respondJson, editorBlob, editorCurrent](
+                const QString& token, const QVariantMap& fields) {
                 if (st->done || token != url)
                     return;
-                finish([respondJson, st, kind, url, fields]() {
-                    respondJson(QJsonObject{{"stage", st->stage}, {"kind", kind}, {"url", url},
-                                            {"fields", QJsonObject::fromVariantMap(fields)}});
+                // roastLevel is the extraction's name for what the blob and the
+                // form call `degree`.
+                QVariantMap extracted = fields;
+                if (fields.contains(QStringLiteral("roastLevel")))
+                    extracted.insert(QStringLiteral("degree"), fields.value(QStringLiteral("roastLevel")));
+                const auto outcome =
+                    BeanBaseBlob::applyExtraction(editorBlob, extracted, editorCurrent);
+                finish([respondJson, st, kind, url, fields, outcome]() {
+                    respondJson(QJsonObject{
+                        {"stage", st->stage}, {"kind", kind}, {"url", url},
+                        {"fields", QJsonObject::fromVariantMap(fields)},
+                        {"applied", QJsonObject::fromVariantMap(outcome.applied)},
+                        {"corrections", QJsonArray::fromVariantList(outcome.corrections)}});
                 });
             });
         st->conns << connect(aiManager, &AIManager::bagDetailsExtractionFailed, this,
@@ -1119,30 +1140,41 @@ QString ShotServer::generateBeansPage() const
             // message (which stage failed, and why) wins the race; this abort is
             // only the backstop for a server that never answers at all.
             const to = setTimeout(() => ctrl.abort(), 95000);
+            // Send the blob and the live field values: the server decides what
+            // may be written, using the same helper the app's bag editor uses.
+            const currentValues = {};
+            (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).concat([['fRoastLevel','degree']])
+                .forEach(([fid, key]) => { const e = el(fid); if (e) currentValues[key] = e.value; });
+            const blobForRule = Object.keys(editBlob).length > 0 ? JSON.stringify(editBlob) : '';
             fetch('/api/beans/extract', { method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: url, kind: editingKind }), signal: ctrl.signal })
+                    body: JSON.stringify({ url: url, kind: editingKind,
+                                           blob: blobForRule,
+                                           current: currentValues }), signal: ctrl.signal })
                 .then(readJson)
                 .then(d => {
                     // The editor moved to another bag while this was in flight:
                     // these fields describe the page of a bag no longer shown.
                     if (editorGeneration !== forGeneration) return;
                     const f = d.fields || {};
-                    // Fill ONLY empty fields, like the app's take() and as
-                    // BEAN_BASE.md specifies ("fills empty detail fields
-                    // only") — a shop page must never overwrite what the user
-                    // typed or what a picked Bean Base entry supplied. Both
-                    // surfaces put search and extraction side by side, so
-                    // pick-then-extract is an ordinary two-click sequence.
+                    // What may be written was decided server-side; this only
+                    // writes it. A field the server left out was either already
+                    // right, or is one the user typed — which the page never
+                    // overwrites.
+                    const applied = d.applied || {};
+                    const corrections = d.corrections || [];
                     let filled = 0, occupied = 0;
-                    const take = (fid, key) => {
+                    const write = (fid, key) => {
                         const e = el(fid);
-                        if (!e || f[key] == null || f[key] === '') return;
-                        if (e.value.trim()) { occupied++; return; }
-                        e.value = f[key];
+                        if (!e) return;
+                        if (applied[key] == null) {
+                            if (f[key] != null && f[key] !== '' && e.value.trim()) occupied++;
+                            return;
+                        }
+                        e.value = applied[key];
                         filled++;
                     };
-                    take('fRoastLevel', 'roastLevel');   // column, not a blob key
-                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => take(fid, key));
+                    write('fRoastLevel', 'degree');   // column, not a blob key
+                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => write(fid, key));
                     // Stage 2 (JS-rendered shops) returns the product photo's
                     // URL directly. Stage 2 runs when the page yielded almost no
                     // body text, which is usually also a page the og:image
@@ -1159,12 +1191,19 @@ QString ShotServer::generateBeansPage() const
                     // them is "your fields are already filled in" — claiming
                     // that when the page simply yielded nothing sends the user
                     // looking for data that was never there.
-                    editorStatus(filled > 0
-                        ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
-                        : (occupied > 0
-                            ? 'Nothing new — every detail the page gave is already filled in.'
-                            : 'Nothing found on that page. Check the URL points at the product '
-                              + 'page itself, not a category or search page.'));
+                    // A correction is named, never slipped in silently: the
+                    // user has to be able to see that a value they were shown
+                    // has changed, and which one.
+                    const correctedNames = corrections.map(c => c.field).join(', ');
+                    editorStatus(corrections.length > 0
+                        ? 'Filled ' + (filled - corrections.length) + ', corrected '
+                          + corrections.length + ' from the page (' + correctedNames + ') — review and Save.'
+                        : (filled > 0
+                            ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
+                            : (occupied > 0
+                                ? 'Nothing new — every detail the page gave is already filled in.'
+                                : 'Nothing found on that page. Check the URL points at the product '
+                                  + 'page itself, not a category or search page.')));
                 })
                 .catch(e => {
                     if (editorGeneration !== forGeneration) return;
