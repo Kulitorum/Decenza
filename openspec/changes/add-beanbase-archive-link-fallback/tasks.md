@@ -104,5 +104,5 @@
       suggestion they are asked to confirm (including that it uses their configured provider, once
       per bag), and the picker's link-state indication. Three or four sentences on the Beans page,
       total — cut it in half before committing.
-- [ ] 7.3 Open the PR, then run `/pr-review-toolkit:review-pr` and address the findings.
+- [x] 7.3 Open the PR, then run `/pr-review-toolkit:review-pr` and address the findings.
 - [ ] 7.4 Archive the change and sync specs as the final commit on the PR branch.
