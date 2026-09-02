@@ -6,8 +6,9 @@
 #include "core/hdsfirmwarecatalog.h"
 #include <cstdint>
 
-// Decent Scale 7-byte binary packet protocol, shared by BLE and USB paths.
-// Packet format: [PacketHeader, type, data0, data1, data2, data3, XOR]
+// Decent Scale binary packet protocol, shared by BLE and USB paths.
+// Packet format: [PacketHeader, type, data0, data1, data2, data3, XOR] -- plus
+// the 10-byte v1.2 weight frame and the 41-byte ADS debug frame below.
 namespace DecentScaleProtocol {
 
 // Every frame this protocol sends or receives opens with it, and the USB
@@ -26,7 +27,7 @@ inline constexpr uint8_t TypeLedResponse = 0x0A;
 inline constexpr uint8_t TypeAdsDebug = 0x25;  // 41 bytes, checksum in byte 40
 
 // Weight frame types. 0xCE is what the firmware notifies; 0xCA is accepted too
-// because de1app has always accepted both (binary.tcl:1437).
+// because de1app has always accepted both (binary.tcl:1438).
 inline constexpr uint8_t TypeWeight = 0xCE;
 inline constexpr uint8_t TypeWeightAlt = 0xCA;
 
@@ -37,7 +38,7 @@ inline constexpr qsizetype AdsDebugFrameLength = 41;
 // short, two unused bytes, and the XOR moved to byte 9. Weight stays at bytes
 // 2-3, so only the frame length and the checksum position differ.
 // (de1app decent_scale_weight_read_spec_v12, binary.tcl:350-364, dispatched at
-// :1422-1427.) The original scale has no USB, so this length is notified only.
+// :1424-1427.) The original scale has no USB, so this length is notified only.
 inline constexpr qsizetype V12WeightFrameLength = 10;
 
 // XOR checksum: XOR of all bytes except the last (byte 6 in a 7-byte packet).
@@ -51,9 +52,11 @@ inline uint8_t calculateXor(const QByteArray& data) {
 
 // How many bytes the frame for `command` needs, or 0 when fewer than that have
 // arrived. It is a MINIMUM check: every type but 0x25 maps to 7, so an unknown
-// type is not rejected here. A packet-oriented caller that wants exactness must
-// compare the result against its own frame size; a stream framer must not,
-// since its buffer legitimately holds more than one frame.
+// type is not rejected here. For a stream framer that is the right question --
+// its buffer legitimately holds more than one frame. A caller that wants
+// exactness must use notifiedFrameLengthExact() and NOT compare this result
+// against its own frame size: this one never returns 10, so that comparison
+// rejects a v1.2 weight frame.
 //
 // Sourced from the firmware, not inferred: every openscale notify goes through
 // bleNotifyReadPacket() (openscale include/ble.h:535) and there are exactly
@@ -80,9 +83,10 @@ inline qsizetype notifiedFrameLength(uint8_t command, qsizetype available) {
 // framer's buffer legitimately holds more than one frame.
 //
 // Only weight is accepted at ten bytes. de1app unpacks any 10-byte frame with
-// the v1.2 layout but decodes only weight from it (binary.tcl:1437-1460), and
-// the 7-byte LED response's battery and firmware bytes have no known v1.2
-// position -- so a 10-byte frame of another type is logged, not guessed at.
+// the v1.2 layout (binary.tcl:1424-1427) but decodes only weight from it
+// (:1438-1462), and the 7-byte LED response's battery and firmware bytes have
+// no known v1.2 position -- so a 10-byte frame of another type is logged, not
+// guessed at.
 inline qsizetype notifiedFrameLengthExact(uint8_t command, qsizetype len) {
     if (command == TypeAdsDebug)
         return len == AdsDebugFrameLength ? len : 0;
