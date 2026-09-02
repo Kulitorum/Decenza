@@ -208,11 +208,33 @@ DecenzaDialog {
         // animation toward a far row; repositioning then fights it and
         // StrictlyEnforceRange re-animates — a visible tug-of-war. Positioned
         // first, the currentIndex assignment is a zero-distance move.
+        //
+        // TEMPORARY instrumentation. _centerWheels measured 728 ms on one open
+        // of a Samsung SM-X210 (15 ms on the open before it, same target index),
+        // against 0-5 ms on a Mac — so the Mac cannot see this and the split has
+        // to come off the tablet. The three steps below are timed separately
+        // because they fail differently: a slow pos1 is the view walking from
+        // row 0 to the target, a slow idx is the highlight move the two
+        // assignments above are meant to have disarmed, and a slow pos2 is a
+        // redundant second traversal that could just be dropped. `from` and
+        // `count` are logged so the traversal DISTANCE is on the record rather
+        // than inferred — the 15 ms open and the 728 ms open had the same target.
+        var _from = tumbler.currentIndex
+        var _t0 = Date.now()
         if (lv)
             lv.positionViewAtIndex(index, ListView.Center)
+        var _tPos1 = Date.now()
         tumbler.currentIndex = index
+        var _tIdx = Date.now()
         if (lv)
             lv.positionViewAtIndex(index, ListView.Center)
+        var _tPos2 = Date.now()
+        console.info("[Equipment] grind picker: _snapTo count=" + tumbler.count
+                     + " from=" + _from + " to=" + index
+                     + " pos1=" + (_tPos1 - _t0) + "ms"
+                     + " idx=" + (_tIdx - _tPos1) + "ms"
+                     + " pos2=" + (_tPos2 - _tIdx) + "ms"
+                     + " view=" + (lv ? "yes" : "NO"))
     }
 
     // Centre each wheel on its current row. A wheel with no current value (an
