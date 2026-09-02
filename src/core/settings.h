@@ -136,8 +136,13 @@ class Settings : public QObject {
     Q_PROPERTY(QString savedRefractometerAddress READ savedRefractometerAddress WRITE setSavedRefractometerAddress NOTIFY savedRefractometerChanged FINAL)
     Q_PROPERTY(QString savedRefractometerName READ savedRefractometerName WRITE setSavedRefractometerName NOTIFY savedRefractometerChanged FINAL)
 
-    // Enable USB serial polling for DE1 connection. Off by default to save battery
-    // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
+    // Enable periodic USB SCANNING, for the DE1 and the scale together. Off by
+    // default to save battery on devices that never attach anything over USB.
+    //
+    // Scanning only. It does not gate hotplug, the on-demand probe behind "Scan for
+    // Devices", or an already-connected device — so on a platform with hotplug
+    // (Android) a plugged-in device works with this off. The storage key is
+    // "usb/serialEnabled", kept from when this covered the DE1 alone.
     Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged FINAL)
 
 public:

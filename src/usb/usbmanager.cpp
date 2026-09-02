@@ -88,6 +88,12 @@ void USBManager::startPolling()
     m_pollTimer.start();
 }
 
+void USBManager::onHotplugEvent()
+{
+    USB_INFO(QStringLiteral("Hotplug event — running a probe pass now"));
+    onPollTimerTick();
+}
+
 void USBManager::stopPolling()
 {
     m_pollTimer.stop();

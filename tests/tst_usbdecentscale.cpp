@@ -1,8 +1,10 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QRegularExpression>
+#include <QFile>
 
 #include "usb/usbdecentscale.h"
+#include "usb/usbhotplug.h"
 #include "ble/protocol/decentscaleprotocol.h"
 #include "messagecapture.h"
 
@@ -93,6 +95,80 @@ private slots:
         scale.processBuffer();
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.last().at(0).toDouble(), 42.0);
+    }
+
+    // --- USB hotplug dispatch ------------------------------------------------
+    //
+    // device_filter.xml is the single list of USB ids the app supports: the
+    // manifest's launch intent-filter uses it, and the hotplug receiver filters
+    // against it. usbDeviceKindForPid() then decides which manager an event goes
+    // to, from the product id alone.
+    //
+    // The defect shape no other test catches: a scale product id present in the XML
+    // but not in the C++ scale list. Nothing fails — the id is still "supported"
+    // and the receiver still forwards it — but every event for that scale routes to
+    // the DE1 manager, which probes for a DE1, finds none, and does nothing. A
+    // silent dead scale, from an edit that looked complete.
+    //
+    // THE EXPECTED IDS ARE LITERALS HERE, DELIBERATELY. The first version of this
+    // test compared usbDeviceKindForPid() against kUsbScalePid1/kUsbScalePid2 —
+    // the same constants the function itself reads — so changing a constant moved
+    // both sides and the test passed. Verified by breaking it: with
+    // kUsbScalePid2 set to 0x9999 the whole suite still went green. A test that
+    // cannot fail is a comment that compiles; these literals are what give it teeth.
+private:
+    // ONE table drives both slots below. It was two independent literal lists, and
+    // that made the pair satisfiable by the careless repair it exists to prevent:
+    // add a scale id to device_filter.xml, watch the XML slot go red, append the id
+    // to that slot's own `expected` list — green, with no routing row and no C++
+    // change, and the new scale silently routed to the DE1 manager. Now the only
+    // repair is a row here, and a row must state a kind.
+    struct SupportedId { int pid; UsbDeviceKind kind; const char* name; };
+    static QList<SupportedId> supportedIds() {
+        return {
+            {0x7522, UsbDeviceKind::Scale, "scale CH340 0x7522"},
+            {0x7523, UsbDeviceKind::Scale, "scale CH340 0x7523"},
+            {0x55D3, UsbDeviceKind::De1,   "DE1 CH9102 0x55D3"},
+        };
+    }
+
+private slots:
+    void deviceFilterIdsRouteToTheRightManager_data() {
+        QTest::addColumn<int>("productId");
+        QTest::addColumn<int>("expectedKind");
+        for (const auto& id : supportedIds())
+            QTest::newRow(id.name) << id.pid << int(id.kind);
+    }
+
+    void deviceFilterIdsRouteToTheRightManager() {
+        QFETCH(int, productId);
+        QFETCH(int, expectedKind);
+        QCOMPARE(int(usbDeviceKindForPid(productId)), expectedKind);
+    }
+
+    // The rows above are only meaningful while they ARE the supported ids. This
+    // binds them to device_filter.xml, so an id added there without a row here —
+    // or a row here for an id the app no longer declares — fails rather than
+    // quietly reducing what the table covers.
+    void theDeviceFilterListsExactlyTheIdsCoveredAbove() {
+        const QString path = QStringLiteral("%1/android/res/xml/device_filter.xml")
+                                 .arg(QStringLiteral(DECENZA_SOURCE_DIR));
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::ReadOnly),
+                 qPrintable(QStringLiteral("cannot open %1").arg(path)));
+
+        QRegularExpression re(QStringLiteral("product-id=\"(\\d+)\""));
+        auto it = re.globalMatch(QString::fromUtf8(f.readAll()));
+        QList<int> found;
+        while (it.hasNext()) found.append(it.next().captured(1).toInt());
+        std::sort(found.begin(), found.end());
+
+        // From the routing table, not a second literal list — that is what makes an
+        // id added to the XML reach usbDeviceKindForPid() rather than stopping here.
+        QList<int> expected;
+        for (const auto& id : supportedIds()) expected.append(id.pid);
+        std::sort(expected.begin(), expected.end());
+        QCOMPARE(found, expected);
     }
 
 private:

@@ -42,6 +42,10 @@ public:
     void startPolling();
     void stopPolling();
 
+    // See UsbScaleManager::onHotplugEvent — same contract, same reason: the tick is
+    // hasDevice()-driven, so hotplug runs it rather than duplicating it.
+    void onHotplugEvent();
+
     Q_INVOKABLE void disconnectUsb();
 
     SerialTransport* transport() const { return m_transport; }

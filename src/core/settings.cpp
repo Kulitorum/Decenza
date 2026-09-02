@@ -848,7 +848,7 @@ void Settings::setSavedRefractometerName(const QString& name) {
     }
 }
 
-// USB serial polling
+// USB scanning (DE1 and scale) — see the property comment in settings.h.
 bool Settings::usbSerialEnabled() const {
     return m_settings.value("usb/serialEnabled", false).toBool();
 }

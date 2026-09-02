@@ -125,19 +125,17 @@ void UsbScaleManager::connectToScale()
         return;
     }
 
-#ifdef Q_OS_ANDROID
-    // Recover from a stale-but-enumerated connection: on Android the device can
-    // stay plugged in while its serial link silently dies (no port-disappear
-    // event for the poll to catch). Watch the scale's connected state and tear
-    // it down when it drops. Guarded on m_scale so it stays idempotent with the
-    // poll-based unplug detection in onPollTimerTickAndroid.
+    // Unconditional, not Android-only: with USB scanning off (the default) desktop
+    // has no poll and no hotplug, so a manual "Scan for Devices" was the only
+    // trigger left. Measured on macOS before this: port died t=253.7, scale still
+    // held until the scan at t=272.9 — 19 s with neither the USB scale nor its
+    // FlowScale fallback.
     connect(m_scale, &ScaleDevice::connectedChanged, this, [this] {
         if (m_scale && !m_scale->isConnected()) {
-            warn(QStringLiteral("Connection lost — dropped while device still enumerated"));
+            warn(QStringLiteral("Connection lost — scale reported disconnected"));
             teardownConnectedScale();
         }
     });
-#endif
 
     emit scaleConnectedChanged();
     emit scaleDiscovered(m_scale);
@@ -149,8 +147,9 @@ bool UsbScaleManager::teardownConnectedScale()
 
     // Drop the Android connectedChanged watchdog (wired in connectToScale) BEFORE
     // close() below: close() emits connectedChanged synchronously, which would
-    // otherwise re-enter this function and double-free m_scale. No-op on desktop
-    // (no such connection exists there).
+    // otherwise re-enter this function and double-free m_scale. Load-bearing on
+    // EVERY platform — the watchdog stopped being Android-only when USB scanning
+    // became opt-in and desktop lost the poll that used to catch an unplug.
     disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
 
     // Emit scaleLost() FIRST, while m_scale is still valid: main.cpp's handler
@@ -190,7 +189,8 @@ void UsbScaleManager::disconnectScale()
 
     // Drop the Android connectedChanged watchdog before close() — same re-entrancy
     // hazard as teardownConnectedScale(): close() emits connectedChanged, which the
-    // watchdog would turn into a teardownConnectedScale() re-entry. No-op on desktop.
+    // watchdog would turn into a teardownConnectedScale() re-entry. On every
+    // platform now, not just Android — see connectToScale().
     disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
 
     m_scale->close();
@@ -218,6 +218,13 @@ void UsbScaleManager::startPolling()
 
     onPollTimerTick();
     m_pollTimer.start();
+}
+
+void UsbScaleManager::onHotplugEvent()
+{
+    // info(), not log(): the views default to minLevel INFO.
+    info(QStringLiteral("Hotplug event — running a probe pass now"));
+    onPollTimerTick();
 }
 
 void UsbScaleManager::probeNow()

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "usbhotplug.h"
+
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -41,6 +43,13 @@ public:
 
     void startPolling();
     void stopPolling();
+
+    // Platform-reported attach/detach. Runs the timer's own pass, which is
+    // hasDevice()-driven, so attach and detach need no separate handling.
+    //
+    // Not probeNow(): that carries user-scan semantics (forgets probed ports, emits
+    // probeFinished for the scanning indicator), which a cable event is not.
+    void onHotplugEvent();
 
     // Run a poll pass NOW instead of waiting up to POLL_INTERVAL_MS for the next
     // tick, and report completion via probeFinished().
@@ -149,11 +158,21 @@ private:
     QString m_confirmedPortName;
 #endif
 
-    static constexpr int POLL_INTERVAL_MS = 2000;
+    // Android has hotplug, so the timer only catches a broadcast that never
+    // arrived (backgrounded, or an OEM build that drops it) — a safety net, hence
+    // slow. Elsewhere there is no hotplug (see usbhotplug.h) and the timer IS the
+    // detection path.
+#ifdef Q_OS_ANDROID
+    static constexpr int POLL_INTERVAL_MS = 60000;   // hotplug fallback
+#else
+    static constexpr int POLL_INTERVAL_MS = 2000;    // sole detection path
+#endif
     static constexpr int PROBE_TIMEOUT_MS = 3000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
-    static constexpr uint16_t PRODUCT_ID_SCALE_1 = 0x7522;  // CH340 variant
-    static constexpr uint16_t PRODUCT_ID_SCALE_2 = 0x7523;  // CH340 variant
-
-    static bool isScalePid(uint16_t pid) { return pid == PRODUCT_ID_SCALE_1 || pid == PRODUCT_ID_SCALE_2; }
+    // Ids live in usbhotplug.h — one declaration, since its classifier treats
+    // anything unlisted as the DE1.
+    static bool isScalePid(uint16_t pid)
+    {
+        return usbDeviceKindForPid(static_cast<int>(pid)) == UsbDeviceKind::Scale;
+    }
 };

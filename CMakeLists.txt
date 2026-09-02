@@ -849,6 +849,7 @@ if(NOT IOS)
         src/usb/androidusbscalehelper.cpp
         src/usb/usbdecentscale.cpp
         src/usb/usbscalemanager.cpp
+        src/usb/usbhotplug.cpp
     )
 endif()
 
@@ -1060,6 +1061,7 @@ if(NOT IOS)
         src/usb/androidusbscalehelper.h
         src/usb/usbdecentscale.h
         src/usb/usbscalemanager.h
+        src/usb/usbhotplug.h
     )
 endif()
 

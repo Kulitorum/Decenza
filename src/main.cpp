@@ -151,6 +151,8 @@ extern "C" const char* __ubsan_default_options()
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
+#include "usb/usbhotplug.h"
+#include "ble/scales/scalelogging.h"
 #include "usb/usbdecentscale.h"
 #include "usb/serialtransport.h"
 #endif
@@ -2141,17 +2143,36 @@ int main(int argc, char *argv[])
     checkpoint("Managers wired");
 
 #ifndef Q_OS_IOS
-    // USB serial polling for DE1 is opt-in (off by default) to avoid the 2 s polling
-    // battery drain on devices that never use a USB-C cable to connect to the DE1.
-    if (settings.usbSerialEnabled())
-        usbManager.startPolling();
-    QObject::connect(&settings, &Settings::usbSerialEnabledChanged, [&]() {
-        if (settings.usbSerialEnabled())
+    // Scanning is opt-in for both the DE1 and the scale — see
+    // Settings::usbSerialEnabled for what it does and does not gate.
+    const auto applyUsbScanning = [&]() {
+        if (settings.usbSerialEnabled()) {
             usbManager.startPolling();
-        else
+            usbScaleManager.startPolling();
+        } else {
             usbManager.stopPolling();
-    });
-    usbScaleManager.startPolling();
+            usbScaleManager.stopPolling();
+            // Without this a submitted log carries no USB lines at all, and "off"
+            // reads exactly like "broken".
+            SCALE_INFO_STDERR_TAGGED("USB Scale",
+                QStringLiteral("Scanning disabled (Settings > Connections > Scan for USB "
+                               "devices). Hotplug and Scan for Devices still work."));
+        }
+    };
+    // Safe on a never-started manager: finishScanProbe() early-returns with no scan
+    // pending, so stopPolling() emits nothing.
+    applyUsbScanning();
+    QObject::connect(&settings, &Settings::usbSerialEnabledChanged, applyUsbScanning);
+
+    // Outside the setting: an idle receiver costs nothing.
+    UsbHotplug::start(&usbScaleManager, &usbManager);
+
+    // Hotplug only reports devices attached WHILE the app runs, so one plugged in
+    // before launch is otherwise invisible until a replug or a Scan. Ungated: the
+    // setting bounds a per-tick cost, and this is one hasDevice() per launch.
+    usbScaleManager.onHotplugEvent();
+    usbManager.onHotplugEvent();
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() { UsbHotplug::stop(); });
 #endif
 
     AccessibilityManager accessibilityManager;
