@@ -12,6 +12,7 @@ public:
     // Pure virtual implementations (no-ops)
     void connectToDevice(const QBluetoothDeviceInfo&) override {}
     void tare() override { ++m_tareCount; }
+    void stopTimer() override { ++m_stopTimerCount; }
 
     // Configurable behavior
     bool isFlowScale() const override { return m_isFlowScale; }
@@ -25,6 +26,9 @@ public:
     // need to assert on "no tare was sent", which no signal can express.
     int tareCount() const { return m_tareCount; }
     void resetTareCount() { m_tareCount = 0; }
+    // Number of stopTimer() commands issued — the scale's on-device clock is not
+    // otherwise observable from the app side.
+    int stopTimerCount() const { return m_stopTimerCount; }
 
     // Test configuration
     void setIsFlowScale(bool flow) { m_isFlowScale = flow; }
@@ -36,5 +40,6 @@ public:
 private:
     bool m_isFlowScale = false;
     int m_tareCount = 0;
+    int m_stopTimerCount = 0;
     QString m_type = QStringLiteral("mock");
 };

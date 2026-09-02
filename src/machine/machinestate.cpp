@@ -365,6 +365,18 @@ void MachineState::updatePhase() {
                                         m_phase == Phase::Preinfusion ||
                                         m_phase == Phase::Pouring ||
                                         m_phase == Phase::Ending);
+            // Neither timer stops on its own once the link is gone. Every
+            // stopShotTimer() call sits past this early return, and
+            // onShotTimerTick() has no connectivity guard, so the shot clock
+            // would keep counting every 100 ms with no machine behind it; the
+            // scale is a separate BLE link that is usually still connected, so
+            // its on-device display would keep counting too. Stop the pair
+            // here, as the espresso-exit site below does.
+            stopShotTimer();
+            if (m_scale) {
+                m_scale->stopTimer();
+                qDebug() << "=== SCALE TIMER: Stopped (DE1 disconnected) ===";
+            }
             m_phase = Phase::Disconnected;
             emit phaseChanged();
             if (wasInEspresso)
