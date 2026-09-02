@@ -22,6 +22,16 @@ On a platform WITHOUT hotplug, a USB scale attached while the setting is off is 
 - **WHEN** a USB device is connected and the user turns the scanning setting off
 - **THEN** the device stays connected and usable; only periodic scanning stops
 
+#### Scenario: Unplugging is still noticed with scanning off
+- **WHEN** a connected USB device is unplugged while the scanning setting is off
+- **THEN** the app reports it as no longer connected, because losing an open port is
+  observed by the port itself rather than by the scan
+- **AND** it releases that device and falls back to its default weight source at that
+  moment, not at the next scan — a device the app has stopped talking to SHALL NOT be
+  held as connected while waiting for a scan that may never be run
+- **AND** on a platform without hotplug it is not reconnected automatically when
+  plugged back in; "Scan for Devices" is the way back
+
 #### Scenario: Enabling the setting starts scanning immediately
 - **WHEN** the user turns the USB setting on
 - **THEN** USB scanning begins without an app restart

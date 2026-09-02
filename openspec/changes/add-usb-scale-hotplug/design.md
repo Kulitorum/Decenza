@@ -53,7 +53,9 @@ Android requires unregistration; a receiver leaked across a teardown is a warnin
 
 **A broadcast is missed while the app is backgrounded** → The 60 s fallback poll recovers it. This is precisely why the poll is kept rather than deleted, and why the fallback interval is a constant rather than a deletion.
 
-**OEM-modified Android builds may not deliver `DETACHED`** → The existing `connectedChanged` watchdog in `connectToScale()` already tears down a scale whose serial link dies while still enumerated, and the fallback poll still sees the device disappear. Detach is therefore covered three ways.
+**OEM-modified Android builds may not deliver `DETACHED`** → The `connectedChanged` watchdog in `connectToScale()` tears down a scale whose link dies, and the fallback poll still sees the device disappear.
+
+**CORRECTION, found in desktop testing.** An earlier version of this entry claimed detach was "covered three ways" and cited that watchdog. It was `#ifdef Q_OS_ANDROID`. Desktop only looked covered because its 2 s poll caught the vanished port within two seconds — and gating that poll off by default removed the only trigger, leaving a manual "Scan for Devices" as the sole way out. Measured on macOS: the port died at t=253.7 and the manager held the scale until a scan at t=272.9, 19 s with neither the USB scale nor its FlowScale fallback. The watchdog is now unconditional, which is what makes the three-ways claim true. Recorded because the claim was written from reading the code and was wrong about the one line that mattered.
 
 **"Off" no longer means "no USB activity"** → It means no periodic *scanning*. A user who turns the setting off and later plugs in a scale on Android will still get a connection. Judged correct rather than surprising: the control is a battery setting, and a scale that connects when plugged in is what a user expects. The wording change in task 2.1 must say "scan" rather than implying USB is disabled outright, or the control will read as a lie.
 
