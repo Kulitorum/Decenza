@@ -131,8 +131,8 @@ struct Recipe {
     // surfaces MUST gate on this — a stored "Tea" looks valid everywhere but
     // misses every exact-match consumer (wizard template lookup, equipment
     // default query, and the stored-tea protection in the update
-    // re-derivation, which would then re-derive it to "latte" on a block
-    // edit).
+    // re-derivation, which would then lose the profile-derived category on a
+    // block edit).
     static bool isKnownDrinkType(const QString& drinkType) {
         static const QStringList kDrinkTypes = {
             QStringLiteral("espresso"), QStringLiteral("filter"),
@@ -210,16 +210,16 @@ struct Recipe {
 
     // --- Ingredient ownership for the steam pitcher and the water vessel.
     //
-    // Same shape as ownsProfileChoice/profileDiverged above, and for the same
-    // reason: MainController deactivates on a pitcher or vessel change, and a
-    // comparison hand-written at each site drifts until a shot is stamped with
-    // a recipe it did not run. Statics taking the block JSON, so they are
-    // asserted directly rather than through a MainController.
+    // Same shape as ownsProfileChoice/profileDiverged above: ownership gates
+    // divergence, so a recipe that names neither is never deactivated by a
+    // change to one. Statics over the block JSON, so they are asserted
+    // directly rather than through a MainController, which needs five live
+    // collaborators to stand up.
 
     // True when the steam block names a pitcher — including the "Heater off"
     // marker, which IS a choice (a drink saved with the boiler deliberately
-    // cold) and not the absence of one. A recipe naming none owns no pitcher
-    // choice and is never deactivated by a pitcher change.
+    // cold) and not the absence of one. The marker carries no name, which is
+    // why it needs its own test.
     static bool ownsSteamPitcherChoice(const QString& steamJson);
 
     // True when the live pitcher is not the one the recipe names, and the
@@ -236,7 +236,9 @@ struct Recipe {
     // no choice — the same gate applyActivatedRecipe uses before applying it.
     static bool ownsWaterVesselChoice(const QString& hotWaterJson);
 
-    // True when the live water vessel is not the one the recipe names.
+    // True when the live water vessel is not the one the recipe names. Gated
+    // on ownsWaterVesselChoice, so a dormant or vessel-less block never
+    // diverges.
     static bool waterVesselDiverged(const QString& hotWaterJson,
                                     const QString& liveVesselName);
 

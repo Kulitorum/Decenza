@@ -860,6 +860,12 @@ private:
     // Stamp a tweak onto the active recipe row (no-op when none is active
     // or activation is applying).
     void stampActiveRecipe(const QString& field, const QVariant& value);
+    // True when the pitcher the recipe's steam block names is still one of the
+    // stored presets. Distinguishes "the user picked another pitcher" from
+    // "the recipe's pitcher was deleted", which reach the selection watcher
+    // identically. A heater-off recipe names the built-in, which cannot be
+    // deleted, so it always counts as present.
+    bool recipeSteamPitcherStillExists(const QString& steamJson) const;
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // cached result of the last checkRecipesUpgradeEligibility() background
     // pass, consumed by acceptRecipesFirstUpgrade().

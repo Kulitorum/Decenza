@@ -1057,10 +1057,23 @@ void SettingsBrew::removeWaterVesselPreset(int index) {
         arr.removeAt(index);
         m_settings.setValue("water/vesselPresets", QJsonDocument(arr).toJson());
 
-        int selected = selectedWaterVessel();
-        if (selected >= arr.size() && arr.size() > 0) {
-            setSelectedWaterCup(static_cast<int>(arr.size()) - 1);
-        }
+        // Same shift the steam side applies, for the same reason: clamping
+        // only rescues a selection that ran off the END, so deleting a vessel
+        // BELOW the selected one left the index alone while the array shifted
+        // under it — the selection silently named a different vessel, and
+        // because setSelectedWaterCup was never called nothing downstream was
+        // told. That is invisible now that an active recipe is deactivated by
+        // a vessel change (recipe-blocks-editor-only): the recipe stays active
+        // against a vessel it does not name.
+        // shiftedForRemoval answers with the positionless sentinel when the
+        // selection IS what was deleted. Steam has a real "Heater off" entry to
+        // land on; water has none, and its consumers fall back to a hard-coded
+        // default volume for an out-of-range index, so resolve the sentinel to
+        // a surviving neighbour rather than inventing a no-vessel state.
+        int next = shiftedForRemoval(selectedWaterVessel(), index);
+        if (next < 0)
+            next = arr.isEmpty() ? 0 : qMin(index, static_cast<int>(arr.size()) - 1);
+        setSelectedWaterCup(next);
 
         emit waterVesselPresetsChanged();
     }
@@ -1079,14 +1092,7 @@ void SettingsBrew::moveWaterVesselPreset(int from, int to) {
         arr.insert(to, item);
         m_settings.setValue("water/vesselPresets", QJsonDocument(arr).toJson());
 
-        int selected = selectedWaterVessel();
-        if (selected == from) {
-            setSelectedWaterCup(to);
-        } else if (from < selected && to >= selected) {
-            setSelectedWaterCup(selected - 1);
-        } else if (from > selected && to <= selected) {
-            setSelectedWaterCup(selected + 1);
-        }
+        setSelectedWaterCup(shiftedForMove(selectedWaterVessel(), from, to));
 
         emit waterVesselPresetsChanged();
     }

@@ -721,9 +721,10 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                               .object().value(QStringLiteral("beverage_type")).toString();
                 // When the profile didn't change, the stored type already
                 // encodes its profile-derived category — without this, a
-                // steam/hot-water block edit on a tea or filter recipe would
-                // re-derive it into "latte" (beverage_type is unresolvable on
-                // this thread for installed profiles).
+                // block edit on a tea or filter recipe would re-derive the
+                // type from the blocks alone and lose the profile-derived
+                // category (beverage_type is unresolvable on this thread for
+                // installed profiles).
                 if (bev.isEmpty() && !mergedFields.contains(QStringLiteral("profileTitle"))) {
                     if (updated.drinkType == QLatin1String("tea"))
                         bev = QStringLiteral("tea_portafilter");
