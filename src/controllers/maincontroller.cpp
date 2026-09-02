@@ -1605,22 +1605,13 @@ void MainController::setupRecipeConnections() {
         if (DrinkTypes::hasGrind(m_activeRecipe.value("drinkType").toString()))
             stampActiveRecipe(QStringLiteral("rpmPinned"), m_settings->dye()->dyeGrinderRpm());
     });
-    // Steam tweaks (pitcher selection/edits, milk weight) refresh the block.
-    connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-    connect(m_settings->brew(), &SettingsBrew::steamPitcherPresetsChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-    connect(m_settings->brew(), &SettingsBrew::lastSteamMilkGChanged, this,
-            [this]() { stampActiveRecipeSteam(); });
-
-    // Hot-water tweaks (vessel selection/edits) refresh the block the same way.
-    // Only fires for a hot-water recipe: stampActiveRecipeHotWater re-snapshots
-    // the selected vessel, and stampActiveRecipe's equality guard means
-    // re-selecting the same vessel is a no-op (never deactivates).
-    connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this,
-            [this]() { stampActiveRecipeHotWater(); });
-    connect(m_settings->brew(), &SettingsBrew::waterVesselPresetsChanged, this,
-            [this]() { stampActiveRecipeHotWater(); });
+    // The steam and hot-water blocks have NO write-through: picking a different
+    // pitcher or water vessel is a per-brew choice, like yield and temperature
+    // above, and reaches the recipe only through an explicit edit (recipe
+    // editor, MCP recipe_update, web form). Issue #1895: an americano poured at
+    // 140 ml for someone else redefined the recipe, so every later americano on
+    // it poured 140. Activation re-pushes the stored block, so the live value
+    // is recoverable by re-activating the recipe.
 
     // selectedRecipeId (the synchronous pill-selection marker) follows
     // activeRecipeId in steady state: a successful activation sets activeRecipeId
@@ -2377,12 +2368,6 @@ void MainController::stampActiveRecipe(const QString& field, const QVariant& val
     m_recipeStorage->requestUpdateRecipe(recipeId, {{field, value}});
 }
 
-void MainController::stampActiveRecipeSteam() {
-    if (m_applyingRecipe || m_activeRecipe.isEmpty())
-        return;
-    stampActiveRecipe(QStringLiteral("steamJson"), currentSteamSpecJson());
-}
-
 QString MainController::currentSteamSpecJson() const {
     if (!m_settings)
         return QString();
@@ -2412,20 +2397,6 @@ QString MainController::currentSteamSpecJson() const {
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());
     return compactJson(o);
-}
-
-void MainController::stampActiveRecipeHotWater() {
-    if (m_applyingRecipe || m_activeRecipe.isEmpty())
-        return;
-    // Only write through for a recipe that actually uses hot water. Otherwise a
-    // brew-screen vessel change (unrelated to this recipe) would stamp an empty
-    // block over a dormant hasWater:false recipe, erasing its remembered vessel
-    // and pour order. currentHotWaterSpecJson() returns "" when hasWater is
-    // false, so without this guard the equality check would persist that "".
-    if (!parseHotWaterBlock(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString())
-             .value(QStringLiteral("hasWater")).toBool())
-        return;
-    stampActiveRecipe(QStringLiteral("hotWaterJson"), currentHotWaterSpecJson());
 }
 
 QString MainController::currentHotWaterSpecJson() const {
@@ -3829,11 +3800,8 @@ void MainController::snapshotForDescaleHeaterHold() {
     // outranks every veto. Clearing it on entry is correct and final.
     //
     // Deliberately NOT the selected pitcher either. turnOffSteamHeater() does not touch the
-    // selection, so there is nothing to restore — and setSelectedSteamCup() is not inert: it
-    // emits selectedSteamPitcherChanged, which is wired to stampActiveRecipeSteam()
-    // (maincontroller.cpp, constructor) and rewrites the ACTIVE recipe's persisted steamJson.
-    // Restoring a stale pitcher an hour later would overwrite the steam spec of whatever
-    // recipe the user had activated meanwhile.
+    // selection, so there is nothing to restore, and putting a stale pitcher back an hour
+    // later would silently change what the user has since chosen to steam with.
     m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
 }
 

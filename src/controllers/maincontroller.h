@@ -865,11 +865,6 @@ private:
     // pass, consumed by acceptRecipesFirstUpgrade().
     bool m_recipesUpgradeWillCreate = false;
     ShotRecord m_recipesUpgradeShotRecord;
-    // Rebuild + stamp the active recipe's steam block from live settings.
-    void stampActiveRecipeSteam();
-    // Rebuild + stamp the active recipe's hot-water block from live settings
-    // (selected water vessel). No-op unless a hot-water recipe is active.
-    void stampActiveRecipeHotWater();
     // THE single ShotSettings write for every steam entry point. The four
     // non-steam fields are read live from Settings here, so no caller can push
     // a half-stale payload — four call sites used to hand-roll this identical

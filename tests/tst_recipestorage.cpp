@@ -701,6 +701,70 @@ private slots:
         });
     }
 
+    // A live steam/hot-water change is a per-brew choice and must never reach
+    // the recipe row (#1895: an americano poured at 140 ml for someone else
+    // redefined the recipe). Only the dial-in values — grind, RPM, dose — write
+    // through. MainController is not constructible here (the MCP suites stub it
+    // out), so the wiring is asserted against its source, the way
+    // tst_recipesearch guards the QML search predicate.
+    void liveBlockChangesNeverStampTheRecipe() {
+        QFile f(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/src/controllers/maincontroller.cpp"));
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), "maincontroller.cpp is not readable");
+        // Comments are stripped first: the file discusses these stamps in prose,
+        // and a sentence naming a signal near the word stampActiveRecipe would
+        // otherwise satisfy the assertion on its own. It did — the first draft
+        // of this test passed with the grind stamp deleted.
+        QString src;
+        const QStringList rawLines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+        for (const QString& line : rawLines) {
+            const qsizetype slashes = line.indexOf(QLatin1String("//"));
+            src += (slashes >= 0 ? line.left(slashes) : line) + QLatin1Char('\n');
+        }
+
+        // A stamp is wired by naming the signal and calling stampActiveRecipe*
+        // inside the same connect() — the lambda is at most a couple of short
+        // lines, so a window from the signal name covers it.
+        const auto stampsWithin = [&src](const QString& signalName,
+                                         const QString& call = QStringLiteral("stampActiveRecipe")) {
+            for (qsizetype from = 0; (from = src.indexOf(signalName, from)) >= 0; from += signalName.size()) {
+                if (QStringView(src).mid(from, 200).contains(call))
+                    return true;
+            }
+            return false;
+        };
+
+        const QStringList blockSignals = {
+            QStringLiteral("selectedSteamPitcherChanged"),
+            QStringLiteral("steamPitcherPresetsChanged"),
+            QStringLiteral("lastSteamMilkGChanged"),
+            QStringLiteral("selectedWaterVesselChanged"),
+            QStringLiteral("waterVesselPresetsChanged"),
+        };
+        for (const QString& sig : blockSignals) {
+            QVERIFY2(!stampsWithin(sig),
+                     qPrintable(sig + QStringLiteral(" stamps the active recipe - steam and "
+                                                     "hot-water blocks are per-brew choices and "
+                                                     "change only through a recipe edit (#1895)")));
+        }
+        // Both helpers were deleted with their connections; a re-wire under any
+        // other name still has to go through stampActiveRecipe, caught above.
+        QVERIFY(!src.contains(QLatin1String("stampActiveRecipeSteam")));
+        QVERIFY(!src.contains(QLatin1String("stampActiveRecipeHotWater")));
+
+        // The other half: this fails if a later change takes the dial-in values
+        // off the recipe too. Each names the field it must still stamp, so
+        // rewiring the signal to some other field does not satisfy it.
+        QVERIFY2(stampsWithin(QStringLiteral("dyeGrinderSettingChanged"),
+                              QStringLiteral("grindPinned")),
+                 "the grind stamp is gone - grind lives on the recipe");
+        QVERIFY2(stampsWithin(QStringLiteral("dyeGrinderRpmChanged"),
+                              QStringLiteral("rpmPinned")),
+                 "the RPM stamp is gone - grind lives on the recipe");
+        QVERIFY2(stampsWithin(QStringLiteral("dyeBeanWeightChanged"),
+                              QStringLiteral("doseG")),
+                 "the dose stamp is gone - dose is dial-in and feeds the dose ladder");
+    }
+
     void updateFields() {
         withRawDb(freshDbPath(), "upd", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
