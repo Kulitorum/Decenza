@@ -34,7 +34,8 @@ public class AndroidUsbScale {
     private static final int VENDOR_ID_WCH = 0x1A86;
     private static final int PRODUCT_ID_SCALE_1 = 0x7522;  // CH340 variant — Half Decent Scale
     private static final int PRODUCT_ID_SCALE_2 = 0x7523;  // CH340 variant — Half Decent Scale
-    private static final String PERMISSION_ACTION = "io.github.kulitorum.decenza_de1.USB_SCALE_PERMISSION";
+    // Owned by UsbHotplugReceiver, which is what listens for the result.
+    private static final String PERMISSION_ACTION = UsbHotplugReceiver.SCALE_PERMISSION_ACTION;
 
     // CH340 vendor-specific control transfer constants
     private static final int CH340_REQ_READ_VERSION = 0x5F;
@@ -105,7 +106,9 @@ public class AndroidUsbScale {
 
         PendingIntent pi = PendingIntent.getBroadcast(
                 context, 0,
-                new Intent(PERMISSION_ACTION),
+                // setPackage: an implicit intent is not delivered to a
+                // RECEIVER_NOT_EXPORTED runtime receiver on API 34+.
+                new Intent(PERMISSION_ACTION).setPackage(context.getPackageName()),
                 PendingIntent.FLAG_IMMUTABLE);
         manager.requestPermission(device, pi);
         Log.d(TAG, "Requested USB permission for scale " + device.getDeviceName());

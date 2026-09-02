@@ -33,7 +33,8 @@ public class AndroidUsbSerial {
     private static final String TAG = "AndroidUsbSerial";
     private static final int VENDOR_ID_WCH = 0x1A86;  // QinHeng/WCH (CH340, CH9102, etc.)
     private static final int PRODUCT_ID_DE1 = 0x55D3;  // CH9102 — DE1 espresso machine
-    private static final String PERMISSION_ACTION = "io.github.kulitorum.decenza_de1.USB_PERMISSION";
+    // Owned by UsbHotplugReceiver, which is what listens for the result.
+    private static final String PERMISSION_ACTION = UsbHotplugReceiver.DE1_PERMISSION_ACTION;
 
     // CDC-ACM control transfer constants
     private static final int SET_LINE_CODING = 0x20;
@@ -106,7 +107,9 @@ public class AndroidUsbSerial {
 
         PendingIntent pi = PendingIntent.getBroadcast(
                 context, 0,
-                new Intent(PERMISSION_ACTION),
+                // setPackage: an implicit intent is not delivered to a
+                // RECEIVER_NOT_EXPORTED runtime receiver on API 34+.
+                new Intent(PERMISSION_ACTION).setPackage(context.getPackageName()),
                 PendingIntent.FLAG_IMMUTABLE);
         manager.requestPermission(device, pi);
         Log.d(TAG, "Requested USB permission for device " + device.getDeviceName());

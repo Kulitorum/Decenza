@@ -31,6 +31,12 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
 
     private static final String TAG = "DecenzaUsbHotplug";
 
+    /** Permission-result actions, owned here because this is what listens for them. */
+    public static final String SCALE_PERMISSION_ACTION =
+            "io.github.kulitorum.decenza_de1.USB_SCALE_PERMISSION";
+    public static final String DE1_PERMISSION_ACTION =
+            "io.github.kulitorum.decenza_de1.USB_PERMISSION";
+
     /** Reported to C++, which decides whether the ids are a DE1 or a scale. */
     static native void nativeOnUsbDeviceChanged(int vendorId, int productId, boolean attached);
 
@@ -104,6 +110,10 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
         IntentFilter filter = new IntentFilter();
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        // The grant is otherwise seen only by a later hasDevice() poll, and with USB
+        // scanning off there is no later poll.
+        filter.addAction(SCALE_PERMISSION_ACTION);
+        filter.addAction(DE1_PERMISSION_ACTION);
         // Not exported: these are system broadcasts, and RECEIVER_NOT_EXPORTED is
         // required from API 34 for a runtime-registered receiver.
         androidx.core.content.ContextCompat.registerReceiver(
@@ -133,12 +143,26 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
         if (action == null) {
             return;
         }
+        final boolean isPermission = SCALE_PERMISSION_ACTION.equals(action)
+                                  || DE1_PERMISSION_ACTION.equals(action);
         final boolean attached = UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action);
-        if (!attached && !UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+        if (!isPermission && !attached && !UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
             return;
         }
         UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
         if (device == null || !isSupported(context, device)) {
+            return;
+        }
+        if (isPermission) {
+            // A denial needs no report: the manager latches its request until the
+            // device goes absent, so nothing retries.
+            if (!intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                Log.i(TAG, "USB permission denied for " + device.getDeviceName());
+                return;
+            }
+            // Reported as an attach: it re-runs the same probe pass, which now sees
+            // the permission and connects.
+            nativeOnUsbDeviceChanged(device.getVendorId(), device.getProductId(), true);
             return;
         }
         nativeOnUsbDeviceChanged(device.getVendorId(), device.getProductId(), attached);
