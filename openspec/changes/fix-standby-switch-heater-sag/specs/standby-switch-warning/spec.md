@@ -10,11 +10,15 @@ tap anywhere on it, returning to the page the user was on before it appeared.
 On firmware older than 1337, the system SHALL NOT show this warning, because that firmware range
 reports `Error_NoAC` unreliably.
 
-A machine that has reached a heating substate has AC. So where an `Error_NoAC` episode begins
-from a heating substate, the system SHALL NOT show the warning for that episode, on any firmware
-build — firmware in the supported range reports `Error_NoAC` for a few seconds while heating, and
-clears it with no user action. The suppression SHALL last until the substate leaves `Error_NoAC`,
-so that a re-evaluation which sees the substate unchanged cannot lift it.
+The system SHALL NOT show the warning until the `Error_NoAC` substate has persisted
+continuously for a settling interval, because firmware in the supported range also reports it
+briefly while the machine wakes or heats and clears it with no user action. An episode that
+clears before the interval elapses SHALL never show the warning. The interval SHALL match
+de1app's, which is 6 seconds.
+
+The settling SHALL be judged on duration alone, not on which substate the episode arrived from:
+a snapshot cannot distinguish the two cases (both report state `Idle` with substate
+`Error_NoAC`), and the arriving substate varies by entry point.
 
 #### Scenario: Standby switch cuts power on supported firmware
 
@@ -26,22 +30,22 @@ so that a re-evaluation which sees the substate unchanged cannot lift it.
 - **WHEN** a connected DE1 running firmware older than 1337 reports substate `Error_NoAC`
 - **THEN** the system does not show the warning
 
-#### Scenario: A heating machine blips into Error_NoAC
+#### Scenario: A brief Error_NoAC report clears itself
 
-- **WHEN** a connected DE1 reports substate `Error_NoAC` immediately after a heating substate
-- **THEN** the system does not show the warning, for as long as the substate stays `Error_NoAC`
+- **WHEN** a connected DE1 reports substate `Error_NoAC` and leaves it before the settling
+  interval has elapsed
+- **THEN** the system never shows the warning
 
-#### Scenario: The firmware build number arrives during a suppressed episode
+#### Scenario: The report arrives from any substate
 
-- **WHEN** an `Error_NoAC` episode is suppressed as heater-induced and the DE1's firmware build
-  number then becomes known, re-evaluating the condition
-- **THEN** the system still does not show the warning
+- **WHEN** a connected DE1 reports substate `Error_NoAC` immediately after any other substate,
+  including `Ready` and each heating substate
+- **THEN** the system does not show the warning until the settling interval has elapsed
 
-#### Scenario: The condition recurs after the blip ends
+#### Scenario: The DE1 disconnects while the interval is running
 
-- **WHEN** a suppressed episode ends, and the machine later reports `Error_NoAC` again from a
-  non-heating substate
-- **THEN** the system shows the warning
+- **WHEN** the DE1 disconnects before the settling interval has elapsed
+- **THEN** the interval is abandoned and the warning is not shown
 
 #### Scenario: Tapping the warning dismisses it
 
@@ -54,8 +58,8 @@ so that a re-evaluation which sees the substate unchanged cannot lift it.
 ### Requirement: The warning's decisions are logged
 
 The system SHALL log, under the DE1 subsystem, when the warning is shown and when it clears, and
-SHALL log once per episode that is suppressed as heater-induced. All three SHALL be at INFO so
-they reach the user-facing log views: the suppressed line is what answers "why did no warning
+SHALL log once per episode that clears before the settling interval elapses. All three SHALL be
+at INFO so they reach the user-facing log views: the last is what answers "why did no warning
 appear", which is the half a reader needs when the suppression is wrong.
 
 #### Scenario: A shown warning is traceable in a submitted log
@@ -63,7 +67,7 @@ appear", which is the half a reader needs when the suppression is wrong.
 - **WHEN** the warning is shown and later clears
 - **THEN** the log carries an INFO line for each, naming the machine state and firmware build
 
-#### Scenario: A suppressed episode is traceable
+#### Scenario: A self-clearing episode is traceable
 
-- **WHEN** an `Error_NoAC` episode is suppressed as heater-induced
-- **THEN** the log carries one INFO line naming the substate it arrived from
+- **WHEN** an `Error_NoAC` episode clears before the settling interval elapses
+- **THEN** the log carries one INFO line naming the substate the machine moved to

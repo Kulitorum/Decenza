@@ -390,6 +390,7 @@ private slots:
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1337;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        elapseNoAcWait(f);
         QVERIFY(f.state.standbySwitchOpen());
     }
 
@@ -412,6 +413,7 @@ private slots:
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1337;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        elapseNoAcWait(f);
         QVERIFY(f.state.standbySwitchOpen());
 
         f.device.m_simulationMode = false;  // No transport + no sim = disconnected
@@ -419,51 +421,85 @@ private slots:
         QVERIFY(!f.state.standbySwitchOpen());
     }
 
-    void standbySwitchIgnoredWhenTheMachineWasHeating_data() {
-        QTest::addColumn<int>("heatingSubState");
+    // Fires the settle wait without the test waiting 6 s of wall clock.
+    static void elapseNoAcWait(TestFixture& f) {
+        QVERIFY(f.state.m_noAcSettleTimer->isActive());
+        f.state.m_noAcSettleTimer->stop();
+        f.state.m_noAcSettled = true;
+        f.state.updatePhase();
+    }
+
+    // A snapshot cannot tell an open switch from the machine's own brief report —
+    // both read "Idle, Error_NoAC" — so the warning waits the condition out. Field
+    // reports on v1363 (inside the range the 1337 gate trusts) show the blip on every
+    // tap-to-wake, clearing untouched after ~3 s.
+    void standbySwitchWaitsBeforeWarning() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(!f.state.standbySwitchOpen());
+
+        elapseNoAcWait(f);
+        QVERIFY(f.state.standbySwitchOpen());
+    }
+
+    // The entry point varies — Ready on a tap-to-wake, a heating substate mid warm-up
+    // — so none of them may shortcut the wait.
+    void standbySwitchWaitsWhateverItArrivedFrom_data() {
+        QTest::addColumn<int>("fromSubState");
+        QTest::newRow("Ready (tap-to-wake)") << int(DE1::SubState::Ready);
         QTest::newRow("Heating") << int(DE1::SubState::Heating);
         QTest::newRow("FinalHeating") << int(DE1::SubState::FinalHeating);
         QTest::newRow("Stabilising") << int(DE1::SubState::Stabilising);
     }
 
-    // Field reports on firmware v1363 — inside the range the 1337 gate calls
-    // trustworthy — show a machine that is heating blipping into Error_NoAC for
-    // ~3 s and back out untouched. A machine that reached a heating substate has
-    // AC, so the blip is not the standby switch.
-    void standbySwitchIgnoredWhenTheMachineWasHeating() {
-        QFETCH(int, heatingSubState);
+    void standbySwitchWaitsWhateverItArrivedFrom() {
+        QFETCH(int, fromSubState);
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1363;
-        f.setDE1State(DE1::State::Idle, static_cast<DE1::SubState>(heatingSubState));
+        f.setDE1State(DE1::State::Idle, static_cast<DE1::SubState>(fromSubState));
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
         QVERIFY(!f.state.standbySwitchOpen());
     }
 
-    // The restart sighting reached the screen through the firmware-arrival recheck
-    // below, not through the substate change — so the suppression has to survive a
-    // re-evaluation that sees the substate unchanged.
-    void standbySwitchStaysIgnoredWhenFirmwareArrivesDuringTheBlip() {
+    // The reported defect: the substate clears on its own before the wait elapses.
+    void standbySwitchNeverWarnsForAnEpisodeThatClearsItself() {
         TestFixture f;
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
-
         f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
+
+        QVERIFY(!f.state.m_noAcSettleTimer->isActive());
+        QVERIFY(!f.state.standbySwitchOpen());
+    }
+
+    // The wait must not restart on every re-evaluation, or an episode that outlives it
+    // would never reach the user. updatePhase() re-runs on connectedChanged and
+    // firmwareVersionChanged with the substate unchanged.
+    void standbySwitchWaitIsNotRestartedByAReEvaluation() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QTimer* timer = f.state.m_noAcSettleTimer;
+        QVERIFY(timer->isActive());
+
         emit f.device.firmwareVersionChanged();
-        QVERIFY(!f.state.standbySwitchOpen());
+        QCOMPARE(f.state.m_noAcSettleTimer, timer);
+        QVERIFY(timer->isActive());
     }
 
-    // The suppression lasts one episode. A machine that leaves Error_NoAC and later
-    // re-enters it from a non-heating substate is the real thing again.
-    void standbySwitchWarnsAgainAfterTheBlipEnds() {
+    // A disconnect ends the episode: the wait must not carry over and fire against a
+    // machine we are no longer talking to.
+    void standbySwitchWaitIsAbandonedOnDisconnect() {
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1363;
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
-        QVERIFY(!f.state.standbySwitchOpen());
+        QVERIFY(f.state.m_noAcSettleTimer->isActive());
 
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
-        QVERIFY(f.state.standbySwitchOpen());
+        f.device.m_simulationMode = false;  // No transport + no sim = disconnected
+        f.state.onDE1StateChanged();
+        QVERIFY(!f.state.m_noAcSettleTimer->isActive());
+        QVERIFY(!f.state.standbySwitchOpen());
     }
 
     void standbySwitchRecheckedWhenFirmwareArrivesLate() {
@@ -475,6 +511,7 @@ private slots:
         // the rest of the session.
         TestFixture f;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        elapseNoAcWait(f);
         QVERIFY(!f.state.standbySwitchOpen());  // firmware still unknown
 
         f.device.m_firmwareBuildNumber = 1400;

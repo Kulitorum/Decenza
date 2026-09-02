@@ -2,33 +2,39 @@
 
 ## Why
 
-The full-screen "Push the switch on" warning is firing on machines whose front
-standby switch is on and whose AC is plainly present. A user on firmware v1363 —
-inside the range the 1337 gate treats as trustworthy — reported it appearing
-seconds after the app wakes and about a minute after a restart, staying up for
-about three seconds and clearing itself with no action taken. The machine was
-heating each time and worked normally either side of it.
+The full-screen "Push the switch on" warning fires on machines whose front standby
+switch is on and whose AC is plainly present. A user on firmware v1363 — inside the
+range the 1337 gate treats as trustworthy — sees it on every tap-to-wake, and after
+an app restart. It stays up about three seconds and clears itself with no action
+taken; the machine works normally either side of it.
 
-The DE1 reports substate `Error_NoAC` for those few seconds while it is heating.
-The heater masking the firmware's own mains zero-cross detection is the obvious
-cause, but the mechanism does not have to be settled to act on it: a machine that
-reached a heating substate has AC, so an `Error_NoAC` episode that begins from one
-is not the standby switch.
+The DE1 reports substate `Error_NoAC` for those few seconds while it wakes or heats.
+A snapshot cannot tell that apart from the real thing: an open switch reports
+"Idle, Error_NoAC" and so does the transient — de1app says so explicitly, noting the
+switch "only moves the SUBstate (e.g. \"Idle, ready\" => \"Idle, Error_NoAC\")".
 
-Neither reference app supports the current behaviour. Decaid decodes substate 217
-and surfaces it nowhere. de1app had the check disabled from 2024-09-01 for
-spurious reporting, and now renders it as a page chosen by the Idle mapping, with
-a dismissal latch and an `after 6000` settle before the signal is believed.
-Decenza gave the same noisy signal a blocking full-screen takeover with neither.
+So duration is the only discriminator. There is no event to key on instead: the DE1
+pushes STATE_INFO on change, so nothing arrives to say a condition is still true. An
+earlier attempt keyed on the preceding substate — event-based, and wrong, because the
+substate an episode arrives from differs per entry point (`Ready` on a tap-to-wake, a
+heating substate mid warm-up, nothing at all on a fresh connect), so it missed the
+commonest path.
+
+Neither reference app supports the current behaviour. Decaid decodes substate 217 and
+surfaces it nowhere. de1app had the check disabled from 2024-09-01 for spurious
+reporting, and now waits 6 s before believing the signal. Decenza gave it a blocking
+full-screen takeover with no wait at all.
 
 ## What changes
 
-- An `Error_NoAC` episode that begins from a heating substate is not treated as
-  the standby switch, for the whole episode.
-- The subsystem gets logging. It previously emitted nothing at all, which is why
-  a 20,578-line user log could neither confirm nor deny when the warning fired.
+- `Error_NoAC` must persist for 6 seconds before the warning shows. The interval is
+  de1app's own figure: Decent write the firmware that emits this substate.
+- The no-timers rule in CLAUDE.md gains a narrow, argued hardware carve-out.
+- The subsystem gets logging. It previously emitted nothing at all, which is why a
+  20,578-line user log could neither confirm nor deny when the warning fired.
 
 ## Impact
 
 - `src/machine/machinestate.cpp`, `src/machine/machinestate.h`
+- `CLAUDE.md` (the no-timers rule)
 - Spec: `standby-switch-warning`

@@ -52,6 +52,18 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     m_shotTimer->setInterval(100);  // Update every 100ms
     connect(m_shotTimer, &QTimer::timeout, this, &MachineState::onShotTimerTick);
 
+    // How long Error_NoAC must persist before it counts as the standby switch.
+    // 6 s is de1app's own figure (de1_de1.tcl:946) — Decent write the firmware that
+    // emits this substate, so their number is the calibrated one and there is no
+    // reason for us to pick a different one.
+    m_noAcSettleTimer = new QTimer(this);
+    m_noAcSettleTimer->setSingleShot(true);
+    m_noAcSettleTimer->setInterval(6000);
+    connect(m_noAcSettleTimer, &QTimer::timeout, this, [this]() {
+        m_noAcSettled = true;
+        updatePhase();
+    });
+
     if (m_device) {
         connect(m_device, &DE1Device::stateChanged, this, &MachineState::onDE1StateChanged);
         connect(m_device, &DE1Device::subStateChanged, this, &MachineState::onDE1SubStateChanged);
@@ -315,22 +327,14 @@ void MachineState::onDE1SubStateChanged() {
 }
 
 namespace {
-// The substates in which the machine is heating and water has NOT reached the puck
-// yet. Shared deliberately by three readers, which do NOT all ask the same question:
-// updatePhase() and the auto-tare gate both test the CURRENT substate for "is the
-// puck still dry" (the gate re-checks it directly because m_phase lags behind BLE
-// state changes), while the standby-switch warning tests the PREVIOUS one for "did
-// the machine have AC a moment ago". Those coincide by observation, not by any
-// invariant, so a substate added here lands in all three: it re-opens the window in
-// which a tare can fire on a moving cell, AND it teaches the standby-switch code
-// that the new substate proves AC, silently suppressing a real warning. Both
-// failures are silent, which is why the set lives here once rather than per reader.
-//
-// DE1Device::isMachineHeating() (de1device.cpp) hand-writes these same three plus
-// State::Busy. Not folded in: it answers a third question (may this firmware be sent
-// a cold maintenance request) across a class boundary. Named so the next reader knows
-// the copy exists rather than finding it after changing one of them.
-bool isHeatingSubState(DE1::SubState subState) {
+// The substates that mean "the machine is heating and water has NOT reached the puck
+// yet". Shared deliberately: updatePhase() uses it to decide
+// Phase::EspressoPreheating, and the auto-tare gate re-checks the substate directly
+// because m_phase lags behind BLE state changes. That second read is only sound
+// while both agree — as two hand-written copies they could drift apart, and the
+// failure would be silent: a substate added here alone re-opens the window in which
+// a tare can fire on a moving cell.
+bool isPreFlowSubState(DE1::SubState subState) {
     return subState == DE1::SubState::Heating ||
            subState == DE1::SubState::FinalHeating ||
            subState == DE1::SubState::Stabilising;
@@ -369,7 +373,8 @@ void MachineState::updatePhase() {
             m_standbySwitchOpen = false;
             emit standbySwitchOpenChanged();
         }
-        m_noAcHeaterInduced = false;
+        m_noAcSettleTimer->stop();
+        m_noAcSettled = false;
         return;
     }
 
@@ -382,41 +387,43 @@ void MachineState::updatePhase() {
     // Front standby switch cutting AC (Error_NoAC). Firmware < 1337 reports this
     // substate spuriously, matching de1app's own gate — see DE1::SubState::Error_NoAC.
     //
-    // Firmware >= 1337 reports it spuriously too: a heating machine enters Error_NoAC
-    // and leaves it untouched a few seconds later (field reports on v1363). A machine
-    // that reached a heating substate has AC, so such an episode is not the switch.
+    // Firmware >= 1337 reports it spuriously too, briefly: the machine enters
+    // Error_NoAC while waking or heating and leaves it untouched a few seconds later
+    // (field reports on v1363, seen on every tap-to-wake). A snapshot cannot tell that
+    // apart from the real thing — an open switch reports "Idle, Error_NoAC" and so
+    // does the blip — so DURATION is the only discriminator, and this is a
+    // measurement of the hardware rather than a guard against a race. de1app reaches
+    // the same conclusion and waits 6 s (de1_de1.tcl:946).
     //
-    // Latched for the episode rather than tested per call, because updatePhase() also
-    // re-runs on connectedChanged and firmwareVersionChanged with the substate
-    // unchanged; a per-call test sees previousSubState == Error_NoAC on those re-runs
-    // and would let the warning through. Whether such a re-run is what produced the
-    // reported post-restart sighting is NOT established — the subsystem logged nothing
-    // before this change, so no log can say which call showed it. The re-run path is
-    // reachable, which is reason enough to latch.
-    //
-    // The latch has no time bound: it lasts as long as the substate stays Error_NoAC,
-    // not for the few seconds a blip lasts. So a switch genuinely opened right after a
-    // heating substate is never warned about, since an open switch holds the substate
-    // there forever. Accepted — someone flipping the switch is standing at the machine.
+    // Deliberately not keyed on what preceded the episode: the substate it arrives
+    // from varies by entry point (Ready on a tap-to-wake, a heating substate mid
+    // warm-up, nothing at all on a fresh connect), so every history-based rule misses
+    // at least one path. Duration covers them all.
     const bool noAc = (subState == DE1::SubState::Error_NoAC);
     if (!noAc) {
-        m_noAcHeaterInduced = false;
-    } else if (previousSubState != DE1::SubState::Error_NoAC) {
-        m_noAcHeaterInduced = isHeatingSubState(previousSubState);
-        if (m_noAcHeaterInduced) {
-            STANDBY_INFO(QStringLiteral("ignoring Error_NoAC from %1 — the machine was "
-                                       "heating, so it has AC")
-                            .arg(DE1::subStateToString(previousSubState)));
+        if (m_noAcSettleTimer->isActive()) {
+            STANDBY_INFO(QStringLiteral("machine reported no AC but cleared it within "
+                                        "%1 s, so the switch is not open (substate is "
+                                        "now %2)")
+                             .arg(m_noAcSettleTimer->interval() / 1000)
+                             .arg(DE1::subStateToString(subState)));
         }
+        m_noAcSettleTimer->stop();
+        m_noAcSettled = false;
+    } else if (!m_noAcSettled && !m_noAcSettleTimer->isActive()) {
+        m_noAcSettleTimer->start();
     }
 
-    const bool standbySwitchOpen = noAc && !m_noAcHeaterInduced
+    // m_noAcSettled, not the timer, is what the firmware-arrival re-run reads: the
+    // build number can land after the wait has already elapsed.
+    const bool standbySwitchOpen = noAc && m_noAcSettled
         && m_device->firmwareBuildNumber() >= 1337;
     if (standbySwitchOpen != m_standbySwitchOpen) {
         m_standbySwitchOpen = standbySwitchOpen;
         if (standbySwitchOpen) {
-            STANDBY_INFO(QStringLiteral("warning shown: machine reports no AC (state=%1, "
-                                        "firmware build %2)")
+            STANDBY_INFO(QStringLiteral("warning shown: machine has reported no AC for "
+                                        "%1 s (state=%2, firmware build %3)")
+                             .arg(m_noAcSettleTimer->interval() / 1000)
                              .arg(DE1::stateToString(state))
                              .arg(m_device->firmwareBuildNumber()));
         } else {
@@ -457,7 +464,7 @@ void MachineState::updatePhase() {
             break;
 
         case DE1::State::Espresso:
-            if (isHeatingSubState(subState)) {
+            if (isPreFlowSubState(subState)) {
                 m_phase = Phase::EspressoPreheating;  // Use specific phase for espresso preheating
             } else if (subState == DE1::SubState::Preinfusion) {
                 m_phase = Phase::Preinfusion;
@@ -868,7 +875,7 @@ void MachineState::onScaleWeightSample(double weight) {
     // water has started flowing is the failure this guards.
     const bool isFlowBefore =
         (m_phase == Phase::EspressoPreheating || m_phase == Phase::HotWater) && m_device
-        && isHeatingSubState(m_device->subState());
+        && isPreFlowSubState(m_device->subState());
 
     // Wait for the reading to hold still before taring. A tare zeroes the scale on
     // whatever the load cell reads at that instant, so taring mid-disturbance bakes
