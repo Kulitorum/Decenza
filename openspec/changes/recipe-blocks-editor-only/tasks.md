@@ -22,10 +22,10 @@
 
 - [x] 4.1 Rewrite the "Tweaks write through; ingredient swaps deactivate" paragraph in `docs/CLAUDE_MD/RECIPES.md` so dose and grind/RPM are the only write-throughs and the blocks are editor-only; verify no other line in that file still claims a block stamp (`grep -n "stampActiveRecipe" docs/CLAUDE_MD/RECIPES.md`).
 - [x] 4.2 Check the wiki manual's recipe page (clone `Kulitorum/Decenza.wiki.git` if not already local) for any statement that a live tweak is remembered by the recipe. If present, correct it in one or two sentences — what sticks (grind, dose) and where a water/milk change is kept (the recipe editor). If the manual never made the claim, add nothing and record that here. Hold the push per the usual wiki-timing convention.
-- [ ] 4.3 Post a short comment on [issue #1895](https://github.com/Kulitorum/Decenza/issues/1895) stating what changed and that re-activating the recipe restores the live setting; verify the comment is visible on the issue.
+- [ ] 4.3 AFTER the merge, post a short comment on [issue #1895](https://github.com/Kulitorum/Decenza/issues/1895) stating what changed and that re-activating the recipe restores the live setting; verify the comment is visible on the issue. (Held deliberately: nothing is on `main` until 5.3, and the reporter should not be told it is fixed while it is a branch.)
 
 ## 5. Land it
 
-- [ ] 5.1 Open a PR from a feature branch (never push to `main`) with the issue linked; verify the `text-invariants.yml` run on the PR is GREEN before merging — it gates `src/**` and nothing blocks a merge on it.
+- [x] 5.1 Open a PR from a feature branch (never push to `main`) with the issue linked; verify the `text-invariants.yml` run on the PR is GREEN before merging — it gates `src/**` and nothing blocks a merge on it.
 - [ ] 5.2 Run the automated `/pr-review-toolkit:review-pr` on the PR and address the findings.
 - [ ] 5.3 Archive this change with the spec sync as the FINAL commit on the same PR (never a separate archive-only PR), then squash-merge and delete the branch.
