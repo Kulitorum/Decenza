@@ -99,51 +99,48 @@ private slots:
 
     // --- USB hotplug dispatch ------------------------------------------------
     //
-    // device_filter.xml is the single list of USB ids the app supports: the
-    // manifest's launch intent-filter uses it, and the hotplug receiver filters
-    // against it. usbDeviceKindForPid() then decides which manager an event goes
-    // to, from the product id alone.
+    // device_filter.xml is the single list of ids the app supports; these predicates
+    // decide which manager(s) an event reaches.
     //
-    // The defect shape no other test catches: a scale product id present in the XML
-    // but not in the C++ scale list. Nothing fails — the id is still "supported"
-    // and the receiver still forwards it — but every event for that scale routes to
-    // the DE1 manager, which probes for a DE1, finds none, and does nothing. A
-    // silent dead scale, from an edit that looked complete.
+    // The ids do NOT partition. The Half Decent Scale ships with a CH9102 (0x55D3),
+    // the same bridge chip the DE1 uses, so that id must reach both managers and the
+    // protocol probes decide. An earlier version routed 0x55D3 to the DE1 alone; on
+    // hardware an HDS then timed out on the DE1's <+M> probe and never reached the
+    // scale manager at all.
     //
-    // THE EXPECTED IDS ARE LITERALS HERE, DELIBERATELY. The first version of this
-    // test compared usbDeviceKindForPid() against kUsbScalePid1/kUsbScalePid2 —
-    // the same constants the function itself reads — so changing a constant moved
-    // both sides and the test passed. Verified by breaking it: with
-    // kUsbScalePid2 set to 0x9999 the whole suite still went green. A test that
-    // cannot fail is a comment that compiles; these literals are what give it teeth.
+    // EXPECTATIONS ARE LITERALS, DELIBERATELY. Comparing against the kUsb* constants
+    // moves both sides at once: with one changed to 0x9999 the suite stayed green.
+    // Do not "tidy" these into the constants.
 private:
-    // ONE table drives both slots below. It was two independent literal lists, and
-    // that made the pair satisfiable by the careless repair it exists to prevent:
-    // add a scale id to device_filter.xml, watch the XML slot go red, append the id
-    // to that slot's own `expected` list — green, with no routing row and no C++
-    // change, and the new scale silently routed to the DE1 manager. Now the only
-    // repair is a row here, and a row must state a kind.
-    struct SupportedId { int pid; UsbDeviceKind kind; const char* name; };
+    // One table drives both slots. Two independent lists made the pair satisfiable
+    // by the careless repair it exists to prevent — add an id to the XML, append it
+    // to the other slot's list, green, with no routing row.
+    struct SupportedId { int pid; bool mayBeScale; bool mayBeDe1; const char* name; };
     static QList<SupportedId> supportedIds() {
         return {
-            {0x7522, UsbDeviceKind::Scale, "scale CH340 0x7522"},
-            {0x7523, UsbDeviceKind::Scale, "scale CH340 0x7523"},
-            {0x55D3, UsbDeviceKind::De1,   "DE1 CH9102 0x55D3"},
+            {0x7522, true,  false, "scale CH340 0x7522"},
+            {0x7523, true,  false, "scale CH340 0x7523"},
+            {0x55D3, true,  true,  "shared CH9102 0x55D3 (DE1 and HDS)"},
         };
     }
 
 private slots:
     void deviceFilterIdsRouteToTheRightManager_data() {
         QTest::addColumn<int>("productId");
-        QTest::addColumn<int>("expectedKind");
+        QTest::addColumn<bool>("mayBeScale");
+        QTest::addColumn<bool>("mayBeDe1");
         for (const auto& id : supportedIds())
-            QTest::newRow(id.name) << id.pid << int(id.kind);
+            QTest::newRow(id.name) << id.pid << id.mayBeScale << id.mayBeDe1;
     }
 
     void deviceFilterIdsRouteToTheRightManager() {
         QFETCH(int, productId);
-        QFETCH(int, expectedKind);
-        QCOMPARE(int(usbDeviceKindForPid(productId)), expectedKind);
+        QFETCH(bool, mayBeScale);
+        QFETCH(bool, mayBeDe1);
+        QCOMPARE(usbPidMayBeScale(productId), mayBeScale);
+        QCOMPARE(usbPidMayBeDe1(productId), mayBeDe1);
+        // Every supported id must reach at least one manager, or its events vanish.
+        QVERIFY(mayBeScale || mayBeDe1);
     }
 
     // The rows above are only meaningful while they ARE the supported ids. This
@@ -164,7 +161,7 @@ private slots:
         std::sort(found.begin(), found.end());
 
         // From the routing table, not a second literal list — that is what makes an
-        // id added to the XML reach usbDeviceKindForPid() rather than stopping here.
+        // id added to the XML reach the predicates rather than stopping here.
         QList<int> expected;
         for (const auto& id : supportedIds()) expected.append(id.pid);
         std::sort(expected.begin(), expected.end());

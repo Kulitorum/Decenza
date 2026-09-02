@@ -2,10 +2,12 @@
 <resources>
     <!-- Adding an id here is not enough on its own. A SCALE id must also be added to
          kUsbScalePid* in src/usb/usbhotplug.h, or hotplug routes that scale to the
-         DE1 manager, and to AndroidUsbScale.PRODUCT_ID_SCALE_* or findDevice() will
-         not see it. tst_usbdecentscale.cpp fails on the first of those; nothing
+         right predicate, and to AndroidUsbScale.PRODUCT_ID_SCALE_* or findDevice()
+         will not see it. tst_usbdecentscale.cpp fails on the first of those; nothing
          catches the second. -->
-    <!-- DE1 espresso machine: WCH CH9102 (VID 0x1A86 = 6790, PID 0x55D3 = 21971) -->
+    <!-- WCH CH9102 (VID 0x1A86 = 6790, PID 0x55D3 = 21971). SHARED: the DE1 and the
+         Half Decent Scale both use this bridge chip, so this id identifies neither on
+         its own — see usbPidMayBe* in src/usb/usbhotplug.h. -->
     <usb-device vendor-id="6790" product-id="21971" />
     <!-- Half Decent Scale: WCH CH340 (VID 0x1A86 = 6790, PID 0x7522 or 0x7523) -->
     <usb-device vendor-id="6790" product-id="29986" />

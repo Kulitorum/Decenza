@@ -174,10 +174,6 @@ private:
 #endif
     static constexpr int PROBE_TIMEOUT_MS = 3000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
-    // Ids live in usbhotplug.h — one declaration, since its classifier treats
-    // anything unlisted as the DE1.
-    static bool isScalePid(uint16_t pid)
-    {
-        return usbDeviceKindForPid(static_cast<int>(pid)) == UsbDeviceKind::Scale;
-    }
+    // Ids live in usbhotplug.h — one declaration.
+    static bool isScalePid(uint16_t pid) { return usbPidMayBeScale(static_cast<int>(pid)); }
 };

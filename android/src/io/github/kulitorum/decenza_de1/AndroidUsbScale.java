@@ -34,6 +34,11 @@ public class AndroidUsbScale {
     private static final int VENDOR_ID_WCH = 0x1A86;
     private static final int PRODUCT_ID_SCALE_1 = 0x7522;  // CH340 variant — Half Decent Scale
     private static final int PRODUCT_ID_SCALE_2 = 0x7523;  // CH340 variant — Half Decent Scale
+    // SHARED with the DE1: an HDS on an ESP32-S3 board enumerates through a CH9102,
+    // the same bridge the DE1 uses. Matching it here means findDevice() can return a
+    // DE1, which is why the caller must still probe: only the scale answers the scale
+    // handshake. Observed as vid=0x1a86 pid=0x55d3 serial HDS-900910.
+    private static final int PRODUCT_ID_SHARED_CH9102 = 0x55D3;
     // Owned by UsbHotplugReceiver, which is what listens for the result.
     private static final String PERMISSION_ACTION = UsbHotplugReceiver.SCALE_PERMISSION_ACTION;
 
@@ -77,7 +82,8 @@ public class AndroidUsbScale {
         for (UsbDevice device : deviceList.values()) {
             if (device.getVendorId() == VENDOR_ID_WCH
                     && (device.getProductId() == PRODUCT_ID_SCALE_1
-                        || device.getProductId() == PRODUCT_ID_SCALE_2)) {
+                        || device.getProductId() == PRODUCT_ID_SCALE_2
+                        || device.getProductId() == PRODUCT_ID_SHARED_CH9102)) {
                 return device;
             }
         }
