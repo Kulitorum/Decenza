@@ -63,15 +63,23 @@ SHALL log once per episode that ends before the settling interval elapses. All t
 INFO so they reach the user-facing log views: the last is what answers "why did no warning
 appear", which is the half a reader needs when the suppression is wrong.
 
-Each of those lines SHALL carry the episode's measured duration and the configured interval,
-so a submitted log establishes how long real episodes run. The interval is an estimate from a
-single report, and this is the only evidence that can correct it.
+Every line that ENDS an episode — whether it cleared itself, or the DE1 disconnected — SHALL
+carry the episode's measured duration and the configured interval, so a submitted log establishes
+how long real episodes run. The interval is an estimate from a single report, and this is the
+only evidence that can correct it. The line marking the warning's own transition to cleared need
+not repeat the duration, since an episode-ended line always accompanies it.
 
 #### Scenario: A shown warning is traceable in a submitted log
 
 - **WHEN** the warning is shown and later clears
-- **THEN** the log carries an INFO line for each, naming the machine state, firmware build, and
-  the episode's measured duration
+- **THEN** the log carries an INFO line for each, and the episode's measured duration appears on
+  the line that ends the episode
+
+#### Scenario: An episode ended by a disconnect is still measured
+
+- **WHEN** the DE1 disconnects while an `Error_NoAC` episode is running
+- **THEN** the log carries an INFO line naming the episode's measured duration, so the
+  measurement is not lost
 
 #### Scenario: A self-clearing episode is traceable
 

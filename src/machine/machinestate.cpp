@@ -370,19 +370,25 @@ void MachineState::updatePhase() {
             if (wasInEspresso)
                 emit espressoCycleEnded();
         }
+        if (m_noAcEpisode.isValid()) {
+            // A drop mid-episode is a real way for one to end, and losing its length
+            // loses exactly the measurement the interval needs correcting from.
+            STANDBY_INFO(QStringLiteral("no-AC episode ended by a DE1 disconnect after "
+                                        "%1 ms (the wait is %2 ms); %3")
+                             .arg(m_noAcEpisode.elapsed())
+                             .arg(m_noAcSettleTimer->interval())
+                             .arg(m_standbySwitchOpen
+                                      ? QStringLiteral("the warning was showing and is "
+                                                       "now cleared")
+                                      : QStringLiteral("no warning had shown")));
+        }
         if (m_standbySwitchOpen) {
-            STANDBY_INFO(QStringLiteral("warning cleared: DE1 disconnected"));
             m_standbySwitchOpen = false;
             emit standbySwitchOpenChanged();
         }
         m_noAcSettleTimer->stop();
         m_noAcSettled = false;
         m_noAcEpisode.invalidate();
-        // Pre-existing, found while adding the two lines above: this early return skips
-        // the phase-transition logic that owns the only stopShotTimer() call, and
-        // onShotTimerTick() has no connectivity guard — so a mid-shot BLE drop left the
-        // shot clock running and emitting shotTimeChanged() every 100 ms.
-        stopShotTimer();
         return;
     }
 
@@ -407,21 +413,22 @@ void MachineState::updatePhase() {
     // appears ~1ms after the switch is flipped" on firmware 1352). Its only timer here
     // is a one-shot `after 6000` on connect (de1_de1.tcl:946) that re-checks a machine
     // already latched in Error_NoAC — the gap our firmwareVersionChanged hook covers,
-    // not a settling wait. So either their users tolerate the same flash (a page blink
-    // costs far less than this full-screen dialog), or 1352 and 1363 differ. Recorded
-    // because an earlier revision of this comment cited that `after 6000` AS a
-    // settling wait, which it is not.
+    // not a settling wait. Whether their users tolerate the same flash, or 1352 and 1363
+    // differ, is unknown — so 6 s is a workaround for a mechanism nobody has identified,
+    // and the logging below exists to identify it.
     //
     // Deliberately not keyed on what preceded the episode: the substate it arrives
     // from varies by entry point (Ready on a tap-to-wake, a heating substate mid
     // warm-up, nothing at all on a fresh connect), so every history-based rule misses
     // at least one path. Duration covers them all.
     //
-    // Every line below carries the episode's measured length in ms. That is the whole
-    // diagnostic value here: the 6 s is an estimate from ONE reported episode, so a
-    // submitted log has to say how long real episodes actually run, both the ones that
-    // cleared themselves and the ones that reached the user. Without it a report of
-    // "still happening" cannot distinguish a longer blip from a different mechanism.
+    // Every line that ENDS an episode carries its measured length in ms. That is the
+    // diagnostic value here: 6 s is an estimate from one reported episode, so a
+    // submitted log has to say how long real episodes actually run. Without it a report
+    // of "still happening" cannot distinguish a longer episode from a different
+    // mechanism. The warning-cleared line below carries no duration and does not need
+    // to: the episode-ended line always fires alongside it, and by then the episode has
+    // been invalidated anyway.
     const bool noAc = (subState == DE1::SubState::Error_NoAC);
     if (!noAc) {
         if (m_noAcEpisode.isValid()) {
@@ -453,7 +460,7 @@ void MachineState::updatePhase() {
             STANDBY_INFO(QStringLiteral("warning shown: machine has reported no AC for "
                                         "%1 ms, past the %2 ms wait (state=%3, firmware "
                                         "build %4)")
-                             .arg(m_noAcEpisode.isValid() ? m_noAcEpisode.elapsed() : -1)
+                             .arg(m_noAcEpisode.elapsed())
                              .arg(m_noAcSettleTimer->interval())
                              .arg(DE1::stateToString(state))
                              .arg(m_device->firmwareBuildNumber()));

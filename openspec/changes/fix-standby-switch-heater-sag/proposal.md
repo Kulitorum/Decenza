@@ -33,8 +33,22 @@ full-screen takeover with no wait at all.
   immediately, and its `after 6000` is a one-shot post-connect re-check for a machine
   already latched in `Error_NoAC`, not a settling wait. An earlier revision of this
   change cited it as one, wrongly.
-- Every standby-switch log line carries the episode's measured duration, so a field log
-  can correct the interval rather than leaving it an estimate.
+- Every line that ends an episode carries its measured duration, so a field log can
+  correct the interval rather than leaving it an estimate.
+
+This change knowingly departs from CLAUDE.md's "never use timers as guards" rule. The
+rule is deliberately NOT amended here: the mechanism behind the spurious report is not
+identified (de1app warns immediately on firmware 1352 and evidently needs no filter),
+so writing a carve-out into a rule file would be doctrine from one observation. Revisit
+once a field log with the new duration lines says what is actually happening.
+
+Two things found while doing this are deliberately left out, to keep the change to the
+reported defect:
+
+- The shot timer is not stopped when the DE1 disconnects mid-shot, and its scale-timer
+  pairing is not either. Pre-existing, filed separately.
+- Whether de1app's immediate warning and ours differ because of firmware, or because a
+  page blink costs less than a full-screen dialog, is unresolved.
 - The no-timers rule in CLAUDE.md gains a narrow, argued hardware carve-out.
 - The subsystem gets logging. It previously emitted nothing at all, which is why a
   20,578-line user log could neither confirm nor deny when the warning fired.

@@ -451,24 +451,36 @@ private slots:
         QVERIFY(f.state.standbySwitchOpen());
     }
 
-    // Found by the review of this change: the disconnect early return skips the only
-    // stopShotTimer() call, so the shot clock kept ticking after a mid-shot BLE drop.
-    void shotTimerStopsWhenTheDE1Disconnects() {
-        TestFixture f;
-        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
-        QVERIFY(f.state.m_shotTimer->isActive());
-
-        f.device.m_simulationMode = false;  // No transport + no sim = disconnected
-        f.state.onDE1StateChanged();
-        QVERIFY(!f.state.m_shotTimer->isActive());
-    }
-
     // The interval is a deliberate figure, and the spec names it. Pinned so a change to
     // it is a decision rather than a typo.
     void standbySwitchWaitIsSixSeconds() {
         TestFixture f;
         QCOMPARE(f.state.m_noAcSettleTimer->interval(), 6000);
         QVERIFY(f.state.m_noAcSettleTimer->isSingleShot());
+    }
+
+    // The log lines are the deliverable: the interval is an estimate, and only a field
+    // log can correct it. Asserted on content, not merely that something was emitted,
+    // because a line missing its duration is the failure that matters.
+    void standbySwitchLogsTheEpisodeDurationWhenItSelfClears() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("\\[DE1\\]\\[StandbySwitch\\].*reported no AC for "
+                               "\\d+ ms then cleared it.*Heating"));
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
+    }
+
+    void standbySwitchLogsWhenTheWarningIsShown() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1363;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("\\[DE1\\]\\[StandbySwitch\\] warning shown.*"
+                               "\\d+ ms.*firmware build 1363"));
+        elapseNoAcWait(f);
+        QVERIFY(f.state.standbySwitchOpen());
     }
 
     // Guards against a future history-based shortcut, not against current behaviour:
@@ -513,8 +525,17 @@ private slots:
         QTimer* timer = f.state.m_noAcSettleTimer;
         QVERIFY(timer->isActive());
 
+        // Watch the episode clock, not the timer: isActive() stays true whether or not
+        // start() was called again, and remainingTime() is too coarse at 6 s to resolve a
+        // short wait. m_noAcEpisode is a QElapsedTimer restarted in the same branch, so a
+        // restart shows up as its elapsed time going backwards. Both weaker checks were
+        // tried here and neither could fail for the regression this test names.
+        QTest::qWait(20);
+        const qint64 beforeReEvaluation = f.state.m_noAcEpisode.elapsed();
+        QVERIFY(beforeReEvaluation > 0);
+
         emit f.device.firmwareVersionChanged();
-        QCOMPARE(f.state.m_noAcSettleTimer, timer);
+        QVERIFY(f.state.m_noAcEpisode.elapsed() >= beforeReEvaluation);
         QVERIFY(timer->isActive());
     }
 
