@@ -51,6 +51,11 @@ public:
     // probeFinished for the scanning indicator), which a cable event is not.
     void onHotplugEvent();
 
+    // A permission dialog closed. Runs the pass, then reports if permission is
+    // STILL absent — that is the only signal a denial produces, and without it a
+    // denied device is indistinguishable in a log from one that was never seen.
+    void onPermissionResult();
+
     // Run a poll pass NOW instead of waiting up to POLL_INTERVAL_MS for the next
     // tick, and report completion via probeFinished().
     //

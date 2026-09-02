@@ -46,6 +46,11 @@ public:
     // hasDevice()-driven, so hotplug runs it rather than duplicating it.
     void onHotplugEvent();
 
+    // A permission dialog closed. Runs the pass, then reports if permission is
+    // STILL absent — that is the only signal a denial produces, and without it a
+    // denied device is indistinguishable in a log from one that was never seen.
+    void onPermissionResult();
+
     Q_INVOKABLE void disconnectUsb();
 
     SerialTransport* transport() const { return m_transport; }

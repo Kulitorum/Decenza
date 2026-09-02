@@ -94,6 +94,17 @@ void USBManager::onHotplugEvent()
     onPollTimerTick();
 }
 
+void USBManager::onPermissionResult()
+{
+    onHotplugEvent();
+#ifdef Q_OS_ANDROID
+    if (!AndroidUsbHelper::hasPermission()) {
+        USB_WARN(QStringLiteral("USB permission was not granted — the DE1 cannot be used "
+                                "over USB. Unplug and reconnect it to be asked again."));
+    }
+#endif
+}
+
 void USBManager::stopPolling()
 {
     m_pollTimer.stop();

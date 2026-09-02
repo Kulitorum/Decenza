@@ -227,10 +227,26 @@ void UsbScaleManager::onHotplugEvent()
     onPollTimerTick();
 }
 
+void UsbScaleManager::onPermissionResult()
+{
+    onHotplugEvent();
+#ifdef Q_OS_ANDROID
+    if (!m_scale && !AndroidUsbScaleHelper::hasPermission()) {
+        warn(QStringLiteral("USB permission was not granted — the scale cannot be used. "
+                            "Unplug and reconnect it to be asked again."));
+    }
+#endif
+}
+
 void UsbScaleManager::probeNow()
 {
     log(QStringLiteral("On-demand probe requested (scan)"));
     m_scanProbePending = true;
+#ifdef Q_OS_ANDROID
+    // Clear the permission latch: a scan is the user explicitly asking again, and
+    // without this the button is inert for the rest of the session after a denial.
+    m_androidPermissionRequested = false;
+#endif
 
 #ifndef Q_OS_ANDROID
     // Forget which ports have already been probed, so a user-initiated scan
@@ -363,7 +379,7 @@ void UsbScaleManager::onPollTimerTickAndroid()
     if (!AndroidUsbScaleHelper::hasPermission()) {
         if (!m_androidPermissionRequested) {
             m_androidPermissionRequested = true;
-            log(QStringLiteral("Requesting USB permission..."));
+            info(QStringLiteral("Requesting USB permission..."));
             AndroidUsbScaleHelper::requestPermission();
         }
         return;
