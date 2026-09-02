@@ -1696,10 +1696,10 @@ int main(int argc, char *argv[])
     // Ordering — twice written wrong here, so it is sourced. Release runs BEFORE
     // the save path, on every shot, and what guarantees it is the delivery mode,
     // not settling: espressoCycleEnded is emitted SYNCHRONOUSLY on the phase
-    // transition (machinestate.cpp:724), while shotEnded — which reaches
+    // transition (machinestate.cpp:806), while shotEnded — which reaches
     // onShotEnded via ShotTimingController::endShot() -> shotProcessingReady —
     // is emitted inside a Qt::QueuedConnection invokeMethod
-    // (machinestate.cpp:772-784). So the release is always at least one event
+    // (machinestate.cpp:854-866). So the release is always at least one event
     // loop turn ahead.
     //
     // Stop-at-weight settling widens that gap to ~1.4 s when it runs, but does

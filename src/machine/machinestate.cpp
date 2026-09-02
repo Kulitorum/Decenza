@@ -365,18 +365,16 @@ void MachineState::updatePhase() {
                                         m_phase == Phase::Preinfusion ||
                                         m_phase == Phase::Pouring ||
                                         m_phase == Phase::Ending);
-            // Neither timer stops on its own once the link is gone. Every
-            // stopShotTimer() call sits past this early return, and
-            // onShotTimerTick() has no connectivity guard, so the shot clock
-            // would keep counting every 100 ms with no machine behind it; the
-            // scale is a separate BLE link that is usually still connected, so
-            // its on-device display would keep counting too. Stop the pair
-            // here, as the espresso-exit site below does.
-            stopShotTimer();
-            if (m_scale) {
-                m_scale->stopTimer();
-                qDebug() << "=== SCALE TIMER: Stopped (DE1 disconnected) ===";
-            }
+            // Neither timer stops on its own: both other stop sites sit past
+            // this early return, and onShotTimerTick() has no connectivity
+            // guard. The scale is a separate BLE link and keeps counting on
+            // its own display.
+            //
+            // Gated like the other stop sites, which all require that
+            // something was running: a drop from Idle or Sleep must not send
+            // an unsolicited stop to a scale the user is timing with by hand.
+            if (m_shotTimer->isActive() || wasInEspresso)
+                stopShotAndScaleTimers("DE1 disconnected");
             m_phase = Phase::Disconnected;
             emit phaseChanged();
             if (wasInEspresso)
@@ -722,12 +720,7 @@ void MachineState::updatePhase() {
         } else if (!isFlowing() && wasFlowing) {
             // Don't stop timer during espresso Ending phase - let it run until cycle ends
             if (!isInEspresso) {
-                stopShotTimer();
-                // Stop scale timer when flow ends
-                if (m_scale) {
-                    m_scale->stopTimer();
-                    qDebug() << "=== SCALE TIMER: Stopped (flow ended) ===";
-                }
+                stopShotAndScaleTimers("flow ended");
                 // Steam left the Steaming phase. Two cases reach this: a manual
                 // stop straight out of flowing steam (the pending flag emits
                 // here), or the Steaming->Idle exit AFTER an auto-stop —
@@ -881,11 +874,7 @@ void MachineState::updatePhase() {
             qDebug().noquote() << QString("MachineState: steam flow stopped via substate change (substate=%1)")
                 .arg(DE1::subStateToString(m_device->subState()));
         }
-        stopShotTimer();
-        if (m_scale) {
-            m_scale->stopTimer();
-            qDebug() << "=== SCALE TIMER: Stopped (substate change) ===";
-        }
+        stopShotAndScaleTimers("substate change");
         // Steam auto-stop path: substate left Steaming (Puffing/Ending) while
         // the phase stays Steaming. This emission marks the actual end of flow;
         // consuming the pending flag here keeps the later Steaming->Idle
@@ -1285,6 +1274,15 @@ void MachineState::startShotTimer() {
 
 void MachineState::stopShotTimer() {
     m_shotTimer->stop();
+}
+
+void MachineState::stopShotAndScaleTimers(const char* reason) {
+    stopShotTimer();
+    if (m_scale) {
+        m_scale->stopTimer();
+        qDebug().noquote()
+            << QStringLiteral("=== SCALE TIMER: Stopped (%1) ===").arg(QLatin1String(reason));
+    }
 }
 
 void MachineState::onShotTimerTick() {

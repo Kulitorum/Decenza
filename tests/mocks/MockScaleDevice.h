@@ -3,16 +3,22 @@
 #include "ble/scaledevice.h"
 
 // Minimal concrete ScaleDevice for testing.
-// Exposes protected setters as public and implements pure virtuals as no-ops.
+// Exposes protected setters as public; implements connectToDevice() as a no-op
+// and counts the commands whose delivery a caller has no other way to observe.
 class MockScaleDevice : public ScaleDevice {
     Q_OBJECT
 public:
     explicit MockScaleDevice(QObject* parent = nullptr) : ScaleDevice(parent) {}
 
-    // Pure virtual implementations (no-ops)
+    // Pure virtuals
     void connectToDevice(const QBluetoothDeviceInfo&) override {}
     void tare() override { ++m_tareCount; }
+
+    // Base overrides with a default body, not pure virtuals.
     void stopTimer() override { ++m_stopTimerCount; }
+    // The mock records timer commands, so it must not report a scale that has
+    // no timer — tst_scaleprotocol pins that pairing for the real drivers.
+    bool supportsTimer() const override { return true; }
 
     // Configurable behavior
     bool isFlowScale() const override { return m_isFlowScale; }

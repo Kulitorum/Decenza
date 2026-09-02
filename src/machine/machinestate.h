@@ -210,6 +210,10 @@ private:
     void updatePhase();
     void startShotTimer();
     void stopShotTimer();
+    // The app's shot clock and the scale's on-device timer are stopped together
+    // at every site that stops either one mid-flow. `reason` names the site in
+    // the log, which is the only thing that differed between the copies.
+    void stopShotAndScaleTimers(const char* reason);
     void checkStopAtWeightHotWater(double weight);
     void checkStopAtVolume();
     void checkStopAtVolumeHotWater();

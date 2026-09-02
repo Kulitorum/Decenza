@@ -395,40 +395,58 @@ private slots:
         QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
     }
 
-    // A drop mid-shot has to stop both clocks. Neither stops on its own: the
-    // disconnected branch returns before every stopShotTimer() site, and the
-    // scale is a separate BLE link that is still connected and would keep
-    // counting on its own display.
-    void midShotDisconnectStopsBothTimers() {
+    void midFlowDisconnectStopsBothTimersOnce_data() {
+        QTest::addColumn<int>("de1State");
+        QTest::addColumn<int>("de1SubState");
+        // Espresso and steam start both timers down different branches of
+        // updatePhase(), and the stop is deliberately not gated on the espresso
+        // predicate. Without the steam row, moving the stop under the
+        // wasInEspresso gate seven lines below leaves the suite green.
+        QTest::newRow("espresso") << int(DE1::State::Espresso) << int(DE1::SubState::Pouring);
+        QTest::newRow("steam") << int(DE1::State::Steam) << int(DE1::SubState::Steaming);
+    }
+
+    // A drop mid-flow has to stop both clocks, and stop them once: updatePhase()
+    // runs again on every DE1 signal while the link is down, so a stop that is
+    // not latched by the phase would put repeated BLE writes on a scale that is
+    // already stopped.
+    void midFlowDisconnectStopsBothTimersOnce() {
+        QFETCH(int, de1State);
+        QFETCH(int, de1SubState);
+
         TestFixture f;
         f.scale.mockSetConnected(true);
-        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.setDE1State(static_cast<DE1::State>(de1State),
+                      static_cast<DE1::SubState>(de1SubState));
         QVERIFY(f.state.m_shotTimer->isActive());
-        const int stopsBefore = f.scale.stopTimerCount();
+        QCOMPARE(f.scale.stopTimerCount(), 0);
 
         f.device.m_simulationMode = false;
         f.state.onDE1StateChanged();
 
         QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
         QVERIFY(!f.state.m_shotTimer->isActive());
-        QCOMPARE(f.scale.stopTimerCount(), stopsBefore + 1);
+        QCOMPARE(f.scale.stopTimerCount(), 1);
+
+        f.state.onDE1StateChanged();
+        f.state.onDE1StateChanged();
+        QCOMPARE(f.scale.stopTimerCount(), 1);
     }
 
-    // The stop is a transition, not a state: updatePhase() runs again on every
-    // DE1 signal while the link is down, and a stopTimer() per call would be a
-    // BLE command stream at the scale for as long as the machine stays away.
-    void repeatedDisconnectedUpdatesSendOneScaleStop() {
+    // The gate that keeps the stop off a scale nobody was timing with. A drop
+    // from Idle has no clock to stop, and the scale's own button is the other
+    // way its timer starts.
+    void disconnectFromIdleSendsNoScaleStop() {
         TestFixture f;
         f.scale.mockSetConnected(true);
-        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
-        const int stopsBefore = f.scale.stopTimerCount();
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QVERIFY(!f.state.m_shotTimer->isActive());
 
         f.device.m_simulationMode = false;
         f.state.onDE1StateChanged();
-        f.state.onDE1StateChanged();
-        f.state.onDE1StateChanged();
 
-        QCOMPARE(f.scale.stopTimerCount(), stopsBefore + 1);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(f.scale.stopTimerCount(), 0);
     }
 
     // ==========================================
