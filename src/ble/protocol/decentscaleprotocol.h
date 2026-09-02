@@ -112,6 +112,25 @@ inline bool checksumMatches(const QByteArray& data, qsizetype frameLen) {
     return static_cast<uint8_t>(frame[frameLen - 1]) == calculateXor(frame);
 }
 
+// Offset of the first valid 7-byte weight packet in `data`, or -1.
+//
+// This SCANS rather than frames, because its callers -- the USB probes, which
+// identify a scale by seeing one weight packet -- open a port mid-stream and so
+// start at an arbitrary byte. A framer that assumed data[0] began a frame would
+// miss the scale entirely on a port that happened to be mid-packet.
+inline qsizetype indexOfWeightPacket(const QByteArray& data) {
+    for (qsizetype i = 0; i + StandardFrameLength <= data.size(); i++) {
+        if (static_cast<uint8_t>(data[i]) != static_cast<uint8_t>(PacketHeader))
+            continue;
+        const uint8_t type = static_cast<uint8_t>(data[i + 1]);
+        if (type != TypeWeight && type != TypeWeightAlt)
+            continue;
+        if (checksumMatches(data.sliced(i, StandardFrameLength), StandardFrameLength))
+            return i;
+    }
+    return -1;
+}
+
 // HDS LED responses carry the firmware triple in their last two bytes: the
 // major version is BCD packed and the minor and patch values occupy one nibble
 // each. Keep this transport-neutral because USB and Bluetooth receive the same

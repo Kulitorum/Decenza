@@ -695,6 +695,20 @@ private slots:
         QCOMPARE(capture.count(QStringLiteral("Undecodable frame, type 0x0a, 10 bytes")), 1);
     }
 
+    void decentWeightPacketFoundAtAnOffset() {
+        // The USB probes open a port mid-stream, so the packet that identifies
+        // the scale rarely starts at byte 0 -- and a run of leading bytes must
+        // not be mistaken for one.
+        const QByteArray packet = buildDecentWeightPacket(42.0);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(packet), 0);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(QByteArray("noise") + packet), 5);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(QByteArray("noise")), qsizetype(-1));
+
+        QByteArray corrupt = packet;
+        corrupt[6] = static_cast<char>(static_cast<uint8_t>(corrupt[6]) ^ 0xFF);
+        QCOMPARE(DecentScaleProtocol::indexOfWeightPacket(corrupt), qsizetype(-1));
+    }
+
     void decentUndecodedFrameLoggedOnceWithItsBytes() {
         // One line per shape, carrying the hex, and nothing on repeats — the
         // payload here changes every frame, which is exactly what defeats a
