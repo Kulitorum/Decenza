@@ -42,6 +42,21 @@ public:
     void startPolling();
     void stopPolling();
 
+    // A USB device was attached or detached, reported by the platform rather than
+    // found by the timer. Runs the SAME pass the timer runs — the tick is driven by
+    // hasDevice(), not by having been called on a schedule, so "a device appeared"
+    // and "a device vanished" are already the only two things it decides between.
+    // Routing hotplug through it is what stops a second detection path existing to
+    // drift from this one.
+    //
+    // Deliberately NOT probeNow(): that carries user-scan semantics (it forgets
+    // probed ports and emits probeFinished for the scanning indicator), which a
+    // cable event is not.
+    //
+    // Not gated by the USB scanning setting — see main.cpp. A registered receiver
+    // costs nothing while idle, so a plugged-in device works with scanning off.
+    void onHotplugEvent();
+
     // Run a poll pass NOW instead of waiting up to POLL_INTERVAL_MS for the next
     // tick, and report completion via probeFinished().
     //
@@ -149,7 +164,24 @@ private:
     QString m_confirmedPortName;
 #endif
 
-    static constexpr int POLL_INTERVAL_MS = 2000;
+    // Two intervals, because they answer different questions.
+    //
+    // Android has hotplug (attach/detach broadcasts), so the timer is only there to
+    // notice a broadcast that never arrived — backgrounded, or an OEM build that
+    // does not deliver one. It is a safety net, not the mechanism, so it is slow.
+    // Provisional: it can go to zero once field evidence shows the broadcast is
+    // reliable across the builds in use, which is why it is named rather than
+    // inlined.
+    //
+    // Everywhere else there is no hotplug to fall back on — Qt offers none
+    // (QSerialPortInfo is not even a QObject, and qtserialport contains no
+    // udev_monitor / IOServiceAddMatchingNotification / WM_DEVICECHANGE), so the
+    // timer IS the detection path and has to stay responsive.
+#ifdef Q_OS_ANDROID
+    static constexpr int POLL_INTERVAL_MS = 60000;   // hotplug fallback
+#else
+    static constexpr int POLL_INTERVAL_MS = 2000;    // sole detection path
+#endif
     static constexpr int PROBE_TIMEOUT_MS = 3000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
     static constexpr uint16_t PRODUCT_ID_SCALE_1 = 0x7522;  // CH340 variant

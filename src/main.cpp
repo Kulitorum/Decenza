@@ -151,6 +151,7 @@ extern "C" const char* __ubsan_default_options()
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
+#include "usb/usbhotplug.h"
 #include "usb/usbdecentscale.h"
 #include "usb/serialtransport.h"
 #endif
@@ -2141,17 +2142,36 @@ int main(int argc, char *argv[])
     checkpoint("Managers wired");
 
 #ifndef Q_OS_IOS
-    // USB serial polling for DE1 is opt-in (off by default) to avoid the 2 s polling
-    // battery drain on devices that never use a USB-C cable to connect to the DE1.
-    if (settings.usbSerialEnabled())
-        usbManager.startPolling();
-    QObject::connect(&settings, &Settings::usbSerialEnabledChanged, [&]() {
-        if (settings.usbSerialEnabled())
+    // USB SCANNING is opt-in (off by default) to avoid the polling battery drain on
+    // devices that never attach anything over USB. It covers the DE1 and the scale
+    // together — the scale's poll was unconditional until #1904 and cost a JNI tick
+    // for the life of the process on every Android device, most of which use BLE.
+    //
+    // The setting gates SCANNING ONLY. It does not gate hotplug (which costs nothing
+    // while idle — see UsbScaleManager's attach/detach entry points), the on-demand
+    // probe behind "Scan for Devices", or an already-connected device. On Android a
+    // plugged-in device therefore works with this off; on desktop, which has no
+    // hotplug, scanning is the only automatic path.
+    const auto applyUsbScanning = [&]() {
+        if (settings.usbSerialEnabled()) {
             usbManager.startPolling();
-        else
+            usbScaleManager.startPolling();
+        } else {
             usbManager.stopPolling();
-    });
-    usbScaleManager.startPolling();
+            usbScaleManager.stopPolling();
+        }
+    };
+    // Safe to run unconditionally at startup: stopPolling() on a manager that never
+    // started stops an inactive timer and cleans up null probe state, and its
+    // finishScanProbe() early-returns with no scan pending, so nothing is emitted.
+    applyUsbScanning();
+    QObject::connect(&settings, &Settings::usbSerialEnabledChanged, applyUsbScanning);
+
+    // Hotplug is deliberately OUTSIDE the setting: an idle receiver costs nothing,
+    // so gating it would trade no battery saving for a plugged-in device that does
+    // not work. Android only — see UsbHotplug for why no other platform can.
+    UsbHotplug::start(&usbScaleManager, &usbManager);
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() { UsbHotplug::stop(); });
 #endif
 
     AccessibilityManager accessibilityManager;

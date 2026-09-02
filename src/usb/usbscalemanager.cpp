@@ -220,6 +220,12 @@ void UsbScaleManager::startPolling()
     m_pollTimer.start();
 }
 
+void UsbScaleManager::onHotplugEvent()
+{
+    log(QStringLiteral("Hotplug event — running a probe pass now"));
+    onPollTimerTick();
+}
+
 void UsbScaleManager::probeNow()
 {
     log(QStringLiteral("On-demand probe requested (scan)"));

@@ -953,14 +953,14 @@ Item {
                         Layout.fillWidth: true
                         spacing: 0
                         Text {
-                            text: TranslationManager.translate("connections.usb.serialLabel", "Serial USB (DE1 USB-C)")
+                            text: TranslationManager.translate("connections.usb.serialLabel", "Scan for USB devices")
                             font.pixelSize: Theme.scaled(14)
                             color: Theme.textColor
                             Accessible.ignored: true
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("connections.usb.serialDesc", "Poll for USB-connected DE1. Disable to save battery.")
+                            text: TranslationManager.translate("connections.usb.serialDesc", "Look for a DE1 or scale connected by USB cable. Disable to save battery; you can still find one with Scan for Devices.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
@@ -972,7 +972,7 @@ Item {
 
                     StyledSwitch {
                         checked: Settings.usbSerialEnabled
-                        accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Enable serial USB connection for DE1")
+                        accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Scan for USB-connected devices")
                         onToggled: Settings.usbSerialEnabled = checked
                     }
                 }
