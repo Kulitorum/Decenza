@@ -1873,23 +1873,36 @@ DecenzaDialog {
                                 Accessible.ignored: true
                             }
 
+                            // AccessibleButton, like the Get info row below it:
+                            // ActionButton stretches to its layout, which made
+                            // these two fill the dialog. The trailing spacer is
+                            // what keeps them at their content width.
                             RowLayout {
+                                Layout.fillWidth: true
                                 visible: root._suggestedUrl.length > 0
                                 spacing: Theme.scaled(10)
 
-                                ActionButton {
+                                AccessibleButton {
                                     text: TranslationManager.translate(
                                         "changebeans.form.findPage.use", "Use this page")
+                                    accessibleName: TranslationManager.translate(
+                                        "changebeans.form.findPage.use.accessible",
+                                        "Use the product page the AI found for this bag")
                                     onClicked: {
                                         root.fLink = root._suggestedUrl
                                         root.fLinkDirty = true
                                         root._suggestedUrl = ""
                                     }
                                 }
-                                ActionButton {
+                                AccessibleButton {
                                     text: TranslationManager.translate("common.button.dismiss", "Dismiss")
+                                    accessibleName: TranslationManager.translate(
+                                        "changebeans.form.findPage.dismiss.accessible",
+                                        "Dismiss the suggested product page")
                                     onClicked: root._suggestedUrl = ""
                                 }
+
+                                Item { Layout.fillWidth: true }
                             }
                         }
 
