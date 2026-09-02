@@ -25,8 +25,20 @@ inline constexpr char PacketHeader = 0x03;
 inline constexpr uint8_t TypeLedResponse = 0x0A;
 inline constexpr uint8_t TypeAdsDebug = 0x25;  // 41 bytes, checksum in byte 40
 
+// Weight frame types. 0xCE is what the firmware notifies; 0xCA is accepted too
+// because de1app has always accepted both (binary.tcl:1437).
+inline constexpr uint8_t TypeWeight = 0xCE;
+inline constexpr uint8_t TypeWeightAlt = 0xCA;
+
 inline constexpr qsizetype StandardFrameLength = 7;
 inline constexpr qsizetype AdsDebugFrameLength = 41;
+// Decent Scale v1.2 firmware notifies weight in TEN bytes, not seven: the
+// 7-byte layout with minutes/seconds/milliseconds inserted after the weight
+// short, two unused bytes, and the XOR moved to byte 9. Weight stays at bytes
+// 2-3, so only the frame length and the checksum position differ.
+// (de1app decent_scale_weight_read_spec_v12, binary.tcl:350-364, dispatched at
+// :1422-1427.) The original scale has no USB, so this length is notified only.
+inline constexpr qsizetype V12WeightFrameLength = 10;
 
 // XOR checksum: XOR of all bytes except the last (byte 6 in a 7-byte packet).
 inline uint8_t calculateXor(const QByteArray& data) {
@@ -60,6 +72,25 @@ inline qsizetype notifiedFrameLength(uint8_t command, qsizetype available) {
     const qsizetype expected =
         (command == TypeAdsDebug) ? AdsDebugFrameLength : StandardFrameLength;
     return available >= expected ? expected : 0;
+}
+
+// The same question for a caller holding exactly one frame: a notification. It
+// returns `len` when that is a length this command is notified at, and 0 when
+// it is not -- which notifiedFrameLength() cannot express, since a stream
+// framer's buffer legitimately holds more than one frame.
+//
+// Only weight is accepted at ten bytes. de1app unpacks any 10-byte frame with
+// the v1.2 layout but decodes only weight from it (binary.tcl:1437-1460), and
+// the 7-byte LED response's battery and firmware bytes have no known v1.2
+// position -- so a 10-byte frame of another type is logged, not guessed at.
+inline qsizetype notifiedFrameLengthExact(uint8_t command, qsizetype len) {
+    if (command == TypeAdsDebug)
+        return len == AdsDebugFrameLength ? len : 0;
+    if (len == StandardFrameLength)
+        return len;
+    if (len == V12WeightFrameLength && (command == TypeWeight || command == TypeWeightAlt))
+        return len;
+    return 0;
 }
 
 // True when the trailing XOR byte of the first `frameLen` bytes matches.
