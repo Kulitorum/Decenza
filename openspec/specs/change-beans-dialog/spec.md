@@ -2,7 +2,9 @@
 
 ## Purpose
 Specifies the Change Beans dialog reachable from every shot context: it searches Bean Base and local shot history simultaneously and merges results into a single quality-ranked, source-labelled list, walks the user through a bag-details form (with roast date always user-entered, never inferred) after a pick, adds the resulting bag to inventory, and applies context-dependent selection semantics (active-bag vs. historical-shot re-link).
+
 ## Requirements
+
 ### Requirement: Unified search across Bean Base and shot history
 The Change Beans dialog SHALL search both the Visualizer canonical Bean Base autocomplete and the local shot history simultaneously as the user types. Results SHALL appear in a single ranked list.
 
@@ -27,7 +29,18 @@ Results SHALL be ranked by data quality and recency using the following tiers:
 - **Tier 4**: Shot history with no canonical link (free text only)
 - **Tier 5**: Manual entry (always last)
 
-Within each tier, results SHALL be sorted by most recent use date. A history or canonical result that corresponds to an existing inventory bag (matched on `beanBaseId` or case-insensitive roaster+name+roastDate) SHALL be absorbed into that bag's Tier 0 entry rather than shown separately — the dialog must never offer to re-create a coffee that is already in inventory. Within the history lane, the same coffee appearing both linked and unlinked (e.g. shots before and after canonical linking) SHALL be merged into one entry.
+Within each tier, results SHALL be ordered first by link state and then by most recent use date.
+Link state has three values, ordered best to worst: **live** (the entry's product URL is
+reachable), **archived** (the URL is dead but the Internet Archive holds a snapshot of it), and
+**none** (the entry has no URL, or its URL is dead with no snapshot). A result whose link state is
+not yet known SHALL be ordered as if live, so results appear immediately and only ever move
+downward as answers arrive; the list SHALL re-sort in place as each state resolves, and SHALL NOT
+block on the probes. Link state SHALL be cached per URL for the session so repeating a search does
+not re-probe.
+
+A result's tier SHALL NOT change because of its link state — link state orders within a tier only.
+
+A history or canonical result that corresponds to an existing inventory bag (matched on `beanBaseId` or case-insensitive roaster+name+roastDate) SHALL be absorbed into that bag's Tier 0 entry rather than shown separately — the dialog must never offer to re-create a coffee that is already in inventory. Within the history lane, the same coffee appearing both linked and unlinked (e.g. shots before and after canonical linking) SHALL be merged into one entry.
 
 #### Scenario: Switching to a bag already in inventory (non-inventory contexts)
 - **WHEN** the dialog is opened from brew settings, the idle page, post-shot review, or a historical shot, and the user picks a Tier 0 inventory bag
@@ -49,6 +62,20 @@ Within each tier, results SHALL be sorted by most recent use date. A history or 
 #### Scenario: History without canonical ranks below canonical-only
 - **WHEN** search returns a history entry with no canonical link and a fresh Bean Base entry
 - **THEN** the Bean Base entry SHALL rank above the history entry
+
+#### Scenario: Two near-identical entries separated by link state
+- **WHEN** two Bean Base entries for the same coffee are in the same tier, one with a live product
+  URL and one whose URL is dead with an archive snapshot
+- **THEN** the live-link entry SHALL be ordered above the archived-link entry
+
+#### Scenario: Dead link with no snapshot ranks last within its tier
+- **WHEN** an entry's URL is dead and the Internet Archive has no snapshot of it
+- **THEN** it SHALL be ordered below every live- and archived-link entry in the same tier
+
+#### Scenario: Results are not delayed by probing
+- **WHEN** a search returns results whose link states are not yet known
+- **THEN** the results SHALL be displayed immediately in tier-and-recency order
+- **AND** SHALL re-order as each link state resolves
 
 ### Requirement: Source labels on each result
 Each result row SHALL display a label indicating its source(s): "Bean Base", "History", or both.
@@ -167,3 +194,18 @@ own link, including "none".
 - **WHEN** the user re-buys that bag
 - **THEN** the creation form SHALL open with package A
 
+### Requirement: Link state is visible on each result row
+
+Each result row that could carry a product URL SHALL indicate its link state — live, archived, or
+none — alongside its existing source label, without requiring interaction. The indication SHALL
+distinguish "not yet determined" from "determined to have no usable link", so a row is never
+labelled worse than what is known about it.
+
+#### Scenario: Archived-link row is distinguishable
+- **WHEN** two result rows show identical roaster, coffee name and attributes, and one link is live
+  while the other resolves only from the archive
+- **THEN** each row SHALL show its own link state, so the two are distinguishable before selection
+
+#### Scenario: Undetermined state is not shown as a failure
+- **WHEN** a row's link state has not yet resolved
+- **THEN** the row SHALL NOT claim the entry has no link
