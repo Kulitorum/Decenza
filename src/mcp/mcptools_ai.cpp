@@ -7,6 +7,7 @@
 #include "../ai/aiprovider.h"
 #include "../controllers/maincontroller.h"
 #include "../network/beanbaseclient.h"
+#include "../network/beanbase_blob.h"
 #include "../core/dbutils.h"
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
@@ -17,6 +18,7 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QMetaObject>
 #include <QPointer>
 #include <QSqlDatabase>
@@ -383,8 +385,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
         "Run the AI page extraction for a bag's product URL and return the extracted fields "
         "WITHOUT writing them (use bag_update to apply). Uses the bag's kind to pick the "
         "coffee or tea vocabulary. Response reports which stage ran (1 = local page fetch, "
-        "2 = provider-side web fetch fallback for JS-rendered shops) and the provider/model. "
-        "Requires a configured AI provider; consumes provider tokens.",
+        "2 = provider-side web fetch fallback), the provider/model, and applied/corrections: "
+        "what the apply rule would write to this bag. A bag with no link gets a product-page "
+        "search instead, returned as suggestedUrl and never stored. Consumes provider tokens.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -427,6 +430,15 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 qsizetype textChars = 0;
                 bool fetchArmed = false;    // pageTextReady/Failed accepted once
                 bool done = false;
+                // Bag context, so the response can say what the apply rule
+                // WOULD write (applied/corrections) rather than only what the
+                // page said — and so the last rung has a roaster and coffee to
+                // search for. Never written back here: this tool reads.
+                QString blob;
+                QString roaster;
+                QString coffee;
+                AIManager* aiManager = nullptr;
+                bool searchingForPage = false;
             };
             auto st = std::make_shared<ExtractState>();
             auto finish = [st](std::function<void()> reply) {
@@ -470,15 +482,43 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 });
 
             // Terminal: extraction completed / failed (token = the URL).
+            st->aiManager = aiManager;
+            // The last rung's terminal: hand the URL back, never store it.
+            st->conns << QObject::connect(aiManager, &AIManager::productPageFound, qApp,
+                [st, finish, respond](const QString& token, const QString& url) {
+                    if (st->done || !st->searchingForPage || token != st->url) return;
+                    finish([respond, url]() {
+                        respond(QJsonObject{
+                            {"suggestedUrl", url},
+                            {"hint", "Not stored. Re-run with url=<that URL> to extract from it, "
+                                     "or bag action=update link=<that URL> to keep it."}});
+                    });
+                });
+            st->conns << QObject::connect(aiManager, &AIManager::productPageSearchFailed, qApp,
+                [st, finish, respond](const QString& token, const QString& error) {
+                    if (st->done || !st->searchingForPage || token != st->url) return;
+                    finish([respond, error]() {
+                        respond(QJsonObject{{"error", error == QLatin1String("notFound")
+                            ? QString("No product page found for that coffee")
+                            : QString("Product-page search failed: %1").arg(error)}});
+                    });
+                });
             st->conns << QObject::connect(aiManager, &AIManager::bagDetailsExtracted, qApp,
                 [st, aiManager, finish, respond](const QString& token, const QVariantMap& fields) {
                     if (st->done || token != st->url) return;
+                    const auto outcome = BeanBaseBlob::applyExtraction(st->blob, fields);
                     const QJsonObject result{
                         {"stage", st->stage},
                         {"provider", aiManager->selectedProvider()},
                         {"model", aiManager->currentModelName()},
                         {"kind", st->kind},
                         {"url", st->url},
+                        // What the shared apply rule would write to THIS bag:
+                        // empty fields filled, Bean-Base-sourced values the page
+                        // contradicts corrected, user-typed values untouched.
+                        // Advisory — the tool does not write.
+                        {"applied", QJsonObject::fromVariantMap(outcome.applied)},
+                        {"corrections", QJsonArray::fromVariantList(outcome.corrections)},
                         {"stage1Error", st->stage1Error.isEmpty() ? QJsonValue() : QJsonValue(st->stage1Error)},
                         {"pageTextChars", static_cast<qint64>(st->textChars)},
                         {"fields", QJsonObject::fromVariantMap(fields)}};
@@ -521,7 +561,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                        .object().value(QStringLiteral("link")).toString();
                     }
                     QMetaObject::invokeMethod(qApp, [st, beanbase, opened, valid = bag.isValid(),
-                                                     tea, link, finish, respond]() {
+                                                     tea, link, finish, respond, bagId,
+                                                     blob = bag.beanBaseData,
+                                                     roaster = bag.roasterName,
+                                                     coffee = bag.coffeeName]() {
+                        st->blob = blob;
+                        st->roaster = roaster;
+                        st->coffee = coffee;
                         if (!opened) {
                             finish([respond]() { respond(QJsonObject{{"error", "Could not open bag database"}}); });
                             return;
@@ -531,6 +577,20 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             return;
                         }
                         if (link.isEmpty()) {
+                            // The ladder's last rung, offered rather than taken:
+                            // ask the selected provider to FIND the page and
+                            // hand the URL back. Nothing is stored — a model's
+                            // guess becomes a bag's link only when a person
+                            // says so, here as in the app.
+                            AIManager* ai = st->aiManager;
+                            if (ai && ai->isConfigured() && ai->supportsProductPageSearch()
+                                && !st->roaster.isEmpty() && !st->coffee.isEmpty()) {
+                                st->searchingForPage = true;
+                                ai->findProductPage(st->url = QStringLiteral("mcpfind:%1").arg(bagId),
+                                                    st->roaster, st->coffee,
+                                                    tea ? QStringLiteral("tea") : QStringLiteral("coffee"));
+                                return;
+                            }
                             finish([respond]() { respond(QJsonObject{{"error",
                                 "Bag has no product URL (set one with bag_update link=...)"}}); });
                             return;

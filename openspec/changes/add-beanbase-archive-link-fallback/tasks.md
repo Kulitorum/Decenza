@@ -95,14 +95,23 @@
       times: the ShotServer bag page (`shotserver_bags.cpp`) and the MCP tool
       (`mcptools_ai.cpp`) must not keep a fill-empty-only copy of the merge.
 
-## 7. Verification and delivery
+## 7. ShotServer and MCP parity
 
-- [x] 7.1 Run the full test suite through the Qt Creator MCP (`run_tests`, scope `all`) and confirm
+- [x] 7.0 Keep the web and MCP surfaces level with the app: `/api/beans/search` returns and
+      orders by `linkState` and the picker renders the chip; the web editor gains the
+      product-page search (`POST /api/beans/findpage`) with the same offer-then-confirm shape;
+      corrections are reported with field labels, not blob keys. `bean_search` carries
+      `linkState`, and `bag_extract_details` reports `applied`/`corrections` plus a
+      `suggestedUrl` for a bag with no link. `McpSurfaceVersion` bumped.
+
+## 8. Verification and delivery
+
+- [x] 8.1 Run the full test suite through the Qt Creator MCP (`run_tests`, scope `all`) and confirm
       no new failures and no new warnings.
-- [x] 7.2 Add the wiki manual entry. The archive recovery is invisible automation and stays
+- [x] 8.2 Add the wiki manual entry. The archive recovery is invisible automation and stays
       undocumented, but two surfaces are things a user must be told exist: the AI product-page
       suggestion they are asked to confirm (including that it uses their configured provider, once
       per bag), and the picker's link-state indication. Three or four sentences on the Beans page,
       total — cut it in half before committing.
-- [x] 7.3 Open the PR, then run `/pr-review-toolkit:review-pr` and address the findings.
-- [ ] 7.4 Archive the change and sync specs as the final commit on the PR branch.
+- [x] 8.3 Open the PR, then run `/pr-review-toolkit:review-pr` and address the findings.
+- [ ] 8.4 Archive the change and sync specs as the final commit on the PR branch.
