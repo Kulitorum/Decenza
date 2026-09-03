@@ -15,7 +15,9 @@
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
 #include "../network/beanbaseclient.h"
+#include "../network/beanbase_blob.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/unifiedbeansearchmodel.h"
 #include "../history/shothistorystorage.h"
 #include "webtemplates/base_css.h"
 #include "webtemplates/menu_css.h"
@@ -29,6 +31,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+
+#include <algorithm>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -129,16 +133,48 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             conns->clear();
         };
         *conns << connect(beanbase, &BeanBaseClient::searchResults, this,
-            [fired, cleanup, respondJson, q](const QString& query, const QVariantList& entries) {
+            [fired, cleanup, respondJson, q, beanbase](const QString& query,
+                                                       const QVariantList& entries) {
                 // The client is shared with the in-app bar; match our query
                 // (case-insensitive, mirroring the MCP tool) and ignore others.
                 if (*fired || query.compare(q, Qt::CaseInsensitive) != 0)
                     return;
                 *fired = true;
                 cleanup();
+                // Each entry carries its link state, the same three values the
+                // in-app picker orders and labels by. The states resolve
+                // asynchronously and this endpoint answers once, so a first
+                // search mostly reports "unknown" (which orders as live, as it
+                // does in the app) and kicks the probes; the session cache
+                // makes the next search accurate. Ordering is applied here so
+                // the page never has to know the ranking rule.
+                QVariantList ranked = entries;
+                for (const QVariant& v : entries) {
+                    const QString link =
+                        v.toMap().value(QStringLiteral("link")).toString().trimmed();
+                    if (!link.isEmpty())
+                        beanbase->probeLinkState(link);
+                }
+                std::stable_sort(ranked.begin(), ranked.end(),
+                                 [beanbase](const QVariant& a, const QVariant& b) {
+                    auto rank = [beanbase](const QVariant& v) {
+                        const QString link =
+                            v.toMap().value(QStringLiteral("link")).toString().trimmed();
+                        return UnifiedBeanSearchModel::linkStateRank(
+                            link.isEmpty() ? QStringLiteral("none") : beanbase->linkState(link));
+                    };
+                    return rank(a) < rank(b);
+                });
+
                 QJsonArray arr;
-                for (const QVariant& v : entries)
-                    arr.append(QJsonObject::fromVariantMap(v.toMap()));
+                for (const QVariant& v : ranked) {
+                    QVariantMap entry = v.toMap();
+                    const QString link = entry.value(QStringLiteral("link")).toString().trimmed();
+                    entry.insert(QStringLiteral("linkState"),
+                                 link.isEmpty() ? QStringLiteral("none")
+                                                : beanbase->linkState(link));
+                    arr.append(QJsonObject::fromVariantMap(entry));
+                }
                 respondJson(QJsonObject{{"results", arr}, {"count", arr.size()}});
             });
         *conns << connect(beanbase, &BeanBaseClient::searchFailed, this,
@@ -157,6 +193,73 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", "Bean Base search timed out"}}, 504);
         });
         beanbase->search(q);
+        return;
+    }
+
+    // POST /api/beans/findpage {roaster, coffee, kind} — the last rung of the
+    // photo/details ladder for a bag with no URL: ask the SELECTED provider to
+    // find the vendor's product page (a web SEARCH, never the fetch-a-named-URL
+    // tool). Returns the URL as a SUGGESTION — the page presents it with its
+    // host and stores it only on the user's accept, exactly as the app does.
+    if (path == "/api/beans/findpage" && method == "POST") {
+        AIManager* aiManager = m_mainController ? m_mainController->aiManager() : nullptr;
+        if (!aiManager) {
+            respondJson(QJsonObject{{"error", "AI not available"}}, 503);
+            return;
+        }
+        if (!aiManager->isConfigured()) {
+            respondJson(QJsonObject{{"error", "No AI provider configured"}}, 400);
+            return;
+        }
+        if (!aiManager->supportsProductPageSearch()) {
+            respondJson(QJsonObject{{"error", "The configured provider can't search the web"}}, 400);
+            return;
+        }
+        const QString roaster = bodyJson.value(QStringLiteral("roaster")).toString().trimmed();
+        const QString coffee = bodyJson.value(QStringLiteral("coffee")).toString().trimmed();
+        if (roaster.isEmpty() || coffee.isEmpty()) {
+            respondJson(QJsonObject{{"error", "roaster and coffee are required"}}, 400);
+            return;
+        }
+        const QString kind = bodyJson.value(QStringLiteral("kind")).toString() == QLatin1String("tea")
+            ? QStringLiteral("tea") : QStringLiteral("coffee");
+        const QString token = QStringLiteral("web:%1|%2").arg(roaster, coffee);
+
+        auto fired = std::make_shared<bool>(false);
+        auto conns = std::make_shared<QList<QMetaObject::Connection>>();
+        auto cleanup = [conns]() {
+            for (const auto& c : *conns)
+                QObject::disconnect(c);
+            conns->clear();
+        };
+        *conns << connect(aiManager, &AIManager::productPageFound, this,
+            [fired, cleanup, respondJson, token](const QString& requestToken, const QString& url) {
+                if (*fired || requestToken != token)
+                    return;
+                *fired = true;
+                cleanup();
+                respondJson(QJsonObject{{"url", url}});
+            });
+        *conns << connect(aiManager, &AIManager::productPageSearchFailed, this,
+            [fired, cleanup, respondJson, token](const QString& requestToken, const QString& error) {
+                if (*fired || requestToken != token)
+                    return;
+                *fired = true;
+                cleanup();
+                // "notFound" is the honest empty answer, not a failure.
+                if (error == QLatin1String("notFound"))
+                    respondJson(QJsonObject{{"url", QJsonValue()}});
+                else
+                    respondJson(QJsonObject{{"error", error}}, 502);
+            });
+        QTimer::singleShot(90000, this, [fired, cleanup, respondJson]() {
+            if (*fired)
+                return;
+            *fired = true;
+            cleanup();
+            respondJson(QJsonObject{{"error", "Product-page search timed out"}}, 504);
+        });
+        aiManager->findProductPage(token, roaster, coffee, kind);
         return;
     }
 
@@ -184,6 +287,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
         const QString kind = bodyJson.value(QStringLiteral("kind")).toString() == QLatin1String("tea")
             ? QStringLiteral("tea") : QStringLiteral("coffee");
+        // The apply rule (fill empty, correct Bean-Base-sourced, never touch
+        // what the user typed) is decided HERE, by the same helper the app's
+        // editor uses — the page sends its blob and its live field values and
+        // writes back what comes out. The client used to carry its own
+        // fill-empty copy of the rule; two copies of a rule about overwriting
+        // user data is exactly the drift this codebase keeps paying for.
+        const QString editorBlob = bodyJson.value(QStringLiteral("blob")).toString();
+        const QVariantMap editorCurrent =
+            bodyJson.value(QStringLiteral("current")).toObject().toVariantMap();
 
         struct ExtractState {
             QList<QMetaObject::Connection> conns;
@@ -224,12 +336,18 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 }
             });
         st->conns << connect(aiManager, &AIManager::bagDetailsExtracted, this,
-            [st, kind, url, finish, respondJson](const QString& token, const QVariantMap& fields) {
+            [st, kind, url, finish, respondJson, editorBlob, editorCurrent](
+                const QString& token, const QVariantMap& fields) {
                 if (st->done || token != url)
                     return;
-                finish([respondJson, st, kind, url, fields]() {
-                    respondJson(QJsonObject{{"stage", st->stage}, {"kind", kind}, {"url", url},
-                                            {"fields", QJsonObject::fromVariantMap(fields)}});
+                const auto outcome =
+                    BeanBaseBlob::applyExtraction(editorBlob, fields, editorCurrent);
+                finish([respondJson, st, kind, url, fields, outcome]() {
+                    respondJson(QJsonObject{
+                        {"stage", st->stage}, {"kind", kind}, {"url", url},
+                        {"fields", QJsonObject::fromVariantMap(fields)},
+                        {"applied", QJsonObject::fromVariantMap(outcome.applied)},
+                        {"corrections", QJsonArray::fromVariantList(outcome.corrections)}});
                 });
             });
         st->conns << connect(aiManager, &AIManager::bagDetailsExtractionFailed, this,
@@ -661,6 +779,17 @@ QString ShotServer::generateBeansPage() const
              bag's URL (#1588). -->
         <label>Product URL</label><input id="dLink" placeholder="https://…">
         <div class="actions"><button id="btnGetInfo" onclick="extractInfo()">Get info from page</button></div>
+        <!-- Last rung: a bag with no URL. The found page is OFFERED with its
+             host, never stored on the model's say-so. -->
+        <div id="findPageRow" style="display:none">
+          <div id="findPageText" class="muted"></div>
+          <div class="actions">
+            <button id="btnUseFoundPage" onclick="useFoundPage()">Use this page</button>
+            <button class="secondary" onclick="dismissFoundPage()">Dismiss</button>
+          </div>
+        </div>
+        <div class="actions"><button id="btnFindPage" onclick="findProductPage()" style="display:none">Find the product page</button></div>
+        <script>document.addEventListener('input', e => { if (e.target && e.target.id === 'dLink') refreshFindPageButton(); });</script>
         <!-- Directly under the button that writes to it: the dialog scrolls
              (max-height 88vh) and on a phone anything further down is below the
              fold exactly when it matters. role/aria-live so a screen reader
@@ -1024,6 +1153,8 @@ QString ShotServer::generateBeansPage() const
             refreshGrindCandidates();
             el('fNotes').value = b.notes || '';
             COFFEE_KEYS.concat(TEA_KEYS, LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
+            dismissFoundPage();
+            refreshFindPageButton();
             el('fSearch').value = '';
             el('searchResults').style.display = 'none';
             // Nothing else resets this, so without it an "Extraction failed"
@@ -1069,13 +1200,33 @@ QString ShotServer::generateBeansPage() const
                 })
                 .finally(() => clearTimeout(to));
         }
+        // Blob key -> the label this page already puts on that field.
+        const FIELD_LABELS = {
+            origin: 'Origin', region: 'Region', farm: 'Farm', producer: 'Producer',
+            variety: 'Variety', elevation: 'Elevation', process: 'Process',
+            harvest: 'Harvest', qualityScore: 'Quality score',
+            placeOfPurchase: 'Purchased at', tastingNotes: 'Tasting notes',
+            degree: 'Roast level', teaType: 'Tea type', garden: 'Garden',
+            cultivar: 'Cultivar', flush: 'Flush', brewTempC: 'Brew temperature',
+            leafGramsPer100Ml: 'Leaf per 100 ml', steepTime: 'Steep time'
+        };
+        const fieldLabel = k => FIELD_LABELS[k] || k;
+
         function renderResults(results) {
             editorStatus('');   // a previous "Search failed" must not sit over fresh results
             const box = el('searchResults');
             if (!results.length) { box.innerHTML = '<div class="result muted">No matches</div>'; box.style.display = ''; return; }
+            // Link state, same three values and same wording as the app's
+            // picker: near-duplicate Bean Base entries for one coffee often
+            // differ in nothing else, and this is what tells them apart. "live"
+            // and "unknown" say nothing — the unremarkable case, and the one
+            // not yet known.
+            const linkChip = st => st === 'archived' ? ' <span class="chip">Archived page</span>'
+                                 : st === 'none' ? ' <span class="chip">No page</span>' : '';
             box.innerHTML = results.slice(0, 8).map((r, i) =>
                 '<div class="result" onclick="pickResult(' + i + ')">'
-                + '<div class="r-title">' + esc(r.roastName || r.roasterName || 'Unnamed') + '</div>'
+                + '<div class="r-title">' + esc(r.roastName || r.roasterName || 'Unnamed')
+                + linkChip(r.linkState) + '</div>'
                 + '<div class="r-sub">' + bullet([r.roasterName, r.origin, r.process].map(esc)) + '</div></div>').join('');
             box._results = results;
             box.style.display = '';
@@ -1101,6 +1252,64 @@ QString ShotServer::generateBeansPage() const
             editorStatus('Linked to Bean Base — review and Save.');
         }
 
+        // --- AI product-page search (the ladder's last rung) ---
+        // Offered, not automatic: the app runs this on open because it knows
+        // the bag has never been searched; the web editor has no such marker to
+        // read, and a paid call must not fire on every page load.
+        let foundPageUrl = '';
+        function refreshFindPageButton() {
+            const btn = el('btnFindPage');
+            if (!btn) return;
+            // Shown whenever the bag has no URL. Whether an AI provider is
+            // configured is the server's answer to give, exactly as it is for
+            // "Get info from page" beside it — the page has no such flag.
+            btn.style.display = el('dLink').value.trim() ? 'none' : '';
+        }
+        function findProductPage() {
+            const roaster = el('fRoaster').value.trim();
+            const coffee = el('fCoffee').value.trim();
+            if (!roaster || !coffee) { editorStatus('Enter the roaster and coffee first'); return; }
+            const btn = el('btnFindPage');
+            btn.disabled = true;
+            editorStatus('Asking the AI to find the product page…');
+            const forGeneration = editorGeneration;
+            const ctrl = new AbortController();
+            const to = setTimeout(() => ctrl.abort(), 95000);
+            fetch('/api/beans/findpage', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ roaster: roaster, coffee: coffee, kind: editingKind }),
+                    signal: ctrl.signal })
+                .then(readJson)
+                .then(d => {
+                    if (editorGeneration !== forGeneration) return;
+                    if (!d.url) { editorStatus('No product page found for that coffee.'); return; }
+                    foundPageUrl = String(d.url);
+                    // The host on its own line: it is the part that says whether
+                    // this really belongs to the roaster.
+                    let host = foundPageUrl;
+                    try { host = new URL(foundPageUrl).host; } catch (e) { /* show the whole URL */ }
+                    el('findPageText').textContent =
+                        'Found a possible product page at ' + host + ' — use it? ' + foundPageUrl;
+                    el('findPageRow').style.display = '';
+                    editorStatus('');
+                })
+                .catch(e => {
+                    if (editorGeneration !== forGeneration) return;
+                    editorStatus(e.name === 'AbortError'
+                        ? 'Product-page search timed out' : 'Search failed: ' + e.message);
+                })
+                .finally(() => { clearTimeout(to); btn.disabled = false; });
+        }
+        function useFoundPage() {
+            el('dLink').value = foundPageUrl;
+            dismissFoundPage();
+            refreshFindPageButton();
+            editorStatus('Product page set — Get info from page, then Save.');
+        }
+        function dismissFoundPage() {
+            foundPageUrl = '';
+            el('findPageRow').style.display = 'none';
+        }
+
         // --- AI "get info from page" ---
         let extracting = false;
         function extractInfo() {
@@ -1119,30 +1328,46 @@ QString ShotServer::generateBeansPage() const
             // message (which stage failed, and why) wins the race; this abort is
             // only the backstop for a server that never answers at all.
             const to = setTimeout(() => ctrl.abort(), 95000);
+            // Send the blob and the live field values: the server decides what
+            // may be written, using the same helper the app's bag editor uses.
+            const currentValues = {};
+            (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).concat([['fRoastLevel','degree']])
+                .forEach(([fid, key]) => { const e = el(fid); if (e) currentValues[key] = e.value; });
+            const blobForRule = Object.keys(editBlob).length > 0 ? JSON.stringify(editBlob) : '';
             fetch('/api/beans/extract', { method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: url, kind: editingKind }), signal: ctrl.signal })
+                    body: JSON.stringify({ url: url, kind: editingKind,
+                                           blob: blobForRule,
+                                           current: currentValues }), signal: ctrl.signal })
                 .then(readJson)
                 .then(d => {
                     // The editor moved to another bag while this was in flight:
                     // these fields describe the page of a bag no longer shown.
                     if (editorGeneration !== forGeneration) return;
                     const f = d.fields || {};
-                    // Fill ONLY empty fields, like the app's take() and as
-                    // BEAN_BASE.md specifies ("fills empty detail fields
-                    // only") — a shop page must never overwrite what the user
-                    // typed or what a picked Bean Base entry supplied. Both
-                    // surfaces put search and extraction side by side, so
-                    // pick-then-extract is an ordinary two-click sequence.
+                    // What may be written was decided server-side; this only
+                    // writes it. A field the server left out was either already
+                    // right, or is one the user typed — which the page never
+                    // overwrites.
+                    const applied = d.applied || {};
+                    const corrections = d.corrections || [];
                     let filled = 0, occupied = 0;
-                    const take = (fid, key) => {
+                    // `fields` speaks the extraction's vocabulary and `applied`
+                    // the blob's, and they differ for exactly one key — so the
+                    // occupied count needs both names or roast level can never
+                    // reach the "already filled in" branch.
+                    const write = (fid, key, pageKey) => {
                         const e = el(fid);
-                        if (!e || f[key] == null || f[key] === '') return;
-                        if (e.value.trim()) { occupied++; return; }
-                        e.value = f[key];
+                        if (!e) return;
+                        const stated = f[pageKey || key];
+                        if (applied[key] == null) {
+                            if (stated != null && stated !== '' && e.value.trim()) occupied++;
+                            return;
+                        }
+                        e.value = applied[key];
                         filled++;
                     };
-                    take('fRoastLevel', 'roastLevel');   // column, not a blob key
-                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => take(fid, key));
+                    write('fRoastLevel', 'degree', 'roastLevel');   // column, not a blob key
+                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => write(fid, key));
                     // Stage 2 (JS-rendered shops) returns the product photo's
                     // URL directly. Stage 2 runs when the page yielded almost no
                     // body text, which is usually also a page the og:image
@@ -1159,12 +1384,28 @@ QString ShotServer::generateBeansPage() const
                     // them is "your fields are already filled in" — claiming
                     // that when the page simply yielded nothing sends the user
                     // looking for data that was never there.
-                    editorStatus(filled > 0
-                        ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
-                        : (occupied > 0
-                            ? 'Nothing new — every detail the page gave is already filled in.'
-                            : 'Nothing found on that page. Check the URL points at the product '
-                              + 'page itself, not a category or search page.'));
+                    // A correction is named, never slipped in silently: the
+                    // user has to be able to see that a value they were shown
+                    // has changed, and which one.
+                    // Name the old and new value, not just the field: a value
+                    // the user was shown changing under them has to be legible
+                    // as a change, not as a count.
+                    // The field's own label, not its blob key: the in-app
+                    // report reads "Process Natural → Washed", and a user
+                    // reading one surface should not meet `tastingNotes` on
+                    // the other.
+                    const correctedNames = corrections
+                        .map(c => fieldLabel(c.field) + ' ' + c.from + ' \u2192 ' + c.to).join(', ');
+                    const justFilled = filled - corrections.length;
+                    editorStatus(corrections.length > 0
+                        ? (justFilled > 0 ? 'Filled ' + justFilled + ', corrected ' : 'Corrected ')
+                          + corrections.length + ' from the page (' + correctedNames + ') — review and Save.'
+                        : (filled > 0
+                            ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
+                            : (occupied > 0
+                                ? 'Nothing new — every detail the page gave is already filled in.'
+                                : 'Nothing found on that page. Check the URL points at the product '
+                                  + 'page itself, not a category or search page.')));
                 })
                 .catch(e => {
                     if (editorGeneration !== forGeneration) return;

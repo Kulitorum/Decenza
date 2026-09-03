@@ -21,10 +21,10 @@ void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
         "bean_search",
         "Search the community coffee database (Visualizer canonical beans, mirrored from Loffee "
         "Labs Bean Base) by roaster or bean name. Substring and multi-word matching — no API key "
-        "or account needed. Returns canonical bean entries: id (the canonical UUID shared with "
-        "visualizer.coffee), roasterName, roastName, plus origin/variety/process/roast level/"
-        "tasting notes when known. Pass a chosen result object as shots_update's beanBase "
-        "argument to link a shot to its bean.",
+        "needed. Each entry has id (the canonical UUID shared with visualizer.coffee), "
+        "roasterName, roastName, origin/variety/process/roast level/tasting notes when known, "
+        "and linkState (does its product page still answer). Pass a chosen result object as "
+        "shots_update's beanBase argument to link a shot to its bean.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -57,13 +57,30 @@ void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
                 bool responded = false;
                 QTimer grace;
 
+                BeanBaseClient* client = nullptr;  // set at construction; used by finish()
+
                 void finish() {
                     if (responded) return;
                     responded = true;
+                    // linkState per entry: "live", "archived" (the product page
+                    // is gone but the Internet Archive has a capture), "none"
+                    // (no usable page) or "unknown" (not resolved in time).
+                    // Near-duplicate entries for one coffee routinely differ in
+                    // nothing else, so this is often the only thing that picks
+                    // one over the other.
+                    QVariantList annotated = entries;
+                    for (QVariant& v : annotated) {
+                        QVariantMap m = v.toMap();
+                        const QString link = m.value(QStringLiteral("link")).toString().trimmed();
+                        m.insert(QStringLiteral("linkState"),
+                                 (client && !link.isEmpty()) ? client->linkState(link)
+                                                             : QStringLiteral("none"));
+                        v = m;
+                    }
                     respond(QJsonObject{
                         {"query", query},
-                        {"count", entries.size()},
-                        {"results", QJsonArray::fromVariantList(entries)},
+                        {"count", annotated.size()},
+                        {"results", QJsonArray::fromVariantList(annotated)},
                         {"hint", entries.isEmpty()
                             ? "No matches — the bean may not be in the community database yet."
                             : "To link a shot to one of these beans, pass the chosen result object as shots_update's beanBase argument."}
@@ -75,6 +92,7 @@ void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
             gather->setParent(client);
             gather->respond = respond;
             gather->query = query;
+            gather->client = client;
             gather->grace.setSingleShot(true);
             QObject::connect(&gather->grace, &QTimer::timeout, gather, [gather]() { gather->finish(); });
 
@@ -87,8 +105,18 @@ void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
                     if (gather->entries.isEmpty()) { gather->finish(); return; }
                     gather->pendingDetails = static_cast<int>(gather->entries.size());
                     gather->grace.start(4000);  // Shorter window for enrichment only.
-                    for (const QVariant& v : std::as_const(gather->entries))
+                    for (const QVariant& v : std::as_const(gather->entries)) {
                         client->fetchCanonicalDetails(v.toMap());
+                        // Kick the link probe too, so a caller choosing between
+                        // near-identical entries can see which product page
+                        // still answers. Probes are session-cached, so the
+                        // value is best-effort on a first search and accurate
+                        // afterwards — the same bargain the app's picker makes.
+                        const QString link =
+                            v.toMap().value(QStringLiteral("link")).toString().trimmed();
+                        if (!link.isEmpty())
+                            client->probeLinkState(link);
+                    }
                 });
             QObject::connect(client, &BeanBaseClient::canonicalDetails, gather,
                 [gather](const QString& canonicalId, const QVariantMap& attrs) {

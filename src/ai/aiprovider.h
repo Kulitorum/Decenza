@@ -87,6 +87,22 @@ public:
     // it; providers without a server-side fetch tool (Ollama, OpenRouter)
     // keep the default (unsupported).
     virtual bool supportsUrlAnalysis() const { return false; }
+
+    // Searching the web is NOT the same capability as fetching a URL the
+    // prompt already names, and only one provider's tool does both. Anthropic's
+    // web_fetch and Gemini's url_context are fetch-only — asked to FIND a page
+    // they answer from memory, which is a hallucinated URL wearing a tool's
+    // credibility. So the search path gets its own tool per provider:
+    // web_search_20250305 (Anthropic), web_search on the Responses API
+    // (OpenAI), google_search grounding (Gemini).
+    virtual bool supportsWebSearch() const { return false; }
+    // Same contract as analyzeUrl (completes via analysisComplete/-Failed);
+    // the difference is the tool attached to the request.
+    virtual void searchWeb(const QString& systemPrompt, const QString& userPrompt) {
+        Q_UNUSED(systemPrompt);
+        Q_UNUSED(userPrompt);
+        emit analysisFailed(QStringLiteral("webSearchUnsupported"));
+    }
     virtual void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) {
         Q_UNUSED(systemPrompt); Q_UNUSED(userPrompt);
         emit analysisFailed(tr_("ai.error.urlNotSupported", "URL analysis not supported by this provider"));
@@ -228,6 +244,8 @@ public:
     // web_search requirement.
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
+    bool supportsWebSearch() const override { return true; }
+    void searchWeb(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:
@@ -283,6 +301,8 @@ public:
     // which the extraction prompt guarantees.
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
+    bool supportsWebSearch() const override { return true; }
+    void searchWeb(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:
@@ -290,7 +310,9 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
-    void sendRequest(const QJsonObject& requestBody);
+    // betaFeature sets `anthropic-beta` for a body carrying a beta tool
+    // (web_fetch); empty for the GA paths.
+    void sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature = {});
     static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
 
     // Wrap the first user message's content in a structured block carrying
@@ -348,6 +370,8 @@ public:
     // 2.5 and 3.5 families).
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
+    bool supportsWebSearch() const override { return true; }
+    void searchWeb(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:

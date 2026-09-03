@@ -28,6 +28,7 @@
 #include <QDate>
 
 #include "ai/aimanager.h"
+#include "ai/aiprovider.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "ai/conversationkey.h"
@@ -142,6 +143,53 @@ private slots:
     void init() { QTest::failOnWarning(); }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
     // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
+    // parseProductPageUrl: the last-rung search's reply contract. A model's
+    // guess is about to be offered as a bag's product page, so anything that
+    // is not plainly an https URL is treated as "found nothing".
+    // Finding a page is a SEARCH, and only one provider's web tool does both
+    // search and fetch. Anthropic's web_fetch and Gemini's url_context can only
+    // open a URL the prompt already names — routed through those, the model
+    // answers from memory, which is a hallucinated URL wearing a tool's
+    // credibility. All three must therefore declare a real search tool.
+    void everyKeyedProviderCanSearchTheWeb()
+    {
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QStringLiteral("k"));
+        AnthropicProvider anthropic(&nam, QStringLiteral("k"));
+        GeminiProvider gemini(&nam, QStringLiteral("k"));
+        QVERIFY(openai.supportsWebSearch());
+        QVERIFY(anthropic.supportsWebSearch());
+        QVERIFY(gemini.supportsWebSearch());
+
+        // Ollama has no server-side web tool; the caller must see that rather
+        // than be handed a fabricated answer.
+        OllamaProvider ollama(&nam, QStringLiteral("http://localhost:11434"),
+                              QStringLiteral("llama3"));
+        QVERIFY(!ollama.supportsWebSearch());
+    }
+
+    void parseProductPageUrlAcceptsOnlyAnHttpsUrl()
+    {
+        QCOMPARE(AIManager::parseProductPageUrl(
+                     "{\"url\": \"https://roaster.example/products/x\"}"),
+                 QString("https://roaster.example/products/x"));
+        // Fences and prose around the object are tolerated, as elsewhere.
+        QCOMPARE(AIManager::parseProductPageUrl(
+                     "Here you go:\n```json\n{\"url\":\"https://r.example/p\"}\n```"),
+                 QString("https://r.example/p"));
+
+        // The honest empty answer.
+        QVERIFY(AIManager::parseProductPageUrl("{}").isEmpty());
+        // Prose instead of JSON.
+        QVERIFY(AIManager::parseProductPageUrl("I could not find it").isEmpty());
+        // http, and other schemes: refused outright — this URL is about to be
+        // fetched and handed to a provider.
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"http://r.example/p\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"file:///etc/passwd\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"\"}").isEmpty());
+        QVERIFY(AIManager::parseProductPageUrl("{\"url\":\"https://\"}").isEmpty());
+    }
+
     void parseBagExtractionHandlesFencesWhitelistAndGarbage()
     {
         bool ok = false;

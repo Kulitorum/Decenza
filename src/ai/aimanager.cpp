@@ -257,8 +257,17 @@ AIProvider* AIManager::providerById(const QString& providerId) const
 
 AIProvider* AIManager::currentProvider() const
 {
+    // No silent substitution. An unrecognised id (a value written by a newer
+    // build, a provider since removed, a corrupted setting) used to resolve to
+    // OpenAI, which meant a user could be billed on a provider they had not
+    // selected — and `logPrompt(selectedProvider(), …)` would record the name
+    // they DID select, so the substitution was invisible in the one place you
+    // would look for it. Every caller already handles null by reporting
+    // "no provider configured", which names the real problem.
     AIProvider* provider = providerById(selectedProvider());
-    return provider ? provider : m_openaiProvider.get();  // Default
+    if (!provider && !selectedProvider().isEmpty())
+        qWarning() << "AIManager: no provider for selected id" << selectedProvider();
+    return provider;
 }
 
 std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assistantMessage)
@@ -1021,6 +1030,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_isProductPageSearch = false;
     m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
@@ -1084,6 +1094,7 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     m_analyzing = true;
     m_isConversationRequest = false;
     m_isBagExtractionRequest = true;
+    m_isProductPageSearch = false;
     m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
@@ -1161,6 +1172,7 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     m_analyzing = true;
     m_isConversationRequest = false;
     m_isBagExtractionRequest = true;
+    m_isProductPageSearch = false;
     m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
@@ -1168,6 +1180,85 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     m_lastUserPrompt = userPrompt;
     logPrompt(selectedProvider(), systemPrompt, userPrompt);
     provider->analyzeUrl(systemPrompt, userPrompt);
+}
+
+bool AIManager::supportsProductPageSearch() const
+{
+    AIProvider* provider = const_cast<AIManager*>(this)->currentProvider();
+    return provider && provider->supportsWebSearch();
+}
+
+void AIManager::findProductPage(const QString& requestToken, const QString& roaster,
+                                const QString& coffee, const QString& kind)
+{
+    // The last rung of the photo/details ladder: the bag has no usable URL by
+    // any deterministic route, so the provider is asked to find one with its
+    // own web tool. The result is a SUGGESTION — the caller confirms it before
+    // it is stored, because a model's guess written into `link` would be read
+    // by every downstream consumer as fact.
+    if (m_analyzing) {
+        emit productPageSearchFailed(requestToken, QStringLiteral("busy"));
+        return;
+    }
+    AIProvider* provider = currentProvider();
+    if (!provider || !isConfigured()) {
+        // No substitution, ever: a user with one provider selected must not be
+        // billed on another because this one is unconfigured.
+        emit productPageSearchFailed(requestToken, QStringLiteral("notConfigured"));
+        return;
+    }
+    // SEARCH, not fetch. Only OpenAI's tool does both; Anthropic's web_fetch
+    // and Gemini's url_context can only open a URL the prompt already names,
+    // so routing this through analyzeUrl left two of the three providers
+    // answering from memory.
+    if (!provider->supportsWebSearch()) {
+        emit productPageSearchFailed(requestToken, QStringLiteral("webSearchUnsupported"));
+        return;
+    }
+
+    const QString what = (kind == QLatin1String("tea"))
+        ? QStringLiteral("loose-leaf tea") : QStringLiteral("coffee");
+    const QString systemPrompt = QStringLiteral(
+        "You find the vendor's own product page for a named %1 using web search. "
+        "Reply with ONLY a JSON object: {\"url\": \"<absolute https URL>\"} for the page that sells "
+        "or describes exactly that product, or {} when you cannot find one you are confident in. "
+        "The URL MUST be the vendor's own product page - never a marketplace listing, a review, a "
+        "blog post, a category or search page, or a page for a different lot or roast of the same "
+        "name. Never guess a URL by pattern; only report a page you actually found. No markdown, "
+        "no commentary.").arg(what);
+    const QString userPrompt = QStringLiteral("Vendor: %1\nProduct: %2").arg(roaster, coffee);
+
+    m_analyzing = true;
+    m_isConversationRequest = false;
+    m_isBagExtractionRequest = false;
+    m_isProductPageSearch = true;
+    m_productPageToken = requestToken;
+    emit analyzingChanged();
+
+    m_lastSystemPrompt = systemPrompt;
+    m_lastUserPrompt = userPrompt;
+    logPrompt(selectedProvider(), systemPrompt, userPrompt);
+    provider->searchWeb(systemPrompt, userPrompt);
+}
+
+// static
+QString AIManager::parseProductPageUrl(const QString& response)
+{
+    const qsizetype start = response.indexOf(QLatin1Char('{'));
+    const qsizetype end = response.lastIndexOf(QLatin1Char('}'));
+    if (start < 0 || end <= start)
+        return {};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(response.mid(start, end - start + 1).toUtf8());
+    if (!doc.isObject())
+        return {};
+    const QString url = doc.object().value(QStringLiteral("url")).toString().trimmed();
+    // https only: the URL is about to be fetched and handed to a provider, and
+    // an http (or file, or data) URL must never reach either.
+    if (!url.startsWith(QLatin1String("https://")))
+        return {};
+    const QUrl parsed(url);
+    return (parsed.isValid() && !parsed.host().isEmpty()) ? url : QString();
 }
 
 // static
@@ -1258,6 +1349,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
 
     m_analyzing = true;
     m_isConversationRequest = true;
+    m_isProductPageSearch = false;
     m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
@@ -1290,7 +1382,16 @@ void AIManager::onAnalysisComplete(const QString& response)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isBagExtractionRequest) {
+    if (m_isProductPageSearch) {
+        m_isProductPageSearch = false;
+        const QString token = m_productPageToken;
+        m_productPageToken.clear();
+        const QString url = parseProductPageUrl(response);
+        if (url.isEmpty())
+            emit productPageSearchFailed(token, QStringLiteral("notFound"));
+        else
+            emit productPageFound(token, url);
+    } else if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
         const QString token = m_bagExtractionToken;
         m_bagExtractionToken.clear();
@@ -1318,7 +1419,12 @@ void AIManager::onAnalysisFailed(const QString& error)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isBagExtractionRequest) {
+    if (m_isProductPageSearch) {
+        m_isProductPageSearch = false;
+        const QString token = m_productPageToken;
+        m_productPageToken.clear();
+        emit productPageSearchFailed(token, error);
+    } else if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
         const QString token = m_bagExtractionToken;
         m_bagExtractionToken.clear();

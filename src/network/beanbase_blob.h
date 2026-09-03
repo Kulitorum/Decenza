@@ -6,6 +6,7 @@
 #include <QJsonParseError>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 
 // Helpers over the compact-JSON linked-bean snapshot ("the blob") — the one
@@ -226,6 +227,94 @@ inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
     if (obj.isEmpty())
         return QString();
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+// Apply AI-extracted page values to a blob (add-beanbase-archive-link-fallback).
+//
+// Three-way, and the blob already carries what decides it — no new state and
+// no heuristic. `canonical` is the pristine Bean Base snapshot and the flat
+// keys are the working copy, so a flat value EQUAL to its canonical
+// counterpart came from Bean Base, and one that DIFFERS was typed by the user:
+//
+//   empty                        -> filled
+//   equals its canonical value   -> REPLACED (the roaster's page is the better
+//                                   source for the roaster's own coffee), and
+//                                   reported
+//   differs from canonical, or
+//   no canonical at all (manual) -> kept: the user knows something the page
+//                                   does not, and discarding that silently is
+//                                   worse than leaving a field stale
+//
+// captureCanonicalIfNeeded runs first, so a linked blob that has never been
+// edited gets its snapshot BEFORE anything is corrected — which is what keeps
+// "Revert to Bean Base data" able to undo a correction. The snapshot itself is
+// never modified here.
+//
+// Returns {"blob": <merged>, "corrections": [{field, from, to}, ...]}. The
+// corrections list is what the caller reports to the user; an empty list means
+// nothing was overwritten (fills are not corrections).
+struct ExtractionApplication {
+    QString blob;          // the merged blob
+    QVariantMap applied;   // key -> new value, for a caller holding form fields
+    QVariantList corrections;  // {field, from, to} for each value REPLACED
+};
+
+// `current` lets a caller whose live values are not (yet) in the blob — the bag
+// editor, whose form fields are the working copy — have its own values judged.
+// Keys absent from it fall back to the blob's.
+inline ExtractionApplication applyExtraction(const QString& blob, const QVariantMap& raw,
+                                             const QVariantMap& current = {})
+{
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)";
+        return {blob, {}, {}};
+    }
+    // The extraction prompt's one name that is not a blob key. Aliased HERE so
+    // that every caller of THIS function shares it rather than repeating it;
+    // the MCP bag-update path maps the same pair for its own arguments
+    // (mcptools_write.cpp) and does not come through here.
+    QVariantMap extracted = raw;
+    if (raw.contains(QStringLiteral("roastLevel")) && !raw.contains(QStringLiteral("degree")))
+        extracted.insert(QStringLiteral("degree"), raw.value(QStringLiteral("roastLevel")));
+
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    captureCanonicalIfNeeded(obj);
+    const bool hasCanonical = obj.contains(QStringLiteral("canonical"));
+    const QJsonObject canonical = obj.value(QStringLiteral("canonical")).toObject();
+
+    QVariantMap applied;
+    QVariantList corrections;
+    for (const QString& key : editableKeys()) {
+        if (key == QLatin1String("link"))
+            continue;  // the URL is how the page was reached, never read off it
+        if (!extracted.contains(key))
+            continue;
+        const QString value = extracted.value(key).toString().trimmed();
+        if (value.isEmpty())
+            continue;  // the page stating nothing never clears a field
+        const QString currentValue = current.contains(key)
+            ? current.value(key).toString().trimmed()
+            : obj.value(key).toVariant().toString().trimmed();
+        if (currentValue == value)
+            continue;
+        if (currentValue.isEmpty()) {
+            obj[key] = value;
+            applied.insert(key, value);
+            continue;
+        }
+        const QString canonicalValue = canonical.value(key).toVariant().toString().trimmed();
+        if (!hasCanonical || canonicalValue != currentValue)
+            continue;  // user-entered: untouchable
+        obj[key] = value;
+        applied.insert(key, value);
+        corrections.append(QVariantMap{{QStringLiteral("field"), key},
+                                       {QStringLiteral("from"), currentValue},
+                                       {QStringLiteral("to"), value}});
+    }
+    if (obj.isEmpty())
+        return {QString(), applied, corrections};
+    return {QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)), applied,
+            corrections};
 }
 
 // Restore the pristine canonical values: every editable key returns to the

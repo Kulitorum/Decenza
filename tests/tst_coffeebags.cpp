@@ -1428,6 +1428,115 @@ private slots:
         });
     }
 
+    // Within a tier, a live product link outranks an archived-only one, which
+    // outranks an entry with no usable page at all — the case that started
+    // this: two Bean Base entries for one coffee whose every displayed
+    // attribute is identical and whose links are both dead.
+    // A resolution that does not move anything must not be published as a
+    // reset: doing so rebuilds every delegate and throws the user's scroll
+    // position to the top, once per resolved probe, while they are reading.
+    void orderByLinkStateIsIdenticalWhenNothingMoves() {
+        QVariantList rows;
+        for (int i = 0; i < 3; ++i) {
+            rows.append(QVariant(QVariantMap{
+                {"coffeeName", QStringLiteral("row%1").arg(i)}, {"tier", 2},
+                {"beanBaseData", QStringLiteral("{\"link\":\"https://r.example/%1\"}").arg(i)}}));
+        }
+        QHash<QString, QString> before;   // nothing probed yet: all "unknown"
+        QHash<QString, QString> after;
+        after.insert("https://r.example/1", "live");  // the common answer
+
+        QCOMPARE(UnifiedBeanSearchModel::orderByLinkState(rows, before),
+                 UnifiedBeanSearchModel::orderByLinkState(rows, after));
+    }
+
+    void orderByLinkStateRanksWithinTier() {
+        auto row = [](const QString& name, int tier, const QString& link) {
+            const QString blob = link.isEmpty()
+                ? QStringLiteral("{}")
+                : QStringLiteral("{\"link\":\"%1\"}").arg(link);
+            return QVariant(QVariantMap{{"coffeeName", name}, {"tier", tier},
+                                        {"beanBaseData", blob}});
+        };
+        QVariantList rows;
+        rows.append(row("no-link", 2, QString()));
+        rows.append(row("archived", 2, "https://r.example/archived"));
+        rows.append(row("live", 2, "https://r.example/live"));
+
+        QHash<QString, QString> states;
+        states.insert("https://r.example/archived", "archived");
+        states.insert("https://r.example/live", "live");
+
+        const QVariantList out = UnifiedBeanSearchModel::orderByLinkState(rows, states);
+        QCOMPARE(out[0].toMap().value("coffeeName").toString(), QString("live"));
+        QCOMPARE(out[1].toMap().value("coffeeName").toString(), QString("archived"));
+        QCOMPARE(out[2].toMap().value("coffeeName").toString(), QString("no-link"));
+    }
+
+    // An unresolved probe must not sink its row: results appear at once in
+    // tier-and-recency order and only ever move DOWN as answers arrive.
+    void orderByLinkStateTreatsUnknownAsLive() {
+        auto row = [](const QString& name, const QString& link) {
+            return QVariant(QVariantMap{
+                {"coffeeName", name}, {"tier", 2},
+                {"beanBaseData", QStringLiteral("{\"link\":\"%1\"}").arg(link)}});
+        };
+        QVariantList rows;
+        rows.append(row("archived", "https://r.example/archived"));
+        rows.append(row("unprobed", "https://r.example/unprobed"));
+
+        QHash<QString, QString> states;
+        states.insert("https://r.example/archived", "archived");
+
+        const QVariantList out = UnifiedBeanSearchModel::orderByLinkState(rows, states);
+        QCOMPARE(out[0].toMap().value("coffeeName").toString(), QString("unprobed"));
+        QCOMPARE(out[1].toMap().value("coffeeName").toString(), QString("archived"));
+    }
+
+    // Link state orders WITHIN a tier only — a dead link never demotes an
+    // inventory bag below a Bean Base entry.
+    void orderByLinkStateNeverCrossesTiers() {
+        QVariantList rows;
+        rows.append(QVariant(QVariantMap{{"coffeeName", "inventory-dead"}, {"tier", 0},
+                                         {"beanBaseData", "{\"link\":\"https://r.example/d\"}"}}));
+        rows.append(QVariant(QVariantMap{{"coffeeName", "canonical-live"}, {"tier", 2},
+                                         {"beanBaseData", "{\"link\":\"https://r.example/l\"}"}}));
+        QHash<QString, QString> states;
+        states.insert("https://r.example/d", "none");
+        states.insert("https://r.example/l", "live");
+
+        const QVariantList out = UnifiedBeanSearchModel::orderByLinkState(rows, states);
+        QCOMPARE(out[0].toMap().value("coffeeName").toString(), QString("inventory-dead"));
+    }
+
+    // Stability: rows the link state cannot separate keep mergeLanes' order.
+    void orderByLinkStateIsStable() {
+        QVariantList rows;
+        for (int i = 0; i < 4; ++i) {
+            rows.append(QVariant(QVariantMap{
+                {"coffeeName", QStringLiteral("row%1").arg(i)}, {"tier", 2},
+                {"beanBaseData", QStringLiteral("{\"link\":\"https://r.example/%1\"}").arg(i)}}));
+        }
+        QHash<QString, QString> states;
+        for (int i = 0; i < 4; ++i)
+            states.insert(QStringLiteral("https://r.example/%1").arg(i), QStringLiteral("live"));
+
+        const QVariantList out = UnifiedBeanSearchModel::orderByLinkState(rows, states);
+        for (int i = 0; i < 4; ++i)
+            QCOMPARE(out[i].toMap().value("coffeeName").toString(), QStringLiteral("row%1").arg(i));
+    }
+
+    void rowLinkReadsTheBlob() {
+        QCOMPARE(UnifiedBeanSearchModel::rowLink(
+                     QVariantMap{{"beanBaseData", "{\"link\":\" https://r.example/p \"}"}}),
+                 QString("https://r.example/p"));
+        QVERIFY(UnifiedBeanSearchModel::rowLink(QVariantMap{{"beanBaseData", "{}"}}).isEmpty());
+        QVERIFY(UnifiedBeanSearchModel::rowLink(QVariantMap{}).isEmpty());
+        // A corrupt blob is a missing link, not a crash.
+        QVERIFY(UnifiedBeanSearchModel::rowLink(
+                    QVariantMap{{"beanBaseData", "not json"}}).isEmpty());
+    }
+
     void mergeLanesTiersAndAbsorption() {
         // Inventory bag for coffee A; canonical results for A and B;
         // history rows for B (linked) and C (free text).

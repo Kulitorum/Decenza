@@ -70,14 +70,25 @@ Rectangle {
         if (hasCanonical && !beanBase.link && !beanBase.linkDead)
             MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
+    // A bag whose link was cleared as dead BEFORE archive recovery existed
+    // still names the original URL in its pristine canonical snapshot — the
+    // only place it survives. That URL is what the archive can be asked about.
+    // Distinct from maybeRecoverLink, whose linkDead guard stays: re-adding the
+    // same dead URL from the canonical API is still wrong; looking it up in the
+    // archive is not.
+    function maybeRecoverArchivedLink() {
+        if (hasCanonical && !beanBase.link && beanBase.linkDead
+                && beanBase.canonical && beanBase.canonical.link)
+            MainController.beanbase.lookupArchivedLink(canonicalId, String(beanBase.canonical.link))
+    }
     // Validate the stored product URL once per bag (pick-time). The persisted
     // linkChecked marker keeps this to a single GET ever — not a per-view probe.
     function maybeValidateLink() {
         if (hasCanonical && beanBase.link && !beanBase.linkChecked)
             MainController.beanbase.validateBagLink(canonicalId, String(beanBase.link))
     }
-    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink() }
-    onImageKeyChanged: { maybeRecoverLink(); maybeValidateLink() }
+    Component.onCompleted: { maybeRecoverLink(); maybeRecoverArchivedLink(); maybeValidateLink() }
+    onImageKeyChanged: { maybeRecoverLink(); maybeRecoverArchivedLink(); maybeValidateLink() }
 
     Connections {
         target: MainController.beanbase
@@ -111,8 +122,35 @@ Rectangle {
                 MainController.bagStorage.requestUpdateBag(card.bag.id,
                     { "beanBaseData": JSON.stringify(blob) })
         }
-        // Confirmed 404/410: clear the dead reorder link and mark it so neither
-        // validation nor recovery re-adds the same dead URL.
+        // The dead URL had a capture: the snapshot becomes the bag's link, and
+        // linkChecked is stamped so it is never probed (an archive URL is a
+        // terminal recovery — probing it could only lose the last URL the bag
+        // has). No linkDead, which is what re-enables the photo chain and
+        // "Get info from page", both of which key off a non-empty link.
+        function onBagLinkArchived(id, link) {
+            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+                return
+            var blob = card.beanBase
+            // The markers matter as much as the URL: returning early on an
+            // equal link (recovered in an earlier session whose write did not
+            // land, or set by another surface) would leave linkDead standing,
+            // and the bag would keep looking recovered while behaving dead.
+            if (blob.link === link && blob.linkChecked && blob.linkDead === undefined)
+                return
+            blob.link = link
+            blob.linkChecked = true
+            delete blob.linkDead
+            MainController.bagStorage.requestUpdateBag(card.bag.id,
+                { "beanBaseData": JSON.stringify(blob) })
+            // The photo attempt already made for this bag this session failed
+            // against the dead URL and stamped the once-per-session guard, so
+            // an ensure would no-op and the bag would stay photo-less until the
+            // next launch. Force the re-resolve.
+            MainController.beanbase.refreshBagImage(card.imageKey,
+                (card.bag && card.bag.coffeeName) || "", link)
+        }
+        // Confirmed 404/410 with no capture: clear the dead reorder link and
+        // mark it so neither validation nor recovery re-adds the same dead URL.
         function onBagLinkDead(id) {
             if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
                 return

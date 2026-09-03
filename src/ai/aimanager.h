@@ -264,6 +264,21 @@ public:
     // empty-object "the page states nothing"). Static + public for tests.
     static QVariantMap parseBagExtraction(const QString& response, bool* ok = nullptr);
 
+    // Last rung of the photo/details ladder: ask the SELECTED provider (never
+    // a substitute) to find a vendor's product page for a named product, using
+    // its own web tool. Completes via productPageFound / -Failed. The result
+    // is a suggestion the caller must have confirmed before storing — see the
+    // bag-detail-editing spec.
+    Q_INVOKABLE void findProductPage(const QString& requestToken, const QString& roaster,
+                                     const QString& coffee, const QString& kind);
+    // Whether the SELECTED provider can search the web (Anthropic, OpenAI and
+    // Gemini all can, each with its own tool). Distinct from
+    // supportsUrlExtraction(), which is about fetching a URL already known.
+    Q_INVOKABLE bool supportsProductPageSearch() const;
+    // The URL out of that reply's JSON, or empty when the model found none or
+    // answered with something that is not an https URL. Static + public for tests.
+    static QString parseProductPageUrl(const QString& response);
+
     // Multi-turn conversation - sends system prompt and full message array to current provider
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
@@ -373,6 +388,11 @@ signals:
     // requestToken = the value passed to extractCoffeeBagDetails.
     void bagDetailsExtracted(const QString& requestToken, const QVariantMap& fields);
     void bagDetailsExtractionFailed(const QString& requestToken, const QString& error);
+
+    // findProductPage outcome. `url` is a SUGGESTION, not a link: it is probed
+    // and confirmed by the user before anything stores it.
+    void productPageFound(const QString& requestToken, const QString& url);
+    void productPageSearchFailed(const QString& requestToken, const QString& error);
     // A metadata write this class made — capturing something the user told the
     // advisor — landed on a shot id that does not exist, so the value was
     // discarded. Emitted so the failure is addressable instead of vanishing
@@ -475,6 +495,8 @@ private:
     bool m_isConversationRequest = false;
     bool m_isBagExtractionRequest = false;
     QString m_bagExtractionToken;
+    bool m_isProductPageSearch = false;
+    QString m_productPageToken;
 
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;
