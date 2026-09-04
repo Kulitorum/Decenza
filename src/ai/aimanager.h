@@ -275,6 +275,9 @@ public:
     // Gemini all can, each with its own tool). Distinct from
     // supportsUrlExtraction(), which is about fetching a URL already known.
     Q_INVOKABLE bool supportsProductPageSearch() const;
+    // Which condition declined the AUTOMATIC search. Every gate used to return
+    // in silence, so a submitted log could not answer "did the app try?".
+    Q_INVOKABLE void logProductPageSearchDeclined(const QString& reason) const;
     // The URL out of that reply's JSON, or empty when the model found none or
     // answered with something that is not an https URL. Static + public for tests.
     static QString parseProductPageUrl(const QString& response);

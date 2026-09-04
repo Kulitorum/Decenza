@@ -1,5 +1,6 @@
 #include "aimanager.h"
 #include "core/appsettings.h"
+#include "core/beanbaselogging.h"
 #include "aiprovider.h"
 #include "aiconversation.h"
 #include "conversationkey.h"
@@ -1186,6 +1187,11 @@ bool AIManager::supportsProductPageSearch() const
 {
     AIProvider* provider = const_cast<AIManager*>(this)->currentProvider();
     return provider && provider->supportsWebSearch();
+}
+
+void AIManager::logProductPageSearchDeclined(const QString& reason) const
+{
+    BEANBASE_INFO_STDERR("FindPage", QStringLiteral("Automatic search declined - %1").arg(reason));
 }
 
 void AIManager::findProductPage(const QString& requestToken, const QString& roaster,

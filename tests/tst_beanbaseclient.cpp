@@ -7,12 +7,15 @@
 #include <QRegularExpression>
 #include <QFile>
 #include <QScopeGuard>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include "network/beanbaseclient.h"
 #include "network/beanbase_blob.h"
 #include "core/settings.h"
 #include "mcp/mcptoolregistry.h"
+
 
 // Registered standalone (mcptools_ai.cpp) precisely so this suite can drive
 // the bean_search gather bridge without a MainController.
@@ -154,6 +157,23 @@ private:
     QList<QPair<QString, QString>> m_redirects;
     QStringList m_requestLines;
     bool m_hang = false;
+};
+
+// A stub standing in for BOTH the roaster and web.archive.org, with the
+// snapshot host pointed at it so archiveRawForm recognises what it serves.
+struct ArchiveStub {
+    FakeBeanBaseServer server;
+    ArchiveStub() {
+        BeanBaseClient::setArchiveSnapshotHost(
+            QStringLiteral("127.0.0.1:%1").arg(server.baseUrl().section(':', -1)));
+        server.setContentType("text/html");
+    }
+    ~ArchiveStub() { BeanBaseClient::setArchiveSnapshotHost(QStringLiteral("web.archive.org")); }
+    QString availabilityBody(const QString& snapshotPath) const {
+        return QStringLiteral("{\"archived_snapshots\":{\"closest\":{\"status\":\"200\","
+                              "\"available\":true,\"url\":\"%1%2\"}}}")
+            .arg(server.baseUrl(), snapshotPath);
+    }
 };
 
 class tst_BeanBaseClient : public QObject {
@@ -386,7 +406,7 @@ private slots:
         // out of date, not a miss. Reporting it as answered would stamp dead a
         // bag whose capture demonstrably exists.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("availability API reported a capture at an unparseable URL"));
+            QRegularExpression("Availability API reported a capture at an unparseable URL"));
         QVERIFY(BeanBaseClient::parseArchiveSnapshot(
             "{\"archived_snapshots\":{\"closest\":{\"status\":\"200\",\"available\":true,"
             "\"url\":\"https://r.example/p\"}}}", &ok).isEmpty());
@@ -428,7 +448,7 @@ private slots:
         QTemporaryDir cacheDir;
         BeanBaseClient client(&m_nam, &m_settings);
         client.setImageCacheDir(cacheDir.path());
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing unusable bag image"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing unusable image"));
         client.ensureBagImage("canon-xml", "X", server.baseUrl() + "/product");
         QTest::qWait(1200);
         QVERIFY(!QFile::exists(cacheDir.path() + "/canon-xml"));
@@ -447,7 +467,7 @@ private slots:
         client.setImageCacheDir(cacheDir.path());
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("refusing unusable bag image"));
+            QRegularExpression("Refusing unusable image"));
         client.ensureBagImage("canon-soft404", "X", server.baseUrl() + "/product");
         QTest::qWait(1200);
         QVERIFY(!QFile::exists(cacheDir.path() + "/canon-soft404"));
@@ -1114,10 +1134,10 @@ private slots:
         // assertion that it is logged — the test fails if it stops being.
         QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
         QTest::ignoreMessage(QtWarningMsg,
-            "BeanBaseClient: refusing unsafe bag image cache key \"../escape\"");
+            "[BeanBase][Image] Refusing unsafe cache key ../escape");
         client.ensureBagImage("../escape", "Nope", server.baseUrl() + "/product");
         QTest::ignoreMessage(QtWarningMsg,
-            "BeanBaseClient: refusing unsafe bag image cache key \"a/b\"");
+            "[BeanBase][Image] Refusing unsafe cache key a/b");
         client.ensureBagImage("a/b", "Nope", "");
         QVERIFY(!spy.wait(300));
         QCOMPARE(server.requestCount(), 0);
@@ -1602,6 +1622,219 @@ private slots:
         QVERIFY(BeanBaseClient::extractPageText(big).size() <= 48000);
     }
 
+    // --- Get info reaches the archive on its own -------------------------
+    //
+    // The link check was the only path there and it only runs on a link stored
+    // on the bag, so a URL that arrived any other way — restored with the Bean
+    // Base data, typed, or accepted from the AI — 404'd and stopped.
+
+
+    // Two halves, because the seam between them is not reachable from this
+    // stub: parseArchiveSnapshot upgrades the capture URL to https (product
+    // behaviour, covered by parseArchiveSnapshotVariants) and the stub speaks
+    // plain HTTP, so a recovered fetch never lands on it.
+
+    // Half one: a page confirmed gone asks the archive at all, which is what
+    // the reported bag never did.
+    void getInfoAsksTheArchiveWhenThePageIsGone() {
+        ArchiveStub stub;
+        stub.server.respondForPathWithStatus("/wayback/available", "200 OK",
+                                             "{\"archived_snapshots\":{}}");
+        stub.server.respondForPathWithStatus("/dead", "404 Not Found", "gone");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(stub.server.baseUrl());
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
+        client.fetchPageText(stub.server.baseUrl() + "/dead");
+        QVERIFY(failed.wait(5000));
+
+        qsizetype asked = 0;
+        for (const QString& line : stub.server.requestLines())
+            if (line.contains("/wayback/available"))
+                asked++;
+        QCOMPARE(asked, qsizetype(1));
+    }
+
+    // Half two: a snapshot is read in its id_ form, so the AI gets the original
+    // page bytes rather than the archive's toolbar markup.
+    void getInfoReadsASnapshotInItsRawForm() {
+        ArchiveStub stub;
+        const QByteArray page = "<html><body><p>" + QByteArray(200, 'a') + "</p></body></html>";
+        stub.server.respondForPathWithStatus("id_/", "200 OK", page);
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy ready(&client, &BeanBaseClient::pageTextReady);
+        const QString snapshot =
+            stub.server.baseUrl() + "/web/20260106073238/https://r.example/p";
+        client.fetchPageText(snapshot);
+        QVERIFY(ready.wait(5000));
+        // Echoed as the URL the caller asked for: the dialog gates completion
+        // on the URL it sent.
+        QCOMPARE(ready.last().at(0).toString(), snapshot);
+        QVERIFY(ready.last().at(1).toString().contains(QString(200, 'a')));
+
+        bool sawRawForm = false;
+        for (const QString& line : stub.server.requestLines())
+            if (line.contains("20260106073238id_/"))
+                sawRawForm = true;
+        QVERIFY2(sawRawForm, "the snapshot must be read in its id_ form");
+    }
+
+    // A timeout is not a delisting: answering one from a years-old snapshot
+    // would hide a broken connection behind stale content.
+    void getInfoDoesNotAskTheArchiveAboutATransportFailure() {
+        ArchiveStub stub;
+        stub.server.hangWithoutResponding();
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(stub.server.baseUrl());
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
+        client.fetchPageText(stub.server.baseUrl() + "/slow");
+        QVERIFY(failed.wait(30000));
+
+        for (const QString& line : stub.server.requestLines())
+            QVERIFY2(!line.contains("/wayback/available"),
+                     "a transport failure must not be answered from the archive");
+    }
+
+    // No-capture and archive fault both name the PAGE — see requestPageText.
+    void getInfoReportsThePageWhenTheArchiveHasNothingOrFaults() {
+        for (const QByteArray& archiveStatus : {QByteArray("200 OK"), QByteArray("429 Too Many Requests")}) {
+            ArchiveStub stub;
+            stub.server.respondForPathWithStatus("/wayback/available", archiveStatus,
+                                                 "{\"archived_snapshots\":{}}");
+            stub.server.respondForPathWithStatus("/dead", "404 Not Found", "gone");
+
+            BeanBaseClient client(&m_nam, &m_settings);
+            client.setArchiveBaseUrl(stub.server.baseUrl());
+            QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
+            client.fetchPageText(stub.server.baseUrl() + "/dead");
+            QVERIFY(failed.wait(5000));
+            QCOMPARE(failed.last().at(0).toString(), stub.server.baseUrl() + "/dead");
+            // The page's own transport error, never "the archive said no" and
+            // never a stable code the UI would translate into a page verdict.
+            const QString reason = failed.last().at(1).toString();
+            QVERIFY(!reason.isEmpty());
+            QVERIFY(reason != QStringLiteral("emptyPage"));
+            QVERIFY(reason != QStringLiteral("notAWebPage"));
+        }
+    }
+
+    // One extra fetch, never a chain: a snapshot that is itself gone is the end
+    // of the line, not a second archive question.
+    void getInfoDoesNotRecurseThroughASnapshotThatIsAlsoGone() {
+        ArchiveStub stub;
+        stub.server.respondForPathWithStatus(
+            "/wayback/available", "200 OK",
+            stub.availabilityBody(QStringLiteral("/web/20260106073238/https://r.example/p")).toUtf8());
+        stub.server.respondForPathWithStatus("/dead", "404 Not Found", "gone");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(stub.server.baseUrl());
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
+        client.fetchPageText(stub.server.baseUrl() + "/dead");
+        QVERIFY(failed.wait(5000));
+
+        // The recovered fetch fails for the stub's own reason (https, above).
+        // Why it failed is not the point — that it produced no SECOND archive
+        // question is.
+        qsizetype availabilityQueries = 0;
+        for (const QString& line : stub.server.requestLines())
+            if (line.contains("/wayback/available"))
+                availabilityQueries++;
+        QCOMPARE(availabilityQueries, qsizetype(1));
+    }
+
+    // A URL that is ALREADY a snapshot has nowhere further to fall back to.
+    void getInfoDoesNotAskTheArchiveAboutASnapshot() {
+        ArchiveStub stub;
+        stub.server.respondWith("404 Not Found", "gone");
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(stub.server.baseUrl());
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
+        client.fetchPageText(stub.server.baseUrl() + "/web/20260106073238/https://r.example/p");
+        QVERIFY(failed.wait(5000));
+
+        for (const QString& line : stub.server.requestLines())
+            QVERIFY2(!line.contains("/wayback/available"),
+                     "a snapshot URL must not be looked up in the archive again");
+    }
+
+    // --- A changed link is checked again ---------------------------------
+
+    // Marks carried across a rewrite exempt the new url from ever being probed.
+    void writingADifferentLinkDropsTheMarksThatDescribedTheOldOne() {
+        const QString stamped = QStringLiteral(
+            "{\"id\":\"c1\",\"link\":\"https://r.example/old\",\"linkChecked\":true}");
+
+        const QString moved = BeanBaseClient::blobWithLink(stamped, "https://r.example/new");
+        const QJsonObject movedObj = QJsonDocument::fromJson(moved.toUtf8()).object();
+        QCOMPARE(movedObj.value("link").toString(), QString("https://r.example/new"));
+        QVERIFY(!movedObj.contains("linkChecked"));
+
+        // Same value is not a rewrite: re-saving a bag must not re-probe a url
+        // that has already been answered for.
+        const QString same = BeanBaseClient::blobWithLink(stamped, "https://r.example/old");
+        QVERIFY(QJsonDocument::fromJson(same.toUtf8()).object().value("linkChecked").toBool());
+
+        // Clearing the url drops them too — nothing is left describing a url
+        // the blob no longer has.
+        const QString cleared = BeanBaseClient::blobWithLink(stamped, "");
+        const QJsonObject clearedObj = QJsonDocument::fromJson(cleared.toUtf8()).object();
+        QVERIFY(!clearedObj.contains("link"));
+        QVERIFY(!clearedObj.contains("linkChecked"));
+    }
+
+    // The path the reported bag actually took.
+    void revertingToBeanBaseDataReopensTheLinkCheck() {
+        const QString blob = QStringLiteral(
+            "{\"id\":\"c1\",\"link\":\"https://r.example/typed\",\"linkChecked\":true,"
+            "\"canonical\":{\"link\":\"https://r.example/canonical\"}}");
+        const QJsonObject obj =
+            QJsonDocument::fromJson(BeanBaseClient::revertToCanonical(blob).toUtf8()).object();
+        QCOMPARE(obj.value("link").toString(), QString("https://r.example/canonical"));
+        QVERIFY2(!obj.contains("linkChecked"),
+                 "a restored url is a different url and must be checked");
+    }
+
+    // A DEAD url takes the search's side, not the extraction's.
+    void linkIsUsableFollowsTheDeadMarkNotJustEmptiness() {
+        QVERIFY(BeanBaseClient::linkIsUsable("{\"id\":\"c1\"}", "https://r.example/p"));
+        QVERIFY(!BeanBaseClient::linkIsUsable("{\"id\":\"c1\"}", ""));
+        QVERIFY(!BeanBaseClient::linkIsUsable("{\"id\":\"c1\"}", "   "));
+        QVERIFY(!BeanBaseClient::linkIsUsable(
+            "{\"id\":\"c1\",\"link\":\"https://r.example/p\",\"linkDead\":true}",
+            "https://r.example/p"));
+        // The mark is about the STORED url, so a url the user typed since does
+        // not inherit it — otherwise a bag whose link died could never be given
+        // a working one by hand.
+        QVERIFY(BeanBaseClient::linkIsUsable("{\"id\":\"c1\",\"linkDead\":true}",
+                                             "https://r.example/typed"));
+    }
+
+    // Keyed on the bag alone, the guard also refused a DIFFERENT url on that
+    // bag — exactly what a revert or an accepted suggestion produces.
+    void theLinkCheckGuardIsPerUrlNotPerBag() {
+        FakeBeanBaseServer server;
+        server.respondWith("200 OK", "{}");
+        BeanBaseClient client(&m_nam, &m_settings);
+
+        client.validateBagLink("canon-guard", server.baseUrl() + "/first");
+        QTRY_COMPARE(server.requestCount(), qsizetype(1));
+        // Same bag, same url: already answered.
+        client.validateBagLink("canon-guard", server.baseUrl() + "/first");
+        QVERIFY(!QTest::qWaitFor([&]() { return server.requestCount() > 1; }, 300));
+        // Same bag, different url: a different question.
+        client.validateBagLink("canon-guard", server.baseUrl() + "/second");
+        QTRY_COMPARE(server.requestCount(), qsizetype(2));
+    }
+
     void fetchPageTextOutcomes() {
         FakeBeanBaseServer server;
         server.setContentType("text/html");
@@ -1623,7 +1856,7 @@ private slots:
         // a bot wall must be a visible failure, not AI input. Each failure
         // path below intentionally logs a qWarning from the code under test;
         // ignoreMessage consumes them so the suite stays warning-clean.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText got no readable text"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("yielded no readable text"));
         client.fetchPageText(server.baseUrl() + "/short");
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("emptyPage"));
@@ -1631,15 +1864,19 @@ private slots:
         // Non-text content (a PDF/image link) is a FORMAT failure, not a
         // confident "nothing found on the page".
         server.setContentType("application/pdf");
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText got non-text content"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("is not a web page"));
         client.fetchPageText(pageUrl);
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("notAWebPage"));
         server.setContentType("text/html");
 
         // HTTP errors surface Qt's error string (reply->error() covers 4xx).
+        // A 404 now asks the archive first; pointed at the same stub, which
+        // 404s the availability request too, that is a fault and the PAGE's
+        // error is what reaches the user.
+        client.setArchiveBaseUrl(server.baseUrl());
         server.respondWith("404 Not Found", "gone");
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText failed for"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
         client.fetchPageText(server.baseUrl() + "/nothing-here");
         QVERIFY(failed.wait(5000));
         QVERIFY(!failed.last().at(1).toString().isEmpty());
@@ -1647,11 +1884,11 @@ private slots:
         // http(s)-only gate: the URL is user-entered and the text is shipped
         // to a third-party AI — file:// must never be read. No server hit.
         const qsizetype requestsBefore = server.requestCount();
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText rejected non-http url"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Rejected non-http url"));
         client.fetchPageText("file:///etc/hosts");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText rejected non-http url"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Rejected non-http url"));
         client.fetchPageText("not a url");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));

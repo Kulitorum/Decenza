@@ -101,11 +101,16 @@ Rectangle {
                 return
             if (card.beanBase.link)
                 return
-            var blob = card.beanBase
-            blob.link = link
+            // blobWithLink, never `blob.link = …`: a link write also drops the
+            // marks describing the URL it replaces.
+            var updated = MainController.beanbase.blobWithLink(
+                JSON.stringify(card.beanBase), link)
             MainController.bagStorage.requestUpdateBag(card.bag.id,
-                { "beanBaseData": JSON.stringify(blob) })
-            card.maybeValidateLink()  // validate the freshly recovered URL too
+                { "beanBaseData": updated })
+            // Not maybeValidateLink: `beanBase` is a cached binding over the
+            // STORED blob and the write above is asynchronous, so it does not
+            // carry this link yet. validateBagLink guards itself.
+            MainController.beanbase.validateBagLink(card.canonicalId, link)
         }
         // Pick-time URL validation resolved (possibly via redirect): normalize a
         // stale alias to the durable canonical URL, and stamp linkChecked so the

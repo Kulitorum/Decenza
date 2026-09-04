@@ -85,6 +85,7 @@
 #define DECENZA_LOG_MARKER_KEYBOARD      "Keyboard"
 #define DECENZA_LOG_MARKER_APP           "App"
 #define DECENZA_LOG_MARKER_ACCESSIBILITY "Accessibility"
+#define DECENZA_LOG_MARKER_BEANBASE     "BeanBase"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -187,6 +188,19 @@
       "these lines say which. Third-party readers matter here: #1300's reporter "  \
       "used TalkMan under TalkBack's class name, so the route a line reports is "  \
       "worth more than any assumption about which reader is installed")            \
+    X(DECENZA_LOG_MARKER_BEANBASE,                                                 \
+      "Where a coffee bag's details and photo came from, and why one of them is "  \
+      "missing. The bag's product URL is the spine: whether it still resolves, "   \
+      "whether a dead one was recovered from the Internet Archive, whether the "   \
+      "AI was asked to find one for a bag that has none, and what reading that "   \
+      "page filled in or corrected. Answers \"why is there no picture on this "  \
+      "bag\" and \"why did Get info do nothing\", which are usually the same "     \
+      "fault seen twice — a URL that 404s takes the photo and the details with "   \
+      "it. Every step that declines to run says so here, because the common "      \
+      "report is that nothing visibly happened, and a silent gate is "             \
+      "indistinguishable from a broken button. Not about the AI PROVIDER's own "   \
+      "health — a refused key or a quota error is reported to the user where "     \
+      "they asked; this marker carries what the bag pipeline decided")             \
     X(DECENZA_LOG_MARKER_AUTOSLEEP,                                                \
       "Why the app did or did not put the machine to sleep on its own: the "       \
       "inactivity countdown starting and being reset, a scheduled stay-awake "     \

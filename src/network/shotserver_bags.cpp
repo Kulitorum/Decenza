@@ -789,7 +789,7 @@ QString ShotServer::generateBeansPage() const
           </div>
         </div>
         <div class="actions"><button id="btnFindPage" onclick="findProductPage()" style="display:none">Find the product page</button></div>
-        <script>document.addEventListener('input', e => { if (e.target && e.target.id === 'dLink') refreshFindPageButton(); });</script>
+        <script>document.addEventListener('input', e => { if (e.target && e.target.id === 'dLink') { onLinkEdited(); } });</script>
         <!-- Directly under the button that writes to it: the dialog scrolls
              (max-height 88vh) and on a phone anything further down is below the
              fold exactly when it matters. role/aria-live so a screen reader
@@ -1257,13 +1257,32 @@ QString ShotServer::generateBeansPage() const
         // the bag has never been searched; the web editor has no such marker to
         // read, and a paid call must not fire on every page load.
         let foundPageUrl = '';
+        // "There is a URL here we have no reason to think is gone" — the same
+        // rule BeanBaseBlob::linkIsUsable applies in the app and in the MCP tool.
+        // A DEAD url is not a page to read, so it takes the search's side, not
+        // the extraction's; testing only for emptiness offered the one action
+        // that could not succeed and hid the one that could.
+        function linkIsUsable() {
+            return !!el('dLink').value.trim() && editBlob.linkDead !== true;
+        }
+        // A typed url is a different url, so the marks describing the old one go
+        // — otherwise a bag whose link died keeps Get info hidden behind a
+        // verdict about a url the user has just replaced. The server applies the
+        // same rule to the stored blob on save (BeanBaseBlob::setBlobLink).
+        function onLinkEdited() {
+            delete editBlob.linkDead;
+            delete editBlob.linkChecked;
+            refreshFindPageButton();
+        }
         function refreshFindPageButton() {
-            const btn = el('btnFindPage');
-            if (!btn) return;
-            // Shown whenever the bag has no URL. Whether an AI provider is
-            // configured is the server's answer to give, exactly as it is for
-            // "Get info from page" beside it — the page has no such flag.
-            btn.style.display = el('dLink').value.trim() ? 'none' : '';
+            const find = el('btnFindPage');
+            const get = el('btnGetInfo');
+            // Whether an AI provider is configured is the server's answer to
+            // give — the page has no such flag, so both buttons show and the
+            // request reports it.
+            const usable = linkIsUsable();
+            if (find) find.style.display = usable ? 'none' : '';
+            if (get) get.style.display = usable ? '' : 'none';
         }
         function findProductPage() {
             const roaster = el('fRoaster').value.trim();
@@ -1301,9 +1320,15 @@ QString ShotServer::generateBeansPage() const
         }
         function useFoundPage() {
             el('dLink').value = foundPageUrl;
+            // The url is accepted, so whatever verdict stood against the old one
+            // no longer applies — same rule as BeanBaseBlob::setBlobLink.
+            delete editBlob.linkDead;
+            delete editBlob.linkChecked;
             dismissFoundPage();
             refreshFindPageButton();
-            editorStatus('Product page set — Get info from page, then Save.');
+            // Read it now rather than asking for a second click: finding the
+            // page was never the goal, the details on it were.
+            extractInfo();
         }
         function dismissFoundPage() {
             foundPageUrl = '';

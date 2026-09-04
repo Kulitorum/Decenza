@@ -26,6 +26,12 @@ T.Page {
 
 
     property var inventoryBags: []
+    // "No bags yet" is a fact about the DATABASE, and until the async read
+    // answers we do not have it. Rendering the empty state from the initial []
+    // told every user with bags that they had none, for as long as the read
+    // took — the page opened on its own failure message and then corrected
+    // itself.
+    property bool inventoryLoaded: false
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
@@ -36,6 +42,7 @@ T.Page {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
             bagInventoryPage.inventoryBags = bags
+            bagInventoryPage.inventoryLoaded = true
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
@@ -118,7 +125,8 @@ T.Page {
 
             // Empty state
             ColumnLayout {
-                visible: bagInventoryPage.inventoryBags.length === 0
+                visible: bagInventoryPage.inventoryLoaded
+                         && bagInventoryPage.inventoryBags.length === 0
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.scaled(40)
                 spacing: Theme.spacingSmall

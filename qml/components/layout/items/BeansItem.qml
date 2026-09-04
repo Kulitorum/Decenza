@@ -38,6 +38,10 @@ LayoutWidgetItem {
     // names — mirrors RecipesItem); the full inventory also lives on the Beans
     // page.
     property var inventoryBags: []
+    // Same reason as BeanInfoPage: an empty list before the async read answers
+    // is not "no bags". Here it decided NAVIGATION — a tap during the read
+    // pushed the inventory page instead of opening the pills.
+    property bool inventoryLoaded: false
     property int beanPageIndex: 0
     // Set while the close-time re-request is in flight — see onInventoryReady.
     property bool _bagOrderLiftPending: false
@@ -98,6 +102,7 @@ LayoutWidgetItem {
             root.inventoryBags = freeze
                 ? PillFit.keepOrder(root.inventoryBags, bags, "id")
                 : bags
+            root.inventoryLoaded = true
             root.beanPageIndex = Math.max(0, Math.min(root.beanPageIndex, root.beanPageCount - 1))
         }
         function onBagsChanged() {
@@ -118,13 +123,16 @@ LayoutWidgetItem {
     implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
+        // Only a LOADED empty inventory means "nothing to pick"; during the
+        // read a tap must not be answered as though the user had no bags.
+        var noBags = root.inventoryLoaded && root.inventoryBags.length === 0
         if (root.isCompact) {
-            if (root.inventoryBags.length === 0) {
+            if (noBags) {
                 goToBeanInfo()
             } else {
                 presetPopup.visible ? presetPopup.close() : presetPopup.open()
             }
-        } else if (root.inventoryBags.length === 0) {
+        } else if (noBags) {
             goToBeanInfo()
         } else if (root.idlePage) {
             root.idlePage.activePresetFunction =

@@ -188,6 +188,14 @@ public:
     // string→string; no instance state.
     Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
+    // The one way to write `link` into a blob. Every writer goes through it so
+    // the link-state marks cannot outlive the URL they describe — see
+    // BeanBaseBlob::setBlobLink for why that matters.
+    Q_INVOKABLE static QString blobWithLink(const QString& blob, const QString& link);
+    // Pure, so a QML binding tracks its ARGUMENTS: reading fBeanBaseData and
+    // fLink at the call site is what makes the binding re-evaluate, which a
+    // binding over a Q_INVOKABLE alone would not do.
+    Q_INVOKABLE static bool linkIsUsable(const QString& blob, const QString& link);
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
     // Apply AI-extracted page values to a blob: fill empty fields, correct
     // values that came from Bean Base, never touch a value the user typed. See
@@ -305,6 +313,11 @@ private:
     // differently (once per bag; once per URL) but ask the same question.
     void fetchArchiveAvailability(const QString& productUrl,
                                   std::function<void(const QString&, bool)> done);
+    // The page-text GET itself. `reportUrl` is what the signals echo, so the
+    // caller matches on the URL it asked for however the fetch was redirected
+    // through the archive. `archiveFallback` is false on the retry, which is
+    // what bounds the recursion at one extra fetch.
+    void requestPageText(const QString& fetchUrl, const QString& reportUrl, bool archiveFallback);
     void startLinkStateProbe(const QString& url, bool useGet);
     void finishLinkStateProbe(const QString& url, const QString& state);
     // fallbackImageUrl is tried whenever the first URL yields nothing usable
@@ -333,8 +346,17 @@ private:
     QString m_imageCacheDir;
     QSet<QString> m_imageAttempted;
     QSet<QString> m_linkAttempted;
-    QSet<QString> m_linkValidated;  // validateBagLink: one GET per id per session
-    QSet<QString> m_archiveAttempted;  // lookupArchivedLink: one query per id per session
+    // Both guards ask "have we already asked THIS question", and the question
+    // is about a URL, not a bag: keyed on the id alone they also refuse a
+    // different URL on the same bag, which is exactly what a revert or an
+    // accepted AI suggestion produces. `linkGuardKey` builds the composite.
+    QSet<QString> m_linkValidated;   // validateBagLink: one GET per (id, url) per session
+    QSet<QString> m_archiveAttempted;  // queryArchiveSnapshot: one query per (id, url) per session
+    static QString linkGuardKey(const QString& canonicalId, const QString& url) {
+        // '\n' cannot occur in either part, so no pair of distinct inputs
+        // collides on one key.
+        return canonicalId + QLatin1Char('\n') + url.trimmed();
+    }
 
     // Link state per URL, for result ordering. Session-lifetime.
     QHash<QString, QString> m_linkStateByUrl;

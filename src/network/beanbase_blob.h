@@ -198,6 +198,53 @@ inline QString stripCanonicalLink(const QString& blob)
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
+// Write `link` (empty removes it), dropping the marks that describe the URL
+// being replaced. `linkChecked`/`linkDead` are verdicts about ONE URL, and
+// `link` is an editable key while they are not — so "Revert to Bean Base data"
+// restored the canonical URL over marks that survived it, leaving a bag holding
+// a URL nothing would ever probe. A same-value write is not a rewrite.
+inline void setBlobLink(QJsonObject& obj, const QString& link)
+{
+    const QString next = link.trimmed();
+    const QString current = obj.value(QStringLiteral("link")).toVariant().toString().trimmed();
+    if (next == current)
+        return;
+    if (next.isEmpty())
+        obj.remove(QStringLiteral("link"));
+    else
+        obj[QStringLiteral("link")] = next;
+    obj.remove(QStringLiteral("linkChecked"));
+    obj.remove(QStringLiteral("linkDead"));
+}
+
+// "There is a product URL here that we have no reason to think is gone."
+//
+// ONE definition, read by the bag editor, the /beans page and the MCP tool. It
+// decides both whether Get info reads a page and whether the product-page
+// search is offered instead — as separate `isEmpty()` tests, a DEAD URL
+// satisfied "extract from it" AND "do not search", so the user got the action
+// that could not succeed and no route to the one that could. Not a probe: this
+// is read from bindings and request handlers.
+inline bool linkIsUsable(const QString& blob, const QString& link)
+{
+    const QString candidate = link.trimmed();
+    if (candidate.isEmpty())
+        return false;
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (!obj.value(QStringLiteral("linkDead")).toBool())
+        return true;
+    // The mark describes the STORED url. A candidate the user has typed or
+    // accepted since is a different url and inherits no verdict — the same
+    // reason setBlobLink drops the mark when the stored url changes.
+    return obj.value(QStringLiteral("link")).toString().trimmed() != candidate;
+}
+
+inline bool linkIsUsable(const QString& blob)
+{
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    return linkIsUsable(blob, obj.value(QStringLiteral("link")).toString());
+}
+
 // Merge user edits into the blob's working keys. Only editableKeys() entries
 // in `edits` apply; an empty value REMOVES the key (absent-not-empty keeps the
 // details popup's zero-footprint-per-field rule working). Returns the compact
@@ -219,6 +266,10 @@ inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
         if (!edits.contains(key))
             continue;
         const QString value = edits.value(key).toString().trimmed();
+        if (key == QLatin1String("link")) {
+            setBlobLink(obj, value);
+            continue;
+        }
         if (value.isEmpty())
             obj.remove(key);
         else
@@ -334,6 +385,10 @@ inline QString revertToCanonical(const QString& blob)
     const QJsonObject snapshot = obj.value(QStringLiteral("canonical")).toObject();
     for (const QString& key : editableKeys()) {
         const QString value = snapshot.value(key).toString();
+        if (key == QLatin1String("link")) {
+            setBlobLink(obj, value);
+            continue;
+        }
         if (value.isEmpty())
             obj.remove(key);
         else
