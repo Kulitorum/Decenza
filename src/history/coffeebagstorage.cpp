@@ -326,6 +326,10 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 {
     if (m_dbPath.isEmpty()) {
         qWarning() << "CoffeeBagStorage: not initialized, dropping" << connPrefix;
+        // The caller's `done` never runs, so anything waiting on it waits
+        // forever; the inventory read is the one with a view gated on it.
+        if (connPrefix == QLatin1String("bags_inv"))
+            emit inventoryFailed();
         return;
     }
     if (!m_dbWorker)
@@ -347,9 +351,15 @@ void CoffeeBagStorage::requestInventory()
                 bags->append(map);
             }
         },
-        // Read: skip the emit on open failure so the UI keeps its current list
-        // instead of being told the inventory is empty.
-        [this, bags](bool dbOpened) { if (dbOpened) emit inventoryReady(*bags); });
+        // Read: skip the READY emit on open failure so the UI keeps its
+        // current list instead of being told the inventory is empty — but say
+        // that it failed, or a view gated on "have we loaded yet" never draws.
+        [this, bags](bool dbOpened) {
+            if (dbOpened)
+                emit inventoryReady(*bags);
+            else
+                emit inventoryFailed();
+        });
 }
 
 void CoffeeBagStorage::requestBag(qint64 bagId)

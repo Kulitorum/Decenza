@@ -552,6 +552,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                     });
                     QString link = urlOverride;
+                    QString deadLink;
                     bool tea = false;
                     if (opened && bag.isValid()) {
                         tea = bag.isTea();
@@ -561,12 +562,14 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // A link known dead takes the search's route, like no
                         // link at all. An explicit urlOverride is the caller's
                         // own choice and is never second-guessed.
-                        if (urlOverride.isEmpty()
-                            && !BeanBaseBlob::linkIsUsable(bag.beanBaseData, link))
+                        if (urlOverride.isEmpty() && !link.isEmpty()
+                            && !BeanBaseBlob::linkIsUsable(bag.beanBaseData, link)) {
+                            deadLink = link;
                             link.clear();
+                        }
                     }
                     QMetaObject::invokeMethod(qApp, [st, beanbase, opened, valid = bag.isValid(),
-                                                     tea, link, finish, respond, bagId,
+                                                     tea, link, deadLink, finish, respond, bagId,
                                                      blob = bag.beanBaseData,
                                                      roaster = bag.roasterName,
                                                      coffee = bag.coffeeName]() {
@@ -596,8 +599,15 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                                     tea ? QStringLiteral("tea") : QStringLiteral("coffee"));
                                 return;
                             }
-                            finish([respond]() { respond(QJsonObject{{"error",
-                                "Bag has no product URL (set one with bag_update link=...)"}}); });
+                            // Naming WHICH of the two states it is: telling a
+                            // caller a bag "has no product URL" when it holds a
+                            // dead one prescribes a fix it cannot act on — it
+                            // would set the URL that is already there.
+                            finish([respond, deadLink]() { respond(QJsonObject{{"error",
+                                deadLink.isEmpty()
+                                    ? QStringLiteral("Bag has no product URL (set one with bag_update link=...)")
+                                    : QStringLiteral("Bag's product URL is dead and no archived copy was found: %1 "
+                                                     "(replace it with bag_update link=...)").arg(deadLink)}}); });
                             return;
                         }
                         st->url = link;

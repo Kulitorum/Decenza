@@ -1249,6 +1249,10 @@ QString ShotServer::generateBeansPage() const
             if (r.roastName) el('fCoffee').value = r.roastName;
             COFFEE_KEYS.concat(LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
             el('searchResults').style.display = 'none';
+            // The pick just wrote dLink programmatically, which fires no input
+            // event — without this the buttons keep describing the bag as it
+            // was BEFORE the link, hiding Get info on a url that now works.
+            refreshFindPageButton();
             editorStatus('Linked to Bean Base — review and Save.');
         }
 
@@ -1257,21 +1261,29 @@ QString ShotServer::generateBeansPage() const
         // the bag has never been searched; the web editor has no such marker to
         // read, and a paid call must not fire on every page load.
         let foundPageUrl = '';
-        // "There is a URL here we have no reason to think is gone" — the same
-        // rule BeanBaseBlob::linkIsUsable applies in the app and in the MCP tool.
-        // A DEAD url is not a page to read, so it takes the search's side, not
-        // the extraction's; testing only for emptiness offered the one action
-        // that could not succeed and hid the one that could.
+        // BeanBaseBlob::linkIsUsable, restated here because this runs in the
+        // browser and cannot call it. Keep the two in step: a DEAD url is not a
+        // page to read, so it takes the search's side, not the extraction's,
+        // and the verdict only covers the url it was about — one the user has
+        // since edited carries none.
         function linkIsUsable() {
-            return !!el('dLink').value.trim() && editBlob.linkDead !== true;
+            const candidate = el('dLink').value.trim();
+            if (!candidate) return false;
+            if (editBlob.linkDead !== true) return true;
+            return String(editBlob.link || '').trim() !== candidate;
         }
-        // A typed url is a different url, so the marks describing the old one go
-        // — otherwise a bag whose link died keeps Get info hidden behind a
-        // verdict about a url the user has just replaced. The server applies the
-        // same rule to the stored blob on save (BeanBaseBlob::setBlobLink).
+        // A typed url is a different url, so the marks describing the old one
+        // go. Only when it actually differs from the stored one: this fires per
+        // keystroke, and editing a dead url back to itself must not clear the
+        // verdict — it is still that url. `beanBaseData` is a pass-through field
+        // on save, so nothing on the server re-applies this; the deletes here
+        // are what persists.
         function onLinkEdited() {
-            delete editBlob.linkDead;
-            delete editBlob.linkChecked;
+            const candidate = el('dLink').value.trim();
+            if (String(editBlob.link || '').trim() !== candidate) {
+                delete editBlob.linkDead;
+                delete editBlob.linkChecked;
+            }
             refreshFindPageButton();
         }
         function refreshFindPageButton() {
@@ -1320,8 +1332,8 @@ QString ShotServer::generateBeansPage() const
         }
         function useFoundPage() {
             el('dLink').value = foundPageUrl;
-            // The url is accepted, so whatever verdict stood against the old one
-            // no longer applies — same rule as BeanBaseBlob::setBlobLink.
+            // The url is accepted, so whatever verdict stood against the old
+            // one no longer applies — same rule as BeanBaseBlob::setBlobLink.
             delete editBlob.linkDead;
             delete editBlob.linkChecked;
             dismissFoundPage();

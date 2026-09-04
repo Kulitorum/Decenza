@@ -612,6 +612,31 @@ QString BeanBaseClient::blobWithLink(const QString& blob, const QString& link) {
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
+QString BeanBaseClient::blobWithLinkState(const QString& blob, const QString& link,
+                                          bool checked, bool dead) {
+    if (BeanBaseBlob::isCorruptBlob(blob)) {
+        BEANBASE_WARN_STDERR("Blob", QStringLiteral("Refusing link-state write into corrupt blob (kept unchanged)"));
+        return blob;
+    }
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    const QString next = link.trimmed();
+    if (next.isEmpty())
+        obj.remove(QStringLiteral("link"));
+    else
+        obj[QStringLiteral("link")] = next;
+    if (checked)
+        obj[QStringLiteral("linkChecked")] = true;
+    else
+        obj.remove(QStringLiteral("linkChecked"));
+    if (dead)
+        obj[QStringLiteral("linkDead")] = true;
+    else
+        obj.remove(QStringLiteral("linkDead"));
+    if (obj.isEmpty())
+        return QString();
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
 QString BeanBaseClient::revertToCanonical(const QString& blob) {
     return BeanBaseBlob::revertToCanonical(blob);
 }
@@ -645,6 +670,24 @@ void BeanBaseClient::fetchPageText(const QString& url) {
     requestPageText(archiveRawForm(url), url, !isArchiveUrl(url));
 }
 
+// static
+BeanBaseClient::PageRetry BeanBaseClient::pageRetryFor(int httpStatus, bool archiveFallback,
+                                                       const QString& reportUrl,
+                                                       const QString& snapshot) {
+    PageRetry retry;
+    // Only 404/410 asks the archive. Every other failure — a timeout, a DNS
+    // error, a 5xx, a 403 — leaves the page's own error standing: none of them
+    // says the page is DELISTED, and answering them from a years-old snapshot
+    // would hide a broken connection behind stale content.
+    retry.ask = archiveFallback && (httpStatus == 404 || httpStatus == 410);
+    if (!retry.ask || snapshot.isEmpty())
+        return retry;
+    retry.fetchUrl = archiveRawForm(snapshot);
+    retry.reportUrl = reportUrl;
+    retry.archiveFallback = false;
+    return retry;
+}
+
 void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& reportUrl,
                                      bool archiveFallback) {
     QNetworkRequest request{QUrl(fetchUrl)};
@@ -657,27 +700,27 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
         if (reply->error() != QNetworkReply::NoError) {
             const QString pageError = reply->errorString();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            // Only a page CONFIRMED gone is worth asking the archive about. A
-            // timeout, a DNS failure or a 5xx (status 0, or >= 500) says the
-            // network is unhappy, not that the page is delisted — answering
-            // those from a years-old snapshot would hide a broken connection
-            // behind stale content.
-            if (archiveFallback && (status == 404 || status == 410)) {
+            if (pageRetryFor(status, archiveFallback, reportUrl, QString()).ask) {
                 fetchArchiveAvailability(
-                    reportUrl, [this, reportUrl, pageError](const QString& snapshot, bool /*answered*/) {
+                    reportUrl, [this, reportUrl, pageError](const QString& snapshot, bool answered) {
+                        const PageRetry retry = pageRetryFor(404, true, reportUrl, snapshot);
                         if (!snapshot.isEmpty()) {
-                            // `false`: a snapshot that itself 404s is the end
-                            // of the line, never a second archive question.
-                            requestPageText(archiveRawForm(snapshot), reportUrl, false);
+                            requestPageText(retry.fetchUrl, retry.reportUrl, retry.archiveFallback);
                             return;
                         }
-                        // No-capture and archive fault report identically, and
-                        // both name the PAGE: nothing here marks a bag dead, so
-                        // the distinction the link check needs has no
-                        // consequence to carry, and naming the archive would
-                        // point the user at a service they never asked about.
-                        BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 unreadable, no archived copy - %2")
-                                                            .arg(reportUrl, pageError));
+                        // The USER is told about the page either way: nothing
+                        // here marks a bag dead, so the fault/miss distinction
+                        // carries no consequence for them, and naming the
+                        // archive would point them at a service they never
+                        // asked about. The LOG keeps it, because "no capture"
+                        // and "the archive refused to answer" send a reader to
+                        // different places — a rate limit succeeds on retry.
+                        BEANBASE_WARN_STDERR("Extract",
+                            QStringLiteral("%1 unreadable, %2 - %3")
+                                .arg(reportUrl,
+                                     answered ? QStringLiteral("no archived copy")
+                                              : QStringLiteral("archive gave no answer"),
+                                     pageError));
                         emit pageTextFailed(reportUrl, pageError);
                     });
                 return;

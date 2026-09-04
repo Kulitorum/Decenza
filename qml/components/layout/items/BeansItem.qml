@@ -105,6 +105,11 @@ LayoutWidgetItem {
             root.inventoryLoaded = true
             root.beanPageIndex = Math.max(0, Math.min(root.beanPageIndex, root.beanPageCount - 1))
         }
+        // A failed read latches loaded too: with no bags to show, a tap should
+        // reach the bean page rather than open an empty popup.
+        function onInventoryFailed() {
+            root.inventoryLoaded = true
+        }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
         }

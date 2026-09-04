@@ -202,7 +202,7 @@ inline QString stripCanonicalLink(const QString& blob)
 // being replaced. `linkChecked`/`linkDead` are verdicts about ONE URL, and
 // `link` is an editable key while they are not — so "Revert to Bean Base data"
 // restored the canonical URL over marks that survived it, leaving a bag holding
-// a URL nothing would ever probe. A same-value write is not a rewrite.
+// a URL nothing would ever probe.
 inline void setBlobLink(QJsonObject& obj, const QString& link)
 {
     const QString next = link.trimmed();
@@ -237,12 +237,6 @@ inline bool linkIsUsable(const QString& blob, const QString& link)
     // accepted since is a different url and inherits no verdict — the same
     // reason setBlobLink drops the mark when the stored url changes.
     return obj.value(QStringLiteral("link")).toString().trimmed() != candidate;
-}
-
-inline bool linkIsUsable(const QString& blob)
-{
-    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
-    return linkIsUsable(blob, obj.value(QStringLiteral("link")).toString());
 }
 
 // Merge user edits into the blob's working keys. Only editableKeys() entries

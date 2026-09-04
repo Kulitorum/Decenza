@@ -279,7 +279,7 @@ private slots:
         QCOMPARE(deadSpy.first().at(0).toString(), QString("canon-1"));
         QCOMPARE(resolvedSpy.count(), 0);  // dead, never "resolved"
 
-        // One GET per id per session: a second call is a no-op.
+        // One GET per (id, url) per session: a second call is a no-op.
         client.validateBagLink("canon-1", server.baseUrl() + "/products/gone");
         QTest::qWait(200);
         QCOMPARE(deadSpy.count(), 1);
@@ -624,7 +624,7 @@ private slots:
         QCOMPARE(archivedSpy.first().at(1).toString(),
                  QString("https://web.archive.org/web/20260101000000/https://r.example/p"));
 
-        // One query per id per session.
+        // One query per (id, url) per session.
         client.lookupArchivedLink("canon-arch-4", "https://r.example/p");
         QTest::qWait(200);
         QCOMPARE(archivedSpy.count(), 1);
@@ -1645,7 +1645,7 @@ private slots:
         BeanBaseClient client(&m_nam, &m_settings);
         client.setArchiveBaseUrl(stub.server.baseUrl());
         QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, (no archived copy|archive gave no answer)"));
         client.fetchPageText(stub.server.baseUrl() + "/dead");
         QVERIFY(failed.wait(5000));
 
@@ -1681,23 +1681,6 @@ private slots:
         QVERIFY2(sawRawForm, "the snapshot must be read in its id_ form");
     }
 
-    // A timeout is not a delisting: answering one from a years-old snapshot
-    // would hide a broken connection behind stale content.
-    void getInfoDoesNotAskTheArchiveAboutATransportFailure() {
-        ArchiveStub stub;
-        stub.server.hangWithoutResponding();
-
-        BeanBaseClient client(&m_nam, &m_settings);
-        client.setArchiveBaseUrl(stub.server.baseUrl());
-        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
-        client.fetchPageText(stub.server.baseUrl() + "/slow");
-        QVERIFY(failed.wait(30000));
-
-        for (const QString& line : stub.server.requestLines())
-            QVERIFY2(!line.contains("/wayback/available"),
-                     "a transport failure must not be answered from the archive");
-    }
 
     // No-capture and archive fault both name the PAGE — see requestPageText.
     void getInfoReportsThePageWhenTheArchiveHasNothingOrFaults() {
@@ -1710,7 +1693,12 @@ private slots:
             BeanBaseClient client(&m_nam, &m_settings);
             client.setArchiveBaseUrl(stub.server.baseUrl());
             QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
+            // The USER sees the page's error either way, but the LOG keeps the
+            // distinction: "no capture" and "the archive refused to answer"
+            // send a reader to different places, and a 429 succeeds on retry.
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                archiveStatus == QByteArray("200 OK") ? "unreadable, no archived copy"
+                                                      : "unreadable, archive gave no answer"));
             client.fetchPageText(stub.server.baseUrl() + "/dead");
             QVERIFY(failed.wait(5000));
             QCOMPARE(failed.last().at(0).toString(), stub.server.baseUrl() + "/dead");
@@ -1725,28 +1713,53 @@ private slots:
 
     // One extra fetch, never a chain: a snapshot that is itself gone is the end
     // of the line, not a second archive question.
-    void getInfoDoesNotRecurseThroughASnapshotThatIsAlsoGone() {
-        ArchiveStub stub;
-        stub.server.respondForPathWithStatus(
-            "/wayback/available", "200 OK",
-            stub.availabilityBody(QStringLiteral("/web/20260106073238/https://r.example/p")).toUtf8());
-        stub.server.respondForPathWithStatus("/dead", "404 Not Found", "gone");
+    // The retry decision, asserted directly. The network form of this test was
+    // vacuous: parseArchiveSnapshot upgrades the capture URL to https, the stub
+    // speaks plain HTTP, so the recovered fetch died on the handshake with
+    // status 0 — which short-circuits the gate before archiveFallback is ever
+    // read. Flipping the recursion bound to `true` left it green.
+    void pageRetryDecision_data() {
+        QTest::addColumn<int>("status");
+        QTest::addColumn<bool>("archiveFallback");
+        QTest::addColumn<bool>("expectedAsk");
+        QTest::newRow("404 asks")            << 404 << true  << true;
+        QTest::newRow("410 asks")            << 410 << true  << true;
+        QTest::newRow("500 does not")        << 500 << true  << false;
+        QTest::newRow("503 does not")        << 503 << true  << false;
+        QTest::newRow("403 does not")        << 403 << true  << false;
+        QTest::newRow("429 does not")        << 429 << true  << false;
+        QTest::newRow("transport does not")  << 0   << true  << false;
+        QTest::newRow("404 on a retry does not") << 404 << false << false;
+    }
+    void pageRetryDecision() {
+        QFETCH(int, status);
+        QFETCH(bool, archiveFallback);
+        QFETCH(bool, expectedAsk);
+        const auto retry = BeanBaseClient::pageRetryFor(status, archiveFallback,
+                                                        "https://r.example/p", QString());
+        QCOMPARE(retry.ask, expectedAsk);
+    }
 
-        BeanBaseClient client(&m_nam, &m_settings);
-        client.setArchiveBaseUrl(stub.server.baseUrl());
-        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
-        client.fetchPageText(stub.server.baseUrl() + "/dead");
-        QVERIFY(failed.wait(5000));
+    // The two things the network tests cannot see: the retry echoes the URL the
+    // CALLER asked for (the dialog gates completion on it, so a snapshot here
+    // would strand the extraction forever), and it clears the fallback flag.
+    void pageRetryCarriesTheRequestedUrlAndCannotRecurse() {
+        const QString asked = QStringLiteral("https://r.example/p");
+        const QString snapshot =
+            QStringLiteral("https://web.archive.org/web/20260106073238/https://r.example/p");
+        const auto retry = BeanBaseClient::pageRetryFor(404, true, asked, snapshot);
+        QVERIFY(retry.ask);
+        QCOMPARE(retry.reportUrl, asked);
+        QCOMPARE(retry.fetchUrl,
+                 QString("https://web.archive.org/web/20260106073238id_/https://r.example/p"));
+        QVERIFY2(!retry.archiveFallback, "one extra fetch, never a chain");
+    }
 
-        // The recovered fetch fails for the stub's own reason (https, above).
-        // Why it failed is not the point — that it produced no SECOND archive
-        // question is.
-        qsizetype availabilityQueries = 0;
-        for (const QString& line : stub.server.requestLines())
-            if (line.contains("/wayback/available"))
-                availabilityQueries++;
-        QCOMPARE(availabilityQueries, qsizetype(1));
+    // An answered-but-empty archive produces no retry at all.
+    void pageRetryWithNoSnapshotDoesNotFetch() {
+        const auto retry = BeanBaseClient::pageRetryFor(404, true, "https://r.example/p", QString());
+        QVERIFY(retry.ask);
+        QVERIFY(retry.fetchUrl.isEmpty());
     }
 
     // A URL that is ALREADY a snapshot has nowhere further to fall back to.
@@ -1778,6 +1791,14 @@ private slots:
         QCOMPARE(movedObj.value("link").toString(), QString("https://r.example/new"));
         QVERIFY(!movedObj.contains("linkChecked"));
 
+        // linkDead is the mark that caused the reported bug — it hides Get info
+        // and diverts to the search — so assert it separately from linkChecked.
+        const QString wasDead = QStringLiteral(
+            "{\"id\":\"c1\",\"link\":\"https://r.example/old\",\"linkDead\":true}");
+        const QJsonObject revived = QJsonDocument::fromJson(
+            BeanBaseClient::blobWithLink(wasDead, "https://r.example/new").toUtf8()).object();
+        QVERIFY2(!revived.contains("linkDead"), "a new url does not inherit the old url's verdict");
+
         // Same value is not a rewrite: re-saving a bag must not re-probe a url
         // that has already been answered for.
         const QString same = BeanBaseClient::blobWithLink(stamped, "https://r.example/old");
@@ -1789,6 +1810,59 @@ private slots:
         const QJsonObject clearedObj = QJsonDocument::fromJson(cleared.toUtf8()).object();
         QVERIFY(!clearedObj.contains("link"));
         QVERIFY(!clearedObj.contains("linkChecked"));
+    }
+
+    // The bag editor's save path — the most-travelled of the three writers, and
+    // the one a user reaches by typing a replacement URL by hand.
+    void savingADifferentLinkDropsTheMarksToo() {
+        const QString stamped = QStringLiteral(
+            "{\"id\":\"c1\",\"link\":\"https://r.example/old\","
+            "\"linkChecked\":true,\"linkDead\":true}");
+        const QJsonObject edited = QJsonDocument::fromJson(
+            BeanBaseBlob::mergeBeanDetails(
+                stamped, {{"link", "https://r.example/typed"}}).toUtf8()).object();
+        QCOMPARE(edited.value("link").toString(), QString("https://r.example/typed"));
+        QVERIFY(!edited.contains("linkChecked"));
+        QVERIFY(!edited.contains("linkDead"));
+
+        // Re-saving the same URL is not a rewrite: the verdict still describes it.
+        const QJsonObject resaved = QJsonDocument::fromJson(
+            BeanBaseBlob::mergeBeanDetails(
+                stamped, {{"link", "https://r.example/old"}}).toUtf8()).object();
+        QVERIFY(resaved.value("linkChecked").toBool());
+        QVERIFY(resaved.value("linkDead").toBool());
+    }
+
+    // A corrupt blob is refused by both link writers, not rebuilt — the same
+    // non-destructive rule mergeBeanDetails follows. BagCard reaches these with
+    // the blob AS STORED for exactly this reason: a QML JSON.parse failure
+    // yields {}, which is valid JSON and would sail past the guard.
+    void linkWritersRefuseACorruptBlob() {
+        const QString corrupt = QStringLiteral("{not json");
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Refusing link write into corrupt blob"));
+        QCOMPARE(BeanBaseClient::blobWithLink(corrupt, "https://r.example/p"), corrupt);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Refusing link-state write into corrupt blob"));
+        QCOMPARE(BeanBaseClient::blobWithLinkState(corrupt, "https://r.example/p", true, false),
+                 corrupt);
+    }
+
+    // The verdict writers set the marks setBlobLink drops, so they take the
+    // other entry point — and it must actually stamp what it was asked for.
+    void blobWithLinkStateWritesTheMarksItIsGiven() {
+        const QString blob = QStringLiteral("{\"id\":\"c1\",\"link\":\"https://r.example/old\"}");
+        const QJsonObject recovered = QJsonDocument::fromJson(
+            BeanBaseClient::blobWithLinkState(blob, "https://web.archive.org/web/1/https://r.example/old",
+                                              true, false).toUtf8()).object();
+        QVERIFY(recovered.value("linkChecked").toBool());
+        QVERIFY(!recovered.contains("linkDead"));
+
+        const QJsonObject dead = QJsonDocument::fromJson(
+            BeanBaseClient::blobWithLinkState(blob, "", true, true).toUtf8()).object();
+        QVERIFY(!dead.contains("link"));
+        QVERIFY(dead.value("linkDead").toBool());
+        QVERIFY(dead.value("linkChecked").toBool());
     }
 
     // The path the reported bag actually took.
@@ -1876,7 +1950,7 @@ private slots:
         // error is what reaches the user.
         client.setArchiveBaseUrl(server.baseUrl());
         server.respondWith("404 Not Found", "gone");
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, no archived copy"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, (no archived copy|archive gave no answer)"));
         client.fetchPageText(server.baseUrl() + "/nothing-here");
         QVERIFY(failed.wait(5000));
         QVERIFY(!failed.last().at(1).toString().isEmpty());

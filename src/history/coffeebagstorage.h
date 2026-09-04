@@ -340,6 +340,11 @@ public:
 
 signals:
     void inventoryReady(const QVariantList& bags);
+    // The read did not happen: the database would not open, or storage was
+    // never initialized. Distinct from an empty inventoryReady, because a view
+    // that waits for "loaded" before deciding what to render would otherwise
+    // wait forever and show neither bags nor an empty state.
+    void inventoryFailed();
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
