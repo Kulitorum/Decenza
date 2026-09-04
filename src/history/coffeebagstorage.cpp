@@ -335,6 +335,13 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 
 void CoffeeBagStorage::requestInventory()
 {
+    // runAsync silently drops the job when storage was never initialized, and a
+    // view gated on "have we loaded yet" would wait forever — the same guard
+    // requestCreateBag and requestUpdateBag carry, for the same reason.
+    if (m_dbPath.isEmpty()) {
+        emit inventoryFailed();
+        return;
+    }
     auto bags = std::make_shared<QVariantList>();
     runAsync("bags_inv",
         [bags](QSqlDatabase& db) {
@@ -347,9 +354,15 @@ void CoffeeBagStorage::requestInventory()
                 bags->append(map);
             }
         },
-        // Read: skip the emit on open failure so the UI keeps its current list
-        // instead of being told the inventory is empty.
-        [this, bags](bool dbOpened) { if (dbOpened) emit inventoryReady(*bags); });
+        // Read: skip the READY emit on open failure so the UI keeps its
+        // current list instead of being told the inventory is empty — but say
+        // that it failed, or a view gated on "have we loaded yet" never draws.
+        [this, bags](bool dbOpened) {
+            if (dbOpened)
+                emit inventoryReady(*bags);
+            else
+                emit inventoryFailed();
+        });
 }
 
 void CoffeeBagStorage::requestBag(qint64 bagId)

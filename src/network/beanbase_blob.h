@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/beanbaselogging.h"
+
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -86,6 +88,16 @@ inline void captureCanonicalIfNeeded(QJsonObject& obj)
     obj[QStringLiteral("canonical")] = snapshot;
 }
 
+// Every corrupt-blob refusal, said once. These were five bare qWarnings that a
+// [BeanBase] grep could not see — the same split the marker was registered to
+// end, one file over. `action` names what was refused ("merge into", "revert of").
+inline QString refuseCorruptBlob(const QString& blob, const char* action)
+{
+    BEANBASE_WARN_STDERR("Blob", QStringLiteral("Refusing %1 corrupt blob (kept unchanged)")
+                                     .arg(QLatin1String(action)));
+    return blob;
+}
+
 // True when the string is non-empty but does not parse to a JSON object —
 // merging into (or reverting) such a blob would silently REBUILD it, throwing
 // away the canonical link, snapshot, and description. Corrupt machine-written
@@ -142,7 +154,7 @@ inline bool canonicalIdentityConflicts(const QString& blob, const BagIdentity& i
     // this one, whose wrong answer reaches the user's cloud account, fails
     // closed instead: withhold the claim we cannot verify.
     if (isCorruptBlob(blob)) {
-        qWarning() << "BeanBaseBlob: corrupt blob - treating the canonical link as conflicted";
+        BEANBASE_WARN_STDERR("Blob", QStringLiteral("Corrupt blob - treating the canonical link as conflicted"));
         return true;
     }
     const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
@@ -184,8 +196,7 @@ struct CanonicalLink {
 inline QString stripCanonicalLink(const QString& blob)
 {
     if (isCorruptBlob(blob)) {
-        qWarning() << "BeanBaseBlob: refusing to strip a corrupt blob (kept unchanged)";
-        return blob;
+        return refuseCorruptBlob(blob, "to strip a");
     }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     // NOT `source`: that records where the descriptive values came from, and
@@ -196,6 +207,118 @@ inline QString stripCanonicalLink(const QString& blob)
     if (obj.isEmpty())
         return QString();
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+// Write `link` (empty removes it), dropping the marks that describe the URL
+// being replaced. `linkChecked`/`linkDead` are verdicts about ONE URL, and
+// `link` is an editable key while they are not — so "Revert to Bean Base data"
+// restored the canonical URL over marks that survived it, leaving a bag holding
+// a URL nothing would ever probe.
+// The write itself, with no opinion about the marks. Only setBlobLink and the
+// verdict writers below call it, which is what keeps `obj["link"] =` to one site.
+inline void writeLinkValue(QJsonObject& obj, const QString& link)
+{
+    const QString next = link.trimmed();
+    if (next.isEmpty())
+        obj.remove(QStringLiteral("link"));
+    else
+        obj[QStringLiteral("link")] = next;
+}
+
+inline void setBlobLink(QJsonObject& obj, const QString& link)
+{
+    const QString next = link.trimmed();
+    if (next == obj.value(QStringLiteral("link")).toVariant().toString().trimmed())
+        return;
+    writeLinkValue(obj, next);
+    obj.remove(QStringLiteral("linkChecked"));
+    obj.remove(QStringLiteral("linkDead"));
+}
+
+// The verdicts. These SET the marks setBlobLink drops, which is the whole
+// reason they are separate — a probe that resolved a URL and a probe that
+// buried one are the two answers the link check can reach.
+inline void markLinkChecked(QJsonObject& obj, const QString& link)
+{
+    writeLinkValue(obj, link);
+    obj[QStringLiteral("linkChecked")] = true;
+    obj.remove(QStringLiteral("linkDead"));
+}
+
+inline void markLinkDead(QJsonObject& obj)
+{
+    obj.remove(QStringLiteral("link"));
+    obj[QStringLiteral("linkChecked")] = true;
+    obj[QStringLiteral("linkDead")] = true;
+}
+
+// Serialize a mutated blob back, collapsing an emptied one to "" — the tail
+// every mutator here shares.
+inline QString serializeBlob(const QJsonObject& obj)
+{
+    if (obj.isEmpty())
+        return QString();
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+// Apply one editable key. `link` carries write semantics of its own, so the
+// loops that edit a blob route through here rather than each remembering it.
+inline void applyEditableKey(QJsonObject& obj, const QString& key, const QString& value)
+{
+    if (key == QLatin1String("link")) {
+        setBlobLink(obj, value);
+        return;
+    }
+    if (value.isEmpty())
+        obj.remove(key);
+    else
+        obj[key] = value;
+}
+
+// Write `link`, dropping the marks that described whatever it replaces.
+inline QString blobWithLink(const QString& blob, const QString& link)
+{
+    if (isCorruptBlob(blob))
+        return refuseCorruptBlob(blob, "a link write into");
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    setBlobLink(obj, link);
+    return serializeBlob(obj);
+}
+
+// Record the link check's verdict. `dead` buries the URL; otherwise it stands
+// as checked and alive.
+inline QString blobWithLinkVerdict(const QString& blob, const QString& link, bool dead)
+{
+    if (isCorruptBlob(blob))
+        return refuseCorruptBlob(blob, "a link-verdict write into");
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (dead)
+        markLinkDead(obj);
+    else
+        markLinkChecked(obj, link);
+    return serializeBlob(obj);
+}
+
+// "There is a product URL here that we have no reason to think is gone."
+//
+// ONE definition, read by the bag editor, the /beans page and the MCP tool. It
+// decides both whether Get info reads a page and whether the product-page
+// search is offered instead — as separate `isEmpty()` tests, a DEAD URL
+// satisfied "extract from it" AND "do not search", so the user got the action
+// that could not succeed and no route to the one that could. Not a probe: this
+// is read from bindings and request handlers.
+inline bool linkIsUsable(const QString& blob, const QString& link)
+{
+    const QString candidate = link.trimmed();
+    if (candidate.isEmpty())
+        return false;
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (!obj.value(QStringLiteral("linkDead")).toBool())
+        return true;
+    // The mark describes the STORED url. A candidate the user has typed or
+    // accepted since is a different url and inherits no verdict — the same
+    // reason setBlobLink drops the mark when the stored url changes.
+    return obj.value(QStringLiteral("link")).toString().trimmed() != candidate;
 }
 
 // Merge user edits into the blob's working keys. Only editableKeys() entries
@@ -210,19 +333,14 @@ inline QString stripCanonicalLink(const QString& blob)
 inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
 {
     if (isCorruptBlob(blob)) {
-        qWarning() << "BeanBaseBlob: refusing merge into corrupt blob (kept unchanged)";
-        return blob;
+        return refuseCorruptBlob(blob, "merge into");
     }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     captureCanonicalIfNeeded(obj);
     for (const QString& key : editableKeys()) {
         if (!edits.contains(key))
             continue;
-        const QString value = edits.value(key).toString().trimmed();
-        if (value.isEmpty())
-            obj.remove(key);
-        else
-            obj[key] = value;
+        applyEditableKey(obj, key, edits.value(key).toString().trimmed());
     }
     if (obj.isEmpty())
         return QString();
@@ -266,8 +384,7 @@ inline ExtractionApplication applyExtraction(const QString& blob, const QVariant
                                              const QVariantMap& current = {})
 {
     if (isCorruptBlob(blob)) {
-        qWarning() << "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)";
-        return {blob, {}, {}};
+        return {refuseCorruptBlob(blob, "extraction into"), {}, {}};
     }
     // The extraction prompt's one name that is not a blob key. Aliased HERE so
     // that every caller of THIS function shares it rather than repeating it;
@@ -324,8 +441,7 @@ inline ExtractionApplication applyExtraction(const QString& blob, const QVariant
 inline QString revertToCanonical(const QString& blob)
 {
     if (isCorruptBlob(blob)) {
-        qWarning() << "BeanBaseBlob: refusing revert of corrupt blob (kept unchanged)";
-        return blob;
+        return refuseCorruptBlob(blob, "revert of");
     }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     if (obj.value(QStringLiteral("id")).toVariant().toString().isEmpty()
@@ -333,11 +449,7 @@ inline QString revertToCanonical(const QString& blob)
         return blob;
     const QJsonObject snapshot = obj.value(QStringLiteral("canonical")).toObject();
     for (const QString& key : editableKeys()) {
-        const QString value = snapshot.value(key).toString();
-        if (value.isEmpty())
-            obj.remove(key);
-        else
-            obj[key] = value;
+        applyEditableKey(obj, key, snapshot.value(key).toString());
     }
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }

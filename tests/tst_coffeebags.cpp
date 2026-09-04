@@ -2724,7 +2724,7 @@ private slots:
     // the permissive answer — it exports the borrowed id and lets the server
     // rename the shot, which is the whole defect.
     void aCorruptBlobIsTreatedAsConflicted() {
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("corrupt blob"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("[Cc]orrupt blob"));
         QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(
             QStringLiteral("{\"id\":\"canon-coava\",\"roasterName\":"),  // truncated
             {QStringLiteral("Stavanger Kaffebrenneri"), QStringLiteral("Las Capucas")}));

@@ -117,7 +117,7 @@ public:
     //     the same dead URL from the canonical API); an archive fault is
     //     neither, so a later session retries.
     //   • transient error (timeout/DNS/5xx) → neither, so it can retry later.
-    // One GET per canonical id per session; BagCard additionally gates on a
+    // One GET per (canonical id, url) per session; BagCard additionally gates on a
     // persisted linkChecked marker so it is genuinely once-per-bag, not a
     // per-view probe. Independent of the image cache, so previewing a result
     // (which caches the photo) can't cause the validation to be skipped.
@@ -162,6 +162,13 @@ public:
     // production caller takes the default.
     static bool isArchiveUrl(const QString& url, const QString& host = archiveSnapshotHost());
 
+    // Whether a failed page fetch is worth asking the archive about. Pure and
+    // public because a plain-HTTP loopback stub cannot reach this decision:
+    // parseArchiveSnapshot upgrades a capture URL to https, so the retry never
+    // lands on the stub and `status` short-circuits the gate before the caller's
+    // own flag is read — which made the network form of this test unfailable.
+    static bool archiveRetryApplies(int httpStatus, bool archiveFallback);
+
     // The `id_` form of a snapshot URL: the ORIGINAL page bytes, with no
     // archive toolbar and no URL rewriting, so og:image already names the
     // roaster's own asset and the extraction text carries no archive chrome.
@@ -188,6 +195,23 @@ public:
     // string→string; no instance state.
     Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
+    // Write `link` and drop the marks describing whatever URL it replaces —
+    // see BeanBaseBlob::setBlobLink for why. A writer that is SETTING the marks
+    // wants blobWithLinkVerdict below instead; between them they are every path
+    // that writes `link`.
+    Q_INVOKABLE static QString blobWithLink(const QString& blob, const QString& link);
+    // The link check's verdict: `dead` buries the URL, otherwise it stands as
+    // checked and alive. Separate from blobWithLink because setBlobLink DROPS
+    // the marks and this one is SETTING them. Both refuse a corrupt blob, which
+    // is why QML callers must pass the blob AS STORED and never a re-serialized
+    // parse of it: a failed `JSON.parse` yields {}, which is valid JSON and
+    // would sail past the guard, replacing the row with an empty object.
+    Q_INVOKABLE static QString blobWithLinkVerdict(const QString& blob, const QString& link,
+                                                   bool dead);
+    // Pure, so a QML binding tracks its ARGUMENTS: reading fBeanBaseData and
+    // fLink at the call site is what makes the binding re-evaluate, which a
+    // binding over a Q_INVOKABLE alone would not do.
+    Q_INVOKABLE static bool linkIsUsable(const QString& blob, const QString& link);
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
     // Apply AI-extracted page values to a blob: fill empty fields, correct
     // values that came from Bean Base, never touch a value the user typed. See
@@ -301,10 +325,17 @@ private:
     // answered (archive fault, or never asked) and carries no verdict.
     void queryArchiveSnapshot(const QString& canonicalId, const QString& productUrl,
                               std::function<void(const QString&, bool)> done);
-    // The availability request itself, with no guard: the two callers gate it
-    // differently (once per bag; once per URL) but ask the same question.
+    // The availability request itself, with no guard of its own. Three callers
+    // gate it differently and ask the same question: queryArchiveSnapshot once
+    // per (bag, url), the link-state probe once per url, and the extraction
+    // fallback not at all — a user who presses Get info twice asked twice.
     void fetchArchiveAvailability(const QString& productUrl,
                                   std::function<void(const QString&, bool)> done);
+    // The page-text GET itself. `reportUrl` is what the signals echo, so the
+    // caller matches on the URL it asked for however the fetch was redirected
+    // through the archive. `archiveFallback` is false on the retry, which is
+    // what bounds the recursion at one extra fetch.
+    void requestPageText(const QString& fetchUrl, const QString& reportUrl, bool archiveFallback);
     void startLinkStateProbe(const QString& url, bool useGet);
     void finishLinkStateProbe(const QString& url, const QString& state);
     // fallbackImageUrl is tried whenever the first URL yields nothing usable
@@ -333,8 +364,17 @@ private:
     QString m_imageCacheDir;
     QSet<QString> m_imageAttempted;
     QSet<QString> m_linkAttempted;
-    QSet<QString> m_linkValidated;  // validateBagLink: one GET per id per session
-    QSet<QString> m_archiveAttempted;  // lookupArchivedLink: one query per id per session
+    // Both guards ask "have we already asked THIS question", and the question
+    // is about a URL, not a bag: keyed on the id alone they also refuse a
+    // different URL on the same bag, which is exactly what a revert or an
+    // accepted AI suggestion produces. `linkGuardKey` builds the composite.
+    QSet<QString> m_linkValidated;   // validateBagLink: one GET per (id, url) per session
+    QSet<QString> m_archiveAttempted;  // queryArchiveSnapshot: one query per (id, url) per session
+    static QString linkGuardKey(const QString& canonicalId, const QString& url) {
+        // Canonical ids are UUIDs and urls are http(s), so neither part can
+        // contain the separator and no two distinct inputs share a key.
+        return canonicalId + QLatin1Char('\n') + url.trimmed();
+    }
 
     // Link state per URL, for result ordering. Session-lifetime.
     QHash<QString, QString> m_linkStateByUrl;

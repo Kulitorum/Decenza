@@ -26,6 +26,15 @@ T.Page {
 
 
     property var inventoryBags: []
+    // "No bags yet" is a fact about the DATABASE, and until the async read
+    // answers we do not have it. Rendering the empty state from the initial []
+    // told every user with bags that they had none, for as long as the read
+    // took — the page opened on its own failure message and then corrected
+    // itself.
+    // "loading" until the read terminates, then "ready" or "failed". A failed
+    // read is not an empty one: rendering the empty state for it would claim
+    // the user has no bags, and rendering nothing is worse still.
+    property string inventoryState: "loading"
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
@@ -36,6 +45,10 @@ T.Page {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
             bagInventoryPage.inventoryBags = bags
+            bagInventoryPage.inventoryState = "ready"
+        }
+        function onInventoryFailed() {
+            bagInventoryPage.inventoryState = "failed"
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
@@ -116,9 +129,26 @@ T.Page {
                 }
             }
 
+            // The read failed — say so rather than claiming there are no bags.
+            Tr {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.scaled(40)
+                visible: bagInventoryPage.inventoryState === "failed"
+                         && bagInventoryPage.inventoryBags.length === 0
+                key: "beaninfo.inventory.unavailable"
+                fallback: "Couldn't read your bags — the bean database didn't open."
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
             // Empty state
             ColumnLayout {
-                visible: bagInventoryPage.inventoryBags.length === 0
+                visible: bagInventoryPage.inventoryState === "ready"
+                         && bagInventoryPage.inventoryBags.length === 0
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.scaled(40)
                 spacing: Theme.spacingSmall

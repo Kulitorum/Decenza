@@ -111,6 +111,12 @@ COVERED_GLOBS = [
     # usually explains the other.
     "src/network/mdnsresolver.cpp",
     "src/core/settings_hardware.cpp",
+    # Wholly about the coffee-bag detail pipeline: canonical search, the product
+    # URL's state, archive recovery, page extraction and the image cache. Covered
+    # rather than marker-only because every log line in it is a [BeanBase] line —
+    # and it shipped with TWO hand-rolled prefixes ("BeanBaseClient:" and
+    # "BeanBase:") across twelve calls, so no single grep returned the story.
+    "src/network/beanbaseclient.cpp",
     # Wholly about sensor calibration: every line in it is either a refused
     # correction and why, or a correction being applied with the pair it was
     # computed from. That is the whole answer to "why can I not apply a
@@ -194,6 +200,10 @@ MARKER_ONLY_GLOBS = [
     # rule 6 existing rather than for adding files by hand.
     "src/core/settings_theme.cpp",
     "src/screensaver/iosbrightness.mm",
+    # Hosts the [BeanBase][FindPage] decline line beside the advisor, the
+    # conversation store and every provider dispatch, none of which is the bag
+    # pipeline — marker-only for exactly that reason.
+    "src/ai/aimanager.cpp",
     # Hosts two subsystems' lines: [Equipment][Migration] (the constructor's
     # adoption of the package migration 35/36 healed) and [DE1][SettingsDrift]
     # (the ShotSettings resend ladder in onShotSettingsReported). Both sit beside

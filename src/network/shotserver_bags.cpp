@@ -789,7 +789,7 @@ QString ShotServer::generateBeansPage() const
           </div>
         </div>
         <div class="actions"><button id="btnFindPage" onclick="findProductPage()" style="display:none">Find the product page</button></div>
-        <script>document.addEventListener('input', e => { if (e.target && e.target.id === 'dLink') refreshFindPageButton(); });</script>
+        <script>document.addEventListener('input', e => { if (e.target && e.target.id === 'dLink') { onLinkEdited(); } });</script>
         <!-- Directly under the button that writes to it: the dialog scrolls
              (max-height 88vh) and on a phone anything further down is below the
              fold exactly when it matters. role/aria-live so a screen reader
@@ -1249,6 +1249,10 @@ QString ShotServer::generateBeansPage() const
             if (r.roastName) el('fCoffee').value = r.roastName;
             COFFEE_KEYS.concat(LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
             el('searchResults').style.display = 'none';
+            // The pick just wrote dLink programmatically, which fires no input
+            // event — without this the buttons keep describing the bag as it
+            // was BEFORE the link, hiding Get info on a url that now works.
+            refreshFindPageButton();
             editorStatus('Linked to Bean Base — review and Save.');
         }
 
@@ -1257,13 +1261,40 @@ QString ShotServer::generateBeansPage() const
         // the bag has never been searched; the web editor has no such marker to
         // read, and a paid call must not fire on every page load.
         let foundPageUrl = '';
+        // BeanBaseBlob::linkIsUsable, restated here because this runs in the
+        // browser and cannot call it. Keep the two in step: a DEAD url is not a
+        // page to read, so it takes the search's side, not the extraction's,
+        // and the verdict only covers the url it was about — one the user has
+        // since edited carries none.
+        function linkIsUsable() {
+            const candidate = el('dLink').value.trim();
+            if (!candidate) return false;
+            if (editBlob.linkDead !== true) return true;
+            return String(editBlob.link || '').trim() !== candidate;
+        }
+        // A typed url is a different url, so the marks describing the old one
+        // go. Only when it actually differs from the stored one: this fires per
+        // keystroke, and editing a dead url back to itself must not clear the
+        // verdict — it is still that url. `beanBaseData` is a pass-through field
+        // on save, so nothing on the server re-applies this; the deletes here
+        // are what persists.
+        function onLinkEdited() {
+            const candidate = el('dLink').value.trim();
+            if (String(editBlob.link || '').trim() !== candidate) {
+                delete editBlob.linkDead;
+                delete editBlob.linkChecked;
+            }
+            refreshFindPageButton();
+        }
         function refreshFindPageButton() {
-            const btn = el('btnFindPage');
-            if (!btn) return;
-            // Shown whenever the bag has no URL. Whether an AI provider is
-            // configured is the server's answer to give, exactly as it is for
-            // "Get info from page" beside it — the page has no such flag.
-            btn.style.display = el('dLink').value.trim() ? 'none' : '';
+            const find = el('btnFindPage');
+            const get = el('btnGetInfo');
+            // Whether an AI provider is configured is the server's answer to
+            // give — the page has no such flag, so both buttons show and the
+            // request reports it.
+            const usable = linkIsUsable();
+            if (find) find.style.display = usable ? 'none' : '';
+            if (get) get.style.display = usable ? '' : 'none';
         }
         function findProductPage() {
             const roaster = el('fRoaster').value.trim();
@@ -1301,9 +1332,15 @@ QString ShotServer::generateBeansPage() const
         }
         function useFoundPage() {
             el('dLink').value = foundPageUrl;
+            // Through onLinkEdited, which a programmatic value write does not
+            // fire: it owns dropping the verdict, and only when the url really
+            // differs — accepting a suggestion identical to the stored dead one
+            // must not clear a verdict that still applies.
+            onLinkEdited();
             dismissFoundPage();
-            refreshFindPageButton();
-            editorStatus('Product page set — Get info from page, then Save.');
+            // Read it now rather than asking for a second click: finding the
+            // page was never the goal, the details on it were.
+            extractInfo();
         }
         function dismissFoundPage() {
             foundPageUrl = '';

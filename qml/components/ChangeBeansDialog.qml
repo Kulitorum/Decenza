@@ -172,16 +172,36 @@ DecenzaDialog {
     // A found URL is probed before it is offered: the user must not be asked to
     // confirm a page that is already gone.
     property string _pendingSuggestion: ""
-    // The search's own status line. NOT infoStatus: that one lives in the
-    // "Get info from page" row, which is hidden unless a URL is present — and
-    // the search only runs when there is none, so a provider error written
-    // there could never be seen.
+    // The search's own status line, separate from infoStatus: finding a page
+    // and reading it are two stages of one press, and collapsing them into one
+    // line means the search result is overwritten the moment the read starts.
     property string findPageStatus: ""
     // URL captured at click time — completion signals are gated on THIS, not
     // the live field: editing the URL mid-fetch must neither wedge the busy
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
     // wasn't requested for.
     property string _fetchUrl: ""
+    // Set while a search the USER asked for is in flight. It decides two things
+    // that always coincide: read the found page on accept rather than asking for
+    // a second press, and say so when the search comes back empty.
+    property bool _explicitSearch: false
+
+    // The rule and its reasons live in BeanBaseBlob::linkIsUsable, and this
+    // calls it rather than restating it — a second copy drifted from the first
+    // within a day of being written (the stored link untrimmed on one side).
+    // The binding tracks the ARGUMENTS: reading fBeanBaseData and fLink here is
+    // what re-evaluates it, which a binding over the Q_INVOKABLE alone wouldn't.
+    readonly property bool linkIsUsable:
+        MainController.beanbase.linkIsUsable(root.fBeanBaseData, root.fLink)
+
+    // supportsProductPageSearch() is Q_INVOKABLE, so a binding over it records
+    // no dependency; reading `selectedProvider` (NOTIFY providerChanged) is what
+    // re-evaluates this on a provider switch, and is a real condition too.
+    readonly property bool canFindProductPage:
+        MainController.aiManager
+        && MainController.aiManager.isConfigured
+        && String(MainController.aiManager.selectedProvider).length > 0
+        && MainController.aiManager.supportsProductPageSearch()
 
     // Stable failure codes from the C++ layers -> translated messages; other
     // strings (Qt transport errors, provider errors) pass through verbatim.
@@ -421,30 +441,90 @@ DecenzaDialog {
     // the configured provider to find the product page. Once per bag per
     // dialog session — every run is a paid call — and only for a bag actually
     // being edited, so spend tracks what the user is looking at.
+    //
+    // Every decline below the re-entry guard is logged: these gates used to
+    // return in silence, so a submitted log could not answer "did the app try?"
     function maybeFindProductPage() {
         if (root._pageSearchDone || root._searchingForPage)
             return
-        if (root.fLink.trim().length > 0)
+        if (root.linkIsUsable) {
+            root.noteSearchDeclined("link usable")
             return
+        }
         // Its own key, NOT linkDead. linkDead means "the stored URL died", and a
         // bag in exactly that state — delisted roaster, no archive capture — is
         // the one this rung exists for; reusing it locked the search out of the
         // case that motivated the feature.
-        if (root.formBeanBase.aiPageSearched)
+        if (root.formBeanBase.aiPageSearched) {
+            root.noteSearchDeclined("already searched")
             return
-        if (!MainController.aiManager || !MainController.aiManager.isConfigured
-                || !MainController.aiManager.supportsProductPageSearch())
+        }
+        if (!root.canFindProductPage) {
+            root.noteSearchDeclined(MainController.aiManager && MainController.aiManager.isConfigured
+                                    ? "provider cannot search" : "no provider")
             return
-        if (root.fRoaster.trim().length === 0 || root.fCoffee.trim().length === 0)
-            return
+        }
         root._pageSearchDone = true
+        root.startProductPageSearch(false)
+    }
+
+    // The honest empty answer, remembered so the same question is never bought
+    // twice. Silent for the automatic rung, which the user did not ask for — a
+    // press that produced no visible result reads as a broken button.
+    function reportNoProductPage() {
+        if (root._explicitSearch)
+            root.findPageStatus = TranslationManager.translate(
+                "changebeans.form.findPage.notFound",
+                "Couldn't find a product page for this bag")
+        root._explicitSearch = false
+        root.markNoProductPage()
+    }
+
+    function noteSearchDeclined(reason) {
+        if (MainController.aiManager && MainController.aiManager.logProductPageSearchDeclined !== undefined)
+            MainController.aiManager.logProductPageSearchDeclined(reason)
+    }
+
+    // The request itself, shared by the automatic rung above and the explicit
+    // press below. Deliberately does NOT consult `aiPageSearched` or
+    // `_pageSearchDone`: those cap AUTOMATIC spending, and refusing a user who
+    // pressed the button is not what they protect.
+    //
+    // `explicit_` decides who is owed an explanation: the automatic rung declines
+    // quietly (the user did not ask), a press must never end with nothing on
+    // screen. The function owns the flag — a caller that set it could strand it
+    // on a decline, and a later accepted suggestion would then extract unasked.
+    function startProductPageSearch(explicit_) {
+        root._explicitSearch = false
+        if (root._searchingForPage)
+            return
+        if (root.fRoaster.trim().length === 0 || root.fCoffee.trim().length === 0) {
+            root.noteSearchDeclined("identity incomplete")
+            if (explicit_)
+                root.findPageStatus = TranslationManager.translate(
+                    "changebeans.form.findPage.needIdentity",
+                    "Enter the roaster and coffee first")
+            return
+        }
+        root._explicitSearch = explicit_
         root._searchingForPage = true
+        root.findPageStatus = ""
         root._pageSearchSeq++
         // The bag id and a counter, so a reply for a bag the user has moved on
         // from is discarded even when the next bag is the same coffee.
         root._pageSearchToken = "findpage:" + root.editBagId + ":" + root._pageSearchSeq
         MainController.aiManager.findProductPage(
             root._pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind)
+    }
+
+    // Read the page at `url`: the second half of Get info, entered either
+    // directly (the bag already has a URL) or after a search found one.
+    function startPageExtraction(url) {
+        root.fetchingInfo = true
+        root._fetchUrl = url
+        root.infoStatus = TranslationManager.translate(
+            "changebeans.form.getInfo.fetching", "Reading page…")
+        MainController.beanbase.fetchPageText(root._fetchUrl)
     }
 
     // The user-facing name of a blob detail key, for the correction report —
@@ -485,7 +565,7 @@ DecenzaDialog {
         // feature to a flaky network and tells the user nothing.
         if (state === "none") {
             root._pendingSuggestion = ""
-            root.markNoProductPage()
+            root.reportNoProductPage()
             return
         }
         root._suggestedUrl = root._pendingSuggestion
@@ -573,6 +653,7 @@ DecenzaDialog {
         _pageSearchToken = ""
         _searchingForPage = false
         _pageSearchDone = false
+        _explicitSearch = false
         errorMessage = ""
     }
 
@@ -1504,18 +1585,20 @@ DecenzaDialog {
                         function onProductPageSearchFailed(requestToken, error) {
                             if (requestToken !== root._pageSearchToken) return
                             root._searchingForPage = false
+                            var wasExplicit = root._explicitSearch
                             if (error === "notFound") {
-                                // The honest empty answer: silent (the user did
-                                // not ask for this rung), and remembered, so the
-                                // same question is never bought twice.
-                                root.markNoProductPage()
+                                root.reportNoProductPage()
                                 return
                             }
+                            root._explicitSearch = false
                             if (error === "busy") {
                                 // Another AI request happened to be in flight.
                                 // Transient, and nothing was spent — so it must
-                                // not consume the one-shot.
+                                // not consume the one-shot. A press still gets
+                                // told, or the button reads as broken.
                                 root._pageSearchDone = false
+                                if (wasExplicit)
+                                    root.findPageStatus = root.infoErrorText("busy")
                                 return
                             }
                             // notConfigured / webSearchUnsupported / a provider
@@ -1921,9 +2004,14 @@ DecenzaDialog {
                                         "changebeans.form.findPage.use.accessible",
                                         "Use the product page the AI found for this bag")
                                     onClicked: {
-                                        root.fLink = root._suggestedUrl
+                                        var accepted = root._suggestedUrl
+                                        root.fLink = accepted
                                         root.fLinkDirty = true
                                         root._suggestedUrl = ""
+                                        if (root._explicitSearch) {
+                                            root._explicitSearch = false
+                                            root.startPageExtraction(accepted.trim())
+                                        }
                                     }
                                 }
                                 AccessibleButton {
@@ -1931,7 +2019,10 @@ DecenzaDialog {
                                     accessibleName: TranslationManager.translate(
                                         "changebeans.form.findPage.dismiss.accessible",
                                         "Dismiss the suggested product page")
-                                    onClicked: root._suggestedUrl = ""
+                                    onClicked: {
+                                        root._suggestedUrl = ""
+                                        root._explicitSearch = false
+                                    }
                                 }
 
                                 Item { Layout.fillWidth: true }
@@ -1942,27 +2033,43 @@ DecenzaDialog {
                         // fetch the page text, let the configured AI pull out
                         // the details, then fill what is empty and correct what
                         // came from Bean Base (never what the user typed).
-                        // Hidden without a URL or a configured AI provider.
+                        // Needs a configured provider either way: without one
+                        // the press would spend a page fetch to render "No AI
+                        // provider configured".
                         RowLayout {
                             Layout.leftMargin: Theme.scaled(20)
                             Layout.rightMargin: Theme.scaled(20)
                             spacing: Theme.scaled(10)
-                            visible: root.fLink.trim().length > 0
-                                && MainController.aiManager && MainController.aiManager.isConfigured
+                            // canFindProductPage carries the configured-provider
+                            // test, so the link arm is the only one that needs it.
+                            visible: root.canFindProductPage
+                                     || (root.linkIsUsable && MainController.aiManager
+                                         && MainController.aiManager.isConfigured)
 
                             AccessibleButton {
-                                enabled: !root.fetchingInfo
-                                text: TranslationManager.translate("changebeans.form.getInfo", "Get info from page")
-                                accessibleName: TranslationManager.translate("changebeans.form.getInfo.accessible",
-                                    "Fetch the product page and fill empty bean detail fields using AI")
+                                enabled: !root.fetchingInfo && !root._searchingForPage
+                                // Two modes, one intent. With a URL the action
+                                // reads that page; without one it finds the page
+                                // first, which is worth saying so the press is
+                                // not mistaken for a no-op while the search runs.
+                                text: root.linkIsUsable
+                                    ? TranslationManager.translate("changebeans.form.getInfo", "Get info from page")
+                                    : TranslationManager.translate("changebeans.form.getInfo.findFirst",
+                                        "Find page & get info")
+                                accessibleName: root.linkIsUsable
+                                    ? TranslationManager.translate("changebeans.form.getInfo.accessible",
+                                        "Fetch the product page and fill empty bean detail fields using AI")
+                                    : TranslationManager.translate("changebeans.form.getInfo.findFirst.accessible",
+                                        "Ask the AI to find this bag's product page, then fill empty bean detail fields from it")
                                 onClicked: {
-                                    root.fetchingInfo = true
-                                    root._fetchUrl = root.fLink.trim()
-                                    root.infoStatus = TranslationManager.translate(
-                                        "changebeans.form.getInfo.fetching", "Reading page…")
-                                    // The bag kind selects the extraction
-                                    // vocabulary (tea: teaType + brewing data).
-                                    MainController.beanbase.fetchPageText(root._fetchUrl)
+                                    if (root.linkIsUsable) {
+                                        root.startPageExtraction(root.fLink.trim())
+                                        return
+                                    }
+                                    // No URL: find one, then read it on accept.
+                                    // The press is explicit, so it is not capped
+                                    // by the once-per-bag automatic marker.
+                                    root.startProductPageSearch(true)
                                 }
                             }
 

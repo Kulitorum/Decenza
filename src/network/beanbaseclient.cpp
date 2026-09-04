@@ -1,5 +1,6 @@
 #include "beanbaseclient.h"
 #include "beanbase_blob.h"
+#include "core/beanbaselogging.h"
 
 #include <QDebug>
 #include <QDir>
@@ -276,7 +277,7 @@ void BeanBaseClient::startBagImageResolve(const QString& canonicalId,
         // A corrupt canonical id, not an expected miss — the caller believes
         // this bag has a photo and will wait forever for a signal that is
         // never coming, so say so rather than bailing mutely.
-        qWarning() << "BeanBaseClient: refusing unsafe bag image cache key" << canonicalId;
+        BEANBASE_WARN_STDERR("Image", QStringLiteral("Refusing unsafe cache key %1").arg(canonicalId));
         return;
     }
 
@@ -399,12 +400,12 @@ void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& 
     // snapshot 404, leave the bag re-probing every session forever.
     if (isArchiveUrl(productUrl))
         return;
-    if (m_linkValidated.contains(canonicalId))
+    if (m_linkValidated.contains(linkGuardKey(canonicalId, productUrl)))
         return;
     const QUrl url(productUrl);
     if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))
         return;
-    m_linkValidated.insert(canonicalId);
+    m_linkValidated.insert(linkGuardKey(canonicalId, productUrl));
 
     QNetworkRequest request{url};
     request.setTransferTimeout(kTransferTimeoutMs);
@@ -515,8 +516,8 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
             // saying, because the bag will show a placeholder forever.
             if (reply->error() == QNetworkReply::NoError && !bytes.isEmpty()
                 && bytes.size() <= kBagImageMaxBytes)
-                qWarning() << "BeanBase: refusing unusable bag image" << contentType
-                           << bytes.size() << "bytes";
+                BEANBASE_WARN_STDERR("Image", QStringLiteral("Refusing unusable image: %1, %2 bytes")
+                                                  .arg(contentType).arg(bytes.size()));
             return;
         }
 
@@ -533,7 +534,7 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
         QPointer<BeanBaseClient> self(this);
         QThread* worker = QThread::create([bytes, dir, path]() {
             if (!QDir().mkpath(dir)) {
-                qWarning() << "BeanBase: cannot create bag image cache dir" << dir;
+                BEANBASE_WARN_STDERR("Image", QStringLiteral("Cannot create cache dir %1").arg(dir));
                 return;
             }
             // QSaveFile, not QFile+rename: it commits atomically OVER an
@@ -549,7 +550,8 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
                 // A local disk fault (full disk, permissions) — unlike the
                 // expected network/og:image misses, this is worth a log line.
                 // QSaveFile discards its own temp file on a failed commit.
-                qWarning() << "BeanBase: bag image write failed" << path << f.errorString();
+                BEANBASE_WARN_STDERR("Image", QStringLiteral("Write failed for %1 - %2")
+                                                  .arg(path, f.errorString()));
                 return;
             }
             // Keep the cache a cache: evict oldest-written files beyond the
@@ -567,7 +569,7 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
                 if (fi.filePath() == path)
                     continue;
                 if (!QFile::remove(fi.filePath())) {
-                    qWarning() << "BeanBase: bag image cache eviction failed" << fi.filePath();
+                    BEANBASE_WARN_STDERR("Image", QStringLiteral("Eviction failed for %1").arg(fi.filePath()));
                     continue;  // Don't credit the failed removal against the cap.
                 }
                 total -= fi.size();
@@ -594,6 +596,18 @@ QVariantMap BeanBaseClient::applyExtraction(const QString& blob, const QVariantM
             {QStringLiteral("corrections"), out.corrections}};
 }
 
+bool BeanBaseClient::linkIsUsable(const QString& blob, const QString& link) {
+    return BeanBaseBlob::linkIsUsable(blob, link);
+}
+
+QString BeanBaseClient::blobWithLink(const QString& blob, const QString& link) {
+    return BeanBaseBlob::blobWithLink(blob, link);
+}
+
+QString BeanBaseClient::blobWithLinkVerdict(const QString& blob, const QString& link, bool dead) {
+    return BeanBaseBlob::blobWithLinkVerdict(blob, link, dead);
+}
+
 QString BeanBaseClient::revertToCanonical(const QString& blob) {
     return BeanBaseBlob::revertToCanonical(blob);
 }
@@ -609,7 +623,7 @@ void BeanBaseClient::fetchPageText(const QString& url) {
     if (!parsed.isValid() || !parsed.scheme().startsWith(QLatin1String("http"))) {
         // The http(s)-only gate matters: the URL is user-entered and the text
         // goes to a third-party AI provider — a file:// URL must never be read.
-        qWarning() << "BeanBaseClient: fetchPageText rejected non-http url" << url;
+        BEANBASE_WARN_STDERR("Extract", QStringLiteral("Rejected non-http url %1").arg(url));
         QPointer<BeanBaseClient> self(this);
         QMetaObject::invokeMethod(this, [self, url]() {
             if (self)
@@ -621,16 +635,62 @@ void BeanBaseClient::fetchPageText(const QString& url) {
     // free of the archive's own toolbar markup, which would otherwise reach the
     // AI as page text. `url` is still what is echoed back on the signals, so
     // the caller matches on the URL it asked for.
-    QNetworkRequest request(QUrl(archiveRawForm(url)));
+    //
+    // A URL that is already a snapshot has nowhere further to fall back to, so
+    // it asks the archive nothing.
+    requestPageText(archiveRawForm(url), url, !isArchiveUrl(url));
+}
+
+// static
+bool BeanBaseClient::archiveRetryApplies(int httpStatus, bool archiveFallback) {
+    // Only 404/410 asks the archive. Every other failure — a timeout, a DNS
+    // error, a 5xx, a 403 — leaves the page's own error standing: none of them
+    // says the page is DELISTED, and answering them from a years-old snapshot
+    // would hide a broken connection behind stale content.
+    return archiveFallback && (httpStatus == 404 || httpStatus == 410);
+}
+
+void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& reportUrl,
+                                     bool archiveFallback) {
+    QNetworkRequest request{QUrl(fetchUrl)};
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, reportUrl, archiveFallback]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "BeanBaseClient: fetchPageText failed for" << url << "-" << reply->errorString();
-            emit pageTextFailed(url, reply->errorString());
+            const QString pageError = reply->errorString();
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (archiveRetryApplies(status, archiveFallback)) {
+                fetchArchiveAvailability(
+                    reportUrl, [this, reportUrl, pageError](const QString& snapshot, bool answered) {
+                        if (!snapshot.isEmpty()) {
+                            // reportUrl, not the snapshot: the caller gates
+                            // completion on the URL it sent. `false`: a snapshot
+                            // that is itself gone ends the line, never a chain.
+                            requestPageText(archiveRawForm(snapshot), reportUrl, false);
+                            return;
+                        }
+                        // The USER is told about the page either way: nothing
+                        // here marks a bag dead, so the fault/miss distinction
+                        // carries no consequence for them, and naming the
+                        // archive would point them at a service they never
+                        // asked about. The LOG keeps it, because "no capture"
+                        // and "the archive refused to answer" send a reader to
+                        // different places — a rate limit succeeds on retry.
+                        BEANBASE_WARN_STDERR("Extract",
+                            QStringLiteral("%1 unreadable, %2 - %3")
+                                .arg(reportUrl,
+                                     answered ? QStringLiteral("no archived copy")
+                                              : QStringLiteral("archive gave no answer"),
+                                     pageError));
+                        emit pageTextFailed(reportUrl, pageError);
+                    });
+                return;
+            }
+            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 unreadable - %2").arg(reportUrl, pageError));
+            emit pageTextFailed(reportUrl, pageError);
             return;
         }
         // A PDF/image/zip URL would decode to replacement-character soup that
@@ -641,8 +701,9 @@ void BeanBaseClient::fetchPageText(const QString& url) {
             && !contentType.startsWith(QLatin1String("text/"))
             && !contentType.contains(QLatin1String("html"), Qt::CaseInsensitive)
             && !contentType.contains(QLatin1String("xml"), Qt::CaseInsensitive)) {
-            qWarning() << "BeanBaseClient: fetchPageText got non-text content" << contentType << "for" << url;
-            emit pageTextFailed(url, QStringLiteral("notAWebPage"));
+            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 is not a web page (%2)")
+                                                .arg(reportUrl, contentType));
+            emit pageTextFailed(reportUrl, QStringLiteral("notAWebPage"));
             return;
         }
         // The 15 s transfer timeout bounds time, not bytes — cap the body so
@@ -655,11 +716,11 @@ void BeanBaseClient::fetchPageText(const QString& url) {
         // Visualizer treats < 100 chars as "blocked or empty" and falls back
         // to a scraping proxy; we have no proxy, so it is simply a failure.
         if (text.size() < 100) {
-            qWarning() << "BeanBaseClient: fetchPageText got no readable text from" << url;
-            emit pageTextFailed(url, QStringLiteral("emptyPage"));
+            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 yielded no readable text").arg(reportUrl));
+            emit pageTextFailed(reportUrl, QStringLiteral("emptyPage"));
             return;
         }
-        emit pageTextReady(url, text);
+        emit pageTextReady(reportUrl, text);
     });
 }
 
@@ -776,7 +837,7 @@ QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
         // parse of its URL means this code is out of date, not that the page is
         // unarchived — and reporting a miss here would stamp dead a bag whose
         // capture demonstrably exists.
-        qWarning() << "BeanBase: availability API reported a capture at an unparseable URL" << url;
+        BEANBASE_WARN_STDERR("Archive", QStringLiteral("Availability API reported a capture at an unparseable URL %1").arg(url));
         return fault();
     }
     // The API answers in http even for an https capture; the app never stores
@@ -817,11 +878,11 @@ void BeanBaseClient::queryArchiveSnapshot(const QString& canonicalId, const QStr
     // an unasked question as "no capture".
     if (!isSafeCacheFilename(canonicalId) || !parsed.isValid()
         || !parsed.scheme().startsWith(QLatin1String("http")) || isArchiveUrl(target)
-        || m_archiveAttempted.contains(canonicalId)) {
+        || m_archiveAttempted.contains(linkGuardKey(canonicalId, target))) {
         done({}, false);
         return;
     }
-    m_archiveAttempted.insert(canonicalId);
+    m_archiveAttempted.insert(linkGuardKey(canonicalId, target));
     fetchArchiveAvailability(target, std::move(done));
 }
 
