@@ -49,6 +49,6 @@
 
 ## 8. Ship
 
-- [ ] 8.1 Open the PR.
-- [ ] 8.2 Run `/pr-review-toolkit:review-pr` and address the findings.
-- [ ] 8.3 Archive the change and sync specs as the final commit on the PR.
+- [x] 8.1 Open the PR.
+- [x] 8.2 Run `/pr-review-toolkit:review-pr` and address the findings.
+- [x] 8.3 Archive the change and sync specs as the final commit on the PR.
