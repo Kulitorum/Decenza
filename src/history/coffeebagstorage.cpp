@@ -326,10 +326,6 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 {
     if (m_dbPath.isEmpty()) {
         qWarning() << "CoffeeBagStorage: not initialized, dropping" << connPrefix;
-        // The caller's `done` never runs, so anything waiting on it waits
-        // forever; the inventory read is the one with a view gated on it.
-        if (connPrefix == QLatin1String("bags_inv"))
-            emit inventoryFailed();
         return;
     }
     if (!m_dbWorker)
@@ -339,6 +335,13 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 
 void CoffeeBagStorage::requestInventory()
 {
+    // runAsync silently drops the job when storage was never initialized, and a
+    // view gated on "have we loaded yet" would wait forever — the same guard
+    // requestCreateBag and requestUpdateBag carry, for the same reason.
+    if (m_dbPath.isEmpty()) {
+        emit inventoryFailed();
+        return;
+    }
     auto bags = std::make_shared<QVariantList>();
     runAsync("bags_inv",
         [bags](QSqlDatabase& db) {

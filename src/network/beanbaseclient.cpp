@@ -601,40 +601,11 @@ bool BeanBaseClient::linkIsUsable(const QString& blob, const QString& link) {
 }
 
 QString BeanBaseClient::blobWithLink(const QString& blob, const QString& link) {
-    if (BeanBaseBlob::isCorruptBlob(blob)) {
-        BEANBASE_WARN_STDERR("Blob", QStringLiteral("Refusing link write into corrupt blob (kept unchanged)"));
-        return blob;
-    }
-    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
-    BeanBaseBlob::setBlobLink(obj, link);
-    if (obj.isEmpty())
-        return QString();
-    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    return BeanBaseBlob::blobWithLink(blob, link);
 }
 
-QString BeanBaseClient::blobWithLinkState(const QString& blob, const QString& link,
-                                          bool checked, bool dead) {
-    if (BeanBaseBlob::isCorruptBlob(blob)) {
-        BEANBASE_WARN_STDERR("Blob", QStringLiteral("Refusing link-state write into corrupt blob (kept unchanged)"));
-        return blob;
-    }
-    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
-    const QString next = link.trimmed();
-    if (next.isEmpty())
-        obj.remove(QStringLiteral("link"));
-    else
-        obj[QStringLiteral("link")] = next;
-    if (checked)
-        obj[QStringLiteral("linkChecked")] = true;
-    else
-        obj.remove(QStringLiteral("linkChecked"));
-    if (dead)
-        obj[QStringLiteral("linkDead")] = true;
-    else
-        obj.remove(QStringLiteral("linkDead"));
-    if (obj.isEmpty())
-        return QString();
-    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+QString BeanBaseClient::blobWithLinkVerdict(const QString& blob, const QString& link, bool dead) {
+    return BeanBaseBlob::blobWithLinkVerdict(blob, link, dead);
 }
 
 QString BeanBaseClient::revertToCanonical(const QString& blob) {
@@ -671,21 +642,12 @@ void BeanBaseClient::fetchPageText(const QString& url) {
 }
 
 // static
-BeanBaseClient::PageRetry BeanBaseClient::pageRetryFor(int httpStatus, bool archiveFallback,
-                                                       const QString& reportUrl,
-                                                       const QString& snapshot) {
-    PageRetry retry;
+bool BeanBaseClient::archiveRetryApplies(int httpStatus, bool archiveFallback) {
     // Only 404/410 asks the archive. Every other failure — a timeout, a DNS
     // error, a 5xx, a 403 — leaves the page's own error standing: none of them
     // says the page is DELISTED, and answering them from a years-old snapshot
     // would hide a broken connection behind stale content.
-    retry.ask = archiveFallback && (httpStatus == 404 || httpStatus == 410);
-    if (!retry.ask || snapshot.isEmpty())
-        return retry;
-    retry.fetchUrl = archiveRawForm(snapshot);
-    retry.reportUrl = reportUrl;
-    retry.archiveFallback = false;
-    return retry;
+    return archiveFallback && (httpStatus == 404 || httpStatus == 410);
 }
 
 void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& reportUrl,
@@ -700,12 +662,14 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
         if (reply->error() != QNetworkReply::NoError) {
             const QString pageError = reply->errorString();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (pageRetryFor(status, archiveFallback, reportUrl, QString()).ask) {
+            if (archiveRetryApplies(status, archiveFallback)) {
                 fetchArchiveAvailability(
                     reportUrl, [this, reportUrl, pageError](const QString& snapshot, bool answered) {
-                        const PageRetry retry = pageRetryFor(404, true, reportUrl, snapshot);
                         if (!snapshot.isEmpty()) {
-                            requestPageText(retry.fetchUrl, retry.reportUrl, retry.archiveFallback);
+                            // reportUrl, not the snapshot: the caller gates
+                            // completion on the URL it sent. `false`: a snapshot
+                            // that is itself gone ends the line, never a chain.
+                            requestPageText(archiveRawForm(snapshot), reportUrl, false);
                             return;
                         }
                         // The USER is told about the page either way: nothing

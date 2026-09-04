@@ -1530,7 +1530,7 @@ private slots:
 
     void extractionRefusesACorruptBlob() {
         QTest::ignoreMessage(QtWarningMsg,
-            "BeanBaseBlob: refusing extraction into corrupt blob (kept unchanged)");
+            "[BeanBase][Blob] Refusing extraction into corrupt blob (kept unchanged)");
         const auto out = BeanBaseBlob::applyExtraction("not json", QVariantMap{{"origin", "Peru"}});
         QCOMPARE(out.blob, QString("not json"));
         QVERIFY(out.applied.isEmpty());
@@ -1562,14 +1562,14 @@ private slots:
         // it from the edits alone would silently discard the canonical link,
         // snapshot, and description while beanbase_id still claims a link.
         const QString truncated = "{\"id\":\"uuid-1\",\"origin\":\"Colo";
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing merge"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing merge into"));
         QCOMPARE(BeanBaseBlob::mergeBeanDetails(truncated, {{"origin", "Peru"}}), truncated);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing revert"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing revert of"));
         QCOMPARE(BeanBaseBlob::revertToCanonical(truncated), truncated);
         QVERIFY(!BeanBaseBlob::differsFromCanonical(truncated));
 
         const QString array = "[1,2,3]";
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing merge"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing merge into"));
         QCOMPARE(BeanBaseBlob::mergeBeanDetails(array, {{"origin", "Peru"}}), array);
 
         // Empty is NOT corrupt — the manual-details path must keep working.
@@ -1713,53 +1713,29 @@ private slots:
 
     // One extra fetch, never a chain: a snapshot that is itself gone is the end
     // of the line, not a second archive question.
-    // The retry decision, asserted directly. The network form of this test was
+    // The retry decision, asserted directly. The network form of this was
     // vacuous: parseArchiveSnapshot upgrades the capture URL to https, the stub
     // speaks plain HTTP, so the recovered fetch died on the handshake with
     // status 0 — which short-circuits the gate before archiveFallback is ever
     // read. Flipping the recursion bound to `true` left it green.
-    void pageRetryDecision_data() {
+    void archiveRetryApplies_data() {
         QTest::addColumn<int>("status");
         QTest::addColumn<bool>("archiveFallback");
-        QTest::addColumn<bool>("expectedAsk");
-        QTest::newRow("404 asks")            << 404 << true  << true;
-        QTest::newRow("410 asks")            << 410 << true  << true;
-        QTest::newRow("500 does not")        << 500 << true  << false;
-        QTest::newRow("503 does not")        << 503 << true  << false;
-        QTest::newRow("403 does not")        << 403 << true  << false;
-        QTest::newRow("429 does not")        << 429 << true  << false;
-        QTest::newRow("transport does not")  << 0   << true  << false;
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("404 asks")                << 404 << true  << true;
+        QTest::newRow("410 asks")                << 410 << true  << true;
+        QTest::newRow("500 does not")            << 500 << true  << false;
+        QTest::newRow("503 does not")            << 503 << true  << false;
+        QTest::newRow("403 does not")            << 403 << true  << false;
+        QTest::newRow("429 does not")            << 429 << true  << false;
+        QTest::newRow("transport does not")      << 0   << true  << false;
         QTest::newRow("404 on a retry does not") << 404 << false << false;
     }
-    void pageRetryDecision() {
+    void archiveRetryApplies() {
         QFETCH(int, status);
         QFETCH(bool, archiveFallback);
-        QFETCH(bool, expectedAsk);
-        const auto retry = BeanBaseClient::pageRetryFor(status, archiveFallback,
-                                                        "https://r.example/p", QString());
-        QCOMPARE(retry.ask, expectedAsk);
-    }
-
-    // The two things the network tests cannot see: the retry echoes the URL the
-    // CALLER asked for (the dialog gates completion on it, so a snapshot here
-    // would strand the extraction forever), and it clears the fallback flag.
-    void pageRetryCarriesTheRequestedUrlAndCannotRecurse() {
-        const QString asked = QStringLiteral("https://r.example/p");
-        const QString snapshot =
-            QStringLiteral("https://web.archive.org/web/20260106073238/https://r.example/p");
-        const auto retry = BeanBaseClient::pageRetryFor(404, true, asked, snapshot);
-        QVERIFY(retry.ask);
-        QCOMPARE(retry.reportUrl, asked);
-        QCOMPARE(retry.fetchUrl,
-                 QString("https://web.archive.org/web/20260106073238id_/https://r.example/p"));
-        QVERIFY2(!retry.archiveFallback, "one extra fetch, never a chain");
-    }
-
-    // An answered-but-empty archive produces no retry at all.
-    void pageRetryWithNoSnapshotDoesNotFetch() {
-        const auto retry = BeanBaseClient::pageRetryFor(404, true, "https://r.example/p", QString());
-        QVERIFY(retry.ask);
-        QVERIFY(retry.fetchUrl.isEmpty());
+        QFETCH(bool, expected);
+        QCOMPARE(BeanBaseClient::archiveRetryApplies(status, archiveFallback), expected);
     }
 
     // A URL that is ALREADY a snapshot has nowhere further to fall back to.
@@ -1840,26 +1816,26 @@ private slots:
     void linkWritersRefuseACorruptBlob() {
         const QString corrupt = QStringLiteral("{not json");
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("Refusing link write into corrupt blob"));
+            QRegularExpression("Refusing a link write into corrupt blob"));
         QCOMPARE(BeanBaseClient::blobWithLink(corrupt, "https://r.example/p"), corrupt);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("Refusing link-state write into corrupt blob"));
-        QCOMPARE(BeanBaseClient::blobWithLinkState(corrupt, "https://r.example/p", true, false),
+            QRegularExpression("Refusing a link-verdict write into corrupt blob"));
+        QCOMPARE(BeanBaseClient::blobWithLinkVerdict(corrupt, "https://r.example/p", false),
                  corrupt);
     }
 
     // The verdict writers set the marks setBlobLink drops, so they take the
     // other entry point — and it must actually stamp what it was asked for.
-    void blobWithLinkStateWritesTheMarksItIsGiven() {
+    void blobWithLinkVerdictWritesTheMarksItIsGiven() {
         const QString blob = QStringLiteral("{\"id\":\"c1\",\"link\":\"https://r.example/old\"}");
         const QJsonObject recovered = QJsonDocument::fromJson(
-            BeanBaseClient::blobWithLinkState(blob, "https://web.archive.org/web/1/https://r.example/old",
-                                              true, false).toUtf8()).object();
+            BeanBaseClient::blobWithLinkVerdict(
+                blob, "https://web.archive.org/web/1/https://r.example/old", false).toUtf8()).object();
         QVERIFY(recovered.value("linkChecked").toBool());
         QVERIFY(!recovered.contains("linkDead"));
 
         const QJsonObject dead = QJsonDocument::fromJson(
-            BeanBaseClient::blobWithLinkState(blob, "", true, true).toUtf8()).object();
+            BeanBaseClient::blobWithLinkVerdict(blob, "", true).toUtf8()).object();
         QVERIFY(!dead.contains("link"));
         QVERIFY(dead.value("linkDead").toBool());
         QVERIFY(dead.value("linkChecked").toBool());

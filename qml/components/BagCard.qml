@@ -131,8 +131,8 @@ Rectangle {
             if (blob.link === resolved && blob.linkChecked && blob.linkDead === undefined)
                 return
             MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkState(
-                    card.rawBeanBase, resolved, true, false) })
+                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
+                    card.rawBeanBase, resolved, false) })
         }
         // The dead URL had a capture: the snapshot becomes the bag's link, and
         // linkChecked is stamped so it is never probed (an archive URL is a
@@ -150,8 +150,8 @@ Rectangle {
             if (blob.link === link && blob.linkChecked && blob.linkDead === undefined)
                 return
             MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkState(
-                    card.rawBeanBase, link, true, false) })
+                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
+                    card.rawBeanBase, link, false) })
             // The photo attempt already made for this bag this session failed
             // against the dead URL and stamped the once-per-session guard, so
             // an ensure would no-op and the bag would stay photo-less until the
@@ -168,8 +168,8 @@ Rectangle {
             if (blob.link === undefined && blob.linkDead && blob.linkChecked)
                 return
             MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkState(
-                    card.rawBeanBase, "", true, true) })
+                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
+                    card.rawBeanBase, "", true) })
         }
     }
 

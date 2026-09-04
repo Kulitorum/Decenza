@@ -1332,12 +1332,12 @@ QString ShotServer::generateBeansPage() const
         }
         function useFoundPage() {
             el('dLink').value = foundPageUrl;
-            // The url is accepted, so whatever verdict stood against the old
-            // one no longer applies — same rule as BeanBaseBlob::setBlobLink.
-            delete editBlob.linkDead;
-            delete editBlob.linkChecked;
+            // Through onLinkEdited, which a programmatic value write does not
+            // fire: it owns dropping the verdict, and only when the url really
+            // differs — accepting a suggestion identical to the stored dead one
+            // must not clear a verdict that still applies.
+            onLinkEdited();
             dismissFoundPage();
-            refreshFindPageButton();
             // Read it now rather than asking for a second click: finding the
             // page was never the goal, the details on it were.
             extractInfo();

@@ -162,21 +162,12 @@ public:
     // production caller takes the default.
     static bool isArchiveUrl(const QString& url, const QString& host = archiveSnapshotHost());
 
-    // Whether a failed page fetch should be retried from the archive, and the
-    // request the retry makes. Pulled out as a pure function because the two
-    // things a network test cannot observe here both live in it: the retry
-    // carries the ORIGINAL reportUrl (the caller matches completion on the URL
-    // it sent) and clears the fallback flag (one extra fetch, never a chain).
-    // parseArchiveSnapshot upgrades a capture URL to https, so no plain-HTTP
-    // loopback stub can ever receive the retry and assert either one.
-    struct PageRetry {
-        bool ask = false;       // ask the archive about this failure at all
-        QString fetchUrl;       // what the retry GETs, once a snapshot is known
-        QString reportUrl;      // what the retry echoes on its signals
-        bool archiveFallback = false;  // always false: bounds the recursion
-    };
-    static PageRetry pageRetryFor(int httpStatus, bool archiveFallback,
-                                  const QString& reportUrl, const QString& snapshot);
+    // Whether a failed page fetch is worth asking the archive about. Pure and
+    // public because a plain-HTTP loopback stub cannot reach this decision:
+    // parseArchiveSnapshot upgrades a capture URL to https, so the retry never
+    // lands on the stub and `status` short-circuits the gate before the caller's
+    // own flag is read — which made the network form of this test unfailable.
+    static bool archiveRetryApplies(int httpStatus, bool archiveFallback);
 
     // The `id_` form of a snapshot URL: the ORIGINAL page bytes, with no
     // archive toolbar and no URL rewriting, so og:image already names the
@@ -206,17 +197,17 @@ public:
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
     // Write `link` and drop the marks describing whatever URL it replaces —
     // see BeanBaseBlob::setBlobLink for why. A writer that is SETTING the marks
-    // wants blobWithLinkState below instead; between them they are every path
+    // wants blobWithLinkVerdict below instead; between them they are every path
     // that writes `link`.
     Q_INVOKABLE static QString blobWithLink(const QString& blob, const QString& link);
-    // The link plus the marks that describe it, written together. The verdict
-    // writers need this because setBlobLink DROPS the marks — they are setting
-    // them. Empty `link` removes the key. Both refuse a corrupt blob, which is
-    // why callers must pass the blob AS STORED and never a re-serialized parse
-    // of it: a QML `JSON.parse` failure yields {}, which is valid JSON and
+    // The link check's verdict: `dead` buries the URL, otherwise it stands as
+    // checked and alive. Separate from blobWithLink because setBlobLink DROPS
+    // the marks and this one is SETTING them. Both refuse a corrupt blob, which
+    // is why QML callers must pass the blob AS STORED and never a re-serialized
+    // parse of it: a failed `JSON.parse` yields {}, which is valid JSON and
     // would sail past the guard, replacing the row with an empty object.
-    Q_INVOKABLE static QString blobWithLinkState(const QString& blob, const QString& link,
-                                                 bool checked, bool dead);
+    Q_INVOKABLE static QString blobWithLinkVerdict(const QString& blob, const QString& link,
+                                                   bool dead);
     // Pure, so a QML binding tracks its ARGUMENTS: reading fBeanBaseData and
     // fLink at the call site is what makes the binding re-evaluate, which a
     // binding over a Q_INVOKABLE alone would not do.
