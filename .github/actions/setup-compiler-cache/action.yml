@@ -48,7 +48,7 @@ runs:
     # changed the stored key shape would break that reclaim silently — which is
     # exactly how it broke the first time. Check the reclaim filter when bumping.
     - name: Set up ${{ inputs.variant }}
-      uses: hendrikmuhs/ccache-action@v1.2.23
+      uses: hendrikmuhs/ccache-action@v1.2.24
       with:
         variant: ${{ inputs.variant }}
         # Cold whenever the caller says use_cache is false, whatever the
