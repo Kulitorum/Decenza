@@ -56,6 +56,18 @@ Rectangle {
     }
     // The blob AS STORED, for the write paths. Never `JSON.stringify(beanBase)`.
     readonly property string rawBeanBase: bag && bag.beanBaseData ? String(bag.beanBaseData) : ""
+    // A dead link is retained, so "has a link" no longer means "has one worth
+    // using". BeanBaseBlob::linkIsUsable is the rule; this reads the same two
+    // fields so the binding tracks them.
+    readonly property bool linkIsUsable:
+        MainController.beanbase.linkIsUsable(rawBeanBase, String(beanBase.link || ""))
+    // What the link check and its answers are keyed on. A manual bag has no
+    // canonical id but still has a URL that can die, so it uses the same
+    // `bag-<rowid>` key its photo cache does. Keying on the canonical id alone
+    // is why a hand-entered URL was never checked at all.
+    readonly property string linkKey: hasCanonical
+        ? canonicalId
+        : (bag && bag.id !== undefined ? "bag-" + bag.id : "")
 
     // Bag photo from the on-disk image cache (canonical entries carry no image
     // — the photo is resolved from the product page's og:image and cached as a
@@ -66,7 +78,7 @@ Rectangle {
     readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
     readonly property string imageKey: hasCanonical
         ? canonicalId
-        : (bag && bag.id !== undefined && beanBase.link ? "bag-" + bag.id : "")
+        : (bag && bag.id !== undefined && linkIsUsable ? "bag-" + bag.id : "")
 
     // The thumbnail itself (cache resolve/backfill) lives in the shared
     // BeanThumbnail widget below; this card only adds the reorder-URL
@@ -79,25 +91,40 @@ Rectangle {
         if (hasCanonical && !beanBase.link && !beanBase.linkDead)
             MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
-    // A bag whose link was cleared as dead BEFORE archive recovery existed
-    // still names the original URL in its pristine canonical snapshot — the
-    // only place it survives. That URL is what the archive can be asked about.
+    // A dead verdict is not final: ask the archive again, from the bag's OWN
+    // retained URL. That is why a manual bag can recover here — the retry no
+    // longer has to read `canonical.link`, which only a linked bag has. A bag
+    // emptied by an older build still falls back to its canonical snapshot,
+    // the only place its URL survives.
+    //
+    // Runs for the bag being USED, never on card construction: a retryable link
+    // has no persisted marker to settle it the way `linkChecked` settles the
+    // once-per-bag check, so a retry per card would query the archive for every
+    // dead bag every time the inventory is drawn.
+    //
     // Distinct from maybeRecoverLink, whose linkDead guard stays: re-adding the
     // same dead URL from the canonical API is still wrong; looking it up in the
     // archive is not.
     function maybeRecoverArchivedLink() {
-        if (hasCanonical && !beanBase.link && beanBase.linkDead
-                && beanBase.canonical && beanBase.canonical.link)
-            MainController.beanbase.lookupArchivedLink(canonicalId, String(beanBase.canonical.link))
+        if (!selected || !linkKey || !beanBase.linkDead)
+            return
+        var dead = String(beanBase.link || "")
+        if (!dead && beanBase.canonical)
+            dead = String(beanBase.canonical.link || "")
+        if (dead)
+            MainController.beanbase.lookupArchivedLink(linkKey, dead)
     }
     // Validate the stored product URL once per bag (pick-time). The persisted
     // linkChecked marker keeps this to a single GET ever — not a per-view probe.
     function maybeValidateLink() {
-        if (hasCanonical && beanBase.link && !beanBase.linkChecked)
-            MainController.beanbase.validateBagLink(canonicalId, String(beanBase.link))
+        if (linkKey && beanBase.link && !beanBase.linkChecked)
+            MainController.beanbase.validateBagLink(linkKey, String(beanBase.link))
     }
-    Component.onCompleted: { maybeRecoverLink(); maybeRecoverArchivedLink(); maybeValidateLink() }
-    onImageKeyChanged: { maybeRecoverLink(); maybeRecoverArchivedLink(); maybeValidateLink() }
+    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink() }
+    onImageKeyChanged: { maybeRecoverLink(); maybeValidateLink() }
+    // The retry belongs to the bag you reach for, so it rides selection rather
+    // than construction.
+    onSelectedChanged: maybeRecoverArchivedLink()
 
     Connections {
         target: MainController.beanbase
@@ -118,13 +145,13 @@ Rectangle {
             // Not maybeValidateLink: `beanBase` is a cached binding over the
             // STORED blob and the write above is asynchronous, so it does not
             // carry this link yet. validateBagLink guards itself.
-            MainController.beanbase.validateBagLink(card.canonicalId, link)
+            MainController.beanbase.validateBagLink(card.linkKey, link)
         }
         // Pick-time URL validation resolved (possibly via redirect): normalize a
         // stale alias to the durable canonical URL, and stamp linkChecked so the
         // check never re-runs for this bag. No-op when nothing changed.
         function onBagLinkResolved(id, link) {
-            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
                 return
             var blob = card.beanBase
             var resolved = link || blob.link || ""
@@ -140,7 +167,7 @@ Rectangle {
         // has). No linkDead, which is what re-enables the photo chain and
         // "Get info from page", both of which key off a non-empty link.
         function onBagLinkArchived(id, link) {
-            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
                 return
             var blob = card.beanBase
             // The markers matter as much as the URL: returning early on an
@@ -159,17 +186,18 @@ Rectangle {
             MainController.beanbase.refreshBagImage(card.imageKey,
                 (card.bag && card.bag.coffeeName) || "", link)
         }
-        // Confirmed 404/410 with no capture: clear the dead reorder link and
-        // mark it so neither validation nor recovery re-adds the same dead URL.
+        // Confirmed 404/410 with no capture: mark the URL, KEEP it. It is what
+        // a later run retries from, and on a manual bag it is the only record
+        // of where the bag came from.
         function onBagLinkDead(id) {
-            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
                 return
             var blob = card.beanBase
-            if (blob.link === undefined && blob.linkDead && blob.linkChecked)
+            if (blob.linkDead && blob.linkChecked)
                 return
             MainController.bagStorage.requestUpdateBag(card.bag.id, {
                 "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
-                    card.rawBeanBase, "", true) })
+                    card.rawBeanBase, String(blob.link || ""), true) })
         }
     }
 
@@ -345,7 +373,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignTop
                 imageKey: card.imageKey
                 fallbackName: (card.bag && card.bag.coffeeName) || ""
-                link: card.beanBase.link || ""
+                link: card.linkIsUsable ? String(card.beanBase.link) : ""
                 legacyImageUrl: card.beanBase.image || ""
             }
 

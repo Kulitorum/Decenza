@@ -130,11 +130,11 @@ public:
     // the original URL. Never called for a live URL — no URL reaches the
     // archive until the roaster has been asked first.
     //
-    // Silent on a miss for THIS entry point (the caller decides what a miss
-    // means: validateBagLink turns it into bagLinkDead; an already-dead bag
-    // has nothing left to say). Silent too when the archive itself fails —
-    // that must never be mistaken for "no capture", which would permanently
-    // stamp a bag dead over a blip.
+    // Silent unless it finds a capture: this entry point only ever UPGRADES a
+    // link. The bag is already marked dead by the 404 that sent it here, so a
+    // miss and an archive failure need not be told apart — which is just as
+    // well, since the availability API answers both with the same empty
+    // envelope.
     Q_INVOKABLE void lookupArchivedLink(const QString& canonicalId, const QString& productUrl);
 
     // --- Link state, for ordering Bean Base search results ---
@@ -319,10 +319,15 @@ private:
     void startBagImageResolve(const QString& canonicalId, const QString& roastName,
                               const QString& productUrl, bool force);
     void fetchProductPage(const QString& canonicalId, const QString& productUrl);
-    // Shared body of the two archive entry points. `done(snapshot, answered)`:
-    // a non-empty snapshot is a hit; empty with answered=true is a confirmed
-    // no-capture; empty with answered=false means the question was never
-    // answered (archive fault, or never asked) and carries no verdict.
+    // Shared body of the archive entry points. `done(snapshot, answered)`: a
+    // non-empty snapshot is a hit; empty with answered=true is the API's own
+    // "nothing here"; empty with answered=false means it never answered.
+    //
+    // `answered` is honest but nearly unusable for a verdict: archive.org
+    // returns the same empty `archived_snapshots` envelope for a URL it never
+    // archived and for one it cannot look up right now. Only the extraction
+    // log still reads it, to say which of the two it looked like. No caller
+    // decides a bag's fate on it — the link check's own 404 does that.
     void queryArchiveSnapshot(const QString& canonicalId, const QString& productUrl,
                               std::function<void(const QString&, bool)> done);
     // The availability request itself, with no guard of its own. Three callers

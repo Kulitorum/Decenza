@@ -423,11 +423,19 @@ void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& 
         // like a transient roaster failure (timeout, DNS, 5xx — status 0 or
         // ≥500), so a later session retries rather than losing a link to a blip.
         if (status == 404 || status == 410) {
+            // The 404 is the proof, so the bag is dead unless the archive can
+            // UPGRADE it to a capture. `answered` is deliberately ignored: a
+            // silent archive, an empty envelope and a 429 all mean the same
+            // thing here — no replacement — and archive.org answers a genuine
+            // absence and a bad day with the same empty envelope, so no code
+            // could tell them apart. Emitting dead BEFORE asking would be the
+            // same rule, but it would flash the bag dead and write the blob
+            // twice on the recoverable path.
             queryArchiveSnapshot(canonicalId, productUrl,
-                                 [this, canonicalId](const QString& snapshot, bool answered) {
+                                 [this, canonicalId](const QString& snapshot, bool /*answered*/) {
                                      if (!snapshot.isEmpty())
                                          emit bagLinkArchived(canonicalId, snapshot);
-                                     else if (answered)
+                                     else
                                          emit bagLinkDead(canonicalId);
                                  });
             return;
@@ -816,11 +824,13 @@ QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
     // presence is what makes this an ANSWER rather than merely some JSON. Well-
     // formedness alone is not enough: an archive error body ({"error": …}), a
     // proxy interstitial, or a renamed envelope in a future API version would
-    // all parse — and a wrong "no capture" verdict permanently clears a bag's
-    // only remaining URL, which nothing can re-derive.
+    // all parse. The envelope check is what keeps those out of the hit path;
+    // a wrong verdict no longer costs the URL itself, which is retained either
+    // way, but it would still hand the bag a snapshot that is not one.
     const QJsonValue snapshots = doc.object().value(QStringLiteral("archived_snapshots"));
     if (!snapshots.isObject())
         return fault();
+
     if (ok)
         *ok = true;
 

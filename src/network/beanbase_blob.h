@@ -245,9 +245,16 @@ inline void markLinkChecked(QJsonObject& obj, const QString& link)
     obj.remove(QStringLiteral("linkDead"));
 }
 
-inline void markLinkDead(QJsonObject& obj)
+// The URL is KEPT. `linkDead` names it as not resolving, and linkIsUsable
+// already answers false for it, so nothing downstream needs the key gone —
+// deleting it was how "unusable" was said before there was a word for it, and
+// on a manual bag it destroyed the only record of where the bag came from.
+// Retaining it is also what lets a later run ask the archive again: the URL to
+// retry is the bag's own, so a manual bag can recover, which it never could
+// while the retry had to read `canonical.link`.
+inline void markLinkDead(QJsonObject& obj, const QString& link)
 {
-    obj.remove(QStringLiteral("link"));
+    writeLinkValue(obj, link);
     obj[QStringLiteral("linkChecked")] = true;
     obj[QStringLiteral("linkDead")] = true;
 }
@@ -293,7 +300,7 @@ inline QString blobWithLinkVerdict(const QString& blob, const QString& link, boo
         return refuseCorruptBlob(blob, "a link-verdict write into");
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     if (dead)
-        markLinkDead(obj);
+        markLinkDead(obj, link);
     else
         markLinkChecked(obj, link);
     return serializeBlob(obj);

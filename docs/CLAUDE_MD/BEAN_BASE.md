@@ -64,6 +64,10 @@ The canonical DB has **no image column**, so canonical blobs carry no `image` (o
 The canonical DB's URLs are scrape snapshots that drift — a roaster renames a Shopify handle (old handle 301s to the new one) or removes a product (404). `BeanBaseClient::validateBagLink(canonicalId, productUrl)` resolves a bag's stored URL **once per bag** and reports the outcome so the DB ends up with the durable, correct link:
 
 - **200 (incl. via redirect)** → `bagLinkResolved(id, finalUrl)`. `BagCard` normalizes a stale alias to the redirect-resolved canonical URL and stamps the blob `linkChecked: true`. Emitted even when unchanged, so the marker lands without a needless rewrite.
+- **The check runs for EVERY bag holding a URL, linked or not**, keyed by the bag (`bag-<rowid>`
+  when there is no canonical id — the same key the photo cache uses). It used to require
+  `hasCanonical`, so a URL typed by hand was never probed, never marked and never recovered: the
+  bag simply stopped resolving a photo, silently and forever.
 - **confirmed 404/410** → the **Internet Archive is asked before giving up** (`queryArchiveSnapshot` → `https://archive.org/wayback/available`). Three outcomes, and keeping them apart is the whole point: a capture → `bagLinkArchived(id, snapshotUrl)`, which BagCard adopts as `link` (stamping `linkChecked`, clearing `linkDead`) and follows with a forced `refreshBagImage` — the pick-time photo attempt already failed against the dead URL and stamped the once-per-session guard, so an `ensure` would no-op until the next launch; a **confirmed** no-capture → `bagLinkDead(id)` as before; an archive **fault** → neither signal. `parseArchiveSnapshot` grants "answered" only when the reply carries the API's own `archived_snapshots` envelope, and treats an `available` capture whose URL it cannot parse as a fault — a wrong "no capture" verdict permanently clears a URL nothing can re-derive.
 - **transient error** (timeout/DNS/5xx) → neither signal, so a later session retries.
 
@@ -74,6 +78,24 @@ The canonical DB's URLs are scrape snapshots that drift — a roaster renames a 
 Extraction reaches the archive **on its own**, not only through the link check: `fetchPageText` answers a 404/410 by asking `fetchArchiveAvailability` (the lookup without `queryArchiveSnapshot`'s per-bag one-shot, which is right for an unattended check and wrong for a button the user pressed twice) and re-fetching the snapshot's `id_` form. It matters because a URL that never passed the link check — restored with the Bean Base data, typed, or accepted from the AI — otherwise had no route to the archive at all. Only 404/410: a timeout or 5xx says the network is unhappy, and answering it from a years-old capture would hide a broken connection. The retry cannot recurse, and a snapshot URL asks nothing.
 
 The marks that describe a link's state belong to ONE url. `BeanBaseBlob::setBlobLink` drops `linkChecked`/`linkDead` whenever `link` changes, and `blobWithLinkState` writes a link together with the marks for the verdict writers that are SETTING them (resolved, archived, dead) — between them they are every path that writes `link`, and both refuse a corrupt blob. QML callers must pass the blob AS STORED: a failed `JSON.parse` yields `{}`, which is valid JSON and would sail past that guard, replacing the row with an empty object. the `m_linkValidated` and `m_archiveAttempted` guards are keyed on (bag, url), not bag. Both follow from the same defect: `link` is an editable key and the two marks are not, so **Revert to Bean Base data** restored the canonical URL over marks that survived it — leaving a bag holding a URL nothing would ever probe, and (when `linkDead` also survived) a blob claiming both to have a link and that its link is dead.
+
+**A dead URL is KEPT, marked rather than deleted**, and the mark follows the 404 rather than the
+archive's opinion. The archive is asked one question — can this be upgraded to a capture — and only
+a capture changes anything; an empty envelope, a 429 and a timeout all mean "no replacement yet".
+That is not a preference but a constraint: archive.org answers a URL it never archived and a URL it
+cannot look up right now with the **same** empty `archived_snapshots` envelope, observed serving one
+with HTTP 200 for a URL whose capture fetched at 200 in the same session. Deciding "dead" on that
+answer let a degraded service settle a bag's fate.
+
+Because the URL survives, it is also the retry source: a bag marked dead asks the archive again
+when it is next USED (the active bag), not when its card is drawn — a retryable link has no
+persisted marker to settle it the way `linkChecked` settles the check, so a retry per card would
+query the archive for every dead bag on every inventory draw. This is what lets a MANUAL bag
+recover, which it never could while the retry read `canonical.link`.
+
+Consumers therefore ask whether a link is USABLE (`BeanBaseBlob::linkIsUsable`), not whether the key
+is present — a dead link drives no photo fetch and is not offered to "Get info from page", while the
+details popup still shows it, marked as no longer resolving.
 
 `link` therefore means **"the most recent URL known to work"**, which may be a `web.archive.org` snapshot; no second blob key was added. Snapshots are fetched in their **`id_` form** (`archiveRawForm`), which serves the original page bytes — no archive toolbar, no rewritten asset URLs — so `og:image` already names the roaster's own CDN file, which routinely outlives the product page. The archive's own copy of the asset (`im_`) is the fallback when the original is gone. Recovery is **terminal**: `validateBagLink` returns early on an archive URL, and a bag already stamped `linkDead` recovers once from the URL its pristine `canonical` snapshot still holds.
 
