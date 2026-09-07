@@ -61,10 +61,17 @@ Rectangle {
     // fields so the binding tracks them.
     readonly property bool linkIsUsable:
         MainController.beanbase.linkIsUsable(rawBeanBase, String(beanBase.link || ""))
-    // What the link check and its answers are keyed on. A manual bag has no
-    // canonical id but still has a URL that can die, so it uses the same
-    // `bag-<rowid>` key its photo cache does. Keying on the canonical id alone
-    // is why a hand-entered URL was never checked at all.
+    // The bag's identity for everything keyed on it: the photo cache slot and
+    // the link check alike. A manual bag has no canonical id but still has a
+    // photo and a URL that can die, so it uses `bag-<rowid>`. Keying the CHECK
+    // on the canonical id alone is why a hand-entered URL was never probed.
+    //
+    // This is deliberately not gated on the link being usable. The key says
+    // WHICH cache slot and WHICH bag a verdict is about; whether there is
+    // anything worth fetching is a separate question, answered by the `link`
+    // handed to BeanThumbnail. Conflating them dropped a manual bag's already
+    // cached photo the moment its URL died, and handed refreshBagImage an
+    // empty key on the recovery that followed.
     readonly property string linkKey: hasCanonical
         ? canonicalId
         : (bag && bag.id !== undefined ? "bag-" + bag.id : "")
@@ -76,9 +83,7 @@ Rectangle {
     // product URL get the same treatment under a "bag-<rowid>" cache key
     // (add-bag-detail-editing).
     readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
-    readonly property string imageKey: hasCanonical
-        ? canonicalId
-        : (bag && bag.id !== undefined && linkIsUsable ? "bag-" + bag.id : "")
+    readonly property string imageKey: linkKey
 
     // The thumbnail itself (cache resolve/backfill) lives in the shared
     // BeanThumbnail widget below; this card only adds the reorder-URL
@@ -120,10 +125,13 @@ Rectangle {
         if (linkKey && beanBase.link && !beanBase.linkChecked)
             MainController.beanbase.validateBagLink(linkKey, String(beanBase.link))
     }
-    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink() }
+    // maybeRecoverArchivedLink returns immediately unless this bag is the
+    // selected one, so calling it from both places costs nothing for the other
+    // cards and does not depend on whether a card created ALREADY selected
+    // emits selectedChanged during initialization — the active bag is exactly
+    // the one that must not be missed.
+    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink(); maybeRecoverArchivedLink() }
     onImageKeyChanged: { maybeRecoverLink(); maybeValidateLink() }
-    // The retry belongs to the bag you reach for, so it rides selection rather
-    // than construction.
     onSelectedChanged: maybeRecoverArchivedLink()
 
     Connections {
