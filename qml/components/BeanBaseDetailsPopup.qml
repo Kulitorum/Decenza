@@ -22,6 +22,13 @@ DecenzaDialog {
     }
 
     function fieldOrEmpty(key) { return bean[key] !== undefined && bean[key] !== null ? String(bean[key]) : "" }
+    // A dead URL is kept on the bag rather than deleted, so the row still shows
+    // it — hiding it would look exactly like having thrown it away — but says
+    // it no longer resolves. Transient by construction: a recovering run
+    // replaces the link and this goes quiet.
+    readonly property bool linkIsDead:
+        fieldOrEmpty("link").length > 0
+        && !MainController.beanbase.linkIsUsable(root.beanBaseJson, fieldOrEmpty("link"))
 
     // Bag photo from the on-disk image cache (resolved from the product page's
     // og:image; canonical entries carry no image field). Legacy blobs may still
@@ -41,7 +48,8 @@ DecenzaDialog {
         }
         cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
         if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(imageKey, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
+            MainController.beanbase.ensureBagImage(imageKey, fieldOrEmpty("roastName"),
+                                                  root.linkIsDead ? "" : fieldOrEmpty("link"))
     }
 
     Connections {
@@ -283,8 +291,11 @@ DecenzaDialog {
 
                     Text {
                         Layout.fillWidth: true
-                        text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
-                        color: Theme.primaryColor
+                        text: root.linkIsDead
+                            ? TranslationManager.translate("beanbase.details.pageGone",
+                                "Roaster's page no longer responds")
+                            : TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
+                        color: root.linkIsDead ? Theme.textSecondaryColor : Theme.primaryColor
                         font.pixelSize: Theme.scaled(13)
                         Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
                     }

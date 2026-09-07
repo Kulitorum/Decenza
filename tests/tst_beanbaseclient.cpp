@@ -262,9 +262,8 @@ private slots:
     // ====================================================
 
     void validateBagLinkDeadOn404() {
-        // A dead link is only cleared once the archive has CONFIRMED it has no
-        // capture: the availability answer below is the well-formed "nothing
-        // here" shape.
+        // The 404 is the proof, so the mark follows it. The archive is asked
+        // only whether it can upgrade the link to a capture.
         FakeBeanBaseServer server;
         server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
         server.respondForPathWithStatus("/products/gone", "404 Not Found", "gone");
@@ -284,6 +283,7 @@ private slots:
         QTest::qWait(200);
         QCOMPARE(deadSpy.count(), 1);
     }
+
 
     void validateBagLinkResolvedOn200() {
         FakeBeanBaseServer server;
@@ -574,10 +574,13 @@ private slots:
         QCOMPARE(deadSpy.count(), 0);
     }
 
-    // An archive that errors must not be read as "no capture" — that would
-    // permanently clear a link over a blip, which is exactly the failure the
-    // existing transient-error branch already avoids for the roaster.
-    void validateBagLinkSilentWhenArchiveFails() {
+    // An archive that errors upgrades nothing, and the bag is still dead —
+    // the 404 already proved that. This used to leave the bag unmarked, on the
+    // theory that an error was not proof of absence; but archive.org answers a
+    // genuine absence with the same empty envelope it serves when degraded, so
+    // that distinction was never available. What the error must NOT do is
+    // destroy the URL, and it does not: the link is retained either way.
+    void validateBagLinkStillMarksDeadWhenArchiveFails() {
         FakeBeanBaseServer server;
         server.respondForPathWithStatus("/wayback/available", "503 Service Unavailable",
                                         "<html>we are down</html>");
@@ -588,9 +591,9 @@ private slots:
         QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
 
         client.validateBagLink("canon-arch-2", server.baseUrl() + "/products/gone");
-        QTest::qWait(800);
-        QCOMPARE(archivedSpy.count(), 0);
-        QCOMPARE(deadSpy.count(), 0);
+        QVERIFY(deadSpy.wait(3000));
+        QCOMPARE(deadSpy.count(), 1);
+        QVERIFY2(archivedSpy.isEmpty(), "an archive that errors upgrades nothing");
     }
 
     // Recovery is terminal: a link that is already a snapshot is never asked
@@ -1839,6 +1842,22 @@ private slots:
         QVERIFY(!dead.contains("link"));
         QVERIFY(dead.value("linkDead").toBool());
         QVERIFY(dead.value("linkChecked").toBool());
+    }
+
+    // A dead verdict KEEPS the url. Deleting it left a manual bag with no
+    // record of where it came from, and left the retry with nothing to ask the
+    // archive about — which is why a manual bag could never recover.
+    void aDeadVerdictKeepsTheUrl() {
+        const QString blob = QStringLiteral("{\"link\":\"https://r.example/gone\"}");
+        const QJsonObject dead = QJsonDocument::fromJson(
+            BeanBaseClient::blobWithLinkVerdict(blob, "https://r.example/gone", true).toUtf8()).object();
+        QCOMPARE(dead.value("link").toString(), QString("https://r.example/gone"));
+        QVERIFY(dead.value("linkDead").toBool());
+        QVERIFY(dead.value("linkChecked").toBool());
+        // Retained, but not usable — everything downstream keys off this.
+        QVERIFY(!BeanBaseClient::linkIsUsable(
+            QString::fromUtf8(QJsonDocument(dead).toJson(QJsonDocument::Compact)),
+            "https://r.example/gone"));
     }
 
     // The path the reported bag actually took.

@@ -63,10 +63,30 @@ validation and on the archive lookup SHALL be keyed by URL, not by bag: their pu
 asking the same question about the same URL twice, and a bag whose URL has changed is a different
 question.
 
+A URL found dead SHALL be RETAINED on the bag, not removed. The user typed it, or the Bean Base
+record supplied it, and it is the only record of where the bag came from; deleting it destroys
+data on a manual bag, where no `canonical` snapshot exists to re-derive it from. Consumers SHALL
+therefore gate on whether the link is USABLE rather than on whether the key is present: a dead
+link SHALL NOT drive photo resolution and SHALL NOT be offered to "Get info from page".
+
+The details popup SHALL still show a retained dead URL, marked as no longer resolving. Hiding it
+would be indistinguishable from having deleted it, and the roaster's page may return. Once the URL
+is recovered or replaced the marking SHALL disappear and the row SHALL render as any working link.
+
 #### Scenario: Adding a URL to a bag without one
 - **WHEN** the user enters a product URL for a bag whose blob has no `link` and saves
 - **THEN** the blob SHALL carry the URL
 - **AND** bag-image resolution SHALL be attempted for the bag using the new URL
+
+#### Scenario: A dead URL the user typed is kept
+- **WHEN** a manual bag's product URL is found dead and the archive has no capture of it
+- **THEN** the URL SHALL remain on the bag, marked dead
+- **AND** it SHALL be shown in the details popup marked as no longer resolving
+
+#### Scenario: A dead link drives no photo fetch
+- **WHEN** a bag's retained `link` is marked dead
+- **THEN** no bag-image resolution SHALL be attempted for it
+- **AND** "Get info from page" SHALL NOT be offered for it
 
 #### Scenario: Restoring the Bean Base data restores a dead URL
 - **WHEN** the user reverts a bag to its Bean Base data and the canonical record's URL is dead
@@ -238,13 +258,43 @@ Base data" undoes a correction exactly as it undoes a manual edit.
 
 ### Requirement: A dead product URL is replaced by its most recent working form
 
-`link` SHALL mean "the most recent URL known to serve this bag's product page". When the app's
-once-per-bag link check finds the stored URL dead, it SHALL query the Internet Archive for a
-snapshot of that URL before treating the link as lost. When a snapshot exists, the snapshot URL
-SHALL replace `link` and the bag SHALL NOT be marked dead; when no snapshot exists, the existing
-dead-link handling applies unchanged. No additional blob key SHALL be introduced for the archived
-form — every consumer of `link` (photo resolution, "Get info from page", the open-at-roaster
-affordance) SHALL use the recovered URL exactly as it used the original.
+`link` SHALL mean "the most recent URL known to serve this bag's product page". EVERY bag holding
+a URL SHALL be subject to the once-per-bag link check, whether or not it is linked to a Bean Base
+record: a URL the user typed on a manual bag can be retired by its roaster exactly as a canonical
+one can, and a bag that is never checked never gets a photo again and is never told why. The check
+and the signals that answer it SHALL therefore be keyed by the BAG — its canonical id when it has
+one, otherwise the same `bag-<rowid>` key its photo cache already uses — rather than by a canonical
+id that a manual bag does not have.
+
+When the check finds the stored URL dead, it SHALL query the Internet Archive for a snapshot of
+that URL before treating the link as lost. When a snapshot exists, the snapshot URL
+SHALL replace `link` and the bag SHALL NOT be marked dead. No additional blob key SHALL be
+introduced for the archived form — every consumer of `link` (photo resolution, "Get info from
+page", the open-at-roaster affordance) SHALL use the recovered URL exactly as it used the original.
+
+**Replacing a dead URL with its archived copy is the outcome to reach whenever it is reachable at
+all.** A dead verdict is therefore not final: the retained URL is itself the retry source, so the
+archive SHALL be asked again for a bag holding a link marked dead — a MANUAL bag included, which
+today can never recover because the retry reads `canonical.link` and a manual bag has none. A retry
+that succeeds replaces the link and clears the mark.
+
+The retry SHALL run when the bag is USED — when it is the active bag — and NOT when its card is
+merely drawn. A retryable link has no persisted marker to settle it the way `linkChecked` settles
+the once-per-bag link check, so a retry on card construction would query the archive for every dead
+bag every time the inventory is shown. The URL matters when the user reaches for that bag, and that
+is when the cost belongs.
+
+**The link check's own result decides the mark; the archive only ever upgrades it.** A 404 or 410
+from the roaster is proof the URL no longer serves the page, so it SHALL set the dead mark on its
+own. The archive is then asked one question — can this be replaced with a capture — and only a
+capture changes anything. Every other outcome, an empty envelope included, SHALL mean "no
+replacement yet" and SHALL leave the bag marked dead and retryable.
+
+The availability API SHALL NOT be asked to decide absence, because it cannot express it: it answers
+a URL it never archived and a URL it cannot look up right now with the same empty `archived_snapshots`
+envelope, and was observed returning that envelope with HTTP 200 for a URL whose capture fetched
+successfully in the same session. Making the dead mark depend on telling those apart let a degraded
+service settle a bag's fate.
 
 Reading a page for extraction SHALL reach the archive on its own, not only through the link check.
 When the page fetch for extraction finds the URL gone, it SHALL query the Internet Archive for a
@@ -256,6 +306,11 @@ have no route to the archive at all.
 A link already pointing at an archive snapshot SHALL NOT be re-probed or re-recovered: it is
 terminal, and a snapshot that later becomes unreachable leaves the bag as it would have been.
 
+#### Scenario: A manual bag's URL is checked like any other
+- **WHEN** a bag with no `canonical` snapshot holds a product URL
+- **THEN** that URL SHALL be link-checked once, as a Bean-Base-linked bag's URL is
+- **AND** a dead result SHALL mark it and attempt archive recovery
+
 #### Scenario: Delisted product recovers its page
 - **WHEN** a bag's stored product URL returns 404 and the Internet Archive holds a successful
   snapshot of it
@@ -264,7 +319,22 @@ terminal, and a snapshot that later becomes unreachable leaves the bag as it wou
 
 #### Scenario: No snapshot exists
 - **WHEN** a bag's stored product URL is dead and the Internet Archive has no successful snapshot
-- **THEN** the bag SHALL be marked dead exactly as before this change
+- **THEN** the bag SHALL be marked dead
+- **AND** the URL SHALL be retained so a later run can ask again
+
+#### Scenario: A manual bag recovers when it is next used
+- **WHEN** a bag with no `canonical` snapshot holds a link marked dead, is selected as the active
+  bag, and the archive answers with a capture of it
+- **THEN** the link SHALL become the snapshot URL and the dead mark SHALL be cleared
+
+#### Scenario: Scrolling past a dead bag costs nothing
+- **WHEN** the bag inventory is shown and it contains bags holding links marked dead
+- **THEN** no archive lookup SHALL be issued for a bag that is not the active one
+
+#### Scenario: A degraded availability answer marks nothing dead
+- **WHEN** the availability API answers with an empty `archived_snapshots` envelope
+- **THEN** the bag SHALL NOT be marked dead on the strength of that answer
+- **AND** a bag already marked dead SHALL remain retryable rather than being treated as settled
 
 #### Scenario: A recovered link is not probed again
 - **WHEN** a bag whose `link` is already an archive snapshot is displayed
