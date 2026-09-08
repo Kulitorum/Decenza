@@ -67,6 +67,7 @@ class BLEManager : public QObject {
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
+    Q_PROPERTY(bool scaleConnecting READ scaleConnecting NOTIFY scaleConnectingChanged)
     Q_PROPERTY(QVariantList discoveredRefractometers READ discoveredRefractometers NOTIFY refractometersChanged)
     Q_PROPERTY(bool refractometerConnected READ isRefractometerConnected NOTIFY refractometerConnectedChanged)
     Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
@@ -106,6 +107,7 @@ public:
     QVariantList discoveredDevices() const;
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
+    bool scaleConnecting() const { return m_scaleConnectionTimer->isActive(); }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     // True when the saved primary is the debug simulator's synthetic entry
     // ("sim:..."), which main.cpp promotes to primary when no real scale has
@@ -779,6 +781,7 @@ signals:
     void devicesChanged();
     void scalesChanged();
     void scaleConnectionFailedChanged();
+    void scaleConnectingChanged();
     void de1Discovered(const QBluetoothDeviceInfo& device);
     // For BLE entries `device` carries the real QBluetoothDeviceInfo. For
     // WiFi entries (type == "decent-wifi") `device` is default-constructed
@@ -866,6 +869,8 @@ private slots:
 
 private:
     bool isDE1Device(const QBluetoothDeviceInfo& device) const;
+    void startScaleConnectionTimer();
+    void stopScaleConnectionTimer();
     QString getScaleType(const QBluetoothDeviceInfo& device) const;
     void requestBluetoothPermission();
     void doStartScan();
