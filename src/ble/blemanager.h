@@ -67,6 +67,7 @@ class BLEManager : public QObject {
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
+    Q_PROPERTY(bool scaleConnecting READ scaleConnecting NOTIFY scaleConnectingChanged)
     Q_PROPERTY(QVariantList discoveredRefractometers READ discoveredRefractometers NOTIFY refractometersChanged)
     Q_PROPERTY(bool refractometerConnected READ isRefractometerConnected NOTIFY refractometerConnectedChanged)
     Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
@@ -106,6 +107,7 @@ public:
     QVariantList discoveredDevices() const;
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
+    bool scaleConnecting() const { return m_scaleConnectionTimer->isActive(); }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     // True when the saved primary is the debug simulator's synthetic entry
     // ("sim:..."), which main.cpp promotes to primary when no real scale has
@@ -779,6 +781,7 @@ signals:
     void devicesChanged();
     void scalesChanged();
     void scaleConnectionFailedChanged();
+    void scaleConnectingChanged();
     void de1Discovered(const QBluetoothDeviceInfo& device);
     // For BLE entries `device` carries the real QBluetoothDeviceInfo. For
     // WiFi entries (type == "decent-wifi") `device` is default-constructed
@@ -866,6 +869,8 @@ private slots:
 
 private:
     bool isDE1Device(const QBluetoothDeviceInfo& device) const;
+    void startScaleConnectionTimer();
+    void stopScaleConnectionTimer();
     QString getScaleType(const QBluetoothDeviceInfo& device) const;
     void requestBluetoothPermission();
     void doStartScan();
@@ -1130,8 +1135,16 @@ private:
     // report "Not found" directly instead of starting a WiFi→BLE fallback scan —
     // the user asked for a specific WiFi address, so we don't silently switch
     // transports. Set when the attempt starts; cleared on connect success, on
-    // timeout (consumed), and reset when a non-manual reconnect begins.
+    // timeout (consumed), reset when a non-manual reconnect begins, and cleared
+    // when the saved scale is forgotten (clearSavedScale).
     bool m_manualWifiConnect = false;
+    // True while a manually-tapped BLE scale row (connectToScale) connect
+    // attempt is pending. Tells onScaleConnectionTimeout not to treat a timeout
+    // as the saved WiFi primary's own reconnect failing — the user explicitly
+    // picked this BLE row, possibly for a scale whose saved primary is a WiFi
+    // address, so a WiFi→BLE fallback here would be mislabeled. Cleared on the
+    // same four occasions as m_manualWifiConnect above.
+    bool m_manualBleConnect = false;
     // Debounces user-visible scan-error popups. Without this, repeated scan
     // attempts (refractometer auto-reconnect ticks, scale reconnect retries)
     // would re-fire the same error toast indefinitely. We pop a given error

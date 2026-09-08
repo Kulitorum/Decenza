@@ -1056,16 +1056,23 @@ Item {
                         }
 
                         Tr {
+                            key: "settings.bluetooth.connecting"
+                            fallback: "Connecting..."
+                            visible: !scaleStatusHelper.isConnected && BLEManager.scaleConnecting
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Tr {
                             key: "settings.bluetooth.notFound"
                             fallback: "Not found"
-                            visible: !scaleStatusHelper.isConnected && BLEManager.scaleConnectionFailed
+                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnecting && BLEManager.scaleConnectionFailed
                             color: Theme.errorColor
                         }
 
                         Tr {
                             key: "settings.bluetooth.disconnected"
                             fallback: "Disconnected"
-                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnectionFailed
+                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnecting && !BLEManager.scaleConnectionFailed
                             color: Theme.textSecondaryColor
                         }
 
@@ -1765,6 +1772,26 @@ Item {
                         }
                     }
 
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.bluetooth.availableDevices"
+                        fallback: "Available Devices"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        visible: discoveredDevicesList.visible && discoveredDevicesList.count > 0
+                            && !discoveredDevicesList.needsScaleSelection
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.bluetooth.selectDiscoveredScale"
+                        fallback: "Scale found, select your scale:"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        wrapMode: Text.WordWrap
+                        visible: discoveredDevicesList.visible && discoveredDevicesList.needsScaleSelection
+                    }
+
                     // Unified discovered devices list (scales + refractometers).
                     // Height scales with the number of items so rows aren't
                     // clipped below the fold (notably the WiFi-scale row when
@@ -1777,6 +1804,8 @@ Item {
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
                         visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
+                        readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
+                            && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
                         // Combine scales + refractometers. The model is rebuilt
                         // explicitly via Connections handlers below — relying on
@@ -1866,12 +1895,7 @@ Item {
                                 ? TranslationManager.translate("connections.refractometer", "Refractometer")
                                 : modelData.deviceType)
                             Accessible.focusable: true
-                            Accessible.onPressAction: {
-                                if (modelData.deviceClass === "refractometer")
-                                    BLEManager.connectToRefractometer(modelData.address)
-                                else
-                                    BLEManager.connectToScale(modelData.address)
-                            }
+                            Accessible.onPressAction: delegate2.clicked()
 
                             contentItem: RowLayout {
                                 Text {
@@ -1923,6 +1947,8 @@ Item {
                             key: "settings.bluetooth.noDevices"
                             fallback: "No devices found"
                             visible: discoveredDevicesList.count === 0
+                                && Settings.knownScales.length === 0
+                                && Settings.savedRefractometerAddress === ""
                             color: Theme.textSecondaryColor
                         }
                     }

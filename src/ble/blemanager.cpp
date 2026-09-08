@@ -839,7 +839,7 @@ void BLEManager::setScaleSimulated(bool simulated) {
     if (m_scaleSimulated) {
         // A simulated scale is taking over the weight stream — stand the real
         // one down so the two don't both drive weight.
-        m_scaleConnectionTimer->stop();
+        stopScaleConnectionTimer();
         emit disconnectScaleRequested();
     }
     scaleDebug(QStringLiteral("real-scale connects") + QStringLiteral(" ") + QString("%1").arg((simulated ? "blocked (simulated scale active)" : "allowed")));
@@ -938,7 +938,7 @@ void BLEManager::connectToScale(const QString& address) {
             // timer nothing emits either, so a scale that dropped into
             // power-save between the scan and the tap fails with no retry, no
             // dialog and no user-visible trace at all.
-            m_scaleConnectionTimer->start();
+            startScaleConnectionTimer();
             // Strip the "wifi:" prefix to get the bare hostname.
             setPendingWifiConnect(address.mid(QStringLiteral("wifi:").size()),
                                   entry.resolvedIp, entry.wsPort, entry.wsPath);
@@ -947,6 +947,15 @@ void BLEManager::connectToScale(const QString& address) {
             // advertised over DNS-SD (firmware defaults for a fallback hit).
             emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
         } else {
+            // A first BLE connection can fail before connectedChanged ever fires.
+            // Keep the same timeout/retry path used by saved-scale connections.
+            // Marked manual so a timeout reports failure for THIS pick rather
+            // than entering the saved-WiFi-primary fallback ladder (the two
+            // are unrelated whenever the user is picking a different scale, or
+            // picking BLE for a scale whose saved primary is its WiFi address).
+            m_manualBleConnect = true;
+            if (!m_scaleDevice || !m_scaleDevice->isConnected())
+                startScaleConnectionTimer();
             emit scaleDiscovered(entry.device, entry.type);
         }
         return;
@@ -1071,7 +1080,7 @@ void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& 
     // connect starts (as with any scale connect — not gated on connect success).
     m_manualWifiConnect = true;
     m_wifiFallbackToBleActive = false;
-    m_scaleConnectionTimer->start();
+    startScaleConnectionTimer();
     setPendingWifiConnect(host, resolvedIp);
     // Callers with a fresh mDNS resolution in hand (the "Add WiFi Scale"
     // dialog's suggested-scale "Use" button) pass it along so main.cpp can
@@ -1515,13 +1524,18 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         // way to know the other half existed.
         scaleInfo(QString("Found %1: %2 (%3)").arg(scaleType).arg(device.name()).arg(getDeviceIdentifier(device)));
 
-        // If we're doing a direct wake and this is our saved scale found via scan,
-        // log it and clear the direct connect state. The scan-discovered device has
-        // proper BLE metadata which may help with connection.
+        // Discovery is not connection success. Keep the direct-attempt deadline
+        // while its transport is busy, and do not reset the driver's setup state.
         if (m_directConnectInProgress && deviceIdentifiersMatch(device, m_directConnectAddress)) {
-            scaleDebug("Direct wake: found saved scale in scan, using scanned device");
+            auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr;
+            if (transport && (transport->isConnecting() || transport->isConnected())) {
+                scaleDebug("Direct wake: saved scale found in scan; waiting for the current connection attempt");
+                return;
+            }
+            scaleDebug("Direct wake: connecting to the scanned scale");
             m_directConnectInProgress = false;
             m_directConnectAddress.clear();
+            m_scaleDirectAbortTimer->stop();
         }
 
         // WiFi-to-BLE fallback: when the saved scale is a WiFi address but
@@ -1586,9 +1600,14 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
                            .arg(device.name(), getDeviceIdentifier(device)));
         }
 
-        // Auto-reconnect to the saved primary, or the WiFi-fallback Decent BLE
-        // candidate. (User-scan discoveries returned above; manual selection
-        // emits scaleDiscovered via connectToScale().)
+        // Scan-based auto-connects need the same deadline as manual selection.
+        // Guarded by scaleConnecting(): doStartScan() clears m_scales on every
+        // scan-cycle restart, so the saved scale re-enters this branch on each
+        // ~15 s cycle it keeps advertising without connecting. Without the
+        // guard, every cycle would push the deadline out by a fresh 20 s and
+        // the overall connection-attempt budget would never expire.
+        if ((!m_scaleDevice || !m_scaleDevice->isConnected()) && !scaleConnecting())
+            startScaleConnectionTimer();
         emit scaleDiscovered(device, scaleType);
     }
 }
@@ -1840,7 +1859,7 @@ void BLEManager::setScaleDevice(ScaleDevice* scale) {
 void BLEManager::onScaleConnectedChanged() {
     if (m_scaleDevice && m_scaleDevice->isConnected()) {
         // Scale connected - stop timers, clear failure flag, clear direct connect state
-        m_scaleConnectionTimer->stop();
+        stopScaleConnectionTimer();
         m_scaleDirectAbortTimer->stop();
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
@@ -1850,6 +1869,7 @@ void BLEManager::onScaleConnectedChanged() {
         const bool wasWifiFallbackConnect = m_wifiFallbackToBleActive;
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
         m_manualWifiConnect = false;        // Manual WiFi add resolved (connected)
+        m_manualBleConnect = false;         // Manual BLE pick resolved (connected)
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
         m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
@@ -1924,7 +1944,13 @@ void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
     if (!m_directConnectInProgress) return;
     if (m_scaleDevice && m_scaleDevice->isConnected()) return;  // connect raced in
 
-    scaleWarn(QString("Direct connect not established (%1) — aborting, scan continues").arg(reason));
+    auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr;
+    if (transport && transport->isConnected()) {
+        // The link is up; service discovery keeps the overall setup deadline.
+        return;
+    }
+
+    scaleWarn(QString("Direct connect not established (%1) — aborting and restarting scan").arg(reason));
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
 
@@ -1935,19 +1961,31 @@ void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
     // ScaleBleTransport::disconnectFromDevice() severs the controller's signals
     // before teardown, so this fires no spurious disconnected() cascade, and the
     // connecting→disconnected transition doesn't flip connectedChanged.
-    if (auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr) {
+    if (transport) {
         transport->disconnectFromDevice();
     }
 
-    // Keep hunting passively — a present scale auto-connects via
-    // onDeviceDiscovered the instant it's seen advertising.
+    // The previous scan may already have cached this scale. Start a fresh cycle
+    // so duplicate filtering cannot hide it after the parked attempt is closed.
+    // stopScan() also clears m_userInitiatedScaleScan; restore it so aborting
+    // this background attempt cannot silently demote a scan the user started
+    // (see the identical restore in scanForDevices()).
+    const bool wasUserInitiated = m_userInitiatedScaleScan;
+    if (m_scanning)
+        stopScan();
     m_scanningForScales = true;
-    if (!m_scanning) {
-        startScan();
-    }
+    m_userInitiatedScaleScan = wasUserInitiated;
+    startScan();
 }
 
 void BLEManager::onScaleConnectionTimeout() {
+    // Direct emit, not stopScaleConnectionTimer(): m_scaleConnectionTimer is
+    // single-shot, and Qt stops a single-shot QTimer BEFORE emitting timeout()
+    // (qtbase/src/corelib/kernel/qtimer.cpp, timerEvent()), so scaleConnecting()
+    // already reads false here — stopScaleConnectionTimer()'s own "already
+    // inactive" guard would silently swallow this emit and leave the
+    // "Connecting..." UI stuck.
+    emit scaleConnectingChanged();
     m_scaleDirectAbortTimer->stop();
 
     // A transport still holding anything at the overall timeout is stuck and
@@ -2000,6 +2038,12 @@ void BLEManager::onScaleConnectionTimeout() {
     const bool manualWifiAttempt = m_manualWifiConnect;
     const QString manualHost = m_pendingWifiHostname;
     m_manualWifiConnect = false;
+    // Consume the manual-BLE-pick marker: the user chose this specific BLE row
+    // (possibly for a scale whose saved primary is a WiFi address), so a
+    // timeout here must not be mistaken for the saved WiFi primary's own
+    // reconnect failing.
+    const bool manualBleAttempt = m_manualBleConnect;
+    m_manualBleConnect = false;
 
     scaleRepeatFailure(QStringLiteral("Scale connection timeout — not found"));
 
@@ -2029,7 +2073,7 @@ void BLEManager::onScaleConnectionTimeout() {
     // fallback once per saved-scale cycle (the `!m_wifiFallbackToBleActive`
     // guard prevents a second fallback if the BLE scan itself times out). A
     // manual "Add WiFi Scale" attempt opts out — it surfaces "Not found" instead.
-    if (!manualWifiAttempt
+    if (!manualWifiAttempt && !manualBleAttempt
             && m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         // The direct attempt for the saved WiFi scale has now definitively
         // failed. Browse HERE, at the failure, rather than arming a flag for the
@@ -2111,7 +2155,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
     // time budget — onScaleConnectionTimeout trips the FlowScale fallback
     // on the second timeout (the m_wifiFallbackToBleActive guard prevents
     // looping back into another WiFi-fallback cycle).
-    m_scaleConnectionTimer->start();
+    startScaleConnectionTimer();
 
     // Start scanning for BLE devices. onDeviceDiscovered sees a Decent BLE
     // scale, observes m_wifiFallbackToBleActive, and emits scaleDiscovered
@@ -2247,7 +2291,7 @@ void BLEManager::switchToWifiPrimary() {
     // the scale stranded on FlowScale; FlowScale is reached only if that BLE
     // scan also times out.
     m_wifiFallbackToBleActive = false;
-    m_scaleConnectionTimer->start();
+    startScaleConnectionTimer();
     emit disconnectScaleRequested();
     // Two callers, two kinds of evidence that the primary is back:
     //  - probeWifiPrimaryReachable() validated the PERSISTED cache, so there is
@@ -2278,6 +2322,19 @@ void BLEManager::setSavedScaleAddress(const QString& address, const QString& typ
     m_browsedPrimaryIp.clear();
 }
 
+void BLEManager::startScaleConnectionTimer() {
+    const bool wasConnecting = scaleConnecting();
+    m_scaleConnectionTimer->start();
+    if (!wasConnecting)
+        emit scaleConnectingChanged();
+}
+
+void BLEManager::stopScaleConnectionTimer() {
+    if (!scaleConnecting()) return;
+    m_scaleConnectionTimer->stop();
+    emit scaleConnectingChanged();
+}
+
 void BLEManager::resetScaleConnectionState() {
     // Only reset direct-connect state so a fresh attempt can proceed.
     // Do NOT reset m_scaleConnectionFailed or m_flowScaleFallbackEmitted here:
@@ -2286,16 +2343,27 @@ void BLEManager::resetScaleConnectionState() {
     // Both are reset when the scale actually connects (onScaleConnectedChanged).
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
-    m_scaleConnectionTimer->stop();
+    stopScaleConnectionTimer();
     m_scaleDirectAbortTimer->stop();
 }
 
 void BLEManager::clearSavedScale() {
-    m_savedScaleAddress.clear();
-    m_savedScaleType.clear();
-    m_savedScaleName.clear();
+    scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
+    resetScaleConnectionState();
+    // Cancel every pending attempt tied to the address being forgotten — a
+    // deferred GATT-queue release, an in-flight WiFi fallback, or a manual
+    // WiFi/BLE connect — so none of them can land against a scale the user
+    // just discarded.
+    m_scaleConnectDeferred = false;
+    m_wifiFallbackToBleActive = false;
+    m_manualWifiConnect = false;
+    m_manualBleConnect = false;
+    // Route through the one funnel every saved-address change goes through
+    // (see its own comment) so the reconnect-browse state —
+    // m_wifiDirectAttemptFailed, m_browsedPrimaryIp — is reset here too,
+    // instead of surviving into whatever scale gets saved next.
+    setSavedScaleAddress(QString(), QString(), QString());
     m_scaleConnectionFailed = false;
-    m_scaleConnectionTimer->stop();
     m_flowScaleFallbackEmitted = false;
     emit scaleConnectionFailedChanged();
     // Stop any pending auto-reconnect timer in main.cpp
@@ -3009,17 +3077,14 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" attempt —
-    // so a timeout here should take the normal WiFi→BLE fallback path.
+    // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" or manual
+    // BLE-row attempt — so a timeout here should take the normal WiFi→BLE
+    // fallback path.
     m_manualWifiConnect = false;
+    m_manualBleConnect = false;
 
-    // Direct wake strategy:
-    // 1. Try direct connection to saved address (may wake sleeping scales that respond to connect requests)
-    // 2. Also start scanning in parallel (finds scales that are actively advertising)
-    // 3. Whichever succeeds first wins - we don't skip scan results even if direct connect is in progress
-    //
-    // de1app does both: ble connect + scanning, and calls ble_connect_to_scale again when
-    // the device appears in scan results (bluetooth.tcl lines 2032 and 2252-2256)
+    // Try the saved address alongside a scan. A scan result must not interrupt
+    // an active connection; a stalled direct attempt is aborted before retrying.
 
     QString deviceName = m_savedScaleName.isEmpty() ? m_savedScaleType : m_savedScaleName;
 
@@ -3051,7 +3116,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // 20 s connection timer still arms the WiFi->BLE fallback if the cached
         // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
-        m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
+        startScaleConnectionTimer();
         // Alongside the direct attempt, once a previous one has failed.
         //
         // The direct A-query the driver falls back to can enter a state where it
@@ -3111,7 +3176,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // 1000-entry ring buffer, so the perpetual 60s ladder can't grow it
         // without bound.
         scaleInfo("Auto-reconnect: scanning for saved scale (no direct-connect)");
-        m_scaleConnectionTimer->start();   // bounded budget; arms WiFi/FlowScale fallback + retry ladder
+        startScaleConnectionTimer();
         m_scanningForScales = true;
         if (!m_scanning) {
             startScan();
@@ -3136,7 +3201,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         m_directConnectAddress = m_savedScaleAddress;  // UUID
 
         // Start timeout timer
-        m_scaleConnectionTimer->start();
+        startScaleConnectionTimer();
 
         m_scanningForScales = true;
         if (!m_scanning) {
@@ -3182,19 +3247,17 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
                                        : (m_de1Connected ? QStringLiteral("connected")
                                                          : QStringLiteral("down"))));
 
-    // Mark that we're doing a direct connect - but we won't skip scan results
-    // Instead, onDeviceDiscovered will check if scale is already connected
+    // Keep discovery from starting a duplicate connection while this one is busy.
     m_directConnectInProgress = true;
     m_directConnectAddress = upperAddress;
 
     // Start timeout timer
-    m_scaleConnectionTimer->start();
+    startScaleConnectionTimer();
 
     // Try direct connection - this may wake the scale
     emit scaleDiscovered(deviceInfo, m_savedScaleType);
 
-    // Also start scanning in parallel - if the scale is advertising, we'll find it
-    // and connect via the scan path (which has a real QBluetoothDeviceInfo)
+    // Scan alongside the direct attempt to list nearby devices.
     m_scanningForScales = true;
     if (!m_scanning) {
         startScan();
