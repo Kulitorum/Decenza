@@ -949,6 +949,11 @@ void BLEManager::connectToScale(const QString& address) {
         } else {
             // A first BLE connection can fail before connectedChanged ever fires.
             // Keep the same timeout/retry path used by saved-scale connections.
+            // Marked manual so a timeout reports failure for THIS pick rather
+            // than entering the saved-WiFi-primary fallback ladder (the two
+            // are unrelated whenever the user is picking a different scale, or
+            // picking BLE for a scale whose saved primary is its WiFi address).
+            m_manualBleConnect = true;
             if (!m_scaleDevice || !m_scaleDevice->isConnected())
                 startScaleConnectionTimer();
             emit scaleDiscovered(entry.device, entry.type);
@@ -1596,7 +1601,12 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         }
 
         // Scan-based auto-connects need the same deadline as manual selection.
-        if (!m_scaleDevice || !m_scaleDevice->isConnected())
+        // Guarded by scaleConnecting(): doStartScan() clears m_scales on every
+        // scan-cycle restart, so the saved scale re-enters this branch on each
+        // ~15 s cycle it keeps advertising without connecting. Without the
+        // guard, every cycle would push the deadline out by a fresh 20 s and
+        // the overall connection-attempt budget would never expire.
+        if ((!m_scaleDevice || !m_scaleDevice->isConnected()) && !scaleConnecting())
             startScaleConnectionTimer();
         emit scaleDiscovered(device, scaleType);
     }
@@ -1859,6 +1869,7 @@ void BLEManager::onScaleConnectedChanged() {
         const bool wasWifiFallbackConnect = m_wifiFallbackToBleActive;
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
         m_manualWifiConnect = false;        // Manual WiFi add resolved (connected)
+        m_manualBleConnect = false;         // Manual BLE pick resolved (connected)
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
         m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
@@ -1956,13 +1967,24 @@ void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
 
     // The previous scan may already have cached this scale. Start a fresh cycle
     // so duplicate filtering cannot hide it after the parked attempt is closed.
+    // stopScan() also clears m_userInitiatedScaleScan; restore it so aborting
+    // this background attempt cannot silently demote a scan the user started
+    // (see the identical restore in scanForDevices()).
+    const bool wasUserInitiated = m_userInitiatedScaleScan;
     if (m_scanning)
         stopScan();
     m_scanningForScales = true;
+    m_userInitiatedScaleScan = wasUserInitiated;
     startScan();
 }
 
 void BLEManager::onScaleConnectionTimeout() {
+    // Direct emit, not stopScaleConnectionTimer(): m_scaleConnectionTimer is
+    // single-shot, and Qt stops a single-shot QTimer BEFORE emitting timeout()
+    // (qtbase/src/corelib/kernel/qtimer.cpp, timerEvent()), so scaleConnecting()
+    // already reads false here — stopScaleConnectionTimer()'s own "already
+    // inactive" guard would silently swallow this emit and leave the
+    // "Connecting..." UI stuck.
     emit scaleConnectingChanged();
     m_scaleDirectAbortTimer->stop();
 
@@ -2016,6 +2038,12 @@ void BLEManager::onScaleConnectionTimeout() {
     const bool manualWifiAttempt = m_manualWifiConnect;
     const QString manualHost = m_pendingWifiHostname;
     m_manualWifiConnect = false;
+    // Consume the manual-BLE-pick marker: the user chose this specific BLE row
+    // (possibly for a scale whose saved primary is a WiFi address), so a
+    // timeout here must not be mistaken for the saved WiFi primary's own
+    // reconnect failing.
+    const bool manualBleAttempt = m_manualBleConnect;
+    m_manualBleConnect = false;
 
     scaleRepeatFailure(QStringLiteral("Scale connection timeout — not found"));
 
@@ -2045,7 +2073,7 @@ void BLEManager::onScaleConnectionTimeout() {
     // fallback once per saved-scale cycle (the `!m_wifiFallbackToBleActive`
     // guard prevents a second fallback if the BLE scan itself times out). A
     // manual "Add WiFi Scale" attempt opts out — it surfaces "Not found" instead.
-    if (!manualWifiAttempt
+    if (!manualWifiAttempt && !manualBleAttempt
             && m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         // The direct attempt for the saved WiFi scale has now definitively
         // failed. Browse HERE, at the failure, rather than arming a flag for the
@@ -2322,12 +2350,19 @@ void BLEManager::resetScaleConnectionState() {
 void BLEManager::clearSavedScale() {
     scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
     resetScaleConnectionState();
+    // Cancel every pending attempt tied to the address being forgotten — a
+    // deferred GATT-queue release, an in-flight WiFi fallback, or a manual
+    // WiFi/BLE connect — so none of them can land against a scale the user
+    // just discarded.
     m_scaleConnectDeferred = false;
     m_wifiFallbackToBleActive = false;
     m_manualWifiConnect = false;
-    m_savedScaleAddress.clear();
-    m_savedScaleType.clear();
-    m_savedScaleName.clear();
+    m_manualBleConnect = false;
+    // Route through the one funnel every saved-address change goes through
+    // (see its own comment) so the reconnect-browse state —
+    // m_wifiDirectAttemptFailed, m_browsedPrimaryIp — is reset here too,
+    // instead of surviving into whatever scale gets saved next.
+    setSavedScaleAddress(QString(), QString(), QString());
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;
     emit scaleConnectionFailedChanged();
@@ -3042,9 +3077,11 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" attempt —
-    // so a timeout here should take the normal WiFi→BLE fallback path.
+    // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" or manual
+    // BLE-row attempt — so a timeout here should take the normal WiFi→BLE
+    // fallback path.
     m_manualWifiConnect = false;
+    m_manualBleConnect = false;
 
     // Try the saved address alongside a scan. A scan result must not interrupt
     // an active connection; a stalled direct attempt is aborted before retrying.

@@ -1135,8 +1135,16 @@ private:
     // report "Not found" directly instead of starting a WiFi→BLE fallback scan —
     // the user asked for a specific WiFi address, so we don't silently switch
     // transports. Set when the attempt starts; cleared on connect success, on
-    // timeout (consumed), and reset when a non-manual reconnect begins.
+    // timeout (consumed), reset when a non-manual reconnect begins, and cleared
+    // when the saved scale is forgotten (clearSavedScale).
     bool m_manualWifiConnect = false;
+    // True while a manually-tapped BLE scale row (connectToScale) connect
+    // attempt is pending. Tells onScaleConnectionTimeout not to treat a timeout
+    // as the saved WiFi primary's own reconnect failing — the user explicitly
+    // picked this BLE row, possibly for a scale whose saved primary is a WiFi
+    // address, so a WiFi→BLE fallback here would be mislabeled. Cleared on the
+    // same four occasions as m_manualWifiConnect above.
+    bool m_manualBleConnect = false;
     // Debounces user-visible scan-error popups. Without this, repeated scan
     // attempts (refractometer auto-reconnect ticks, scale reconnect retries)
     // would re-fire the same error toast indefinitely. We pop a given error
