@@ -1778,7 +1778,18 @@ Item {
                         fallback: "Available Devices"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: discoveredDevicesList.count > 0
+                        visible: discoveredDevicesList.visible && discoveredDevicesList.count > 0
+                            && !discoveredDevicesList.needsScaleSelection
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.bluetooth.selectDiscoveredScale"
+                        fallback: "Scale found, select your scale:"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        wrapMode: Text.WordWrap
+                        visible: discoveredDevicesList.visible && discoveredDevicesList.needsScaleSelection
                     }
 
                     // Unified discovered devices list (scales + refractometers).
@@ -1793,6 +1804,8 @@ Item {
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
                         visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
+                        readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
+                            && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
                         // Combine scales + refractometers. The model is rebuilt
                         // explicitly via Connections handlers below — relying on
