@@ -117,9 +117,10 @@ not. Route it through `LogCollapse` constructed with `LogCollapse::kChangesOnly`
 (`src/core/logcollapse.h`): a CHANGE prints at once and carries the count of
 identical lines it stood for, and nothing prints in between.
 
-Every periodic source in the tree is on it — the MMR charger keepalive, the memory
-sampler, the battery poll, the ShotServer request log, MQTT's retry ladder, and the
-two elided-write lines. A finite window is for the one case where the repeat is
+The MMR charger keepalive, meaningful memory growth, battery/forecast results,
+ShotServer requests, MQTT retries and elided-write lines use it. Repeated connection
+failures also use it; changing a repeat counter or moving a line to DEBUG is not
+suppression. A finite window is for the one case where the repeat is
 itself evidence: `BleGattQueue`'s dispatch line only speaks above a foreign-wait
 threshold, and a window is what separates two operations inside one stall.
 
@@ -154,10 +155,10 @@ sinks are the problem, not the wording.
 configuration trains readers to skim the tier that means "look here". Real examples
 removed from this codebase: a successful cache rehydrate warning on *every* launch of
 every affected device; "no DE1 found" warning while the user was deliberately running
-the simulator. If a retry ladder repeats a genuine failure forever, warn for the
-first few and then drop to DEBUG — see `BLEManager::scaleRepeatFailure`, and count
-**per message**, because a subsystem-wide counter suppresses a genuinely *new*
-failure that arrives after an unrelated one spent the budget.
+the simulator. If a retry ladder repeats a failure forever, emit its first occurrence and
+suppress identical repeats — see `BLEManager::scaleRepeatFailure`. Keep distinct
+failures independent, and re-arm on recovery or a fresh user attempt. The ending
+episode records its repeat count once; it does not emit DEBUG on every retry.
 
 **Don't report a transition that did not happen.** Guard on state. An unconditional
 "disconnected" logs a disconnect for a device that never connected, which reads as
@@ -357,8 +358,9 @@ The terminal console sink must never call Qt logging recursively.
 
 ## Runtime context and physical lines
 
-`WebDebugLogger` preserves the supplied category, file, line and function on WARN+
-records. Source paths are portable (`src/...`, `qml/...` or a basename), without the
+`WebDebugLogger` preserves supplied category and portable file/line on WARN+
+records. Function context is retained when file/line is unavailable; it is omitted
+when it would repeat a complete source location. Source paths are portable (`src/...`, `qml/...` or a basename), without the
 builder's home directory. Missing context stays missing. QML helper calls supply an
 emitter tag; their C++ warning context identifies the helper, not an invented QML
 line. Framework QML warnings retain the actual QML context when Qt supplies it.
@@ -368,42 +370,45 @@ This is a capture fallback, not evidence of first-party conformance. Every multi
 continuation receives the same timestamp, severity, identity and warning context.
 Only a session banner starting at the beginning of a physical line creates a session;
 banner-like content inside a captured message cannot create a false restart.
-Memory/FD dump rows carry the dump id and reason even on pages without the header.
+Automatic FD inventories are not logged. MCP `debug_get_fds` remains available
+for an explicit live descriptor/socket snapshot.
 
-## Visualizer operation outcomes
+## Existing results and periodic samples
 
-`network/visualizeroperationlog.h` carries a callback-owned operation ID through
-upload/update, connection tests, lists, profile imports, history recovery and
-coffee synchronization. INFO contains starts and successful, empty, skipped or
-cancelled results. WARN contains terminal failures, actionable rejections and
-partial batches; retries stay DEBUG. A pending duplicate import ends only when
-its save or cancellation resolves.
+Prefer improving an existing result to adding a lifecycle around every action.
+Visualizer retains its uploader/importer messages with consistent source tags;
+covered payload dumps become IDs and numeric HTTP/network/parse details in those
+messages. `core/logfields.h` bounds IDs to 128 characters and HTTP URL identity to
+384, stripping credentials, query and fragment. It is shared with AI logging.
+Successful diagnostic-file receipts add no result evidence and stay silent.
 
-Each event names the kind, stage, elapsed milliseconds and known local shot,
-remote shot and bag IDs. Parent IDs connect post-upload coffee work without
-changing the upload's result. Batch summaries preserve existing UI counters and
-add `diagnosticFailures` where older behavior counts a failed fetch as a skip.
-An empty/dropped background repair snapshot does not start an operation.
+Battery polls retain every mode, requested-charge, discharge-cycle, OS-status and
+power-source change, plus five percentage points from the last emitted reading.
+Normal one-percent movement does not defeat suppression. Forecast results retain
+first availability, changed provider/coverage, failure and recovery; routine
+changing temperatures are available in the weather data. Repeated UI phase and
+auto-load invocation receipts are omitted when the actual operation already logs
+its outcome. Shot color and raw-weight traces are omitted; recorded shot samples,
+stop/tare/settling decisions and real timer commands retain their separate value.
+DNS discovery logs changed result counts/error state rather than every cycle
+start/end; changing elapsed milliseconds does not defeat suppression.
 
-The shared `core/logfields.h` formatter bounds identifier fields to 128 characters
-and URL identity to 384, stripping URL credentials, queries and fragments. Use
-stable reason codes, never payloads, notes, share codes or remote error prose.
-Dedicated upload files and user-facing error text keep their separate roles.
-Storage/profile failures retain their owners; controller consumers record distinct
-queue decisions instead of forwarding the backend's terminal log again.
-
-The controlled regression capture compares complete persisted output with
-Visualizer INFO/WARN selections. Untagged historical entries remain available in
-the full log and can fall outside a subsystem selection; inspect the full time
-window when investigating older reports.
+Memory samples and exact peaks remain available on demand. Only sustained growth
+is logged: three observed block medians (5, 30 or 120 samples per block), at least
+5 MB overall, and at least a quarter of that growth in each interval. Zero/missing
+readings or gaps over 90 seconds invalidate a window. A continuing trend uses
+`LogCollapse` and five MB of further median growth; a quiet interval drops its
+expired tally without a new summary. These thresholds are a diagnostic heuristic,
+not proof of a leak. Routine snapshots, isolated jumps and QObject churn stay quiet.
 
 ## AI operation outcomes
 
 Each AI request and bag extraction has an opaque `op` id, kind, stage, elapsed time,
 known bag/shot id and provider/model captured at dispatch. Local fetch failures say
 `provider=not-invoked`; page, archive and provider status codes distinguish the stage
-that failed. Retries remain DEBUG and keep the operation id. INFO starts and terminal
-results form the short narrative; failed and rejected outcomes are WARN.
+that failed. Retries remain DEBUG and keep the operation id. Only the terminal
+result is emitted automatically; start/dispatch/response/ready updates retain
+context in memory. Failed and rejected outcomes are WARN.
 
 A provider response is interpreted before the terminal verdict. `success` means usable
 advice or parsed fields/URL, `empty` means a valid empty extraction/search result,

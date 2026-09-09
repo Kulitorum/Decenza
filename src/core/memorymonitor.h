@@ -10,14 +10,9 @@
 #include <QElapsedTimer>
 
 #include "logcollapse.h"
+#include "memorytrend.h"
 
 class QQmlApplicationEngine;
-
-struct MemorySample {
-    qint64 timestampMs;
-    quint64 rssBytes;
-    int qobjectCount;
-};
 
 class MemoryMonitor : public QObject {
     Q_OBJECT
@@ -75,26 +70,14 @@ private:
     int m_lastQObjectCount = 0;
     bool m_firstSample = true;
 
-    // Silences the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
-    // itself is untouched; this only decides whether the sample is worth a line, and a plateau is
-    // not: an RSS figure identical to the last one is what "nothing is leaking" looks like, and it
-    // does not become news by being restated 60 times an hour.
-    // Periodic: samples for the process lifetime, so there is no run end and nothing to flush. That
-    // is not a lost tally under kChangesOnly — the count and span ride out on the next line whose
-    // text DIFFERS, which for a memory sampler is exactly the sample a reader came for.
+    // Only confirmed growth speaks, then again after another 5 MB. Quiet
+    // samples and expired growth tallies never produce a summary of their own.
     LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
-    // RSS as of the last line PRINTED — the anchor the 5 MB band is measured from, so a value
-    // sitting on a fixed bucket edge cannot oscillate across it. Negative until the first line.
-    double m_lastLoggedRssMB = -1.0;
-    // Peak RSS as of the last line printed BECAUSE of a new peak. Distinct from m_peakRss, which
-    // tracks the true peak exactly for peakRssMB() and the JSON snapshot: this one only decides
-    // whether a peak is worth a line, so a peak ratcheting up through jitter stays quiet. Zero
-    // until the first line.
-    quint64 m_lastLoggedPeakRss = 0;
+    double m_lastLoggedGrowthMB = -1.0;
 
     // Per-class QObject tracking
     QHash<QString, int> m_classCounts;          // Current snapshot
-    QHash<QString, int> m_prevClassCounts;       // Previous snapshot (for per-tick delta log)
+    QHash<QString, int> m_prevClassCounts;       // On-demand comparison before engine baseline
     QHash<QString, int> m_baselineClassCounts;   // First snapshot after engine set (for growth-since-startup)
     bool m_baselineCaptured = false;
 

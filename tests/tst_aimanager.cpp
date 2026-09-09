@@ -439,6 +439,8 @@ private slots:
             QVERIFY(!ids.contains(op->id));
             ids << op->id;
             const auto before = logs.terminals().size();
+            for (const auto& line : logs.lines())
+                QVERIFY2(!line.contains("op=" + op->id), qPrintable(line));
             emit provider->analysisComplete(reply);
             QCOMPARE(logs.terminals().size(), before + 1);
             QVERIFY(logs.terminals().last().startsWith("[BeanBase][Operation]"));

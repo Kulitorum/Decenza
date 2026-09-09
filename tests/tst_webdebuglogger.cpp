@@ -226,7 +226,7 @@ private slots:
             QVERIFY(line.contains("WARN  [BeanBase][Extract] "));
             QVERIFY(line.contains("source=qml/components/BagCard.qml:42"));
             QVERIFY(line.contains("category=qml"));
-            QVERIFY(line.contains("function=updateDetails"));
+            QVERIFY(!line.contains("function=updateDetails"));
             QVERIFY(!line.contains("/build/"));
         }
         QVERIFY(lines[1].contains("2099-01-01"));
@@ -249,6 +249,16 @@ private slots:
         QVERIFY(logger.lineMatches(line, {"[Runtime]"}, "WARN"));
         logger.handleMessage(QtDebugMsg, "[Memory][Sample] detail", context);
         QVERIFY(!logger.getAllLines().last().contains("category="));
+    }
+
+    void functionIsRetainedWhenSourceLocationIsUnavailable()
+    {
+        WebDebugLogger logger(logPath());
+        const QMessageLogContext context(nullptr, 0, "readResponse", "qt.network.ssl");
+        logger.handleMessage(QtWarningMsg, "device not open", context);
+        const auto line = logger.getAllLines().last();
+        QVERIFY(line.contains("function=readResponse"));
+        QVERIFY(!line.contains("source="));
     }
 
     // ---- Session boundaries are recorded, never fabricated ----

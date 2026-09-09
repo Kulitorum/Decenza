@@ -1,4 +1,5 @@
 #include "wifiscalediscovery.h"
+#include <QDateTime>
 
 #include "ble/scales/scalelogging.h"
 
@@ -218,10 +219,6 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     auto cancel = std::make_shared<std::atomic<bool>>(false);
     m_browseCancel = cancel;
 
-    SCALE_INFO_TAGGED("WifiScaleDiscovery",
-        QString("DNS-SD browse for %1 (timeout %2 ms)")
-            .arg(serviceType).arg(timeoutMs));
-
     QPointer<WifiScaleDiscovery> self(this);
     auto runnable = QRunnable::create([self, serviceType, timeoutMs, generation, cancel]() {
         // Runs on a worker thread — browseService() blocks until its deadline.
@@ -254,23 +251,20 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
             if (generation != self->m_browseGeneration) return;
             if (!self->m_browseInFlight) return;
 
-            // Always report what the browse did. "Ran and found nothing",
-            // "could not run at all" and "found things but dropped them all as
-            // stale" are three very different failures that look identical in
-            // the device list, so the outcome has to reach the shareable log as
-            // data rather than being inferred from its absence.
-            SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                QString("DNS-SD browse finished via %1 in %2 ms — %3 resolved, "
-                        "%4 named but unresolved, %5 withdrawn")
-                    .arg(stats.backend.isEmpty() ? QStringLiteral("?") : stats.backend)
-                    .arg(stats.elapsedMs)
-                    .arg(stats.resolved)
-                    .arg(stats.dropped)
-                    .arg(stats.withdrawals < 0 ? QStringLiteral("not measured")
-                                               : QString::number(stats.withdrawals)));
-            if (!stats.error.isEmpty()) {
-                SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
-                    QStringLiteral("DNS-SD browse ERROR: ") + stats.error);
+            // A changed outcome matters; the same empty browse with a slightly
+            // different elapsed time does not. ResultFound still identifies each scale.
+            const QString result = QString("DNS-SD browse: backend=%1 resolved=%2 unresolved=%3 withdrawn=%4%5")
+                .arg(stats.backend.isEmpty() ? QStringLiteral("?") : stats.backend)
+                .arg(stats.resolved).arg(stats.dropped)
+                .arg(stats.withdrawals < 0 ? QStringLiteral("not-measured") : QString::number(stats.withdrawals))
+                .arg(stats.error.isEmpty() ? QString() : QStringLiteral(" error=%1").arg(stats.error));
+            LogCollapse::Collapsed collapsed;
+            if (self->m_browseLog.shouldLog(QStringLiteral("result"), result,
+                                           QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                const QString text = result + QStringLiteral(" elapsedMs=%1").arg(stats.elapsedMs)
+                    + LogCollapse::suffixSimilar(collapsed);
+                if (stats.error.isEmpty()) { SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery", text); }
+                else { SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery", text); }
             }
             // `ran` is false when the browse could not actually run. Reporting
             // true here regardless — as an earlier version did — made the flag

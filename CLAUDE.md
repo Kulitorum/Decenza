@@ -68,6 +68,8 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **An assistant builds and runs tests through the Qt Creator MCP tools — `mcp__qtcreator__build` and `mcp__qtcreator__run_tests` — and through nothing else.** Not `cmake --build`, not `ctest`, not a `./tests/tst_*` binary, from any shell. That holds for the full pre-PR suite, for a single target, and when an MCP call times out (the call's wait can abort while Qt Creator keeps building — poll `get_build_status`, don't shell out). If the MCP path is blocked — wrong startup project, app holding the binary, tool unavailable — **stop and ask**. Qt Creator is also ~50× faster than a CLI build, and it is the environment the maintainer is watching while you work.
 
+**For live-app checks, ask the user to start or restart Decenza.** Do not launch it or bring it to the foreground automatically: an unexpected window can capture keyboard shortcuts. Verify the exact checkout and process/port ownership so testing never starts a second copy.
+
 The `cmake`/`ctest` invocations in `docs/CLAUDE_MD/TESTING.md` and `docs/CLAUDE_MD/PLATFORM_BUILD.md` are **reference for humans and CI**, not instructions for an assistant. Run their equivalent through the MCP.
 
 **No CI job builds or tests a pull request *automatically* — run the full suite locally before opening one.** That is the default gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub fires on its own to catch a compile error or a failing test before merge.

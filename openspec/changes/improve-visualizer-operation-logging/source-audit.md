@@ -1,126 +1,131 @@
-# Visualizer outcome and consumer audit
+# Real-device log audit and previous-PR review
 
-Baseline: `5c2f1d585bde0fd5675eae91988fa89de7208b29` (PR #1930).
-Reviewed the complete uploader/importer sources and all result consumers on
-2026-09-09. This is a source audit plus controlled Mac validation, not a new device
-incident report. Test names below refer to `TstVisualizerShotParse` unless noted.
+## Scope and completeness
 
-Every initiated operation starts at INFO and owns one terminal record. `U` means
-`[Visualizer][VisualizerUploader]`, `I` means `[Visualizer][VisualizerImporter]`.
-Success/empty/skip/cancel are INFO; failed/rejected/partial are WARN. Intermediate
-retries and per-item successes stay DEBUG. WARN item problems and a WARN batch
-summary describe different events. Source-only branches are explicit below; they
-are not claimed as injected runtime failures.
+Retrieved with **DE1 MCP `debug_get_log`**, unfiltered and without deduplication,
+on 2026-09-09 at 18:50 UTC. Five complete sessions (5–9) were retrieved in seven
+pages: **10,376 physical lines**. The rolling-week selection is September 2
+12:50:06 through September 9 12:50:06 in the device session clock. Session markers
+do not specify a timezone; their local clock plus elapsed seconds defines this
+window. The latest recorded entry is September 9 12:48:00.437.
 
-## Entry, branch and exit inventory
+The selection contains **9,342 consecutive physical lines, IDs 8070–17411**:
+8,683 DEBUG, 571 INFO, 80 WARN and 8 banners/continuations. No ERROR/FATAL entries.
+All lines were classified; all 847 number-normalized message patterns were
+reviewed, followed by original values and neighboring events for candidate issues
+and noise decisions. Numeric normalization was for ranking only: different
+numbers can be different failures and must not become a global suppression rule.
+The complete private capture and classification working files are in `/private/tmp`;
+private device logs and account content are not committed here.
 
-| Entry / branch | Existing behavior retained | Diagnostic owner/result | Validation |
-| --- | --- | --- | --- |
-| Live/history upload; override wrapper cannot coerce a shot | `uploadFailed`, no POST | U rejected / missingShotData | Source guards; payload regressions in full suite |
-| Upload maintenance / short shot | `uploadSkipped`, no POST | U skipped / maintenanceProfile or shotTooShort | `preflightAndConnection`; maintenance source audit |
-| Upload credentials absent | `uploadFailed`, no POST | U rejected / missingCredentials | `preflightAndConnection` |
-| Upload transport/5xx retry | Same multipart JSON, at most two retries, same signals/state transitions | U DEBUG retry, same op | `uploadRetriesAndChildOutcome`, `uploadFailures` |
-| Upload accepted with nonempty ID | Existing success, local writeback and subsequent coffee sync | U success / uploaded; shot ID captured at entry | `uploadRetriesAndChildOutcome` |
-| Upload 2xx missing ID, malformed response | `uploadFailed`, no success/writeback | U failed / missingReturnedShotId at interpret | `uploadFailures` |
-| Upload exhausted, 401/422/429/other failure | Existing error wording, no extra retry | U failed / requestFailed; status/error code only | `uploadFailures`, preserves 422 UI text |
-| Metadata update wrappers / missing remote ID / credentials | Existing failure signals, no PATCH | U rejected / missingShotData, missingRemoteId, missingCredentials | Source audit |
-| Metadata update corrupt bean snapshot / canonical identity conflict | Existing omitted canonical link, same other fields | U WARN prepare problem / DEBUG decision, no raw bean names | Source audit; canonical payload suite |
-| Metadata PATCH success / failure / 404 | Existing updateSuccess/uploadFailed/updateFailed, permanent only on 404; overlap still allowed | U success or failed, callback-owned shot/remote IDs | `overlappingUpdateOutcomes` |
-| Connection test missing credentials / response | Same capability reset and result signal | U rejected / success / failed | `preflightAndConnection`, persisted filter test |
-| Shot list missing credentials / network error | Same shotListFailed | U rejected / failed | Guard runtime; network source audit |
-| Shot list malformed / missing paging / page ceiling | Same error text, no partial success signal | U failed / invalidResponse, missingPaging, pageLimit | `listOutcomes`, `overlappingListsAndPageCeiling` |
-| Shot list next page / older page / empty / success | Same page recursion, accumulation and cutoff | U one op, page/count context, empty or success | Two-list overlap + 50-page runtime; cutoff suite `tst_visualizershotlist` |
-| Import ID / renamed / share-code empty input or busy | Same importFailed or no-op guard | I rejected / missingInput or busy; no share code logged | Runtime busy; remaining guards source audit |
-| Shared discovery credentials / busy | Same importFailed or no-op guard | I rejected / missingCredentials or busy | Source audit; refresh covered by duplicate test |
-| Single import network / malformed JSON / invalid profile or TCL | Same UI error and state changes | I failed / requestFailed, invalidResponse, invalidProfile | `importFailureAndShareCodePrivacy`; TCL branch source audit |
-| Shared list non-array / empty | Same importFailed or sharedShotsChanged | I failed / expectedArray or empty summary | Runtime automatic refresh; non-array exercised during test development |
-| Share-code empty array / error object / missing ID | Same UI rejection, no profile request | I failed / noSharedShots, serverRejected, missingReturnedShotId | Source audit |
-| Share-code resolved ID / profile URL follow-up | Same URL selection/query and profile request | I same op; bounded remote ID; URL excludes query | `importFailureAndShareCodePrivacy`, URL privacy test |
-| Profile direct/renamed/TCL save succeeds | Same helper save and signals; JSON paths still refresh shared list | I success / profileSaved after save | Duplicate seed saves; renamed/TCL source audit |
-| Profile save fails / second profile while duplicate pending | Same helper refusal and error signals | I failed / saveFailed; original pending op retained | Source audit |
-| Duplicate found | Same duplicateFound signal; helper remains pending | I DEBUG awaitingUser, no terminal yet | `importDuplicateDecision` |
-| Duplicate overwrite / save-as-new / rename succeeds | Same helper signals and files | I original op success / profileSaved | `importDuplicateDecision` four rows |
-| Duplicate cancel | Same helper clear, no added UI signal | I original op cancelled / userCancelled | `importDuplicateDecision` |
-| Duplicate invalid name or retryable save failure | Existing helper may remain pending for correction | I WARN save problem; terminal only once resolved | Source audit |
-| Duplicate decision with no pending / helper discards failed save | Same existing helper errors | I rejected / noPendingImport or failed / saveFailed | Source audit |
-| Batch empty / busy | Same counters/signal or no-op | I empty summary or rejected / busy | Source audit |
-| Batch item network / invalid profile | Existing skipped counter, continue next item | I item problem; diagnosticFailures makes final partial despite UI skipped classification | `batchPartialPreservesUiCounters` |
-| Batch existing profile skip / save / save failure | Same file check/overwrite policy/counters | I DEBUG skip/save or WARN save problem | Source audit; profile file operations tested in duplicate cases |
-| Batch complete through either callback exit | Same batchImportComplete counts and refresh | I total/imported/skipped/failed + diagnosticFailures; summary before reentrant consumer signals | `batchPartialPreservesUiCounters` |
-| Shared detail parallel replies / invalid JSON, profile or network | Same comparison, invalid flags and shared list signal | I per-reply remote ID captured at dispatch; one complete/partial summary | `sharedDetailsOutOfOrder` |
-| Recovery busy / missing credentials / history unavailable | Same no-op or recoveryFailed | I rejected; safe reason | Source audit |
-| Recovery list error / malformed / paging missing / page cap | Same recoveryFailed and stop | I failed; page/status/error context | Source audit; shared page helper and uploader production loop tested |
-| Recovery next page / empty / downloads | Same normalized range and queue | I same op, item remote ID | `recoveryRetryParseAndDatabase`; empty source audit |
-| Recovery download retry / exhausted or permanent failure | Same maximum three attempts, failed counter and continue | I DEBUG retry / WARN item problem | Runtime transient then success; exhaustion source audit |
-| Recovery profile fetch failure | Same best-effort import without profile | I WARN distinct profile problem; partial summary even if row import succeeds | `recoveryRetryParseAndDatabase` |
-| Recovery JSON/shot parse failure | Same failed counter and continue | I WARN interpret problem | Runtime JSON failure; parser suite covers invalid shot |
-| Recovery DB insert / duplicate / DB error | Same positive/zero/negative return interpretation | I saved/skipped detail or WARN save problem; Storage retains DB diagnostics | Real isolated DB insert and duplicate; DB error source audit |
-| Recovery completion | Same refresh/counters/progress/completion signals | I one summary with all four counts and partial state | `recoveryRetryParseAndDatabase` |
-| Post-upload coffee sync preflight missing context / known unavailable capability | Same early return | U child skipped, parentOp references successful upload | `uploadRetriesAndChildOutcome`; capability source audit |
-| Coffee local shot/bag read missing bag / failed query/row/open | Same worker query, no new read/write | U child skipped noLocalBag, otherwise failed with safe stage reason | Source audit |
-| Coffee shot readback failure / invalid JSON | Same return, later upload may retry | U failed / pendingRetry or invalidResponse | Source audit |
-| No server bag; canonical absent/conflicting / valid | Same no-op or canonical PATCH | U skipped / noServerBag or canonicalIdentityConflict, or canonical-link result | `coffeeReadBackLinkAndCapability`; conflict payload tests |
-| Server bag linked | Same persist IDs, enrichment, pending drain, optional roaster badge | U bag/shot context, independent related children | `coffeeReadBackLinkAndCapability`; worker branches source audit |
-| Canonical PATCH accepted / failure | Same request, no UI mutation | U success / canonicalLinked or failed / pendingRetry | Runtime success; failure source audit |
-| Bag read gone / request/parse failure / no missing fields | Same ID clear, return or no PATCH | U skipped / remoteBagGone or alreadyComplete, failed / pendingRetry or invalidResponse | Source audit; body builder tests in `tst_coffeebags` |
-| Bag enrichment PATCH 200/403/404/other | Same capability/ID state and request policy | U success / skipped limitation or gone / failed pendingRetry | Runtime 403 after full readback chain; remaining branches source audit |
-| Roaster badge read network/parse/already linked; PATCH result | Same optional read/link, no changed routing | U separate roasterEnrich child, failed/skipped/success | `roasterResolutionFailureRemainsPartial` PATCH failure; other branches source audit |
-| Bag update local context / inactive capability / unknown capability | Same rejection or pending flag; no request | U rejected context, skipped limitation or pendingCapabilityCheck | Source audit |
-| Bag worker missing/unsynced/valid | Same pending flag and roaster resolution/PATCH chain | U failed bagUnavailable / skipped notSyncedYet / continuing op | Source audit |
-| Roaster list fails / matches / no match | Same return, callback or create | U failed pendingRetry, or DEBUG stages; WARN malformed shape/missing ID | `roasterResolutionFailureRemainsPartial`; other branches source audit |
-| Roaster create 201 / 403 / failure | Same callback even if returned ID empty, same capability update | U problem on missing ID, skipped limitation or failed pendingRetry | Runtime missing-ID fallback retains following PATCH |
-| Bag PATCH no UUID / 200 / 403 / 404 / 422 / other | Same pending flag, ID clear, rejection toast and retry behavior | U skipped / success (partial after resolution problem) / limitation / gone / rejected / failed pendingRetry | `coffeeOutcomes` five rows; missing UUID source audit |
-| Pending bag scan ineligible / query failure / empty / nonempty | Same early return or worker query and updates | No op for ineligible background scan; otherwise one scan terminal and one related op per bag | Source audit |
-| Bean repair empty / busy snapshot | Same silent return or missed-work flag; no extra finish signal | No new operation; DEBUG dropped snapshot when busy | `beanRepairKeepsPendingOnAccountFailure`; empty source audit |
-| Bean repair invalid queue entry / GET 404 / 401,429,403 / other network / unreadable body or bag ID | Same skip, settle, abandon or later retry; same 4-second pacing | U item decision/problem; final partial when incomplete | Runtime account failure and reentry; policy tests in `tst_coffeebags`; remaining exits source audit |
-| Bean repair no-op / canonical clear / restore names | Same decision table, request body, settle rules | U DEBUG decision; full pass owns terminal | Existing policy/payload regressions; callback branches source audit |
-| Repair PATCH 2xx invalid/readback disagreement/match, permanent or transient failure | Same declined/repaired/settled/pending counters | U WARN distinct invalid/readback/HTTP problems, partial even when legacy pass flag says settled | Source audit and pure decision tests |
-| Canonical clear 2xx / account/per-shot/transient failure | Same clear/settle/abandon/pending behavior | U distinct stage + final complete/partial | Source audit |
-| Owner destroyed while reply/duplicate/worker pending; late diagnostic callback | Existing object lifetimes/callback routing | Context destructor cancels unfinished op; terminal latch suppresses later diagnostic events | `cancellationAndLateDiagnostics` |
+| Session | Lines in week | First–last device-clock time |
+| --- | ---: | --- |
+| 5 | 587 | Sep 2 12:54:38 – 14:56:40 |
+| 6 | 2,357 | Sep 2 14:56:44 – Sep 4 16:17:10 |
+| 7 | 3,099 | Sep 4 16:17:16 – Sep 7 23:05:59 |
+| 8 | 1,848 | Sep 7 23:06:04 – Sep 8 15:54:54 |
+| 9 | 1,451 | Sep 8 15:55:00 – Sep 9 12:48:00 |
 
-## Signal consumers and ownership
+These binaries predate PR #1930. Its new format cannot be judged by whether older
+rows now have tags. Compare the observed messages with current source, and test
+new emission behavior separately. Historical rows must remain intact.
 
-| Consumer | Behavior kept / logging decision |
+## What was useful
+
+| Evidence | Diagnostic value / conclusion |
 | --- | --- |
-| MainController uploadSucceededForShot | Queues local link writeback. Missing local ID stays a distinct WARN handoff failure; uploader owns remote upload success. |
-| MainController updateSuccess/updateFailed migration-16 drain | Keeps in-flight ID filter, queue removal/retry and next dispatch. Backend terminal is not forwarded again: DEBUG pending-on-next-boot, INFO removal of a missing remote record. Remote error prose removed. |
-| MainController pendingBeanRepairsReady / beanRepairSettled / beanRepairFinished | Same worker queue, settle and missed-snapshot re-drain. Queue-read failure belongs to Storage; uploader owns pass outcome. |
-| MainController shotListFailed/shotListFetched / visualizerLinksReconciled | Same single-shot connections and backfill flag. Request failure is backend-owned; DEBUG records queue policy. DB reconciliation failure belongs to Storage. |
-| PostShotReviewPage uploadingChanged/uploadSucceededForShot/updateSuccess/uploadFailed/uploadSkipped | Same pending flags, shot ID checks, URL/metadata refresh, status text. No duplicate terminal logger. |
-| ShotDetailPage uploadSuccess/updateSuccess | Same history reload. No duplicate terminal logger. |
-| VisualizerBrowserPage importSuccess/importFailed/duplicateFound | Same result display, refresh and duplicate decisions. No duplicate terminal logger. |
-| VisualizerMultiImportPage sharedShotsChanged/importSuccess/importFailed | Same list selection/import tracking and result display. No duplicate terminal logger. |
-| SettingsVisualizerTab connectionTestResult/recoveryProgress/recoveryComplete/recoveryFailed | Same status, date-range recovery counters and error styling. No duplicate terminal logger. |
-| main.qml bagPushRejected | Same named bag toast and accessibility announcement. UI error text retained; no main-log server echo. |
-| ProfileSaveHelper/Profile/ProfileStorage | Existing file/duplicate/validation events remain Profiles. Importer reports operation-level save outcome without copying profile payload or helper prose. |
-| ShotHistoryStorage/CoffeeBagStorage | Existing database events remain Storage; operation logs record only the downstream outcome. |
-| Other similarly named import handlers | ProfileImportPage and SettingsHistoryDataTab target other importers; they do not consume Visualizer results. |
+| Product-page HTTP 404s, including five attempts Sep 4 09:56–09:57 (9996–10001) | Identifies a missing product URL. Five lines alone do not identify whether these were separate user attempts or automatic retries. Keep endpoint/status and request identity where the existing AI pipeline already owns it. |
+| Archive HTTP 429s Sep 4 and Sep 8; no archived copy Sep 7 (11262, 13253, 16235, 16239) | Distinguishes archive rate limiting from the original page failure. The log must distinguish local/page/archive failure from an AI provider being invoked and failing. This justifies the previous PR's terminal context, not start/dispatch/response chatter. |
+| Two update-check HTTP 504s at DEBUG (12151, 14420) | Real failures invisible to WARN filtering. Previous PR's failure/recovery severity correction is useful. |
+| Scale oscillation and re-arming (10055–10059) | Warn identifies why stop-at-weight was blocked; following recovery establishes that it resumed. Preserve both and their numerical evidence. |
+| Eight Bluetooth queue delay warnings, 565–1131 ms | Every one follows an Idle phase in this capture. Useful contention evidence, but not evidence that a shot's stop was delayed. Preserve operation/wait/count; the repeated generic explanation can be shorter. |
+| Two DelegateModel index warnings; three closed QSslSocket reads | Potential app/framework defects, not grounds to declare everything an outside-service issue. This audit does not establish their root causes. Preserve warnings and supplied source context. |
+| 47 public-Funnel unauthorized-request warnings, four burst-limit warnings | Security rejection evidence. Already bounded per minute. Low total volume; preserve, do not weaken authorization or hide a new failure. |
+| One sunrise/sunset timeout; three stale HTTP connection cleanups | Distinguish optional weather failure and connection cleanup from core machine faults. Preserve useful failure/peer context. |
+| Missing historical shot during an MCP query (17300) | One requested record was unavailable. Does not establish database corruption. Preserve Storage context. |
+| Benign R2 status at WARN (17172); unavailable calibration range printed as nan/inf (16505) | Misleading issue signals. Previous PR already corrected these classifications/wording; keep those fixes. |
+| Charging command versus OS observation | Adjacent pre-command samples can disagree transiently. Previous PR's truthful requested-versus-observed wording is useful; retain mismatch warnings and real transitions. |
+| Shot stop, final settled weight, calibration decision and storage/upload result | Establishes what actually happened. Preserve these even when successful: they close a diagnosis and prevent a transient failure from appearing unresolved. |
 
-## Boundaries retained
+## Where the volume came from
 
-No request routing, payload, retry budget, pacing, business counters or signal
-arguments changed. Tests allow existing metadata-update overlap and account for
-JSON imports' automatic shared-list refresh. Diagnostic context is callback-owned;
-existing shared application state is not refactored in this change. Recovery's
-history accessor substitutes an isolated storage only under `DECENZA_TESTING`;
-upload debug files likewise use a PID-scoped test path. Production paths are
-unchanged. No extra Decenza process, machine command or live service mutation was
-used.
+Counts are observed physical rows, not claims that every row in a family is noise.
+Candidate reductions must preserve transitions and failures and be tested.
 
-Known source-only limitations for later behavioral review: the importer uses a
-shared request-type field across independently guarded fetch/import entry points;
-some coffee endpoints retain their permissive JSON-object fallback. These are
-existing source patterns, not failures demonstrated in these tests. This change
-does not claim to repair them.
+| Existing family | Rows | Decision and evidence it must retain |
+| --- | ---: | --- |
+| Full FD inventories / headers | 2,044 / 8 | Remove automatic dumps entirely, with no replacement summary. Counts across four updates fell 248→243, 256→251, 274→269 and 256→247; the capture does not establish an FD/socket leak. On-demand MCP FD inspection remains unchanged. |
+| Battery poll snapshots | 1,267 | Use existing LogCollapse with a state signature and a last-emitted 5-percentage-point progress band. Every mode, desired-charge, cycle, OS-status and power-source transition must remain immediate. Replay of the recorded samples retains 364, suppresses 903; this is a candidate replay, not a new-device measurement. |
+| Battery mismatch/clear / charge switching | 131 / 112 | Keep truthful mismatch, recovery and command transitions. They explain behavior; not all battery traffic is expendable. |
+| Memory samples / class deltas | 590 / 124 | Only sustained memory growth warrants a log. Remove routine snapshots, isolated steps and class churn; retain exact sampled history and on-demand object snapshots. Sparse historical emitted samples cannot validate a trend gate that uses every minute of sampling. |
+| Healthy constant-weight reports | 243 | Proving healthy samples once per shot is enough; changing a held weight must not defeat collapse and restart narration. Keep real stall/resume evidence and the existing end-of-shot feed statistics. |
+| Scale interval/rate checks | 117 | Keep anomalies that explain timing; inspect normal periodic reports separately from disagreements. |
+| Extraction color tracking / raw scale weights | 127 / 121 | Repeats numbers already in recorded shot data and UI calculations. Remove main-log traces; retain actual stop, tare, scale fault and frame-exit decisions. |
+| Settling samples | 141 | Routine half-second progress is redundant with final settling results. Keep interrupted stability where it explains a delay, final weight and timeout/refusal outcomes. |
+| Weather success receipts | 169 | Temperature changes are normal, not diagnostic novelty. Collapse unchanged success state, preserving first result, failure and recovery. |
+| Idle auto-load invocation | 60 | Source must distinguish a request that did useful work from an unchanged no-op; avoid repeating an invocation receipt when nothing changes. |
+| SSE connection lifecycle | 103 | Retain connection identity/errors when diagnosing loss; do not promote every normal poll/session bookkeeping event to an issue. |
+| Visualizer metadata bodies | 4 | Existing result and record ID carry the useful fact. Remove full metadata JSON from main log; do not add a separate body-size receipt merely to replace it. |
+| AI diagnostic-file receipts | 24 | Three receipts per exchange add no result evidence. Keep a useful artifact location only where needed for a failure or explicit diagnostics; terminal result is what answers the user's question. |
+| Steam UI state / timer traces | 91 / 76 | Remove duplicate SteamPage state handlers; retain actual scale-timer commands and timer recovery/refusal events, with decorative banners removed. Keep steam-scaling decisions that explain applied settings. |
 
-## Next app-wide candidates
+Within a session, 4,056 rows repeat exact message text (timestamps and existing
+collapse annotations removed for this count). This is an upper-bound candidate
+set, not 4,056 proven useless events: a later shot or a new connection is a new
+episode even if its wording repeats.
 
-- `locationprovider.cpp`: explicit lookup failure versus optional/denied lookup.
-- `shotreporter.cpp`: API completion versus optional location failure.
-- `translationmanager.cpp`: update-check outcome versus batch bookkeeping.
-- `shotserver_auth.cpp`: safe, non-secret TOTP refusal diagnostics.
-- `librarysharing.cpp` / `datamigrationclient.cpp`: optional counting/settings
-  failures versus terminal download/transfer failures.
+## Parseability
 
-MQTT is intentionally disabled and excluded. Beta/native-device checks and wiki
-publication remain explicitly held in `validation-holds.md`.
+Only 3,011 rows have an owner and source pair; 1,301 have one bracket prefix,
+2,663 a bare named prefix, 2,359 a bare body, and eight are banners/continuations.
+The older mixed formats are why a subsystem-only read missed useful context.
+
+Useful existing shapes are `[SAW][Worker] Stop triggered: weight=… target=…` and
+`[DE1][Phase] Idle → Espresso`: owner, event, actual values and chronology are
+clear. Harder shapes include orphan FD rows, repeated URLs inside error prose,
+unnamed positional numbers, mixed quoted values, embedded JSON, all-caps decorative
+timer banners, the R2 line saying both “error” and “not a fault”, and historical
+calibration sentinels that look like computation failures.
+
+Keep the previous PR's registered prefix and multiline/source handling. Do not
+rewrite old logs, infer owners from arbitrary message text at capture time, or
+use minLevel as a substitute for removing DEBUG noise at its source.
+
+## PR #1930: retain and redo
+
+- **Retain:** registry/helpers/source gate, first-party owner migration, framework
+  fallback/context, multiline attribution, safe AI/page/archival terminal outcome,
+  response privacy, and the demonstrated severity/wording corrections.
+- **Redo:** FD row-by-row identity made a large dump longer rather than useful.
+  Remove the automatic inventories altogether; preserve independent MCP inspection.
+- **Trim:** AI operation starts and generic dispatch/response/ready stage records;
+  keep diagnostic state in memory for the single useful final result. Omit absent
+  fields and redundant source function signatures where file/line already locates
+  the emitter, if tests confirm that diagnosis remains unambiguous.
+- **Remove from this PR:** the new Visualizer operation lifecycle and its verbose
+  test scaffolding. Existing Visualizer messages can be improved directly without
+  adding a start/stage/end protocol to every action.
+
+MQTT is intentionally excluded. Native beta validation and wiki publication remain
+held. UI/password accessibility and functional defects identified above are not
+silently mixed into this logging cleanup.
+
+## What the previous audit established
+
+The archived PR #1930 evidence records a 5,240-timestamped-line formatting census.
+That was not an adequate assessment of which records helped diagnose an issue.
+The present audit reviews message value, repetition and fault context across the
+complete rolling week; a formatting count or a clean WARN query is not a health verdict.
+
+## Additional Mac observation
+
+The earlier live Mac capture showed repeated reconnect failures being demoted to
+DEBUG rather than suppressed, plus hostname-resolution warnings bypassing the
+shared failure sink. These sources now use LogCollapse, with one first failure and
+one pending-count record at the end of an episode. Distinct failures and fresh
+user attempts remain visible. The rebuilt Mac capture then exposed five duplicate discovery cycles in 84
+seconds: manager intent, discovery start, resolver start/end and discovery result.
+Those redundant starts and resolver receipts are removed; one changes-only
+discovery result retains backend, resolved/unresolved/withdrawn counts and error
+state, with elapsed time excluded from the suppression key. Found-device records
+remain distinct. Unchanging retry tails omit their per-attempt receipts.

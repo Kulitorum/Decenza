@@ -345,20 +345,8 @@ private:
     // 100 s static window produced 50 identical lines, and one submitted log
     // carried 567 of them.
     //
-    // Keyed on a CONSTANT, not on the text — the text carries the weight, so
-    // keying on it would file every value under its own run and none of them
-    // would ever close. With one key, a weight that moves is a changed line
-    // that emits at once carrying the previous value's tally, which is exactly
-    // the transition a reader is looking for.
-    //
-    // EPISODIC — a shot ends — so it is flushed in endShotCycle(), the
-    // cycle-exit chokepoint that runs even when flow never started, and in
-    // resetForRetare(), where a new tare ends the window the line describes.
-    //
-    // NOT in startExtraction(). That is where the old throttle was cleared and
-    // it is the wrong place for a flush: the span flush() reports is
-    // nowMs - lastEmitMs, so closing a run at the NEXT run's start dates the
-    // window to the next shot and prints it in that shot's narrative.
+    // One healthy constant-sample observation per shot/tare episode. Flush in
+    // endShotCycle() and resetForRetare() so counts cannot cross shots.
     LogCollapse m_constantSampleLog{LogCollapse::kChangesOnly};
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction

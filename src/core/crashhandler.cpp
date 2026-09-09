@@ -696,31 +696,6 @@ void CrashHandler::uninstall()
     }
 }
 
-void CrashHandler::logOpenFileDescriptors(const QString& tag)
-{
-#ifdef Q_OS_ANDROID
-    static std::atomic<quint64> nextDump{0};
-    const quint64 dumpId = nextDump.fetch_add(1, std::memory_order_relaxed) + 1;
-    const QString dump = QStringLiteral("dump=%1 reason=%2").arg(dumpId).arg(tag);
-    QDir fdDir("/proc/self/fd");
-    if (!fdDir.exists()) {
-        DIAG_DEBUG(MEMORY, "FDs") << dump << "/proc/self/fd not accessible";
-        return;
-    }
-    // /proc/self/fd entries are symlinks; the default QDir filter excludes
-    // symlinks-to-non-existent. Pass an explicit filter that keeps everything
-    // except `.` / `..`.
-    const auto entries = fdDir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
-    DIAG_DEBUG(MEMORY, "FDs") << dump << "openFds=" << entries.size();
-    for (const QString& entry : entries) {
-        const QFileInfo fi("/proc/self/fd/" + entry);
-        DIAG_DEBUG(MEMORY, "FDs") << dump << "fd=" << entry << "target=" << fi.symLinkTarget();
-    }
-#else
-    Q_UNUSED(tag);
-#endif
-}
-
 QString CrashHandler::crashLogPath()
 {
     return QString::fromUtf8(s_crashLogPath);

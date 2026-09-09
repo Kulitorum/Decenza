@@ -1,4 +1,5 @@
 #include "core/diagnosticlogging.h"
+#include "core/logfields.h"
 #include "visualizerimporter.h"
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
@@ -16,7 +17,6 @@
 #include <QDir>
 #include <QUrl>
 #include <QDebug>
-#include <QScopedValueRollback>
 
 // Sanitize JSON to fix malformed numbers from Visualizer API
 // Fixes: .5 -> 0.5, 9. -> 9.0
@@ -43,14 +43,8 @@ VisualizerImporter::VisualizerImporter(QNetworkAccessManager* networkManager, Ma
     Q_ASSERT(networkManager);
 
     // Forward helper signals to our own signals
-    connect(m_saveHelper, &ProfileSaveHelper::importSuccess, this, [this](const QString& title) {
-        if (m_resolutionLog) m_resolutionLog->finish("success", "profileSaved");
-        emit importSuccess(title);
-    });
-    connect(m_saveHelper, &ProfileSaveHelper::importFailed, this, [this](const QString& error) {
-        if (m_resolutionLog) m_resolutionLog->problem("save", "saveFailed");
-        emit importFailed(error);
-    });
+    connect(m_saveHelper, &ProfileSaveHelper::importSuccess, this, &VisualizerImporter::importSuccess);
+    connect(m_saveHelper, &ProfileSaveHelper::importFailed, this, &VisualizerImporter::importFailed);
     connect(m_saveHelper, &ProfileSaveHelper::duplicateFound, this, &VisualizerImporter::duplicateFound);
 }
 
@@ -85,17 +79,15 @@ QString VisualizerImporter::extractShotId(const QString& url) const {
 }
 
 void VisualizerImporter::importFromShotId(const QString& shotId) {
-    const auto op = Log::begin(Log::Emitter::Importer, "profileImport", 0, 0, shotId);
     if (shotId.isEmpty()) {
         m_lastError = tr_("visualizer.error.noShotId", "No shot ID provided");
         emit lastErrorChanged();
-        op->finish("rejected", "missingInput");
         emit importFailed(m_lastError);
         return;
     }
 
     if (m_importing) {
-        op->finish("rejected", "busy");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "importFromShotId: called while already importing, ignoring";
         return;
     }
 
@@ -104,29 +96,27 @@ void VisualizerImporter::importFromShotId(const QString& shotId) {
     emit importingChanged();
 
     QString url = QString(VISUALIZER_PROFILE_API).arg(shotId);
-    op->detail("fetch", "dispatch");
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Fetching profile:" << DecenzaLog::safeUrl(url);
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
-        onFetchFinished(reply, op);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onFetchFinished(reply);
     });
 }
 
 void VisualizerImporter::importFromShotIdWithName(const QString& shotId, const QString& customName) {
-    const auto op = Log::begin(Log::Emitter::Importer, "profileImport", 0, 0, shotId);
     if (shotId.isEmpty() || customName.isEmpty()) {
         m_lastError = tr_("visualizer.error.shotIdAndName", "Shot ID and name are required");
         emit lastErrorChanged();
-        op->finish("rejected", "missingInput");
         emit importFailed(m_lastError);
         return;
     }
 
     if (m_importing) {
-        op->finish("rejected", "busy");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "importFromShotIdWithName: called while already importing, ignoring";
         return;
     }
 
@@ -136,31 +126,29 @@ void VisualizerImporter::importFromShotIdWithName(const QString& shotId, const Q
     emit importingChanged();
 
     QString url = QString(VISUALIZER_PROFILE_API).arg(shotId);
-    op->detail("fetch", "dispatch");
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Fetching profile for renamed import:" << DecenzaLog::safeUrl(url);
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
-        onFetchFinished(reply, op);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onFetchFinished(reply);
     });
 }
 
 void VisualizerImporter::importFromShareCode(const QString& shareCode) {
-    const auto op = Log::begin(Log::Emitter::Importer, "profileImport", 0, 0, QString());
     QString code = shareCode.trimmed();
 
     if (code.isEmpty()) {
         m_lastError = tr_("visualizer.error.noShareCode", "No share code provided");
         emit lastErrorChanged();
-        op->finish("rejected", "missingInput");
         emit importFailed(m_lastError);
         return;
     }
 
     if (m_importing) {
-        op->finish("rejected", "busy");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "importFromShareCode: called while already importing, ignoring";
         return;
     }
 
@@ -169,7 +157,7 @@ void VisualizerImporter::importFromShareCode(const QString& shareCode) {
     emit importingChanged();
 
     QString url = QString(VISUALIZER_SHARED_API).arg(code);
-    op->detail("fetch", "dispatch");
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Fetching shot from share code";
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -180,15 +168,13 @@ void VisualizerImporter::importFromShareCode(const QString& shareCode) {
     }
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
-        onFetchFinished(reply, op);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onFetchFinished(reply);
     });
 }
 
 void VisualizerImporter::fetchSharedShots() {
-    const auto op = Log::begin(Log::Emitter::Importer, "sharedShots", 0, 0, QString());
     if (m_fetching) {
-        op->finish("rejected", "busy");
         return;
     }
 
@@ -196,7 +182,6 @@ void VisualizerImporter::fetchSharedShots() {
     if (auth.isEmpty()) {
         m_lastError = tr_("visualizer.error.credentialsMissing", "Visualizer credentials not configured");
         emit lastErrorChanged();
-        op->finish("rejected", "missingCredentials");
         emit importFailed(m_lastError);
         return;
     }
@@ -206,28 +191,26 @@ void VisualizerImporter::fetchSharedShots() {
     emit fetchingChanged();
 
     QString url = "https://visualizer.coffee/api/shots/shared?code=";
-    op->detail("fetch", "dispatch");
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Fetching user's shared shots...";
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", auth.toUtf8());
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
-        onFetchFinished(reply, op);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onFetchFinished(reply);
     });
 }
 
 void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool overwriteExisting) {
-    const auto op = Log::begin(Log::Emitter::Importer, "batchImport", 0, 0, QString());
     if (shotIds.isEmpty()) {
-        op->finishBatch(0, 0, 0, 0);
         emit batchImportComplete(0, 0, 0);
         return;
     }
 
     if (m_importing) {
-        op->finish("rejected", "busy");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "importSelectedShots: called while already importing, ignoring";
         return;
     }
 
@@ -240,7 +223,7 @@ void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool ov
     m_batchFailed = 0;
     emit importingChanged();
 
-    op->detail("fetch", "dispatch");
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Starting batch import of" << shotIds.size() << "profiles";
 
     // Start fetching first profile
     QString shotId = m_batchShotIds.takeFirst();
@@ -250,13 +233,12 @@ void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool ov
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, shotId, op]() {
-        onProfileFetchFinished(reply, shotId, op);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onProfileFetchFinished(reply);
     });
 }
 
-void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
-    op->response("fetch", reply);
+void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
@@ -272,15 +254,14 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
         } else {
             m_lastError = tr_("visualizer.error.network", "Network error: %1").arg(reply->errorString());
         }
-
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << QStringLiteral("Request failed: httpStatus=%1 networkError=%2 url=%3")
+            .arg(statusCode).arg(int(reply->error())).arg(DecenzaLog::safeUrl(reply->url().toString()));
         emit lastErrorChanged();
-        op->finish("failed", "requestFailed");
         emit importFailed(m_lastError);
         return;
     }
 
     QByteArray data = reply->readAll();
-    op->detail("interpret", "responseReceived");
 
     // Check if response is TCL format instead of JSON
     // TCL profiles start with "profile_" while JSON starts with "{" or "["
@@ -289,11 +270,12 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
 
     if (isTclFormat) {
         // Handle TCL format response (some Visualizer profiles return TCL instead of JSON)
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Detected TCL format profile from Visualizer";
 
         Profile profile = Profile::loadFromTclString(dataStr);
 
         if (!profile.isValid() || profile.steps().isEmpty()) {
-
+            DIAG_WARN(VISUALIZER, "VisualizerImporter") << "TCL profile has no steps - shot was uploaded without complete profile data";
             m_importing = false;
             m_requestType = RequestType::None;
             emit importingChanged();
@@ -302,7 +284,6 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
             m_lastError = tr_("visualizer.error.profileUnavailable",
                               "%1 is not available - the shot was uploaded without complete profile data. Try the built-in profiles or import from a different source.").arg(title);
             emit lastErrorChanged();
-            op->finish("failed", "invalidProfile");
             emit importFailed(m_lastError);
             return;
         }
@@ -313,20 +294,19 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
 
         // Save the TCL profile
         QString filename = m_saveHelper->titleToFilename(profile.title());
-        ProfileSaveHelper::SaveResult result = saveImportedProfile(profile, filename, op);
+        ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
         if (result == ProfileSaveHelper::SaveResult::Saved) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Successfully imported TCL profile:" << profile.title();
             emit importSuccess(profile.title());
         } else if (result == ProfileSaveHelper::SaveResult::Failed) {
             m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
             emit lastErrorChanged();
-            op->finish("failed", "saveFailed");
             emit importFailed(m_lastError);
         }
         // PendingResolution means duplicate dialog shown, waiting for user
         return;
     }
 
-    op->detail("interpret", "parseResponse");
     data = sanitizeVisualizerJson(data);
 
     QJsonParseError parseError;
@@ -341,9 +321,9 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
         m_lastError = tr_("visualizer.error.jsonParse", "JSON parse error: %1 (at position %2)")
             .arg(parseError.errorString())
             .arg(parseError.offset);
-
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << QStringLiteral("JSON parse failed: parseError=%1 offset=%2 url=%3")
+            .arg(int(parseError.error)).arg(parseError.offset).arg(DecenzaLog::safeUrl(reply->url().toString()));
         emit lastErrorChanged();
-        op->finish("failed", "invalidResponse");
         emit importFailed(m_lastError);
         return;
     }
@@ -355,12 +335,12 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
             emit fetchingChanged();
             m_lastError = tr_("visualizer.error.expectedArray", "Expected array of shared shots");
             emit lastErrorChanged();
-            op->finish("failed", "expectedArray");
             emit importFailed(m_lastError);
             return;
         }
 
         QJsonArray array = doc.array();
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Received" << array.size() << "shared shots, fetching profile details...";
 
         m_pendingShots.clear();
 
@@ -394,12 +374,11 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
 
         // Start fetching profile details for comparison
         if (!m_pendingShots.isEmpty()) {
-            fetchProfileDetailsForShots(op);
+            fetchProfileDetailsForShots();
         } else {
             m_fetching = false;
             emit fetchingChanged();
             m_sharedShots = m_pendingShots;
-            op->finishBatch(0, 0, 0, 0);
             emit sharedShotsChanged();
         }
         return;
@@ -416,7 +395,6 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
             emit importingChanged();
             m_lastError = tr_("visualizer.error.noSharedShots", "No shared shots found");
             emit lastErrorChanged();
-            op->finish("failed", "noSharedShots");
             emit importFailed(m_lastError);
             return;
         }
@@ -430,9 +408,8 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
         m_requestType = RequestType::None;
         emit importingChanged();
         m_lastError = json["error"].toString(tr_("visualizer.error.unknownServer", "Unknown error"));
-
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Request failed: reason=serverError url=" << DecenzaLog::safeUrl(reply->url().toString());
         emit lastErrorChanged();
-        op->finish("failed", "serverRejected");
         emit importFailed(m_lastError);
         return;
     }
@@ -446,13 +423,11 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
             emit importingChanged();
             m_lastError = tr_("visualizer.error.shareMissingId", "Share code response missing shot ID");
             emit lastErrorChanged();
-            op->finish("failed", "missingReturnedShotId");
             emit importFailed(m_lastError);
             return;
         }
 
-        op->set("remoteId", shotId);
-        op->detail("profileFetch", "dispatch");
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Got shot ID from share code:" << shotId << "- fetching profile...";
         m_requestType = RequestType::FetchProfile;
 
         // Use profile_url from shot metadata if available, otherwise construct from shot ID
@@ -467,13 +442,13 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
         } else {
             url += "&format=json";
         }
-
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Fetching profile:" << DecenzaLog::safeUrl(url);
         QNetworkRequest request(url);
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
         QNetworkReply* profileReply = m_networkManager->get(request);
-        connect(profileReply, &QNetworkReply::finished, this, [this, profileReply, op]() {
-            onFetchFinished(profileReply, op);
+        connect(profileReply, &QNetworkReply::finished, this, [this, profileReply]() {
+            onFetchFinished(profileReply);
         });
         return;
     }
@@ -492,9 +467,8 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
     if (!profile.isValid()) {
         m_lastError = tr_("visualizer.error.invalidProfile", "Invalid profile: %1")
                           .arg(profile.validationErrors().join(", "));
-
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Visualizer import failed:" << m_lastError;
         emit lastErrorChanged();
-        op->finish("failed", "invalidProfile");
         emit importFailed(m_lastError);
         return;
     }
@@ -504,14 +478,14 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
         profile.setTitle(customName);
 
         QString filename = m_saveHelper->titleToFilename(customName);
-        ProfileSaveHelper::SaveResult result = saveImportedProfile(profile, filename, op);
+        ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
         if (result == ProfileSaveHelper::SaveResult::Saved) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Successfully imported renamed profile:" << customName;
             emit importSuccess(customName);
             fetchSharedShots();
         } else if (result == ProfileSaveHelper::SaveResult::Failed) {
             m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
             emit lastErrorChanged();
-            op->finish("failed", "saveFailed");
             emit importFailed(m_lastError);
         }
         // PendingResolution: duplicate dialog shown via helper signal, waiting for user
@@ -519,26 +493,26 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply, const Op& op) {
     }
 
     QString filename = m_saveHelper->titleToFilename(profile.title());
-    ProfileSaveHelper::SaveResult result = saveImportedProfile(profile, filename, op);
+    ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
     if (result == ProfileSaveHelper::SaveResult::Saved) {
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Successfully imported profile:" << profile.title();
         emit importSuccess(profile.title());
         // Refresh shared shots list to update status
         fetchSharedShots();
     } else if (result == ProfileSaveHelper::SaveResult::Failed) {
         m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
         emit lastErrorChanged();
-        op->finish("failed", "saveFailed");
         emit importFailed(m_lastError);
     }
 }
 
-void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QString& remoteId, const Op& op) {
-    op->set("remoteId", remoteId);
-    op->response("profileFetch", reply);
+void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        op->problem("profileFetch", "requestFailed");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << QStringLiteral("Profile fetch failed: httpStatus=%1 networkError=%2 url=%3")
+            .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
+            .arg(int(reply->error())).arg(DecenzaLog::safeUrl(reply->url().toString()));
         m_batchSkipped++;
 
         // Continue with next profile
@@ -548,15 +522,13 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
             QNetworkRequest request(url);
             request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
             QNetworkReply* nextReply = m_networkManager->get(request);
-            connect(nextReply, &QNetworkReply::finished, this, [this, nextReply, shotId, op]() {
-                onProfileFetchFinished(nextReply, shotId, op);
+            connect(nextReply, &QNetworkReply::finished, this, [this, nextReply]() {
+                onProfileFetchFinished(nextReply);
             });
         } else {
             // Done with batch
             m_importing = false;
             m_requestType = RequestType::None;
-            op->set("remoteId", QString());
-            op->finishBatch(m_batchImported + m_batchSkipped + m_batchFailed, m_batchImported, m_batchSkipped, m_batchFailed);
             emit importingChanged();
             emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
             if (m_controller) {
@@ -578,9 +550,11 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
         QJsonParseError parseError;
         QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
         if (parseError.error != QJsonParseError::NoError) {
-            op->detail("interpret", "invalidResponse");
+            DIAG_WARN(VISUALIZER, "VisualizerImporter") << "JSON parse error in batch import:"
+                       << parseError.errorString();
         } else if (!doc.isObject()) {
-            op->detail("interpret", "invalidResponse");
+            DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Expected JSON object in batch import, got"
+                       << (doc.isArray() ? "array" : "null");
         } else {
             profile = parseVisualizerProfile(doc.object());
         }
@@ -591,7 +565,10 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
         // used to increment a counter and say nothing, so a batch that quietly
         // dropped items gave the user an aggregate number and no way to find out
         // which or why.
-        op->problem("interpret", "invalidProfile");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "skipping" << profile.title()
+                   << "-" << (profile.steps().isEmpty()
+                                  ? QStringLiteral("no frames")
+                                  : profile.validationErrors().join(QStringLiteral(", ")));
         m_batchSkipped++;
     } else {
         QString filename = m_saveHelper->titleToFilename(profile.title());
@@ -607,7 +584,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
         }
 
         if (exists && !m_batchOverwrite) {
-            op->detail("save", "existingProfileSkipped");
+            DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Skipping existing profile:" << profile.title();
             m_batchSkipped++;
         } else {
             // Save the profile
@@ -623,10 +600,10 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
             }
 
             if (saved) {
-                op->detail("save", "profileSaved");
+                DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Imported profile:" << profile.title();
                 m_batchImported++;
             } else {
-                op->problem("save", "saveFailed");
+                DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Failed to save profile:" << profile.title();
                 m_batchFailed++;
             }
         }
@@ -639,14 +616,12 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply, const QStr
         QNetworkRequest request(url);
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         QNetworkReply* nextReply = m_networkManager->get(request);
-        connect(nextReply, &QNetworkReply::finished, this, [this, nextReply, shotId, op]() {
-            onProfileFetchFinished(nextReply, shotId, op);
+        connect(nextReply, &QNetworkReply::finished, this, [this, nextReply]() {
+            onProfileFetchFinished(nextReply);
         });
     } else {
         m_importing = false;
         m_requestType = RequestType::None;
-        op->set("remoteId", QString());
-        op->finishBatch(m_batchImported + m_batchSkipped + m_batchFailed, m_batchImported, m_batchSkipped, m_batchFailed);
         emit importingChanged();
         emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
         if (m_controller) {
@@ -679,10 +654,13 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     // A payload with no steps is simply broken, and is rejected by the
     // isValid()/steps().isEmpty() checks in both callers of this function.
 
+    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Parsed Visualizer profile:" << profile.title()
+             << "with" << profile.steps().size() << "steps";
+
     return profile;
 }
 
-void VisualizerImporter::fetchProfileDetailsForShots(const Op& op) {
+void VisualizerImporter::fetchProfileDetailsForShots() {
     m_pendingProfileFetches = static_cast<int>(m_pendingShots.size());
 
     for (int i = 0; i < m_pendingShots.size(); i++) {
@@ -694,16 +672,13 @@ void VisualizerImporter::fetchProfileDetailsForShots(const Op& op) {
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
         QNetworkReply* reply = m_networkManager->get(request);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, i, shotId, op]() {
-            onProfileDetailsFetched(reply, i, shotId, op);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, i]() {
+            onProfileDetailsFetched(reply, i);
         });
     }
 }
 
-void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotIndex, const QString& remoteId, const Op& op) {
-    op->set("itemIndex", shotIndex);
-    op->set("remoteId", remoteId);
-    op->response("profileDetails", reply);
+void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotIndex) {
     reply->deleteLater();
     m_pendingProfileFetches--;
 
@@ -723,38 +698,43 @@ void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotI
                 QJsonParseError parseError;
                 QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
                 if (parseError.error != QJsonParseError::NoError) {
-                    op->detail("interpret", "invalidResponse");
+                    DIAG_WARN(VISUALIZER, "VisualizerImporter") << "JSON parse error fetching profile details for shot"
+                               << shotIndex << ":" << parseError.errorString();
                 } else if (!doc.isObject()) {
-                    op->detail("interpret", "invalidResponse");
+                    DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Expected JSON object for profile details at shot"
+                               << shotIndex << ", got" << (doc.isArray() ? "array" : "null");
                 } else {
                     profile = parseVisualizerProfile(doc.object());
                 }
             }
 
-            if (!profile.isValid()) op->problem("interpret", "invalidProfile");
             if (profile.isValid()) {
                 // Check if profile has no frames (invalid)
                 if (profile.steps().isEmpty()) {
                     shot["invalid"] = true;
                     shot["invalidReason"] = "Profile has no frames";
                     m_pendingShots[shotIndex] = shot;
-                    op->problem("interpret", "noFrames");
+                    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Profile" << shot["profile_title"].toString() << "has no frames - marked invalid";
                 } else if (profile.isValid() && shot["exists"].toBool()) {
                     // Compare with local profile
                     QVariantMap status = m_saveHelper->checkProfileStatus(shot["profile_title"].toString(), &profile);
                     shot["identical"] = status["identical"];
                     m_pendingShots[shotIndex] = shot;
 
-                    op->detail("compare", "profileCompared");
+                    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Profile" << shot["profile_title"].toString()
+                             << "- exists:" << shot["exists"].toBool()
+                             << "identical:" << shot["identical"].toBool();
                 } else if (!profile.isValid()) {
                     shot["invalid"] = true;
                     shot["invalidReason"] = profile.validationErrors().join(", ");
                     m_pendingShots[shotIndex] = shot;
-                    op->problem("interpret", "invalidProfile");
+                    DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "Profile" << shot["profile_title"].toString() << "invalid:" << shot["invalidReason"].toString();
                 }
             }
         } else {
-            op->problem("profileDetails", "requestFailed");
+            DIAG_WARN(VISUALIZER, "VisualizerImporter") << "Failed to fetch profile details for shot index"
+                       << shotIndex << "- Error:" << reply->errorString()
+                       << "(shot will be marked invalid in shared list)";
             shot["invalid"] = true;
             shot["invalidReason"] = "Failed to fetch profile";
             m_pendingShots[shotIndex] = shot;
@@ -763,89 +743,46 @@ void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotI
 
     // All profile details fetched
     if (m_pendingProfileFetches <= 0) {
-        op->set("remoteId", QString());
-        op->finishBatch(m_pendingShots.size(), m_pendingShots.size() - op->problems, 0, op->problems);
         m_fetching = false;
         emit fetchingChanged();
         m_sharedShots = m_pendingShots;
         emit sharedShotsChanged();
-
+        DIAG_DEBUG(VISUALIZER, "VisualizerImporter") << "All profile details fetched, ready for selection";
     }
 }
 
-ProfileSaveHelper::SaveResult VisualizerImporter::saveImportedProfile(
-    const Profile& profile, const QString& filename, const Op& op)
-{
-    op->detail("save", "saveProfile");
-    // Preserve the older pending decision if the helper refuses a second import.
-    if (!m_saveHelper->hasPending()) m_pendingImportLog = op;
-    const auto result = m_saveHelper->saveProfile(profile, filename);
-    if (result == ProfileSaveHelper::SaveResult::Saved) op->finish("success", "profileSaved");
-    else if (result == ProfileSaveHelper::SaveResult::Failed) op->finish("failed", "saveFailed");
-    else op->detail("duplicateDecision", "awaitingUser");
-    if (op->terminal && m_pendingImportLog == op) m_pendingImportLog.reset();
-    return result;
-}
-
-void VisualizerImporter::resolvePendingImport(const QString& action, const std::function<void()>& resolve)
-{
-    const auto op = m_pendingImportLog ? m_pendingImportLog : Log::begin(Log::Emitter::Importer, "profileImport");
-    op->detail("duplicateDecision", action);
-    QScopedValueRollback<Op> current(m_resolutionLog, op);
-    const bool hadPending = m_saveHelper->hasPending();
-    resolve();
-    if (!hadPending) op->finish("rejected", "noPendingImport");
-    else if (!m_saveHelper->hasPending() && !op->terminal) op->finish("failed", "saveFailed");
-    // Invalid input can leave the helper pending so the user can correct it.
-    if (op->terminal && m_pendingImportLog == op) m_pendingImportLog.reset();
-}
-
 void VisualizerImporter::saveOverwrite() {
-    resolvePendingImport("overwrite", [this]() { m_saveHelper->saveOverwrite(); });
+    m_saveHelper->saveOverwrite();
 }
 
 void VisualizerImporter::saveAsNew() {
-    resolvePendingImport("saveAsNew", [this]() { m_saveHelper->saveAsNew(); });
+    m_saveHelper->saveAsNew();
 }
 
 void VisualizerImporter::saveWithNewName(const QString& newTitle) {
-    resolvePendingImport("rename", [this, newTitle]() { m_saveHelper->saveWithNewName(newTitle); });
+    m_saveHelper->saveWithNewName(newTitle);
 }
 
 void VisualizerImporter::cancelPending() {
-    const auto op = m_pendingImportLog;
-    m_pendingImportLog.reset();
     m_saveHelper->cancelPending();
-    if (op) op->finish("cancelled", "userCancelled");
 }
 
 // ---------------------------------------------------------------------------
 // Recover shots from Visualizer (date-range history import)
 // ---------------------------------------------------------------------------
 
-ShotHistoryStorage* VisualizerImporter::recoveryHistory() const
-{
-#ifdef DECENZA_TESTING
-    if (m_testHistory) return m_testHistory;
-#endif
-    return m_controller ? m_controller->shotHistory() : nullptr;
-}
-
 void VisualizerImporter::recoverShots(qint64 fromEpoch, qint64 toEpoch)
 {
-    const auto op = Log::begin(Log::Emitter::Importer, "recovery");
     if (m_recovering) {
-        op->finish("rejected", "busy");
+        DIAG_WARN(VISUALIZER, "VisualizerImporter") << "recovery already in progress";
         return;
     }
     if (authHeader().isEmpty()) {
-        op->finish("rejected", "missingCredentials");
         emit recoveryFailed(tr_("visualizer.error.connectFirst",
             "Connect your Visualizer account first (username and password)."));
         return;
     }
-    if (!recoveryHistory()) {
-        op->finish("rejected", "historyUnavailable");
+    if (!m_controller || !m_controller->shotHistory()) {
         emit recoveryFailed(tr_("visualizer.error.historyUnavailable", "Shot history is not available."));
         return;
     }
@@ -862,10 +799,10 @@ void VisualizerImporter::recoverShots(qint64 fromEpoch, qint64 toEpoch)
     m_recovering = true;
     emit recoveringChanged();
 
-    recoverFetchListPage(1, op);
+    recoverFetchListPage(1);
 }
 
-void VisualizerImporter::recoverFetchListPage(int page, const Op& op)
+void VisualizerImporter::recoverFetchListPage(int page)
 {
     // GET /api/shots?page=N&items=100 — authenticated => the user's own shots.
     // The page body is processed by the shared VisualizerShotList::processPage
@@ -886,13 +823,10 @@ void VisualizerImporter::recoverFetchListPage(int page, const Op& op)
                          QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, page, op]() {
-        op->set("page", page);
-        op->response("recoveryList", reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, page]() {
         reply->deleteLater();
 
-        auto fail = [this, op](const QString& msg, const QString& reason) {
-            op->finish("failed", reason);
+        auto fail = [this](const QString& msg) {
             m_recovering = false;
             emit recoveringChanged();
             emit recoveryFailed(msg);
@@ -901,7 +835,7 @@ void VisualizerImporter::recoverFetchListPage(int page, const Op& op)
         if (reply->error() != QNetworkReply::NoError) {
             const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             fail(tr_("visualizer.error.listFailed", "Could not list your shots (HTTP %1): %2")
-                 .arg(sc).arg(reply->errorString()), "requestFailed");
+                 .arg(sc).arg(reply->errorString()));
             return;
         }
 
@@ -910,17 +844,17 @@ void VisualizerImporter::recoverFetchListPage(int page, const Op& op)
                                           m_recoverFromEpoch, m_recoverToEpoch);
         switch (pr.reason) {
         case FailReason::ParseError:
-            fail(tr_("visualizer.error.listParse", "Shot list response parse error: %1").arg(pr.parseError), "invalidResponse");
+            fail(tr_("visualizer.error.listParse", "Shot list response parse error: %1").arg(pr.parseError));
             return;
         case FailReason::MissingPaging:
             fail(tr_("visualizer.error.listEnvelope",
-                "Unexpected response from Visualizer (check your credentials)."), "missingPaging");
+                "Unexpected response from Visualizer (check your credentials)."));
             return;
         case FailReason::PageCeiling:
             fail(tr_("visualizer.error.tooMany",
                 "Too many shots to search through (over %1). "
                 "Pick a more recent date range.")
-                .arg(kMaxPages * kItemsPerPage), "pageLimit");
+                .arg(kMaxPages * kItemsPerPage));
             return;
         case FailReason::None:
             break;
@@ -933,31 +867,28 @@ void VisualizerImporter::recoverFetchListPage(int page, const Op& op)
             m_recoverTotal = static_cast<int>(m_recoverQueue.size());
             emit recoveryProgress(m_recoverTotal, 0, 0, 0);
             if (m_recoverQueue.isEmpty())
-                finishRecovery(op);
+                finishRecovery();
             else
-                recoverNextShot(op);
+                recoverNextShot();
             return;
         }
-        recoverFetchListPage(page + 1, op);
+        recoverFetchListPage(page + 1);
     });
 }
 
-void VisualizerImporter::recoverNextShot(const Op& op)
+void VisualizerImporter::recoverNextShot()
 {
     if (m_recoverQueue.isEmpty()) {
-        finishRecovery(op);
+        finishRecovery();
         return;
     }
 
     m_recoverCurrent = m_recoverQueue.takeFirst();
-    op->set("remoteId", m_recoverCurrent.visualizerId);
-    op->set("shotId", 0);
-    op->set("retry", 0);
     m_recoverAttempts = 0;
-    recoverDownloadCurrent(op);
+    recoverDownloadCurrent();
 }
 
-void VisualizerImporter::recoverDownloadCurrent(const Op& op)
+void VisualizerImporter::recoverDownloadCurrent()
 {
     // Step 1: download the full shot record (telemetry + metadata). A transient
     // network/server failure is retried a bounded number of times (mirrors the
@@ -973,8 +904,7 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
                          QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
-        op->response("recoveryDownload", reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             constexpr int kMaxAttempts = 3;   // 1 initial + up to 2 retries
@@ -982,16 +912,18 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
             const bool transient = (sc == 0 || sc >= 500);  // transport error or 5xx
             m_recoverAttempts++;
             if (transient && m_recoverAttempts < kMaxAttempts) {
-                op->set("retry", m_recoverAttempts);
-                op->detail("recoveryDownload", "retry");
-                recoverDownloadCurrent(op);   // retry the same shot
+                DIAG_WARN(VISUALIZER, "VisualizerImporter") << "shot download transient failure for"
+                           << m_recoverCurrent.visualizerId << reply->errorString()
+                           << "- retrying" << m_recoverAttempts << "of" << (kMaxAttempts - 1);
+                recoverDownloadCurrent();   // retry the same shot
                 return;
             }
-            op->problem("recoveryDownload", "requestFailed");
+            DIAG_WARN(VISUALIZER, "VisualizerImporter") << "shot download failed for"
+                       << m_recoverCurrent.visualizerId << reply->errorString();
             m_recoverFailed++;
             emit recoveryProgress(m_recoverTotal, m_recoverImported,
                                   m_recoverSkipped, m_recoverFailed);
-            recoverNextShot(op);
+            recoverNextShot();
             return;
         }
         const QByteArray shotBody = reply->readAll();
@@ -1007,14 +939,15 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
                           QNetworkRequest::NoLessSafeRedirectPolicy);
 
         QNetworkReply* preply = m_networkManager->get(preq);
-        connect(preply, &QNetworkReply::finished, this, [this, preply, shotBody, op]() {
-            op->response("recoveryProfile", preply);
+        connect(preply, &QNetworkReply::finished, this, [this, preply, shotBody]() {
             preply->deleteLater();
             QString profileJson;
             if (preply->error() == QNetworkReply::NoError)
                 profileJson = QString::fromUtf8(preply->readAll());
             else
-                op->problem("recoveryProfile", "importingWithoutProfile");
+                DIAG_WARN(VISUALIZER, "VisualizerImporter") << "profile fetch failed for"
+                           << m_recoverCurrent.visualizerId << preply->errorString()
+                           << "- importing shot without a profile";
 
             // Step 3: parse and insert (dedupes). Run the body through
             // sanitizeVisualizerJson first: visualizer.coffee can emit the
@@ -1025,16 +958,17 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
             // Emit progress and move to the next shot. Shared by every outcome so
             // the loop advances exactly once per shot whether it succeeded, was a
             // duplicate, or failed.
-            auto advance = [this, op]() {
+            auto advance = [this]() {
                 emit recoveryProgress(m_recoverTotal, m_recoverImported,
                                       m_recoverSkipped, m_recoverFailed);
-                recoverNextShot(op);
+                recoverNextShot();
             };
 
             QJsonParseError perr{};
             const QJsonDocument doc = QJsonDocument::fromJson(sanitizeVisualizerJson(shotBody), &perr);
             if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-                op->problem("interpret", "invalidResponse");
+                DIAG_WARN(VISUALIZER, "VisualizerImporter") << "shot parse error for"
+                           << m_recoverCurrent.visualizerId << perr.errorString();
                 m_recoverFailed++;
                 advance();
                 return;
@@ -1044,7 +978,8 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
                 doc.object(), profileJson, m_recoverCurrent.visualizerId,
                 m_recoverCurrent.clockEpoch);
             if (!res.success) {
-                op->problem("interpret", "invalidShot");
+                DIAG_WARN(VISUALIZER, "VisualizerImporter") << "could not build shot record for"
+                           << m_recoverCurrent.visualizerId << res.errorMessage;
                 m_recoverFailed++;
                 advance();
                 return;
@@ -1054,27 +989,22 @@ void VisualizerImporter::recoverDownloadCurrent(const Op& op)
             // continue the loop from the completion callback. overwriteExisting
             // = false => existing shots are skipped (dedupe), which is exactly the
             // idempotent recovery we want.
-            recoveryHistory()->importShotRecordAsync(
-                res.record, false, [this, advance, op](qint64 shotId) {
+            m_controller->shotHistory()->importShotRecordAsync(
+                res.record, false, [this, advance](qint64 shotId) {
                     if (shotId > 0)       m_recoverImported++;
                     else if (shotId == 0) m_recoverSkipped++;   // duplicate
                     else                  m_recoverFailed++;     // DB error
-                    op->set("shotId", shotId > 0 ? shotId : 0);
-                    if (shotId < 0) op->problem("save", "databaseWriteFailed");
-                    else op->detail("save", shotId == 0 ? "existingShotSkipped" : "shotImported");
                     advance();
                 });
         });
     });
 }
 
-void VisualizerImporter::finishRecovery(const Op& op)
+void VisualizerImporter::finishRecovery()
 {
-    if (auto* history = recoveryHistory())
-        history->refreshTotalShots();
+    if (m_controller && m_controller->shotHistory())
+        m_controller->shotHistory()->refreshTotalShots();
 
-    op->set("remoteId", QString()); op->set("shotId", 0);
-    op->finishBatch(m_recoverTotal, m_recoverImported, m_recoverSkipped, m_recoverFailed);
     m_recovering = false;
     emit recoveringChanged();
     emit recoveryComplete(m_recoverTotal, m_recoverImported,

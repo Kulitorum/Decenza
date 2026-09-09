@@ -701,8 +701,7 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
                         // asked about. The LOG keeps it, because "no capture"
                         // and "the archive refused to answer" send a reader to
                         // different places — a rate limit succeeds on retry.
-                        operation->detail(QStringLiteral("archiveLookup"), answered
-                            ? QStringLiteral("lookupReturnedNoCapture") : QStringLiteral("lookupUnanswered"));
+                        operation->stage = QStringLiteral("archiveLookup");
                         operation->finish(QStringLiteral("failed"), answered
                             ? QStringLiteral("pageFailed_lookupReturnedNoCapture")
                             : QStringLiteral("pageFailed_lookupUnanswered"));
@@ -736,7 +735,7 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
         // Visualizer treats < 100 chars as "blocked or empty" and falls back
         // to a scraping proxy; we have no proxy, so it is simply a failure.
         if (text.size() < 100) {
-            operation->detail(QStringLiteral("pageInterpretation"), QStringLiteral("emptyPage"));
+            operation->stage = QStringLiteral("pageInterpretation");
             // Existing direct consumers may hand this operation to the provider's
             // URL reader during signal delivery. Only a stopped ladder fails here.
             emit pageTextFailed(reportUrl, QStringLiteral("emptyPage"), operation->id);
@@ -744,7 +743,7 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
                 operation->finish(QStringLiteral("failed"), QStringLiteral("emptyPage_noProviderContinuation"));
             return;
         }
-        operation->detail(QStringLiteral("pageInterpretation"), QStringLiteral("pageTextReady"));
+        operation->stage = QStringLiteral("pageInterpretation");
         emit pageTextReady(reportUrl, text, operation->id);
         if (!operation->providerInvoked)
             operation->finish(QStringLiteral("superseded"), QStringLiteral("noProviderContinuation"));

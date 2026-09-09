@@ -682,8 +682,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             // VisualizerUploader::onUpdateFinished): leave the entry in
             // the pending list and abort the drain — the queue picks up
             // on the next boot.
-            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 drain paused until next boot"
-                     << "remoteId=" << DecenzaLog::field(visualizerId);
+            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync pending until next boot for remote shot" << visualizerId;
             return;
         }
 
@@ -713,8 +712,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         else
             s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        DIAG_INFO(VISUALIZER, "MainController") << "migration16 removed missing remote shot from pending queue"
-                   << "remoteId=" << DecenzaLog::field(visualizerId);
+        DIAG_INFO(VISUALIZER, "MainController") << "migration16 removed missing remote shot" << visualizerId
+            << "from pending queue";
         dispatchNextPendingVisualizerSync();
     });
 
@@ -4095,7 +4094,6 @@ void MainController::onEspressoCycleStarted() {
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
     m_lastSampleTime = 0;  // prior shot's last sample.timer would otherwise stale-out the inter-sample delta gate
-    m_trackLogCounter = 0;
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
     m_lastPressure = 0;
@@ -4410,7 +4408,7 @@ void MainController::onShotEnded() {
                     // intentionally do NOT auto-upload it (avoids the
                     // orphaned-upload bug this change exists to fix).
                     if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
-                        DIAG_DEBUG(VISUALIZER, "MainController") << "  -> Auto-uploading to visualizer for shot" << shotId;
+                        DIAG_DEBUG(VISUALIZER, "maincontroller") << "  -> Auto-uploading to visualizer for shot" << shotId;
                         m_visualizer->uploadShot(
                             m_shotDataModel, m_profileManager->currentProfilePtr(),
                             duration, finalWeight, doseWeight, metadata, debugLog,
@@ -5032,32 +5030,6 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                /*temperatureGoal*/ sample.setTempGoal,
                                /*temperatureMixGoal*/ sample.setMixTempGoal,
                                sample.frameNumber, isFlowMode);
-
-    // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,
-    // this is roughly every 2 seconds). Only log when a goal is active.
-    if (isExtracting && m_trackLogCounter++ % 10 == 0) {
-        double goal = isFlowMode ? flowGoal : pressureGoal;
-        if (goal > 0) {
-            double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
-            double delta = qAbs(actual - goal);
-            // Thresholds must match Theme.trackingColor() in Theme.qml
-            double floorGood = isFlowMode ? 0.4 : 0.8;
-            double floorWarn = isFlowMode ? 0.8 : 1.8;
-            double threshGood = qMax(floorGood, goal * 0.25);
-            double threshWarn = qMax(floorWarn, goal * 0.50);
-            QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
-            // Prefix deliberately unbracketed: a per-sample trace is not a
-            // subsystem narrative, and "[ExtractionTrack]" advertised a
-            // debug_get_log filter that would return an incomplete answer.
-            DIAG_DEBUG(SHOT, "ExtractionTrack") << (isFlowMode ? "flow" : "pressure")
-                     << "actual=" << QString::number(actual, 'f', 2)
-                     << "goal=" << QString::number(goal, 'f', 2)
-                     << "delta=" << QString::number(delta, 'f', 2)
-                     << "threshG=" << QString::number(threshGood, 'f', 2)
-                     << "threshW=" << QString::number(threshWarn, 'f', 2)
-                     << color;
-        }
-    }
 }
 
 void MainController::onScaleWeightChanged(double weight) {
@@ -5252,9 +5224,10 @@ void MainController::processVisualizerReconciliation()
 
     // Fetch → reconcile → self-correct, each a single-shot hop.
     connect(m_visualizer, &VisualizerUploader::shotListFailed, this,
-            [](const QString&) {
-        // The uploader owns the request outcome; this records only queue policy.
-        DIAG_DEBUG(VISUALIZER, "MainController") << "reconciliation remains pending until next boot";
+            [](const QString& err) {
+        // Fail safe: do NOT set the run-once flag — retried next boot.
+        DIAG_WARN(VISUALIZER, "MainController") << "Visualizer reconciliation list fetch failed:"
+                   << err << "(will retry next boot)";
     }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
     connect(m_visualizer, &VisualizerUploader::shotListFetched, this,

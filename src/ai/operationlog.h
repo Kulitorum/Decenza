@@ -25,7 +25,6 @@ public:
             QMutexLocker lock(&indexMutex());
             index().insert(op->id, op);
         }
-        op->event(QtInfoMsg, QStringLiteral("start"));
         return op;
     }
 
@@ -51,7 +50,6 @@ public:
         model = field(modelId);
         providerInvoked = true;
         stage = nextStage;
-        event(QtDebugMsg, QStringLiteral("dispatch"));
     }
 
     void network(const QString& nextStage, const QString& url, int status, int error)
@@ -62,13 +60,6 @@ public:
         networkError = error;
         if (!providerInvoked && !pageHttpStatus)
             pageHttpStatus = status;
-        event(QtDebugMsg, QStringLiteral("response"));
-    }
-
-    void detail(const QString& nextStage, const QString& reason)
-    {
-        stage = nextStage;
-        event(QtDebugMsg, reason);
     }
 
     bool finish(const QString& outcome, const QString& reason, qsizetype count = -1)

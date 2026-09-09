@@ -1,53 +1,35 @@
 ## Context
 
-See proposal.md for motivation. PR #1930 supplied registered owners, shared C++/QML formatting, contextual persistence and an AI diagnostic operation lifecycle. This change extends the outcome discipline to Visualizer, where several separate asynchronous state machines share one owner. The initial source findings and inherited holds are in `source-audit.md` and `validation-holds.md`.
-
-The current network/result paths remain authoritative: uploads have an existing bounded retry budget, history recovery has batch counters, and profile duplicate handling delegates to `ProfileSaveHelper`. Some result signals synchronously invoke consumers. `m_uploading` is UI state rather than a reliable per-request identity.
-
-## Goals / Non-Goals
-
-**Goals:** Attach diagnostic context to the operation that owns a callback, finish at its usable-result boundary, and make its INFO/WARN view coherent. Reuse shared formatting and keep new context independent of mutable UI state.
-
-**Non-Goals:** Change request selection, concurrency rules, retry policy, parsing acceptance, upload persistence, duplicate handling, service capabilities or charging behavior. No global severity promotion based on words such as "error". No new log store or MCP surface. The other app-wide candidates remain explicitly recorded for later passes; MQTT is excluded by the user.
+`source-audit.md` records the complete DE1 week, its 847 normalized message patterns, useful failure contexts and the review of PR #1930. The original Visualizer lifecycle implementation exceeded the user's intent and is removed. The change keeps its directory name so the existing PR and review history remain traceable.
 
 ## Decisions
 
-### Keep the published owner and use consistent emitter tags
+### Remove noise at its source
 
-All Visualizer integration outcomes remain under `[Visualizer]`, with `VisualizerUploader`, `VisualizerImporter` and `MainController` as the appropriate emitter tags. The operation kind carries distinctions such as upload, update, connectionTest, shotList, profileImport, recovery and coffeeSync; a new marker per stage would fragment the existing subsystem query. Shared profile/storage helpers keep their own owner for their distinct work and do not re-emit the Visualizer terminal result.
+Delete automatic FD inventory calls and their obsolete helper; do not replace them with a summary. `FdDiagnostics::snapshot()` and MCP `debug_get_fds` remain independent and unchanged. Delete color-tracking and raw-weight traces, duplicate Steam UI phase and auto-load invocation receipts, routine settling progress and successful AI/Visualizer diagnostic-file receipts. Preserve artifacts and file-write failures.
 
-### Capture operation context at entry and carry it in callbacks
+A held scale weight is not a new liveness event. Use one constant text within the existing shot/tare `LogCollapse` episode; retain stall/resume and final feed statistics. Battery polls use mode, requested charger, discharge cycle, OS status and power source as their state signature. Five percentage points from the last emitted sample constitute progress; any state change emits immediately. Similar suppressed samples are labeled similar, not identical.
 
-Use a small diagnostic context with an opaque UUID, monotonic elapsed clock, kind, stage, known identifiers, optional parent operation and finish-once state. Capture it in reply callbacks; carry the same context into retries/pages. Snapshot identifiers before emitting result signals so a reentrant request cannot change the event that is being recorded. A rejected entry receives its own context and cannot terminate an active request.
+### Only sustained memory growth warrants a log
 
-Reuse the existing registry prefix and factor shared bounded-field/URL formatting from the AI diagnostic helper into a neutral utility if needed. Do not copy formatter bodies or make Visualizer depend on AI provider state. A general event bus or a new asynchronous logging queue is unnecessary; the existing message handler already persists and publishes records.
+Keep the existing 60-second sampling, current/peak RSS and 24-hour history. Compare three consecutive block medians using 5-, 30- and 120-sample blocks (15, 90 and 360 samples). Require at least 5 MB total growth, with each interval contributing at least one quarter, so a single step followed by jitter does not qualify. Missing/zero readings or gaps over 90 seconds break the candidate window. The wider windows retain slower growth.
 
-### Finish each action at the boundary its existing consumer uses
+A qualifying record carries all three medians, span, current RSS and QObject count. `LogCollapse` suppresses continuing growth within five MB of the last printed median. Quiet periods discard the expired growth tally and produce no healthy/recovery summary. This is a documented diagnostic heuristic, not proof of a leak; on-demand sample history remains the evidence for deeper analysis. Ordinary QObject churn produces no periodic log.
 
-The uploader finishes after the existing returned-ID check; updates and connection tests follow their existing result branches. Lists finish after existing validation and pagination. Profile imports finish after save or duplicate resolution, including cancel. Recovery reports its final counters, using partial failure when any item failed. Begin and terminal events are INFO/WARN; attempt/page/parser detail is DEBUG.
+### Keep the useful outcome, not an automatic lifecycle
 
-Post-upload coffee management has a separate child context so its failure cannot rewrite a successful upload. Existing optional-account restrictions become an explicit INFO limitation; request and interpretation failures are WARN. A queued retry describes pending work and a subsequent pass receives a new attempt identity linked through the same known record IDs. Intentional background non-starts remain DEBUG; an explicit user request refused before dispatch gets a terminal rejection.
+PR #1930's AI context continues to capture identity, provider/model at dispatch, stage, endpoint/status and interpretation. Its only automatic emission is the terminal result. Explicit retry/error diagnostics retain context. Removing start/dispatch/response/detail writes must not alter signal delivery, request counts, cancellation or finish-once behavior.
 
-Use one helper to format the common terminal fields. Reuse existing counters rather than introduce timers or infer completion from a quiet interval. Per-item failures and a batch summary are different events; give the former item identity and the latter totals so they cannot look like repeated reports of one failure.
+Visualizer changes edit existing messages directly: stable emitter names, numeric HTTP/network/parse errors and bounded IDs/URLs in place of payloads or remote error prose. The main log must not repeat full bodies. Existing UI errors and dedicated files retain their roles. No new Visualizer operation class, callback plumbing or systematic summaries are introduced.
 
-### Keep diagnostic data separate from server payloads and UI wording
+Warning capture retains category and portable file/line. Function remains a fallback when file/line is unavailable. Multiline records retain attribution on every physical line. Old unformatted logs remain readable; no inferred global owner or numeric-normalization suppression is introduced.
 
-Use locally controlled reasons such as missingCredentials, network, invalidResponse, pageLimit, saveFailed, capabilityUnavailable and pendingRetry, plus HTTP/network status, item counts and bounded IDs. Preserve user-facing translated errors and dedicated debug-file behavior. Main-log response/request dumps, parse snippets and raw `errorString()` prose are replaced at source; truncating a payload is not sanitization. Logged URLs omit userinfo, query and fragment, including share-code query values.
+Connection failures use a bounded per-owner/source/message LogCollapse cache. A novel failure remains immediate even if the cache is full; recovery or a fresh user attempt flushes the prior episode's repeat count once. Non-Android WiFi hostname-resolution failures route through the existing shared sink. Forecast first/changed availability, failures and recovery share a changes-only result gate; ordinary temperature changes do not affect it. Repeating DNS discovery retains one result gate keyed by backend, outcome counts and error state; elapsed time and routine worker start/end receipts do not create novelty. Found-device notifications and real errors remain intact. Bounded retry-ramp steps retain receipts; an unchanging endless tail stays quiet.
 
-### Validate result paths rather than only formatter output
+## Validation
 
-Inventory every covered entry, terminal branch and forwarding consumer before editing. Extend test targets that already link the needed production components and use fake `QNetworkAccessManager`/reply delivery or local fixtures. Exercise a real failure followed by success, response interpretation, missing credentials, page-limit failure, duplicate cancellation, partial recovery, post-upload sync failure and reentrant/late callbacks. Assert severity, identity, one terminal event, omitted sensitive content, signal results and request counts. Do not replace this with tests that only construct an expected log string.
+Use deterministic trend fixtures for plateau, jitter, isolated jump/spike, sustained fast/slow growth and missing samples. Use existing production AI tests to verify no premature operation records, one terminal result, unchanged outputs and privacy. Retain Visualizer parsing and logger regressions, including function fallback. Run builds and the full suite through Qt Creator MCP on Mac, plus source-marker and OpenSpec validation. Ask the user to launch/restart the exact checkout, then confirm only one app process before a background live inspection. Weekly replay estimates are not a substitute for a newly built device capture.
 
-Build and run focused tests and the required full suite through Qt Creator MCP on Mac. Runtime checks, if needed, must first establish that no second Decenza instance is running and target this checkout explicitly. Compare an unfiltered persisted log with its Visualizer INFO/WARN selection using a controlled local validation path; source audit covers dormant branches. No live account mutation or paid request is needed.
+## Holds and merge
 
-## Risks / Trade-offs
-
-- Mutable uploader state and synchronous consumers can attach the wrong shot to a result → keep callback-owned context and test reentry with differing IDs; do not alter routing as a logging workaround.
-- Import duplicate decisions can outlive a network reply → retain context through the existing save helper decision and close it at save/cancel, not download completion.
-- Promoting every retry creates warning noise → keep intermediate attempts DEBUG, terminal failures WARN, and preserve existing repeat collapsing for recurring sources.
-- A helper-only test misses silent signal exits → require a branch/consumer inventory and tests driving real result paths.
-- Mac results cannot certify native mobile code from #1930 → keep inherited beta and updated-device checks unchecked in `validation-holds.md` until the user lifts the hold and evidence exists.
-
-## Migration Plan
-
-No data migration or rollout flag is needed. Historical logs stay readable and `[Visualizer]` keeps its meaning. Implement on this follow-up branch, record Mac evidence, review the bounded logging-only diff, and open the follow-up PR when ready. Before a requested merge, reconcile tasks, run `openspec archive improve-visualizer-operation-logging --yes`, commit the archive last when possible, and read checks on that head. Held validation remains visibly outstanding. A source revert rolls back diagnostic changes without undoing application data. Publish the short wiki update with the shipped feature; beta builds remain on hold until the user resumes them.
+No beta builds, paid AI calls or machine commands are needed. The inherited outstanding tasks remain in `validation-holds.md`. When the user requests merge, check readiness and holds, use the OpenSpec CLI to archive, commit the archive last where possible, and read the checks on the exact PR head before merging.

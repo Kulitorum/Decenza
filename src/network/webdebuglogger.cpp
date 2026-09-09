@@ -49,7 +49,8 @@ QString diagnosticContext(const QMessageLogContext& context)
             source += QLatin1Char(':') + QString::number(context.line);
         fields.append(QStringLiteral("source=%1").arg(source));
     }
-    if (context.function && *context.function)
+    if ((!context.file || !*context.file || context.line <= 0)
+        && context.function && *context.function)
         fields.append(QStringLiteral("function=%1").arg(QString::fromUtf8(context.function)));
     QString result = fields.join(QLatin1Char(' '));
     result.replace(QLatin1Char('\n'), QLatin1Char(' '));

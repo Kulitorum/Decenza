@@ -755,10 +755,6 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     if (ctx.serviceType.endsWith('.'))
         ctx.serviceType.chop(1);
 
-    MDNS_DBG << "browse start service=" << serviceType
-                       << "timeout=" << timeoutMs << "ms sock=" << sock
-                       << "srcPort=" << boundPort;
-
     // Retransmit for the same reason resolveHostname does: the scale's ESP32
     // shares one radio between BLE and WiFi and routinely misses a single
     // multicast query while BLE-connected.
@@ -872,14 +868,6 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         }
         results.append(makeInstance(it.key(), *it, ctx));
     }
-
-    MDNS_DBG << "browse done service=" << serviceType
-                       << "resolved=" << results.size()
-                       << "dropped=" << dropped
-                       << "queries=" << sendCount
-                       << "records=" << ctx.recordsSeen
-                       << "srcPort=" << boundPort
-                       << "elapsed=" << deadline.elapsed() << "ms";
 
     if (stats) {
         stats->instancesSeen = static_cast<int>(ctx.instances.size());
@@ -1180,9 +1168,6 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     }
     ctx.children.append(browseRef);
 
-    MDNS_DBG << "browse start (Bonjour) service=" << serviceType
-                       << "timeout=" << timeoutMs << "ms";
-
     // How often the loop below re-reads `cancel`. Unlike the mjansson path this
     // backend has nothing to retransmit — mDNSResponder owns the queries — so
     // the slice exists purely for cancellation latency.
@@ -1254,12 +1239,6 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     ctx.callbackContexts.clear();
 
     const qsizetype dropped = ctx.pending.size() - ctx.results.size();
-    MDNS_DBG << "browse done (Bonjour) service=" << serviceType
-                       << "resolved=" << ctx.results.size()
-                       << "dropped=" << dropped
-                       << "adds=" << ctx.addsSeen
-                       << "removes=" << ctx.removesSeen;
-
     if (stats) {
         stats->instancesSeen = static_cast<int>(ctx.pending.size());
         stats->resolved = static_cast<int>(ctx.results.size());

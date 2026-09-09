@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include "visualizeroperationlog.h"
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QVector>
@@ -286,16 +285,10 @@ signals:
     // failure — the shots stay flagged and a later boot retries them.
     void beanRepairFinished(int repaired, bool complete);
 
-private:
-#ifdef DECENZA_TESTING
-    friend class TstVisualizerShotParse;
-#endif
-
-    using Log = VisualizerOperationLog;
-    using Op = Log::Ptr;
-    void onUploadFinished(QNetworkReply* reply, const Op& op);
-    void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId, const Op& op);
-    void onTestFinished(QNetworkReply* reply, const Op& op);
+private slots:
+    void onUploadFinished(QNetworkReply* reply);
+    void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
+    void onTestFinished(QNetworkReply* reply);
 
 private:
     QByteArray buildShotJson(ShotDataModel* shotData,
@@ -315,30 +308,30 @@ private:
 
     static QJsonObject buildAppInfoJson();
     static QJsonObject buildProfileSettings(const Profile* profile);
-    bool validateUpload(const QString& beverageType, double duration, const Op& op);
-    void sendUpload(const QByteArray& jsonData, const Op& op);
+    bool validateUpload(const QString& beverageType, double duration);
+    void sendUpload(const QByteArray& jsonData);
 
     // Paged reconciliation fetch: accumulates results across pages,
     // recurses until older than m_reconcileWindowStartEpoch or paging
     // exhausted, then emits shotListFetched once.
-    void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated, const Op& op);
+    void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
     // Take the next queued shot: GET it, compare against the app's values, and
     // PATCH only on a real difference. Emits beanRepairFinished when the queue
     // drains. Serial by construction — one request in flight at a time, spaced
     // by kBeanRepairIntervalMs.
-    void sendNextBeanRepair(const Op& op);
-    void sendBeanRepairPatch(const BeanRepair& repair, const Op& op);
+    void sendNextBeanRepair();
+    void sendBeanRepairPatch(const BeanRepair& repair);
     // The names-free half of the repair, for a shot whose local bean fields are
     // incomplete: clears the borrowed canonical link and asserts nothing else.
-    void sendCanonicalClearOnly(const BeanRepair& repair, const Op& op);
+    void sendCanonicalClearOnly(const BeanRepair& repair);
     // Statuses that cannot differ per shot (429, 401) — retrying the queue
     // against them is guaranteed waste, so the pass stops. 403 is NOT one of
     // them on the PATCH (it is an ownership verdict there) but IS treated as
     // one on the GET, which authorizes nothing; see both call sites.
     static bool isBeanRepairFatalStatus(int status);
-    void abandonBeanRepairPass(int status, const Op& op);
-    void scheduleNextBeanRepair(const Op& op);
+    void abandonBeanRepairPass(int status);
+    void scheduleNextBeanRepair();
     // Every bean-repair REQUEST is spaced through here — the GET and the PATCH
     // alike. Pacing only the shot loop let a repaired shot fire two requests
     // back to back at double the intended rate.
@@ -402,37 +395,37 @@ private:
     // Entry point, called after a successful upload POST. Loads the shot's bag
     // from the local DB on a background thread, then reconciles it. No-op for
     // CM-off accounts (cached per session).
-    void syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId, const Op& parent);
+    void syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId);
     // Read the shot back to learn the coffee_bag the SERVER auto-linked (it
     // find-or-creates the bag from bean_brand/bean_type/roast_date on every
     // upload). An empty coffee_bag_id means CM is off → cache the negative.
     // Otherwise capture the authoritative ids (self-healing a stale local id)
     // and enrich. Replaces the old guess/probe/find-or-create chain.
-    void reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag, const Op& op);
+    void reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag);
     // GET the server bag and PATCH only the descriptive fields it left blank
     // (origin/region/producer/etc. + lifecycle + canonical link). Never touches
     // server-managed name/roast_date/roast_level, and never clobbers a value the
     // user set on visualizer.coffee. 404 → bag deleted mid-flight, clear local id.
-    void enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag, const Op& op);
+    void enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag);
     // Best-effort verified-roaster badge: link the server-created roaster to its
     // canonical when blank (the badge is cosmetic, so failures are ignored).
-    void enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId, const Op& parent);
+    void enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId);
     // PATCH the shot's canonical_coffee_bag_id (not CM-gated). Canonical-only
     // mode: attaches a known coffee to a shot with no personal bag.
-    void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId, const Op& op);
+    void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId);
     // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
     // on success (not called on empty name or HTTP/parse failure). Carries the
     // canonical roaster UUID onto a freshly-created roaster for the verified
     // badge. A 403 on create caches NoCoffeeManagement (CRUD is premium-gated).
     // Used by the bag-edit path (updateBagOnVisualizer).
     void resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
-                          std::function<void(const QString& roasterId)> onResolved, const Op& op);
+                          std::function<void(const QString& roasterId)> onResolved);
     // PATCH /api/coffee_bags/:visualizerBagId with the descriptive fields, plus
     // roaster_id when `roasterId` differs from the bag's stored one (rename).
     // Persists the new visualizerRoasterId on a roaster change. 403 → not premium
     // (NoCoffeeManagement); 404 → remote bag deleted, id left stale and re-created
     // on the next shot upload. The bag-edit counterpart to enrichRemoteBag.
-    void patchRemoteBag(const QVariantMap& bag, const QString& roasterId, const Op& op);
+    void patchRemoteBag(const QVariantMap& bag, const QString& roasterId);
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
                            const QString& visualizerRoasterId);
     // Set/clear coffee_bags.visualizer_sync_pending (background write, no
@@ -448,8 +441,7 @@ private:
     // Re-push every sync-pending bag. Called from the upload read-back once CM
     // is confirmed Active (add-bag-detail-editing) — the event-driven retry for
     // offline/5xx-failed edit pushes.
-    void retrySyncPendingBags(const Op& parent);
-    void updateBagWithLog(qint64 localBagId, const Op& op);
+    void retrySyncPendingBags();
     QNetworkRequest makeApiJsonRequest(const QString& path) const;
 
     // Single mutation point for m_cmState — every CM-probe transition flows

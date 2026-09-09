@@ -61,23 +61,6 @@ void MemoryMonitor::onSampleTimerTick()
     if (rss > m_peakRss)
         m_peakRss = rss;
 
-    // PRINTING a peak is a separate decision, and it needs the same 5 MB band the
-    // RSS gate below uses. "Any new peak always prints" ratchets on noise: on a
-    // real tablet RSS jitters 111-120 MB, so the peak climbed 113.7 -> 114.1 ->
-    // 116.2 -> 119.1 -> 120.3 and printed five times in the first 36 minutes.
-    // Those are not five events, they are one plateau being sampled, and a peak
-    // 0.4 MB above the last is not news. The tell was that the lines stopped
-    // entirely once 120.3 was reached — nothing had changed except that the
-    // ratchet ran out of headroom.
-    //
-    // Measured against the last peak PRINTED, so a genuine climb still reports
-    // once per 5 MB gained and cannot be starved by intermediate noise.
-    constexpr quint64 kPeakLogStepBytes = 5ull * 1024 * 1024;
-    const bool newPeak = (m_lastLoggedPeakRss == 0)
-                         || (m_peakRss >= m_lastLoggedPeakRss + kPeakLogStepBytes);
-    if (newPeak)
-        m_lastLoggedPeakRss = m_peakRss;
-
     MemorySample sample;
     sample.timestampMs = QDateTime::currentMSecsSinceEpoch();
     sample.rssBytes = rss;
@@ -87,62 +70,22 @@ void MemoryMonitor::onSampleTimerTick()
         m_samples.removeFirst();
     m_samples.append(sample);
 
-    double rssMB = rss / (1024.0 * 1024.0);
-    double peakMB = m_peakRss / (1024.0 * 1024.0);
-
-    // Sampling stays at 60 s — the ring buffer behind getMemorySummary() is what makes a leak
-    // visible after the fact, and coarsening it would blunt exactly the thing this class is for.
-    // The LOG line is what gets collapsed: 3,107 lines in a 48-hour capture, 15% of the whole log,
-    // and for 16 of those hours it reported the same plateau over and over (RSS drifting inside a
-    // 5 MB band, QObjects pinned at 9,605).
-    //
-    // The gate text is QUANTIZED rather than the message itself, because the message never repeats
-    // byte-for-byte — RSS moves 0.1 MB between any two samples. "Same plateau" collapses while a
-    // real step change prints at once. A new peak prints too — it is the one sample that cannot be
-    // reconstructed from a later line — but only once per 5 MB gained; see the peak gate above for
-    // why "any new peak" was wrong.
-    //
-    // QUANTIZED AGAINST THE LAST LINE PRINTED, NOT A FIXED BUCKET. This used
-    // static_cast<int>(rssMB / 5.0), and a real Android capture shows why that fails: RSS sat at
-    // 119.1–121.6 MB, straddling the 120.0 bucket edge, so consecutive samples alternated between
-    // buckets 23 and 24 and the "collapsed" line printed 160 times in one session — roughly every
-    // other sample, for memory that never moved 2.5 MB. A fixed grid is only quiet when the value
-    // happens to sit mid-bucket, which is not something a memory figure will do for you.
-    //
-    // Anchoring the band to the last PRINTED value removes the edge entirely: nothing prints until
-    // RSS is genuinely 5 MB away from what was last reported, and a real climb still prints once
-    // per 5 MB. Object count keeps a fixed bucket — it is a count that steps rather than jitters,
-    // so it has no edge to oscillate across.
-    if (m_lastLoggedRssMB < 0.0 || std::abs(rssMB - m_lastLoggedRssMB) >= 5.0)
-        m_lastLoggedRssMB = rssMB;
-    const QString gate = QStringLiteral("rss%1|obj%2")
-                             .arg(m_lastLoggedRssMB, 0, 'f', 1)
-                             .arg(objCount / 25);
-    LogCollapse::Collapsed collapsed;
-    const bool speak = m_logCollapse.shouldLog(QStringLiteral("sample"), gate,
-                                               sample.timestampMs, &collapsed)
-                       || newPeak;
-    if (speak) {
-        const QByteArray tail = m_logCollapse.suffix(collapsed).toUtf8();
-#ifdef Q_OS_ANDROID
-        QJniObject runtime = QJniObject::callStaticObjectMethod(
-            "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;");
-        if (runtime.isValid()) {
-            jlong total = runtime.callMethod<jlong>("totalMemory");
-            jlong free  = runtime.callMethod<jlong>("freeMemory");
-            jlong max   = runtime.callMethod<jlong>("maxMemory");
-            double javaUsedMB = (total - free) / (1024.0 * 1024.0);
-            double javaMaxMB  = max / (1024.0 * 1024.0);
-            DIAG_DEBUG(MEMORY, "memorymonitor") << QString::asprintf("RSS: %.1f MB  Java heap: %.1f / %.1f MB  QObjects: %d  peak: %.1f MB%s",
-                   rssMB, javaUsedMB, javaMaxMB, objCount, peakMB, tail.constData());
-        } else {
-            DIAG_DEBUG(MEMORY, "memorymonitor") << QString::asprintf("RSS: %.1f MB, QObjects: %d, peak: %.1f MB%s", rssMB, objCount, peakMB,
-                   tail.constData());
+    if (const auto growth = MemoryTrend::sustainedGrowth(m_samples)) {
+        if (m_lastLoggedGrowthMB < 0 || growth->lastMB >= m_lastLoggedGrowthMB + 5.0)
+            m_lastLoggedGrowthMB = growth->lastMB;
+        LogCollapse::Collapsed collapsed;
+        if (m_logCollapse.shouldLog(QStringLiteral("growth"),
+                QString::number(m_lastLoggedGrowthMB, 'f', 1), sample.timestampMs, &collapsed)) {
+            DIAG_DEBUG(MEMORY, "MemoryMonitor")
+                << QStringLiteral("Sustained growth: medianMB=%1,%2,%3 spanMin=%4 currentMB=%5 QObjects=%6")
+                    .arg(growth->firstMB, 0, 'f', 1).arg(growth->middleMB, 0, 'f', 1)
+                    .arg(growth->lastMB, 0, 'f', 1).arg(growth->spanMs / 60000)
+                    .arg(currentRssMB(), 0, 'f', 1).arg(objCount)
+                    + m_logCollapse.suffixSimilar(collapsed);
         }
-#else
-        DIAG_DEBUG(MEMORY, "memorymonitor") << QString::asprintf("RSS: %.1f MB, QObjects: %d, peak: %.1f MB%s", rssMB, objCount, peakMB,
-               tail.constData());
-#endif
+    } else {
+        m_logCollapse.flush(QStringLiteral("growth"), sample.timestampMs);
+        m_lastLoggedGrowthMB = -1.0;
     }
 
     emit sampleTaken();
@@ -241,7 +184,7 @@ int MemoryMonitor::countQObjects()
 {
     const auto all = collectAllQObjects();
 
-    // Build per-class counts
+    // Build per-class counts for on-demand diagnostics.
     m_prevClassCounts = m_classCounts;
     m_classCounts.clear();
     for (auto* obj : all) {
@@ -253,37 +196,6 @@ int MemoryMonitor::countQObjects()
     if (!m_baselineCaptured && m_engine) {
         m_baselineClassCounts = m_classCounts;
         m_baselineCaptured = true;
-    }
-
-    // Log classes with biggest growth since last sample
-    if (!m_prevClassCounts.isEmpty()) {
-        QVector<QPair<QString, int>> deltas;
-        for (auto it = m_classCounts.constBegin(); it != m_classCounts.constEnd(); ++it) {
-            int prev = m_prevClassCounts.value(it.key(), 0);
-            int delta = it.value() - prev;
-            if (delta != 0)
-                deltas.append({it.key(), delta});
-        }
-        // Also check classes that disappeared
-        for (auto it = m_prevClassCounts.constBegin(); it != m_prevClassCounts.constEnd(); ++it) {
-            if (!m_classCounts.contains(it.key()))
-                deltas.append({it.key(), -it.value()});
-        }
-
-        if (!deltas.isEmpty()) {
-            // Sort by absolute delta descending
-            std::sort(deltas.begin(), deltas.end(), [](const auto& a, const auto& b) {
-                return qAbs(a.second) > qAbs(b.second);
-            });
-            QStringList parts;
-            qsizetype limit = qMin(deltas.size(), qsizetype(5));
-            for (qsizetype i = 0; i < limit; ++i) {
-                const auto& d = deltas[i];
-                parts << QStringLiteral("%1%2 %3")
-                    .arg(d.second > 0 ? "+" : "").arg(d.second).arg(d.first);
-            }
-            DIAG_DEBUG(MEMORY, "memorymonitor") << QString::asprintf("QObject deltas: %s", qPrintable(parts.join(", ")));
-        }
     }
 
     return static_cast<int>(all.size());

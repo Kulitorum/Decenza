@@ -1,8 +1,10 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <functional>
 
 #include "core/logcollapse.h"
+#include "core/memorytrend.h"
 
 // LogCollapse decides whether a repeating log line is worth printing. Every periodic source in the
 // tree shares it (the MMR keepalive, the memory sampler, the battery poll, the ShotServer request
@@ -21,6 +23,34 @@ class tst_LogCollapse : public QObject
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void memoryReportsSustainedGrowthOnly()
+    {
+        const auto samples = [](const std::function<double(int)>& rss, int count = 360) {
+            QVector<MemorySample> values;
+            for (int i = 0; i < count; ++i)
+                values.append({i * 60'000LL, quint64(rss(i) * 1024 * 1024), 9000 + i % 50});
+            return values;
+        };
+        QVERIFY(!MemoryTrend::sustainedGrowth(samples([](int i) { return 120.0 + i % 3; })));
+        for (int step = 1; step < 360; ++step)
+            QVERIFY(!MemoryTrend::sustainedGrowth(samples([step](int i) { return i < step ? 120.0 : 180.0; })));
+        QVERIFY(!MemoryTrend::sustainedGrowth(samples([](int i) { return i == 350 ? 220.0 : 120.0; })));
+        QVERIFY(!MemoryTrend::sustainedGrowth(samples([](int i) { return 220.0 - i * 0.1; })));
+        const auto fast = MemoryTrend::sustainedGrowth(samples([](int i) { return 120.0 + i; }, 15));
+        QVERIFY(fast);
+        QCOMPARE(fast->firstMB, 122.0);
+        QCOMPARE(fast->middleMB, 127.0);
+        QCOMPARE(fast->lastMB, 132.0);
+        QVERIFY(MemoryTrend::sustainedGrowth(samples([](int i) { return 120.0 + i * 0.04; })));
+        auto interrupted = samples([](int i) { return 120.0 + i; }, 15);
+        interrupted[7].rssBytes = 0;
+        QVERIFY(!MemoryTrend::sustainedGrowth(interrupted));
+        interrupted[7].rssBytes = 127 * 1024 * 1024;
+        for (int i = 7; i < interrupted.size(); ++i)
+            interrupted[i].timestampMs += 300'000;
+        QVERIFY(!MemoryTrend::sustainedGrowth(interrupted));
+    }
 
     // First sight of a key always speaks, with nothing attributed to it.
     void firstCallAlwaysLogs()

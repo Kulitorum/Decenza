@@ -195,7 +195,6 @@ public:
     // installing the global handler — which would capture the whole process's
     // logging, QtTest's own included, and make the assertions depend on it.
     friend class tst_WebDebugLogger;
-    friend class TstVisualizerShotParse;
 #endif
 
 private:

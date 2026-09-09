@@ -2468,18 +2468,11 @@ int main(int argc, char *argv[])
                 "synthetic entry) — stopping retries"), QStringLiteral("main"));
             return;
         }
-        // One line, INFO while the ramp walks and DEBUG on the endless 60 s tail.
-        // This was a pair: an unmarked `qDebug() << "Scale reconnect: attempt" ...`
-        // for every attempt plus a marked appendScaleLog for the bounded ramp only.
-        // The split existed because the two sinks had different needs; with one
-        // sink, the tier does that job and the tail stops shouting.
-        {
-            const QString attemptMsg =
-                QStringLiteral("Auto-reconnect attempt %1").arg(scaleReconnectAttempt + 1);
-            if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size()))
-                bleManager.scaleInfo(attemptMsg, QStringLiteral("main"));
-            else
-                bleManager.scaleDebug(attemptMsg, QStringLiteral("main"));
+        // The bounded ramp changes retry spacing. On the endless tail, shared
+        // connection-failure suppression retains changes and the episode count.
+        if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
+            bleManager.scaleInfo(QStringLiteral("Auto-reconnect attempt %1")
+                .arg(scaleReconnectAttempt + 1), QStringLiteral("main"));
         }
         bleManager.resetScaleConnectionState();
         // Background reconnect: scan only, never a parked direct-connect. A
@@ -3569,19 +3562,11 @@ int main(int argc, char *argv[])
         // — an earlier version said "— will scan" before the BLE-disabled check
         // existed, and then did not.
         //
-        // INFO while the ramp is walking, DEBUG on the endless 60s tail. The tail
-        // never stops while the page is open with the device absent, so at a flat
-        // INFO it would dominate the view forever and say the same thing each
-        // time; the first few attempts carry the news. Same reasoning as
-        // BLEManager's repeat-failure budget, bounded here by the ramp itself
-        // rather than a counter, because the ramp already knows where "still
-        // trying, nothing new" begins.
+        // Only changes in the bounded retry ramp need an attempt receipt.
         const int attempt = refractometerReconnectAttempt + 1;
         const QString attemptMsg = QStringLiteral("Auto-reconnect attempt %1").arg(attempt);
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
             bleManager.refractometerInfo(attemptMsg, QStringLiteral("main"));
-        } else {
-            bleManager.refractometerDebug(attemptMsg, QStringLiteral("main"));
         }
         bleManager.tryDirectConnectToRefractometer();
         refractometerReconnectAttempt++;

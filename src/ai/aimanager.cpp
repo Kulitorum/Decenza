@@ -1935,7 +1935,6 @@ void AIManager::logPrompt(const QString& provider, const QString& systemPrompt, 
         out << "\n=== USER PROMPT ===\n\n";
         out << userPrompt << "\n";
         file.close();
-        DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qDebug) << (operation ? operation->fields() : QString()) << "Logged prompt to" << promptFile;
     } else {
         DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qWarning) << (operation ? operation->fields() : QString()) << "Failed to write prompt log:" << file.errorString();
     }
@@ -1974,7 +1973,6 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << "\n=== RESPONSE ===\n\n";
         out << response << "\n";
         file.close();
-        DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qDebug) << (operation ? operation->fields() : QString()) << "Logged response to" << responseFile;
     } else {
         DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qWarning) << (operation ? operation->fields() : QString()) << "Failed to write response log:" << file.errorString();
     }
@@ -2001,7 +1999,6 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << QString("=").repeated(60) << "\n\n";
         out << response << "\n";
         qa.close();
-        DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qDebug) << (operation ? operation->fields() : QString()) << "Logged Q&A to" << qaFile;
     } else {
         DECENZA_SUBSYS_VALUE_STREAM(operation ? operation->owner() : QStringLiteral(DECENZA_LOG_MARKER_AI), "Files", qWarning) << (operation ? operation->fields() : QString()) << "Failed to write Q&A log:" << qa.errorString();
     }

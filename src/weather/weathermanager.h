@@ -92,6 +92,9 @@ private:
     // provider changes the text and speaks immediately.
     LogCollapse m_fetchLog{LogCollapse::kChangesOnly};
     LogCollapse m_sunTimesLog{LogCollapse::kChangesOnly};
+    LogCollapse m_forecastLog{LogCollapse::kChangesOnly};
+    void logForecastResult(const QString& message, bool failed);
+
     // Provider selection
     WeatherProvider selectProvider() const;
 
