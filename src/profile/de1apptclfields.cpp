@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profile/de1apptclfields.h"
 
 #include "profile/profile.h"       // profileJsonToDouble / profileJsonToBool
@@ -331,7 +332,7 @@ ScalarRead readScalar(const QString& content, const QString& canonical,
     // prevent (espresso_pressure read 9.2 on 23 profiles because 9.2 is the
     // default, not because any file said so).
     Q_ASSERT_X(false, "De1AppTcl::readScalar", qPrintable(canonical));
-    qWarning() << "De1AppTcl::readScalar: no table entry for canonical key" << canonical
+    DIAG_WARN(PROFILES, "De1AppTcl") << "readScalar: no table entry for canonical key" << canonical
                << "— value left at the caller's default" << fallback;
     return {fallback, ReadStatus::Absent, QString(), QString()};
 }

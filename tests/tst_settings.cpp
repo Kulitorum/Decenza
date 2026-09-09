@@ -430,7 +430,7 @@ private slots:
         legacyDye["beanBrand"] = "Stale Roaster";
         legacy["dye"] = legacyDye;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         SettingsSerializer::importFromJson(&m_settings, legacy);
         QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("keep-me"));
 
@@ -627,7 +627,7 @@ private slots:
         // even with 0 → 0 favorites. Suppress that one expected message so the
         // test doesn't fall foul of the "no warnings in tests" rule.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
 
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
@@ -675,7 +675,7 @@ private slots:
         m_settings.app()->setAutoLoadRevertMinutes(5);
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         // autoLoadRecipeId was never in the bundle, so import leaves it alone.
         QCOMPARE(m_settings.dye()->autoLoadRecipeId(), -1);
@@ -732,7 +732,7 @@ private slots:
         raw.sync();
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-            "Settings: both profile and recipe auto-load were persisted simultaneously.*"));
+            "Settings.*both profile and recipe auto-load were persisted simultaneously.*"));
         Settings fresh;
         // Recipe wins, matching this file's own restore-order convention.
         QCOMPARE(fresh.dye()->autoLoadRecipeId(), 55);
@@ -760,7 +760,7 @@ private slots:
         // importFromJson emits an expected favorites-replacement warning (see
         // autoLoadBundleRoundTrip) — suppress it for the no-warnings-in-tests rule.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.network()->recipeSortField(), QString("coffee"));
@@ -781,7 +781,7 @@ private slots:
         // importFromJson emits an expected favorites-replacement warning (see
         // autoLoadBundleRoundTrip) — suppress it for the no-warnings-in-tests rule.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 92.0);
@@ -838,13 +838,13 @@ private slots:
         {
             Settings fresh;
             QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression(QStringLiteral("SettingsBrew: could not parse water/vesselPresets")));
+                QRegularExpression(QStringLiteral("SettingsBrew.*could not parse water/vesselPresets")));
             QVERIFY(fresh.brew()->waterVesselPresets().isEmpty());
 
             // The add is refused — it warns again on its own read — and the
             // stored bytes survive untouched.
             QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression(QStringLiteral("SettingsBrew: could not parse water/vesselPresets")));
+                QRegularExpression(QStringLiteral("SettingsBrew.*could not parse water/vesselPresets")));
             fresh.brew()->addWaterVesselPreset("Should not be written", 200);
         }
 
@@ -872,7 +872,7 @@ private slots:
         QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
@@ -951,7 +951,7 @@ private slots:
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 120.0);
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 135.0);
@@ -1097,7 +1097,7 @@ private slots:
 
         m_settings.brew()->setSteamSecondsPerGram(0.99);   // mutate to prove import overwrites
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.22);
@@ -1605,7 +1605,7 @@ private slots:
         bundle["steam"] = steam;
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         // A bare range check passed index 0 and landed the user on "Small",
@@ -1626,7 +1626,7 @@ private slots:
         bundle["steam"] = steam;
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(
@@ -1649,7 +1649,7 @@ private slots:
 
         const int before = m_settings.brew()->selectedSteamPitcher();
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("imported selectedPitcher 50 out of range")));
         QVERIFY(!SettingsSerializer::importFromJson(&m_settings, bundle));
@@ -1676,7 +1676,7 @@ private slots:
         m_settings.brew()->setSteamSecondsPerGram(0.0);   // clear so the reseed is observable
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         // duration / calibMilkG = 30 / 200 = 0.15.

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "jscanvaspainteritem.h"
 
 #include <QtCanvasPainter/qcanvaspainter.h>
@@ -180,8 +181,8 @@ void JsCanvasPainterItem::requestPaint()
     // later via update() → render-thread paint().
     if (!m_loggedInit && window() && window()->rendererInterface()) {
         const auto api = window()->rendererInterface()->graphicsApi();
-        qInfo().nospace().noquote()
-            << "[CupFill] JsCanvasPainterItem ready (name=" << objectName()
+        DIAG_INFO(APP, "jscanvaspainteritem").nospace().noquote()
+            << "JsCanvasPainterItem ready (name=" << objectName()
             << " RHI=" << graphicsApiName(api) << ")";
         m_loggedInit = true;
     }
@@ -189,8 +190,8 @@ void JsCanvasPainterItem::requestPaint()
     // Outlier-only warning: a recording pass over half a 30 fps frame budget
     // means we're at risk of dropping frames. Stays silent in normal operation.
     if (elapsedNs > kSlowRecordThresholdNs) {
-        qWarning().nospace().noquote()
-            << "[CupFill] slow record (" << objectName() << "): "
+        DIAG_WARN(APP, "jscanvaspainteritem").nospace().noquote()
+            << "slow record (" << objectName() << "): "
             << QString::number(elapsedNs / 1e6, 'f', 2) << " ms cmds="
             << m_ctx.cmds().size();
     }

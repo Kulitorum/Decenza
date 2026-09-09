@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/diagnosticlogging.h"
 #include <QString>
 #include <QList>
 #include <QJsonDocument>
@@ -239,7 +240,7 @@ public:
     const QList<ProfileFrame>& steps() const { return m_steps; }
     void setSteps(const QList<ProfileFrame>& steps) {
         if (steps.size() > MAX_FRAMES) {
-            qWarning() << "Profile::setSteps: truncating" << steps.size() << "frames to MAX_FRAMES" << MAX_FRAMES;
+            DIAG_WARN(PROFILES, "Profile") << "setSteps: truncating" << steps.size() << "frames to MAX_FRAMES" << MAX_FRAMES;
             m_steps = steps.mid(0, MAX_FRAMES);
         } else {
             m_steps = steps;
@@ -247,7 +248,7 @@ public:
     }
     bool addStep(const ProfileFrame& step) {
         if (m_steps.size() >= MAX_FRAMES) {
-            qWarning() << "Profile::addStep: already at MAX_FRAMES" << MAX_FRAMES;
+            DIAG_WARN(PROFILES, "Profile") << "addStep: already at MAX_FRAMES" << MAX_FRAMES;
             return false;
         }
         m_steps.append(step);
@@ -255,11 +256,11 @@ public:
     }
     bool insertStep(int index, const ProfileFrame& step) {
         if (m_steps.size() >= MAX_FRAMES) {
-            qWarning() << "Profile::insertStep: already at MAX_FRAMES" << MAX_FRAMES;
+            DIAG_WARN(PROFILES, "Profile") << "insertStep: already at MAX_FRAMES" << MAX_FRAMES;
             return false;
         }
         if (index < 0 || index > m_steps.size()) {
-            qWarning() << "Profile::insertStep: index" << index << "out of range [0," << m_steps.size() << "]";
+            DIAG_WARN(PROFILES, "Profile") << "insertStep: index" << index << "out of range [0," << m_steps.size() << "]";
             return false;
         }
         m_steps.insert(index, step);
@@ -267,7 +268,7 @@ public:
     }
     bool removeStep(int index) {
         if (index < 0 || index >= m_steps.size()) {
-            qWarning() << "Profile::removeStep: index" << index << "out of range [0," << m_steps.size() << ")";
+            DIAG_WARN(PROFILES, "Profile") << "removeStep: index" << index << "out of range [0," << m_steps.size() << ")";
             return false;
         }
         m_steps.removeAt(index);
@@ -276,7 +277,7 @@ public:
     void moveStep(int from, int to);
     void setStepAt(int index, const ProfileFrame& step) {
         if (index < 0 || index >= m_steps.size()) {
-            qWarning() << "Profile::setStepAt: index" << index << "out of range [0," << m_steps.size() << ")";
+            DIAG_WARN(PROFILES, "Profile") << "setStepAt: index" << index << "out of range [0," << m_steps.size() << ")";
             return;
         }
         m_steps[index] = step;

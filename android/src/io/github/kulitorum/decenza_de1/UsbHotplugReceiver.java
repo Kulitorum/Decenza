@@ -90,7 +90,7 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
             // signal never fires. Failing whole is visible; failing half is not.
             //
             // Left uncached either way, so the next event retries.
-            Log.e(TAG, "Could not read device_filter.xml", e);
+            DiagnosticLog.e("App", TAG, "Could not read device_filter.xml", e);
             return new ArrayList<>();
         }
         return sSupported;
@@ -131,7 +131,7 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
         androidx.core.content.ContextCompat.registerReceiver(
                 context.getApplicationContext(), sInstance, filter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
-        Log.i(TAG, "USB hotplug receiver registered");
+        DiagnosticLog.i("App", TAG, "USB hotplug receiver registered");
         return supported;
     }
 
@@ -146,7 +146,7 @@ public class UsbHotplugReceiver extends BroadcastReceiver {
             // Already gone (process teardown ordering). Not an error.
         }
         sInstance = null;
-        Log.i(TAG, "USB hotplug receiver unregistered");
+        DiagnosticLog.i("App", TAG, "USB hotplug receiver unregistered");
     }
 
     @Override

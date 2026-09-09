@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "widgetlibrary.h"
 #include "settings.h"
 #include "settings_network.h"
@@ -56,7 +57,7 @@ QString WidgetLibrary::addItemFromLayout(const QString& itemId)
 {
     QVariantMap props = m_settings->network()->getItemProperties(itemId);
     if (props.isEmpty()) {
-        qWarning() << "WidgetLibrary: Item not found:" << itemId;
+        DIAG_WARN(APP, "WidgetLibrary") << "Item not found:" << itemId;
         return QString();
     }
 
@@ -84,7 +85,7 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
 {
     QVariantList zoneItems = m_settings->network()->getZoneItems(zoneName);
     if (zoneItems.isEmpty()) {
-        qWarning() << "WidgetLibrary: Zone empty or not found:" << zoneName;
+        DIAG_WARN(APP, "WidgetLibrary") << "Zone empty or not found:" << zoneName;
         return QString();
     }
 
@@ -119,7 +120,7 @@ QString WidgetLibrary::addCurrentLayout(bool includeTheme)
         m_settings->network()->layoutConfiguration().toUtf8()).object();
 
     if (layoutObj.isEmpty()) {
-        qWarning() << "WidgetLibrary: Current layout is empty";
+        DIAG_WARN(APP, "WidgetLibrary") << "Current layout is empty";
         return QString();
     }
 
@@ -199,7 +200,7 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
             saveEntryFile(existing);
             generateThemeThumbnail(existingId);
             emit entriesChanged();
-            qDebug() << "WidgetLibrary: Updated existing theme entry" << existingId
+            DIAG_DEBUG(APP, "WidgetLibrary") << "Updated existing theme entry" << existingId
                      << "name:" << themeName;
             return existingId;
         }
@@ -223,7 +224,7 @@ bool WidgetLibrary::applyThemeEntry(const QString& entryId)
 {
     QJsonObject entry = readEntryFile(entryId);
     if (entry.isEmpty() || entry["type"].toString() != "theme") {
-        qWarning() << "WidgetLibrary: Invalid theme entry:" << entryId;
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid theme entry:" << entryId;
         return false;
     }
 
@@ -256,7 +257,7 @@ bool WidgetLibrary::applyThemeEntry(const QString& entryId)
         m_settings->theme()->saveCurrentTheme(themeName);
     }
 
-    qDebug() << "WidgetLibrary: Applied theme" << entryId << "name:" << themeName;
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Applied theme" << entryId << "name:" << themeName;
     return true;
 }
 
@@ -447,7 +448,7 @@ bool WidgetLibrary::applyItem(const QString& entryId, const QString& targetZone)
 {
     QJsonObject entry = readEntryFile(entryId);
     if (entry.isEmpty() || entry["type"].toString() != "item") {
-        qWarning() << "WidgetLibrary: Invalid item entry:" << entryId;
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid item entry:" << entryId;
         return false;
     }
 
@@ -473,7 +474,7 @@ bool WidgetLibrary::applyItem(const QString& entryId, const QString& targetZone)
         }
     }
 
-    qDebug() << "WidgetLibrary: Applied item" << entryId
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Applied item" << entryId
              << "to zone" << targetZone << "as" << newItemId;
     return true;
 }
@@ -482,7 +483,7 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
 {
     QJsonObject entry = readEntryFile(entryId);
     if (entry.isEmpty() || entry["type"].toString() != "zone") {
-        qWarning() << "WidgetLibrary: Invalid zone entry:" << entryId;
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid zone entry:" << entryId;
         return false;
     }
 
@@ -522,7 +523,7 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
         m_settings->network()->setZoneYOffset(targetZone, data["yOffset"].toInt());
     }
 
-    qDebug() << "WidgetLibrary: Applied zone" << entryId
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Applied zone" << entryId
              << "to" << targetZone << "with" << items.size() << "items";
     return true;
 }
@@ -531,7 +532,7 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
 {
     QJsonObject entry = readEntryFile(entryId);
     if (entry.isEmpty() || entry["type"].toString() != "layout") {
-        qWarning() << "WidgetLibrary: Invalid layout entry:" << entryId;
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid layout entry:" << entryId;
         return false;
     }
 
@@ -568,7 +569,7 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
         }
     }
 
-    qDebug() << "WidgetLibrary: Applied layout" << entryId
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Applied layout" << entryId
              << "(theme:" << applyTheme << ")";
     return true;
 }
@@ -587,14 +588,14 @@ bool WidgetLibrary::renameEntry(const QString& oldId, const QString& newId)
     // Read, update ID inside JSON, write to new file
     QJsonObject entry = readEntryFile(oldId);
     if (entry.isEmpty()) {
-        qWarning() << "WidgetLibrary: renameEntry - old entry not found:" << oldId;
+        DIAG_WARN(APP, "WidgetLibrary") << "renameEntry - old entry not found:" << oldId;
         return false;
     }
 
     entry["id"] = newId;
     QFile file(newFile);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "WidgetLibrary: renameEntry - failed to write:" << newFile;
+        DIAG_WARN(APP, "WidgetLibrary") << "renameEntry - failed to write:" << newFile;
         return false;
     }
     file.write(QJsonDocument(entry).toJson(QJsonDocument::Compact));
@@ -632,7 +633,7 @@ bool WidgetLibrary::renameEntry(const QString& oldId, const QString& newId)
     if (m_selectedEntryId == oldId)
         setSelectedEntryId(newId);
 
-    qDebug() << "WidgetLibrary: Renamed entry" << oldId << "->" << newId;
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Renamed entry" << oldId << "->" << newId;
     return true;
 }
 
@@ -642,7 +643,7 @@ QString WidgetLibrary::importEntry(const QByteArray& json)
 {
     QJsonDocument doc = QJsonDocument::fromJson(json);
     if (!doc.isObject()) {
-        qWarning() << "WidgetLibrary: Invalid JSON for import";
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid JSON for import";
         return QString();
     }
 
@@ -650,7 +651,7 @@ QString WidgetLibrary::importEntry(const QByteArray& json)
 
     // Validate required fields
     if (!entry.contains("type") || !entry.contains("data")) {
-        qWarning() << "WidgetLibrary: Missing required fields in import";
+        DIAG_WARN(APP, "WidgetLibrary") << "Missing required fields in import";
         return QString();
     }
 
@@ -717,10 +718,10 @@ void WidgetLibrary::saveThumbnail(const QString& entryId, const QImage& image)
     QString path = thumbnailPath(entryId);
     if (image.save(path, "PNG")) {
         m_thumbExists.insert(entryId);
-        qDebug() << "WidgetLibrary: Saved thumbnail for" << entryId;
+        DIAG_DEBUG(APP, "WidgetLibrary") << "Saved thumbnail for" << entryId;
         emit thumbnailSaved(entryId);
     } else {
-        qWarning() << "WidgetLibrary: Failed to save thumbnail:" << path;
+        DIAG_WARN(APP, "WidgetLibrary") << "Failed to save thumbnail:" << path;
     }
 }
 
@@ -729,10 +730,10 @@ void WidgetLibrary::saveThumbnailCompact(const QString& entryId, const QImage& i
     QString path = thumbnailCompactPath(entryId);
     if (image.save(path, "PNG")) {
         m_thumbCompactExists.insert(entryId);
-        qDebug() << "WidgetLibrary: Saved compact thumbnail for" << entryId;
+        DIAG_DEBUG(APP, "WidgetLibrary") << "Saved compact thumbnail for" << entryId;
         emit thumbnailSaved(entryId);
     } else {
-        qWarning() << "WidgetLibrary: Failed to save compact thumbnail:" << path;
+        DIAG_WARN(APP, "WidgetLibrary") << "Failed to save compact thumbnail:" << path;
     }
 }
 
@@ -921,7 +922,7 @@ void WidgetLibrary::loadIndex()
     file.close();
 
     if (!doc.isArray()) {
-        qWarning() << "WidgetLibrary: Invalid index, rebuilding";
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid index, rebuilding";
         rebuildIndex();
         return;
     }
@@ -945,17 +946,17 @@ void WidgetLibrary::loadIndex()
     }
 
     if (duplicates > 0) {
-        qDebug() << "WidgetLibrary: Removed" << duplicates << "duplicate entries from index";
+        DIAG_DEBUG(APP, "WidgetLibrary") << "Removed" << duplicates << "duplicate entries from index";
         saveIndex();  // Persist the cleaned-up index
     }
 
     if (needsRebuild && !arr.isEmpty()) {
-        qDebug() << "WidgetLibrary: Index missing data fields, rebuilding";
+        DIAG_DEBUG(APP, "WidgetLibrary") << "Index missing data fields, rebuilding";
         rebuildIndex();
         return;
     }
 
-    qDebug() << "WidgetLibrary: Loaded index with" << m_index.size() << "entries";
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Loaded index with" << m_index.size() << "entries";
 }
 
 void WidgetLibrary::saveIndex()
@@ -968,7 +969,7 @@ void WidgetLibrary::saveIndex()
     QString indexPath = libraryPath() + "/index.json";
     QFile file(indexPath);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "WidgetLibrary: Failed to save index:" << indexPath;
+        DIAG_WARN(APP, "WidgetLibrary") << "Failed to save index:" << indexPath;
         return;
     }
     file.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
@@ -1010,21 +1011,21 @@ void WidgetLibrary::rebuildIndex()
     }
 
     saveIndex();
-    qDebug() << "WidgetLibrary: Rebuilt index with" << m_index.size() << "entries";
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Rebuilt index with" << m_index.size() << "entries";
 }
 
 QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
 {
     QString entryId = entry["id"].toString();
     if (entryId.isEmpty()) {
-        qWarning() << "WidgetLibrary: Entry has no ID";
+        DIAG_WARN(APP, "WidgetLibrary") << "Entry has no ID";
         return QString();
     }
 
     QString filePath = libraryPath() + "/" + entryId + ".json";
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "WidgetLibrary: Failed to write:" << filePath;
+        DIAG_WARN(APP, "WidgetLibrary") << "Failed to write:" << filePath;
         return QString();
     }
 
@@ -1053,7 +1054,7 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     saveIndex();
     emit entriesChanged();
 
-    qDebug() << "WidgetLibrary: Saved" << entry["type"].toString()
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Saved" << entry["type"].toString()
              << "entry:" << entryId;
     return entryId;
 }
@@ -1063,7 +1064,7 @@ QJsonObject WidgetLibrary::readEntryFile(const QString& entryId) const
     QString filePath = libraryPath() + "/" + entryId + ".json";
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "WidgetLibrary: Entry not found:" << filePath;
+        DIAG_WARN(APP, "WidgetLibrary") << "Entry not found:" << filePath;
         return QJsonObject();
     }
 
@@ -1071,7 +1072,7 @@ QJsonObject WidgetLibrary::readEntryFile(const QString& entryId) const
     file.close();
 
     if (!doc.isObject()) {
-        qWarning() << "WidgetLibrary: Invalid entry file:" << filePath;
+        DIAG_WARN(APP, "WidgetLibrary") << "Invalid entry file:" << filePath;
         return QJsonObject();
     }
 
@@ -1082,7 +1083,7 @@ bool WidgetLibrary::deleteEntryFile(const QString& entryId)
 {
     QString filePath = libraryPath() + "/" + entryId + ".json";
     if (!QFile::exists(filePath)) {
-        qWarning() << "WidgetLibrary: Entry file not found:" << filePath;
+        DIAG_WARN(APP, "WidgetLibrary") << "Entry file not found:" << filePath;
         return false;
     }
     return QFile::remove(filePath);
@@ -1101,7 +1102,7 @@ void WidgetLibrary::populateThumbnailCache()
             m_thumbExists.insert(base);
         }
     }
-    qDebug() << "WidgetLibrary: Thumbnail cache:" << m_thumbExists.size()
+    DIAG_DEBUG(APP, "WidgetLibrary") << "Thumbnail cache:" << m_thumbExists.size()
              << "full," << m_thumbCompactExists.size() << "compact";
 }
 

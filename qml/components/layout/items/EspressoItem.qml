@@ -281,7 +281,7 @@ LayoutWidgetItem {
                         if (MachineState.isReady && root.canStartOperations) {
                             DE1Device.startEspresso()
                         } else {
-                            console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                            WebDebugLogger.debug("Shot", "EspressoItem", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                         }
@@ -328,7 +328,7 @@ LayoutWidgetItem {
                             if (MachineState.isReady && root.canStartOperations) {
                                 DE1Device.startEspresso()
                             } else {
-                                console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                WebDebugLogger.debug("Shot", "EspressoItem", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }

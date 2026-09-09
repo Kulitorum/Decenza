@@ -2340,7 +2340,7 @@ private slots:
         bad.initialize(m_tempDir.filePath(QStringLiteral("no_such_dir/eq.db")));
         QSignalSpy badSpy(&bad, &EquipmentStorage::packageReady);
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SerialDbWorker: failed to open DB"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SerialDbWorker.*failed to open DB"));
         bad.requestPackage(1);
         for (int i = 0; i < 60; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
         QCOMPARE(badSpy.count(), 0);
@@ -2383,7 +2383,7 @@ private slots:
         ok.m_ready = true;
         ok.m_dbPath = freshDb();
         QSignalSpy okSpy(&ok, &ShotHistoryStorage::shotReady);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Shot not found: 999999"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("shotId=\\s*999999.*result=missingRow"));
         ok.requestShot(999999);
         QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
 

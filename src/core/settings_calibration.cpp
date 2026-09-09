@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settings_calibration.h"
 #include "settings.h"
 #include "../machine/sawlogging.h"
@@ -50,7 +51,7 @@ QJsonObject parseFlowCalBatch(const QSettings& settings) {
         settings.value("calibration/flowCalBatch", "{}").toByteArray(),
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "SettingsCalibration: corrupt flowCalBatch JSON:" << parseError.errorString();
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "corrupt flowCalBatch JSON:" << parseError.errorString();
         const_cast<QSettings&>(settings).setValue("calibration/flowCalBatch", "{}");
         return QJsonObject();
     }
@@ -91,7 +92,7 @@ QString SettingsCalibration::currentScaleType() const {
     if (!serving.isEmpty() && serving != QLatin1String("flow")
         && serving != m_warnedNonCanonicalScale) {
         m_warnedNonCanonicalScale = serving;
-        qDebug() << "SettingsCalibration: serving scale reports non-canonical type-id"
+        DIAG_DEBUG(CALIBRATION, "SettingsCalibration") << "serving scale reports non-canonical type-id"
                  << serving << "- SAW will key on the saved primary instead."
                  << "If this is a real scale, add it to ScaleTypeIds::kAll.";
     }
@@ -171,7 +172,7 @@ double SettingsCalibration::profileFlowCalibration(const QString& profileFilenam
 
 bool SettingsCalibration::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
     if (profileFilename.isEmpty()) {
-        qWarning() << "SettingsCalibration: setProfileFlowCalibration called with empty profile filename";
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "setProfileFlowCalibration called with empty profile filename";
         return false;
     }
     // Sanity bounds — persistence accepts [0.5, 2.7] to match the highest value the
@@ -180,7 +181,7 @@ bool SettingsCalibration::setProfileFlowCalibration(const QString& profileFilena
     // dependent ceiling (1.8 on older firmware, 2.7 on v1337+). Persistence just
     // prevents obviously-corrupt values.
     if (multiplier < kProfileFlowCalMin || multiplier > kProfileFlowCalMax) {
-        qWarning() << "SettingsCalibration: rejecting per-profile flow calibration"
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "rejecting per-profile flow calibration"
                    << multiplier << "for" << profileFilename
                    << "(outside [" << kProfileFlowCalMin << "," << kProfileFlowCalMax << "])";
         return false;
@@ -200,7 +201,7 @@ bool SettingsCalibration::setProfileFlowCalibration(const QString& profileFilena
 
 void SettingsCalibration::clearProfileFlowCalibration(const QString& profileFilename) {
     if (profileFilename.isEmpty()) {
-        qWarning() << "SettingsCalibration: clearProfileFlowCalibration called with empty profile filename";
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "clearProfileFlowCalibration called with empty profile filename";
         return;
     }
     QJsonObject map = allProfileFlowCalibrations();
@@ -235,7 +236,7 @@ QJsonObject SettingsCalibration::allProfileFlowCalibrations() const {
         m_settings.value("calibration/perProfileFlow", "{}").toByteArray(),
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "SettingsCalibration: corrupt perProfileFlow JSON:" << parseError.errorString()
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "corrupt perProfileFlow JSON:" << parseError.errorString()
                    << "- raw data:" << m_settings.value("calibration/perProfileFlow").toByteArray().left(200)
                    << "- per-profile flow calibrations lost";
         // Clear the corrupt data so it doesn't persist and cause repeated warnings
@@ -300,7 +301,7 @@ QJsonObject parseFlowCalRejections(const QSettings& s) {
         // and the next noteFlowCalRejection() would then rewrite the key from
         // that empty map — discarding every other profile's run with no trace.
         // allProfileFlowCalibrations() logs and resets for the same reason.
-        qWarning() << "SettingsCalibration: corrupt flowCalRejections JSON:"
+        DIAG_WARN(CALIBRATION, "SettingsCalibration") << "corrupt flowCalRejections JSON:"
                    << err.errorString() << "- rejection counts reset";
         // RESET, not just log. Returning {} and leaving the key means the next
         // noteFlowCalRejection() rewrites it from the empty map, discarding every

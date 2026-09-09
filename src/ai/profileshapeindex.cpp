@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profileshapeindex.h"
 
 #include "shotsummarizer.h"
@@ -94,8 +95,8 @@ void loadIndexLocked()
             // user, forever, and the only symptom is the feature quietly not
             // working. Loud, and counted, so the summary line below cannot
             // read as a healthy build.
-            qWarning().nospace()
-                << "ProfileShapeIndex: cannot open shipped profile '" << name
+            DIAG_WARN(PROFILES, "ProfileShapeIndex").nospace()
+                << "cannot open shipped profile '" << name
                 << "' - its shape will never match; the index is incomplete";
             ++unreadable;
             continue;
@@ -103,8 +104,8 @@ void loadIndexLocked()
         QJsonParseError err{};
         const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
         if (err.error != QJsonParseError::NoError) {
-            qWarning().nospace()
-                << "ProfileShapeIndex: shipped profile '" << name
+            DIAG_WARN(PROFILES, "ProfileShapeIndex").nospace()
+                << "shipped profile '" << name
                 << "' failed to parse: " << err.errorString()
                 << " - its shape will never match";
             ++unreadable;
@@ -120,8 +121,8 @@ void loadIndexLocked()
         // parser does not know indexed cleanly with no warning anywhere, and
         // then failed at compare time where the only report of it lived.
         if (!p.isValid()) {
-            qWarning().nospace()
-                << "ProfileShapeIndex: shipped profile '" << name
+            DIAG_WARN(PROFILES, "ProfileShapeIndex").nospace()
+                << "shipped profile '" << name
                 << "' is not valid (" << p.validationErrors().join(QStringLiteral("; "))
                 << ") - excluded from the shape index";
             ++unreadable;
@@ -178,8 +179,8 @@ void loadIndexLocked()
     // So: state it, do not raise it. The per-file warnings above are the ones
     // that name something genuinely wrong.
     if (s_index.isEmpty()) {
-        qInfo().nospace()
-            << "ProfileShapeIndex: empty - " << files.size() << " file(s) in :/profiles, "
+        DIAG_INFO(PROFILES, "ProfileShapeIndex").nospace()
+            << "empty - " << files.size() << " file(s) in :/profiles, "
             << unreadable << " unreadable, none resolved to a KB entry. Shape "
             << "resolution is unavailable for this process; every profile reads "
             << "as unmatched.";
@@ -194,8 +195,8 @@ void loadIndexLocked()
     // core/logtags.h does not register, which advertises a subsystem query
     // that returns nothing (LOGGING.md, rule 5). A plain class-name prefix
     // claims nothing it cannot deliver.
-    qDebug().nospace()
-        << "ProfileShapeIndex: built shape index: " << s_index.size()
+    DIAG_DEBUG(PROFILES, "ProfileShapeIndex").nospace()
+        << "built shape index: " << s_index.size()
         << " shapes from " << resolved << " of " << parsed
         << " shipped profiles (" << unreadable << " unreadable) in "
         << timer.elapsed() << " ms";
@@ -316,8 +317,8 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
             // incomplete, and an incomplete set cannot establish "strictly
             // nearest". Skipping instead would promote a worse candidate to
             // winner and could turn a genuine tie into a confident wrong answer.
-            qWarning().nospace()
-                << "ProfileShapeIndex: bundled base '" << m.resourcePath
+            DIAG_WARN(PROFILES, "ProfileShapeIndex").nospace()
+                << "bundled base '" << m.resourcePath
                 << "' did not load; the candidate set is incomplete, so no base "
                 << "can be established";
             return {};
@@ -424,8 +425,8 @@ KbResolution resolveProfileKb(const Profile& p)
     // absent from the surface a user or their assistant actually reads. It is
     // not chatty — it fires only for a profile whose title resolved to nothing
     // and whose shape then matched, which no shipped profile ever does.
-    qInfo().nospace()
-        << "ProfileShapeIndex: '" << p.title() << "' resolved by shape to ["
+    DIAG_INFO(PROFILES, "ProfileShapeIndex").nospace()
+        << "'" << p.title() << "' resolved by shape to ["
         << byShape.join(QStringLiteral(", ")) << "]"
         << (byShape.size() > 1 ? " (ambiguous: identity withheld)" : "");
     return KbResolution{ byShape, KbResolution::Origin::Shape };

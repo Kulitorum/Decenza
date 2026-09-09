@@ -12,6 +12,7 @@
 #include <QTemporaryDir>
 
 #include "network/beanbaseclient.h"
+#include "helpers/diagnosticcapture.h"
 #include "network/beanbase_blob.h"
 #include "core/settings.h"
 #include "mcp/mcptoolregistry.h"
@@ -184,6 +185,68 @@ private:
     QNetworkAccessManager m_nam;
 
 private slots:
+    void overlappingPageDiagnosticsCarryDistinctIdsAndSafeUrls()
+    {
+        DiagnosticCapture logs;
+        FakeBeanBaseServer server;
+        server.setContentType("text/html");
+        server.respondWith("200 OK", "<p>" + QByteArray(200, 'a') + "</p>");
+        QNetworkAccessManager nam;
+        Settings settings;
+        BeanBaseClient client(&nam, &settings);
+        QStringList received;
+        connect(&client, &BeanBaseClient::pageTextReady, &client,
+                [&](const QString&, const QString&, const QString& id) {
+            const auto op = AIOperationLog::find(id);
+            if (!op) return;
+            received << id;
+            op->useProvider("fake", "fixed", "providerText");
+            op->finish("success", "extractionParsed", 1);
+        });
+        const auto first = client.fetchPageText(server.baseUrl() + "/bag?key=query-secret#fragment-secret", 41);
+        const auto second = client.fetchPageText(server.baseUrl() + "/other", 42);
+        QVERIFY(first != second);
+        QTRY_COMPARE(received.size(), 2);
+        QVERIFY(received.contains(first));
+        QVERIFY(received.contains(second));
+        QCOMPARE(server.requestCount(), 2);
+        QCOMPARE(logs.terminals().size(), 2);
+        QVERIFY(logs.terminals().join('\n').contains("bagId=41"));
+        QVERIFY(logs.terminals().join('\n').contains("bagId=42"));
+        QVERIFY(!logs.lines().join('\n').contains("query-secret"));
+        QVERIFY(!logs.lines().join('\n').contains("fragment-secret"));
+        QCOMPARE(AIOperationLog::safeUrl("https://user:password@r.example/bag?token=secret#private"),
+                 QString("https://r.example/bag"));
+        QVERIFY(!AIOperationLog::find(first));
+    }
+
+    void localFetchFailureAndAbandonmentHaveOneTerminal()
+    {
+        DiagnosticCapture logs;
+        FakeBeanBaseServer server;
+        server.respondWith("503 Unavailable", "sensitive upstream error body");
+        QNetworkAccessManager nam;
+        Settings settings;
+        BeanBaseClient client(&nam, &settings);
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+        const auto id = client.fetchPageText(server.baseUrl() + "/bag", 51);
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(2).toString(), id);
+        QCOMPARE(server.requestCount(), 1);
+        QCOMPARE(logs.terminals().size(), 1);
+        const auto terminal = logs.terminals().last();
+        QVERIFY(terminal.contains("outcome=failed"));
+        QVERIFY(terminal.contains("provider=not-invoked"));
+        QVERIFY(terminal.contains("httpStatus=503"));
+        QVERIFY(!logs.lines().join('\n').contains("sensitive upstream"));
+        const auto abandoned = client.fetchPageText(server.baseUrl() + "/second");
+        client.abandonPageOperation(abandoned);
+        QTRY_COMPARE(failed.count(), 2);
+        QCOMPARE(server.requestCount(), 2); // abandonment changes diagnostics only
+        QCOMPARE(logs.terminals().size(), 2);
+        QVERIFY(logs.terminals().last().contains("outcome=superseded"));
+    }
+
     void init() { QTest::failOnWarning(); }
     // ====================================================
     // search(): the canonical (Visualizer) path — keyless,
@@ -1648,7 +1711,7 @@ private slots:
         BeanBaseClient client(&m_nam, &m_settings);
         client.setArchiveBaseUrl(stub.server.baseUrl());
         QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, (no archived copy|archive gave no answer)"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=failed reason=pageFailed_lookup"));
         client.fetchPageText(stub.server.baseUrl() + "/dead");
         QVERIFY(failed.wait(5000));
 
@@ -1700,8 +1763,8 @@ private slots:
             // distinction: "no capture" and "the archive refused to answer"
             // send a reader to different places, and a 429 succeeds on retry.
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-                archiveStatus == QByteArray("200 OK") ? "unreadable, no archived copy"
-                                                      : "unreadable, archive gave no answer"));
+                archiveStatus == QByteArray("200 OK") ? "terminal outcome=failed reason=pageFailed_lookupReturnedNoCapture"
+                                                      : "terminal outcome=failed reason=pageFailed_lookupUnanswered"));
             client.fetchPageText(stub.server.baseUrl() + "/dead");
             QVERIFY(failed.wait(5000));
             QCOMPARE(failed.last().at(0).toString(), stub.server.baseUrl() + "/dead");
@@ -1749,7 +1812,7 @@ private slots:
         BeanBaseClient client(&m_nam, &m_settings);
         client.setArchiveBaseUrl(stub.server.baseUrl());
         QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable -"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=failed reason=pageFetchFailed"));
         client.fetchPageText(stub.server.baseUrl() + "/web/20260106073238/https://r.example/p");
         QVERIFY(failed.wait(5000));
 
@@ -1925,7 +1988,7 @@ private slots:
         // a bot wall must be a visible failure, not AI input. Each failure
         // path below intentionally logs a qWarning from the code under test;
         // ignoreMessage consumes them so the suite stays warning-clean.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("yielded no readable text"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=failed reason=emptyPage_noProviderContinuation"));
         client.fetchPageText(server.baseUrl() + "/short");
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("emptyPage"));
@@ -1933,7 +1996,7 @@ private slots:
         // Non-text content (a PDF/image link) is a FORMAT failure, not a
         // confident "nothing found on the page".
         server.setContentType("application/pdf");
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("is not a web page"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=failed reason=notAWebPage"));
         client.fetchPageText(pageUrl);
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("notAWebPage"));
@@ -1945,7 +2008,7 @@ private slots:
         // error is what reaches the user.
         client.setArchiveBaseUrl(server.baseUrl());
         server.respondWith("404 Not Found", "gone");
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unreadable, (no archived copy|archive gave no answer)"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=failed reason=pageFailed_lookup"));
         client.fetchPageText(server.baseUrl() + "/nothing-here");
         QVERIFY(failed.wait(5000));
         QVERIFY(!failed.last().at(1).toString().isEmpty());
@@ -1953,11 +2016,11 @@ private slots:
         // http(s)-only gate: the URL is user-entered and the text is shipped
         // to a third-party AI — file:// must never be read. No server hit.
         const qsizetype requestsBefore = server.requestCount();
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Rejected non-http url"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=rejected reason=invalidUrl"));
         client.fetchPageText("file:///etc/hosts");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Rejected non-http url"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=rejected reason=invalidUrl"));
         client.fetchPageText("not a url");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));

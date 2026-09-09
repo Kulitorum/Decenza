@@ -136,12 +136,12 @@ public final class WifiScaleNsdHelper {
      */
     public static boolean startBrowse(final Context ctx, final long token) {
         if (ctx == null) {
-            Log.w(TAG, "startBrowse: null context");
+            DiagnosticLog.w("Scale", TAG, "startBrowse: null context");
             return false;
         }
         final NsdManager nsd = (NsdManager) ctx.getSystemService(Context.NSD_SERVICE);
         if (nsd == null) {
-            Log.w(TAG, "startBrowse: NsdManager unavailable");
+            DiagnosticLog.w("Scale", TAG, "startBrowse: NsdManager unavailable");
             return false;
         }
 
@@ -151,7 +151,7 @@ public final class WifiScaleNsdHelper {
         b.listener = new NsdManager.DiscoveryListener() {
             @Override
             public void onDiscoveryStarted(String serviceType) {
-                Log.d(TAG, "discovery started: " + serviceType);
+                DiagnosticLog.d("Scale", TAG, "discovery started: " + serviceType);
             }
 
             @Override
@@ -169,20 +169,20 @@ public final class WifiScaleNsdHelper {
             public void onServiceLost(NsdServiceInfo info) {
                 // Logged, never applied: the list is add-only within one scan, so a
                 // scale that blips does not vanish from a list the user is reading.
-                Log.d(TAG, "service lost: " + (info != null ? info.getServiceName() : "?"));
+                DiagnosticLog.d("Scale", TAG, "service lost: " + (info != null ? info.getServiceName() : "?"));
             }
 
             @Override public void onDiscoveryStopped(String serviceType) {}
 
             @Override
             public void onStartDiscoveryFailed(String serviceType, int errorCode) {
-                Log.w(TAG, "start discovery failed: " + errorCode);
+                DiagnosticLog.w("Scale", TAG, "start discovery failed: " + errorCode);
                 b.out.offer(FAIL_PREFIX + "\t" + errorCode);
             }
 
             @Override
             public void onStopDiscoveryFailed(String serviceType, int errorCode) {
-                Log.w(TAG, "stop discovery failed: " + errorCode);
+                DiagnosticLog.w("Scale", TAG, "stop discovery failed: " + errorCode);
             }
         };
 
@@ -190,7 +190,7 @@ public final class WifiScaleNsdHelper {
         try {
             nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, b.listener);
         } catch (Exception e) {
-            Log.w(TAG, "discoverServices failed: " + e.getMessage());
+            DiagnosticLog.w("Scale", TAG, "discoverServices failed: " + e.getMessage());
             sBrowses.remove(token);
             return false;
         }
@@ -264,7 +264,7 @@ public final class WifiScaleNsdHelper {
                 b.nsd.stopServiceResolution(pendingResolve);
             } catch (IllegalArgumentException e) {
                 // Already completed between our check and this call — benign.
-                Log.d(TAG, "stopBrowse: resolve already finished");
+                DiagnosticLog.d("Scale", TAG, "stopBrowse: resolve already finished");
             }
         }
 
@@ -272,7 +272,7 @@ public final class WifiScaleNsdHelper {
             b.nsd.stopServiceDiscovery(b.listener);
         } catch (IllegalArgumentException e) {
             // Listener already unregistered — the discovery ended on its own.
-            Log.d(TAG, "stopBrowse: listener already stopped");
+            DiagnosticLog.d("Scale", TAG, "stopBrowse: listener already stopped");
         }
     }
 
@@ -294,7 +294,7 @@ public final class WifiScaleNsdHelper {
             public void onResolveFailed(NsdServiceInfo failed, int errorCode) {
                 // Routine: a stale registration from a scale that rebooted without
                 // sending a goodbye answers the PTR and nothing else.
-                Log.d(TAG, "resolve failed (" + errorCode + ") for "
+                DiagnosticLog.d("Scale", TAG, "resolve failed (" + errorCode + ") for "
                            + (failed != null ? failed.getServiceName() : "?"));
                 synchronized (b) { b.resolveFailed++; }
                 release(b);
@@ -308,7 +308,7 @@ public final class WifiScaleNsdHelper {
                     // the C++ summary can say so -- returning null here is otherwise
                     // indistinguishable from "nothing arrived this slice".
                     synchronized (b) { b.noAddress++; }
-                    Log.d(TAG, "resolved but no usable IPv4: "
+                    DiagnosticLog.d("Scale", TAG, "resolved but no usable IPv4: "
                                + (si != null ? si.getServiceName() : "?"));
                 } else {
                     // getServiceName() is the dedupe key and reported is a
@@ -346,7 +346,7 @@ public final class WifiScaleNsdHelper {
                 // A throw here means no callback will ever arrive, so the slot has
                 // to be freed on this path too — otherwise one bad instance wedges
                 // the queue and every later scale on the LAN goes unresolved.
-                Log.w(TAG, "resolveService threw: " + e.getMessage());
+                DiagnosticLog.w("Scale", TAG, "resolveService threw: " + e.getMessage());
                 b.resolveFailed++;
                 b.resolveInFlight = false;
                 b.resolveListener = null;
@@ -444,7 +444,7 @@ public final class WifiScaleNsdHelper {
             // as "needs API 36+". A throw HERE is a real reflection failure on this
             // device, and reporting it as a platform-version limit would send the
             // reader looking at the wrong thing entirely.
-            Log.w(TAG, "srvHostname reflection failed on API "
+            DiagnosticLog.w("Scale", TAG, "srvHostname reflection failed on API "
                        + android.os.Build.VERSION.SDK_INT + ": " + t);
             return "";
         }

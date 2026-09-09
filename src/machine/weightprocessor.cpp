@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "weightprocessor.h"
 #include "../ble/scales/scalelogging.h"  // the feed-liveness line is a [Scale] question
 #include "sawlogging.h"
@@ -862,7 +863,7 @@ void WeightProcessor::configure(double targetWeight, int preinfuseFrameCount,
 void WeightProcessor::setTargetWeight(double weight)
 {
     if (m_targetWeight == weight) return;
-    qInfo().noquote() << "WeightProcessor: targetWeight" << m_targetWeight << "->" << weight
+    DIAG_INFO(SHOT, "WeightProcessor").noquote() << "targetWeight" << m_targetWeight << "->" << weight
                       << "(active=" << m_active << ")";
     m_targetWeight = weight;
 }

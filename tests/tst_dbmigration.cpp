@@ -872,7 +872,7 @@ private slots:
             // qWarning() quotes QString args, so the emitted text is:
             //   ShotHistoryStorage: dropping invalid "tasteBalance" value "garbage"
             QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression("dropping invalid \"tasteBalance\" value \"garbage\""));
+                QRegularExpression("dropping invalid tasteBalance value garbage"));
             QVariantMap meta;
             meta["tasteBalance"] = QStringLiteral("garbage");
             meta["enjoyment"] = 80;

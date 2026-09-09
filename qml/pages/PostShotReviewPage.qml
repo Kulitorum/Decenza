@@ -190,7 +190,7 @@ T.Page {
             if ((s.milkWeightG || 0) > 0)
                 parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
             return parts.join(" · ")
-        } catch (e) { console.warn("PostShotReviewPage: bad steamJson on shot", editShotData.id, e); return "" }
+        } catch (e) { WebDebugLogger.warn("Steam", "PostShotReviewPage", ["bad steamJson on shot", editShotData.id, e].map(String).join(" ")); return "" }
     }
     function recipeWaterText() {
         if (!editShotData.hotWaterJson) return ""
@@ -202,7 +202,7 @@ T.Page {
             if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
             if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
             return parts.join(" · ")
-        } catch (e) { console.warn("PostShotReviewPage: bad hotWaterJson on shot", editShotData.id, e); return "" }
+        } catch (e) { WebDebugLogger.warn("Shot", "PostShotReviewPage", ["bad hotWaterJson on shot", editShotData.id, e].map(String).join(" ")); return "" }
     }
 
     // RecipeField (labeled component row) is a shared component in
@@ -433,7 +433,7 @@ T.Page {
             if (success) {
                 postShotReviewPage._saveFailed = false
             } else {
-                console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
+                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
                 postShotReviewPage._saveFailed = true
                 if (AccessibilityManager.enabled)
                     AccessibilityManager.announce(TranslationManager.translate(
@@ -448,7 +448,7 @@ T.Page {
             // stack (same race the metadata path avoids). The visualizer id is
             // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
             if (!success)
-                console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
+                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save visualizer info for shot", shotId].map(String).join(" "))
         }
     }
 
@@ -525,17 +525,17 @@ T.Page {
         function onTdsChanged(tds) {
             if (!postShotReviewPage.isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
-                console.debug("[Refractometer] R2 tds", tds.toFixed(2),
+                WebDebugLogger.debug("Refractometer", "PostShotReviewPage", ["R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", Refractometer.measuring)
+                    "wasMeasuring=", Refractometer.measuring].map(String).join(" "))
                 return
             }
             if (tds > postShotReviewPage.kMaximumPlausibleTds) {
-                console.debug("[Refractometer] R2 tds", tds.toFixed(2),
+                WebDebugLogger.debug("Refractometer", "PostShotReviewPage", ["R2 tds", tds.toFixed(2),
                     "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", Refractometer.measuring)
+                    "wasMeasuring=", Refractometer.measuring].map(String).join(" "))
                 return
             }
             postShotReviewPage.editDrinkTds = tds
@@ -936,7 +936,7 @@ T.Page {
         if (!_visualizerId) return
         pendingVisualizerUpdate = false
         _patchInFlight = true
-        console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
+        WebDebugLogger.debug("Shot", "PostShotReviewPage", ["PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId].map(String).join(" "))
         MainController.visualizer.updateShotOnVisualizerWithOverrides(
             _visualizerId, editShotData, buildVisualizerOverrides())
     }
@@ -1885,7 +1885,7 @@ T.Page {
                         || postShotReviewPage.activeBeanBase.id !== canonicalId) return
                     var merged
                     try { merged = JSON.parse(postShotReviewPage.editBeanBaseJson) } catch (e) {
-                        console.warn("PostShotReviewPage: enrichment merge skipped — unparseable blob")
+                        WebDebugLogger.warn("Shot", "PostShotReviewPage", ["enrichment merge skipped — unparseable blob"].map(String).join(" "))
                         return
                     }
                     for (var k in attrs) merged[k] = attrs[k]

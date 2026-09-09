@@ -204,20 +204,24 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
     if (path == "/api/beans/findpage" && method == "POST") {
         AIManager* aiManager = m_mainController ? m_mainController->aiManager() : nullptr;
         if (!aiManager) {
+            AIOperationLog::begin("productPageSearch", true)->finish("rejected", "dependenciesUnavailable");
             respondJson(QJsonObject{{"error", "AI not available"}}, 503);
             return;
         }
         if (!aiManager->isConfigured()) {
+            AIOperationLog::begin("productPageSearch", true)->finish("rejected", "notConfigured");
             respondJson(QJsonObject{{"error", "No AI provider configured"}}, 400);
             return;
         }
         if (!aiManager->supportsProductPageSearch()) {
+            AIOperationLog::begin("productPageSearch", true)->finish("rejected", "webSearchUnsupported");
             respondJson(QJsonObject{{"error", "The configured provider can't search the web"}}, 400);
             return;
         }
         const QString roaster = bodyJson.value(QStringLiteral("roaster")).toString().trimmed();
         const QString coffee = bodyJson.value(QStringLiteral("coffee")).toString().trimmed();
         if (roaster.isEmpty() || coffee.isEmpty()) {
+            AIOperationLog::begin("productPageSearch", true)->finish("rejected", "missingIdentity");
             respondJson(QJsonObject{{"error", "roaster and coffee are required"}}, 400);
             return;
         }
@@ -225,6 +229,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             ? QStringLiteral("tea") : QStringLiteral("coffee");
         const QString token = QStringLiteral("web:%1|%2").arg(roaster, coffee);
 
+        auto operationId = std::make_shared<QString>();
         auto fired = std::make_shared<bool>(false);
         auto conns = std::make_shared<QList<QMetaObject::Connection>>();
         auto cleanup = [conns]() {
@@ -252,14 +257,16 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 else
                     respondJson(QJsonObject{{"error", error}}, 502);
             });
-        QTimer::singleShot(90000, this, [fired, cleanup, respondJson]() {
+        QTimer::singleShot(90000, this, [fired, cleanup, respondJson, operationId]() {
             if (*fired)
                 return;
             *fired = true;
+            if (const auto operation = AIOperationLog::find(*operationId))
+                operation->finish("failed", "consumerTimeout");
             cleanup();
             respondJson(QJsonObject{{"error", "Product-page search timed out"}}, 504);
         });
-        aiManager->findProductPage(token, roaster, coffee, kind);
+        *operationId = aiManager->findProductPage(token, roaster, coffee, kind);
         return;
     }
 
@@ -273,15 +280,18 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         BeanBaseClient* beanbase = m_mainController ? m_mainController->beanbase() : nullptr;
         AIManager* aiManager = m_mainController ? m_mainController->aiManager() : nullptr;
         if (!beanbase || !aiManager) {
+            AIOperationLog::begin("bagExtraction", true)->finish("rejected", "dependenciesUnavailable");
             respondJson(QJsonObject{{"error", "Extraction dependencies not available"}}, 503);
             return;
         }
         if (!aiManager->isConfigured()) {
+            AIOperationLog::begin("bagExtraction", true)->finish("rejected", "notConfigured");
             respondJson(QJsonObject{{"error", "No AI provider configured"}}, 400);
             return;
         }
         const QString url = bodyJson.value(QStringLiteral("url")).toString().trimmed();
         if (url.isEmpty()) {
+            AIOperationLog::begin("bagExtraction", true)->finish("rejected", "missingUrl");
             respondJson(QJsonObject{{"error", "A product-page url is required"}}, 400);
             return;
         }
@@ -298,6 +308,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             bodyJson.value(QStringLiteral("current")).toObject().toVariantMap();
 
         struct ExtractState {
+            QString operationId;
             QList<QMetaObject::Connection> conns;
             int stage = 1;
             QString stage1Error;
@@ -309,26 +320,28 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             if (st->done)
                 return;
             st->done = true;
+            if (const auto operation = AIOperationLog::find(st->operationId))
+                operation->finish(QStringLiteral("superseded"), QStringLiteral("consumerStoppedWaiting"));
             for (const auto& c : st->conns)
                 QObject::disconnect(c);
             reply();
         };
         st->conns << connect(beanbase, &BeanBaseClient::pageTextReady, this,
-            [st, aiManager, url, kind](const QString& u, const QString& text) {
+            [st, aiManager, url, kind](const QString& u, const QString& text, const QString& operationId) {
                 if (st->done || st->fetchArmed || u != url)
                     return;
                 st->fetchArmed = true;
-                aiManager->extractCoffeeBagDetails(url, text, kind);
+                aiManager->extractCoffeeBagDetails(url, text, kind, operationId);
             });
         st->conns << connect(beanbase, &BeanBaseClient::pageTextFailed, this,
-            [st, aiManager, url, kind, finish, respondJson](const QString& u, const QString& error) {
+            [st, aiManager, url, kind, finish, respondJson](const QString& u, const QString& error, const QString& operationId) {
                 if (st->done || st->fetchArmed || u != url)
                     return;
                 st->fetchArmed = true;
                 st->stage1Error = error;
                 if (error == QLatin1String("emptyPage") && aiManager->supportsUrlExtraction()) {
                     st->stage = 2;
-                    aiManager->extractCoffeeBagDetailsFromUrl(url, url, kind);
+                    aiManager->extractCoffeeBagDetailsFromUrl(url, url, kind, operationId);
                 } else {
                     finish([respondJson, error]() {
                         respondJson(QJsonObject{{"error", QStringLiteral("Page fetch failed: ") + error}}, 502);
@@ -362,12 +375,16 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     respondJson(QJsonObject{{"error", msg}}, 502);
                 });
             });
-        QTimer::singleShot(90000, this, [finish, respondJson]() {
+        QTimer::singleShot(90000, this, [st, finish, respondJson]() {
+            if (st->done)
+                return;
+            if (const auto operation = AIOperationLog::find(st->operationId))
+                operation->finish(QStringLiteral("failed"), QStringLiteral("consumerTimeout"));
             finish([respondJson]() {
                 respondJson(QJsonObject{{"error", "Extraction timed out"}}, 504);
             });
         });
-        beanbase->fetchPageText(url);
+        st->operationId = beanbase->fetchPageText(url);
         return;
     }
 

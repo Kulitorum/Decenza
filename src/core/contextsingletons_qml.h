@@ -74,6 +74,7 @@
 // for scaleProxy and refractometerProxy. Do the hoist, then register; do not register without
 // the hoist.
 
+#include "core/diagnosticlogging.h"
 #include <QtQml/qqmlregistration.h>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
@@ -145,12 +146,12 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
     // MEMBER READ on the name reads undefined, and nothing says why. (The name itself stays a
     // truthy object — see the note on decenzaOptionalSingleton() below.)
     if (!instance) {
-        qCritical("%s: QML asked for the singleton before main() published it. %s "
+        DIAG_ERROR(APP, "contextsingletons_qml") << QString::asprintf("%s: QML asked for the singleton before main() published it. %s "
                   "Publish it before QQmlEngine::load().", qmlName, consequence);
         return nullptr;
     }
     if (engine->thread() != instance->thread()) {
-        qCritical("%s: the QML engine and the instance are on different threads; QML property "
+        DIAG_ERROR(APP, "contextsingletons_qml") << QString::asprintf("%s: the QML engine and the instance are on different threads; QML property "
                   "access would be unsafe.", qmlName);
         return nullptr;
     }
@@ -321,7 +322,7 @@ public:
             return nullptr;
         QJSEngine* const bound = published->boundJsEngine();
         if (bound && bound != engine) {
-            qCritical("TranslationManager: a second QQmlEngine asked for this singleton. "
+            DIAG_ERROR(APP, "TranslationManager") << QString::asprintf("TranslationManager: a second QQmlEngine asked for this singleton. "
                       "`translate` is bound to the engine main.cpp wired and cannot be rebound, "
                       "so this engine gets no TranslationManager and its translated strings will "
                       "be undefined. A second engine needing translations needs its own "

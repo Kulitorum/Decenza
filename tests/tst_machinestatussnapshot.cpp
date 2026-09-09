@@ -145,7 +145,7 @@ private slots:
         // The reject path warns exactly once per process by design — assert
         // it fires (and consume it so it doesn't trip the no-WARN rule).
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-            "\\[widget\\] setLastShot rejected non-finalized shot"));
+            "\\[App\\]\\[machinestatussnapshot\\] setLastShot rejected non-finalized shot"));
 
         snap.setLastShot(std::nan(""), 28.0);
         QVERIFY(!snap.buildSnapshot().lastShot.has_value());

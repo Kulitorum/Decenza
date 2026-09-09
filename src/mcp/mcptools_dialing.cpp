@@ -98,7 +98,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 }
 
                 withTempDb(dbPath, "mcp_dialing", [&](QSqlDatabase& db) {
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId, nullptr, Q_FUNC_INFO);
                     dbResult.shotData = ShotHistoryStorage::convertShotRecord(record);
                     dbResult.profileKbId = record.profileKbId;
 
@@ -447,7 +447,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 QJsonObject calibration;
                 bool shotValid = false;
                 withTempDb(dbPath, "mcp_grindcal", [&](QSqlDatabase& db) {
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId, nullptr, Q_FUNC_INFO);
                     ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                     shotValid = shot.isValid();
                     if (!shotValid) return;

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "steamhealthtracker.h"
 #include "models/steamdatamodel.h"
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
@@ -61,7 +62,7 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     int samples = model->sampleCount();
     int duration = static_cast<int>(model->rawTime());
     if (samples < MIN_SAMPLES_FOR_ANALYSIS || duration < MIN_DURATION_FOR_ANALYSIS) {
-        qDebug() << "SteamHealth [skip]" << samples << "samples" << duration << "s"
+        DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [skip]" << samples << "samples" << duration << "s"
                  << "(need" << MIN_SAMPLES_FOR_ANALYSIS << "samples," << MIN_DURATION_FOR_ANALYSIS << "s)";
         return;
     }
@@ -83,12 +84,12 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     }
 
     if (highPressureCount > CLOG_SAMPLE_THRESHOLD) {
-        qWarning() << "SteamHealth [clog] descale warning -" << highPressureCount
+        DIAG_WARN(STEAM, "steamhealthtracker") << "SteamHealth [clog] descale warning -" << highPressureCount
                    << "samples exceeded" << PRESSURE_HARD_LIMIT << "bar";
         emit descaleWarning();
     }
     if (highTempCount > CLOG_SAMPLE_THRESHOLD) {
-        qWarning() << "SteamHealth [clog] temperature warning -" << highTempCount
+        DIAG_WARN(STEAM, "steamhealthtracker") << "SteamHealth [clog] temperature warning -" << highTempCount
                    << "samples exceeded" << TEMPERATURE_THRESHOLD << "°C";
         emit temperatureWarning(
             tr("Your steam is getting too hot. Increase your steam flow rate or lower the steam temperature."));
@@ -116,7 +117,7 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     }
     saveHistory(history);
 
-    qDebug() << "SteamHealth [session]"
+    DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [session]"
              << "timestamp:" << summary.timestamp.toString(Qt::ISODate)
              << "avgP:" << summary.avgPressure << "bar"
              << "peakP:" << summary.peakPressure << "bar"
@@ -162,7 +163,7 @@ void SteamHealthTracker::clearHistory() {
     m_pendingAutoReset = false;
     m_establishingAfterReset = false;
     emit sessionHistoryChanged();
-    qDebug() << "SteamHealth [reset] session history, cooldown, and auto-reset flags cleared";
+    DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [reset] session history, cooldown, and auto-reset flags cleared";
 }
 
 // --- Scale buildup trend detection ---
@@ -191,7 +192,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                                      int /*steamFlow*/, int steamTemp) {
     qsizetype n = history.size();
     if (n < MIN_SESSIONS_FOR_TREND) {
-        qDebug() << "SteamHealth [trend] not enough sessions:"
+        DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [trend] not enough sessions:"
                  << n << "/" << MIN_SESSIONS_FOR_TREND;
         return;
     }
@@ -254,7 +255,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
             // those two — they describe the new (cleaner) machine state.
             // Everything older is from before the descale/clean and would
             // pollute the new baseline's rolling recent-average.
-            qDebug() << "SteamHealth [auto-reset]"
+            DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [auto-reset]"
                      << "confirmed drop — trimming to" << AUTO_RESET_KEEP_SESSIONS << "sessions"
                      << "normalizedP:" << currentPressure << "bar"
                      << "temp:" << currentTemp << "°C";
@@ -273,7 +274,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         }
 
         // First low session: arm pending flag and wait for confirmation.
-        qDebug() << "SteamHealth [auto-reset-armed]"
+        DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [auto-reset-armed]"
                  << "low session detected — waiting for next session to confirm"
                  << "normalizedP:" << currentPressure << "bar";
         m_pendingAutoReset = true;
@@ -282,7 +283,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         // Previous session was low but this one isn't — the drop didn't
         // persist, so disarm. The armed session stays in history and
         // contributes to the baseline like any other session.
-        qDebug() << "SteamHealth [auto-reset-disarmed]"
+        DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [auto-reset-disarmed]"
                  << "low session not confirmed — pressure recovered";
         m_pendingAutoReset = false;
         m_settings.setValue("steam/pendingAutoReset", false);
@@ -303,7 +304,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         progressT = (currentTemp - baselineTemp) / tempRange;
     }
 
-    qDebug() << "SteamHealth [trend]"
+    DIAG_DEBUG(STEAM, "steamhealthtracker") << "SteamHealth [trend]"
              << "sessions:" << n
              << "baselineP:" << baselinePressure << "bar (normalized)"
              << "currentP:" << currentPressure << "bar (normalized)"
@@ -323,7 +324,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     // --- Emit warnings at 60% progress ---
 
     if (progressP >= TREND_PROGRESS_THRESHOLD) {
-        qWarning() << "SteamHealth [warn] normalized pressure at" << currentPressure
+        DIAG_WARN(STEAM, "steamhealthtracker") << "SteamHealth [warn] normalized pressure at" << currentPressure
                    << "bar, baseline" << baselinePressure
                    << "bar (" << qRound(progressP * 100) << "% toward" << pressureWarnLevel << "bar)";
         m_lastWarnedSession = m_sessionCount;
@@ -339,7 +340,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     }
 
     if (progressT >= TREND_PROGRESS_THRESHOLD) {
-        qWarning() << "SteamHealth [warn] temperature at" << currentTemp
+        DIAG_WARN(STEAM, "steamhealthtracker") << "SteamHealth [warn] temperature at" << currentTemp
                    << "°C, target" << baselineTemp
                    << "°C (" << qRound(progressT * 100) << "% toward" << TEMPERATURE_THRESHOLD << "°C)";
         m_lastWarnedSession = m_sessionCount;

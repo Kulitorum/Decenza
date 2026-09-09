@@ -9,6 +9,7 @@
 #include <QTextStream>
 
 #include "core/crashhandler.h"
+#include "core/diagnosticlogging.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 
@@ -56,6 +57,19 @@ private slots:
     // redirection into whatever executes next.
     void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
     void cleanupTestCase() { QStandardPaths::setTestModeEnabled(false); }
+
+    void applicationAndQmlHelpersShareTheRegistry()
+    {
+        WebDebugLogger logger(logPath());
+        QVERIFY(DecenzaLog::isRegistered("Battery"));
+        QVERIFY(!DecenzaLog::isRegistered("battery"));
+        QTest::ignoreMessage(QtInfoMsg, "[Battery][BatteryManager] requesting charge enable");
+        DIAG_INFO(BATTERY, "BatteryManager") << "requesting charge enable";
+        QTest::ignoreMessage(QtWarningMsg, "[Recipes][RecipesItem] Start blocked");
+        logger.warn("Recipes", "RecipesItem", "Start blocked");
+        QTest::ignoreMessage(QtWarningMsg, "[Runtime][bad_tag] Unknown owner");
+        logger.warn("not-registered", "bad]tag", "Unknown owner");
+    }
 
     void sessionIndex_findsBoundariesAndCounts()
     {
@@ -186,12 +200,55 @@ private slots:
         const QString line = lines.last();
 
         // [ SSSS.mmm] LEVEL message — right-aligned to 8, three decimals.
-        QRegularExpression shape(QStringLiteral(R"(^\[\s*\d+\.\d{3}\] WARN\s+hello$)"));
+        QRegularExpression shape(QStringLiteral(R"(^\[\s*\d+\.\d{3}\] WARN\s+\[Runtime\]\[Unattributed\] hello$)"));
         QVERIFY2(shape.match(line).hasMatch(), qPrintable("unexpected line shape: " + line));
 
         // And the shared parsers read it.
         QCOMPARE(McpLogFilter::lineLevel(line), QStringLiteral("WARN"));
-        QCOMPARE(McpLogFilter::stripTimestampPrefix(line), QStringLiteral("WARN  hello"));
+        QCOMPARE(McpLogFilter::stripTimestampPrefix(line), QStringLiteral("WARN  [Runtime][Unattributed] hello"));
+    }
+
+    void multilineWarningsRetainContextAndCannotCreateSessions()
+    {
+        writeFile(logPath(), "========== SESSION START: 2026-09-09T09:00:00 ==========\n");
+        WebDebugLogger logger(logPath());
+        QSignalSpy spy(&logger, &WebDebugLogger::lineAppended);
+        const QMessageLogContext context("/build/Decenza/qml/components/BagCard.qml", 42,
+                                         "updateDetails", "qml");
+        logger.handleMessage(QtWarningMsg,
+            QStringLiteral("[BeanBase][Extract] failed\r\n"
+                           "========== SESSION START: 2099-01-01T00:00:00 ==========\n"
+                           "last detail"), context);
+        const auto lines = logger.sessionLinesMatching({QStringLiteral("[BeanBase]")}, "WARN");
+        QCOMPARE(lines.size(), 3);
+        QCOMPARE(spy.size(), 3);
+        for (const auto& line : lines) {
+            QVERIFY(line.contains("WARN  [BeanBase][Extract] "));
+            QVERIFY(line.contains("source=qml/components/BagCard.qml:42"));
+            QVERIFY(line.contains("category=qml"));
+            QVERIFY(line.contains("function=updateDetails"));
+            QVERIFY(!line.contains("/build/"));
+        }
+        QVERIFY(lines[1].contains("2099-01-01"));
+        QVERIFY(lines[2].contains("last detail"));
+        QCOMPARE(logger.sessionIndex().size(), 1);
+        QCOMPARE(logger.getAllLines(), lines);
+    }
+
+    void unattributedContextIsPreservedWithoutInventingAnOwner()
+    {
+        WebDebugLogger logger(logPath());
+        const QMessageLogContext context(nullptr, 0, nullptr, "qt.network.ssl");
+        logger.handleMessage(QtWarningMsg, "QIODevice::read: device not open", context);
+        const auto line = logger.getAllLines().last();
+        QVERIFY(line.contains("[Runtime][Unattributed] QIODevice::read: device not open"));
+        QVERIFY(line.contains("category=qt.network.ssl"));
+        QVERIFY(!line.contains("source="));
+        QVERIFY(!line.contains("function="));
+        QVERIFY(!logger.lineMatches(line, {"[Network]"}, "WARN"));
+        QVERIFY(logger.lineMatches(line, {"[Runtime]"}, "WARN"));
+        logger.handleMessage(QtDebugMsg, "[Memory][Sample] detail", context);
+        QVERIFY(!logger.getAllLines().last().contains("category="));
     }
 
     // ---- Session boundaries are recorded, never fabricated ----

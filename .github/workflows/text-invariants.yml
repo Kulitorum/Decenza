@@ -100,6 +100,8 @@ on:
     paths:
       - 'qml/**'
       - 'src/**'
+      - 'android/**'
+      - 'ios/**'
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
@@ -109,6 +111,8 @@ on:
     paths:
       - 'qml/**'
       - 'src/**'
+      - 'android/**'
+      - 'ios/**'
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
@@ -144,7 +148,9 @@ jobs:
       # Blocking: an unmarked log line is invisible to the search the markers exist for, and
       # nothing in a log reveals that a line is missing from it.
       - name: Subsystem log lines carry a registered marker
-        run: python3 scripts/check_log_markers.py
+        run: |
+          python3 scripts/check_log_markers.py --self-test
+          python3 scripts/check_log_markers.py
 
       # Blocking: a truncated tool list is invisible from inside the app, and the payload that
       # causes it is invisible in review.

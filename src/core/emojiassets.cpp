@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "emojiassets.h"
 
 #include <QDebug>
@@ -20,7 +21,7 @@ void EmojiAssets::ensureLoaded() const
     if (m_keys.isEmpty()) {
         // Every emoji in the app would silently strip. That is a build/resource fault, not a
         // content one, so say so loudly rather than letting the UI quietly lose its emoji.
-        qWarning() << "[Emoji] No assets found under :/emoji — every emoji will be stripped."
+        DIAG_WARN(APP, "emojiassets") << "No assets found under :/emoji — every emoji will be stripped."
                    << "resources/emoji.qrc is probably missing from the build.";
     }
 }

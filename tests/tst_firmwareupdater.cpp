@@ -135,7 +135,7 @@ private slots:
         Fixture f;
         // failWith() logs a qCWarning; that's the behaviour under test here.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Erasing.*reason=\s*Erase did not complete)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Erasing.*reason=\s*Erase did not complete)"));
         // Erase-timeout path requires that the post-erase wait does NOT fire
         // first — otherwise state transitions Erasing → Uploading and the
         // timeout's early-return guard (state != Erasing) means no Failed.
@@ -239,7 +239,7 @@ private slots:
     void disconnectDuringUpload_failsRetryable() {
         Fixture f;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Uploading.*reason=\s*DE1 disconnected)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Uploading.*reason=\s*DE1 disconnected)"));
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352, 4096));  // more chunks
         f.updater.setChunkPumpIntervalMs(5);            // slow enough to catch mid-upload
         f.updater.startUpdate();
@@ -258,7 +258,7 @@ private slots:
     void verifyFailure_reportsErrorOffsetRetryable() {
         Fixture f;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Verifying.*reason=\s*Verification failed at block)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*Verification failed at block)"));
         const QByteArray blob = makeFirmwareBlob(1352);
         writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
@@ -398,7 +398,7 @@ private slots:
     void firmwareGuard_clearedOnFailure() {
         Fixture f;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Uploading.*reason=\s*DE1 disconnected)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Uploading.*reason=\s*DE1 disconnected)"));
         // More chunks + slow pump so the upload is still in flight when we
         // yank the transport. A disconnect mid-upload routes through
         // failWith(), which is the path we want to cover here.
@@ -471,7 +471,7 @@ private slots:
         Fixture f;
         // First attempt intentionally fails with an erase timeout.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Erasing.*reason=\s*Erase did not complete)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Erasing.*reason=\s*Erase did not complete)"));
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
         // Short erase timeout so the first attempt fails fast. Bump the
         // post-erase wait past the timeout so the timeout actually fires
@@ -554,7 +554,7 @@ private slots:
 
         QTest::ignoreMessage(
             QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Idle.*reason=\s*The firmware file is not valid)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Idle.*reason=\s*The firmware file is not valid)"));
         emit f.cache.checkFinished(r);
 
         QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
@@ -582,10 +582,10 @@ private slots:
 
         QTest::ignoreMessage(
             QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] bundled source validation failed:.*digest mismatch)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* bundled source validation failed:.*digest mismatch)"));
         QTest::ignoreMessage(
             QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Downloading.*reason=\s*The firmware file is not valid)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Downloading.*reason=\s*The firmware file is not valid)"));
         emit cache.downloadFailed(QStringLiteral("Bundled firmware digest mismatch"));
 
         QCOMPARE(updater.state(), FirmwareUpdater::State::Failed);
@@ -659,7 +659,7 @@ private slots:
     void verifyDisconnectGraceTimeout_failsRetryable() {
         Fixture f;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Verifying.*reason=\s*DE1 did not reconnect)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*DE1 did not reconnect)"));
         f.updater.setVerifyDisconnectGraceMs(50);   // short grace for test
         const QByteArray blob = makeFirmwareBlob(1352);
         writeCachedBlob(&f.updater, &f.cache, blob);

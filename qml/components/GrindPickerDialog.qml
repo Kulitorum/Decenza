@@ -175,8 +175,8 @@ DecenzaDialog {
             // (~801 rows at the default 400 px/s). Say so — if a Qt upgrade
             // reshapes Tumbler's internals, this line is the only thing tying
             // the regression to its cause.
-            console.warn("GrindPickerDialog: Tumbler internal view not found —"
-                         + " snap disabled, wheel will animate (Qt internals changed?)")
+            WebDebugLogger.warn("App", "GrindPickerDialog", ["Tumbler internal view not found —"
+                         + " snap disabled, wheel will animate (Qt internals changed?)"].map(String).join(" "))
         }
         if (lv) {
             if (lv.highlightMoveDuration !== undefined)

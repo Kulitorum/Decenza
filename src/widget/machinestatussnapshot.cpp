@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "machinestatussnapshot.h"
 #include "widgetsharedkeys.h"
 #include "../ble/de1device.h"
@@ -111,7 +112,7 @@ void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
         static std::atomic<int> rejectCount{0};
         const int n = rejectCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
-            qWarning() << "[widget] setLastShot rejected non-finalized shot:"
+            DIAG_WARN(APP, "machinestatussnapshot") << "setLastShot rejected non-finalized shot:"
                        << "yieldG" << yieldG << "durationSec" << durationSec
                        << "(occurrence" << (n + 1) << ")";
         return;
@@ -219,14 +220,10 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     static std::atomic<int> failCount{0};
     // maybe_unused: the iOS branch below delegates to
     // decenzaWriteWidgetSnapshotIOS(), which emits its own breadcrumbs via
-    // NSLog (App Group unavailable, UTF-8 decode failed), so it never calls
+    // the shared App/Widget logger (App Group unavailable, UTF-8 decode failed), so it never calls
     // this. Only iOS compiles that branch, so only iOS sees the lambda as
     // unused — the attribute says "deliberately", rather than duplicating the
     // platform #if around the declaration.
-    //
-    // Worth knowing when triaging: those iOS breadcrumbs go to the device
-    // console, NOT to this app's debug log, so they are invisible to the MCP
-    // log reader that Android and desktop failures do reach.
     //
     // Deliberately not Q_UNUSED, which is the convention nearly everywhere
     // else here: Q_UNUSED is a statement that fakes a use, so it would have to
@@ -237,8 +234,8 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     [[maybe_unused]] auto logFail = [](const char* what) {
         const int n = failCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
-            qWarning().noquote()
-                << "[widget] snapshot write failed:" << what
+            DIAG_WARN(APP, "machinestatussnapshot").noquote()
+                << "snapshot write failed:" << what
                 << "(occurrence" << (n + 1) << ")";
     };
 

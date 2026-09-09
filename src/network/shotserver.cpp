@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "shotserver.h"
 #include "visualizeruploader.h"
@@ -118,7 +119,7 @@ protected:
         });
 
         connect(timer, &QTimer::timeout, this, [this, fd]() {
-            qDebug() << "HttpRedirectSslServer: Timeout waiting for first byte, fd:" << fd;
+            DIAG_DEBUG(NETWORK, "HttpRedirectSslServer") << "Timeout waiting for first byte, fd:" << fd;
             cleanupPending(fd);
             closeFd(fd);
         });
@@ -154,10 +155,10 @@ private:
         if (n <= 0) {
             if (n < 0) {
 #ifdef Q_OS_WIN
-                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "recv(MSG_PEEK) failed, fd:" << fd
                            << "WSA error:" << WSAGetLastError();
 #else
-                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "recv(MSG_PEEK) failed, fd:" << fd
                            << "errno:" << errno << strerror(errno);
 #endif
             }
@@ -239,9 +240,9 @@ private:
 
         auto sent = ::send(toNativeFd(fd), response.constData(), response.size(), 0);
         if (sent < 0)
-            qWarning() << "HttpRedirectSslServer: send() failed, fd:" << fd;
+            DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "send() failed, fd:" << fd;
         else if (sent < response.size())
-            qWarning() << "HttpRedirectSslServer: partial send" << sent << "/" << response.size() << "fd:" << fd;
+            DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "partial send" << sent << "/" << response.size() << "fd:" << fd;
         closeFd(fd);
     }
 
@@ -285,7 +286,7 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         FROM shots LEFT JOIN recipes r ON r.id = shots.recipe_id
         ORDER BY shots.timestamp DESC LIMIT 1000
     )") || !query.exec()) {
-        qWarning() << "ShotServer: Shot list query failed:" << query.lastError().text();
+        DIAG_WARN(NETWORK, "ShotServer") << "Shot list query failed:" << query.lastError().text();
         return false;
     }
     while (query.next()) {
@@ -405,7 +406,7 @@ void ShotServer::retireSocket(QTcpSocket* socket)
     QList<int> staleLibraryRequests;
     for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
         if (it.value().socket == socket || it.value().socket.isNull()) {
-            qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Cleaning up pending library request" << it.key() << "- socket disconnected";
             invalidateLibraryRequest(it.value());
             staleLibraryRequests.append(it.key());
         }
@@ -422,7 +423,7 @@ void ShotServer::retireSocket(QTcpSocket* socket)
     // a server still refusing everyone.
     if (m_atConnectionLimit && m_clients.size() < MAX_CONNECTIONS) {
         m_atConnectionLimit = false;
-        qWarning() << "ShotServer: below connection limit again after refusing"
+        DIAG_WARN(NETWORK, "ShotServer") << "below connection limit again after refusing"
                    << m_refusedConnections << "connection(s)";
         m_refusedConnections = 0;
     }
@@ -487,7 +488,7 @@ bool ShotServer::start()
     if (isSecurityEnabled()) {
         // Set up TLS with self-signed certificate
         if (!setupTls()) {
-            qWarning() << "ShotServer: TLS setup failed, cannot start secure server";
+            DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
             return false;
         } else {
             auto* sslServer = new HttpRedirectSslServer(m_port, this);
@@ -502,24 +503,24 @@ bool ShotServer::start()
             // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
             connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
             connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-                qWarning() << "ShotServer: accept error:" << err
+                DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
                            << "socketDescriptor:" << m_server->socketDescriptor()
                            << "isListening:" << m_server->isListening();
             });
             connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
                 for (const auto& err : errors)
-                    qWarning() << "ShotServer: SSL error:" << err.errorString();
+                    DIAG_WARN(NETWORK, "ShotServer") << "SSL error:" << err.errorString();
             });
             connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                qWarning() << "ShotServer: SSL handshake interrupted:" << error.errorString();
+                DIAG_WARN(NETWORK, "ShotServer") << "SSL handshake interrupted:" << error.errorString();
             });
             connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                qWarning() << "ShotServer: SSL peer verify error:" << error.errorString();
+                DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
             });
 
 
             if (!m_server->listen(QHostAddress::Any, m_port)) {
-                qWarning() << "ShotServer: Failed to start TLS on port" << m_port << m_server->errorString();
+                DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
                 delete m_server;
                 m_server = nullptr;
                 return false;
@@ -528,7 +529,7 @@ bool ShotServer::start()
             // Load persisted sessions
             loadSessions();
 
-            qDebug() << "ShotServer: HTTPS mode enabled";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
         }
     }
 
@@ -537,13 +538,13 @@ bool ShotServer::start()
         m_server = new QTcpServer(this);
         connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
         connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-            qWarning() << "ShotServer: accept error:" << err
+            DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
                        << "socketDescriptor:" << m_server->socketDescriptor()
                        << "isListening:" << m_server->isListening();
         });
 
         if (!m_server->listen(QHostAddress::Any, m_port)) {
-            qWarning() << "ShotServer: Failed to start on port" << m_port << m_server->errorString();
+            DIAG_WARN(NETWORK, "ShotServer") << "Failed to start on port" << m_port << m_server->errorString();
             delete m_server;
             m_server = nullptr;
             return false;
@@ -554,17 +555,17 @@ bool ShotServer::start()
     m_discoverySocket = new QUdpSocket(this);
     if (m_discoverySocket->bind(QHostAddress::Any, DISCOVERY_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
         connect(m_discoverySocket, &QUdpSocket::readyRead, this, &ShotServer::onDiscoveryDatagram);
-        qDebug() << "ShotServer: Discovery listener started on UDP port" << DISCOVERY_PORT;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Discovery listener started on UDP port" << DISCOVERY_PORT;
         m_multicastLock = std::make_unique<MulticastLock::Holder>();
     } else {
-        qWarning() << "ShotServer: Failed to bind discovery socket on port" << DISCOVERY_PORT << m_discoverySocket->errorString();
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to bind discovery socket on port" << DISCOVERY_PORT << m_discoverySocket->errorString();
         delete m_discoverySocket;
         m_discoverySocket = nullptr;
         // Continue anyway - discovery is optional
     }
 
     m_cleanupTimer->start();
-    qDebug() << "ShotServer: Started on" << url();
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Started on" << url();
     emit runningChanged();
     emit urlChanged();
     return true;
@@ -578,7 +579,7 @@ void ShotServer::stop()
     // previous run dated to the new one.
     for (const auto& [line, collapsed] :
          m_requestLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
-        qDebug().noquote() << line + LogCollapse::suffix(collapsed);
+        DIAG_DEBUG(NETWORK, "shotserver").noquote() << line + LogCollapse::suffix(collapsed);
     }
 
     cancelAllLibraryRequests();
@@ -624,7 +625,7 @@ void ShotServer::stop()
         m_server = nullptr;
         emit runningChanged();
         emit urlChanged();
-        qDebug() << "ShotServer: Stopped";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Stopped";
     }
 }
 
@@ -673,7 +674,7 @@ void ShotServer::onNewConnection()
             ++m_refusedConnections;
             if (!m_atConnectionLimit) {
                 m_atConnectionLimit = true;
-                qWarning() << "ShotServer: connection limit reached ("
+                DIAG_WARN(NETWORK, "ShotServer") << "connection limit reached ("
                            << MAX_CONNECTIONS << ") — refusing new clients, most recent from"
                            << socket->peerAddress().toString();
             }
@@ -758,7 +759,7 @@ void ShotServer::onReadyRead()
 
             // Check header size limit
             if (pending.headerData.size() > MAX_HEADER_SIZE) {
-                qWarning() << "ShotServer: Headers too large, rejecting";
+                DIAG_WARN(NETWORK, "ShotServer") << "Headers too large, rejecting";
                 sendResponse(socket, 413, "text/plain", "Headers too large");
                 cleanupPendingRequest(socket);
                 m_pendingRequests.remove(socket);
@@ -799,7 +800,7 @@ void ShotServer::onReadyRead()
 
             // Check upload size limit for media and APK uploads
             if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.contentLength > MAX_UPLOAD_SIZE) {
-                qWarning() << "ShotServer: Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
+                DIAG_WARN(NETWORK, "ShotServer") << "Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
                 sendResponse(socket, 413, "text/plain",
                     QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
                 cleanupPendingRequest(socket);
@@ -810,7 +811,7 @@ void ShotServer::onReadyRead()
 
             // Check concurrent upload limit
             if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && m_activeMediaUploads >= MAX_CONCURRENT_UPLOADS) {
-                qWarning() << "ShotServer: Too many concurrent uploads";
+                DIAG_WARN(NETWORK, "ShotServer") << "Too many concurrent uploads";
                 sendResponse(socket, 503, "text/plain", "Server busy. Please wait and try again.");
                 cleanupPendingRequest(socket);
                 m_pendingRequests.remove(socket);
@@ -824,7 +825,7 @@ void ShotServer::onReadyRead()
                 pending.tempFilePath = tempDir + "/upload_stream_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
                 pending.tempFile = new QFile(pending.tempFilePath);
                 if (!pending.tempFile->open(QIODevice::WriteOnly)) {
-                    qWarning() << "ShotServer: Failed to create temp file for streaming";
+                    DIAG_WARN(NETWORK, "ShotServer") << "Failed to create temp file for streaming";
                     sendResponse(socket, 500, "text/plain", "Server error: cannot create temp file");
                     cleanupPendingRequest(socket);
                     m_pendingRequests.remove(socket);
@@ -834,7 +835,7 @@ void ShotServer::onReadyRead()
                 if (pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) {
                     m_activeMediaUploads++;
                 }
-                qDebug() << "ShotServer: Streaming large upload to" << pending.tempFilePath;
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Streaming large upload to" << pending.tempFilePath;
             }
 
             // Handle any body data that came with headers
@@ -867,7 +868,7 @@ void ShotServer::onReadyRead()
         if (pending.contentLength > 5 * 1024 * 1024) {
             qint64& last = m_uploadProgressLog[socket];
             if (pending.bodyReceived - last > 5 * 1024 * 1024) {
-                qDebug() << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
+                DIAG_DEBUG(NETWORK, "shotserver") << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
                 last = pending.bodyReceived;
             }
         }
@@ -887,7 +888,7 @@ void ShotServer::onReadyRead()
             // (CLAUDE.md "Never run disk I/O on the main thread").
             const qint64 tempFileSize = pending.tempFile->pos();
             pending.tempFile->close();
-            qDebug() << "ShotServer: Upload complete, temp file:" << pending.tempFilePath
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Upload complete, temp file:" << pending.tempFilePath
                      << "size:" << tempFileSize << "bytes";
         }
 
@@ -949,13 +950,13 @@ void ShotServer::onReadyRead()
         }
 
     } catch (const std::exception& e) {
-        qWarning() << "ShotServer: Exception in onReadyRead:" << e.what();
+        DIAG_WARN(NETWORK, "ShotServer") << "Exception in onReadyRead:" << e.what();
         m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
     } catch (...) {
-        qWarning() << "ShotServer: Unknown exception in onReadyRead";
+        DIAG_WARN(NETWORK, "ShotServer") << "Unknown exception in onReadyRead";
         m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
@@ -991,7 +992,7 @@ void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
     if (!m_pendingLibraryRequests.contains(reqId)) return;
     auto& req = m_pendingLibraryRequests[reqId];
     if (*req.fired) {
-        qDebug() << "ShotServer: Library request" << reqId << "already handled, ignoring duplicate callback";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Library request" << reqId << "already handled, ignoring duplicate callback";
         return;
     }
     invalidateLibraryRequest(req);
@@ -999,7 +1000,7 @@ void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
     if (req.socket && req.socket->state() == QAbstractSocket::ConnectedState) {
         sendJson(req.socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
     } else {
-        qDebug() << "ShotServer: Dropping response for library request" << reqId << "- socket disconnected";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Dropping response for library request" << reqId << "- socket disconnected";
     }
     m_pendingLibraryRequests.remove(reqId);
 }
@@ -1019,7 +1020,7 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         QString tmpPath = pending.tempFilePath;
         QThread* cleanup = QThread::create([tmpPath]() {
             if (QFile::remove(tmpPath))
-                qDebug() << "ShotServer: Cleaned up temp file:" << tmpPath;
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Cleaned up temp file:" << tmpPath;
         });
         connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
         cleanup->start();
@@ -1042,12 +1043,12 @@ void ShotServer::onCleanupTimerTick()
         if (fd == -1 && listening) {
             // The bug we're hunting — always log this when it happens, no
             // de-dup, so consecutive ticks paint a clear timeline.
-            qWarning() << "ShotServer: socketDescriptor() == -1 while isListening() == true — listen socket may have been invalidated by OS";
+            DIAG_WARN(NETWORK, "ShotServer") << "socketDescriptor() == -1 while isListening() == true — listen socket may have been invalidated by OS";
         } else if (fd != m_lastHealthFd || listening != m_lastHealthListening) {
             // Only log when state changes (incl. the first tick after startup).
             // Steady-state was burning ~120 lines/hr without surfacing any new
             // signal; a flip in either field is the actual breadcrumb.
-            qDebug() << "ShotServer: health check — isListening:" << listening << "socketDescriptor:" << fd;
+            DIAG_DEBUG(NETWORK, "ShotServer") << "health check — isListening:" << listening << "socketDescriptor:" << fd;
         }
         m_lastHealthFd = fd;
         m_lastHealthListening = listening;
@@ -1072,7 +1073,7 @@ void ShotServer::onCleanupTimerTick()
     for (QTcpSocket* socket : staleConnections) {
         QString addr = (socket->state() != QAbstractSocket::UnconnectedState)
             ? socket->peerAddress().toString() : "unknown";
-        qWarning() << "ShotServer: Cleaning up stale connection from" << addr;
+        DIAG_WARN(NETWORK, "ShotServer") << "Cleaning up stale connection from" << addr;
         retireSocket(socket);
     }
 
@@ -1112,7 +1113,7 @@ void ShotServer::onDiscoveryDatagram()
 
         // Check if this is a discovery request
         if (datagram.trimmed() == "DECENZA_DISCOVER") {
-            qDebug() << "ShotServer: Discovery request from" << senderAddress.toString() << ":" << senderPort;
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Discovery request from" << senderAddress.toString() << ":" << senderPort;
 
             // Build response with device info
             QString deviceName = QSysInfo::machineHostName();
@@ -1136,7 +1137,7 @@ void ShotServer::onDiscoveryDatagram()
 
             QByteArray responseData = QJsonDocument(response).toJson(QJsonDocument::Compact);
             m_discoverySocket->writeDatagram(responseData, senderAddress, senderPort);
-            qDebug() << "ShotServer: Sent discovery response to" << senderAddress.toString();
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Sent discovery response to" << senderAddress.toString();
         }
     }
 }
@@ -1179,7 +1180,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         const QString line = QStringLiteral("ShotServer: %1 %2").arg(method, path);
         LogCollapse::Collapsed collapsed;
         if (m_requestLog.shouldLog(line, line, QDateTime::currentMSecsSinceEpoch(), &collapsed))
-            qDebug().noquote() << line + m_requestLog.suffix(collapsed);
+            DIAG_DEBUG(NETWORK, "shotserver").noquote() << line + m_requestLog.suffix(collapsed);
     }
 
     // Auth middleware: when security is enabled, check session before routing
@@ -1758,7 +1759,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             QList<ShotRecord> shots;
             bool dbOpened = withTempDb(dbPath, "shs_web_cmp", [&](QSqlDatabase& db) {
                 for (qint64 id : ids) {
-                    ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, id);
+                    ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
                     if (r.summary.id > 0) shots.append(std::move(r));
                 }
             });
@@ -1793,7 +1794,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotRecord record;
             bool dbOpened = withTempDb(dbPath, "shs_web_prof", [&](QSqlDatabase& db) {
-                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
             });
 
             if (*destroyed) return;
@@ -1832,7 +1833,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotRecord record;
             bool dbOpened = withTempDb(dbPath, "shs_web_shot", [&](QSqlDatabase& db) {
-                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
             });
 
             QByteArray payload;
@@ -1873,7 +1874,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotProjection shot;
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
-                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                 shot = ShotHistoryStorage::convertShotRecord(record);
 
                 // Recipe identity for the detail page (history-recipe-identity).
@@ -1890,7 +1891,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     // error rather than exec()'s replacement for it.
                     if (!rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?")
                         || (rq.bindValue(0, shot.recipeId), !rq.exec())) {
-                        qWarning() << "ShotServer: recipe lookup failed for shot" << shotId
+                        DIAG_WARN(NETWORK, "ShotServer") << "recipe lookup failed for shot" << shotId
                                    << "-" << rq.lastError().text();
                     } else if (rq.next()) {
                         shot.recipeName = rq.value(0).toString();
@@ -1901,7 +1902,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                         // Every surface degrades to showing no recipe, which looks
                         // identical to a shot that never had one — leave a trace so
                         // a submitted log can tell the two apart.
-                        qWarning() << "ShotServer: shot" << shotId << "references recipe"
+                        DIAG_WARN(NETWORK, "ShotServer") << "shot" << shotId << "references recipe"
                                    << shot.recipeId << "which no longer exists";
                     }
                 }
@@ -2014,7 +2015,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotProjection shot;
             bool dbOpened = withTempDb(dbPath, "shs_web_get", [&](QSqlDatabase& db) {
-                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                 shot = ShotHistoryStorage::convertShotRecord(record);
             });
 
@@ -2059,7 +2060,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             bool dbOpened = withTempDb(dbPath, "shs_web_del", [&](QSqlDatabase& db) {
                 QSqlQuery query(db);
                 if (!query.prepare("DELETE FROM shots WHERE id = ?")) {
-                    qWarning() << "ShotServer: Batch delete prepare failed:" << query.lastError().text();
+                    DIAG_WARN(NETWORK, "ShotServer") << "Batch delete prepare failed:" << query.lastError().text();
                     return;
                 }
                 for (qint64 id : shotIds) {
@@ -2070,7 +2071,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                             deletedIds << id;
                         }
                     } else {
-                        qWarning() << "ShotServer: Failed to delete shot" << id << ":" << query.lastError().text();
+                        DIAG_WARN(NETWORK, "ShotServer") << "Failed to delete shot" << id << ":" << query.lastError().text();
                     }
                 }
             });
@@ -2104,7 +2105,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             withTempDb(dbPath, "shs_web_db", [&](QSqlDatabase& db) {
                 QSqlQuery walQuery(db);
                 if (!walQuery.exec("PRAGMA wal_checkpoint(FULL)")) {
-                    qWarning() << "ShotServer: WAL checkpoint failed:" << walQuery.lastError().text();
+                    DIAG_WARN(NETWORK, "ShotServer") << "WAL checkpoint failed:" << walQuery.lastError().text();
                 } else {
                     checkpointOk = true;
                 }
@@ -2116,7 +2117,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 if (dbFile.open(QIODevice::ReadOnly)) {
                     fileData = dbFile.readAll();
                 } else {
-                    qWarning() << "ShotServer: Failed to read DB file for download:" << dbPath << dbFile.errorString();
+                    DIAG_WARN(NETWORK, "ShotServer") << "Failed to read DB file for download:" << dbPath << dbFile.errorString();
                 }
             }
 
@@ -2338,7 +2339,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 200, "application/zip", zipBuffer.data(),
                          "Content-Disposition: attachment; filename=\"debug.zip\"\r\n");
         } else {
-            qWarning() << "ShotServer: QZipWriter failed to create debug ZIP";
+            DIAG_WARN(NETWORK, "ShotServer") << "QZipWriter failed to create debug ZIP";
             sendResponse(socket, 500, "text/plain", "Failed to create ZIP file");
         }
     }
@@ -2363,14 +2364,14 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/power/wake") {
         if (m_device) {
             m_device->wakeUp();
-            qDebug() << "ShotServer: Wake command sent via web";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Wake command sent via web";
         }
         sendJson(socket, R"({"success":true,"action":"wake"})");
     }
     else if (path == "/api/power/sleep") {
         if (m_device) {
             m_device->goToSleep();
-            qDebug() << "ShotServer: Sleep command sent via web";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via web";
         }
         emit sleepRequested();
         sendJson(socket, R"({"success":true,"action":"sleep"})");
@@ -2434,13 +2435,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             if (command == "wake") {
                 if (m_device) {
                     m_device->wakeUp();
-                    qDebug() << "ShotServer: Wake command sent via /api/command";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Wake command sent via /api/command";
                 }
                 sendJson(socket, R"({"success":true,"command":"wake"})");
             } else if (command == "sleep") {
                 if (m_device) {
                     m_device->goToSleep();
-                    qDebug() << "ShotServer: Sleep command sent via /api/command";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via /api/command";
                 }
                 emit sleepRequested();
                 sendJson(socket, R"({"success":true,"command":"sleep"})");
@@ -2486,7 +2487,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             QString headers = QString::fromUtf8(request.left(headerEndPos));
             QByteArray body = request.mid(headerEndPos + 4);
 
-            qDebug() << "ShotServer: Small media upload - request size:" << request.size()
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Small media upload - request size:" << request.size()
                      << "headerEnd:" << headerEndPos << "body size:" << body.size();
 
             // Save to temp file on a background thread (CLAUDE.md prohibits
@@ -2604,10 +2605,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 if (f.open(QIODevice::ReadOnly)) {
                     fileData = f.readAll();
                 } else {
-                    qWarning() << "ShotServer: Failed to read backup file:" << f.errorString();
+                    DIAG_WARN(NETWORK, "ShotServer") << "Failed to read backup file:" << f.errorString();
                 }
             } else {
-                qWarning() << "ShotServer: createBackupStatic failed for" << dbPath << "->" << tempPath;
+                DIAG_WARN(NETWORK, "ShotServer") << "createBackupStatic failed for" << dbPath << "->" << tempPath;
             }
             if (QFile::exists(tempPath))
                 QFile::remove(tempPath);
@@ -2960,7 +2961,7 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
 
     if (!socket) return;
     if (socket->write(headers) == -1) {
-        qWarning() << "ShotServer::sendFile: Failed to write headers -" << socket->errorString();
+        DIAG_WARN(NETWORK, "ShotServer") << "sendFile: Failed to write headers -" << socket->errorString();
         if (socket) socket->abort();
         return;
     }
@@ -2971,13 +2972,13 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
     while (!file.atEnd()) {
         QByteArray chunk = file.read(chunkSize);
         if (chunk.isEmpty() && !file.atEnd()) {
-            qWarning() << "ShotServer::sendFile: File read error -" << file.errorString();
+            DIAG_WARN(NETWORK, "ShotServer") << "sendFile: File read error -" << file.errorString();
             success = false;
             break;
         }
         if (!socket) return;
         if (socket->write(chunk) == -1) {
-            qWarning() << "ShotServer::sendFile: Socket write failed -" << socket->errorString();
+            DIAG_WARN(NETWORK, "ShotServer") << "sendFile: Socket write failed -" << socket->errorString();
             success = false;
             break;
         }
@@ -2985,7 +2986,7 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
         if (!socket->waitForBytesWritten(5000)) {
             // Either a write timeout OR the socket was destroyed by a
             // deleteLater fired from the nested event loop above.
-            if (socket) qWarning() << "ShotServer::sendFile: Write timed out";
+            if (socket) DIAG_WARN(NETWORK, "ShotServer") << "sendFile: Write timed out";
             success = false;
             break;
         }
@@ -3048,22 +3049,22 @@ bool ShotServer::setupTls()
             m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
             if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
                 if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
-                    qDebug() << "ShotServer: TLS certificate expired, regenerating";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate expired, regenerating";
                 } else if (m_sslCert.subjectAlternativeNames().isEmpty()) {
-                    qDebug() << "ShotServer: TLS certificate missing SANs (required by browsers), regenerating";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate missing SANs (required by browsers), regenerating";
                 } else {
-                    qDebug() << "ShotServer: Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
                     return true;
                 }
             } else {
-                qDebug() << "ShotServer: Existing cert/key invalid or wrong type, regenerating";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Existing cert/key invalid or wrong type, regenerating";
             }
         }
     }
 
     // Generate new self-signed certificate
     if (!generateSelfSignedCert(certPath, keyPath)) {
-        qWarning() << "ShotServer: Failed to generate self-signed certificate";
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to generate self-signed certificate";
         return false;
     }
 
@@ -3071,7 +3072,7 @@ bool ShotServer::setupTls()
     QFile certFile(certPath);
     QFile keyFile(keyPath);
     if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "ShotServer: Failed to read generated certificate files";
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to read generated certificate files";
         return false;
     }
 
@@ -3079,11 +3080,11 @@ bool ShotServer::setupTls()
     m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
 
     if (m_sslCert.isNull() || m_sslKey.isNull()) {
-        qWarning() << "ShotServer: Generated certificate or key is invalid";
+        DIAG_WARN(NETWORK, "ShotServer") << "Generated certificate or key is invalid";
         return false;
     }
 
-    qDebug() << "ShotServer: Generated new TLS certificate, expires" << m_sslCert.expiryDate().toString();
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Generated new TLS certificate, expires" << m_sslCert.expiryDate().toString();
     return true;
 }
 
@@ -3213,7 +3214,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     SecKeyRef privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)keyAttrs, &error);
     if (!privateKey) {
         if (error) {
-            qWarning() << "ShotServer: SecKeyCreateRandomKey failed:" << CFBridgingRelease(error);
+            DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateRandomKey failed:" << CFBridgingRelease(error);
         }
         return false;
     }
@@ -3221,7 +3222,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
     if (!publicKey) {
         CFRelease(privateKey);
-        qWarning() << "ShotServer: Failed to extract public key";
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to extract public key";
         return false;
     }
 
@@ -3230,7 +3231,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFRelease(publicKey);
     if (!pubKeyData) {
         CFRelease(privateKey);
-        qWarning() << "ShotServer: Failed to export public key:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export public key:" << CFBridgingRelease(error);
         return false;
     }
     QByteArray pubKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(pubKeyData)),
@@ -3241,7 +3242,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFDataRef privKeyData = SecKeyCopyExternalRepresentation(privateKey, &error);
     if (!privKeyData) {
         CFRelease(privateKey);
-        qWarning() << "ShotServer: Failed to export private key:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export private key:" << CFBridgingRelease(error);
         return false;
     }
     QByteArray privKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(privKeyData)),
@@ -3270,7 +3271,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     if (SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
                            reinterpret_cast<uint8_t*>(serialBytes.data())) != errSecSuccess) {
         CFRelease(privateKey);
-        qWarning() << "ShotServer: could not draw random bytes for the certificate serial number";
+        DIAG_WARN(NETWORK, "ShotServer") << "could not draw random bytes for the certificate serial number";
         return false;
     }
     // Ensure positive
@@ -3315,7 +3316,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFRelease(privateKey);
 
     if (!signature) {
-        qWarning() << "ShotServer: SecKeyCreateSignature failed:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateSignature failed:" << CFBridgingRelease(error);
         return false;
     }
 
@@ -3355,7 +3356,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     const bool certWritten = certFile.write(certPem) == certPem.size();
     certFile.close();
     if (!certWritten || certFile.error() != QFileDevice::NoError) {
-        qWarning() << "ShotServer: could not write the certificate to" << certPath
+        DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath
                    << "-" << certFile.errorString();
         return false;
     }
@@ -3365,7 +3366,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     const bool keyWritten = keyFile.write(keyPem) == keyPem.size();
     keyFile.close();
     if (!keyWritten || keyFile.error() != QFileDevice::NoError) {
-        qWarning() << "ShotServer: could not write the private key to" << keyPath
+        DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath
                    << "-" << keyFile.errorString();
         return false;
     }
@@ -3374,7 +3375,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     // to serve over a permissions quirk would be a worse outcome than saying so. On iOS the app
     // sandbox already isolates this file; the warning matters on a shared desktop account.
     if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
-        qWarning() << "ShotServer: could not restrict permissions on the private key" << keyPath
+        DIAG_WARN(NETWORK, "ShotServer") << "could not restrict permissions on the private key" << keyPath
                    << "- it may be readable by other users of this machine";
     }
     return true;
@@ -3473,7 +3474,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         const bool certWritten = PEM_write_X509(certFile, x509) == 1;
         const bool certClosed = fclose(certFile) == 0;
         if (!certWritten || !certClosed) {
-            qWarning() << "ShotServer: could not write the certificate to" << certPath;
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath;
             break;
         }
 
@@ -3484,7 +3485,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
             PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1;
         const bool keyClosed = fclose(keyFile) == 0;
         if (!keyWritten || !keyClosed) {
-            qWarning() << "ShotServer: could not write the private key to" << keyPath;
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath;
             break;
         }
 
@@ -3492,7 +3493,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // reason given on the iOS branch: the key works, it is just less protected, and this
         // matters most on a shared desktop account.
         if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
-            qWarning() << "ShotServer: could not restrict permissions on the private key" << keyPath
+            DIAG_WARN(NETWORK, "ShotServer") << "could not restrict permissions on the private key" << keyPath
                        << "- it may be readable by other users of this machine";
         }
 
@@ -3595,7 +3596,7 @@ void ShotServer::handlePocketPair(QTcpSocket* socket, const QByteArray& body)
     result["deviceName"] = QSysInfo::machineHostName();
     sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
 
-    qDebug() << "ShotServer: Pocket app paired successfully";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Pocket app paired successfully";
 }
 
 void ShotServer::handlePocketStatus(QTcpSocket* socket)

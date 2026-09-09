@@ -425,7 +425,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_detail", [&](QSqlDatabase& db) {
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                     ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                     if (shot.isValid()) {
                         result = shot.toJsonObject();
@@ -509,7 +509,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 if (!withTempDb(dbPath, "mcp_compare", [&](QSqlDatabase& db) {
                     for (const auto& idVal : idArray) {
                         qint64 shotId = idVal.toInteger();
-                        ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                        ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                         ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                         if (!shot.isValid()) {
                             // Dropped IDs used to vanish: the caller got a shorter

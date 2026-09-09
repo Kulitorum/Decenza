@@ -488,7 +488,7 @@ Item {
                 target: MainController.shotHistory
                 function onImportDatabaseFinished(success) {
                     if (success) {
-                        console.log("Database import successful")
+                        WebDebugLogger.debug("Storage", "SettingsDebugTab", ["Database import successful"].map(String).join(" "))
                         importResultDialog.title = TranslationManager.translate("settings.debug.importOk", "Import Successful")
                         importResultDialog.resultMessage = TranslationManager.translate("settings.debug.importOkDetail", "Database imported successfully.\nTotal shots: %1").arg(MainController.shotHistory.totalShots)
                         importResultDialog.isError = false

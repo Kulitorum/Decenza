@@ -1,4 +1,5 @@
 #pragma once
+#include "operationlog.h"
 
 #include <QObject>
 #include <QString>
@@ -226,7 +227,8 @@ public:
     Q_INVOKABLE void testConnection();
 
     // Generic analysis - sends system prompt and user prompt to current provider
-    Q_INVOKABLE void analyze(const QString& systemPrompt, const QString& userPrompt);
+    Q_INVOKABLE void analyze(const QString& systemPrompt, const QString& userPrompt, qint64 shotId = 0,
+                             const QString& operationId = {});
 
     // Extract structured coffee-bag details from a roaster product page's
     // plain text (add-bag-detail-editing "Get info"). Same provider plumbing
@@ -242,7 +244,8 @@ public:
     // plus structured brewing fields (brewTempC normalized to Celsius,
     // leafGramsPer100Ml normalized from per-cup wordings, steepTime).
     Q_INVOKABLE void extractCoffeeBagDetails(const QString& requestToken, const QString& pageText,
-                                             const QString& kind = QStringLiteral("coffee"));
+                                             const QString& kind = QStringLiteral("coffee"),
+                                             const QString& operationId = QString());
     // Stage-2 extraction fallback: the local page fetch got nothing (a
     // JS-rendered shop), so the provider fetches the URL itself via its
     // server-side web tool (Anthropic web_fetch, OpenAI Responses web_search,
@@ -252,7 +255,8 @@ public:
     // supportsUrlExtraction().
     Q_INVOKABLE bool supportsUrlExtraction() const;
     Q_INVOKABLE void extractCoffeeBagDetailsFromUrl(const QString& requestToken, const QString& url,
-                                                    const QString& kind = QStringLiteral("coffee"));
+                                                    const QString& kind = QStringLiteral("coffee"),
+                                                    const QString& operationId = QString());
     // Response JSON -> whitelisted blob-vocabulary fields (coffee: origin,
     // region, farm, producer, variety, elevation, process, harvest,
     // roastLevel, tastingNotes; tea adds teaType, garden, cultivar, flush,
@@ -269,8 +273,10 @@ public:
     // its own web tool. Completes via productPageFound / -Failed. The result
     // is a suggestion the caller must have confirmed before storing — see the
     // bag-detail-editing spec.
-    Q_INVOKABLE void findProductPage(const QString& requestToken, const QString& roaster,
-                                     const QString& coffee, const QString& kind);
+    // Diagnostic abandonment only; never cancels or reschedules provider work.
+    Q_INVOKABLE void abandonDiagnosticOperation(const QString& id);
+    Q_INVOKABLE QString findProductPage(const QString& requestToken, const QString& roaster,
+                                     const QString& coffee, const QString& kind, qint64 bagId = 0);
     // Whether the SELECTED provider can search the web (Anthropic, OpenAI and
     // Gemini all can, each with its own tool). Distinct from
     // supportsUrlExtraction(), which is about fetching a URL already known.
@@ -283,7 +289,7 @@ public:
     static QString parseProductPageUrl(const QString& response);
 
     // Multi-turn conversation - sends system prompt and full message array to current provider
-    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages, qint64 shotId = 0);
 
     // Extract the trailing fenced ```json block from an assistant message.
     // The shot-analysis system prompt asks the model to append a `nextShot`
@@ -427,9 +433,15 @@ private:
     AIProvider* currentProvider() const;
 
     // Logging
+    AIOperationLog::Ptr requestDiagnostic(const QString& operationId, const QString& kind,
+                                         bool bag, qint64 shotId = 0);
+    void dispatchDiagnostic(const AIOperationLog::Ptr& operation, AIProvider* provider,
+                            const QString& stage);
+    AIOperationLog::Ptr m_logOperation;
     QString logPath() const;
     void logPrompt(const QString& provider, const QString& systemPrompt, const QString& userPrompt);
-    void logResponse(const QString& provider, const QString& response, bool success);
+    void logResponse(const QString& provider, const QString& response, bool success,
+                     const AIOperationLog::Ptr& operation = {});
 
     Settings* m_settings = nullptr;
     QNetworkAccessManager* m_networkManager = nullptr;

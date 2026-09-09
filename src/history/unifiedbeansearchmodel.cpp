@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "unifiedbeansearchmodel.h"
 #include "coffeebagstorage.h"
 #include "network/beanbaseclient.h"
@@ -254,7 +255,7 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
     query.bindValue(":kind", kind);
     query.bindValue(":limit", limit);
     if (!query.exec()) {
-        qWarning() << "UnifiedBeanSearchModel: history query failed:" << query.lastError().text();
+        DIAG_WARN(BEANBASE, "UnifiedBeanSearchModel") << "history query failed:" << query.lastError().text();
         return rows;
     }
 

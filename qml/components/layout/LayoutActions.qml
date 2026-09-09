@@ -27,7 +27,7 @@ QtObject {
     // widgets dispatch through here too, the prefix names the SUBSYSTEM rather
     // than one widget.
     function _warn(msg) {
-        console.warn("LayoutActions: " + msg)
+        WebDebugLogger.warn("App", "LayoutActions", ["" + msg].map(String).join(" "))
     }
 
     // --- Context-filtered Shot History filters (custom-widget-history-actions).

@@ -1,4 +1,5 @@
 #pragma once
+#include "operationlog.h"
 
 #include <QObject>
 #include <QString>
@@ -72,6 +73,7 @@ public:
     QString costHint() const { return costHintFor(modelName()); }
 
     Status status() const { return m_status; }
+    void setDiagnosticOperation(const AIOperationLog::Ptr& operation) { m_logOperation = operation; }
 
     // Main analysis method
     virtual void analyze(const QString& systemPrompt, const QString& userPrompt) = 0;
@@ -118,6 +120,27 @@ signals:
     void testResult(bool success, const QString& message);
 
 protected:
+    QString diagnosticOwner() const {
+        const auto op = m_logOperation.lock();
+        return op ? op->owner() : QString::fromLatin1(DECENZA_LOG_MARKER_AI);
+    }
+    QString diagnosticFields() const {
+        const auto op = m_logOperation.lock();
+        return op ? op->fields() : QString();
+    }
+    QString diagnosticModel() const {
+        const auto op = m_logOperation.lock();
+        return op ? op->model : AIOperationLog::field(modelName());
+    }
+    static QString diagnosticCode(const QString& value) {
+        static const QStringList known{
+            "completed", "incomplete", "failed", "cancelled", "max_output_tokens",
+            "stop", "length", "content_filter", "error", "end_turn", "max_tokens",
+            "stop_sequence", "tool_use", "pause_turn", "refusal", "STOP", "MAX_TOKENS",
+            "SAFETY", "RECITATION", "OTHER", "BLOCKLIST", "PROHIBITED_CONTENT", "IMAGE_SAFETY"};
+        return known.contains(value) ? value : QStringLiteral("other-or-unspecified");
+    }
+    std::weak_ptr<AIOperationLog> m_logOperation;
     void setStatus(Status status);
 
     // Map Qt network errors to user-friendly messages (localized via tr_).
@@ -166,20 +189,13 @@ protected:
     bool dispatchTruncatedOrEmpty(const QString& text, bool truncated,
                                   const QString& emptyMessage);
 
-    // Bound an untrusted provider error body before it reaches the log.
-    //
-    // These logs get attached to public GitHub issues, and a provider's 4xx
-    // body echoes fragments of the request back: Anthropic quotes the offending
-    // field and its value, OpenAI's moderation errors quote the flagged prompt
-    // text. Our prompts carry the user's shot history, bean names and tasting
-    // notes (AIManager::sanitizeApiMessages). Log the machine-readable type and
-    // a bounded prefix, never the whole body.
+    // Error bodies can echo prompts and secrets in any field. Log only shape
+    // and byte count; numeric HTTP/network status is carried by the operation.
     static QString logSafeErrorBody(const QByteArray& body);
 
     static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
     static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
     static constexpr int MAX_RETRIES = 3;                // max retries for 429/502/503/504
-    static constexpr int LOG_BODY_LIMIT = 200;           // chars of a provider error body we log
 
     // Output cap for every analysis request, on every provider.
     //

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "core/firmwareassetcache.h"
 
 #include <limits>
@@ -321,7 +322,7 @@ void FirmwareAssetCache::loadMetaFromDisk() {
     if (parsed) {
         m_meta = *parsed;
     } else {
-        qCWarning(firmwareLog) << "Malformed sidecar meta at" << metaPath()
+        DIAG_CWARN(DE1, "Firmware", firmwareLog) << "Malformed sidecar meta at" << metaPath()
                                << "- ignoring";
     }
 }
@@ -331,7 +332,7 @@ void FirmwareAssetCache::saveMetaToDisk() {
     ensureCacheDir();
     QSaveFile f(metaPath());
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        qCWarning(firmwareLog) << "Cannot write sidecar meta:" << f.errorString();
+        DIAG_CWARN(DE1, "Firmware", firmwareLog) << "Cannot write sidecar meta:" << f.errorString();
         return;
     }
     f.write(serializeMeta(m_meta));

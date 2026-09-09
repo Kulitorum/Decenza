@@ -181,6 +181,7 @@ private:
     QTimer* m_periodicTimer = nullptr;
 
     bool m_checking = false;
+    bool m_checkFailureLogged = false; // Diagnostic recovery state; never controls checking.
     bool m_downloading = false;
     int m_downloadProgress = 0;
     bool m_updateAvailable = false;

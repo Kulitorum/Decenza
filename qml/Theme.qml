@@ -107,10 +107,10 @@ QtObject {
             // warning ever fires, the thing to check is qml_register_types_Decenza().
             if (!_warnedNoEmojiAssets) {
                 _warnedNoEmojiAssets = true
-                console.warn("[Font] EmojiAssets unresolvable — every emoji in this QML engine "
+                WebDebugLogger.warn("Font", "Theme", ["EmojiAssets unresolvable — every emoji in this QML engine "
                            + "will be stripped. The type is registered by "
                            + "qml_register_types_Decenza() in main.cpp, NOT by the qmldir, so "
-                           + "check that call rather than the import.")
+                           + "check that call rather than the import."].map(String).join(" "))
             }
             return ""
         }
@@ -548,10 +548,10 @@ QtObject {
     function _derivedOr(key: string, fallback: var): var {
         var derived = Settings.theme.derivedBackgroundColors
         if (derived[key] === undefined) {
-            console.warn("Theme: derivedBackgroundColors." + key + " unexpectedly undefined"
+            WebDebugLogger.warn("Theme", "Theme", ["derivedBackgroundColors." + key + " unexpectedly undefined"
                 + " (hasBackgroundPreset=" + hasBackgroundPreset
                 + " backgroundPreset=\"" + Settings.theme.backgroundPreset + "\""
-                + " derivedKeys=" + Object.keys(derived).length + ") — using fallback")
+                + " derivedKeys=" + Object.keys(derived).length + ") — using fallback"].map(String).join(" "))
             return fallback
         }
         return derived[key]

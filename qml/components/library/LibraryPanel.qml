@@ -547,7 +547,7 @@ Rectangle {
                 }
                 onDoubleClicked: {
                     // TODO: Open apply dialog (zone picker for items/zones)
-                    console.log("Apply entry:", entryCard.modelData.id)
+                    WebDebugLogger.debug("App", "LibraryPanel", ["Apply entry:", entryCard.modelData.id].map(String).join(" "))
                 }
             }
 

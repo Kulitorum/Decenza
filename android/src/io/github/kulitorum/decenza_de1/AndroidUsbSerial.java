@@ -112,7 +112,7 @@ public class AndroidUsbSerial {
                 new Intent(PERMISSION_ACTION).setPackage(context.getPackageName()),
                 PendingIntent.FLAG_IMMUTABLE);
         manager.requestPermission(device, pi);
-        Log.d(TAG, "Requested USB permission for device " + device.getDeviceName());
+        DiagnosticLog.d("DE1", TAG, "Requested USB permission for device " + device.getDeviceName());
     }
 
     /**
@@ -129,7 +129,7 @@ public class AndroidUsbSerial {
             if (serial == null) serial = "";
         } catch (SecurityException e) {
             // getSerialNumber() may throw on some Android versions without permission
-            Log.w(TAG, "Cannot read serial number: " + e.getMessage());
+            DiagnosticLog.w("DE1", TAG, "Cannot read serial number: " + e.getMessage());
         }
 
         return device.getVendorId() + ":" + device.getProductId() + ":" + serial;
@@ -163,7 +163,7 @@ public class AndroidUsbSerial {
             return false;
         }
 
-        Log.d(TAG, "Opening USB device: VID=" + String.format("0x%04X", device.getVendorId())
+        DiagnosticLog.d("DE1", TAG, "Opening USB device: VID=" + String.format("0x%04X", device.getVendorId())
                 + " PID=" + String.format("0x%04X", device.getProductId())
                 + " interfaces=" + device.getInterfaceCount());
 
@@ -177,7 +177,7 @@ public class AndroidUsbSerial {
 
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface iface = device.getInterface(i);
-            Log.d(TAG, "  Interface " + i + ": class=" + iface.getInterfaceClass()
+            DiagnosticLog.d("DE1", TAG, "  Interface " + i + ": class=" + iface.getInterfaceClass()
                     + " subclass=" + iface.getInterfaceSubclass()
                     + " protocol=" + iface.getInterfaceProtocol()
                     + " endpoints=" + iface.getEndpointCount());
@@ -192,12 +192,12 @@ public class AndroidUsbSerial {
         // Fallback: if no CDC-ACM interfaces found, look for any interface with bulk endpoints
         // (handles vendor-specific class codes)
         if (dataIface == null) {
-            Log.d(TAG, "No CDC-ACM data interface found, trying fallback (vendor-specific)");
+            DiagnosticLog.d("DE1", TAG, "No CDC-ACM data interface found, trying fallback (vendor-specific)");
             for (int i = 0; i < device.getInterfaceCount(); i++) {
                 UsbInterface iface = device.getInterface(i);
                 if (hasBulkEndpoints(iface)) {
                     dataIface = iface;
-                    Log.d(TAG, "  Using interface " + i + " (class=" + iface.getInterfaceClass()
+                    DiagnosticLog.d("DE1", TAG, "  Using interface " + i + " (class=" + iface.getInterfaceClass()
                             + ") as data interface (has bulk endpoints)");
                     break;
                 }
@@ -228,8 +228,8 @@ public class AndroidUsbSerial {
             return false;
         }
 
-        Log.d(TAG, "Bulk IN: ep=" + epIn.getAddress() + " maxPacket=" + epIn.getMaxPacketSize());
-        Log.d(TAG, "Bulk OUT: ep=" + epOut.getAddress() + " maxPacket=" + epOut.getMaxPacketSize());
+        DiagnosticLog.d("DE1", TAG, "Bulk IN: ep=" + epIn.getAddress() + " maxPacket=" + epIn.getMaxPacketSize());
+        DiagnosticLog.d("DE1", TAG, "Bulk OUT: ep=" + epOut.getAddress() + " maxPacket=" + epOut.getMaxPacketSize());
 
         // Open the device
         UsbDeviceConnection conn = manager.openDevice(device);
@@ -241,7 +241,7 @@ public class AndroidUsbSerial {
         // Claim interfaces
         if (controlIface != null) {
             if (!conn.claimInterface(controlIface, true)) {
-                Log.w(TAG, "Failed to claim control interface (non-fatal)");
+                DiagnosticLog.w("DE1", TAG, "Failed to claim control interface (non-fatal)");
             }
         }
         if (!conn.claimInterface(dataIface, true)) {
@@ -268,7 +268,7 @@ public class AndroidUsbSerial {
                 SET_LINE_CODING,
                 0, ctrlIfaceId,
                 lineCoding, 7, 1000);
-        Log.d(TAG, "SET_LINE_CODING result: " + result);
+        DiagnosticLog.d("DE1", TAG, "SET_LINE_CODING result: " + result);
 
         // SET_CONTROL_LINE_STATE: DTR=0, RTS=0 (DE1 requires both off)
         result = conn.controlTransfer(
@@ -277,7 +277,7 @@ public class AndroidUsbSerial {
                 0x0000,  // wValue: bit 0 = DTR, bit 1 = RTS — both off
                 ctrlIfaceId,
                 null, 0, 1000);
-        Log.d(TAG, "SET_CONTROL_LINE_STATE result: " + result);
+        DiagnosticLog.d("DE1", TAG, "SET_CONTROL_LINE_STATE result: " + result);
 
         // Store connection state
         sConnection = conn;
@@ -293,7 +293,7 @@ public class AndroidUsbSerial {
         // Start background read thread
         sReading = true;
         sReadThread = new Thread(() -> {
-            Log.d(TAG, "Read thread started");
+            DiagnosticLog.d("DE1", TAG, "Read thread started");
             byte[] buf = new byte[1024];
             int consecutiveErrors = 0;
 
@@ -311,7 +311,7 @@ public class AndroidUsbSerial {
                         if (consecutiveErrors > 50) {
                             // 50 consecutive errors * 100ms timeout = ~5 seconds of no data
                             // Likely device disconnected
-                            Log.w(TAG, "Read thread: too many consecutive errors, assuming disconnect");
+                            DiagnosticLog.w("DE1", TAG, "Read thread: too many consecutive errors, assuming disconnect");
                             sDisconnected = true;
                             break;
                         }
@@ -320,18 +320,18 @@ public class AndroidUsbSerial {
                         consecutiveErrors = 0;
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Read thread exception: " + e.getMessage());
+                    DiagnosticLog.e("DE1", TAG, "Read thread exception: " + e.getMessage());
                     sDisconnected = true;
                     break;
                 }
             }
-            Log.d(TAG, "Read thread stopped (disconnected=" + sDisconnected + ")");
+            DiagnosticLog.d("DE1", TAG, "Read thread stopped (disconnected=" + sDisconnected + ")");
         }, "USB-Serial-Read");
         sReadThread.setDaemon(true);
         sReadThread.start();
 
         sLastError = "";
-        Log.d(TAG, "USB serial opened successfully");
+        DiagnosticLog.d("DE1", TAG, "USB serial opened successfully");
         return true;
     }
 
@@ -345,7 +345,7 @@ public class AndroidUsbSerial {
         try {
             return sConnection.bulkTransfer(sEndpointOut, data, data.length, 1000);
         } catch (Exception e) {
-            Log.e(TAG, "Write error: " + e.getMessage());
+            DiagnosticLog.e("DE1", TAG, "Write error: " + e.getMessage());
             return -1;
         }
     }
@@ -368,7 +368,7 @@ public class AndroidUsbSerial {
      * Close the USB connection and stop the read thread.
      */
     public static void close() {
-        Log.d(TAG, "Closing USB serial connection");
+        DiagnosticLog.d("DE1", TAG, "Closing USB serial connection");
         sReading = false;
 
         if (sReadThread != null) {
@@ -383,7 +383,7 @@ public class AndroidUsbSerial {
             try {
                 sConnection.close();
             } catch (Exception e) {
-                Log.w(TAG, "Error closing connection: " + e.getMessage());
+                DiagnosticLog.w("DE1", TAG, "Error closing connection: " + e.getMessage());
             }
             sConnection = null;
         }
@@ -396,7 +396,7 @@ public class AndroidUsbSerial {
             sReadBuffer.reset();
         }
 
-        Log.d(TAG, "USB serial closed");
+        DiagnosticLog.d("DE1", TAG, "USB serial closed");
     }
 
     /**

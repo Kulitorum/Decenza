@@ -639,9 +639,12 @@ void DiFluidR2::processFrame(const QByteArray& packet) {
             }
             uint8_t errClass = static_cast<uint8_t>(packet[5]);
             uint8_t errCode = static_cast<uint8_t>(packet[6]);
-            R2_WARN(QString("R2 error: %1 (class=%2 code=%3)")
-                        .arg(r2ErrorDescription(errClass, errCode))
-                        .arg(errClass).arg(errCode));
+            const QString statusMessage = QString("%1 (class=%2 code=%3)")
+                .arg(r2ErrorDescription(errClass, errCode)).arg(errClass).arg(errCode);
+            if (errClass == 0)
+                R2_LOG(statusMessage);
+            else
+                R2_WARN(statusMessage);
             // Surface ONLY the user-actionable measurement failures. Class-2 are
             // the measurement errors; other class/code combos (notably 0/2) are
             // benign device status the R2 also emits around a SUCCESSFUL read, so

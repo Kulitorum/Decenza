@@ -42,6 +42,13 @@ public:
     // undefined`), not the name.
     static WebDebugLogger* create(QQmlEngine* = nullptr, QJSEngine* = nullptr);
 
+    // Bare registered subsystem identifier and emitter name, never inline markers.
+    // QML calls are checked against core/logtags.h by check_log_markers.py.
+    Q_INVOKABLE void debug(const QString& subsystem, const QString& emitter, const QString& message);
+    Q_INVOKABLE void info(const QString& subsystem, const QString& emitter, const QString& message);
+    Q_INVOKABLE void warn(const QString& subsystem, const QString& emitter, const QString& message);
+    Q_INVOKABLE void error(const QString& subsystem, const QString& emitter, const QString& message);
+
     // Public because the testing constructor above lets a test own one by value.
     // Clears s_instance so the installed message handler cannot dereference a
     // destroyed logger — see the comment on create().
@@ -193,7 +200,8 @@ public:
 private:
     explicit WebDebugLogger(QObject* parent = nullptr);
 
-    void handleMessage(QtMsgType type, const QString& message);
+    void handleMessage(QtMsgType type, const QString& message,
+                       const QMessageLogContext& context = QMessageLogContext());
     void writeToFile(const QString& line);
     void trimLogFile();
 

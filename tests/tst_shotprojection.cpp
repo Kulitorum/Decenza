@@ -97,7 +97,7 @@ void TstShotProjection::coerce_emptyVariant_yieldsInvalidProjection()
 {
     // coerce() logs a diagnostic on empty/non-map input — assert it fires.
     QTest::ignoreMessage(QtWarningMsg,
-        QRegularExpression("ShotProjection::coerce: empty/non-map arg.*"));
+        QRegularExpression("coerce: empty/non-map arg.*"));
     const ShotProjection result = ShotProjection::coerce(QVariant());
     QVERIFY(!result.isValid());
     QCOMPARE(result.id, qint64(0));
@@ -106,7 +106,7 @@ void TstShotProjection::coerce_emptyVariant_yieldsInvalidProjection()
 void TstShotProjection::coerce_nonMapScalar_yieldsInvalidProjection()
 {
     QTest::ignoreMessage(QtWarningMsg,
-        QRegularExpression("ShotProjection::coerce: empty/non-map arg.*"));
+        QRegularExpression("coerce: empty/non-map arg.*"));
     const ShotProjection result = ShotProjection::coerce(QVariant(QStringLiteral("not a shot")));
     QVERIFY(!result.isValid());
 }

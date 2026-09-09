@@ -175,7 +175,7 @@ T.Page {
         // NOT share — so compute per-call, never cache under the title key.
         if (profileJson && String(profileJson).length > 0) {
             try { return _numbersFromProfileObj(JSON.parse(profileJson)) } catch (e) {
-                console.warn("RecipesPage: unparsable embedded profile JSON for", title, ":", e)
+                WebDebugLogger.warn("Recipes", "RecipesPage", ["unparsable embedded profile JSON for", title, ":", e].map(String).join(" "))
             }
         }
         return null

@@ -46,7 +46,7 @@ public class DeviceShutdownService extends Service {
         if (bluetoothManager != null) {
             mBluetoothAdapter = bluetoothManager.getAdapter();
         }
-        Log.d(TAG, "DeviceShutdownService created");
+        DiagnosticLog.d("App", TAG, "DeviceShutdownService created");
     }
 
     @Override
@@ -62,7 +62,7 @@ public class DeviceShutdownService extends Service {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Log.d(TAG, "onTaskRemoved - app was swiped away, sending sleep commands");
+        DiagnosticLog.d("App", TAG, "onTaskRemoved - app was swiped away, sending sleep commands");
 
         // Get stored device addresses
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -71,7 +71,7 @@ public class DeviceShutdownService extends Service {
 
         // Send sleep command to DE1 if we have its address
         if (de1Address != null && !de1Address.isEmpty()) {
-            Log.d(TAG, "Sending sleep to DE1: " + de1Address);
+            DiagnosticLog.d("App", TAG, "Sending sleep to DE1: " + de1Address);
             sendDe1Sleep(de1Address);
         }
 
@@ -87,14 +87,14 @@ public class DeviceShutdownService extends Service {
     @SuppressWarnings("deprecation")
     private void sendDe1Sleep(String address) {
         if (mBluetoothAdapter == null) {
-            Log.e(TAG, "Bluetooth not available");
+            DiagnosticLog.e("App", TAG, "Bluetooth not available");
             return;
         }
 
         try {
             BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
             if (device == null) {
-                Log.e(TAG, "Device not found: " + address);
+                DiagnosticLog.e("App", TAG, "Device not found: " + address);
                 return;
             }
 
@@ -109,10 +109,10 @@ public class DeviceShutdownService extends Service {
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     mGatt = gatt;
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        Log.d(TAG, "Connected to DE1, discovering services");
+                        DiagnosticLog.d("App", TAG, "Connected to DE1, discovering services");
                         gatt.discoverServices();
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        Log.d(TAG, "Disconnected from DE1");
+                        DiagnosticLog.d("App", TAG, "Disconnected from DE1");
                         gatt.close();
                         latch.countDown();
                     }
@@ -121,7 +121,7 @@ public class DeviceShutdownService extends Service {
                 @Override
                 public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        Log.d(TAG, "Services discovered, sending sleep command");
+                        DiagnosticLog.d("App", TAG, "Services discovered, sending sleep command");
                         BluetoothGattService service = gatt.getService(DE1_SERVICE_UUID);
                         if (service != null) {
                             BluetoothGattCharacteristic characteristic =
@@ -138,17 +138,17 @@ public class DeviceShutdownService extends Service {
                                     characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
                                     writeResult = gatt.writeCharacteristic(characteristic);
                                 }
-                                Log.d(TAG, "Write initiated: " + writeResult);
+                                DiagnosticLog.d("App", TAG, "Write initiated: " + writeResult);
                             } else {
-                                Log.e(TAG, "RequestedState characteristic not found");
+                                DiagnosticLog.e("App", TAG, "RequestedState characteristic not found");
                                 gatt.disconnect();
                             }
                         } else {
-                            Log.e(TAG, "DE1 service not found");
+                            DiagnosticLog.e("App", TAG, "DE1 service not found");
                             gatt.disconnect();
                         }
                     } else {
-                        Log.e(TAG, "Service discovery failed: " + status);
+                        DiagnosticLog.e("App", TAG, "Service discovery failed: " + status);
                         gatt.disconnect();
                     }
                 }
@@ -158,10 +158,10 @@ public class DeviceShutdownService extends Service {
                                                   BluetoothGattCharacteristic characteristic,
                                                   int status) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        Log.d(TAG, "Sleep command written successfully");
+                        DiagnosticLog.d("App", TAG, "Sleep command written successfully");
                         success[0] = true;
                     } else {
-                        Log.e(TAG, "Failed to write sleep command: " + status);
+                        DiagnosticLog.e("App", TAG, "Failed to write sleep command: " + status);
                     }
                     gatt.disconnect();
                 }
@@ -173,35 +173,35 @@ public class DeviceShutdownService extends Service {
             // Wait up to 5 seconds for the operation to complete
             boolean completed = latch.await(5, TimeUnit.SECONDS);
             if (!completed) {
-                Log.w(TAG, "Timeout waiting for DE1 sleep command");
+                DiagnosticLog.w("App", TAG, "Timeout waiting for DE1 sleep command");
                 if (gatt != null) {
                     gatt.disconnect();
                     gatt.close();
                 }
             } else if (success[0]) {
-                Log.d(TAG, "DE1 sleep command completed successfully");
+                DiagnosticLog.d("App", TAG, "DE1 sleep command completed successfully");
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error sending sleep to DE1: " + e.getMessage(), e);
+            DiagnosticLog.e("App", TAG, "Error sending sleep to DE1: " + e.getMessage(), e);
         }
     }
 
     // Static methods to store device addresses (called from C++ via JNI)
     public static void setDe1Address(Context context, String address) {
-        Log.d(TAG, "Storing DE1 address: " + address);
+        DiagnosticLog.d("App", TAG, "Storing DE1 address: " + address);
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit().putString(KEY_DE1_ADDRESS, address).apply();
     }
 
     public static void clearDe1Address(Context context) {
-        Log.d(TAG, "Clearing DE1 address");
+        DiagnosticLog.d("App", TAG, "Clearing DE1 address");
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit().remove(KEY_DE1_ADDRESS).apply();
     }
 
     public static void setScaleAddress(Context context, String address, String scaleType) {
-        Log.d(TAG, "Storing scale address: " + address + " type: " + scaleType);
+        DiagnosticLog.d("App", TAG, "Storing scale address: " + address + " type: " + scaleType);
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit()
             .putString(KEY_SCALE_ADDRESS, address)
@@ -210,7 +210,7 @@ public class DeviceShutdownService extends Service {
     }
 
     public static void clearScaleAddress(Context context) {
-        Log.d(TAG, "Clearing scale address");
+        DiagnosticLog.d("App", TAG, "Clearing scale address");
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit()
             .remove(KEY_SCALE_ADDRESS)

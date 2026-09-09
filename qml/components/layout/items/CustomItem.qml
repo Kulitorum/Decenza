@@ -323,7 +323,7 @@ LayoutWidgetItem {
 
     // The malformed-HTML path below is the one diagnostic this file still owns.
     function _warn(msg) {
-        console.warn("CustomItem: " + msg)
+        WebDebugLogger.warn("App", "CustomItem", ["" + msg].map(String).join(" "))
     }
 
     // --- COMPACT MODE (bar rendering) ---

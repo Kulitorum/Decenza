@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "network/screencaptureservice.h"
 
 #include <QQuickWindow>
@@ -29,12 +30,12 @@ ScreenCaptureService::ScreenCaptureService(QQuickWindow* window, QWebSocket* soc
     QMetaObject::invokeMethod(this, &ScreenCaptureService::captureAndSend,
                               Qt::QueuedConnection);
 
-    qDebug() << "ScreenCaptureService: started, scale:" << m_scaleFactor;
+    DIAG_DEBUG(APP, "ScreenCaptureService") << "started, scale:" << m_scaleFactor;
 }
 
 ScreenCaptureService::~ScreenCaptureService()
 {
-    qDebug() << "ScreenCaptureService: stopped";
+    DIAG_DEBUG(APP, "ScreenCaptureService") << "stopped";
 }
 
 void ScreenCaptureService::onCaptureTimer()
@@ -170,7 +171,7 @@ void ScreenCaptureService::sendTiles(const QVector<QPair<int,int>>& changedTiles
         m_socket->sendTextMessage(QString::fromUtf8(jsonMsg));
         m_bytesSentThisSecond += jsonMsg.size();
 
-        qDebug() << "ScreenCaptureService: sent" << tileCount << "tiles,"
+        DIAG_DEBUG(APP, "ScreenCaptureService") << "sent" << tileCount << "tiles,"
                  << msg.size() << "bytes";
     }
 }

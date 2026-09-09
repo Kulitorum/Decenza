@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotdatamodel.h"
 #include "ai/conductance.h"
 #include "rendering/fastlinerenderer.h"
@@ -70,7 +71,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
 
     // Bulk-load any existing data (e.g., returning to espresso page after shot)
     if (!m_pressurePoints.isEmpty() || !m_flowPoints.isEmpty() || !m_weightPoints.isEmpty()) {
-        qDebug() << "ShotDataModel: Populating fast renderers with existing data ("
+        DIAG_DEBUG(SHOT, "ShotDataModel") << "Populating fast renderers with existing data ("
                  << m_pressurePoints.size() << " pressure,"
                  << m_flowPoints.size() << " flow,"
                  << m_weightPoints.size() << " weight,"
@@ -97,7 +98,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
         m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
-    qDebug() << "ShotDataModel: Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
+    DIAG_DEBUG(SHOT, "ShotDataModel") << "Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
 
     // Replay any goal-curve data we already accumulated so DashedLineSeries
     // bindings see the current state immediately (e.g., returning to the
@@ -197,7 +198,7 @@ void ShotDataModel::clearWeightData() {
     m_lastFlushedWeightFlow = 0;
     // The anchor these counted against is gone, so a run in progress no longer means anything.
     m_consecutiveSpikeRejections = 0;
-    qDebug() << "ShotDataModel: Cleared pre-tare weight data";
+    DIAG_DEBUG(SHOT, "ShotDataModel") << "Cleared pre-tare weight data";
 }
 
 void ShotDataModel::addSample(double time, double pressure, double flow, double temperature,
@@ -325,7 +326,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
             if (changeRate > 10.0 && m_consecutiveSpikeRejections < kMaxConsecutiveRejections) {
                 if (m_consecutiveSpikeRejections == 0) {
                     m_firstRejectedWeight = weight;
-                    qWarning() << "ShotDataModel: Rejecting spike - weight:" << weight
+                    DIAG_WARN(SHOT, "ShotDataModel") << "Rejecting spike - weight:" << weight
                                << "lastWeight:" << lastWeight
                                << "deltaWeight:" << deltaWeight
                                << "deltaTime:" << deltaTime
@@ -340,7 +341,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
     if (m_consecutiveSpikeRejections > 0) {
         // Either the reading came back into range on its own (an isolated glitch, which is what the
         // filter is for) or the run hit the cap and this sample is being accepted despite the rate.
-        qWarning() << "ShotDataModel: Spike run ended after" << m_consecutiveSpikeRejections
+        DIAG_WARN(SHOT, "ShotDataModel") << "Spike run ended after" << m_consecutiveSpikeRejections
                    << "rejected sample(s) - first rejected:" << m_firstRejectedWeight
                    << "accepting:" << weight
                    << (m_consecutiveSpikeRejections >= kMaxConsecutiveRejections
@@ -426,7 +427,7 @@ void ShotDataModel::computeConductanceDerivative() {
     // data) and tools/shot_eval (batch offline data) share one formula —
     // keeps live-graph curves identical to offline-evaluation curves.
     m_conductanceDerivativePoints = Conductance::derivative(m_conductancePoints);
-    qDebug() << "ShotDataModel: Computed conductance derivative ("
+    DIAG_DEBUG(SHOT, "ShotDataModel") << "Computed conductance derivative ("
              << m_conductanceDerivativePoints.size() << " points)";
 }
 
@@ -445,13 +446,13 @@ void ShotDataModel::trimSettlingData() {
     }
 
     if (trimIndex == 0) {
-        qWarning() << "[ShotDataModel] trimSettlingData: all" << m_pressurePoints.size()
+        DIAG_WARN(SHOT, "shotdatamodel") << "trimSettlingData: all" << m_pressurePoints.size()
                    << "samples have zero pressure — skipping trim to preserve data";
         return;
     }
 
     qsizetype removed = m_pressurePoints.size() - trimIndex;
-    qDebug() << "[ShotDataModel] Trimming" << removed << "trailing zero-pressure settling samples"
+    DIAG_DEBUG(SHOT, "shotdatamodel") << "Trimming" << removed << "trailing zero-pressure settling samples"
              << "(keeping" << trimIndex << "of" << m_pressurePoints.size() << ")";
 
     // Trim sensor data series to the same length

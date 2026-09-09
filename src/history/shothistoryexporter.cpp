@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shothistoryexporter.h"
 
 #include "shothistorystorage.h"
@@ -120,10 +121,10 @@ bool writeShotJson(const QString& dbPath,
 {
     ShotRecord record;
     bool opened = withTempDb(dbPath, "she_shot", [&](QSqlDatabase& db) {
-        record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+        record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
     });
     if (!opened || record.summary.id == 0) {
-        qWarning() << "ShotHistoryExporter: failed to load shot" << shotId;
+        DIAG_WARN(STORAGE, "ShotHistoryExporter") << "failed to load shot" << shotId;
         return false;
     }
 
@@ -134,12 +135,12 @@ bool writeShotJson(const QString& dbPath,
 
     QSaveFile file(fullPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        qWarning() << "ShotHistoryExporter: open failed for" << fullPath << ":" << file.errorString();
+        DIAG_WARN(STORAGE, "ShotHistoryExporter") << "open failed for" << fullPath << ":" << file.errorString();
         return false;
     }
     file.write(payload);
     if (!file.commit()) {
-        qWarning() << "ShotHistoryExporter: commit failed for" << fullPath << ":" << file.errorString();
+        DIAG_WARN(STORAGE, "ShotHistoryExporter") << "commit failed for" << fullPath << ":" << file.errorString();
         return false;
     }
     return true;
@@ -151,7 +152,7 @@ void ShotHistoryExporter::startBulkExport()
 {
     bool expected = false;
     if (!m_bulkRunning.compare_exchange_strong(expected, true)) {
-        qDebug() << "ShotHistoryExporter: bulk export already running";
+        DIAG_DEBUG(STORAGE, "ShotHistoryExporter") << "bulk export already running";
         return;
     }
 
@@ -174,7 +175,7 @@ void ShotHistoryExporter::startBulkExport()
                 if (!q.exec(QStringLiteral(
                         "SELECT id, timestamp, COALESCE(updated_at, 0) "
                         "FROM shots ORDER BY id ASC"))) {
-                    qWarning() << "ShotHistoryExporter: id enumeration failed:" << q.lastError().text();
+                    DIAG_WARN(STORAGE, "ShotHistoryExporter") << "id enumeration failed:" << q.lastError().text();
                     return;
                 }
                 while (q.next()) {
@@ -270,7 +271,7 @@ void ShotHistoryExporter::deleteExportedShot(qint64 shotId)
             {QString("*_%1.json").arg(shotId)}, QDir::Files);
         for (const QString& name : matches) {
             if (!QFile::remove(dir.filePath(name))) {
-                qWarning() << "ShotHistoryExporter: remove failed for" << name;
+                DIAG_WARN(STORAGE, "ShotHistoryExporter") << "remove failed for" << name;
             }
         }
     });

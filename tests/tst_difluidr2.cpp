@@ -449,7 +449,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: No liquid .*class=2 code=3"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No liquid .*class=2 code=3"));
         r2.handlePacket(buildErrorPacket(2, 3));  // errClass=2, errCode=3 = no liquid
 
         QCOMPARE(errorSpy.count(), 1);
@@ -460,7 +460,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: Beyond range .*class=2 code=4"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Beyond range .*class=2 code=4"));
         r2.handlePacket(buildErrorPacket(2, 4));  // errClass=2, errCode=4 = beyond range
 
         QCOMPARE(errorSpy.count(), 1);
@@ -494,8 +494,8 @@ private slots:
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
         QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("R2 error: benign device status .*class=0 code=2"));
+        QTest::ignoreMessage(QtDebugMsg,
+                             QRegularExpression("benign device status .*class=0 code=2"));
         r2.handlePacket(buildErrorPacket(0, 2));
 
         QCOMPARE(errorSpy.count(), 0);
@@ -1319,7 +1319,7 @@ private slots:
             QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
             QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: .*class=2"));
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*class=2"));
             r2.handlePacket(buildErrorPacket(2, code));
 
             QCOMPARE(errorSpy.count(), 0);

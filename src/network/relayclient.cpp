@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "relayclient.h"
 #include "network/screencaptureservice.h"
@@ -73,7 +74,7 @@ void RelayClient::setEnabled(bool enabled)
         if (!token.isEmpty()) {
             connectToRelay();
         } else {
-            qDebug() << "RelayClient: Enabled but no pairing token set";
+            DIAG_DEBUG(NETWORK, "RelayClient") << "Enabled but no pairing token set";
         }
     } else {
         m_reconnectTimer.stop();
@@ -115,18 +116,18 @@ void RelayClient::connectToRelay()
 
     QString deviceId = m_settings->app()->deviceId();
     if (deviceId.isEmpty()) {
-        qWarning() << "RelayClient: No device ID available";
+        DIAG_WARN(NETWORK, "RelayClient") << "No device ID available";
         return;
     }
 
     QString url = kRelayUrl + "?device_id=" + deviceId + "&role=device";
-    qDebug() << "RelayClient: Connecting to" << url;
+    DIAG_DEBUG(NETWORK, "RelayClient") << "Connecting to" << url;
     m_socket.open(QUrl(url));
 }
 
 void RelayClient::onConnected()
 {
-    qDebug() << "RelayClient: WebSocket connected";
+    DIAG_DEBUG(NETWORK, "RelayClient") << "WebSocket connected";
     m_reconnectAttempts = 0;
 
     // Send register message
@@ -152,7 +153,7 @@ void RelayClient::onConnected()
 
 void RelayClient::onDisconnected()
 {
-    qDebug() << "RelayClient: WebSocket disconnected — wasCapturing="
+    DIAG_DEBUG(NETWORK, "RelayClient") << "WebSocket disconnected — wasCapturing="
              << static_cast<bool>(m_captureService);
     m_pingTimer.stop();
     m_statusPushTimer.stop();
@@ -164,7 +165,7 @@ void RelayClient::onDisconnected()
         // Exponential backoff: 5s, 10s, 20s, 40s, max 60s
         int delayMs = qMin(kReconnectBaseMs * (1 << m_reconnectAttempts), kReconnectMaxMs);
         m_reconnectAttempts++;
-        qDebug() << "RelayClient: Reconnecting in" << delayMs << "ms (attempt" << m_reconnectAttempts << ")";
+        DIAG_DEBUG(NETWORK, "RelayClient") << "Reconnecting in" << delayMs << "ms (attempt" << m_reconnectAttempts << ")";
         m_reconnectTimer.start(delayMs);
     }
 }
@@ -181,7 +182,7 @@ void RelayClient::onTextMessageReceived(const QString& message)
     if (type == "relay_command") {
         QString commandId = obj["command_id"].toString();
         QString command = obj["command"].toString();
-        qDebug() << "RelayClient: relay_command received:" << command
+        DIAG_DEBUG(NETWORK, "RelayClient") << "relay_command received:" << command
                  << "id:" << commandId;
         // Treat any phone-originated command as activity. Reset BEFORE running
         // the handler so that handlers which start the timer (start_remote)
@@ -189,14 +190,14 @@ void RelayClient::onTextMessageReceived(const QString& message)
         noteRemoteActivity();
         handleCommand(commandId, command);
     } else if (type == "registered") {
-        qDebug() << "RelayClient: Successfully registered with relay";
+        DIAG_DEBUG(NETWORK, "RelayClient") << "Successfully registered with relay";
     } else if (type == "binary_relay") {
         // Decode base64 data and handle as binary. noteRemoteActivity() runs
         // inside onBinaryMessageReceived only for type 0x02 when capture is active.
         QByteArray binaryData = QByteArray::fromBase64(obj["data"].toString().toLatin1());
         onBinaryMessageReceived(binaryData);
     } else {
-        qDebug() << "RelayClient: Received message type:" << type;
+        DIAG_DEBUG(NETWORK, "RelayClient") << "Received message type:" << type;
     }
 }
 
@@ -237,19 +238,19 @@ void RelayClient::handleCommand(const QString& commandId, const QString& command
         pushStatus();
     } else if (command == "start_remote") {
         if (!m_window) {
-            qWarning() << "RelayClient: start_remote ignored — window not yet wired";
+            DIAG_WARN(NETWORK, "RelayClient") << "start_remote ignored — window not yet wired";
         } else if (m_captureService) {
-            qDebug() << "RelayClient: start_remote ignored — capture already active";
+            DIAG_DEBUG(NETWORK, "RelayClient") << "start_remote ignored — capture already active";
             m_remoteActivityTimer.start(kRemoteActivityTimeoutMs);
         } else {
-            qDebug() << "RelayClient: start_remote — creating ScreenCaptureService";
+            DIAG_DEBUG(NETWORK, "RelayClient") << "start_remote — creating ScreenCaptureService";
             double scale = 0.5;
             m_captureService = std::make_unique<ScreenCaptureService>(m_window, &m_socket, scale);
             m_remoteActivityTimer.start(kRemoteActivityTimeoutMs);
         }
     } else if (command == "stop_remote") {
         const bool wasActive = static_cast<bool>(m_captureService);
-        qDebug() << "RelayClient: stop_remote — wasActive=" << wasActive;
+        DIAG_DEBUG(NETWORK, "RelayClient") << "stop_remote — wasActive=" << wasActive;
         m_captureService.reset();
         m_remoteActivityTimer.stop();
     } else if (command == "keepalive") {
@@ -257,7 +258,7 @@ void RelayClient::handleCommand(const QString& commandId, const QString& command
         // Skip the command_response below to keep the channel quiet.
         return;
     } else {
-        qDebug() << "RelayClient: Unknown command:" << command;
+        DIAG_DEBUG(NETWORK, "RelayClient") << "Unknown command:" << command;
     }
 
     // Send response
@@ -336,7 +337,7 @@ void RelayClient::noteRemoteActivity()
 
 void RelayClient::onRemoteActivityTimeout()
 {
-    qWarning() << "RelayClient: no remote activity for" << kRemoteActivityTimeoutMs
+    DIAG_WARN(NETWORK, "RelayClient") << "no remote activity for" << kRemoteActivityTimeoutMs
                << "ms — tearing down ScreenCaptureService";
     m_captureService.reset();
 }

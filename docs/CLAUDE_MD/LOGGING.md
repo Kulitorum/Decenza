@@ -1,7 +1,7 @@
 # Logging
 
 How to log so the line is findable later. Read this before adding a log line to a
-device, radio or transport subsystem, and before creating a new subsystem.
+first-party runtime path, and before creating a new subsystem.
 
 Decenza's device problems are diagnosed **after the fact, from a log a user
 uploaded**, usually with the user's own AI assistant reading it over MCP. You will
@@ -326,119 +326,93 @@ message handler from inside its own emit. There is a per-thread guard against th
 recursion, but the guard's cost is dropping that line's signal — so a stray
 `console.log` in a view's append handler silently makes the view miss lines.
 
+## Shared application logging
+
+Use `core/diagnosticlogging.h` for application owners without a specialized helper:
+
+```cpp
+DIAG_INFO(BATTERY, "BatteryManager") << "requesting charge enable";
+DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shotId=" << shotId << "result=missingRow";
+```
+
+QML and module JavaScript use the compile-time `Decenza.WebDebugLogger` singleton
+(`WebDebugLogger` with a normal `import Decenza`):
+
+```qml
+WebDebugLogger.warn("Recipes", "RecipesItem", "Start blocked: machine not ready")
+```
+
+The registry and prefix formatter in `logtags.h` serve both paths. Ownership belongs
+to the operation, so a mixed file can use several owners. Bag fetch, archive,
+extraction and product-page search belong to BeanBase, including provider callbacks;
+general advice and conversations belong to AI. Storage owns database CRUD, backups,
+restores and migrations. Network includes ShotServer and MQTT; Visualizer has its own
+owner. The live catalog contains the complete list.
+
+Android's `DiagnosticLog` bridge sends each runtime record through Qt once the logger
+is installed. Before Qt is available, receivers and services write prefixed logcat
+lines only. Uncaught-exception handlers and crash-report writers retain their
+crash-safe paths; those files and logcat are separate from the persisted Qt log.
+The terminal console sink must never call Qt logging recursively.
+
+## Runtime context and physical lines
+
+`WebDebugLogger` preserves the supplied category, file, line and function on WARN+
+records. Source paths are portable (`src/...`, `qml/...` or a basename), without the
+builder's home directory. Missing context stays missing. QML helper calls supply an
+emitter tag; their C++ warning context identifies the helper, not an invented QML
+line. Framework QML warnings retain the actual QML context when Qt supplies it.
+
+A message without an explicit registered leading owner gets `[Runtime][Unattributed]`.
+This is a capture fallback, not evidence of first-party conformance. Every multiline
+continuation receives the same timestamp, severity, identity and warning context.
+Only a session banner starting at the beginning of a physical line creates a session;
+banner-like content inside a captured message cannot create a false restart.
+Memory/FD dump rows carry the dump id and reason even on pages without the header.
+
+## AI operation outcomes
+
+Each AI request and bag extraction has an opaque `op` id, kind, stage, elapsed time,
+known bag/shot id and provider/model captured at dispatch. Local fetch failures say
+`provider=not-invoked`; page, archive and provider status codes distinguish the stage
+that failed. Retries remain DEBUG and keep the operation id. INFO starts and terminal
+results form the short narrative; failed and rejected outcomes are WARN.
+
+A provider response is interpreted before the terminal verdict. `success` means usable
+advice or parsed fields/URL, `empty` means a valid empty extraction/search result,
+and `failed` includes invalid output. Busy/configuration guards are `rejected`.
+`cancelled` means the owner was destroyed; `superseded` means the consumer stopped
+waiting or did not continue the page-to-provider handoff. These diagnostic outcomes
+do not cancel, retry, reroute or add requests. A late callback cannot add a second
+terminal verdict. Page consumers hand off synchronously in the current application.
+
+The main log contains bounded identifiers, URL scheme/host/path without credentials,
+query or fragment, and numeric statuses. It omits prompts, page/response bodies and
+remote error prose, including untrusted error codes. Existing separate AI prompt and
+response files retain their purpose; a file-write receipt is not an operation verdict.
+
 ## Enforcement
 
-`scripts/check_log_markers.py` runs on every PR touching `src/**` (see
-`.github/workflows/text-invariants.yml`). No Qt, no compiler, seconds — the workflow
-header carries the measured figure.
+`scripts/check_log_markers.py` scans first-party runtime C++, headers, QML/JS and
+native bridges, including mixed-owner files and dormant platform code. It rejects
+raw output calls, dynamic/unregistered helper owners, duplicate marker literals and
+unregistered leading bracketed prefixes. Helper tokens and catalog rows are derived
+from the registry. Strings and comments do not masquerade as raw calls.
 
-It is **not** a required status check, so a red run does not block the merge button —
-**read the run before merging.** A PR whose own `text-invariants` was red has already
-been merged here and turned `main` red; the check did its job and nobody looked.
-Making it unconditional so it could be required was tried and reverted, because that
-puts a check on the critical path of every push — the arrangement TESTING.md and
-CI_CD.md deliberately moved away from. It parses the
-registry rather than restating it, and checks:
+An exception must have `// log-marker-exempt: <specific reason>` on the physical call
+line. Use it only for a shared formatter, terminal sink, bootstrap fallback or
+crash-safe writer. A neighboring comment cannot exempt another emitter. Tests,
+command-line utilities outside runtime source roots, third-party code and generated
+files are outside this source gate; their captured output may use Runtime.
 
-1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a **fully** covered file.
-2. No registered marker typed into a message (the helper already applies it — typing
-   one produces `[Scale] [BLE DecentScaleWifi] …`).
-3. No helper header applying a marker the registry does not declare. The header set is
-   derived by grepping for the macros, so a new helper is covered the day it lands.
-4. No bracketed marker literal in `qml/` that the registry does not declare — the
-   views name their subsystems as plain strings, and a rename would otherwise empty a
-   view while every other rule passed.
-5. **No leading bracketed token that the registry does not declare.** `[Subsystem]` is
-   the grammar of a marker and a reader cannot tell `[SAW]` from `[Scale]` by looking,
-   so an unregistered one advertises a `debug_get_log` filter that quietly returns an
-   incomplete answer — or none — while looking exactly like one that works. Register
-   it and give it a helper, or write the prefix so it cannot be mistaken for a marker.
+The text-invariants workflow runs the checker and its `--self-test` negative fixtures
+for changes to these source roots. It needs no Qt, compiler or network. Read the run
+before merging: the check is not a required status check.
 
-Rule 5 replaces a documented hole. Rule 2 matches only *registered* tokens, so
-`SCALE_LOG("Acaia", "[R2-diag] …")` passed rule 1 (it uses the helper) and rule 2
-(unregistered) and was caught by nothing. This file used to say so and leave it there.
-On its first run rule 5 found **six** unregistered bracketed families
-(`[Weight-Worker]`, `[SAW-Worker]`, `[SAW-Latency]`, `[TextRender]`, `[Startup]`,
-`[AppState]`) plus seven device lines under a hand-typed `[USB Scale]`/`[BLE DE1]`
-that no `[Scale]` or `[DE1]` search returned. A later run, after rule 6 widened the
-covered set, found `[Steam]`, `[HW-Tare]`, `[Screensaver]` and `[Theme]` as well.
-
-Two things rule 5 needs in order not to cry wolf, both learned by running it:
-
-- **It only fires on a line that contains a log call.** `m_probeBuffer.contains("[M]")`
-  is a protocol comparison, not a message. Leading position alone does not separate a
-  log message from any other string literal.
-- **The token must start uppercase**, as every registered marker does. `[observe]` is a
-  lowercase mode qualifier following a marker the helper already applied; it
-  impersonates nothing.
-
-Neither is an allowlist, deliberately — an allowlist of permitted tokens would be a
-second registry, free to drift from the first.
-
-If a line genuinely cannot go through a helper, append
-`// log-marker-exempt: <reason>` on or just above it. Give a real reason; the window
-is the call line plus six above, precisely so the reason can be a sentence. It must
-be a `//` comment — block comments are stripped before the check, so a `/* */`
-exemption is invisible — and for rule 2 it must be on the same line.
-
-This is a gate rather than guidance because guidance did not hold. While the markers
-were being introduced, **nine** hand-rolled prefix families were found in code already
-believed converted — including 37 `DE1Simulator:` lines, all at DEBUG, which left the
-connections page's DE1 view **completely empty** on a simulator session. Every one was
-found by a person reading a running app's log, not by the tree. A grep finds them in
-milliseconds. (The families are gone from `main`, so the count of nine is no longer
-checkable from a checkout. The reachable citation is the squash-merge `01679eb4`
-(#1707); two branch-local hashes cited here earlier were pre-squash objects that no
-`git merge-base --is-ancestor` accepts and that vanish on `gc` — a verification path
-that does not exist, in the paragraph explaining that the count cannot be verified.)
-
-The gate is not the whole invariant, and the difference matters. There are **two**
-coverage sets, because the rules do not all generalise the same way:
-
-- **`COVERED_GLOBS` — all rules.** Files that are *wholly* about their subsystem:
-  every log line in `acaiascale.cpp` is a scale line, so "use the helper" is always
-  the right instruction.
-- **`MARKER_ONLY_GLOBS` — rules 2 and 5 only.** Files that *host* a subsystem's lines
-  alongside unrelated code — `main.cpp` is the archetype.
-
-**Both lists live in `scripts/check_log_markers.py`, and are deliberately not copied
-here.** This section used to enumerate them and was four entries stale in the very commit that wrote it, seven by the time it was deleted —
-which is the same drift the "do not restate the registry" rule above exists to
-prevent. Read the script for membership; read this for the criterion. Rule 6 catches a file that *includes* a helper header and is in
-neither list, so membership cannot be forgotten. It does not check *which* list, and
-that choice is the load-bearing one: a file wholly about one subsystem parked in
-`MARKER_ONLY_GLOBS` silently skips rule 1.
-
-The split is a correction, not a concession. `main.cpp` drives both reconnect ladders
-*and* initialises fonts, translations, TTS and accessibility; applying rule 1 there
-produced 118 "violations" that were overwhelmingly lines with **no subsystem to belong
-to**, for which "route it through a helper" has no answer. A check reporting a hundred
-non-defects is one people switch off — which is how the generation of this convention
-before the gate died. What does hold everywhere is the marker invariant: if you write a
-bracketed prefix, it must be registered and applied by its helper. Rules 2 and 5
-enforce exactly that, and they are what found the real defects in `main.cpp`.
-
-Still uncovered, and known: **89 distinct** `Class:`-prefixed families across ~1,140
-lines in `src/` (44 of them with five or more lines each — the biggest are
-`ShotHistoryStorage:` 190, `ShotServer:` 116, `DatabaseBackupManager:` 62), and the bare
-`console.log` lines from QML (`Phase Idle/Ready:`, `SteamPage:`). An earlier "roughly 40"
-here was only defensible at an unstated five-line cutoff and understated the scope about
-twofold; two of its three QML examples were wrong (`FRAME CHANGE:` is C++, in a file now
-covered; `Auto flow cal:` does not exist). These have no registry entry and no helper;
-covering them would only
-teach people to write exemptions. "Every line carries its marker" is the rule you
-follow; the gate enforces it where a subsystem has somewhere to log to.
-
-**The gap that is not on that list, because it looks covered:** a *bracketed* family in a
-file simply outside both glob sets. Rule 5 is built for exactly that shape and never
-sees it. `[FontProbe]` in `src/screensaver/iosbrightness.mm` was four such lines — the
-globs reach `src/ble/**/*.mm` but no other `.mm` — and it sat one directory away from a
-`[Font]` marker whose registry description promises that a `[Font]` search returns the
-font story. It did not. Found in a live session read, not by the gate or by review,
-which is the whole argument of the next section. Before adding a directory to the globs,
-check what else it contains: `iosbrightness.mm` also hosts `[Screensaver]` and `[Theme]`,
-so covering it means registering two more subsystems or writing exemptions, and neither
-is free.
+Historical logs are unchanged. Old registered filters still work; newly registered
+owners cannot retroactively recover older unformatted messages. Start a review with
+the complete unfiltered window and its prefix census, then use subsystem and severity
+queries. A clean source gate or an empty WARN query does not prove a healthy runtime.
 
 ## Verify against a running app, not just the source
 
@@ -449,7 +423,7 @@ session's log. Read the real thing:
 debug_get_log  session=-1  minLevel="INFO"
 ```
 
-A healthy startup is on the order of 20 INFO+ lines and reads as a narrative. What to
+Compare INFO+ startup volume against a recorded run of the same workflows. Counts depend on configured services and connected devices. What to
 look for: an event appearing twice in different words; a bare marker with no source
 tag; a `WARN` on something that is working; a device that reports a state change it
 never made; and a subsystem that is **silent when it should not be** — the hardest to

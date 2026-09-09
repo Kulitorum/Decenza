@@ -74,7 +74,7 @@ public class AndroidUsbScale {
     private static UsbDevice findDevice(Context context) {
         UsbManager manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         if (manager == null) {
-            Log.w(TAG, "[USB] Scale Java: UsbManager is null");
+            DiagnosticLog.w("Scale", TAG, "[USB] Scale Java: UsbManager is null");
             return null;
         }
 
@@ -117,7 +117,7 @@ public class AndroidUsbScale {
                 new Intent(PERMISSION_ACTION).setPackage(context.getPackageName()),
                 PendingIntent.FLAG_IMMUTABLE);
         manager.requestPermission(device, pi);
-        Log.d(TAG, "Requested USB permission for scale " + device.getDeviceName());
+        DiagnosticLog.d("Scale", TAG, "Requested USB permission for scale " + device.getDeviceName());
     }
 
     /** Get device info as "vendorId:productId:serialNumber". */
@@ -130,7 +130,7 @@ public class AndroidUsbScale {
             serial = device.getSerialNumber();
             if (serial == null) serial = "";
         } catch (SecurityException e) {
-            Log.w(TAG, "Cannot read serial number: " + e.getMessage());
+            DiagnosticLog.w("Scale", TAG, "Cannot read serial number: " + e.getMessage());
         }
 
         return device.getVendorId() + ":" + device.getProductId() + ":" + serial;
@@ -162,7 +162,7 @@ public class AndroidUsbScale {
             return false;
         }
 
-        Log.d(TAG, "[USB] Opening scale: VID=" + String.format("0x%04X", device.getVendorId())
+        DiagnosticLog.d("Scale", TAG, "[USB] Opening scale: VID=" + String.format("0x%04X", device.getVendorId())
                 + " PID=" + String.format("0x%04X", device.getProductId())
                 + " interfaces=" + device.getInterfaceCount());
 
@@ -172,13 +172,13 @@ public class AndroidUsbScale {
 
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface iface = device.getInterface(i);
-            Log.d(TAG, "[USB]   Interface " + i + ": class=" + iface.getInterfaceClass()
+            DiagnosticLog.d("Scale", TAG, "[USB]   Interface " + i + ": class=" + iface.getInterfaceClass()
                     + " subclass=" + iface.getInterfaceSubclass()
                     + " endpoints=" + iface.getEndpointCount());
 
             if (hasBulkEndpoints(iface)) {
                 dataIface = iface;
-                Log.d(TAG, "[USB]   Using interface " + i + " (has bulk endpoints)");
+                DiagnosticLog.d("Scale", TAG, "[USB]   Using interface " + i + " (has bulk endpoints)");
                 break;
             }
         }
@@ -241,7 +241,7 @@ public class AndroidUsbScale {
         // Start background read thread
         sReading = true;
         sReadThread = new Thread(() -> {
-            Log.d(TAG, "[USB] Scale read thread started");
+            DiagnosticLog.d("Scale", TAG, "[USB] Scale read thread started");
             byte[] buf = new byte[512];
             int consecutiveErrors = 0;
 
@@ -256,7 +256,7 @@ public class AndroidUsbScale {
                     } else if (len < 0) {
                         consecutiveErrors++;
                         if (consecutiveErrors > 50) {
-                            Log.w(TAG, "[USB] Scale read thread: too many errors, assuming disconnect");
+                            DiagnosticLog.w("Scale", TAG, "[USB] Scale read thread: too many errors, assuming disconnect");
                             sDisconnected = true;
                             break;
                         }
@@ -264,18 +264,18 @@ public class AndroidUsbScale {
                         consecutiveErrors = 0;
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "[USB] Scale read thread exception: " + e.getMessage());
+                    DiagnosticLog.e("Scale", TAG, "[USB] Scale read thread exception: " + e.getMessage());
                     sDisconnected = true;
                     break;
                 }
             }
-            Log.d(TAG, "[USB] Scale read thread stopped (disconnected=" + sDisconnected + ")");
+            DiagnosticLog.d("Scale", TAG, "[USB] Scale read thread stopped (disconnected=" + sDisconnected + ")");
         }, "USB-Scale-Read");
         sReadThread.setDaemon(true);
         sReadThread.start();
 
         sLastError = "";
-        Log.d(TAG, "[USB] Scale opened successfully");
+        DiagnosticLog.d("Scale", TAG, "[USB] Scale opened successfully");
         return true;
     }
 
@@ -285,7 +285,7 @@ public class AndroidUsbScale {
         try {
             return sConnection.bulkTransfer(sEndpointOut, data, data.length, 1000);
         } catch (Exception e) {
-            Log.e(TAG, "Scale write error: " + e.getMessage());
+            DiagnosticLog.e("Scale", TAG, "Scale write error: " + e.getMessage());
             return -1;
         }
     }
@@ -302,7 +302,7 @@ public class AndroidUsbScale {
 
     /** Close the USB scale connection. */
     public static void close() {
-        Log.d(TAG, "Closing USB scale connection");
+        DiagnosticLog.d("Scale", TAG, "Closing USB scale connection");
         sReading = false;
 
         if (sReadThread != null) {
@@ -317,7 +317,7 @@ public class AndroidUsbScale {
             try {
                 sConnection.close();
             } catch (Exception e) {
-                Log.w(TAG, "Error closing scale connection: " + e.getMessage());
+                DiagnosticLog.w("Scale", TAG, "Error closing scale connection: " + e.getMessage());
             }
             sConnection = null;
         }
@@ -330,7 +330,7 @@ public class AndroidUsbScale {
             sReadBuffer.reset();
         }
 
-        Log.d(TAG, "USB scale closed");
+        DiagnosticLog.d("Scale", TAG, "USB scale closed");
     }
 
     /** Check if the scale connection is open and active. */
@@ -357,12 +357,12 @@ public class AndroidUsbScale {
         // 1. Read chip version (0xC0 = vendor IN)
         byte[] versionBuf = new byte[8];
         result = conn.controlTransfer(0xC0, CH340_REQ_READ_VERSION, 0, 0, versionBuf, 8, 1000);
-        Log.d(TAG, "[USB] CH340 version read: " + result + " bytes"
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 version read: " + result + " bytes"
                 + " [" + String.format("0x%02X 0x%02X", versionBuf[0], versionBuf[1]) + "]");
 
         // 2. Serial init (0x40 = vendor OUT)
         result = conn.controlTransfer(0x40, CH340_REQ_SERIAL_INIT, 0, 0, null, 0, 1000);
-        Log.d(TAG, "[USB] CH340 serial init: " + result);
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 serial init: " + result);
 
         // 3. Set baud rate
         if (!ch340SetBaudRate(conn, baudRate)) {
@@ -373,12 +373,12 @@ public class AndroidUsbScale {
         // LCR value: 0xC0 (enable RX+TX) | 0x03 (8 data bits) = 0xC3
         int lcr = 0xC3;
         result = conn.controlTransfer(0x40, CH340_REQ_WRITE_REG, 0x2518, lcr, null, 0, 1000);
-        Log.d(TAG, "[USB] CH340 LCR (8N1): " + result);
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 LCR (8N1): " + result);
 
         // 5. Set modem control: DTR + RTS active
         // CH340 uses inverted logic: ~(DTR=0x20 | RTS=0x40) = ~0x60 = 0xFF9F
         result = conn.controlTransfer(0x40, CH340_REQ_MODEM_CTRL, 0xFF9F, 0, null, 0, 1000);
-        Log.d(TAG, "[USB] CH340 modem ctrl (DTR+RTS): " + result);
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 modem ctrl (DTR+RTS): " + result);
 
         return true;
     }
@@ -404,7 +404,7 @@ public class AndroidUsbScale {
             }
 
             if (factor > 0xFFF0) {
-                Log.e(TAG, "[USB] CH340 unsupported baud rate: " + baudRate);
+                DiagnosticLog.e("Scale", TAG, "[USB] CH340 unsupported baud rate: " + baudRate);
                 return false;
             }
 
@@ -416,14 +416,14 @@ public class AndroidUsbScale {
         int val1 = (int) ((factor & 0xFF00) | divisor);
         int val2 = (int) (factor & 0xFF);
 
-        Log.d(TAG, "[USB] CH340 baud " + baudRate + ": reg 0x1312=" + String.format("0x%04X", val1)
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 baud " + baudRate + ": reg 0x1312=" + String.format("0x%04X", val1)
                 + " reg 0x0F2C=" + String.format("0x%04X", val2));
 
         int result = conn.controlTransfer(0x40, CH340_REQ_WRITE_REG, 0x1312, val1, null, 0, 1000);
-        Log.d(TAG, "[USB] CH340 baud prescaler: " + result);
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 baud prescaler: " + result);
 
         result = conn.controlTransfer(0x40, CH340_REQ_WRITE_REG, 0x0F2C, val2, null, 0, 1000);
-        Log.d(TAG, "[USB] CH340 baud divisor: " + result);
+        DiagnosticLog.d("Scale", TAG, "[USB] CH340 baud divisor: " + result);
 
         return true;
     }

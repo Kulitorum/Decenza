@@ -14,6 +14,7 @@
 //   - auto-favorites: requestAutoFavorites + requestAutoFavoriteGroupDetails.
 //   - grinder context: queryGrinderContext.
 
+#include "core/diagnosticlogging.h"
 #include "shothistorystorage.h"
 #include "equipmentjoin.h"
 #include "shothistorystorage_internal.h"
@@ -114,14 +115,14 @@ QStringList ShotHistoryStorage::queryDistinctList(const QString& sql, const QVar
 
     QSqlQuery q(m_db);
     if (!q.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage::queryDistinctList: prepare failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryDistinctList: prepare failed:"
                    << q.lastError().text() << "sql=" << sql;
         return {};
     }
     for (const QVariant& b : binds)
         q.addBindValue(b);
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::queryDistinctList: query failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryDistinctList: query failed:"
                    << q.lastError().text() << "sql=" << sql;
         return {};
     }
@@ -584,14 +585,14 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 // on a second table too.
                 if (!query.prepare(sql)) {
                     queryError = query.lastError().text();
-                    qWarning() << "ShotHistoryStorage: shot list prepare failed -" << queryError;
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot list prepare failed -" << queryError;
                 } else {
                     for (int i = 0; i < bindValues.size(); ++i)
                         query.bindValue(i, bindValues[i]);
 
                     if (!query.exec()) {
                         queryError = query.lastError().text();
-                        qWarning() << "ShotHistoryStorage: shot list query failed -" << queryError;
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot list query failed -" << queryError;
                     } else {
                         while (query.next()) {
                             QVariantMap shot;
@@ -642,13 +643,13 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 // Count query
                 QSqlQuery countQuery(db);
                 if (!countQuery.prepare(countSql)) {
-                    qWarning() << "ShotHistoryStorage: shot count prepare failed -"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot count prepare failed -"
                                << countQuery.lastError().text();
                 } else {
                     for (int i = 0; i < countBindValues.size(); ++i)
                         countQuery.bindValue(i, countBindValues[i]);
                     if (!countQuery.exec())
-                        qWarning() << "ShotHistoryStorage: shot count query failed -"
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot count query failed -"
                                    << countQuery.lastError().text();
                     else if (countQuery.next())
                         totalCount = countQuery.value(0).toInt();
@@ -661,7 +662,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 [this, results = std::move(results), serial, isAppend, totalCount, destroyed,
                  queryError]() mutable {
                     if (*destroyed) {
-                        qDebug() << "ShotHistoryStorage: shotsFiltered callback dropped (object destroyed)";
+                        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shotsFiltered callback dropped (object destroyed)";
                         return;
                     }
                     if (serial != m_filterSerial) return;
@@ -713,7 +714,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
         // kbId and bucket named: this failure surfaces as "the advisor sees no
         // history", and the bucket is now embedded in the SQL rather than bound,
         // so it is not recoverable from a bind list in the log.
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed for kbId"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadRecentShotsByKbIdStatic: prepare failed for kbId"
                    << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
         return results;
     }
@@ -783,7 +784,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             results.append(shot);
         }
     } else {
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed for kbId"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadRecentShotsByKbIdStatic: query failed for kbId"
                    << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
     }
     return results;
@@ -834,14 +835,14 @@ QVariantMap ShotHistoryStorage::loadRankedProfilesForBeanStatic(QSqlDatabase& db
         QVariantList tier;
         QSqlQuery query(db);
         if (!query.prepare(sql)) {
-            qWarning() << "ShotHistoryStorage::loadRankedProfilesForBeanStatic: prepare failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadRankedProfilesForBeanStatic: prepare failed:"
                        << query.lastError().text();
             return tier;
         }
         for (qsizetype i = 0; i < binds.size(); ++i)
             query.bindValue(static_cast<int>(i), binds.at(i));
         if (!query.exec()) {
-            qWarning() << "ShotHistoryStorage::loadRankedProfilesForBeanStatic: query failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadRankedProfilesForBeanStatic: query failed:"
                        << query.lastError().text();
             return tier;
         }
@@ -946,7 +947,7 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
             "WHERE COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ? "
             "AND profile_name = ? "
             "ORDER BY timestamp DESC LIMIT 1"))) {
-        qWarning() << "ShotHistoryStorage::loadLatestShotForBeanProfileStatic: prepare failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadLatestShotForBeanProfileStatic: prepare failed:"
                    << query.lastError().text();
         return shot;
     }
@@ -954,7 +955,7 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
     query.bindValue(1, beanType);
     query.bindValue(2, profileName);
     if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage::loadLatestShotForBeanProfileStatic: query failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadLatestShotForBeanProfileStatic: query failed:"
                    << query.lastError().text();
         return shot;
     }
@@ -1032,14 +1033,14 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
                 "SELECT grinder_setting, rpm, profile_name FROM shots WHERE %1 "
                 "AND COALESCE(grinder_setting,'') != '' "
                 "ORDER BY timestamp DESC LIMIT 1").arg(where))) {
-            qWarning() << "ShotHistoryStorage::loadLatestGrindForBeanStatic: prepare failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadLatestGrindForBeanStatic: prepare failed:"
                        << query.lastError().text();
             return grind;
         }
         for (qsizetype i = 0; i < binds.size(); ++i)
             query.bindValue(static_cast<int>(i), binds.at(i));
         if (!query.exec()) {
-            qWarning() << "ShotHistoryStorage::loadLatestGrindForBeanStatic: query failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadLatestGrindForBeanStatic: query failed:"
                        << query.lastError().text();
             return grind;
         }
@@ -1185,14 +1186,14 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
 
     QSqlQuery q(db);
     if (!q.prepare(grinderModel.isEmpty() ? kAll : kScoped)) {
-        qWarning() << "ShotHistoryStorage::grinderWideNumericSettings: prepare failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "grinderWideNumericSettings: prepare failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return {};
     }
     if (!grinderModel.isEmpty())
         q.bindValue(":model", grinderModel);
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::grinderWideNumericSettings: query failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "grinderWideNumericSettings: query failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return {};
     }
@@ -1235,13 +1236,13 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
     const QString sql = QStringLiteral("SELECT DISTINCT rpm FROM shots WHERE %1 AND rpm > 0")
                             .arg(ShotHistoryStorage::grinderModelMatchSql(":model"));
     if (!q.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage::grinderWideRpms: prepare failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "grinderWideRpms: prepare failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return {};
     }
     q.bindValue(":model", grinderModel);
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::grinderWideRpms: query failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "grinderWideRpms: query failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return {};
     }
@@ -1285,7 +1286,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         q.bindValue(":brand", beanBrand);
     }
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::queryGrinderContext: query failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryGrinderContext: query failed:"
                    << q.lastError().text()
                    << "grinderModel=" << grinderModel
                    << "beverageType=" << ctx.beverageType
@@ -1349,7 +1350,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);
         if (!rq.exec()) {
-            qWarning() << "ShotHistoryStorage::queryGrinderContext: rpm query failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryGrinderContext: rpm query failed:"
                        << rq.lastError().text()
                        << "grinderModel=" << grinderModel;
         } else {
@@ -1402,7 +1403,7 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
     // The column name is interpolated, not bound — SQLite cannot bind an
     // identifier — so it must come from the allow-list or not at all.
     if (!s_allowedColumns.contains(column)) {
-        qWarning() << "ShotHistoryStorage::getDistinctValues: rejected column" << column;
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "getDistinctValues: rejected column" << column;
         return {};
     }
     return queryDistinctList(
@@ -1645,7 +1646,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     results.append(entry);
                 }
             } else {
-                qWarning() << "ShotHistoryStorage: Async getAutoFavorites query failed:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Async getAutoFavorites query failed:" << query.lastError().text();
             }
         })) {
             if (*destroyed) return;
@@ -1658,7 +1659,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, results, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: autoFavorites callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "autoFavorites callback dropped (object destroyed)";
                 return;
             }
             emit autoFavoritesReady(results);
@@ -1791,7 +1792,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, result, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: autoFavoriteGroupDetails callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "autoFavoriteGroupDetails callback dropped (object destroyed)";
                 return;
             }
             emit autoFavoriteGroupDetailsReady(result);
@@ -1923,8 +1924,8 @@ void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype 
         break;
     }
 
-    qDebug().noquote()
-        << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage").noquote()
+        << QStringLiteral("grind step for %1 = %2, derived from %3 "
                           "distinct numeric setting(s)%4")
                .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
                .arg(step)

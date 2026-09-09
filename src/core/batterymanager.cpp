@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "batterymanager.h"
 #include "settings.h"
 #include "../ble/de1device.h"
@@ -41,7 +42,7 @@ void BatteryManager::setAppActive(bool active) {
     // One line per transition so the gap in the periodic battery telemetry is
     // attributable from the log — a silently gated poll is indistinguishable
     // from a frozen event loop otherwise.
-    qDebug() << "BatteryManager: poll" << (active ? "re-armed (app no longer suspended)"
+    DIAG_DEBUG(BATTERY, "BatteryManager") << "poll" << (active ? "re-armed (app no longer suspended)"
                                                   : "gated (app suspended)");
 }
 
@@ -64,7 +65,7 @@ void BatteryManager::setDE1Device(DE1Device* device) {
 
 void BatteryManager::setSettings(Settings* settings) {
     if (!settings) {
-        qWarning() << "BatteryManager: setSettings(nullptr) called — charging mode will use default (On/55-65%)";
+        DIAG_WARN(BATTERY, "BatteryManager") << "setSettings(nullptr) called — charging mode will use default (On/55-65%)";
         return;
     }
     m_settings = settings;
@@ -77,7 +78,7 @@ void BatteryManager::setSettings(Settings* settings) {
     // charging back to 65 % — the lower threshold would effectively never be reached.
     m_discharging = m_settings->value("battery/discharging", false).toBool();
 
-    qDebug() << "BatteryManager: Loaded mode=" << m_chargingMode
+    DIAG_DEBUG(BATTERY, "BatteryManager") << "Loaded mode=" << m_chargingMode
              << "discharging=" << m_discharging;
 
     emit chargingModeChanged();
@@ -89,7 +90,7 @@ void BatteryManager::setSettings(Settings* settings) {
 
 void BatteryManager::setChargingMode(int mode) {
     if (mode < Off || mode > Night) {
-        qWarning() << "BatteryManager: setChargingMode() called with invalid value" << mode << "— ignoring";
+        DIAG_WARN(BATTERY, "BatteryManager") << "setChargingMode() called with invalid value" << mode << "— ignoring";
         return;
     }
 
@@ -97,7 +98,7 @@ void BatteryManager::setChargingMode(int mode) {
         return;
 
     m_chargingMode = mode;
-    qDebug() << "BatteryManager: Charging mode set to" << mode;
+    DIAG_DEBUG(BATTERY, "BatteryManager") << "Charging mode set to" << mode;
 
     // Reset mismatch state on mode change — stale count from the previous mode is
     // meaningless in the new context and could cause a spurious resolved emission.
@@ -151,7 +152,7 @@ int BatteryManager::readPlatformBatteryPercent() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
-        qWarning() << "BatteryManager: QtNative.getContext() returned null — JNI context unavailable, battery reading skipped";
+        DIAG_WARN(BATTERY, "BatteryManager") << "QtNative.getContext() returned null — JNI context unavailable, battery reading skipped";
         return 100;
     }
 
@@ -166,7 +167,7 @@ int BatteryManager::readPlatformBatteryPercent() {
         intentFilter.object());
 
     if (!intent.isValid()) {
-        qWarning() << "BatteryManager: registerReceiver() returned null intent — battery status unavailable";
+        DIAG_WARN(BATTERY, "BatteryManager") << "registerReceiver() returned null intent — battery status unavailable";
         return 100;
     }
 
@@ -263,9 +264,9 @@ void BatteryManager::applySmartCharging() {
     // port after 10 minutes anyway, so the tablet will eventually charge.
     if (!m_device || !m_device->isConnected()) {
         if (!m_device) {
-            qDebug() << "BatteryManager: DE1 device not yet set, skipping charger command";
+            DIAG_DEBUG(BATTERY, "BatteryManager") << "DE1 device not yet set, skipping charger command";
         } else {
-            qDebug() << "BatteryManager: battery=" << m_batteryPercent
+            DIAG_DEBUG(BATTERY, "BatteryManager") << "battery=" << m_batteryPercent
                      << "% mode=" << m_chargingMode
                      << "— DE1 not connected, skipping charger command";
         }
@@ -294,7 +295,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = true;
                 m_discharging = false;
                 if (m_settings) m_settings->setValue("battery/discharging", false);
-                qDebug() << "BatteryManager: Battery at" << m_batteryPercent << "%, starting charge";
+                DIAG_INFO(BATTERY, "BatteryManager") << "Battery at" << m_batteryPercent << "%, requesting charge enable";
             } else {
                 shouldChargerBeOn = false;  // Still draining toward 55 %
             }
@@ -303,7 +304,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = false;
                 m_discharging = true;
                 if (m_settings) m_settings->setValue("battery/discharging", true);
-                qDebug() << "BatteryManager: Battery at" << m_batteryPercent << "%, stopping charge";
+                DIAG_INFO(BATTERY, "BatteryManager") << "Battery at" << m_batteryPercent << "%, requesting charge disable";
             } else {
                 shouldChargerBeOn = true;   // Still charging toward 65 %
             }
@@ -318,7 +319,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = true;
                 m_discharging = false;
                 if (m_settings) m_settings->setValue("battery/discharging", false);
-                qDebug() << "BatteryManager: Night mode - battery at" << m_batteryPercent << "%, starting charge";
+                DIAG_INFO(BATTERY, "BatteryManager") << "Night mode - battery at" << m_batteryPercent << "%, requesting charge enable";
             } else {
                 shouldChargerBeOn = false;  // Still draining toward 90 %
             }
@@ -327,7 +328,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = false;
                 m_discharging = true;
                 if (m_settings) m_settings->setValue("battery/discharging", true);
-                qDebug() << "BatteryManager: Night mode - battery at" << m_batteryPercent << "%, stopping charge";
+                DIAG_INFO(BATTERY, "BatteryManager") << "Night mode - battery at" << m_batteryPercent << "%, requesting charge disable";
             } else {
                 shouldChargerBeOn = true;   // Still charging toward 95 %
             }
@@ -335,7 +336,7 @@ void BatteryManager::applySmartCharging() {
         break;
 
     default:
-        qWarning() << "BatteryManager: Unknown charging mode" << m_chargingMode
+        DIAG_WARN(BATTERY, "BatteryManager") << "Unknown charging mode" << m_chargingMode
                    << "— defaulting to always-on. Check QSettings for corruption.";
         shouldChargerBeOn = true;
         break;
@@ -403,7 +404,7 @@ void BatteryManager::applySmartCharging() {
     LogCollapse::Collapsed collapsed;
     if (m_pollCollapse.shouldLog(QStringLiteral("poll"), pollText,
                                  QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-        qDebug().noquote() << QStringLiteral("BatteryManager: ") + pollText
+        DIAG_DEBUG(BATTERY, "BatteryManager").noquote() << pollText
                                   + m_pollCollapse.suffix(collapsed);
     }
 
@@ -442,13 +443,13 @@ void BatteryManager::applySmartCharging() {
     //   • The physical cable between the tablet and DE1 was disconnected
     //
     // We retry the BLE command immediately on the first failed check, but wait for
-    // 5 consecutive failures (~5 min) before alerting the user. The DE1 can legally
+    // 5 consecutive mismatched samples before alerting the user. The DE1 can legally
     // cut USB power for short periods (e.g. during preheating), so a single transient
-    // DISCHARGING reading is not worth a popup. Five minutes of sustained no-power is.
+    // DISCHARGING reading is not worth a popup. The threshold counts observations, not measured outage duration.
     //
     // This block runs on Android and iOS; m_androidBatteryStatus stays -1 on desktop.
     if (m_androidBatteryStatus != -1) {
-        // Port is confirmed electrically off if the OS reports DISCHARGING or UNPLUGGED.
+        // The pre-command OS sample indicates discharge or an unplugged power source.
         // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
         // where the cable is physically connected but the DE1 cut its USB output.
         // Note: on iOS, mismatch detection works for the primary case (Unplugged maps
@@ -457,7 +458,7 @@ void BatteryManager::applySmartCharging() {
         const bool osDischarging = (m_androidBatteryStatus == 3);
         const bool portActuallyOff = osDischarging || (m_androidPlugged == 0);
 
-        constexpr int kMismatchAlertThreshold = 5;  // ~5 min at 60s intervals
+        constexpr int kMismatchAlertThreshold = 5;  // consecutive samples, including resume checks
 
         if (shouldChargerBeOn && portActuallyOff) {
             m_chargingMismatchCount++;
@@ -472,7 +473,7 @@ void BatteryManager::applySmartCharging() {
                 // Where the observation comes from, stated precisely because it is
                 // one machine's: a MAINTAINER's 24-hour capture showed "cycle 1 of
                 // 5" five times, ~2.5 h apart, never reaching cycle 2 — five
-                // separate one-minute blips that each cleared by themselves. That
+                // separate one-sample mismatches that each cleared by the next check. That
                 // reads as a counter bug and is not one; the count is correct and
                 // the condition is simply transient.
                 //
@@ -484,14 +485,14 @@ void BatteryManager::applySmartCharging() {
                 //
                 // The threshold already encodes when this becomes news. Below it,
                 // say so quietly; the escalation below is the event worth a WARN.
-                qDebug() << "BatteryManager: charger ON but port not delivering power"
+                DIAG_DEBUG(BATTERY, "BatteryManager") << "desiredChargerOn=true; pre-command OS sample indicates discharge/unplugged"
                          << "(battery=" << m_batteryPercent << "%, cycle"
                          << m_chargingMismatchCount << "of" << kMismatchAlertThreshold
                          << "). Retrying; not yet reported as a fault.";
             } else {
-                // 5+ consecutive minutes with no USB power — alert the user.
-                qWarning() << "BatteryManager: ALERT - DE1 USB power mismatch for"
-                           << m_chargingMismatchCount << "min, battery=" << m_batteryPercent << "%";
+                // Five or more consecutive mismatched OS samples — alert the user.
+                DIAG_WARN(BATTERY, "BatteryManager") << "ALERT - requested charging disagrees with OS samples; consecutiveSamples="
+                           << m_chargingMismatchCount << "battery=" << m_batteryPercent << "%";
                 if (!m_chargingMismatch) {
                     m_chargingMismatch = true;
                     emit chargingMismatchDetected();
@@ -512,13 +513,13 @@ void BatteryManager::applySmartCharging() {
                 // defect being fixed is the previous DEBUG, which put the
                 // retraction below the connections view that had shown the user
                 // the fault in the first place.
-                qInfo() << "BatteryManager: Charging mismatch resolved after"
-                        << m_chargingMismatchCount << "min";
+                DIAG_INFO(BATTERY, "BatteryManager") << "Charging mismatch alert cleared; priorMismatchedSamples="
+                        << m_chargingMismatchCount << "desiredChargerOn=" << shouldChargerBeOn;
                 m_chargingMismatch = false;
                 emit chargingMismatchResolved();
             } else if (m_chargingMismatchCount > 0) {
-                qDebug() << "BatteryManager: Transient power interruption cleared after"
-                         << m_chargingMismatchCount << "min (no alert shown)";
+                DIAG_DEBUG(BATTERY, "BatteryManager") << "OS sample and desired charging now agree; priorMismatchedSamples="
+                         << m_chargingMismatchCount << "(no alert shown; duration of any physical interruption unknown)";
             }
             m_chargingMismatchCount = 0;
         }
@@ -536,7 +537,7 @@ void BatteryManager::ensureChargerOn() {
     // keep the port off for up to 10 minutes after the app exits — the tablet would
     // drain unnecessarily. Matches de1app's app_exit behaviour.
     if (m_device && m_device->isConnected()) {
-        qDebug() << "BatteryManager: Ensuring charger is ON (app exit/suspend safety)";
+        DIAG_DEBUG(BATTERY, "BatteryManager") << "Ensuring charger is ON (app exit/suspend safety)";
         // Urgent, meaning FRONT of the shared GATT queue rather than behind whatever
         // else is waiting. Not a bypass: it still waits for any operation already
         // outstanding, on this device or another. See DE1Transport::writeUrgent and
@@ -545,4 +546,3 @@ void BatteryManager::ensureChargerOn() {
         m_device->setUsbChargerOnUrgent(true);
     }
 }
-

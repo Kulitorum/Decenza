@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "coffeebagstorage.h"
 #include "core/appsettings.h"
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
@@ -325,7 +326,7 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
                                 std::function<void(bool dbOpened)> done)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "CoffeeBagStorage: not initialized, dropping" << connPrefix;
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "not initialized, dropping" << connPrefix;
         return;
     }
     if (!m_dbWorker)
@@ -388,7 +389,7 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
     // response — without this they hang forever, and the armed connection then
     // consumes the NEXT create from any surface, answering with the wrong bag.
     if (m_dbPath.isEmpty()) {
-        qWarning() << "CoffeeBagStorage: requestCreateBag on uninitialized storage";
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestCreateBag on uninitialized storage";
         emit bagCreated(-1, QVariantMap());
         return;
     }
@@ -419,7 +420,7 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
     // this they would hang forever. (A *destroyed shutdown race still drops the
     // callback, but the app is exiting, so an abandoned response is acceptable.)
     if (m_dbPath.isEmpty()) {
-        qWarning() << "CoffeeBagStorage: requestUpdateBag on uninitialized storage, bag" << bagId;
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestUpdateBag on uninitialized storage, bag" << bagId;
         emit bagUpdated(bagId, false);
         emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
@@ -479,7 +480,7 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
             read.prepare("SELECT beanbase_json FROM coffee_bags WHERE id = :id");
             read.bindValue(":id", bagId);
             if (!read.exec() || !read.next()) {
-                qWarning() << "CoffeeBagStorage: ai-search marker read failed:"
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "ai-search marker read failed:"
                            << read.lastError().text();
                 return;
             }
@@ -490,7 +491,7 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
             if (!stored.isEmpty() && obj.isEmpty()) {
                 // Corrupt blob: the same non-destructive rule the merge helpers
                 // follow — never rebuild what we cannot parse.
-                qWarning() << "CoffeeBagStorage: refusing ai-search marker on corrupt blob, bag"
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "refusing ai-search marker on corrupt blob, bag"
                            << bagId;
                 return;
             }
@@ -505,7 +506,7 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
                             QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
             write.bindValue(":id", bagId);
             if (!write.exec())
-                qWarning() << "CoffeeBagStorage: ai-search marker write failed:"
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "ai-search marker write failed:"
                            << write.lastError().text();
         },
         [](bool) {});
@@ -521,7 +522,7 @@ void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
             query.bindValue(":now", QDateTime::currentSecsSinceEpoch());
             query.bindValue(":id", bagId);
             if (!query.exec())
-                qWarning() << "CoffeeBagStorage: touch last_used failed:" << query.lastError().text();
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "touch last_used failed:" << query.lastError().text();
         },
         [](bool) {});
 }
@@ -537,11 +538,11 @@ void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
             countQuery.prepare("SELECT COUNT(*) FROM shots WHERE bag_id = :id");
             countQuery.bindValue(":id", bagId);
             if (!countQuery.exec() || !countQuery.next()) {
-                qWarning() << "CoffeeBagStorage: delete pre-check failed:" << countQuery.lastError().text();
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "delete pre-check failed:" << countQuery.lastError().text();
                 return;
             }
             if (countQuery.value(0).toInt() > 0) {
-                qWarning() << "CoffeeBagStorage: refusing to delete bag" << bagId << "with linked shots";
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "refusing to delete bag" << bagId << "with linked shots";
                 return;
             }
             QSqlQuery deleteQuery(db);
@@ -549,7 +550,7 @@ void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
             deleteQuery.bindValue(":id", bagId);
             *success = deleteQuery.exec();
             if (!*success)
-                qWarning() << "CoffeeBagStorage: delete failed:" << deleteQuery.lastError().text();
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "delete failed:" << deleteQuery.lastError().text();
         },
         // Write: emit regardless — *success is false on open failure, terminal.
         [this, bagId, success](bool) {
@@ -602,7 +603,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
         )
     )");
     if (!ok) {
-        qWarning() << "CoffeeBagStorage: failed to create coffee_bags table:" << query.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "failed to create coffee_bags table:" << query.lastError().text();
         return false;
     }
     query.exec("CREATE INDEX IF NOT EXISTS idx_coffee_bags_inventory ON coffee_bags(in_inventory, last_used DESC)");
@@ -654,7 +655,7 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& inBa
         query.bindValue(i, binds.at(i));
 
     if (!query.exec()) {
-        qWarning() << "CoffeeBagStorage: insert failed:" << query.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "insert failed:" << query.lastError().text();
         return -1;
     }
     return query.lastInsertId().toLongLong();
@@ -698,7 +699,7 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
                             "(SELECT COUNT(*) FROM shots WHERE bag_id = coffee_bags.id) AS shot_count "
                             "FROM coffee_bags WHERE in_inventory = 1 "
                             "ORDER BY last_used DESC, id DESC").arg(bagColumnList()))) {
-        qWarning() << "CoffeeBagStorage: inventory query failed:" << query.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "inventory query failed:" << query.lastError().text();
         return bags;
     }
     // Read shot_count by its alias, not a hardcoded position, so it no longer
@@ -730,7 +731,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
             // The guard cannot run without the stored half of the identity, and
             // failing silently here lets a borrowed link survive the very edit
             // that invalidates it.
-            qWarning() << "CoffeeBagStorage: could not load bag" << bagId
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "could not load bag" << bagId
                        << "- canonical-link check skipped for this update";
         } else {
             const BeanBaseBlob::BagIdentity identity{
@@ -756,7 +757,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
         const BagCol* col = kColumnFor.value(it.key(), nullptr);
         if (!col) {
-            qWarning() << "CoffeeBagStorage: ignoring unknown field" << it.key();
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "ignoring unknown field" << it.key();
             continue;
         }
         assignments << QString("%1 = ?").arg(QString::fromLatin1(col->sql));
@@ -780,7 +781,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     query.bindValue(pos, bagId);
 
     if (!query.exec()) {
-        qWarning() << "CoffeeBagStorage: update failed for bag" << bagId << ":" << query.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "update failed for bag" << bagId << ":" << query.lastError().text();
         return false;
     }
     // Read the row count BEFORE running anything else on this connection.
@@ -811,12 +812,12 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
         // the caller then skips bagsChanged(). Same asymmetry the migration
         // makes explicit with its queueShots argument.
         if (propagateBeanBaseStatic(db, bagId) < 0) {
-            qWarning() << "CoffeeBagStorage: bag" << bagId
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId
                        << "was unlinked but the shot snapshots were not updated";
             return false;
         }
         if (markShotsForBeanRepairStatic(db, bagId) < 0)
-            qWarning() << "CoffeeBagStorage: bag" << bagId
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId
                        << "was unlinked and saved, but its shots were not queued for"
                           " Visualizer repair - they stay wrong on the server";
     }
@@ -839,7 +840,7 @@ bool CoffeeBagStorage::dropConflictedCanonicalLink(const BeanBaseBlob::BagIdenti
     if (!BeanBaseBlob::canonicalIdentityConflicts(link->blob, identity))
         return false;
 
-    qDebug() << "CoffeeBagStorage: dropping canonical link" << link->id
+    DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "dropping canonical link" << link->id
              << "- the record names another coffee than" << identity.roaster
              << "/" << identity.coffee;
     link->id.clear();
@@ -862,13 +863,13 @@ int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagI
                   "WHERE bag_id = :bag AND COALESCE(visualizer_id,'') <> ''");
     query.bindValue(":bag", bagId);
     if (!query.exec()) {
-        qWarning() << "CoffeeBagStorage: could not queue bean repair for bag" << bagId
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "could not queue bean repair for bag" << bagId
                    << ":" << query.lastError().text();
         return -1;
     }
     const int marked = query.numRowsAffected();
     if (marked > 0)
-        qDebug() << "CoffeeBagStorage: queued" << marked
+        DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "queued" << marked
                  << "uploaded shot(s) of bag" << bagId << "for Visualizer bean repair";
     return marked;
 }
@@ -880,7 +881,7 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool
     if (!read.exec("SELECT id, roaster_name, coffee_name, beanbase_id, beanbase_json "
                    "FROM coffee_bags "
                    "WHERE COALESCE(beanbase_id,'') <> '' OR COALESCE(beanbase_json,'') <> ''")) {
-        qWarning() << "CoffeeBagStorage: conflicted-link scan failed:" << read.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "conflicted-link scan failed:" << read.lastError().text();
         return -1;
     }
     struct Fix { qint64 id; QString blob; };
@@ -897,7 +898,7 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool
         write.bindValue(":blob", fix.blob.isEmpty() ? QVariant() : fix.blob);
         write.bindValue(":id", fix.id);
         if (!write.exec()) {
-            qWarning() << "CoffeeBagStorage: unlink of bag" << fix.id
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "unlink of bag" << fix.id
                        << "failed:" << write.lastError().text();
             return -1;
         }
@@ -910,7 +911,7 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool
         // regardless; only the Visualizer repair is lost.
         if (propagateBeanBaseStatic(db, fix.id) < 0
             || (queueShots && markShotsForBeanRepairStatic(db, fix.id) < 0)) {
-            qWarning() << "CoffeeBagStorage: bag" << fix.id
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << fix.id
                        << "unlinked but its shots were not updated - failing the pass";
             return -1;
         }
@@ -975,12 +976,12 @@ int CoffeeBagStorage::propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId)
     query.bindValue(":blob", bag.beanBaseData.isEmpty() ? QVariant() : bag.beanBaseData);
     query.bindValue(":bag", bagId);
     if (!query.exec()) {
-        qWarning() << "CoffeeBagStorage: beanbase propagation failed for bag" << bagId
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "beanbase propagation failed for bag" << bagId
                    << ":" << query.lastError().text();
         return -1;
     }
     const int updated = query.numRowsAffected();
-    qDebug() << "CoffeeBagStorage: propagated bean base link of bag" << bagId
+    DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "propagated bean base link of bag" << bagId
              << "to" << updated << "shots";
     return updated;
 }
@@ -1002,7 +1003,7 @@ int CoffeeBagStorage::linkOrphanShotsStatic(QSqlDatabase& db)
             "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
             "WHERE bag_id IS NULL"
             "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
-        qWarning() << "CoffeeBagStorage: orphan-shot link pass 1 failed:" << exactPass.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "orphan-shot link pass 1 failed:" << exactPass.lastError().text();
         return -1;
     }
 
@@ -1018,7 +1019,7 @@ int CoffeeBagStorage::linkOrphanShotsStatic(QSqlDatabase& db)
             "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
             "WHERE bag_id IS NULL"
             "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
-        qWarning() << "CoffeeBagStorage: orphan-shot link pass 2 failed:" << identityPass.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "orphan-shot link pass 2 failed:" << identityPass.lastError().text();
         return -1;
     }
 
@@ -1098,17 +1099,17 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
         // keys survive a failure, so the next launch retries anyway.
         DbWriteTxn txn = DbWriteTxn::begin(db, "legacy preset import", 1);
         if (!txn.ok()) {
-            qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed - "
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset transaction begin failed - "
                           "leaving the keys for a later retry";
             return;
         }
         imported = importLegacyPresetsStatic(db, presets, selectedIndex, &selectedBagId);
         if (imported < 0) {
-            qWarning() << "CoffeeBagStorage: legacy preset import failed - rolling back";
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset import failed - rolling back";
             return;  // txn rolls back on the way out
         }
         if (!txn.commit()) {
-            qWarning() << "CoffeeBagStorage: legacy preset import commit failed:"
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset import commit failed:"
                        << txn.commitError();
             return;
         }
@@ -1120,7 +1121,7 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
 
     appSettings.remove(QStringLiteral("bean/presets"));
     appSettings.remove(QStringLiteral("bean/selectedPreset"));
-    qDebug() << "CoffeeBagStorage: imported" << imported << "of" << presets.size()
+    DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "imported" << imported << "of" << presets.size()
              << "legacy bean presets as bags; selected bag id" << selectedBagId;
 
     // Adopt the pre-bag shot history: link orphan shots to the bags the
@@ -1146,7 +1147,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     if (!merge) {
         QSqlQuery clearQuery(destDb);
         if (!clearQuery.exec("DELETE FROM coffee_bags")) {
-            qWarning() << "CoffeeBagStorage: failed to clear bags for replace import:"
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "failed to clear bags for replace import:"
                        << clearQuery.lastError().text();
             return false;
         }
@@ -1165,7 +1166,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             // EVERY column below — the SELECT still succeeds and, in replace
             // mode, the cleared inventory gets repopulated with nameless
             // all-NULL bags while this function reports success.
-            qWarning() << "CoffeeBagStorage: failed to read source bag schema:"
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "failed to read source bag schema:"
                        << info.lastError().text();
             return false;
         }
@@ -1173,7 +1174,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             srcColumns.insert(info.value(1).toString());
     }
     if (!srcColumns.contains(QStringLiteral("id"))) {
-        qWarning() << "CoffeeBagStorage: source coffee_bags schema has no id column - aborting import";
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "source coffee_bags schema has no id column - aborting import";
         return false;
     }
     QStringList selectCols;
@@ -1197,7 +1198,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     QSqlQuery srcBags(srcDb);
     if (!srcBags.exec(QString("SELECT %1%2 FROM coffee_bags")
                           .arg(selectCols.join(QStringLiteral(", ")), trailingCols))) {
-        qWarning() << "CoffeeBagStorage: failed to query source bags:" << srcBags.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "failed to query source bags:" << srcBags.lastError().text();
         return false;
     }
 
@@ -1243,7 +1244,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         outIdMap.insert(bag.id, destId);
     }
 
-    qDebug() << "CoffeeBagStorage: bag import -" << imported << "imported," << matched << "matched existing";
+    DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "bag import -" << imported << "imported," << matched << "matched existing";
     return true;
 }
 
@@ -1272,7 +1273,7 @@ int CoffeeBagStorage::importLegacyPresetsStatic(QSqlDatabase& db, const QJsonArr
             dupQuery.bindValue(":roast_date", bag.roastDate);
             if (dupQuery.exec() && dupQuery.next()) {
                 bagId = dupQuery.value(0).toLongLong();
-                qDebug() << "CoffeeBagStorage: preset import skipping duplicate"
+                DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "preset import skipping duplicate"
                          << bag.roasterName << bag.coffeeName;
             }
         }

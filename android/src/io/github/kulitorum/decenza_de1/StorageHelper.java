@@ -56,7 +56,7 @@ public class StorageHelper {
      */
     public static void requestStoragePermission() {
         if (sActivity == null) {
-            Log.e(TAG, "Activity not initialized");
+            DiagnosticLog.e("Storage", TAG, "Activity not initialized");
             return;
         }
 
@@ -67,14 +67,14 @@ public class StorageHelper {
                 Uri uri = Uri.fromParts("package", sActivity.getPackageName(), null);
                 intent.setData(uri);
                 sActivity.startActivity(intent);
-                Log.i(TAG, "Opened storage permission settings");
+                DiagnosticLog.i("Storage", TAG, "Opened storage permission settings");
             } catch (Exception e) {
-                Log.w(TAG, "Could not open app-specific settings, trying general: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Could not open app-specific settings, trying general: " + e.getMessage());
                 try {
                     Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
                     sActivity.startActivity(intent);
                 } catch (Exception e2) {
-                    Log.e(TAG, "Could not open storage settings: " + e2.getMessage());
+                    DiagnosticLog.e("Storage", TAG, "Could not open storage settings: " + e2.getMessage());
                 }
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -82,7 +82,7 @@ public class StorageHelper {
             ActivityCompat.requestPermissions(sActivity,
                 new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                 PERMISSION_REQUEST_CODE);
-            Log.i(TAG, "Requested WRITE_EXTERNAL_STORAGE permission");
+            DiagnosticLog.i("Storage", TAG, "Requested WRITE_EXTERNAL_STORAGE permission");
         }
     }
 
@@ -97,9 +97,9 @@ public class StorageHelper {
 
         if (!profilesDir.exists()) {
             if (profilesDir.mkdirs()) {
-                Log.i(TAG, "Created profiles directory: " + profilesDir.getAbsolutePath());
+                DiagnosticLog.i("Storage", TAG, "Created profiles directory: " + profilesDir.getAbsolutePath());
             } else {
-                Log.e(TAG, "Failed to create profiles directory: " + profilesDir.getAbsolutePath());
+                DiagnosticLog.e("Storage", TAG, "Failed to create profiles directory: " + profilesDir.getAbsolutePath());
             }
         }
 
@@ -117,13 +117,13 @@ public class StorageHelper {
 
         if (!backupsDir.exists()) {
             if (backupsDir.mkdirs()) {
-                Log.i(TAG, "Created backups directory: " + backupsDir.getAbsolutePath());
+                DiagnosticLog.i("Storage", TAG, "Created backups directory: " + backupsDir.getAbsolutePath());
             } else {
-                Log.e(TAG, "Failed to create backups directory: " + backupsDir.getAbsolutePath());
+                DiagnosticLog.e("Storage", TAG, "Failed to create backups directory: " + backupsDir.getAbsolutePath());
             }
         }
 
-        Log.i(TAG, "Backups directory: " + backupsDir.getAbsolutePath());
+        DiagnosticLog.i("Storage", TAG, "Backups directory: " + backupsDir.getAbsolutePath());
         return backupsDir.getAbsolutePath();
     }
 
@@ -138,9 +138,9 @@ public class StorageHelper {
 
         if (!logsDir.exists()) {
             if (logsDir.mkdirs()) {
-                Log.i(TAG, "Created logs directory: " + logsDir.getAbsolutePath());
+                DiagnosticLog.i("Storage", TAG, "Created logs directory: " + logsDir.getAbsolutePath());
             } else {
-                Log.e(TAG, "Failed to create logs directory: " + logsDir.getAbsolutePath());
+                DiagnosticLog.e("Storage", TAG, "Failed to create logs directory: " + logsDir.getAbsolutePath());
             }
         }
 
@@ -161,7 +161,7 @@ public class StorageHelper {
      */
     public static void scanFile(String filePath) {
         if (sActivity == null) {
-            Log.w(TAG, "Activity not initialized, cannot scan file");
+            DiagnosticLog.w("Storage", TAG, "Activity not initialized, cannot scan file");
             return;
         }
 
@@ -185,12 +185,12 @@ public class StorageHelper {
                 new android.media.MediaScannerConnection.OnScanCompletedListener() {
                     @Override
                     public void onScanCompleted(String path, Uri uri) {
-                        Log.i(TAG, "Media scan completed for: " + path + " (type: " + mimeType + ")");
+                        DiagnosticLog.i("Storage", TAG, "Media scan completed for: " + path + " (type: " + mimeType + ")");
                     }
                 }
             );
         } catch (Exception e) {
-            Log.e(TAG, "Failed to scan file: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to scan file: " + e.getMessage());
         }
     }
 
@@ -208,7 +208,7 @@ public class StorageHelper {
             java.io.File destFile = new java.io.File(destPath);
 
             if (!sourceFile.exists()) {
-                Log.e(TAG, "Source file does not exist: " + sourcePath);
+                DiagnosticLog.e("Storage", TAG, "Source file does not exist: " + sourcePath);
                 return false;
             }
 
@@ -228,23 +228,23 @@ public class StorageHelper {
 
             fos.flush();
 
-            Log.i(TAG, "Copied file: " + sourcePath + " -> " + destPath);
+            DiagnosticLog.i("Storage", TAG, "Copied file: " + sourcePath + " -> " + destPath);
             return true;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to copy file: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to copy file: " + e.getMessage());
             return false;
         } finally {
             // Ensure streams are always closed
             try {
                 if (fos != null) fos.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close output stream: " + e.getMessage());
             }
             try {
                 if (fis != null) fis.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close input stream: " + e.getMessage());
             }
         }
     }
@@ -261,7 +261,7 @@ public class StorageHelper {
         try {
             java.io.File zipFile = new java.io.File(zipFilePath);
             if (!zipFile.exists()) {
-                Log.e(TAG, "ZIP file does not exist: " + zipFilePath);
+                DiagnosticLog.e("Storage", TAG, "ZIP file does not exist: " + zipFilePath);
                 return "";
             }
 
@@ -270,7 +270,7 @@ public class StorageHelper {
 
             java.util.zip.ZipEntry entry = zis.getNextEntry();
             if (entry == null) {
-                Log.e(TAG, "ZIP file is empty: " + zipFilePath);
+                DiagnosticLog.e("Storage", TAG, "ZIP file is empty: " + zipFilePath);
                 return "";
             }
 
@@ -283,17 +283,17 @@ public class StorageHelper {
                 fos.write(buffer, 0, length);
             }
 
-            Log.i(TAG, "Extracted ZIP file: " + zipFilePath + " -> " + destFilePath);
+            DiagnosticLog.i("Storage", TAG, "Extracted ZIP file: " + zipFilePath + " -> " + destFilePath);
             return destFilePath;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to extract ZIP file: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to extract ZIP file: " + e.getMessage());
             return "";
         } finally {
             try {
                 if (fos != null) fos.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close output stream: " + e.getMessage());
             }
             try {
                 if (zis != null) {
@@ -301,12 +301,12 @@ public class StorageHelper {
                     zis.close();
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close zip stream: " + e.getMessage());
             }
             try {
                 if (fis != null) fis.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close input stream: " + e.getMessage());
             }
         }
     }
@@ -323,7 +323,7 @@ public class StorageHelper {
         try {
             java.io.File sourceFile = new java.io.File(sourceFilePath);
             if (!sourceFile.exists()) {
-                Log.e(TAG, "Source file does not exist: " + sourceFilePath);
+                DiagnosticLog.e("Storage", TAG, "Source file does not exist: " + sourceFilePath);
                 return "";
             }
 
@@ -345,11 +345,11 @@ public class StorageHelper {
                 zos.write(buffer, 0, length);
             }
 
-            Log.i(TAG, "Created ZIP file: " + zipFilePath);
+            DiagnosticLog.i("Storage", TAG, "Created ZIP file: " + zipFilePath);
             return zipFilePath;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to create ZIP file: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to create ZIP file: " + e.getMessage());
             return "";
         } finally {
             try {
@@ -358,17 +358,17 @@ public class StorageHelper {
                     zos.close();
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close zip stream: " + e.getMessage());
             }
             try {
                 if (fos != null) fos.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close output stream: " + e.getMessage());
             }
             try {
                 if (fis != null) fis.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close input stream: " + e.getMessage());
             }
         }
     }
@@ -385,7 +385,7 @@ public class StorageHelper {
         try {
             java.io.File dir = new java.io.File(dirPath);
             if (!dir.exists() || !dir.isDirectory()) {
-                Log.e(TAG, "Directory does not exist or is not a directory: " + dirPath);
+                DiagnosticLog.e("Storage", TAG, "Directory does not exist or is not a directory: " + dirPath);
                 return "";
             }
 
@@ -397,22 +397,22 @@ public class StorageHelper {
 
             addDirectoryToZip(zos, dir, "");
 
-            Log.i(TAG, "Created ZIP from directory: " + dirPath + " -> " + zipPath);
+            DiagnosticLog.i("Storage", TAG, "Created ZIP from directory: " + dirPath + " -> " + zipPath);
             return zipPath;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to zip directory: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to zip directory: " + e.getMessage());
             return "";
         } finally {
             try {
                 if (zos != null) zos.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close zip stream: " + e.getMessage());
             }
             try {
                 if (fos != null) fos.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close output stream: " + e.getMessage());
             }
         }
     }
@@ -457,7 +457,7 @@ public class StorageHelper {
                     try {
                         if (fis != null) fis.close();
                     } catch (Exception e) {
-                        Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                        DiagnosticLog.w("Storage", TAG, "Failed to close input stream: " + e.getMessage());
                     }
                 }
             }
@@ -476,14 +476,14 @@ public class StorageHelper {
         try {
             java.io.File zipFile = new java.io.File(zipPath);
             if (!zipFile.exists()) {
-                Log.e(TAG, "ZIP file does not exist: " + zipPath);
+                DiagnosticLog.e("Storage", TAG, "ZIP file does not exist: " + zipPath);
                 return false;
             }
 
             java.io.File destDirFile = new java.io.File(destDir);
             if (!destDirFile.exists()) {
                 if (!destDirFile.mkdirs()) {
-                    Log.e(TAG, "Failed to create destination directory: " + destDir);
+                    DiagnosticLog.e("Storage", TAG, "Failed to create destination directory: " + destDir);
                     return false;
                 }
             }
@@ -502,13 +502,13 @@ public class StorageHelper {
                 String canonicalOut = outFile.getCanonicalPath();
                 if (!canonicalOut.startsWith(canonicalDest + java.io.File.separator)
                         && !canonicalOut.equals(canonicalDest)) {
-                    Log.e(TAG, "ZIP entry outside target directory: " + entry.getName());
+                    DiagnosticLog.e("Storage", TAG, "ZIP entry outside target directory: " + entry.getName());
                     return false;
                 }
 
                 if (entry.isDirectory()) {
                     if (!outFile.exists() && !outFile.mkdirs()) {
-                        Log.e(TAG, "Failed to create directory: " + outFile.getAbsolutePath());
+                        DiagnosticLog.e("Storage", TAG, "Failed to create directory: " + outFile.getAbsolutePath());
                         return false;
                     }
                 } else {
@@ -516,7 +516,7 @@ public class StorageHelper {
                     java.io.File parent = outFile.getParentFile();
                     if (parent != null && !parent.exists()) {
                         if (!parent.mkdirs()) {
-                            Log.e(TAG, "Failed to create parent directory: " + parent.getAbsolutePath());
+                            DiagnosticLog.e("Storage", TAG, "Failed to create parent directory: " + parent.getAbsolutePath());
                             return false;
                         }
                     }
@@ -532,7 +532,7 @@ public class StorageHelper {
                         try {
                             if (fos != null) fos.close();
                         } catch (Exception e) {
-                            Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                            DiagnosticLog.w("Storage", TAG, "Failed to close output stream: " + e.getMessage());
                         }
                     }
                 }
@@ -540,22 +540,22 @@ public class StorageHelper {
                 zis.closeEntry();
             }
 
-            Log.i(TAG, "Extracted ZIP to directory: " + zipPath + " -> " + destDir);
+            DiagnosticLog.i("Storage", TAG, "Extracted ZIP to directory: " + zipPath + " -> " + destDir);
             return true;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to extract ZIP to directory: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to extract ZIP to directory: " + e.getMessage());
             return false;
         } finally {
             try {
                 if (zis != null) zis.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close zip stream: " + e.getMessage());
             }
             try {
                 if (fis != null) fis.close();
             } catch (Exception e) {
-                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                DiagnosticLog.w("Storage", TAG, "Failed to close input stream: " + e.getMessage());
             }
         }
     }
@@ -566,7 +566,7 @@ public class StorageHelper {
      */
     public static void requestUninstall() {
         if (sActivity == null) {
-            Log.e(TAG, "Activity not initialized, cannot request uninstall");
+            DiagnosticLog.e("Storage", TAG, "Activity not initialized, cannot request uninstall");
             return;
         }
 
@@ -574,9 +574,9 @@ public class StorageHelper {
             Intent intent = new Intent(Intent.ACTION_DELETE);
             intent.setData(Uri.parse("package:" + sActivity.getPackageName()));
             sActivity.startActivity(intent);
-            Log.i(TAG, "Launched uninstall dialog");
+            DiagnosticLog.i("Storage", TAG, "Launched uninstall dialog");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to launch uninstall dialog: " + e.getMessage());
+            DiagnosticLog.e("Storage", TAG, "Failed to launch uninstall dialog: " + e.getMessage());
         }
     }
 }

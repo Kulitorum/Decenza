@@ -356,7 +356,7 @@ T.Page {
                 case "cupFill": return cupFillComponent
                 case "chart": return shotGraphComponent
                 default:
-                    console.warn("Unknown extraction view mode:", espressoPage.extractionViewMode, "— falling back to chart")
+                    WebDebugLogger.warn("Shot", "EspressoPage", ["Unknown extraction view mode:", espressoPage.extractionViewMode, "— falling back to chart"].map(String).join(" "))
                     return shotGraphComponent
             }
         }

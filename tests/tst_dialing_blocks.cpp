@@ -1941,7 +1941,7 @@ private slots:
         withRawDb(path, QStringLiteral("calib_bad_shot"), [&](QSqlDatabase& db) {
             // No such shot id → resolved shot invalid → empty block.
             QTest::ignoreMessage(QtWarningMsg,
-                "ShotHistoryStorage::loadShotRecordStatic: Shot not found: 999999");
+                QRegularExpression("operation=loadShotRecord.*shotId=\\s*999999.*result=missingRow"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), 999999);
@@ -1980,6 +1980,8 @@ private slots:
             const qint64 cur = calSeed(db, QStringLiteral("u2"), 1100,
                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
                     QStringLiteral("6"));
+            QTest::ignoreMessage(QtDebugMsg, QRegularExpression(
+                "\\[AI\\]\\[dialing_blocks\\].*key= unavailable:no-valid-pairs.*validUGS= unavailable:no-valid-pairs"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);

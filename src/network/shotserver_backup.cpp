@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotserver.h"
 #include "core/appsettings.h"
 #include "webdebuglogger.h"
@@ -83,9 +84,9 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         QString extPath = m_profileStorage->externalProfilesPath();
         QString fallbackPath = m_profileStorage->fallbackPath();
 
-        qDebug() << "ShotServer: Profile paths for backup manifest:";
-        qDebug() << "  External path:" << extPath;
-        qDebug() << "  Fallback path:" << fallbackPath;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Profile paths for backup manifest:";
+        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  External path:" << extPath;
+        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  Fallback path:" << fallbackPath;
 
         int profileCount = 0;
         qint64 profilesSize = 0;
@@ -121,11 +122,11 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         countProfiles(fallbackPath, "user");
         countProfiles(fallbackPath, "downloaded");
 
-        qDebug() << "  Total profile count:" << profileCount;
+        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  Total profile count:" << profileCount;
         manifest["profileCount"] = profileCount;
         manifest["profilesSize"] = profilesSize;
     } else {
-        qDebug() << "ShotServer: m_profileStorage is null, cannot enumerate profiles";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "m_profileStorage is null, cannot enumerate profiles";
         manifest["profileCount"] = 0;
         manifest["profilesSize"] = 0;
     }
@@ -563,7 +564,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         }
         buffer.close();
 
-        qDebug() << "ShotServer: Created backup archive with" << entries.size() << "entries,"
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Created backup archive with" << entries.size() << "entries,"
                  << archiveData.size() << "bytes";
 
         // Send response on main thread
@@ -571,11 +572,11 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
                                          archiveData = std::move(archiveData), backupDate]() {
             m_backupFullInProgress = false;  // Always reset before destroyed check
             if (*destroyed) {
-                qDebug() << "ShotServer: Backup response dropped (server destroyed)";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Backup response dropped (server destroyed)";
                 return;
             }
             if (!socketGuard) {
-                qDebug() << "ShotServer: Backup response dropped (socket disconnected)";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Backup response dropped (socket disconnected)";
                 return;
             }
 
@@ -940,7 +941,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         return;
     }
 
-    qDebug() << "ShotServer: Restoring backup with" << entryCount << "entries," << data.size() << "bytes";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Restoring backup with" << entryCount << "entries," << data.size() << "bytes";
 
     qint64 offset = 12;
     bool settingsRestored = false;
@@ -962,7 +963,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     for (quint32 i = 0; i < entryCount; i++) {
         // Read name length
         if (offset + 4 > data.size()) {
-            qWarning() << "ShotServer: Backup truncated at entry" << i << "(name length)";
+            DIAG_WARN(NETWORK, "ShotServer") << "Backup truncated at entry" << i << "(name length)";
             break;
         }
         quint32 nameLen;
@@ -970,7 +971,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         offset += 4;
 
         if (nameLen > 10000 || offset + nameLen > data.size()) {
-            qWarning() << "ShotServer: Backup truncated at entry" << i << "(name)";
+            DIAG_WARN(NETWORK, "ShotServer") << "Backup truncated at entry" << i << "(name)";
             break;
         }
         QString name = QString::fromUtf8(ptr + offset, nameLen);
@@ -978,7 +979,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
 
         // Read data length
         if (offset + 8 > data.size()) {
-            qWarning() << "ShotServer: Backup truncated at entry" << i << "(data length)";
+            DIAG_WARN(NETWORK, "ShotServer") << "Backup truncated at entry" << i << "(data length)";
             break;
         }
         quint64 dataLen;
@@ -986,7 +987,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         offset += 8;
 
         if (offset + static_cast<qint64>(dataLen) > data.size()) {
-            qWarning() << "ShotServer: Backup truncated at entry" << i << "(data)";
+            DIAG_WARN(NETWORK, "ShotServer") << "Backup truncated at entry" << i << "(data)";
             break;
         }
         QByteArray entryData(ptr + offset, static_cast<qsizetype>(dataLen));
@@ -1001,9 +1002,9 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // passwords/API keys that were exported before this fix
                     if (SettingsSerializer::importFromJson(m_settings, doc.object(), SettingsSerializer::sensitiveKeys())) {
                         settingsRestored = true;
-                        qDebug() << "ShotServer: Restored settings";
+                        DIAG_DEBUG(NETWORK, "ShotServer") << "Restored settings";
                     } else {
-                        qWarning() << "ShotServer: Settings import returned failure";
+                        DIAG_WARN(NETWORK, "ShotServer") << "Settings import returned failure";
                     }
                 }
             }
@@ -1038,7 +1039,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     QString content = QString::fromUtf8(entryData);
                     if (m_profileStorage->writeProfile(profileName, content)) {
                         profilesImported++;
-                        qDebug() << "ShotServer: Imported profile:" << profileName;
+                        DIAG_DEBUG(NETWORK, "ShotServer") << "Imported profile:" << profileName;
                     }
                 }
             }
@@ -1059,7 +1060,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         mediaFile.close();
                         if (m_screensaverManager->addPersonalMedia(mediaTempPath, filename)) {
                             mediaImported++;
-                            qDebug() << "ShotServer: Imported media:" << filename;
+                            DIAG_DEBUG(NETWORK, "ShotServer") << "Imported media:" << filename;
                         }
                     }
                     QFile::remove(mediaTempPath);
@@ -1106,7 +1107,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     settings.setValue("accessibility/_migratedFromLegacyV1", true);
                     settings.sync();
                     if (settings.status() != QSettings::NoError) {
-                        qWarning() << "ShotServer: accessibility restore sync failed (status="
+                        DIAG_WARN(NETWORK, "ShotServer") << "accessibility restore sync failed (status="
                                    << settings.status() << ") — settings may not persist";
                     }
                 }
@@ -1117,7 +1118,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 }
 
                 settings.sync();
-                qDebug() << "ShotServer: Restored extra settings (location, accessibility, language)";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Restored extra settings (location, accessibility, language)";
             }
         }
         else if (name == "ai_conversations.json") {
@@ -1183,7 +1184,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // true. Conversations from an archive whose restore was
                     // still in flight at teardown are simply not imported; the
                     // archive is unchanged and can be restored again.
-                    qDebug() << "ShotServer: Restore response dropped (server destroyed)";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Restore response dropped (server destroyed)";
                     return;
                 }
 
@@ -1192,7 +1193,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 bool shotsImported = success;
                 if (success && m_storage) {
                     m_storage->refreshTotalShots();
-                    qDebug() << "ShotServer: Imported shots from backup (async)";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Imported shots from backup (async)";
                 }
 
                 // Now — and only now — the conversations stashed from the entry
@@ -1218,7 +1219,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // literal, and ShotServer holds no TranslationManager.
                     restoreNote = AIConversation::importHeldBackNote(
                         pendingConversations.size(), nullptr);
-                    qWarning() << "ShotServer: shot import was refused, so AI conversations were"
+                    DIAG_WARN(NETWORK, "ShotServer") << "shot import was refused, so AI conversations were"
                                << "NOT imported — restore again rather than lose their shot links";
                 } else if (!pendingConversations.isEmpty() && m_aiManager) {
                     AppSettings settings;
@@ -1235,14 +1236,14 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     if (tally.conversationsImported > 0) {
                         settings.sync();
                         m_aiManager->reloadConversations();
-                        qDebug() << "ShotServer: Imported" << tally.conversationsImported
+                        DIAG_DEBUG(NETWORK, "ShotServer") << "Imported" << tally.conversationsImported
                                  << "AI conversations;" << tally.turnsRemapped
                                  << "shot reference(s) remapped," << tally.turnsCleared
                                  << "cleared";
                     }
                 }
 
-                qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Restore complete - settings:" << settingsRestored
                          << "shots:" << shotsImported
                          << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
                          << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
@@ -1278,7 +1279,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         result["aiConversationsNote"] = restoreNote;
                     sendJson(socketGuard, QJsonDocument(result).toJson(QJsonDocument::Compact));
                 } else {
-                    qDebug() << "ShotServer: Restore response dropped (socket disconnected)";
+                    DIAG_DEBUG(NETWORK, "ShotServer") << "Restore response dropped (socket disconnected)";
                 }
             }, Qt::QueuedConnection);
         });
@@ -1303,13 +1304,13 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         if (tally.conversationsImported > 0) {
             settings.sync();
             m_aiManager->reloadConversations();
-            qDebug() << "ShotServer: Imported" << tally.conversationsImported
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Imported" << tally.conversationsImported
                      << "AI conversations (no shots in archive —" << tally.turnsCleared
                      << "shot reference(s) cleared)";
         }
     }
 
-    qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Restore complete - settings:" << settingsRestored
              << "shots:" << shotsRestored
              << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
              << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
@@ -1326,7 +1327,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     const bool shotsLost = hasShotsDb && !m_storage;
     result["success"] = !shotsLost;
     if (shotsLost) {
-        qWarning() << "ShotServer: archive carried shots but no storage is wired to import them";
+        DIAG_WARN(NETWORK, "ShotServer") << "archive carried shots but no storage is wired to import them";
         result["error"] = QStringLiteral(
             "The shot history in this backup could not be imported — shot storage is not "
             "available. Your existing shots were not changed.");

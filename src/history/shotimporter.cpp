@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotimporter.h"
 #include "shothistorystorage.h"
 #include "shotfileparser.h"
@@ -146,7 +147,7 @@ QString ShotImporter::detectDE1AppHistoryPath()
             // Check if it actually contains .shot files
             QStringList shots = dir.entryList(QStringList() << "*.shot", QDir::Files);
             if (!shots.isEmpty()) {
-                qDebug() << "ShotImporter: Found DE1 app history at" << path << "with" << shots.size() << "shots";
+                DIAG_DEBUG(STORAGE, "ShotImporter") << "Found DE1 app history at" << path << "with" << shots.size() << "shots";
                 return path;
             }
         }
@@ -188,7 +189,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
         return extractZipFromContentUri(zipPath, destDir);
     }
 
-    qDebug() << "ShotImporter: Extracting" << path << "to" << destDir;
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracting" << path << "to" << destDir;
 
     QJniObject jZipPath = QJniObject::fromString(path);
     QJniObject jDestDir = QJniObject::fromString(destDir);
@@ -197,7 +198,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     QJniObject fis("java/io/FileInputStream", "(Ljava/lang/String;)V",
                    jZipPath.object<jstring>());
     if (!fis.isValid() || env.checkAndClearExceptions()) {
-        qWarning() << "ShotImporter: Failed to open zip file";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to open zip file";
         return false;
     }
 
@@ -205,7 +206,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     QJniObject zis("java/util/zip/ZipInputStream", "(Ljava/io/InputStream;)V",
                    fis.object<jobject>());
     if (!zis.isValid() || env.checkAndClearExceptions()) {
-        qWarning() << "ShotImporter: Failed to create ZipInputStream";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to create ZipInputStream";
         fis.callMethod<void>("close");
         return false;
     }
@@ -260,7 +261,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     fis.callMethod<void>("close");
     env.checkAndClearExceptions();
 
-    qDebug() << "ShotImporter: Extracted" << extractedCount << "files";
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracted" << extractedCount << "files";
     return extractedCount > 0;
 
 #else
@@ -271,11 +272,11 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
         path = QUrl(path).toLocalFile();
     }
 
-    qDebug() << "ShotImporter: Extracting" << path << "to" << destDir;
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracting" << path << "to" << destDir;
 
     QZipReader reader(path);
     if (!reader.isReadable()) {
-        qWarning() << "ShotImporter: Cannot read ZIP file:" << path;
+        DIAG_WARN(STORAGE, "ShotImporter") << "Cannot read ZIP file:" << path;
         return false;
     }
 
@@ -289,7 +290,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
 
         // Guard against ZIP Slip path traversal
         if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
-            qWarning() << "ShotImporter: Skipping ZIP entry with path traversal:" << entry.filePath;
+            DIAG_WARN(STORAGE, "ShotImporter") << "Skipping ZIP entry with path traversal:" << entry.filePath;
             continue;
         }
 
@@ -302,13 +303,13 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
 
             QFile outFile(filePath);
             if (!outFile.open(QIODevice::WriteOnly)) {
-                qWarning() << "ShotImporter: Failed to create file:" << filePath;
+                DIAG_WARN(STORAGE, "ShotImporter") << "Failed to create file:" << filePath;
                 continue;
             }
             {
                 QByteArray data = reader.fileData(entry.filePath);
                 if (data.isEmpty() && entry.size > 0) {
-                    qWarning() << "ShotImporter: Failed to read ZIP entry:" << entry.filePath
+                    DIAG_WARN(STORAGE, "ShotImporter") << "Failed to read ZIP entry:" << entry.filePath
                                << "(expected" << entry.size << "bytes)";
                     outFile.close();
                     continue;
@@ -321,7 +322,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     }
 
     reader.close();
-    qDebug() << "ShotImporter: Extracted" << extractedCount << "files";
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracted" << extractedCount << "files";
     return extractedCount > 0;
 #endif
 }
@@ -331,7 +332,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
 {
     QJniEnvironment env;
 
-    qDebug() << "ShotImporter: Extracting from content URI:" << contentUri;
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracting from content URI:" << contentUri;
 
     // Get ContentResolver from context
     QJniObject context = QJniObject(QNativeInterface::QAndroidApplication::context());
@@ -339,7 +340,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
         "getContentResolver", "()Landroid/content/ContentResolver;");
 
     if (!contentResolver.isValid()) {
-        qWarning() << "ShotImporter: Failed to get ContentResolver";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to get ContentResolver";
         return false;
     }
 
@@ -351,7 +352,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
         jUriString.object<jstring>());
 
     if (!uri.isValid()) {
-        qWarning() << "ShotImporter: Failed to parse URI";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to parse URI";
         return false;
     }
 
@@ -362,7 +363,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
         uri.object<jobject>());
 
     if (!inputStream.isValid() || env.checkAndClearExceptions()) {
-        qWarning() << "ShotImporter: Failed to open content URI";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to open content URI";
         return false;
     }
 
@@ -370,7 +371,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
     QJniObject zis("java/util/zip/ZipInputStream", "(Ljava/io/InputStream;)V",
                    inputStream.object<jobject>());
     if (!zis.isValid() || env.checkAndClearExceptions()) {
-        qWarning() << "ShotImporter: Failed to create ZipInputStream";
+        DIAG_WARN(STORAGE, "ShotImporter") << "Failed to create ZipInputStream";
         inputStream.callMethod<void>("close");
         return false;
     }
@@ -425,7 +426,7 @@ bool ShotImporter::extractZipFromContentUri(const QString& contentUri, const QSt
     inputStream.callMethod<void>("close");
     env.checkAndClearExceptions();
 
-    qDebug() << "ShotImporter: Extracted" << extractedCount << "files from content URI";
+    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracted" << extractedCount << "files from content URI";
     return extractedCount > 0;
 }
 #endif
@@ -505,7 +506,7 @@ void ShotImporter::onProcessNextFile()
         ShotFileParser::ParseResult result = ShotFileParser::parseFile(filePath);
 
         if (!result.success) {
-            qWarning() << "Failed to parse" << filename << ":" << result.errorMessage;
+            DIAG_WARN(STORAGE, "shotimporter") << "Failed to parse" << filename << ":" << result.errorMessage;
             m_failedFiles++;
         } else {
             // TODO: importShotRecord() runs synchronously on the main thread via

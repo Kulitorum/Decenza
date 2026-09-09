@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profilestorage.h"
 #include "appsettings.h"
 #include <QStandardPaths>
@@ -19,7 +20,7 @@ ProfileStorage::ProfileStorage(QObject* parent)
     AppSettings settings;
     m_setupSkipped = settings.value("storage/setupSkipped", false).toBool();
 
-    qDebug() << "[ProfileStorage] Initialized. isConfigured:" << isConfigured()
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Initialized. isConfigured:" << isConfigured()
              << "needsSetup:" << needsSetup()
              << "setupSkipped:" << m_setupSkipped;
 
@@ -72,7 +73,7 @@ void ProfileStorage::selectFolder() {
         "io/github/kulitorum/decenza_de1/StorageHelper",
         "requestStoragePermission",
         "()V");
-    qDebug() << "[ProfileStorage] Opened storage permission settings";
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Opened storage permission settings";
 #else
     emit folderSelected(true);
     emit configuredChanged();
@@ -84,7 +85,7 @@ void ProfileStorage::skipSetup() {
     AppSettings settings;
     settings.setValue("storage/setupSkipped", true);
     emit configuredChanged();
-    qDebug() << "[ProfileStorage] Setup skipped by user";
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Setup skipped by user";
 }
 
 QString ProfileStorage::externalProfilesPath() const {
@@ -172,16 +173,16 @@ void ProfileStorage::migrateHistoryToNewPath()
             }
         }
         QDir(oldPath).removeRecursively();
-        qDebug() << "[ProfileStorage] Cleaned up stale history directory" << oldPath;
+        DIAG_DEBUG(PROFILES, "profilestorage") << "Cleaned up stale history directory" << oldPath;
         return;
     }
 
     if (!QDir().rename(oldPath, newPath)) {
-        qWarning() << "[ProfileStorage] Failed to migrate history directory from"
+        DIAG_WARN(PROFILES, "profilestorage") << "Failed to migrate history directory from"
                    << oldPath << "to" << newPath;
         return;
     }
-    qDebug() << "[ProfileStorage] Migrated history from" << oldPath << "to" << newPath;
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Migrated history from" << oldPath << "to" << newPath;
 }
 
 QStringList ProfileStorage::listProfiles() const {
@@ -234,7 +235,7 @@ QString ProfileStorage::readProfile(const QString& filename) const {
             QFile file(path);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                 QString content = QString::fromUtf8(file.readAll());
-                qDebug() << "[ProfileStorage] Read from external:" << path;
+                DIAG_DEBUG(PROFILES, "profilestorage") << "Read from external:" << path;
                 return content;
             }
         }
@@ -265,10 +266,10 @@ bool ProfileStorage::writeProfile(const QString& filename, const QString& conten
             if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 file.write(content.toUtf8());
                 file.close();
-                qDebug() << "[ProfileStorage] Wrote to external:" << path;
+                DIAG_DEBUG(PROFILES, "profilestorage") << "Wrote to external:" << path;
                 return true;
             } else {
-                qWarning() << "[ProfileStorage] Failed to write to external:" << path;
+                DIAG_WARN(PROFILES, "profilestorage") << "Failed to write to external:" << path;
             }
         }
     }
@@ -284,11 +285,11 @@ bool ProfileStorage::writeProfile(const QString& filename, const QString& conten
     if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         file.write(content.toUtf8());
         file.close();
-        qDebug() << "[ProfileStorage] Wrote to fallback:" << path;
+        DIAG_DEBUG(PROFILES, "profilestorage") << "Wrote to fallback:" << path;
         return true;
     }
 
-    qWarning() << "[ProfileStorage] Failed to write profile:" << filename;
+    DIAG_WARN(PROFILES, "profilestorage") << "Failed to write profile:" << filename;
     return false;
 }
 
@@ -301,7 +302,7 @@ bool ProfileStorage::deleteProfile(const QString& filename) {
         if (!extPath.isEmpty()) {
             QString path = extPath + "/" + filename + ".json";
             if (QFile::exists(path) && QFile::remove(path)) {
-                qDebug() << "[ProfileStorage] Deleted from external:" << path;
+                DIAG_DEBUG(PROFILES, "profilestorage") << "Deleted from external:" << path;
                 deleted = true;
             }
         }
@@ -310,7 +311,7 @@ bool ProfileStorage::deleteProfile(const QString& filename) {
     // Also try fallback path
     QString path = fallbackPath() + "/" + filename + ".json";
     if (QFile::exists(path) && QFile::remove(path)) {
-        qDebug() << "[ProfileStorage] Deleted from fallback:" << path;
+        DIAG_DEBUG(PROFILES, "profilestorage") << "Deleted from fallback:" << path;
         deleted = true;
     }
 
@@ -349,7 +350,7 @@ QString ProfileStorage::fallbackPath() const {
 void ProfileStorage::checkPermissionAndNotify() {
 #ifdef Q_OS_ANDROID
     bool configured = isConfigured();
-    qDebug() << "[ProfileStorage] Permission check - configured:" << configured;
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Permission check - configured:" << configured;
 
     // If permission was just granted, migrate existing profiles
     if (configured) {
@@ -363,13 +364,13 @@ void ProfileStorage::checkPermissionAndNotify() {
 
 void ProfileStorage::migrateProfilesToExternal() {
     if (!isConfigured()) {
-        qDebug() << "[ProfileStorage] Cannot migrate - not configured";
+        DIAG_DEBUG(PROFILES, "profilestorage") << "Cannot migrate - not configured";
         return;
     }
 
     QString extPath = externalProfilesPath();
     if (extPath.isEmpty()) {
-        qDebug() << "[ProfileStorage] Cannot migrate - no external path";
+        DIAG_DEBUG(PROFILES, "profilestorage") << "Cannot migrate - no external path";
         return;
     }
 
@@ -382,7 +383,7 @@ void ProfileStorage::migrateProfilesToExternal() {
     // Find profiles in fallback (internal) storage
     QDir fallbackDir(fallbackPath());
     if (!fallbackDir.exists()) {
-        qDebug() << "[ProfileStorage] No fallback profiles to migrate";
+        DIAG_DEBUG(PROFILES, "profilestorage") << "No fallback profiles to migrate";
         return;
     }
 
@@ -401,20 +402,20 @@ void ProfileStorage::migrateProfilesToExternal() {
 
         // Only migrate if not already in external storage
         if (QFile::exists(destPath)) {
-            qDebug() << "[ProfileStorage] Profile already in external, skipping:" << file;
+            DIAG_DEBUG(PROFILES, "profilestorage") << "Profile already in external, skipping:" << file;
             continue;
         }
 
         // Copy to external storage
         if (QFile::copy(srcPath, destPath)) {
-            qDebug() << "[ProfileStorage] Migrated profile:" << file;
+            DIAG_DEBUG(PROFILES, "profilestorage") << "Migrated profile:" << file;
             // Remove from internal storage after successful copy
             QFile::remove(srcPath);
             migrated++;
         } else {
-            qWarning() << "[ProfileStorage] Failed to migrate:" << file;
+            DIAG_WARN(PROFILES, "profilestorage") << "Failed to migrate:" << file;
         }
     }
 
-    qDebug() << "[ProfileStorage] Migration complete. Migrated" << migrated << "profiles";
+    DIAG_DEBUG(PROFILES, "profilestorage") << "Migration complete. Migrated" << migrated << "profiles";
 }

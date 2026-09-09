@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "crashhandler.h"
 #include "logpaths.h"
 
@@ -12,6 +13,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
 #include <pthread.h>
@@ -97,7 +99,7 @@ static void writeBacktraceToFile(FILE* f)
     void* buffer[64];
     size_t count = captureBacktrace(buffer, 64);
 
-    fprintf(f, "\nBacktrace (%zu frames):\n", count);
+    fprintf(f, "\nBacktrace (%zu frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (size_t i = 0; i < count; ++i) {
         Dl_info info;
         if (dladdr(buffer[i], &info) && info.dli_sname) {
@@ -106,14 +108,14 @@ static void writeBacktraceToFile(FILE* f)
             char* demangled = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status);
             const char* name = (status == 0 && demangled) ? demangled : info.dli_sname;
 
-            fprintf(f, "  #%zu: %p %s + %td (%s)\n",
+            fprintf(f, "  #%zu: %p %s + %td (%s)\n", // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                     i, buffer[i], name,
                     static_cast<char*>(buffer[i]) - static_cast<char*>(info.dli_saddr),
                     info.dli_fname ? info.dli_fname : "???");
 
             if (demangled) free(demangled);
         } else {
-            fprintf(f, "  #%zu: %p\n", i, buffer[i]);
+            fprintf(f, "  #%zu: %p\n", i, buffer[i]); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         }
     }
 }
@@ -376,46 +378,46 @@ static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
 {
     switch (outcome) {
     case CaptureOutcome::Content:
-        fprintf(f, "  (end of capture)\n");
+        fprintf(f, "  (end of capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::BudgetHit:
-        fprintf(f, "\n  (capture stopped at %zu bytes — see the budget note in "
+        fprintf(f, "\n  (capture stopped at %zu bytes — see the budget note in " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "crashhandler.cpp; the rest would not have survived the "
                    "server's slice)\n", byteBudget);
         break;
     case CaptureOutcome::NoEntries:
-        fprintf(f, "  (logcat ran and had nothing to report for this pid)\n");
+        fprintf(f, "  (logcat ran and had nothing to report for this pid)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::ExecFailed:
-        fprintf(f, "  (logcat exec failed — no capture)\n");
+        fprintf(f, "  (logcat exec failed — no capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::Dup2Failed:
-        fprintf(f, "  (dup2 failed in capture child — no capture)\n");
+        fprintf(f, "  (dup2 failed in capture child — no capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::PipeFailed:
-        fprintf(f, "  (pipe failed — no capture)\n");
+        fprintf(f, "  (pipe failed — no capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::ForkFailed:
-        fprintf(f, "  (fork failed — no capture)\n");
+        fprintf(f, "  (fork failed — no capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::SetupFailed:
-        fprintf(f, "  (could not set the capture pipe non-blocking — skipped "
+        fprintf(f, "  (could not set the capture pipe non-blocking — skipped " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "rather than risk an unbounded read in the signal handler)\n");
         break;
     case CaptureOutcome::ReadFailed:
-        fprintf(f, "\n  (capture failed after %zu bytes — output above is "
+        fprintf(f, "\n  (capture failed after %zu bytes — output above is " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "incomplete)\n", bytes);
         break;
     case CaptureOutcome::TimedOut:
-        fprintf(f, "\n  (capture killed after 3s with %zu bytes — output above "
+        fprintf(f, "\n  (capture killed after 3s with %zu bytes — output above " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "is truncated mid-stream, not complete)\n", bytes);
         break;
     case CaptureOutcome::ChildLost:
-        fprintf(f, "\n  (lost track of the capture child after %zu bytes and "
+        fprintf(f, "\n  (lost track of the capture child after %zu bytes and " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "killed it — output above may be incomplete)\n", bytes);
         break;
     case CaptureOutcome::Unknown:
-        fprintf(f, "  (capture produced %zu bytes and ended unexplained; child "
+        fprintf(f, "  (capture produced %zu bytes and ended unexplained; child " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "status=0x%x)\n", bytes, static_cast<unsigned>(rawStatus));
         break;
     }
@@ -433,21 +435,21 @@ static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
 // first).
 static CaptureOutcome appendArtAbortMessageToFile(FILE* f)
 {
-    fprintf(f, "\nART abort message (logcat, fatal priority only):\n");
+    fprintf(f, "\nART abort message (logcat, fatal priority only):\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     size_t bytes = 0;
     int rawStatus = 0;
     const CaptureOutcome outcome = captureLogcatToFile(
         f, /*fatalOnly=*/true, kFatalCaptureBudget, &bytes, &rawStatus);
     writeCaptureMarker(f, outcome, bytes, kFatalCaptureBudget, rawStatus);
     if (outcome == CaptureOutcome::NoEntries)
-        fprintf(f, "  (so this was not an ART abort, or logd rotated its "
+        fprintf(f, "  (so this was not an ART abort, or logd rotated its " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "entries out)\n");
     return outcome;
 }
 
 static void appendLogcatTailToFile(FILE* f, size_t byteBudget)
 {
-    fprintf(f, "\nSystem log tail (logcat):\n");
+    fprintf(f, "\nSystem log tail (logcat):\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     size_t bytes = 0;
     int rawStatus = 0;
     const CaptureOutcome outcome =
@@ -463,9 +465,9 @@ static void writeBacktraceToFile(FILE* f)
     int count = backtrace(buffer, 64);
     char** symbols = backtrace_symbols(buffer, count);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", count);
+    fprintf(f, "\nBacktrace (%d frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (int i = 0; i < count; ++i) {
-        fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???");
+        fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     }
 
     if (symbols) free(symbols);
@@ -481,7 +483,7 @@ static void writeBacktraceToFile(FILE* f)
     HANDLE process = GetCurrentProcess();
     SymInitialize(process, nullptr, TRUE);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", frames);
+    fprintf(f, "\nBacktrace (%d frames):\n", frames); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     SYMBOL_INFO* symbol = (SYMBOL_INFO*)calloc(sizeof(SYMBOL_INFO) + 256, 1);
     symbol->MaxNameLen = 255;
@@ -489,7 +491,7 @@ static void writeBacktraceToFile(FILE* f)
 
     for (USHORT i = 0; i < frames; ++i) {
         SymFromAddr(process, (DWORD64)buffer[i], nullptr, symbol);
-        fprintf(f, "  #%d: 0x%p %s\n", i, buffer[i], symbol->Name);
+        fprintf(f, "  #%d: 0x%p %s\n", i, buffer[i], symbol->Name); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     }
 
     free(symbol);
@@ -504,9 +506,9 @@ static void writeBacktraceToFile(FILE* f)
     int count = backtrace(buffer, 64);
     char** symbols = backtrace_symbols(buffer, count);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", count);
+    fprintf(f, "\nBacktrace (%d frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (int i = 0; i < count; ++i) {
-        fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???");
+        fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     }
 
     if (symbols) free(symbols);
@@ -520,21 +522,21 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     if (!f) return;
 
     // Write crash header
-    fprintf(f, "%s\n", kReportStart);
-    fprintf(f, "Signal: %d (%s)\n", signal, signalName);
+    fprintf(f, "%s\n", kReportStart); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "Signal: %d (%s)\n", signal, signalName); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Get current time (basic, signal-safe-ish)
     time_t now = time(nullptr);
-    fprintf(f, "Time: %s", ctime(&now));  // ctime adds newline
+    fprintf(f, "Time: %s", ctime(&now));  // ctime adds newline // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Thread info — critical for diagnosing render thread crashes
     char threadName[64] = {0};
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX)
     pthread_getname_np(pthread_self(), threadName, sizeof(threadName));
-    fprintf(f, "Thread: %p name=\"%s\"\n",
+    fprintf(f, "Thread: %p name=\"%s\"\n", // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             (void*)pthread_self(), threadName[0] ? threadName : "(unnamed)");
 #elif defined(Q_OS_WIN)
-    fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId());
+    fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId()); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 #endif
 
     // Last debug message, CAPPED. s_lastDebugMessage is char[4096] and holds
@@ -545,7 +547,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     // diagnostic (in #1745 it named the screensaver transition count).
     if (s_lastDebugMessage[0] != '\0') {
         constexpr int kLastMessageMax = 512;
-        fprintf(f, "\nLast debug message:\n  %.*s%s\n",
+        fprintf(f, "\nLast debug message:\n  %.*s%s\n", // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                 kLastMessageMax, s_lastDebugMessage,
                 s_lastDebugMessage[kLastMessageMax] != '\0' ? " …(truncated)" : "");
     }
@@ -561,7 +563,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     writeBacktraceToFile(f);
 #else
-    fprintf(f, "\nBacktrace: not available on this platform\n");
+    fprintf(f, "\nBacktrace: not available on this platform\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 #endif
 
 #ifdef Q_OS_ANDROID
@@ -579,7 +581,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
         appendLogcatTailToFile(f, 1500);
 #endif
 
-    fprintf(f, "\n%s\n", kReportEnd);
+    fprintf(f, "\n%s\n", kReportEnd); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     fflush(f);
     fclose(f);
 
@@ -587,11 +589,11 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     if (s_debugLogPath[0] != '\0') {
         FILE* debugLog = fopen(s_debugLogPath, "a");
         if (debugLog) {
-            fprintf(debugLog, "\n\n%s\n", kReportStart);
-            fprintf(debugLog, "Signal: %d (%s)\n", signal, signalName);
-            fprintf(debugLog, "Time: %s", ctime(&now));
+            fprintf(debugLog, "\n\n%s\n", kReportStart); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+            fprintf(debugLog, "Signal: %d (%s)\n", signal, signalName); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+            fprintf(debugLog, "Time: %s", ctime(&now)); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             if (s_lastDebugMessage[0] != '\0') {
-                fprintf(debugLog, "\nLast debug message:\n  %s\n", s_lastDebugMessage);
+                fprintf(debugLog, "\nLast debug message:\n  %s\n", s_lastDebugMessage); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             }
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             writeBacktraceToFile(debugLog);
@@ -602,7 +604,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
             // would leave a start marker with no end — and getDebugLogTail()
             // treats that as "everything after is report text". It recovers now
             // (see the EOF handling there), but losing less is better.
-            fprintf(debugLog, "\n%s\n", kReportEnd);
+            fprintf(debugLog, "\n%s\n", kReportEnd); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             fflush(debugLog);
             fclose(debugLog);
         }
@@ -660,7 +662,7 @@ void CrashHandler::install()
     snprintf(s_logcatPidArg, sizeof(s_logcatPidArg), "--pid=%d", getpid());
 #endif
 
-    qDebug() << "CrashHandler: Installing signal handlers, crash log path:" << logPath;
+    DIAG_DEBUG(APP, "CrashHandler") << "Installing signal handlers, crash log path:" << logPath;
 
     // Install message handler to capture last debug message
     s_previousHandler = qInstallMessageHandler(crashMessageHandler);
@@ -697,19 +699,22 @@ void CrashHandler::uninstall()
 void CrashHandler::logOpenFileDescriptors(const QString& tag)
 {
 #ifdef Q_OS_ANDROID
+    static std::atomic<quint64> nextDump{0};
+    const quint64 dumpId = nextDump.fetch_add(1, std::memory_order_relaxed) + 1;
+    const QString dump = QStringLiteral("dump=%1 reason=%2").arg(dumpId).arg(tag);
     QDir fdDir("/proc/self/fd");
     if (!fdDir.exists()) {
-        qDebug() << "[fd dump:" << tag << "] /proc/self/fd not accessible";
+        DIAG_DEBUG(MEMORY, "FDs") << dump << "/proc/self/fd not accessible";
         return;
     }
     // /proc/self/fd entries are symlinks; the default QDir filter excludes
     // symlinks-to-non-existent. Pass an explicit filter that keeps everything
     // except `.` / `..`.
     const auto entries = fdDir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
-    qDebug().noquote() << "[fd dump:" << tag << "]" << entries.size() << "open fds:";
+    DIAG_DEBUG(MEMORY, "FDs") << dump << "openFds=" << entries.size();
     for (const QString& entry : entries) {
         const QFileInfo fi("/proc/self/fd/" + entry);
-        qDebug().noquote().nospace() << "  fd=" << entry << " -> " << fi.symLinkTarget();
+        DIAG_DEBUG(MEMORY, "FDs") << dump << "fd=" << entry << "target=" << fi.symLinkTarget();
     }
 #else
     Q_UNUSED(tag);
@@ -738,7 +743,7 @@ bool CrashHandler::hasCrashLog()
         // If the last debug message shows main() returned successfully,
         // this is a cleanup crash we can't fix - delete and ignore it
         if (content.contains("main() returned")) {
-            qDebug() << "CrashHandler: Ignoring crash-on-exit (main() returned normally)";
+            DIAG_DEBUG(APP, "CrashHandler") << "Ignoring crash-on-exit (main() returned normally)";
             QFile::remove(path);
             return false;
         }

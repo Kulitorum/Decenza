@@ -30,7 +30,7 @@ public class DecenzaActivity extends QtActivity {
 
         super.onCreate(savedInstanceState);
         StorageHelper.init(this);
-        Log.d(TAG, "=== LIFECYCLE: onCreate ===");
+        DiagnosticLog.d("App", TAG, "=== LIFECYCLE: onCreate ===");
 
         // Start the shutdown service so onTaskRemoved() will be called
         // when the app is swiped away from recent tasks
@@ -40,7 +40,7 @@ public class DecenzaActivity extends QtActivity {
         } catch (IllegalStateException e) {
             // Android may block startService() if app is considered "in background"
             // This can happen during certain wake scenarios - safe to ignore
-            android.util.Log.w("DecenzaActivity", "Could not start shutdown service: " + e.getMessage());
+            DiagnosticLog.w("App", "DecenzaActivity", "Could not start shutdown service: " + e.getMessage());
         }
     }
 
@@ -76,7 +76,7 @@ public class DecenzaActivity extends QtActivity {
         if (intent.getComponent().getClassName().equals(getClass().getName()))
             return;
 
-        Log.i(TAG, "Launched via alias " + intent.getComponent().getClassName()
+        DiagnosticLog.i("App", TAG, "Launched via alias " + intent.getComponent().getClassName()
                 + " - retargeting to " + getClass().getName() + " so Qt loads its libraries");
         intent.setComponent(new ComponentName(this, getClass()));
         setIntent(intent);
@@ -85,24 +85,24 @@ public class DecenzaActivity extends QtActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        Log.d(TAG, "=== LIFECYCLE: onResume (app now in foreground) ===");
+        DiagnosticLog.d("App", TAG, "=== LIFECYCLE: onResume (app now in foreground) ===");
     }
 
     @Override
     protected void onPause() {
-        Log.d(TAG, "=== LIFECYCLE: onPause (app losing focus) ===");
+        DiagnosticLog.d("App", TAG, "=== LIFECYCLE: onPause (app losing focus) ===");
         super.onPause();
     }
 
     @Override
     protected void onStop() {
-        Log.d(TAG, "=== LIFECYCLE: onStop (app no longer visible) ===");
+        DiagnosticLog.d("App", TAG, "=== LIFECYCLE: onStop (app no longer visible) ===");
         super.onStop();
     }
 
     @Override
     protected void onDestroy() {
-        Log.d(TAG, "=== LIFECYCLE: onDestroy (app being destroyed) ===");
+        DiagnosticLog.d("App", TAG, "=== LIFECYCLE: onDestroy (app being destroyed) ===");
         super.onDestroy();
     }
 
@@ -144,7 +144,7 @@ public class DecenzaActivity extends QtActivity {
             // "(Qt not loaded)" is an inference from the exception type, not a
             // confirmed diagnosis — this catch cannot tell which native was
             // missing or why.
-            Log.w(TAG, "Qt native " + callback + " unavailable (Qt not loaded) - ignoring: "
+            DiagnosticLog.w("App", TAG, "Qt native " + callback + " unavailable (Qt not loaded) - ignoring: "
                     + e.getMessage());
         }
     }
@@ -208,14 +208,14 @@ public class DecenzaActivity extends QtActivity {
             // timer), and explicitly do NOT call defaultHandler — the
             // process must stay alive.
             if (isDeadObjectException(throwable)) {
-                Log.w(TAG, "DeadObjectException on thread " + thread.getName()
+                Log.w(TAG, "DeadObjectException on thread " + thread.getName() // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
                         + " — BLE binder died, signaling BLE recovery");
                 try {
                     File flagFile = new File(getFilesDir(), "ble_dead_system");
                     flagFile.createNewFile();
-                    Log.w(TAG, "Wrote BLE recovery flag: " + flagFile.getAbsolutePath());
+                    Log.w(TAG, "Wrote BLE recovery flag: " + flagFile.getAbsolutePath()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
                 } catch (Exception e) {
-                    Log.e(TAG, "Failed to write BLE recovery flag: " + e.getMessage());
+                    Log.e(TAG, "Failed to write BLE recovery flag: " + e.getMessage()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
                 }
                 // Don't call defaultHandler — keep the app alive.
                 // The BLE handler thread is dead but the UI thread and app are fine.
@@ -254,11 +254,11 @@ public class DecenzaActivity extends QtActivity {
                 fw.write(report.toString());
                 fw.close();
 
-                Log.e(TAG, "Java crash logged to: " + crashLog.getAbsolutePath());
-                Log.e(TAG, report.toString());
+                Log.e(TAG, "Java crash logged to: " + crashLog.getAbsolutePath()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
+                Log.e(TAG, report.toString()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
 
             } catch (Exception e) {
-                Log.e(TAG, "Failed to write crash log: " + e.getMessage());
+                Log.e(TAG, "Failed to write crash log: " + e.getMessage()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
             }
 
             // Call default handler to show system crash dialog / terminate
@@ -267,6 +267,6 @@ public class DecenzaActivity extends QtActivity {
             }
         });
 
-        Log.d(TAG, "Java crash handler installed");
+        DiagnosticLog.d("App", TAG, "Java crash handler installed");
     }
 }

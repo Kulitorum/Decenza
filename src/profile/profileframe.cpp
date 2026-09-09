@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profileframe.h"
 #include "profilejson.h"
 #include "profile.h"   // profileJsonToDouble
@@ -53,7 +54,7 @@ QJsonObject ProfileFrame::toJson() const {
             exitObj["condition"] = QStringLiteral("under");
             exitObj["value"] = ProfileJson::enc(exitFlowUnder, ProfileJson::Flow);
         } else if (exitType != "weight") {
-            qWarning() << "ProfileFrame::toJson: unrecognized exitType" << exitType;
+            DIAG_WARN(PROFILES, "ProfileFrame") << "toJson: unrecognized exitType" << exitType;
         }
         if (!exitObj.isEmpty()) obj["exit"] = exitObj;
     }
@@ -146,8 +147,8 @@ void warnUnmodelledNestedKeys(const QJsonObject& nested, const char* which,
     if (unmodelled.isEmpty())
         return;
     unmodelled.sort();
-    qWarning().noquote()
-        << QStringLiteral("ProfileFrame::fromJson: the '%1' object in this step carries "
+    DIAG_WARN(PROFILES, "ProfileFrame").noquote()
+        << QStringLiteral("fromJson: the '%1' object in this step carries "
                           "setting(s) this build does not read: %2. They are being IGNORED, "
                           "so this frame may brew differently than the profile describes. "
                           "The profile was still loaded. Please report this with the profile "
@@ -212,8 +213,8 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
                 frame.exitType = "pressure_under";
                 frame.exitPressureUnder = exitValue;
             } else {
-                qWarning().noquote()
-                    << QStringLiteral("ProfileFrame::fromJson: exit condition '%1' (type '%2') is "
+                DIAG_WARN(PROFILES, "ProfileFrame").noquote()
+                    << QStringLiteral("fromJson: exit condition '%1' (type '%2') is "
                                       "not one this build understands, so it is being treated as "
                                       "'over'. If the profile meant 'under', this frame will exit "
                                       "on the WRONG side of its threshold — ending early or not at "
@@ -230,8 +231,8 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
                 frame.exitType = "flow_under";
                 frame.exitFlowUnder = exitValue;
             } else {
-                qWarning().noquote()
-                    << QStringLiteral("ProfileFrame::fromJson: exit condition '%1' (type '%2') is "
+                DIAG_WARN(PROFILES, "ProfileFrame").noquote()
+                    << QStringLiteral("fromJson: exit condition '%1' (type '%2') is "
                                       "not one this build understands, so it is being treated as "
                                       "'over'. If the profile meant 'under', this frame will exit "
                                       "on the WRONG side of its threshold — ending early or not at "
@@ -244,8 +245,8 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
             frame.exitType = "weight";
             frame.exitWeight = exitValue;
         } else {
-            qWarning().noquote()
-                << QStringLiteral("ProfileFrame::fromJson: exit type '%1' is not one this build "
+            DIAG_WARN(PROFILES, "ProfileFrame").noquote()
+                << QStringLiteral("fromJson: exit type '%1' is not one this build "
                                   "understands (expected pressure, flow or weight), so this "
                                   "frame's exit condition is being DROPPED — it will run its full "
                                   "duration instead of ending early. The profile was still loaded. "
@@ -261,8 +262,8 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
             && frame.exitType != "pressure_over" && frame.exitType != "pressure_under"
             && frame.exitType != "flow_over" && frame.exitType != "flow_under"
             && frame.exitType != "weight") {
-            qWarning().noquote()
-                << QStringLiteral("ProfileFrame::fromJson: legacy exit_type '%1' is not one this "
+            DIAG_WARN(PROFILES, "ProfileFrame").noquote()
+                << QStringLiteral("fromJson: legacy exit_type '%1' is not one this "
                                   "build understands, so this frame's exit condition is being "
                                   "DROPPED — it will run its full duration instead of ending "
                                   "early. The profile was still loaded. Please report this with "

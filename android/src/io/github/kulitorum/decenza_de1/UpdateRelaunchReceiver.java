@@ -80,23 +80,23 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
             Intent launch = context.getPackageManager()
                     .getLaunchIntentForPackage(context.getPackageName());
             if (launch == null) {
-                Log.w(TAG, "no launch intent for " + context.getPackageName());
+                DiagnosticLog.w("App", TAG, "no launch intent for " + context.getPackageName());
                 resultSummary = "no_launch_intent";
             } else {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                               | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 launch.putExtra(EXTRA_AUTO_RELAUNCH, true);
 
-                Log.i(TAG, "receiver fired; canDrawOverlays=" + canDrawOverlays
+                DiagnosticLog.i("App", TAG, "receiver fired; canDrawOverlays=" + canDrawOverlays
                         + "; attempting startActivity()");
                 context.startActivity(launch);
-                Log.i(TAG, "startActivity() returned without throwing"
+                DiagnosticLog.i("App", TAG, "startActivity() returned without throwing"
                         + " (this does NOT confirm the activity actually launched —"
                         + " BAL may still drop the start silently)");
                 resultSummary = "started:saw=" + canDrawOverlays;
             }
         } catch (Throwable t) {
-            Log.w(TAG, "startActivity() threw: " + t);
+            DiagnosticLog.w("App", TAG, "startActivity() threw: " + t);
             resultSummary = "exception:" + t.getClass().getSimpleName();
         }
 
@@ -114,7 +114,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
                 return Settings.canDrawOverlays(context);
             }
         } catch (Throwable t) {
-            Log.w(TAG, "canDrawOverlays threw: " + t);
+            DiagnosticLog.w("App", TAG, "canDrawOverlays threw: " + t);
         }
         return false;
     }
@@ -138,7 +138,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
                 out.write(line.getBytes());
             }
         } catch (IOException e) {
-            Log.w(TAG, "failed to write " + FLAG_FILENAME + ": " + e);
+            DiagnosticLog.w("App", TAG, "failed to write " + FLAG_FILENAME + ": " + e);
         }
     }
 
@@ -174,7 +174,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
      */
     public static void launchSawPermissionSettings(Activity activity) {
         if (activity == null) {
-            Log.w(TAG, "launchSawPermissionSettings: null activity");
+            DiagnosticLog.w("App", TAG, "launchSawPermissionSettings: null activity");
             return;
         }
         try {
@@ -186,10 +186,10 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
             Intent intent = new Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION, uri);
             activity.startActivity(intent);
-            Log.i(TAG, "launchSawPermissionSettings: started for "
+            DiagnosticLog.i("App", TAG, "launchSawPermissionSettings: started for "
                     + activity.getPackageName());
         } catch (Throwable t) {
-            Log.w(TAG, "launchSawPermissionSettings failed: " + t);
+            DiagnosticLog.w("App", TAG, "launchSawPermissionSettings failed: " + t);
         }
     }
 }

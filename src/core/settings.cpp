@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settings.h"
 #include "appsettings.h"
 #include "settings_mqtt.h"
@@ -60,7 +61,7 @@ Settings::Settings(QObject* parent)
     , m_calibration(new SettingsCalibration(this, this))
     , m_graph(new SettingsGraph(this))
 {
-    qDebug() << "Settings: system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
+    DIAG_DEBUG(APP, "Settings") << "system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
              << "-> use12HourTime =" << m_app->use12HourTime();
 
     // Force a fresh read from persistent storage before checking for missing keys.
@@ -68,7 +69,7 @@ Settings::Settings(QObject* parent)
     // the app just wrote to the same plist — sync() forces re-read from disk and
     // prevents the defaults-initialization code from overwriting existing settings.
     m_settings.sync();
-    qDebug() << "Settings: sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
+    DIAG_DEBUG(APP, "Settings") << "sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
 
     // Snapshot whether this looks like a fresh install before any default-init
     // blocks below write keys. Used by one-shot migrations that need to behave
@@ -161,7 +162,7 @@ Settings::Settings(QObject* parent)
             }
         }
         m_settings.setValue("shader/migrated", true);
-        qDebug() << "Settings: Migrated flat shader params to shader/crt/ namespace";
+        DIAG_DEBUG(APP, "Settings") << "Migrated flat shader params to shader/crt/ namespace";
     }
 
     // One-time migration: auto flow calibration graduates from opt-in beta to default-on.
@@ -169,7 +170,7 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/autoFlowCalMigrated")) {
         m_settings.remove("calibration/autoFlowCalibration");
         m_settings.setValue("calibration/autoFlowCalMigrated", true);
-        qDebug() << "Settings: Migrated auto flow calibration to default-on";
+        DIAG_DEBUG(APP, "Settings") << "Migrated auto flow calibration to default-on";
     }
 
     // One-time firmware-channel reset. The old nightly setting selected a
@@ -180,7 +181,7 @@ Settings::Settings(QObject* parent)
         m_settings.remove("firmware/nightlyChannel");
         m_settings.setValue("firmware/EA", false);
         m_settings.setValue("firmware/earlyAccessV1Migrated", true);
-        qDebug() << "Settings: Reset firmware channel to Stable";
+        DIAG_DEBUG(APP, "Settings") << "Reset firmware channel to Stable";
     }
 
     // One-time migration: the headless-only "skip purge confirm" toggle was folded
@@ -196,9 +197,9 @@ Settings::Settings(QObject* parent)
         const bool wantedSingleTap = m_settings.value("headless/skipPurgeConfirm").toBool();
         if (wantedSingleTap && !m_settings.contains("calibration/steamTwoTapStop")) {
             m_settings.setValue("calibration/steamTwoTapStop", false);
-            qDebug() << "Settings: Migrated headless/skipPurgeConfirm=true -> steamTwoTapStop=false (single-tap)";
+            DIAG_DEBUG(APP, "Settings") << "Migrated headless/skipPurgeConfirm=true -> steamTwoTapStop=false (single-tap)";
         } else {
-            qDebug() << "Settings: Removed legacy headless/skipPurgeConfirm key (no value migration needed)";
+            DIAG_DEBUG(APP, "Settings") << "Removed legacy headless/skipPurgeConfirm key (no value migration needed)";
         }
         m_settings.remove("headless/skipPurgeConfirm");
     }
@@ -212,7 +213,7 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/steamTwoTapStopDefaultMigrated")) {
         if (!freshInstall && !m_settings.contains("calibration/steamTwoTapStop")) {
             m_settings.setValue("calibration/steamTwoTapStop", true);
-            qDebug() << "Settings: Seeded steamTwoTapStop=true for existing install (preserves pre-unification two-tap default)";
+            DIAG_DEBUG(APP, "Settings") << "Seeded steamTwoTapStop=true for existing install (preserves pre-unification two-tap default)";
         }
         m_settings.setValue("calibration/steamTwoTapStopDefaultMigrated", true);
     }
@@ -254,7 +255,7 @@ Settings::Settings(QObject* parent)
             // one constructor — so a dirty status on entry may well have been set
             // by the SAME failure, three lines up. Saying otherwise would tell a
             // maintainer to disregard the only evidence they have.
-            qWarning() << "Settings: QSettings status is" << m_settings.status()
+            DIAG_WARN(APP, "Settings") << "QSettings status is" << m_settings.status()
                        << "while committing" << flagKey
                        << (cleanBefore ? "— this write may not have persisted, leaving the"
                                          " flag unset so it retries next launch"
@@ -278,7 +279,7 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v2RatioGuardReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        qDebug() << "Settings: Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
+        DIAG_DEBUG(APP, "Settings") << "Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
         commitFlowCalMigrationFlag("calibration/v2RatioGuardReset");
     }
 
@@ -305,7 +306,7 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v3FlowProfileReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        qDebug() << "Settings: Reset all flow calibrations to 1.0 (v3 flow profile feedback loop fix)";
+        DIAG_DEBUG(APP, "Settings") << "Reset all flow calibrations to 1.0 (v3 flow profile feedback loop fix)";
         commitFlowCalMigrationFlag("calibration/v3FlowProfileReset");
     }
 
@@ -320,7 +321,7 @@ Settings::Settings(QObject* parent)
             return;
         if (!freshInstall) {
             m_calibration->clearAllFlowCalPendingIdeals();
-            qDebug() << "Settings: Cleared pending flow-cal batches (" << reason << ")";
+            DIAG_DEBUG(APP, "Settings") << "Cleared pending flow-cal batches (" << reason << ")";
         }
         commitFlowCalMigrationFlag(flagKey);
     };
@@ -369,7 +370,7 @@ Settings::Settings(QObject* parent)
         m_settings.remove("theme/customColors");
         if (!m_settings.contains("theme/mode"))
             m_settings.setValue("theme/mode", "dark");
-        qDebug() << "Settings: Migrated theme/customColors → theme/customColorsDark";
+        DIAG_DEBUG(APP, "Settings") << "Migrated theme/customColors → theme/customColorsDark";
     }
 
     // Migrate user themes: "colors" → "colorsDark"
@@ -388,7 +389,7 @@ Settings::Settings(QObject* parent)
     }
     if (userThemesMigrated) {
         m_settings.setValue("theme/userThemes", QJsonDocument(migrateUserThemes).toJson(QJsonDocument::Compact));
-        qDebug() << "Settings: Migrated user themes colors → colorsDark";
+        DIAG_DEBUG(APP, "Settings") << "Migrated user themes colors → colorsDark";
     }
 
     // Migrate single saved scale to known scales list (one-time)
@@ -403,7 +404,7 @@ Settings::Settings(QObject* parent)
             scale["name"] = savedName;
             writeKnownScales({scale});
             m_settings.setValue("knownScales/primaryAddress", savedAddress);
-            qDebug() << "Settings: Migrated single scale to known scales:" << savedName << savedAddress;
+            DIAG_DEBUG(APP, "Settings") << "Migrated single scale to known scales:" << savedName << savedAddress;
         }
         m_settings.setValue("knownScales/migrated", true);
     }
@@ -452,7 +453,7 @@ Settings::Settings(QObject* parent)
                 m_settings.setValue("scale/address", promoteAddress);
                 m_settings.setValue("scale/type", promoteType);
                 m_settings.setValue("scale/name", promoteName);
-                qDebug() << "Settings: Repaired orphaned known scale — promoted"
+                DIAG_DEBUG(APP, "Settings") << "Repaired orphaned known scale — promoted"
                          << promoteName << promoteAddress << "to primary";
             } else {
                 // Primary is valid. Verify legacy scale/* keys match it; sync
@@ -467,7 +468,7 @@ Settings::Settings(QObject* parent)
                     m_settings.setValue("scale/address", primary);
                     m_settings.setValue("scale/type", entry.first);
                     m_settings.setValue("scale/name", entry.second);
-                    qDebug() << "Settings: Repaired scale/address drift — synced legacy keys to primary"
+                    DIAG_DEBUG(APP, "Settings") << "Repaired scale/address drift — synced legacy keys to primary"
                              << entry.second << primary;
                 }
             }
@@ -506,9 +507,9 @@ Settings::Settings(QObject* parent)
         const QString persisted = m_settings.value("scale/type").toString();
         if (persisted.isEmpty() || persisted == ScaleTypeIds::normalizeScaleTypeId(persisted)) {
             m_settings.setValue("scale/typeIdsMigrated", true);
-            qDebug() << "Settings: normalized scaleType values to canonical type-ids";
+            DIAG_DEBUG(APP, "Settings") << "normalized scaleType values to canonical type-ids";
         } else {
-            qWarning() << "Settings: scaleType id migration incomplete (scale/type still"
+            DIAG_WARN(APP, "Settings") << "scaleType id migration incomplete (scale/type still"
                        << persisted << ") — will retry next launch";
         }
     }
@@ -552,7 +553,7 @@ Settings::Settings(QObject* parent)
     // would silently race. Recipe wins, matching the tests' restore-order
     // convention (SettingsDye::autoLoadRecipeId restored last so it wins).
     if (!m_app->autoLoadProfileFilename().isEmpty() && m_dye->autoLoadRecipeId() != -1) {
-        qWarning() << "Settings: both profile and recipe auto-load were persisted "
+        DIAG_WARN(APP, "Settings") << "both profile and recipe auto-load were persisted "
                       "simultaneously - clearing the profile side (recipe wins)";
         m_app->setAutoLoadProfileFilename("");
     }
@@ -608,7 +609,7 @@ void Settings::setScaleType(const QString& type) {
         // ordinary path (clearing the primary, e.g. removing the last known scale), so
         // a warning would flag routine behaviour — and did fail three tests exercising
         // exactly that. The substitution is still worth a line in the log.
-        qDebug() << "[Settings] setScaleType() called with an empty/unrecognized type"
+        DIAG_DEBUG(APP, "settings") << "setScaleType() called with an empty/unrecognized type"
                  << type << "- falling back to \"decent\". An empty key would orphan"
                  << "the SAW pool; see removeKnownScale()'s auto-promote.";
         id = QStringLiteral("decent");
@@ -885,7 +886,7 @@ bool Settings::boolValue(const QString& key, bool defaultValue) const {
 
 void Settings::factoryReset()
 {
-    qWarning() << "Settings::factoryReset() - WIPING ALL DATA";
+    DIAG_WARN(APP, "Settings") << "factoryReset() - WIPING ALL DATA";
 
     // 1. Clear the settings store (favorites, presets, theme, all preferences).
     // There is only one now — see appsettings.h.
@@ -931,9 +932,9 @@ void Settings::factoryReset()
     for (const QString& subdir : dataDirs) {
         QDir dir(appDataDir + "/" + subdir);
         if (dir.exists()) {
-            qWarning() << "  Removing:" << dir.absolutePath();
+            DIAG_WARN(APP, "settings") << "  Removing:" << dir.absolutePath();
             if (!dir.removeRecursively())
-                qWarning() << "  WARNING: Failed to completely remove" << dir.absolutePath();
+                DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
         }
     }
 
@@ -942,9 +943,9 @@ void Settings::factoryReset()
     for (const QString& dbFile : dbFiles) {
         QString path = appDataDir + "/" + dbFile;
         if (QFile::exists(path)) {
-            qWarning() << "  Removing:" << path;
+            DIAG_WARN(APP, "settings") << "  Removing:" << path;
             if (!QFile::remove(path))
-                qWarning() << "  WARNING: Failed to remove" << path;
+                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << path;
         }
     }
 
@@ -954,7 +955,7 @@ void Settings::factoryReset()
         QString path = appDataDir + "/" + logFile;
         if (QFile::exists(path)) {
             if (!QFile::remove(path))
-                qWarning() << "  WARNING: Failed to remove" << path;
+                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << path;
         }
     }
 
@@ -966,9 +967,9 @@ void Settings::factoryReset()
     for (const QString& pubDir : publicDirs) {
         QDir dir(docsDir + "/" + pubDir);
         if (dir.exists()) {
-            qWarning() << "  Removing:" << dir.absolutePath();
+            DIAG_WARN(APP, "settings") << "  Removing:" << dir.absolutePath();
             if (!dir.removeRecursively())
-                qWarning() << "  WARNING: Failed to completely remove" << dir.absolutePath();
+                DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
         }
     }
 
@@ -981,7 +982,7 @@ void Settings::factoryReset()
     for (const QString& debugFile : debugFiles) {
         if (QFile::exists(debugFile)) {
             if (!QFile::remove(debugFile))
-                qWarning() << "  WARNING: Failed to remove" << debugFile;
+                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << debugFile;
         }
     }
 
@@ -989,10 +990,10 @@ void Settings::factoryReset()
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     QDir cache(cacheDir);
     if (cache.exists()) {
-        qWarning() << "  Clearing cache:" << cache.absolutePath();
+        DIAG_WARN(APP, "settings") << "  Clearing cache:" << cache.absolutePath();
         if (!cache.removeRecursively())
-            qWarning() << "  WARNING: Failed to completely clear cache";
+            DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely clear cache";
     }
 
-    qWarning() << "Settings::factoryReset() - COMPLETE";
+    DIAG_WARN(APP, "Settings") << "factoryReset() - COMPLETE";
 }

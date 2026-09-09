@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "machinestate.h"
 
 #include "core/logtags.h"
@@ -487,7 +488,7 @@ void MachineState::updatePhase() {
     // a spurious transition from m_previousSubState's init value.
     if (state == DE1::State::Steam && oldPhase == Phase::Steaming
         && subState != previousSubState) {
-        qDebug().noquote() << QString("MachineState: steam substate: %1 -> %2")
+        DIAG_DEBUG(STEAM, "MachineState").noquote() << QString("steam substate: %1 -> %2")
             .arg(DE1::subStateToString(previousSubState),
                  DE1::subStateToString(subState));
     }
@@ -658,7 +659,7 @@ void MachineState::updatePhase() {
                 if (m_scale && !isInEspresso) {
                     m_scale->resetTimer();
                     m_scale->startTimer();
-                    qDebug() << "=== SCALE TIMER: Reset + Started (flow began) ===";
+                    DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Reset + Started (flow began) ===";
                 }
 
                 // Auto-tare for Hot Water (espresso tares at cycle start via MainController)
@@ -673,7 +674,7 @@ void MachineState::updatePhase() {
                         m_hotWaterTarePending = false;
                         if (m_phase != Phase::HotWater) return;  // Operation ended before timer fired
                         tareScale();
-                        qDebug() << "=== TARE: Hot Water started (200ms after timer cmds) ===";
+                        DIAG_DEBUG(SCALE, "machinestate") << "=== TARE: Hot Water started (200ms after timer cmds) ===";
                     });
                 }
             } else {
@@ -701,16 +702,16 @@ void MachineState::updatePhase() {
                             m_scale->resetTimer();
                         }
                         m_scale->startTimer();
-                        qDebug() << "=== SCALE TIMER: Started (espresso extraction began) ===";
+                        DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Started (espresso extraction began) ===";
                     }
                 } else if (!m_shotTimer->isActive()) {
                     // Actual glitch recovery: restart timer without resetting state
                     // This preserves stop-at-weight triggers and cumulative tracking
-                    qDebug() << "=== TIMER RESTART: recovering from mid-espresso phase glitch ===";
+                    DIAG_DEBUG(SHOT, "machinestate") << "=== TIMER RESTART: recovering from mid-espresso phase glitch ===";
                     // If m_shotStartTime is invalid (0 or in the future), reset it
                     qint64 now = QDateTime::currentMSecsSinceEpoch();
                     if (m_shotStartTime <= 0 || m_shotStartTime > now) {
-                        qWarning() << "=== TIMER FIX: m_shotStartTime was invalid:" << m_shotStartTime << "- resetting to now ===";
+                        DIAG_WARN(SHOT, "machinestate") << "=== TIMER FIX: m_shotStartTime was invalid:" << m_shotStartTime << "- resetting to now ===";
                         m_shotStartTime = now;
                         m_shotTime = 0.0;
                     }
@@ -797,7 +798,7 @@ void MachineState::updatePhase() {
         if (wasInEspresso && !isInEspresso) {
             if (m_scale) {
                 m_scale->stopTimer();
-                qDebug() << "=== SCALE TIMER: Stopped (espresso cycle ended) ===";
+                DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Stopped (espresso cycle ended) ===";
             }
             // The pair of espressoCycleStarted — emitted on EVERY exit,
             // including a cycle that never flowed. shotEnded cannot serve this
@@ -829,9 +830,9 @@ void MachineState::updatePhase() {
                 m_scale->resetTimer();
                 if (isFlowing()) {
                     m_scale->startTimer();
-                    qDebug() << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing) ===";
+                    DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing) ===";
                 } else {
-                    qDebug() << "=== SCALE TIMER: Reset (espresso cycle started, waiting for extraction) ===";
+                    DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Reset (espresso cycle started, waiting for extraction) ===";
                 }
             } else if (m_scale && isFlowing()) {
                 // Safety net: machine skipped preheating (missed BLE substate notification).
@@ -839,7 +840,7 @@ void MachineState::updatePhase() {
                 // (requires wasInEspresso=true), so send reset+start together here.
                 m_scale->resetTimer();
                 m_scale->startTimer();
-                qDebug() << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset) ===";
+                DIAG_DEBUG(SCALE, "machinestate") << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset) ===";
             }
 
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
@@ -856,11 +857,11 @@ void MachineState::updatePhase() {
 
             if (isFlowing() && !wasFlowing) {
                 if (m_phase == Phase::Steaming)
-                    qDebug().noquote() << "MachineState: steam flow started (phase entered Steaming)";
+                    DIAG_DEBUG(STEAM, "MachineState").noquote() << "steam flow started (phase entered Steaming)";
                 emit shotStarted();
             } else if (!isFlowing() && wasFlowing) {
                 if (oldPhase == Phase::Steaming)
-                    qDebug().noquote() << "MachineState: steam flow stopped (phase left Steaming)";
+                    DIAG_DEBUG(STEAM, "MachineState").noquote() << "steam flow stopped (phase left Steaming)";
                 emit shotEnded();
             }
         }, Qt::QueuedConnection);
@@ -869,9 +870,9 @@ void MachineState::updatePhase() {
     // Also check for timer stop on substate changes (even if phase didn't change)
     // This handles steam stopping (Puffing/Ending substates) where phase stays Steaming
     if (!isFlowing() && m_shotTimer->isActive()) {
-        qDebug() << "=== TIMER STOP: isFlowing() became false (substate change) ===";
+        DIAG_DEBUG(SHOT, "machinestate") << "=== TIMER STOP: isFlowing() became false (substate change) ===";
         if (m_device && m_device->state() == DE1::State::Steam) {
-            qDebug().noquote() << QString("MachineState: steam flow stopped via substate change (substate=%1)")
+            DIAG_DEBUG(STEAM, "MachineState").noquote() << QString("steam flow stopped via substate change (substate=%1)")
                 .arg(DE1::subStateToString(m_device->subState()));
         }
         stopShotAndScaleTimers("substate change");
@@ -1008,7 +1009,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         bool inTareWindow = m_hotWaterTareTimeMs > 0
             && (QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs) < 2000;
         if (inTareWindow || m_hotWaterMaxEffectiveWeight < 3.0) {
-            qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
+            DIAG_DEBUG(SCALE, "machinestate") << "=== TARE: Scale zeroed, clearing hot water baseline ===";
             m_hotWaterTareBaseline = 0.0;
             m_hotWaterMaxEffectiveWeight = 0.0;  // Reset so SAW uses fresh absolute weight
         }
@@ -1026,7 +1027,7 @@ void MachineState::onScaleWeightChanged(double weight) {
     if (m_phase == Phase::HotWater && m_hotWaterTareTimeMs > 0) {
         qint64 sinceMs = QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs;
         if (sinceMs < 2000) {
-            qDebug() << "[HW-Tare+" << sinceMs << "ms] scale=" << weight
+            DIAG_DEBUG(SCALE, "HotWaterTare") << "elapsedMs=" << sinceMs << "scale=" << weight
                      << "effective=" << (weight - m_hotWaterTareBaseline)
                      << "baseline=" << m_hotWaterTareBaseline;
         } else {
@@ -1050,13 +1051,13 @@ void MachineState::onScaleWeightChanged(double weight) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - m_lastWeightLogMs >= 2000) {
             if (state == DE1::State::HotWater && m_hotWaterTareBaseline != 0.0) {
-                qDebug() << "[" DECENZA_LOG_MARKER_SCALE "] weight=" << QString::number(weight, 'f', 1)
+                DIAG_DEBUG(SCALE, "Weight") << "weight=" << QString::number(weight, 'f', 1)
                          << "effective=" << QString::number(weight - m_hotWaterTareBaseline, 'f', 1)
                          << "baseline=" << QString::number(m_hotWaterTareBaseline, 'f', 1)
                          << "phase=" << phaseString()
                          << "tare=" << m_tareCompleted;
             } else {
-                qDebug() << "[" DECENZA_LOG_MARKER_SCALE "] weight=" << QString::number(weight, 'f', 1)
+                DIAG_DEBUG(SCALE, "Weight") << "weight=" << QString::number(weight, 'f', 1)
                          << "phase=" << phaseString()
                          << "tare=" << m_tareCompleted;
             }
@@ -1166,7 +1167,7 @@ void MachineState::checkStopAtVolume() {
         m_stopAtVolumeTriggered = true;
         emit targetVolumeReached();
 
-        qDebug() << "MachineState: Target pour volume reached -" << m_pourVolume
+        DIAG_DEBUG(SHOT, "MachineState") << "Target pour volume reached -" << m_pourVolume
                  << "ml (preinfusion:" << m_preinfusionVolume << "ml, total:" << m_cumulativeVolume << "ml) /" << target << "ml";
 
         // Stop the operation
@@ -1202,7 +1203,7 @@ void MachineState::checkStopAtVolumeHotWater() {
         m_stopAtVolumeTriggered = true;
         emit targetVolumeReached();
 
-        qDebug() << "MachineState: Hot water volume stop -" << m_pourVolume
+        DIAG_DEBUG(DE1, "MachineState") << "Hot water volume stop -" << m_pourVolume
                  << "ml /" << target << "ml"
                  << (scaleConfigured ? "(safety net)" : "(no scale)");
 
@@ -1280,7 +1281,7 @@ void MachineState::stopShotAndScaleTimers(const char* reason) {
     stopShotTimer();
     if (m_scale) {
         m_scale->stopTimer();
-        qDebug().noquote()
+        DIAG_DEBUG(SCALE, "machinestate").noquote()
             << QStringLiteral("=== SCALE TIMER: Stopped (%1) ===").arg(QLatin1String(reason));
     }
 }
@@ -1323,7 +1324,7 @@ void MachineState::checkStopAtTime() {
         // Stop the operation
         if (m_device) {
             m_device->stopOperation();
-            qDebug() << "=== STOP AT TIME: reached" << target << "seconds ===";
+            DIAG_DEBUG(SHOT, "machinestate") << "=== STOP AT TIME: reached" << target << "seconds ===";
         }
     }
 }
@@ -1402,7 +1403,7 @@ void MachineState::tareScale() {
         m_waitingForTare = false;
         if (m_tareTimeoutTimer)
             m_tareTimeoutTimer->stop();
-        qDebug() << "=== TARE: Hot Water fire-and-forget, baseline=" << m_hotWaterTareBaseline << "g ===";
+        DIAG_DEBUG(SCALE, "machinestate") << "=== TARE: Hot Water fire-and-forget, baseline=" << m_hotWaterTareBaseline << "g ===";
         emit tareCompleted();
         return;
     }
@@ -1413,7 +1414,7 @@ void MachineState::tareScale() {
         // while waiting for the scale to respond confuses the scale and can cause it
         // to never report ~0g, eventually triggering a 6s timeout (issue #430).
         if (m_waitingForTare) {
-            qDebug() << "=== TARE: Skipped (already waiting for scale response) ===";
+            DIAG_DEBUG(SCALE, "machinestate") << "=== TARE: Skipped (already waiting for scale response) ===";
             return;
         }
 
@@ -1429,7 +1430,7 @@ void MachineState::tareScale() {
             m_tareTimeoutTimer->setInterval(6000);
             connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
                 if (m_waitingForTare) {
-                    qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
+                    DIAG_WARN(SCALE, "machinestate") << "Tare timeout: scale didn't report ~0g within 6s";
                     m_waitingForTare = false;
                     m_tareCompleted = true;
                     emit tareCompleted();

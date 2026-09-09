@@ -73,14 +73,14 @@ QtObject {
         // not just display.
         try {
             if (r && r.steamJson) milk = !!JSON.parse(r.steamJson).hasMilk
-        } catch (e) { console.warn("DrinkType: bad steam JSON on recipe", (r && r.name) || "?", e) }
+        } catch (e) { WebDebugLogger.warn("Recipes", "DrinkType", ["bad steam JSON on recipe", (r && r.name) || "?", e].map(String).join(" ")) }
         try {
             if (r && r.hotWaterJson) {
                 var w = JSON.parse(r.hotWaterJson)
                 water = !!w.hasWater
                 order = w.order || ""
             }
-        } catch (e) { console.warn("DrinkType: bad hot-water JSON on recipe", (r && r.name) || "?", e) }
+        } catch (e) { WebDebugLogger.warn("Recipes", "DrinkType", ["bad hot-water JSON on recipe", (r && r.name) || "?", e].map(String).join(" ")) }
         if ((!r || !r.profileTitle || String(r.profileTitle).trim() === "") && water)
             return "tea_hotwater"
         if (milk && water)

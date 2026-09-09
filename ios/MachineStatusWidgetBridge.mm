@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #include <QByteArray>
+#include "core/diagnosticlogging.h"
 
 #include "widget/widgetsharedkeys.h"   // single source of truth for the keys
                                        // (src/ is the target's header root)
@@ -30,8 +31,8 @@ void decenzaWriteWidgetSnapshotIOS(const QByteArray& json) {
             // The single most likely real-world misconfig for this feature
             // (wrong/disabled App Group entitlement). Make it grep-able
             // instead of an invisible "widget stuck on Disconnected".
-            NSLog(@"[widget] App Group '%@' UserDefaults unavailable — "
-                   "entitlement/group-id misconfig?", appGroup);
+            DIAG_WARN(APP, "Widget") << "App Group UserDefaults unavailable; group="
+                                     << WidgetSharedKeys::kIosAppGroupId;
             return;
         }
 
@@ -40,8 +41,7 @@ void decenzaWriteWidgetSnapshotIOS(const QByteArray& json) {
                                      length:(NSUInteger)json.size()
                                    encoding:NSUTF8StringEncoding];
         if (!value) {
-            NSLog(@"[widget] snapshot UTF-8 decode failed (%lld bytes)",
-                  (long long)json.size());
+            DIAG_WARN(APP, "Widget") << "snapshot UTF-8 decode failed; bytes=" << json.size();
             return;
         }
 

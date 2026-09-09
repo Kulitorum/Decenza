@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotserver.h"
 #include "core/appsettings.h"
 #include "webtemplates/auth_page.h"
@@ -176,7 +177,7 @@ bool ShotServer::completeTotpSetup(const QString& secret, const QString& code)
     }
 
     if (!validateTotp(secretBytes, code)) {
-        qDebug() << "ShotServer: TOTP setup verification failed";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "TOTP setup verification failed";
         return false;
     }
 
@@ -200,7 +201,7 @@ void ShotServer::resetTotpSecret()
     }
     m_sessions.clear();
     saveSessions();
-    qDebug() << "ShotServer: TOTP secret and all sessions cleared";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "TOTP secret and all sessions cleared";
     emit hasTotpSecretChanged();
 }
 
@@ -370,7 +371,7 @@ void ShotServer::loadSessions()
         }
     }
     settings.endArray();
-    qDebug() << "ShotServer: Loaded" << m_sessions.size() << "active sessions";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded" << m_sessions.size() << "active sessions";
 }
 
 void ShotServer::saveSessions()

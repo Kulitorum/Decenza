@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "flowcalibrationmodel.h"
 #include "../history/shothistorystorage.h"
 #include "../core/settings_calibration.h"
@@ -63,11 +64,11 @@ void FlowCalibrationModel::loadRecentShots() {
         bool dbFailed = !withTempDb(dbPath, "fcm_recent", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (!query.prepare("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 50")) {
-                qWarning() << "FlowCalibrationModel: query prepare failed:" << query.lastError().text();
+                DIAG_WARN(CALIBRATION, "FlowCalibrationModel") << "query prepare failed:" << query.lastError().text();
             } else if (query.exec()) {
                 while (query.next()) {
                     qint64 id = query.value(0).toLongLong();
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
                     if (!record.weightFlowRate.isEmpty()) {
                         shotIds.append(id);
                         if (shotIds.size() == 1) {
@@ -77,14 +78,14 @@ void FlowCalibrationModel::loadRecentShots() {
                     if (shotIds.size() >= 20) break;
                 }
             } else {
-                qWarning() << "FlowCalibrationModel: query exec failed:" << query.lastError().text();
+                DIAG_WARN(CALIBRATION, "FlowCalibrationModel") << "query exec failed:" << query.lastError().text();
             }
         });
 
         QMetaObject::invokeMethod(this, [this, shotIds = std::move(shotIds),
                                          firstRecord = std::move(firstRecord), dbFailed, destroyed]() {
             if (*destroyed) {
-                qDebug() << "FlowCalibrationModel: loadRecentShots callback dropped (object destroyed)";
+                DIAG_DEBUG(CALIBRATION, "FlowCalibrationModel") << "loadRecentShots callback dropped (object destroyed)";
                 return;
             }
 
@@ -162,12 +163,12 @@ void FlowCalibrationModel::loadCurrentShot() {
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         ShotRecord record;
         bool dbFailed = !withTempDb(dbPath, "fcm_shot", [&](QSqlDatabase& db) {
-            record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
         });
 
         QMetaObject::invokeMethod(this, [this, record = std::move(record), dbFailed, destroyed]() {
             if (*destroyed) {
-                qDebug() << "FlowCalibrationModel: loadCurrentShot callback dropped (object destroyed)";
+                DIAG_DEBUG(CALIBRATION, "FlowCalibrationModel") << "loadCurrentShot callback dropped (object destroyed)";
                 return;
             }
 

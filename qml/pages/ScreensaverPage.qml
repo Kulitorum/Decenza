@@ -60,14 +60,14 @@ T.Page {
     property bool videoDecoderBroken: !ScreensaverManager.hasHardwareVideoDecoder
 
     Component.onCompleted: {
-        console.log("[Screensaver] Loaded, type:", screensaverType,
+        WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
-                    "disabled:", isDisabledMode)
+                    "disabled:", isDisabledMode].map(String).join(" "))
         if (isDisabledMode) {
             // Dim backlight to minimum (1%) and show black overlay.
             // We keep FLAG_KEEP_SCREEN_ON set to avoid potential EGL surface
             // destruction on some Android devices (QTBUG-45019 class of issues).
-            console.log("[Screensaver] Disabled mode: dimming backlight to minimum")
+            WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Disabled mode: dimming backlight to minimum"].map(String).join(" "))
             dimBehavior.enabled = false
             dimOverlay.opacity = 1
             dimBehavior.enabled = true
@@ -83,8 +83,8 @@ T.Page {
     }
 
     function applyDim() {
-        console.log("[Screensaver] Applying dim:", ScreensaverManager.dimPercent + "% (delay was",
-                    ScreensaverManager.dimDelayMinutes, "min)")
+        WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Applying dim:", ScreensaverManager.dimPercent + "% (delay was",
+                    ScreensaverManager.dimDelayMinutes, "min)"].map(String).join(" "))
         dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
         ScreensaverManager.setScreenDimming(ScreensaverManager.dimPercent)
         // Stop gradient animation (only relevant in videos fallback mode)
@@ -105,14 +105,14 @@ T.Page {
         function onVideoReady(path) {
             // Media just finished downloading - try to play if we're showing fallback
             if (!screensaverPage.mediaPlaying) {
-                console.log("[Screensaver] New media ready, starting playback")
+                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["New media ready, starting playback"].map(String).join(" "))
                 screensaverPage.playNextMedia()
             }
         }
         function onCatalogUpdated() {
             // Catalog loaded - try to play if we're showing fallback
             if (!screensaverPage.mediaPlaying && ScreensaverManager.itemCount > 0) {
-                console.log("[Screensaver] Catalog updated, trying playback")
+                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Catalog updated, trying playback"].map(String).join(" "))
                 screensaverPage.playNextMedia()
             }
         }
@@ -171,7 +171,7 @@ T.Page {
         function onStateChanged() {
             if (Qt.application.state === Qt.ApplicationSuspended) {
                 screensaverPage.appSuspended = true
-                console.log("[Screensaver] App suspended — pausing all rendering")
+                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["App suspended — pausing all rendering"].map(String).join(" "))
                 // Destroy video decoder to stop rendering to dead EGL surface
                 if (mediaPlayerLoader.active) {
                     screensaverPage.pendingVideoSource = ""
@@ -181,7 +181,7 @@ T.Page {
                 gradientAnimation.running = false
             } else if (Qt.application.state === Qt.ApplicationActive && screensaverPage.appSuspended) {
                 screensaverPage.appSuspended = false
-                console.log("[Screensaver] App resumed — restarting media")
+                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["App resumed — restarting media"].map(String).join(" "))
                 if (screensaverPage.isVideosMode && ScreensaverManager.enabled) {
                     screensaverPage.playNextMedia()
                     // playNextMedia() may call wake() which navigates away —
@@ -232,7 +232,7 @@ T.Page {
                 videoSkipCount++
                 if (videoSkipCount > ScreensaverManager.itemCount + 5) {
                     // All catalog items are videos — no playable content, auto-wake
-                    console.warn("[Screensaver] No playable content (no hardware decoder) — auto-waking")
+                    WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["No playable content (no hardware decoder) — auto-waking"].map(String).join(" "))
                     videoSkipCount = 0
                     mediaPlaying = false
                     isCurrentItemImage = false
@@ -287,9 +287,9 @@ T.Page {
                     var folded = videoTransitionsSinceLog > 1
                         ? " (+" + (videoTransitionsSinceLog - 1) +
                           " transitions within 5 MB of the last line)" : ""
-                    console.log("[Screensaver] Video transition #" + videoTransitionCount +
+                    WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Video transition #" + videoTransitionCount +
                                 " RSS:" + liveRss.toFixed(1) + " MB" + delta + folded +
-                                " src:" + source.substring(source.lastIndexOf("/") + 1))
+                                " src:" + source.substring(source.lastIndexOf("/") + 1)].map(String).join(" "))
                     videoTransitionsSinceLog = 0
                     preDestroyRss = liveRss
                 }
@@ -298,13 +298,13 @@ T.Page {
                 // on macOS (CVPixelBufferPool not fully released). Restart the screensaver
                 // when RSS grows too high to prevent eventual SIGBUS crash.
                 if (liveRss > screensaverPage.videoRssCeilingMB && screensaverPage.videoTransitionCount > 5) {
-                    console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
+                    WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["RSS ceiling exceeded (" + liveRss.toFixed(0) +
                                  " MB of " + screensaverPage.videoRssCeilingMB +
                                  " MB at transition #" + videoTransitionCount +
                                  ") — stopping video playback (Qt FFmpeg leak is unrecoverable)" +
                                  (MemoryMonitor.instrumentedBuild
                                     ? " [instrumented build: ceiling scaled up, so this is a real"
-                                      + " runaway rather than sanitizer overhead]" : ""))
+                                      + " runaway rather than sanitizer overhead]" : "")].map(String).join(" "))
                     // Qt's FFmpeg/VideoToolbox backend leaks Metal/IOSurface memory
                     // that survives both Loader destruction and full page teardown.
                     // Stop playing videos to prevent the leak from reaching SIGBUS.
@@ -338,7 +338,7 @@ T.Page {
             mediaPlaying = false
             isCurrentItemImage = false
             if (videoDecoderBroken) {
-                console.warn("[Screensaver] No content available (no hardware decoder) — auto-waking")
+                WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["No content available (no hardware decoder) — auto-waking"].map(String).join(" "))
                 wake()
             }
         }
@@ -364,7 +364,7 @@ T.Page {
         lastFailedSource = playerSource
 
         videoFailCount++
-        console.warn("[Screensaver] Media failed (" + videoFailCount + "/5):", playerSource)
+        WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["Media failed (" + videoFailCount + "/5):", playerSource].map(String).join(" "))
 
         // Tell the manager the underlying file is corrupt so it deletes the
         // local copy and re-queues a download. Two gates:
@@ -451,7 +451,7 @@ T.Page {
                 }
 
                 onErrorOccurred: function(error, errorString) {
-                    console.warn("[Screensaver] MediaPlayer error:", error, errorString)
+                    WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["MediaPlayer error:", error, errorString].map(String).join(" "))
                     // Only Qt's FormatError implies the on-disk bytes are
                     // bad. Other codes (ResourceError, NetworkError,
                     // AccessDeniedError) are transient — leave the file alone.
@@ -900,7 +900,7 @@ T.Page {
 
     // Clean up media when page is being removed
     StackView.onRemoved: {
-        console.log("[Screensaver] Waking: restoring brightness and cleaning up")
+        WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Waking: restoring brightness and cleaning up"].map(String).join(" "))
         pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
         mediaPlayerLoader.active = false
         mediaPlaying = false

@@ -52,7 +52,7 @@ T.Page {
             id: fakeShortHoldTimer
             interval: 5000
             onTriggered: {
-                console.log("DEV: Simulating completed shot")
+                WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Simulating completed shot"].map(String).join(" "))
                 MainController.generateFakeShotData()
                 AppShell.espressoRequested()
                 fakeShowMetadataTimer.start()
@@ -64,7 +64,7 @@ T.Page {
             interval: 300
             onTriggered: {
                 var shotId = MainController.lastSavedShotId
-                console.log("DEV: Opening PostShotReviewPage with shotId:", shotId)
+                WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Opening PostShotReviewPage with shotId:", shotId].map(String).join(" "))
                 AppShell.postShotReviewRequested(shotId, true)
             }
         }
@@ -497,17 +497,17 @@ T.Page {
         // (the two gates fail for very different reasons) so a debug log tells
         // us exactly why a shot did not start.
         if (!idlePage.canStartOperations) {
-            console.log("[recipe pill] start blocked: app cannot start operations (active GHC?) — recipe=" + recipe.id
-                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode)
+            WebDebugLogger.warn("Recipes", "IdlePage", ["start blocked: GHC active; app start disallowed — recipe=" + recipe.id
+                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode].map(String).join(" "))
         } else if (!MachineState.isReady) {
-            console.log("[recipe pill] start blocked: machine not ready — recipe=" + recipe.id
-                        + " phase=" + MachineState.phase)
+            WebDebugLogger.warn("Recipes", "IdlePage", ["start blocked: machine not ready — recipe=" + recipe.id
+                        + " phase=" + MachineState.phase].map(String).join(" "))
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
             // Deferred in MainController until the recipe's profile is applied,
             // so a fast second tap can't pull a shot on the previous profile.
-            console.log("[recipe pill] requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase)
+            WebDebugLogger.info("Recipes", "IdlePage", ["requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase].map(String).join(" "))
             MainController.startSelectedRecipeShotWhenApplied()
         }
     }
@@ -1068,7 +1068,7 @@ T.Page {
                                 if (MachineState.isReady && idlePage.canStartOperations) {
                                     DE1Device.startSteam()
                                 } else {
-                                    console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                                    WebDebugLogger.debug("Steam", "IdlePage", ["Cannot start steam - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                         AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                 }
@@ -1161,7 +1161,7 @@ T.Page {
                                 if (MachineState.isReady && idlePage.canStartOperations) {
                                     DE1Device.startEspresso()
                                 } else {
-                                    console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                    WebDebugLogger.debug("Shot", "IdlePage", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                         AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                 }
@@ -1225,7 +1225,7 @@ T.Page {
                                     if (MachineState.isReady && idlePage.canStartOperations) {
                                         DE1Device.startEspresso()
                                     } else {
-                                        console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                        WebDebugLogger.debug("Shot", "IdlePage", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                             AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                     }
@@ -1331,7 +1331,7 @@ T.Page {
                             if (MachineState.isReady && idlePage.canStartOperations) {
                                 DE1Device.startHotWater()
                             } else {
-                                console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
+                                WebDebugLogger.debug("DE1", "IdlePage", ["Cannot start hot water - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }
@@ -1379,7 +1379,7 @@ T.Page {
                             if (MachineState.isReady && idlePage.canStartOperations) {
                                 DE1Device.startFlush()
                             } else {
-                                console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
+                                WebDebugLogger.debug("DE1", "IdlePage", ["Cannot start flush - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }

@@ -64,7 +64,7 @@ DecenzaDialog {
             if (inQuote) {
                 if (ch === '"') inQuote = false
                 else if (ch === '<') {
-                    console.warn("Malformed HTML detected, stripping tags")
+                    WebDebugLogger.warn("App", "CustomEditorPopup", ["Malformed HTML detected, stripping tags"].map(String).join(" "))
                     return html.replace(/<[^>]*>/g, "")
                 }
             } else if (inTag) {
@@ -91,22 +91,22 @@ DecenzaDialog {
 
         // Load segments if available, otherwise fall back to HTML content
         var segments = props.segments
-        console.log("openForItem id:", id, "has segments:", segments ? segments.length : 0, "content:", (props.content || "").substring(0, 80))
+        WebDebugLogger.debug("App", "CustomEditorPopup", ["openForItem id:", id, "has segments:", segments ? segments.length : 0, "content:", (props.content || "").substring(0, 80)].map(String).join(" "))
         if (segments && segments.length > 0) {
             // Break the text binding before loading segments into the document
             contentInput.text = ""
             formatter.fromSegments(segments)
-            console.log("Loaded from segments")
+            WebDebugLogger.debug("App", "CustomEditorPopup", ["Loaded from segments"].map(String).join(" "))
         } else {
             // Legacy item — load HTML into TextArea directly
             var rawContent = props.content || "Text"
             textContent = sanitizeHtml(rawContent)
             if (textContent !== rawContent) {
-                console.warn("Auto-saved sanitized content for item:", id)
+                WebDebugLogger.warn("App", "CustomEditorPopup", ["Auto-saved sanitized content for item:", id].map(String).join(" "))
                 Settings.network.setItemProperty(id, "content", textContent)
             }
             contentInput.text = textContent
-            console.log("Loaded from HTML content:", textContent.substring(0, 80))
+            WebDebugLogger.debug("App", "CustomEditorPopup", ["Loaded from HTML content:", textContent.substring(0, 80)].map(String).join(" "))
         }
         open()
     }
@@ -116,8 +116,8 @@ DecenzaDialog {
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
         var html = formatter.segmentsToHtml(segments)
-        console.log("doSave segments:", JSON.stringify(segments))
-        console.log("doSave html:", html)
+        WebDebugLogger.debug("App", "CustomEditorPopup", ["doSave segments:", JSON.stringify(segments)].map(String).join(" "))
+        WebDebugLogger.debug("App", "CustomEditorPopup", ["doSave html:", html].map(String).join(" "))
         textContent = html || "Text"
 
         Settings.network.setItemProperty(itemId, "content", textContent)

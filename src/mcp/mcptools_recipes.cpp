@@ -680,7 +680,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                                                fallbackSteam, recipeStorage, settings, respond]() {
                 ShotRecord record;
                 const bool opened = withTempDb(dbPath, "mcp_recipe_promote", [&](QSqlDatabase& db) {
-                    record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+                    record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                 });
                 QMetaObject::invokeMethod(qApp, [opened, record, shotId, name, hasMilkProvided,
                                                  hasMilk, fallbackSteam, recipeStorage, settings,

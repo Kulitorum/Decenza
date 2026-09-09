@@ -111,7 +111,7 @@ QtObject {
     function _refresh() {
         _loadState = "loading"
         if (!_storage) {
-            console.warn("[Theme] No shot storage — the last-shot background cannot load")
+            WebDebugLogger.warn("Theme", "LastShotChartSource", ["No shot storage — the last-shot background cannot load"].map(String).join(" "))
             _loadState = "empty"
             return
         }
@@ -135,8 +135,8 @@ QtObject {
                 root._storage.requestShot(shotId)
                 return
             }
-            console.info("[Theme] No shot to draw — the last-shot background falls back "
-                         + "to the theme colour")
+            WebDebugLogger.info("Theme", "LastShotChartSource", ["No shot to draw — the last-shot background falls back "
+                         + "to the theme colour"].map(String).join(" "))
             root._shotId = 0
             root.shotData = ({})
             root._renderedUrl = ""
@@ -149,9 +149,9 @@ QtObject {
             // default projection. Accepting it drew an empty 60-second grid — axes, no
             // curves — which reads as a design choice rather than a failure.
             if (!shot || (shot.pressure || []).length === 0) {
-                console.warn("[Theme] Shot", id, "loaded with no samples; it was probably "
+                WebDebugLogger.warn("Theme", "LastShotChartSource", ["Shot", id, "loaded with no samples; it was probably "
                              + "removed between the lookup and the load. Falling back to the "
-                             + "theme colour.")
+                             + "theme colour."].map(String).join(" "))
                 root.shotData = ({})
                 root._renderedUrl = ""
                 root._loadState = "empty"

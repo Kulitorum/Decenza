@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settings_brew.h"
 #include "settings.h"
 #include "yieldspec.h"
@@ -123,7 +124,7 @@ SettingsBrew::SettingsBrew(QObject* parent)
         // Skip the BLOCK, never return — this is a constructor, and the brew
         // overrides below still have to load.
         if (migrationParseFailed) {
-            qWarning() << "SettingsBrew: steam pitcher presets unreadable — deferring the"
+            DIAG_WARN(APP, "SettingsBrew") << "steam pitcher presets unreadable — deferring the"
                           " Heater off migration to the next launch";
         } else {
         QJsonArray kept;
@@ -153,7 +154,7 @@ SettingsBrew::SettingsBrew(QObject* parent)
             m_settings.setValue("steam/selectedPitcher",
                                 selectionWasRemoved ? HeaterOffPitcherIndex : remapped);
             m_settings.setValue("steam/heaterOffRemovedNames", removedNames);
-            qInfo() << "SettingsBrew: replaced" << removedNames.size()
+            DIAG_INFO(APP, "SettingsBrew") << "replaced" << removedNames.size()
                     << "user Off pitcher preset(s) with the built-in Heater off entry;"
                     << "selection" << selected << "->"
                     << (selectionWasRemoved ? HeaterOffPitcherIndex : remapped);
@@ -358,7 +359,7 @@ QJsonArray SettingsBrew::readPresetArray(const QString& key, bool* parseFailed) 
         // noquote so the key reads as a settings path rather than "a/b" — this
         // line is the only notice a user or a bug report ever gets that their
         // presets became unreadable.
-        qWarning().noquote() << "SettingsBrew: could not parse" << key << "-" << err.errorString()
+        DIAG_WARN(APP, "SettingsBrew").noquote() << "could not parse" << key << "-" << err.errorString()
                              << "at offset" << err.offset
                              << "- reporting no presets and refusing to overwrite the stored value";
         return QJsonArray();
@@ -367,7 +368,7 @@ QJsonArray SettingsBrew::readPresetArray(const QString& key, bool* parseFailed) 
     // be written over.
     if (!doc.isArray()) {
         if (parseFailed) *parseFailed = true;
-        qWarning().noquote() << "SettingsBrew:" << key << "holds valid JSON that is not an array"
+        DIAG_WARN(APP, "SettingsBrew").noquote() << key << "holds valid JSON that is not an array"
                              << "- reporting no presets and refusing to overwrite the stored value";
         return QJsonArray();
     }
@@ -591,7 +592,7 @@ bool SettingsBrew::rejectsBuiltInPitcher(int index, const char* verb) const {
     // there would silently edit or delete a real pitcher.
     if (!isHeaterOffPitcher(index))
         return false;
-    qWarning().noquote() << "SettingsBrew: the built-in Heater off entry cannot be"
+    DIAG_WARN(APP, "SettingsBrew").noquote() << "the built-in Heater off entry cannot be"
                          << QString::fromUtf8(verb);
     return true;
 }
@@ -696,7 +697,7 @@ void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int 
     // Existing duplicates already in storage are left alone: this rejects new
     // ones, it does not delete anyone's data.
     if (nameTakenIn(arr, name, -1)) {
-        qWarning() << "SettingsBrew: refusing a duplicate steam pitcher named" << name
+        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
                    << "- that name is already in use";
         return;
     }
@@ -728,7 +729,7 @@ void SettingsBrew::updateSteamPitcherPreset(int index, const QString& name, int 
     // Existing duplicates already in storage are left alone: this rejects new
     // ones, it does not delete anyone's data.
     if (nameTakenIn(arr, name, index)) {
-        qWarning() << "SettingsBrew: refusing a duplicate steam pitcher named" << name
+        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
                    << "- that name is already in use";
         return;
     }
@@ -868,7 +869,7 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
         // A stale/out-of-range selection index (e.g. every preset deleted). Unlike a
         // disabled preset, this is never a deliberate state — warn so the resulting
         // 0s steam timeout is diagnosable.
-        qWarning() << "SettingsBrew: no steam pitcher preset at index" << index
+        DIAG_WARN(APP, "SettingsBrew") << "no steam pitcher preset at index" << index
                    << "— steam timeout will be 0s";
         return 0;
     }
@@ -877,7 +878,7 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
     // An enabled preset with no positive duration is corrupt (hand-edited/failed import);
     // returning 0 here silently programs a 0s steam target, so make it loud.
     if (base <= 0)
-        qWarning() << "SettingsBrew: enabled steam pitcher preset" << index
+        DIAG_WARN(APP, "SettingsBrew") << "enabled steam pitcher preset" << index
                    << "has no positive duration — steam timeout will be 0s";
     return base;
 }
@@ -995,7 +996,7 @@ void SettingsBrew::addWaterVesselPreset(const QString& name, int volume, const Q
     // Existing duplicates already in storage are left alone: this rejects new
     // ones, it does not delete anyone's data.
     if (nameTakenIn(arr, name, -1)) {
-        qWarning() << "SettingsBrew: refusing a duplicate water vessel named" << name
+        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate water vessel named" << name
                    << "- that name is already in use";
         return;
     }
@@ -1027,7 +1028,7 @@ void SettingsBrew::updateWaterVesselPreset(int index, const QString& name, int v
     // Existing duplicates already in storage are left alone: this rejects new
     // ones, it does not delete anyone's data.
     if (nameTakenIn(arr, name, index)) {
-        qWarning() << "SettingsBrew: refusing a duplicate water vessel named" << name
+        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate water vessel named" << name
                    << "- that name is already in use";
         return;
     }
@@ -1251,7 +1252,7 @@ double SettingsBrew::temperatureOverride() const {
 
 void SettingsBrew::setTemperatureOverride(double temp) {
     if (!qFuzzyCompare(m_temperatureOverride, temp) || !m_hasTemperatureOverride) {
-        qDebug() << "setTemperatureOverride:" << m_temperatureOverride << "→" << temp;
+        DIAG_DEBUG(APP, "settings_brew") << "setTemperatureOverride:" << m_temperatureOverride << "→" << temp;
         m_temperatureOverride = temp;
         m_hasTemperatureOverride = true;
         m_settings.setValue("brew/temperatureOverride", temp);

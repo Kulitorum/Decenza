@@ -258,11 +258,11 @@ T.Page {
 
                 onStatusChanged: {
                     if (status === Loader.Loading)
-                        console.log("SettingsPage: loading tab", tabId)  // TODO: remove after #844 confirmed resolved
+                        WebDebugLogger.debug("App", "SettingsPage", ["loading tab", tabId].map(String).join(" "))  // TODO: remove after #844 confirmed resolved
                     else if (status === Loader.Ready)
-                        console.log("SettingsPage: tab ready", tabId)  // TODO: remove after #844 confirmed resolved
+                        WebDebugLogger.debug("App", "SettingsPage", ["tab ready", tabId].map(String).join(" "))  // TODO: remove after #844 confirmed resolved
                     else if (status === Loader.Error)
-                        console.warn("SettingsPage: tab load error", tabId)
+                        WebDebugLogger.warn("App", "SettingsPage", ["tab load error", tabId].map(String).join(" "))
                 }
 
                 onLoaded: {
@@ -452,7 +452,7 @@ T.Page {
                     doScrollAndHighlight(loader.item, cardId)
                 } else if (loader.status === Loader.Error) {
                     loader.statusChanged.disconnect(conn)
-                    console.warn("SettingsPage: Tab failed to load for cardId:", cardId)
+                    WebDebugLogger.warn("App", "SettingsPage", ["Tab failed to load for cardId:", cardId].map(String).join(" "))
                 }
             }
             loader.statusChanged.connect(conn)
@@ -463,7 +463,7 @@ T.Page {
         // Find card by objectName recursively
         var card = findChildByObjectName(tabItem, cardId)
         if (!card) {
-            console.warn("SettingsPage: Could not find card '" + cardId + "' in tab")
+            WebDebugLogger.warn("App", "SettingsPage", ["Could not find card '" + cardId + "' in tab"].map(String).join(" "))
             return
         }
 

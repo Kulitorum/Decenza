@@ -1278,8 +1278,8 @@ Item {
                                         // TOCTOU: scan/forget mutated the model between
                                         // the user's tap and this handler. Log so we can
                                         // tell this apart from a no-op re-select.
-                                        console.warn("scalePicker: stale activated index", index,
-                                                     "model length", scales.length)
+                                        WebDebugLogger.warn("Scale", "SettingsConnectionsTab", ["scalePicker: stale activated index", index,
+                                                     "model length", scales.length].map(String).join(" "))
                                         return
                                     }
                                     var scale = scales[index]
@@ -1844,10 +1844,10 @@ Item {
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
-                            console.log("discoveredDevicesList combinedModel rebuilt:",
+                            WebDebugLogger.debug("Scale", "SettingsConnectionsTab", ["discoveredDevicesList combinedModel rebuilt:",
                                         "scales=" + scales.length + "(-" + skippedScales + " known)",
                                         "refractometers=" + refractometers.length + "(-" + skippedRefs + " known)",
-                                        "→ items=" + items.length)
+                                        "→ items=" + items.length].map(String).join(" "))
                             return items
                         }
                         property var combinedModel: []

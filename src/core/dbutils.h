@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/diagnosticlogging.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -101,14 +102,14 @@ public:
                 // transaction within a transaction" — a SQLITE_ERROR with no
                 // distinct result code, so the message is the only signal there is.
                 if (err.text().contains(QLatin1String("within a transaction"), Qt::CaseInsensitive))
-                    qWarning() << "DbWriteTxn:" << what
+                    DIAG_WARN(STORAGE, "DbWriteTxn") << what
                                << "is nested inside a transaction owned by an outer frame";
                 else
-                    qWarning() << "DbWriteTxn:" << what << "failed to begin:" << err.text();
+                    DIAG_WARN(STORAGE, "DbWriteTxn") << what << "failed to begin:" << err.text();
                 return DbWriteTxn();
             }
             if (attempt >= attempts) {
-                qWarning() << "DbWriteTxn:" << what << "could not take the write lock after"
+                DIAG_WARN(STORAGE, "DbWriteTxn") << what << "could not take the write lock after"
                            << attempts << "attempts:" << err.text();
                 DbWriteTxn failed;
                 failed.m_lockTimedOut = true;
@@ -135,7 +136,7 @@ public:
         // connection a failed ROLLBACK leaves the write transaction open, and
         // every later write on that connection silently joins it.
         if (m_db && !m_db->rollback())
-            qWarning() << "DbWriteTxn: ROLLBACK failed — the transaction was already ended by "
+            DIAG_WARN(STORAGE, "DbWriteTxn") << "ROLLBACK failed — the transaction was already ended by "
                           "someone else (a raw db.commit()?), or is still open:"
                        << m_db->lastError().text();
     }
@@ -232,7 +233,7 @@ static bool withTempDb(const QString& dbPath, const QString& connPrefix, Work&& 
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(dbPath);
         if (!db.open()) {
-            qWarning() << "withTempDb: DB open failed for" << connPrefix << ":" << db.lastError().text();
+            DIAG_WARN(STORAGE, "dbutils") << "withTempDb: DB open failed for" << connPrefix << ":" << db.lastError().text();
         } else {
             QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
             QSqlQuery(db).exec("PRAGMA foreign_keys = ON");
@@ -357,7 +358,7 @@ public:
               receiver, destroyed, ticket]() mutable {
             const bool dbOpened = withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); });
             if (!dbOpened)
-                qWarning() << "SerialDbWorker: failed to open DB for" << connPrefix;
+                DIAG_WARN(STORAGE, "SerialDbWorker") << "failed to open DB for" << connPrefix;
             if (destroyed->load())
                 return;
             QMetaObject::invokeMethod(receiver,

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include <optional>
 #include "shothistorystorage.h"
 #include "core/appsettings.h"
@@ -170,7 +171,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         m_dbPath = dataDir + "/shots.db";
     }
 
-    qDebug() << "ShotHistoryStorage: Initializing database at" << m_dbPath;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Initializing database at" << m_dbPath;
 
     // Drop any existing connection (a re-initialize) cleanly first — close()
     // resets m_db before removing so removeDatabase doesn't warn about a
@@ -181,7 +182,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     m_db.setDatabaseName(m_dbPath);
 
     if (!m_db.open()) {
-        qWarning() << "ShotHistoryStorage: Failed to open database:" << m_db.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to open database:" << m_db.lastError().text();
         emit errorOccurred("Failed to open shot history database");
         return false;
     }
@@ -200,12 +201,12 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     // row, which is why ending on it leaves the connection clean.
 
     if (!createTables()) {
-        qWarning() << "ShotHistoryStorage: Failed to create tables";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create tables";
         return false;
     }
 
     if (!runMigrations()) {
-        qWarning() << "ShotHistoryStorage: Failed to run migrations";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to run migrations";
         return false;
     }
 
@@ -222,7 +223,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     // This ensures all data is in the main .db file
     QSqlQuery walQuery(m_db);
     if (walQuery.exec("PRAGMA wal_checkpoint(TRUNCATE)")) {
-        qDebug() << "ShotHistoryStorage: Startup WAL checkpoint completed";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Startup WAL checkpoint completed";
     }
 
     // Sync count at startup (before UI, acceptable on init)
@@ -231,7 +232,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         if (countQuery.exec("SELECT COUNT(*) FROM shots") && countQuery.next())
             m_totalShots = countQuery.value(0).toInt();
         else
-            qWarning() << "ShotHistoryStorage: Failed to count shots at startup:" << countQuery.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to count shots at startup:" << countQuery.lastError().text();
     }
 
     // Seed lastSavedShotId with the newest stored shot so direct readers see
@@ -245,7 +246,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         if (maxQuery.exec("SELECT MAX(id) FROM shots") && maxQuery.next())
             m_lastSavedShotId = maxQuery.value(0).toLongLong();
         else
-            qWarning() << "ShotHistoryStorage: Failed to seed lastSavedShotId at startup:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to seed lastSavedShotId at startup:"
                        << maxQuery.lastError().text();
     }
 
@@ -271,7 +272,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     logGrinderCensus();
 #endif
 
-    qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Database initialized with" << m_totalShots << "shots";
     return true;
 }
 
@@ -324,7 +325,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createShots)) {
-        qWarning() << "Failed to create shots table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shots table:" << query.lastError().text();
         return false;
     }
 
@@ -338,7 +339,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createSamples)) {
-        qWarning() << "Failed to create shot_samples table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shot_samples table:" << query.lastError().text();
         return false;
     }
 
@@ -355,7 +356,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createPhases)) {
-        qWarning() << "Failed to create shot_phases table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shot_phases table:" << query.lastError().text();
         return false;
     }
 
@@ -375,7 +376,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createFts)) {
-        qWarning() << "Failed to create FTS table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create FTS table:" << query.lastError().text();
         // FTS failure is not fatal
     }
 
@@ -442,7 +443,7 @@ bool ShotHistoryStorage::runMigrations()
     const bool versionReadOk =
         query.exec("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
     if (!versionReadOk)
-        qWarning() << "ShotHistoryStorage: schema_version read failed -"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "schema_version read failed -"
                    << query.lastError().text()
                    << "- migrations re-run idempotently, but no schema crossing will be reported";
     int currentVersion = (versionReadOk && query.next()) ? query.value(0).toInt() : 1;
@@ -461,7 +462,7 @@ bool ShotHistoryStorage::runMigrations()
     auto columnPresent = [&](const QString& table, const QString& column) -> std::optional<bool> {
         QSqlQuery q(m_db);
         if (!q.exec(QString("PRAGMA table_info(%1)").arg(table))) {
-            qWarning() << "ShotHistoryStorage: PRAGMA table_info(" << table
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PRAGMA table_info(" << table
                        << ") failed -" << q.lastError().text();
             return std::nullopt;
         }
@@ -477,7 +478,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 3: Replace brew_overrides_json with dedicated columns
     if (currentVersion < 3) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 3 (dedicated override columns)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 3 (dedicated override columns)";
 
         if (!hasColumn("shots", "temperature_override"))
             query.exec("ALTER TABLE shots ADD COLUMN temperature_override REAL");
@@ -490,7 +491,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 4: Add transition_reason to shot_phases
     if (currentVersion < 4) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 4 (transition_reason)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 4 (transition_reason)";
 
         if (!hasColumn("shot_phases", "transition_reason"))
             query.exec("ALTER TABLE shot_phases ADD COLUMN transition_reason TEXT DEFAULT ''");
@@ -501,7 +502,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 5: Add profile_name and grinder_model to FTS search
     if (currentVersion < 5) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 5 (FTS profile_name + grinder_model)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 5 (FTS profile_name + grinder_model)";
 
         // Drop old FTS table and triggers
         query.exec("DROP TRIGGER IF EXISTS shots_ai");
@@ -516,7 +517,7 @@ bool ShotHistoryStorage::runMigrations()
                 content='shots', content_rowid='id'
             )
         )")) {
-            qWarning() << "Migration 5: Failed to create FTS table:" << query.lastError().text();
+            DIAG_WARN(STORAGE, "shothistorystorage") << "Migration 5: Failed to create FTS table:" << query.lastError().text();
         }
 
         // Create triggers
@@ -553,7 +554,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 6: Add beverage_type column and backfill from profile_json
     if (currentVersion < 6) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 6 (beverage_type)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 6 (beverage_type)";
 
         if (!hasColumn("shots", "beverage_type"))
             query.exec("ALTER TABLE shots ADD COLUMN beverage_type TEXT DEFAULT 'espresso'");
@@ -573,11 +574,11 @@ bool ShotHistoryStorage::runMigrations()
     // Apply the same centered moving average (window=5, 11-point) used for new shots.
     // This is a cosmetic improvement — if it fails, bump version anyway so the app starts.
     if (currentVersion < 7) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 7 (smooth weight flow rate)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 7 (smooth weight flow rate)";
 
         bool smoothingOk = false;
         if (!m_db.transaction()) {
-            qWarning() << "ShotHistoryStorage: Migration 7 failed to begin transaction:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to begin transaction:"
                        << m_db.lastError().text();
         } else {
             // Read all blobs first to avoid read cursor + write on same table
@@ -586,7 +587,7 @@ bool ShotHistoryStorage::runMigrations()
 
             QVector<QPair<qint64, QByteArray>> rows;
             if (!readQuery.exec()) {
-                qWarning() << "ShotHistoryStorage: Migration 7 failed to read shots:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to read shots:"
                            << readQuery.lastError().text();
             } else {
                 while (readQuery.next()) {
@@ -608,7 +609,7 @@ bool ShotHistoryStorage::runMigrations()
                 QByteArray json = qUncompress(blob);
                 if (json.isEmpty()) {
                     if (!blob.isEmpty())
-                        qWarning() << "ShotHistoryStorage: Migration 7 - shot" << id
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 - shot" << id
                                    << "has non-empty blob (" << blob.size()
                                    << "bytes) that failed to decompress";
                     continue;
@@ -617,7 +618,7 @@ bool ShotHistoryStorage::runMigrations()
                 QJsonParseError parseError;
                 QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
                 if (parseError.error != QJsonParseError::NoError) {
-                    qWarning() << "ShotHistoryStorage: Migration 7 - shot" << id
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 - shot" << id
                                << "has invalid JSON at offset" << parseError.offset
                                << ":" << parseError.errorString();
                     continue;
@@ -653,7 +654,7 @@ bool ShotHistoryStorage::runMigrations()
                 updateQuery.bindValue(0, newBlob);
                 updateQuery.bindValue(1, id);
                 if (!updateQuery.exec()) {
-                    qWarning() << "ShotHistoryStorage: Migration 7 failed to update shot" << id
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to update shot" << id
                                << ":" << updateQuery.lastError().text();
                     migrationFailed = true;
                     break;
@@ -662,19 +663,19 @@ bool ShotHistoryStorage::runMigrations()
             }
 
             if (migrationFailed) {
-                qWarning() << "ShotHistoryStorage: Migration 7 rolling back smoothing after" << smoothedCount << "shots";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 rolling back smoothing after" << smoothedCount << "shots";
                 m_db.rollback();
             } else {
-                qDebug() << "ShotHistoryStorage: Smoothed weight flow rate for" << smoothedCount << "shots";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Smoothed weight flow rate for" << smoothedCount << "shots";
                 // Use DELETE+INSERT instead of UPDATE to avoid UNIQUE constraint issues
                 // when updating the PRIMARY KEY column
                 if (!query.exec("DELETE FROM schema_version") ||
                     !query.exec("INSERT INTO schema_version (version) VALUES (7)")) {
-                    qWarning() << "ShotHistoryStorage: Migration 7 failed to bump schema version inside transaction:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to bump schema version inside transaction:"
                                << query.lastError().text();
                     m_db.rollback();
                 } else if (!m_db.commit()) {
-                    qWarning() << "ShotHistoryStorage: Migration 7 commit failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 commit failed:"
                                << m_db.lastError().text();
                     m_db.rollback();
                 } else {
@@ -687,7 +688,7 @@ bool ShotHistoryStorage::runMigrations()
         // If the transaction succeeded, version is already 7 in the DB.
         // If it failed, bump it outside the transaction so we don't retry on every launch.
         if (!smoothingOk) {
-            qWarning() << "ShotHistoryStorage: Migration 7 smoothing failed, bumping version anyway";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 smoothing failed, bumping version anyway";
             query.exec("DELETE FROM schema_version");
             query.exec("INSERT INTO schema_version (version) VALUES (7)");
         }
@@ -696,24 +697,24 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 8: Add grinder_brand and grinder_burrs columns, backfill from alias lookup, rebuild FTS
     if (currentVersion < 8) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 8 (structured grinder fields)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 8 (structured grinder fields)";
 
         bool migrationOk = false;
         if (!m_db.transaction()) {
-            qWarning() << "ShotHistoryStorage: Migration 8 failed to begin transaction:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to begin transaction:"
                        << m_db.lastError().text();
         } else {
             bool schemaOk = true;
             if (!hasColumn("shots", "grinder_brand")) {
                 if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT")) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 failed to add grinder_brand column:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to add grinder_brand column:"
                                << query.lastError().text();
                     schemaOk = false;
                 }
             }
             if (schemaOk && !hasColumn("shots", "grinder_burrs")) {
                 if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT")) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 failed to add grinder_burrs column:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to add grinder_burrs column:"
                                << query.lastError().text();
                     schemaOk = false;
                 }
@@ -740,7 +741,7 @@ bool ShotHistoryStorage::runMigrations()
                             updateQuery.bindValue(2, result.stockBurrs);
                             updateQuery.bindValue(3, id);
                             if (!updateQuery.exec()) {
-                                qWarning() << "ShotHistoryStorage: Migration 8 failed to update shot" << id
+                                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to update shot" << id
                                            << ":" << updateQuery.lastError().text();
                                 migrationFailed = true;
                                 break;
@@ -749,7 +750,7 @@ bool ShotHistoryStorage::runMigrations()
                         }
                     }
                     if (!migrationFailed)
-                        qDebug() << "ShotHistoryStorage: Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
+                        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
                 }
             }
 
@@ -766,7 +767,7 @@ bool ShotHistoryStorage::runMigrations()
                         content='shots', content_rowid='id'
                     )
                 )")) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 failed to create FTS table:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to create FTS table:"
                                << query.lastError().text();
                     migrationFailed = true;
                 }
@@ -799,23 +800,23 @@ bool ShotHistoryStorage::runMigrations()
                     INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
                     SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs FROM shots
                 )")) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 failed to populate FTS index:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to populate FTS index:"
                                << query.lastError().text();
                     migrationFailed = true;
                 }
             }
 
             if (migrationFailed) {
-                qWarning() << "ShotHistoryStorage: Migration 8 rolling back";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 rolling back";
                 m_db.rollback();
             } else {
                 if (!query.exec("DELETE FROM schema_version") ||
                     !query.exec("INSERT INTO schema_version (version) VALUES (8)")) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 failed to bump schema version:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to bump schema version:"
                                << query.lastError().text();
                     m_db.rollback();
                 } else if (!m_db.commit()) {
-                    qWarning() << "ShotHistoryStorage: Migration 8 commit failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 commit failed:"
                                << m_db.lastError().text();
                     m_db.rollback();
                 } else {
@@ -828,7 +829,7 @@ bool ShotHistoryStorage::runMigrations()
         // If the transaction succeeded, version is already 8 in the DB.
         // If it failed, bump outside the transaction so we don't retry on every launch.
         if (!migrationOk) {
-            qWarning() << "ShotHistoryStorage: Migration 8 failed, bumping version anyway";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed, bumping version anyway";
             query.exec("DELETE FROM schema_version");
             query.exec("INSERT INTO schema_version (version) VALUES (8)");
         }
@@ -840,13 +841,13 @@ bool ShotHistoryStorage::runMigrations()
     // dial-in history queries (loadRecentShotsByKbIdStatic), but system prompt
     // profile matching falls back to fuzzy title/editorType matching.
     if (currentVersion < 9) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 9 (profile_kb_id)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 9 (profile_kb_id)";
 
         bool ok = true;
         if (!hasColumn("shots", "profile_kb_id")) {
             ok = query.exec("ALTER TABLE shots ADD COLUMN profile_kb_id TEXT");
             if (!ok)
-                qWarning() << "ShotHistoryStorage: Migration 9 ALTER TABLE failed:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 9 ALTER TABLE failed:" << query.lastError().text();
         }
         if (ok) {
             query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile_kb_id ON shots(profile_kb_id)");
@@ -862,7 +863,7 @@ bool ShotHistoryStorage::runMigrations()
     // (avoids a ShotSummarizer dependency); recomputed on-the-fly inside
     // loadShotRecordStatic() for shots that predate this migration.
     if (currentVersion < 10) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 10 (quality flags)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 10 (quality flags)";
 
         if (!hasColumn("shots", "channeling_detected"))
             query.exec("ALTER TABLE shots ADD COLUMN channeling_detected INTEGER DEFAULT 0");
@@ -877,7 +878,7 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 11: Add grind_issue_detected flag.
     // Recomputed on-the-fly in loadShotRecordStatic() for shots predating this migration.
     if (currentVersion < 11) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 11 (grind_issue_detected)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 11 (grind_issue_detected)";
 
         if (!hasColumn("shots", "grind_issue_detected"))
             query.exec("ALTER TABLE shots ADD COLUMN grind_issue_detected INTEGER DEFAULT 0");
@@ -890,7 +891,7 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 12: Add skip_first_frame_detected flag.
     // Detects DE1 firmware bug where the machine skips profile frame 0.
     if (currentVersion < 12) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 12 (skip_first_frame_detected)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 12 (skip_first_frame_detected)";
 
         if (!hasColumn("shots", "skip_first_frame_detected"))
             query.exec("ALTER TABLE shots ADD COLUMN skip_first_frame_detected INTEGER DEFAULT 0");
@@ -912,7 +913,7 @@ bool ShotHistoryStorage::runMigrations()
     // ShotAnalysis::analyzeShot — and the UI shows a single red "Puck failed"
     // chip rather than a contradictory mix.
     if (currentVersion < 13) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 13 (pour_truncated_detected)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 13 (pour_truncated_detected)";
 
         if (!hasColumn("shots", "pour_truncated_detected"))
             query.exec("ALTER TABLE shots ADD COLUMN pour_truncated_detected INTEGER DEFAULT 0");
@@ -930,7 +931,7 @@ bool ShotHistoryStorage::runMigrations()
     // rows) that migration 16 later reads to build the back-sync list.
     // Migration 16 is independently safe via its hasColumn() guard.
     if (currentVersion < 14) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 14 (enjoyment_source)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 14 (enjoyment_source)";
 
         if (!hasColumn("shots", "enjoyment_source")) {
             query.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'");
@@ -954,7 +955,7 @@ bool ShotHistoryStorage::runMigrations()
     // the now-unused column. SQLite >= 3.35 is required for ALTER TABLE
     // DROP COLUMN; every Qt 6.10 platform we ship satisfies this.
     if (currentVersion < 15) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 15 (drop temperature_unstable)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 15 (drop temperature_unstable)";
 
         if (hasColumn("shots", "temperature_unstable")) {
             // Bail out without bumping schema_version if DROP COLUMN fails.
@@ -964,7 +965,7 @@ bool ShotHistoryStorage::runMigrations()
             // Better to retry the migration on next launch than to leave
             // the schema in a half-migrated state.
             if (!query.exec("ALTER TABLE shots DROP COLUMN temperature_unstable")) {
-                qWarning() << "ShotHistoryStorage: migration 15 DROP COLUMN failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 15 DROP COLUMN failed:"
                            << query.lastError().text();
                 return false;
             }
@@ -1006,11 +1007,11 @@ bool ShotHistoryStorage::runMigrations()
     // produced by their configured default while that feature existed — are
     // left alone.
     if (currentVersion < 16) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 16 (drop enjoyment_source)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 16 (drop enjoyment_source)";
 
         if (hasColumn("shots", "enjoyment_source")) {
             if (!m_db.transaction()) {
-                qWarning() << "ShotHistoryStorage: migration 16 transaction begin failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 transaction begin failed:"
                            << m_db.lastError().text();
                 return false;
             }
@@ -1031,7 +1032,7 @@ bool ShotHistoryStorage::runMigrations()
                                    "WHERE enjoyment_source = 'inferred' "
                                    "AND visualizer_id IS NOT NULL "
                                    "AND visualizer_id != ''")) {
-                    qWarning() << "ShotHistoryStorage: migration 16 SELECT failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 SELECT failed:"
                                << pendingQ.lastError().text();
                     m_db.rollback();
                     return false;
@@ -1061,7 +1062,7 @@ bool ShotHistoryStorage::runMigrations()
                 QSqlQuery resetQ(m_db);
                 if (!resetQ.exec("UPDATE shots SET enjoyment = 0 "
                                  "WHERE enjoyment_source = 'inferred'")) {
-                    qWarning() << "ShotHistoryStorage: migration 16 UPDATE failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 UPDATE failed:"
                                << resetQ.lastError().text();
                     m_db.rollback();
                     return false;
@@ -1070,7 +1071,7 @@ bool ShotHistoryStorage::runMigrations()
 
             // 3) Drop the column. SQLite >= 3.35 (required since v15).
             if (!query.exec("ALTER TABLE shots DROP COLUMN enjoyment_source")) {
-                qWarning() << "ShotHistoryStorage: migration 16 DROP COLUMN failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 DROP COLUMN failed:"
                            << query.lastError().text();
                 m_db.rollback();
                 return false;
@@ -1084,14 +1085,14 @@ bool ShotHistoryStorage::runMigrations()
             // against a schema it believes is older than it is.
             if (!query.exec("DELETE FROM schema_version")
                 || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
-                qWarning() << "ShotHistoryStorage: migration 16 version bump failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 version bump failed:"
                            << query.lastError().text();
                 m_db.rollback();
                 return false;
             }
 
             if (!m_db.commit()) {
-                qWarning() << "ShotHistoryStorage: migration 16 commit failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 commit failed:"
                            << m_db.lastError().text();
                 m_db.rollback();
                 return false;
@@ -1104,7 +1105,7 @@ bool ShotHistoryStorage::runMigrations()
             // here is what would strand the version at 15 permanently.
             if (!query.exec("DELETE FROM schema_version")
                 || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
-                qWarning() << "ShotHistoryStorage: migration 16 version bump failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 version bump failed:"
                            << query.lastError().text();
                 return false;
             }
@@ -1120,7 +1121,7 @@ bool ShotHistoryStorage::runMigrations()
     // open-paren dodges the QSqlQuery permission-hook false-positive, as
     // elsewhere in the codebase. Do not auto-format.
     if (currentVersion < 17) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 17 (stopped_by)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 17 (stopped_by)";
 
         // No NOT NULL: callers (incl. the dev/fake-shot path and any shot
         // whose reason is unknown) bind a null QString, which SQLite stores
@@ -1147,7 +1148,7 @@ bool ShotHistoryStorage::runMigrations()
     // unaffected. Whitespace before the open-paren dodges the QSqlQuery
     // permission-hook false-positive, as elsewhere.
     if (currentVersion < 18) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 18 (beanbase_json)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 18 (beanbase_json)";
 
         if (!hasColumn("shots", "beanbase_json"))
             query.exec ("ALTER TABLE shots ADD COLUMN beanbase_json TEXT");
@@ -1161,7 +1162,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (18)");
             currentVersion = 18;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 18 failed to add beanbase_json:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 18 failed to add beanbase_json:"
                        << query.lastError().text() << "- will retry next launch";
         }
     }
@@ -1179,7 +1180,7 @@ bool ShotHistoryStorage::runMigrations()
     // Whitespace before the open-paren dodges the QSqlQuery permission-hook
     // false-positive, as elsewhere. Do not auto-format.
     if (currentVersion < 19) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 19 (coffee bags)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 19 (coffee bags)";
 
         const bool tableOk = CoffeeBagStorage::ensureTableStatic(m_db);
 
@@ -1197,7 +1198,7 @@ bool ShotHistoryStorage::runMigrations()
                 // grouping for pre-migration rows.
                 if (!query.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
                                 "WHERE beanbase_json IS NOT NULL"))
-                    qWarning() << "ShotHistoryStorage: migration 19 beanbase_id backfill failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 19 beanbase_id backfill failed:"
                                << query.lastError().text();
             }
         }
@@ -1209,7 +1210,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (19)");
             currentVersion = 19;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 19 incomplete:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 19 incomplete:"
                        << query.lastError().text() << "- will retry next launch";
         }
     }
@@ -1224,7 +1225,7 @@ bool ShotHistoryStorage::runMigrations()
     // convertLegacyPresetSettings. This migration repairs devices that
     // upgraded before the link existed.
     if (currentVersion < 20) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 20 (link pre-bag shots to bags)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 20 (link pre-bag shots to bags)";
         // Gate the bump on success: linkOrphanShotsStatic returns -1 on a SQL
         // failure (e.g. a locked DB at migration time). The op is idempotent,
         // so if we DON'T bump on failure it simply retries next launch; bumping
@@ -1242,7 +1243,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (20)");
             currentVersion = 20;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 20 orphan-link failed - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 20 orphan-link failed - will retry next launch";
 #ifdef DECENZA_TESTING
             // Model the locked DB faithfully: the same lock that failed the
             // orphan-link also fails every later migration's writes this pass,
@@ -1268,7 +1269,7 @@ bool ShotHistoryStorage::runMigrations()
     // (we require >= 3.35). Whitespace before the open-paren dodges the
     // QSqlQuery permission-hook false-positive, as elsewhere.
     if (currentVersion < 21) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 21 (yield_target_g -> yield_override_g)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 21 (yield_target_g -> yield_override_g)";
         bool renameFaulted = false;
 #ifdef DECENZA_TESTING
         renameFaulted = (s_faultInjectMigration == 21);
@@ -1286,7 +1287,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (21)");
             currentVersion = 21;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 21 column rename failed - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 21 column rename failed - will retry next launch";
         }
     }
 
@@ -1311,7 +1312,7 @@ bool ShotHistoryStorage::runMigrations()
     // 7/8/16) so a failure rolls back the partial package inserts — the data step
     // is NOT idempotent, so a half-applied retry would duplicate packages.
     if (currentVersion >= 21 && currentVersion < 22) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 22 (equipment packages)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 22 (equipment packages)";
 
         const bool txn = m_db.transaction();
         const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);
@@ -1353,12 +1354,12 @@ bool ShotHistoryStorage::runMigrations()
                 currentVersion = 22;
             } else {
                 if (txn) m_db.rollback();
-                qWarning() << "ShotHistoryStorage: migration 22 commit failed - will retry next launch";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 22 commit failed - will retry next launch";
             }
         } else {
             if (txn)
                 m_db.rollback();  // undo partial package inserts so the retry is clean
-            qWarning() << "ShotHistoryStorage: migration 22 incomplete (tables" << tablesOk
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 22 incomplete (tables" << tablesOk
                        << "cols" << colsOk << "data" << dataOk
                        << ") - will retry next launch";
         }
@@ -1383,7 +1384,7 @@ bool ShotHistoryStorage::runMigrations()
     // (hasColumn guards each drop). Gate ">= 22 && < 23" so it only advances
     // from a committed migration 22 (mirrors migration 22's gate on 21).
     if (currentVersion >= 22 && currentVersion < 23) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 23 (drop legacy grinder columns)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 23 (drop legacy grinder columns)";
 
         const bool txn = m_db.transaction();
         bool ok = true;
@@ -1402,7 +1403,7 @@ bool ShotHistoryStorage::runMigrations()
                 content='shots', content_rowid='id'
             )
         )")) {
-            qWarning() << "ShotHistoryStorage: migration 23 failed to recreate FTS table:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to recreate FTS table:"
                        << query.lastError().text();
             ok = false;
         }
@@ -1432,7 +1433,7 @@ bool ShotHistoryStorage::runMigrations()
                 INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
                 SELECT id, espresso_notes, bean_brand, bean_type, profile_name FROM shots
             )")) {
-                qWarning() << "ShotHistoryStorage: migration 23 failed to repopulate FTS index:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to repopulate FTS index:"
                            << query.lastError().text();
                 ok = false;
             }
@@ -1453,7 +1454,7 @@ bool ShotHistoryStorage::runMigrations()
                         QSqlQuery drop(m_db);
                         if (!drop.exec (QStringLiteral("ALTER TABLE %1 DROP COLUMN %2")
                                             .arg(QLatin1String(table), QLatin1String(col)))) {
-                            qWarning() << "ShotHistoryStorage: migration 23 failed to drop" << table << col << ":"
+                            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to drop" << table << col << ":"
                                        << drop.lastError().text();
                             ok = false;
                         }
@@ -1473,16 +1474,16 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (23)");
             if (!txn || m_db.commit()) {
                 currentVersion = 23;
-                qInfo() << "ShotHistoryStorage: migration 23 complete - dropped grinder identity"
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 23 complete - dropped grinder identity"
                            " columns from shots + coffee_bags, rebuilt shots_fts without them";
             } else {
                 if (txn) m_db.rollback();
-                qWarning() << "ShotHistoryStorage: migration 23 commit failed - will retry next launch";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 commit failed - will retry next launch";
             }
         } else {
             if (txn)
                 m_db.rollback();
-            qWarning() << "ShotHistoryStorage: migration 23 incomplete (ok" << ok
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 incomplete (ok" << ok
                        << "dropped" << dropped << ") - will retry next launch";
         }
     }
@@ -1493,7 +1494,7 @@ bool ShotHistoryStorage::runMigrations()
     // hasColumn guards the retry after a mid-step crash. Gate ">= 23 && < 24"
     // so it only advances from a committed migration 23 (mirrors the chain).
     if (currentVersion >= 23 && currentVersion < 24) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 24 (bag visualizer_sync_pending)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 24 (bag visualizer_sync_pending)";
 
         if (!hasColumn("coffee_bags", "visualizer_sync_pending"))
             query.exec ("ALTER TABLE coffee_bags ADD COLUMN visualizer_sync_pending INTEGER NOT NULL DEFAULT 0");
@@ -1503,7 +1504,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (24)");
             currentVersion = 24;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 24 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 24 incomplete - will retry next launch";
         }
     }
 
@@ -1516,7 +1517,7 @@ bool ShotHistoryStorage::runMigrations()
     // open-paren dodges the QSqlQuery permission-hook false-positive, as
     // elsewhere. Do not auto-format.
     if (currentVersion >= 24 && currentVersion < 25) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 25 (recipes)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 25 (recipes)";
 
         const bool tableOk = RecipeStorage::ensureTableStatic(m_db);
 
@@ -1531,7 +1532,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (25)");
             currentVersion = 25;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 25 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 25 incomplete - will retry next launch";
         }
     }
 
@@ -1541,7 +1542,7 @@ bool ShotHistoryStorage::runMigrations()
     // this repairs branch-dev DBs that already ran migration 25 with the
     // old table. One idempotent additive column, gated ">= 25 && < 26".
     if (currentVersion >= 25 && currentVersion < 26) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 26 (recipes rpm_pinned)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 26 (recipes rpm_pinned)";
 
         if (!hasColumn("recipes", "rpm_pinned"))
             query.exec ("ALTER TABLE recipes ADD COLUMN rpm_pinned INTEGER");
@@ -1551,7 +1552,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (26)");
             currentVersion = 26;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 26 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 26 incomplete - will retry next launch";
         }
     }
 
@@ -1565,7 +1566,7 @@ bool ShotHistoryStorage::runMigrations()
     // 25/26 with the old table. Idempotent additive columns, gated
     // ">= 26 && < 27", mirroring migration 26.
     if (currentVersion >= 26 && currentVersion < 27) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 27 (hot_water_json)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 27 (hot_water_json)";
 
         if (!hasColumn("recipes", "hot_water_json"))
             query.exec ("ALTER TABLE recipes ADD COLUMN hot_water_json TEXT");
@@ -1577,7 +1578,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (27)");
             currentVersion = 27;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 27 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 27 incomplete - will retry next launch";
         }
     }
 
@@ -1590,15 +1591,15 @@ bool ShotHistoryStorage::runMigrations()
     // ensureTableStatic CREATE TABLEs (the hasColumn guards make both paths
     // converge). Idempotent, gated ">= 27 && < 28", mirroring migration 27.
     if (currentVersion >= 27 && currentVersion < 28) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 28 (drink_type + bag kind)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 28 (drink_type + bag kind)";
 
         if (!hasColumn("recipes", "drink_type")
             && !query.exec ("ALTER TABLE recipes ADD COLUMN drink_type TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 28 add recipes.drink_type failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 add recipes.drink_type failed -"
                        << query.lastError().text();
         if (!hasColumn("coffee_bags", "kind")
             && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN kind TEXT NOT NULL DEFAULT 'coffee'"))
-            qWarning() << "ShotHistoryStorage: migration 28 add coffee_bags.kind failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 add coffee_bags.kind failed -"
                        << query.lastError().text();
 
         if (hasColumn("recipes", "drink_type") && hasColumn("coffee_bags", "kind")) {
@@ -1606,7 +1607,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (28)");
             currentVersion = 28;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 28 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 incomplete - will retry next launch";
         }
     }
 
@@ -1622,11 +1623,11 @@ bool ShotHistoryStorage::runMigrations()
     // Idempotent (the data pass only touches NULL bag_id rows), gated
     // ">= 28 && < 29", mirroring migration 28.
     if (currentVersion >= 28 && currentVersion < 29) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 29 (recipes bag_id)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 29 (recipes bag_id)";
 
         if (!hasColumn("recipes", "bag_id")
             && !query.exec ("ALTER TABLE recipes ADD COLUMN bag_id INTEGER"))
-            qWarning() << "ShotHistoryStorage: migration 29 add recipes.bag_id failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 29 add recipes.bag_id failed -"
                        << query.lastError().text();
 
         // The version bump gates on the DATA pass too: the pass is
@@ -1638,7 +1639,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (29)");
             currentVersion = 29;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 29 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 29 incomplete - will retry next launch";
         }
     }
 
@@ -1651,14 +1652,14 @@ bool ShotHistoryStorage::runMigrations()
     // rows untouched. Idempotent and gated ">= 29 && < 30", mirroring 29:
     // a transient failure retries next launch instead of stranding rows.
     if (currentVersion >= 29 && currentVersion < 30) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 30 (recipe-owned grind)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 30 (recipe-owned grind)";
 
         if (RecipeStorage::migrateGrindOwnershipStatic(m_db)) {
             query.exec ("DELETE FROM schema_version");
             query.exec ("INSERT INTO schema_version (version) VALUES (30)");
             currentVersion = 30;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 30 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 30 incomplete - will retry next launch";
         }
     }
 
@@ -1675,11 +1676,11 @@ bool ShotHistoryStorage::runMigrations()
     // TABLE (the hasColumn guard makes both paths converge). Idempotent,
     // gated ">= 30 && < 31", mirroring migration 30.
     if (currentVersion >= 30 && currentVersion < 31) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 31 (recipe temp offset)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 31 (recipe temp offset)";
 
         if (!hasColumn("recipes", "temp_offset_c")
             && !query.exec ("ALTER TABLE recipes ADD COLUMN temp_offset_c REAL"))
-            qWarning() << "ShotHistoryStorage: migration 31 add recipes.temp_offset_c failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 31 add recipes.temp_offset_c failed -"
                        << query.lastError().text();
 
         if (hasColumn("recipes", "temp_offset_c")) {
@@ -1687,7 +1688,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (31)");
             currentVersion = 31;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 31 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 31 incomplete - will retry next launch";
         }
     }
 
@@ -1706,23 +1707,23 @@ bool ShotHistoryStorage::runMigrations()
     // ">= 31 && < 32", mirroring migration 31. Whitespace before the open-paren
     // dodges the QSqlQuery permission-hook false-positive; do not auto-format.
     if (currentVersion >= 31 && currentVersion < 32) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 32 (storage hint + opened date)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 32 (storage hint + opened date)";
 
         if (!hasColumn("coffee_bags", "storage_hint")
             && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN storage_hint TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 32 add coffee_bags.storage_hint failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add coffee_bags.storage_hint failed -"
                        << query.lastError().text();
         if (!hasColumn("coffee_bags", "opened_date")
             && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN opened_date TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 32 add coffee_bags.opened_date failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add coffee_bags.opened_date failed -"
                        << query.lastError().text();
         if (!hasColumn("shots", "storage_hint")
             && !query.exec ("ALTER TABLE shots ADD COLUMN storage_hint TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 32 add shots.storage_hint failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add shots.storage_hint failed -"
                        << query.lastError().text();
         if (!hasColumn("shots", "opened_date")
             && !query.exec ("ALTER TABLE shots ADD COLUMN opened_date TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 32 add shots.opened_date failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add shots.opened_date failed -"
                        << query.lastError().text();
 
         if (hasColumn("coffee_bags", "storage_hint") && hasColumn("coffee_bags", "opened_date")
@@ -1731,7 +1732,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (32)");
             currentVersion = 32;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 32 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 incomplete - will retry next launch";
         }
     }
 
@@ -1749,15 +1750,15 @@ bool ShotHistoryStorage::runMigrations()
     // Whitespace before the open-paren dodges the QSqlQuery permission-hook
     // false-positive; do not auto-format.
     if (currentVersion >= 32 && currentVersion < 33) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 33 (taste axes)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 33 (taste axes)";
 
         if (!hasColumn("shots", "taste_balance")
             && !query.exec ("ALTER TABLE shots ADD COLUMN taste_balance TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 33 add shots.taste_balance failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 add shots.taste_balance failed -"
                        << query.lastError().text();
         if (!hasColumn("shots", "taste_body")
             && !query.exec ("ALTER TABLE shots ADD COLUMN taste_body TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 33 add shots.taste_body failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 add shots.taste_body failed -"
                        << query.lastError().text();
 
         if (hasColumn("shots", "taste_balance") && hasColumn("shots", "taste_body")) {
@@ -1765,7 +1766,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (33)");
             currentVersion = 33;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 33 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 incomplete - will retry next launch";
         }
     }
 
@@ -1789,31 +1790,31 @@ bool ShotHistoryStorage::runMigrations()
     // whole block is idempotent. Whitespace before the open-paren dodges the
     // QSqlQuery permission-hook false-positive; do not auto-format.
     if (currentVersion >= 33 && currentVersion < 34) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 34 (yield specs)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 34 (yield specs)";
 
         if (!hasColumn("recipes", "yield_value")
             && !query.exec ("ALTER TABLE recipes ADD COLUMN yield_value REAL"))
-            qWarning() << "ShotHistoryStorage: migration 34 add recipes.yield_value failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add recipes.yield_value failed -"
                        << query.lastError().text();
         if (!hasColumn("recipes", "yield_mode")
             && !query.exec ("ALTER TABLE recipes ADD COLUMN yield_mode TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 34 add recipes.yield_mode failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add recipes.yield_mode failed -"
                        << query.lastError().text();
         if (!hasColumn("coffee_bags", "yield_value")
             && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN yield_value REAL"))
-            qWarning() << "ShotHistoryStorage: migration 34 add coffee_bags.yield_value failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add coffee_bags.yield_value failed -"
                        << query.lastError().text();
         if (!hasColumn("coffee_bags", "yield_mode")
             && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN yield_mode TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 34 add coffee_bags.yield_mode failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add coffee_bags.yield_mode failed -"
                        << query.lastError().text();
         if (!hasColumn("shots", "yield_mode")
             && !query.exec ("ALTER TABLE shots ADD COLUMN yield_mode TEXT"))
-            qWarning() << "ShotHistoryStorage: migration 34 add shots.yield_mode failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add shots.yield_mode failed -"
                        << query.lastError().text();
         if (!hasColumn("shots", "yield_anchor_value")
             && !query.exec ("ALTER TABLE shots ADD COLUMN yield_anchor_value REAL"))
-            qWarning() << "ShotHistoryStorage: migration 34 add shots.yield_anchor_value failed -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add shots.yield_anchor_value failed -"
                        << query.lastError().text();
 
         bool backfilled = hasColumn("recipes", "yield_value") && hasColumn("recipes", "yield_mode")
@@ -1836,7 +1837,7 @@ bool ShotHistoryStorage::runMigrations()
                     "yield_mode = CASE WHEN COALESCE(yield_override, 0) > 0 THEN 'absolute' ELSE 'none' END "
                     "WHERE yield_mode IS NULL");
             if (!backfilled)
-                qWarning() << "ShotHistoryStorage: migration 34 backfill failed -"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 backfill failed -"
                            << query.lastError().text();
         }
 
@@ -1845,7 +1846,7 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (34)");
             currentVersion = 34;
         } else {
-            qWarning() << "ShotHistoryStorage: migration 34 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 incomplete - will retry next launch";
         }
     }
 
@@ -2042,12 +2043,12 @@ bool ShotHistoryStorage::runMigrations()
     // scan, JSON-parsed per row, inside a write transaction. The `>= 36` lower
     // bound still catches a development database left at 37.
     if (currentVersion >= 36 && currentVersion < 38) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 38 "
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 38 "
                     "(unlink borrowed canonical records)";
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration canonical unlink", 1);
         if (!txn.ok()) {
-            qWarning() << "ShotHistoryStorage: migration 38 could not start a transaction"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not start a transaction"
                           " - will retry next launch";
         } else {
         // The repair queue's column. A failure to add it does NOT abort the
@@ -2066,7 +2067,7 @@ bool ShotHistoryStorage::runMigrations()
         if (before.has_value() && !*before
             && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
                            "INTEGER NOT NULL DEFAULT 0"))
-            qWarning() << "ShotHistoryStorage: migration 38 could not add "
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not add "
                           "shots.bean_repair_pending -" << query.lastError().text()
                        << "- bags will still be unlinked, but no shot repair will be queued";
         const std::optional<bool> after = columnPresent("shots", "bean_repair_pending");
@@ -2075,7 +2076,7 @@ bool ShotHistoryStorage::runMigrations()
             // PERMANENT — the version stamps, this block never runs again, and
             // no shot is ever repaired — so stop and retry on the next launch,
             // when the database is likely no longer busy.
-            qWarning() << "ShotHistoryStorage: migration 38 could not determine whether "
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not determine whether "
                           "shots.bean_repair_pending exists - deferring to next launch";
             return true;
         }
@@ -2092,10 +2093,10 @@ bool ShotHistoryStorage::runMigrations()
         }
         if (ok && txn.commit()) {
             currentVersion = 38;
-            qDebug() << "ShotHistoryStorage: migration 38 complete - unlinked"
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 38 complete - unlinked"
                      << unlinked << "bag(s) from a record naming another coffee";
         } else {
-            qWarning() << "ShotHistoryStorage: migration 38 incomplete - will retry next launch";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 incomplete - will retry next launch";
         }
         }
     }
@@ -2113,12 +2114,12 @@ bool ShotHistoryStorage::runMigrations()
     // false for anyone whose calibration has moved. NULL means "not recorded"
     // and must never be read as 1.0, which is a legitimate multiplier.
     if (currentVersion >= 38 && currentVersion < 39) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 39 "
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 39 "
                     "(shots.flow_calibration)";
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 39 flow calibration column", 1);
         if (!txn.ok()) {
-            qWarning() << "ShotHistoryStorage: migration 39 could not start a transaction"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not start a transaction"
                           " - will retry next launch (shot history cannot load or save"
                           " until it completes: every query names shots.flow_calibration)";
         } else {
@@ -2132,14 +2133,14 @@ bool ShotHistoryStorage::runMigrations()
             // Not knowing is its own outcome: change nothing and try again.
             const std::optional<bool> before = columnPresent("shots", "flow_calibration");
             if (!before.has_value()) {
-                qWarning() << "ShotHistoryStorage: migration 39 could not determine whether"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not determine whether"
                               " shots.flow_calibration exists - leaving the schema untouched"
                               " and retrying next launch (shot history cannot load or save"
                               " until it completes: every query names shots.flow_calibration)";
             } else {
                 if (!*before
                     && !query.exec("ALTER TABLE shots ADD COLUMN flow_calibration REAL"))
-                    qWarning() << "ShotHistoryStorage: migration 39 add shots.flow_calibration failed -"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 add shots.flow_calibration failed -"
                                << query.lastError().text();
 
                 // Gated on the column being present: it is a schema fact, and
@@ -2155,7 +2156,7 @@ bool ShotHistoryStorage::runMigrations()
                 const std::optional<bool> after = columnPresent("shots", "flow_calibration");
                 bool ok = false;
                 if (!after.has_value()) {
-                    qWarning() << "ShotHistoryStorage: migration 39 could not verify the column"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not verify the column"
                                   " after adding it - not stamping, will retry next launch";
                 } else {
                     ok = *after;
@@ -2165,9 +2166,9 @@ bool ShotHistoryStorage::runMigrations()
                          && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));
                 if (ok && txn.commit()) {
                     currentVersion = 39;
-                    qDebug() << "ShotHistoryStorage: migration 39 complete";
+                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 39 complete";
                 } else {
-                    qWarning() << "ShotHistoryStorage: migration 39 incomplete - will retry"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 incomplete - will retry"
                                   " next launch (shot history cannot load or save until it"
                                   " completes: every query names shots.flow_calibration)";
                 }
@@ -2198,12 +2199,12 @@ bool ShotHistoryStorage::runMigrations()
     // fresh database has no such column when createTables() runs — the trap the
     // idx_shots_grinder comment there records.
     if (currentVersion >= 39 && currentVersion < 40) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 40 "
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 40 "
                     "(grind-step covering indexes)";
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 40 grind step indexes", 1);
         if (!txn.ok()) {
-            qWarning() << "ShotHistoryStorage: migration 40 could not start a transaction"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not start a transaction"
                           " - will retry next launch (the grind picker stays slow until"
                           " it completes; nothing else is affected)";
         } else {
@@ -2217,13 +2218,13 @@ bool ShotHistoryStorage::runMigrations()
             // table, createTables() re-seeds it to 1, and the whole chain re-runs.
             if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_grind "
                             "ON shots(equipment_id, grinder_setting)")) {
-                qWarning() << "ShotHistoryStorage: migration 40 could not create"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not create"
                               " idx_shots_equip_grind -" << query.lastError().text()
                            << "- the grind picker falls back to a full scan";
             }
             if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_rpm "
                             "ON shots(equipment_id, rpm)")) {
-                qWarning() << "ShotHistoryStorage: migration 40 could not create"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not create"
                               " idx_shots_equip_rpm -" << query.lastError().text()
                            << "- the grind picker falls back to a full scan";
             }
@@ -2232,9 +2233,9 @@ bool ShotHistoryStorage::runMigrations()
                 && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (40)"));
             if (stamped && txn.commit()) {
                 currentVersion = 40;
-                qDebug() << "ShotHistoryStorage: migration 40 complete";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 40 complete";
             } else {
-                qWarning() << "ShotHistoryStorage: migration 40 incomplete - will retry"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 incomplete - will retry"
                               " next launch (the grind picker stays slow until it"
                               " completes; nothing else is affected)";
             }
@@ -2317,7 +2318,7 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
 
     QByteArray json = qUncompress(blob);
     if (json.isEmpty()) {
-        qWarning() << "ShotHistoryStorage: Failed to decompress sample data";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to decompress sample data";
         return;
     }
 
@@ -2425,7 +2426,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      const QString& stoppedBy)
 {
     if (!m_ready || m_backupInProgress || !shotData) {
-        qWarning() << "ShotHistoryStorage: Cannot save shot - not ready, backup in progress, or no data";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot save shot - not ready, backup in progress, or no data";
         emit shotSaved(-1);
         return -1;
     }
@@ -2573,7 +2574,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
                                          profileName, shotDuration, sampleCount, compressedSize]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: saveShot callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "saveShot callback dropped (object destroyed)";
                 return;
             }
 
@@ -2581,7 +2582,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 m_lastSavedShotId = shotId;
                 refreshTotalShots();
 
-                qDebug() << "ShotHistoryStorage: Saved shot" << shotId
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Saved shot" << shotId
                          << "- Profile:" << profileName
                          << "- Duration:" << shotDuration << "s"
                          << "- Samples:" << sampleCount
@@ -2600,7 +2601,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveData& data)
 {
     if (data.uuid.isEmpty() || data.timestamp <= 0) {
-        qWarning() << "ShotHistoryStorage::saveShotStatic: invalid data - uuid empty or timestamp zero";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "saveShotStatic: invalid data - uuid empty or timestamp zero";
         return -1;
     }
 
@@ -2625,7 +2626,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             QSqlQuery beginQuery(db);
             if (!beginQuery.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
                 locked = isSqliteLockError(beginQuery.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to start transaction:" << beginQuery.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to start transaction:" << beginQuery.lastError().text();
                 return false;
             }
 
@@ -2729,7 +2730,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
             if (!query.exec()) {
                 locked = isSqliteLockError(query.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text()
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to insert shot:" << query.lastError().text()
                            << "(sqlite code" << query.lastError().nativeErrorCode() << ")";
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 return false;
@@ -2745,7 +2746,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
             if (!query.exec()) {
                 locked = isSqliteLockError(query.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to insert samples:" << query.lastError().text();
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 shotId = -1;
                 return false;
@@ -2777,7 +2778,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 const bool commitLocked = isSqliteLockError(commitQuery.lastError());
                 if (!commitLocked || commitTry >= 4) {
                     locked = commitLocked;
-                    qWarning() << "ShotHistoryStorage: Failed to commit shot:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to commit shot:"
                                << commitQuery.lastError().text();
                     QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                     shotId = -1;
@@ -2799,7 +2800,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             bool locked = false;
             if (attemptSave(locked) || !locked)
                 break;
-            qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot save hit a transient lock, retrying ("
                        << attempt << "of 4)";
             QThread::msleep(static_cast<unsigned long>(50 * attempt));
         }
@@ -2823,7 +2824,7 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             QSqlQuery query(db);
             if (!query.prepare("UPDATE shots SET visualizer_id = :viz_id, visualizer_url = :viz_url, "
                                "updated_at = strftime('%s', 'now') WHERE id = :id")) {
-                qWarning() << "ShotHistoryStorage: Failed to prepare visualizer update:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to prepare visualizer update:" << query.lastError().text();
                 return;
             }
             query.bindValue(":viz_id", visualizerId);
@@ -2831,18 +2832,18 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             query.bindValue(":id", shotId);
             success = query.exec();
             if (!success)
-                qWarning() << "ShotHistoryStorage: Failed to async update visualizer info:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to async update visualizer info:" << query.lastError().text();
         });
         if (!opened)
-            qWarning() << "ShotHistoryStorage: requestUpdateVisualizerInfo failed - could not open DB for shot" << shotId;
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "requestUpdateVisualizerInfo failed - could not open DB for shot" << shotId;
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
             if (success)
-                qDebug() << "ShotHistoryStorage: Async updated visualizer info for shot" << shotId;
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async updated visualizer info for shot" << shotId;
             else
-                qWarning() << "ShotHistoryStorage: Async visualizer info update FAILED for shot" << shotId;
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Async visualizer info update FAILED for shot" << shotId;
             emit visualizerInfoUpdated(shotId, success);
         }, Qt::QueuedConnection);
     });
@@ -2851,7 +2852,7 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
 void ShotHistoryStorage::requestClearStaleVisualizerLink(qint64 shotId, const QString& staleVisualizerId)
 {
     if (!m_ready || shotId <= 0 || staleVisualizerId.isEmpty()) {
-        qWarning() << "ShotHistoryStorage: stale visualizer link NOT cleared for shot" << shotId
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "stale visualizer link NOT cleared for shot" << shotId
                    << "(not ready or bad args) — dead link may remain on the row";
         return;
     }
@@ -2867,7 +2868,7 @@ void ShotHistoryStorage::requestClearStaleVisualizerLink(qint64 shotId, const QS
             if (!query.prepare("UPDATE shots SET visualizer_id = '', visualizer_url = '', "
                                "updated_at = strftime('%s', 'now') "
                                "WHERE id = :id AND visualizer_id = :stale_id")) {
-                qWarning() << "ShotHistoryStorage: Failed to prepare stale link clear:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to prepare stale link clear:" << query.lastError().text();
                 return;
             }
             query.bindValue(":id", shotId);
@@ -2876,16 +2877,16 @@ void ShotHistoryStorage::requestClearStaleVisualizerLink(qint64 shotId, const QS
             if (success)
                 rowsChanged = query.numRowsAffected();
             else
-                qWarning() << "ShotHistoryStorage: Failed to clear stale visualizer link:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to clear stale visualizer link:" << query.lastError().text();
         });
         if (!opened || !success)
-            qWarning() << "ShotHistoryStorage: stale visualizer link clear FAILED for shot" << shotId
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "stale visualizer link clear FAILED for shot" << shotId
                        << "— dead link" << staleVisualizerId << "remains on the row";
         else if (rowsChanged > 0)
-            qDebug() << "ShotHistoryStorage: cleared stale visualizer link" << staleVisualizerId
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "cleared stale visualizer link" << staleVisualizerId
                      << "on shot" << shotId;
         else
-            qDebug() << "ShotHistoryStorage: shot" << shotId << "no longer holds visualizer link"
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shot" << shotId << "no longer holds visualizer link"
                      << staleVisualizerId << "— nothing to clear (replaced meanwhile)";
     });
 }
@@ -2909,7 +2910,7 @@ bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
         QSqlQuery q(db);
         if (!q.exec("SELECT visualizer_id FROM shots "
                     "WHERE visualizer_id IS NOT NULL AND visualizer_id != ''")) {
-            qWarning() << "ShotHistoryStorage: reconcile usedIds seed SELECT failed:"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile usedIds seed SELECT failed:"
                        << q.lastError().text();
             return false;
         }
@@ -2922,7 +2923,7 @@ bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
                 "AND timestamp >= :winStart ORDER BY timestamp");
     sel.bindValue(":winStart", windowStartEpoch);
     if (!sel.exec()) {
-        qWarning() << "ShotHistoryStorage: reconcile SELECT failed:"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile SELECT failed:"
                    << sel.lastError().text();
         return false;
     }
@@ -2961,7 +2962,7 @@ bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
         upd.bindValue(":vurl", matchUrl);
         upd.bindValue(":id", r.id);
         if (!upd.exec()) {
-            qWarning() << "ShotHistoryStorage: reconcile UPDATE failed for shot"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile UPDATE failed for shot"
                        << r.id << ":" << upd.lastError().text();
             continue;
         }
@@ -2970,7 +2971,7 @@ bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
         m["shotId"] = r.id;
         m["visualizerId"] = matchId;
         outLinked.append(m);
-        qDebug() << "ShotHistoryStorage: reconcile linked shot" << r.id
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "reconcile linked shot" << r.id
                  << "->" << matchId;
     }
     return true;
@@ -2996,12 +2997,12 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
         // Otherwise the caller must NOT advance the run-once flag.
         const bool ok = opened && staticOk;
         if (!opened)
-            qWarning() << "ShotHistoryStorage: reconcile could not open DB — will retry next boot";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile could not open DB — will retry next boot";
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, ok, linked, destroyed]() {
             if (*destroyed) return;
-            qDebug() << "ShotHistoryStorage: reconcile" << (ok ? "completed" : "FAILED")
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "reconcile" << (ok ? "completed" : "FAILED")
                      << "— linked" << linked.size() << "shot(s)";
             emit visualizerLinksReconciled(ok, linked);
         }, Qt::QueuedConnection);
@@ -3031,7 +3032,7 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
             if (!query.exec("SELECT id, visualizer_id, bean_brand, bean_type, beanbase_json, timestamp "
                             "FROM shots WHERE bean_repair_pending = 1 "
                             "AND COALESCE(visualizer_id,'') <> '' ORDER BY timestamp DESC")) {
-                qWarning() << "ShotHistoryStorage: pending bean-repair query failed:"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "pending bean-repair query failed:"
                            << query.lastError().text();
                 return;
             }
@@ -3061,7 +3062,7 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
         });
         const bool ok = opened && queryOk;
         if (!ok)
-            qWarning() << "ShotHistoryStorage: pending bean-repair read FAILED -"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "pending bean-repair read FAILED -"
                        << (opened ? "query error" : "could not open DB")
                        << "- no repair will run this session";
 
@@ -3069,7 +3070,7 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
         QMetaObject::invokeMethod(this, [this, ok, repairs, destroyed]() {
             if (*destroyed) return;
             if (ok && !repairs.isEmpty())
-                qDebug() << "ShotHistoryStorage:" << repairs.size()
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << repairs.size()
                          << "shot(s) queued for Visualizer bean repair";
             emit pendingBeanRepairsReady(ok, repairs);
         }, Qt::QueuedConnection);
@@ -3081,7 +3082,7 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
     if (!m_ready || shotId <= 0) {
         // The server confirmed this shot needs nothing; failing to record that
         // means repairing it again on the next boot, so it is not silent.
-        qWarning() << "ShotHistoryStorage: cannot clear the repair flag on shot" << shotId
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "cannot clear the repair flag on shot" << shotId
                    << "- storage not ready; it will be re-checked next boot";
         return;
     }
@@ -3092,18 +3093,18 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
             query.prepare("UPDATE shots SET bean_repair_pending = 0 WHERE id = :id");
             query.bindValue(":id", shotId);
             if (!query.exec())
-                qWarning() << "ShotHistoryStorage: could not clear repair flag on shot" << shotId
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "could not clear repair flag on shot" << shotId
                            << ":" << query.lastError().text();
             else if (query.numRowsAffected() == 0)
                 // A successful UPDATE matching nothing is not a clear: the shot
                 // was deleted locally, or the id never existed. Without this the
                 // two are indistinguishable, and the second is a producer bug
                 // that would otherwise leave a flag set with no trace of why.
-                qWarning() << "ShotHistoryStorage: repair flag clear matched no shot" << shotId
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "repair flag clear matched no shot" << shotId
                            << "- deleted locally, or the id was never valid";
         });
         if (!opened)
-            qWarning() << "ShotHistoryStorage: repair flag on shot" << shotId
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "repair flag on shot" << shotId
                        << "not cleared - DB open failed; it will be re-checked next boot";
     });
 }
@@ -3125,7 +3126,7 @@ void ShotHistoryStorage::requestMostRecentShotId()
                 shotId = query.value(0).toLongLong();
         });
         if (!opened)
-            qWarning() << "ShotHistoryStorage: requestMostRecentShotId failed - could not open DB";
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "requestMostRecentShotId failed - could not open DB";
 
         // Skip the emit on open failure: -1 here means "no shots" to a consumer,
         // and a transient open failure must not masquerade as an empty history.
@@ -3233,7 +3234,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         ShotRecord record;
         bool badgesPersisted = false;
         const bool opened = withTempDb(dbPath, "shs_shot", [&](QSqlDatabase& db) {
-            record = loadShotRecordStatic(db, shotId, &badgesPersisted);
+            record = loadShotRecordStatic(db, shotId, &badgesPersisted, Q_FUNC_INFO);
         });
         // On a DB-open failure `record` is default/invalid; do NOT deliver it as a
         // shotReady. MainController's migration16 visualizer-sync reads an invalid
@@ -3241,7 +3242,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         // — a transient open failure must not trigger that drop. A genuine
         // not-found (db opened, row absent) still emits, preserving that path.
         if (!opened)
-            qWarning() << "ShotHistoryStorage: requestShot — DB open failed for shot"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "requestShot — DB open failed for shot"
                        << shotId << "(no shotReady emitted)";
 
         // Convert to QVariantMap on main thread (touches QML-visible data).
@@ -3253,7 +3254,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         if (*destroyed || !opened) return;
         QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), badgesPersisted, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: requestShot callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "requestShot callback dropped (object destroyed)";
                 return;
             }
             emit shotReady(shotId, convertShotRecord(record));
@@ -3287,7 +3288,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
         bool newGrindIssue = false, newSkipFirstFrame = false, newPourTruncated = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
-            ShotRecord record = loadShotRecordStatic(db, shotId, &badgesPersisted);
+            ShotRecord record = loadShotRecordStatic(db, shotId, &badgesPersisted, Q_FUNC_INFO);
             if (record.summary.id == 0) return;
             recordFound = true;
             newChanneling = record.channelingDetected;
@@ -3406,7 +3407,7 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
 }
 
 ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
-                                                     bool* outBadgesPersisted)
+                                                     bool* outBadgesPersisted, const char* requestedBy)
 {
     if (outBadgesPersisted) *outBadgesPersisted = false;
     ShotRecord record;
@@ -3448,13 +3449,20 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id
         WHERE s.id = ?
     )")) {
-        qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "operation=loadShotRecord requestedBy=" << requestedBy << "shotId=" << shotId
+            << "result=prepareFailed sqlError=" << query.lastError().text();
         return record;
     }
     query.bindValue(0, shotId);
 
-    if (!query.exec() || !query.next()) {
-        qWarning() << "ShotHistoryStorage::loadShotRecordStatic: Shot not found:" << shotId;
+    if (!query.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "operation=loadShotRecord requestedBy=" << requestedBy << "shotId=" << shotId
+            << "result=queryFailed sqlError=" << query.lastError().text();
+        return record;
+    }
+    if (!query.next()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "operation=loadShotRecord requestedBy=" << requestedBy << "shotId=" << shotId
+            << "result=missingRow";
         return record;
     }
 
@@ -3610,11 +3618,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
 
             if (curveUpd.exec() && touchUpd.exec()) {
                 if (!txn.commit()) {
-                    qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadShotRecordStatic: curve self-heal"
                                   " commit failed for shot" << shotId << txn.commitError();
                 }
             } else {
-                qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadShotRecordStatic: curve self-heal"
                               " failed for shot" << shotId
                            << curveUpd.lastError() << touchUpd.lastError();
             }
@@ -3732,7 +3740,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         if (upd.exec()) {
             if (outBadgesPersisted) *outBadgesPersisted = true;
         } else {
-            qWarning() << "ShotHistoryStorage::loadShotRecordStatic: badge persist failed for shot"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadShotRecordStatic: badge persist failed for shot"
                        << shotId << upd.lastError();
         }
     }
@@ -3747,14 +3755,14 @@ bool ShotHistoryStorage::deleteShotStatic(QSqlDatabase& db, qint64 shotId)
     query.bindValue(0, shotId);
 
     if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to delete shot:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to delete shot:" << query.lastError().text();
         return false;
     }
 
     // Note: no updateTotalShots()/shotDeleted() here.
     // This is only called from the import overwrite path, which handles refresh
     // (refreshTotalShots) after the full batch.
-    qDebug() << "ShotHistoryStorage: Deleted shot" << shotId;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Deleted shot" << shotId;
     return true;
 }
 
@@ -3784,7 +3792,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
                     db.commit();
                     success = true;
                 } else {
-                    qWarning() << "ShotHistoryStorage: Failed to batch delete shots:" << query.lastError().text();
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to batch delete shots:" << query.lastError().text();
                     db.rollback();
                 }
             }
@@ -3793,7 +3801,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotIds, success, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: deleteShots callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "deleteShots callback dropped (object destroyed)";
                 return;
             }
             if (success) {
@@ -3801,7 +3809,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
                 for (const auto& id : shotIds)
                     emit shotDeleted(id.toLongLong());
                 emit shotsDeleted(shotIds);
-                qDebug() << "ShotHistoryStorage: Batch deleted" << shotIds.size() << "shots";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Batch deleted" << shotIds.size() << "shots";
             }
         }, Qt::QueuedConnection);
     });
@@ -3810,7 +3818,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
 void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
 {
     if (!m_ready) {
-        qWarning() << "ShotHistoryStorage: Cannot delete shot - not ready";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot delete shot - not ready";
         emit errorOccurred("Cannot delete shot: database not ready");
         emit shotDeleteFinished(shotId, false, QStringLiteral("database not ready"));
         return;
@@ -3831,7 +3839,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
             query.prepare("DELETE FROM shots WHERE id = ?");
             query.bindValue(0, shotId);
             if (!query.exec()) {
-                qWarning() << "ShotHistoryStorage: Failed to async delete shot:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to async delete shot:" << query.lastError().text();
                 reason = QStringLiteral("the database rejected the delete");
             } else if (query.numRowsAffected() == 0) {
                 // A DELETE matching nothing is a successful statement. The caller
@@ -3847,15 +3855,15 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, reason, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: deleteShot callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "deleteShot callback dropped (object destroyed)";
                 return;
             }
             if (success) {
                 refreshTotalShots();
                 emit shotDeleted(shotId);
-                qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async deleted shot" << shotId;
             } else {
-                qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to async delete shot" << shotId
                            << "-" << reason;
                 // User-facing (toast): no internal shot id — logged above.
                 emit errorOccurred(QStringLiteral("Couldn't delete the shot — please try again."));
@@ -3886,7 +3894,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         if (allowed.contains(norm)) {
             metadata.insert(key, norm);
         } else {
-            qWarning() << "ShotHistoryStorage: dropping invalid" << key << "value" << raw;
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "dropping invalid" << key << "value" << raw;
             metadata.remove(key);
         }
     };
@@ -3945,7 +3953,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     }
 
     if (setClauses.isEmpty()) {
-        qWarning() << "ShotHistoryStorage: No fields to update for shot" << shotId;
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "No fields to update for shot" << shotId;
         return false;
     }
 
@@ -3955,7 +3963,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
 
     QSqlQuery query(db);
     if (!query.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage: Metadata update prepare failed:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Metadata update prepare failed:" << query.lastError().text();
         return false;
     }
 
@@ -3973,7 +3981,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     query.bindValue(":id", shotId);
 
     if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to update shot metadata:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to update shot metadata:" << query.lastError().text();
         return false;
     }
 
@@ -3985,7 +3993,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     // Deliberately not a `SELECT` before the write: that races (this runs on a
     // background thread) and costs a second query on a one-query path.
     if (query.numRowsAffected() == 0) {
-        qWarning() << "ShotHistoryStorage: No shot with id" << shotId << "to update";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "No shot with id" << shotId << "to update";
         return false;
     }
     return true;
@@ -4010,7 +4018,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: updateMetadata callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "updateMetadata callback dropped (object destroyed)";
                 return;
             }
             if (success) {
@@ -4023,7 +4031,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
                 emit errorOccurred(QStringLiteral("Couldn't save your shot changes — please try again."));
             }
             emit shotMetadataUpdated(shotId, success);
-            qDebug() << "ShotHistoryStorage: Async updated metadata for shot" << shotId << "success:" << success;
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async updated metadata for shot" << shotId << "success:" << success;
         }, Qt::QueuedConnection);
     });
 }
@@ -4045,7 +4053,7 @@ void ShotHistoryStorage::updateTotalShots()
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) return;
             if (count < 0) {
-                qWarning() << "ShotHistoryStorage::updateTotalShots: count query failed, keeping previous count" << m_totalShots;
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "updateTotalShots: count query failed, keeping previous count" << m_totalShots;
                 return;
             }
             if (count != m_totalShots) {
@@ -4062,7 +4070,7 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
     // 1. Set m_backupInProgress = true
     // 2. Checked that m_dbPath is valid
 
-    qDebug() << "ShotHistoryStorage: Performing database copy to" << destPath;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Performing database copy to" << destPath;
 
     // Checkpoint WAL to ensure all data is in main database file
     checkpoint();
@@ -4080,7 +4088,7 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
         "(Ljava/lang/String;Ljava/lang/String;)Z",
         QJniObject::fromString(m_dbPath).object<jstring>(),
         QJniObject::fromString(destPath).object<jstring>());
-    qDebug() << "ShotHistoryStorage: Java copyFile result:" << success;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Java copyFile result:" << success;
 #else
     // Desktop/iOS: use Qt's QFile::copy
     success = QFile::copy(m_dbPath, destPath);
@@ -4088,11 +4096,11 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
 
     // Reopen database — this is critical, retry if first attempt fails
     if (!m_db.open()) {
-        qWarning() << "ShotHistoryStorage: First reopen attempt failed, retrying:" << m_db.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "First reopen attempt failed, retrying:" << m_db.lastError().text();
         // Wait briefly and retry once
         QThread::msleep(100);
         if (!m_db.open()) {
-            qCritical() << "ShotHistoryStorage: CRITICAL - Failed to reopen database after backup:" << m_db.lastError().text();
+            DIAG_ERROR(STORAGE, "ShotHistoryStorage") << "CRITICAL - Failed to reopen database after backup:" << m_db.lastError().text();
             m_ready = false;
             emit readyChanged();
             emit errorOccurred("Critical: Database connection lost after backup. Please restart the app.");
@@ -4106,7 +4114,7 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
 void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
 {
     if (m_backupInProgress) {
-        qWarning() << "ShotHistoryStorage: Backup already in progress";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Backup already in progress";
         emit backupFinished(false, QString());
         return;
     }
@@ -4128,7 +4136,7 @@ void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, resultPath, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: backup callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "backup callback dropped (object destroyed)";
                 return;
             }
             m_backupInProgress = false;
@@ -4141,12 +4149,12 @@ void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
 void ShotHistoryStorage::checkpoint()
 {
     if (!m_db.isOpen()) {
-        qWarning() << "ShotHistoryStorage::checkpoint: Database not open";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "checkpoint: Database not open";
         return;
     }
 
-    qDebug() << "ShotHistoryStorage: Starting checkpoint, dbPath:" << m_dbPath;
-    qDebug() << "ShotHistoryStorage: Total shots:" << m_totalShots;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Starting checkpoint, dbPath:" << m_dbPath;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Total shots:" << m_totalShots;
 
     QSqlQuery query(m_db);
 
@@ -4156,11 +4164,11 @@ void ShotHistoryStorage::checkpoint()
             int busy = query.value(0).toInt();
             int log = query.value(1).toInt();
             int checkpointed = query.value(2).toInt();
-            qDebug() << "ShotHistoryStorage: FULL checkpoint - busy:" << busy
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "FULL checkpoint - busy:" << busy
                      << "log:" << log << "checkpointed:" << checkpointed;
         }
     } else {
-        qWarning() << "ShotHistoryStorage: FULL checkpoint failed:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "FULL checkpoint failed:" << query.lastError().text();
     }
 
     // Then TRUNCATE to clean up WAL file
@@ -4169,34 +4177,34 @@ void ShotHistoryStorage::checkpoint()
             int busy = query.value(0).toInt();
             int log = query.value(1).toInt();
             int checkpointed = query.value(2).toInt();
-            qDebug() << "ShotHistoryStorage: TRUNCATE checkpoint - busy:" << busy
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "TRUNCATE checkpoint - busy:" << busy
                      << "log:" << log << "checkpointed:" << checkpointed;
         }
     } else {
-        qWarning() << "ShotHistoryStorage: TRUNCATE checkpoint failed:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "TRUNCATE checkpoint failed:" << query.lastError().text();
     }
 
     // Verify file size after checkpoint
     QFile dbFile(m_dbPath);
     if (dbFile.exists()) {
-        qDebug() << "ShotHistoryStorage: Database file size after checkpoint:" << dbFile.size() << "bytes";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Database file size after checkpoint:" << dbFile.size() << "bytes";
     } else {
-        qWarning() << "ShotHistoryStorage: Database file does not exist at:" << m_dbPath;
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Database file does not exist at:" << m_dbPath;
     }
 
     // Check WAL file
     QFile walFile(m_dbPath + "-wal");
     if (walFile.exists()) {
-        qDebug() << "ShotHistoryStorage: WAL file size:" << walFile.size() << "bytes";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "WAL file size:" << walFile.size() << "bytes";
     } else {
-        qDebug() << "ShotHistoryStorage: No WAL file (expected after successful checkpoint)";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "No WAL file (expected after successful checkpoint)";
     }
 }
 
 void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool merge)
 {
     if (m_importInProgress) {
-        qWarning() << "ShotHistoryStorage: Import already in progress";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Import already in progress";
         emit errorOccurred("Import already in progress");
         emit importDatabaseFinished(false);
         return;
@@ -4232,7 +4240,7 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, success, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: importDatabase callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabase callback dropped (object destroyed)";
                 return;
             }
             m_importInProgress = false;
@@ -4260,7 +4268,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(dbPath);
         if (!db.open()) {
-            qWarning() << "ShotHistoryStorage::createBackupStatic: Failed to open DB:" << db.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Failed to open DB:" << db.lastError().text();
             db = QSqlDatabase();  // Release connection before removeDatabase
             QSqlDatabase::removeDatabase(connName);
             return QString();
@@ -4273,7 +4281,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
         QSqlQuery query(db);
         if (query.exec("PRAGMA wal_checkpoint(FULL)")) {
             if (query.next()) {
-                qDebug() << "ShotHistoryStorage::createBackupStatic: FULL checkpoint - busy:" << query.value(0).toInt()
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: FULL checkpoint - busy:" << query.value(0).toInt()
                          << "log:" << query.value(1).toInt() << "checkpointed:" << query.value(2).toInt();
             }
         }
@@ -4283,10 +4291,10 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
                 int log = query.value(1).toInt();
                 int checkpointed = query.value(2).toInt();
                 if (busy != 0 || checkpointed < log) {
-                    qWarning() << "ShotHistoryStorage::createBackupStatic: Incomplete checkpoint - backup may be missing recent data."
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Incomplete checkpoint - backup may be missing recent data."
                                << "busy:" << busy << "log:" << log << "checkpointed:" << checkpointed;
                 } else {
-                    qDebug() << "ShotHistoryStorage::createBackupStatic: TRUNCATE checkpoint - busy:" << busy
+                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: TRUNCATE checkpoint - busy:" << busy
                              << "log:" << log << "checkpointed:" << checkpointed;
                 }
             }
@@ -4299,7 +4307,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
 
         bool success = QFile::copy(dbPath, destPath);
         if (!success) {
-            qWarning() << "ShotHistoryStorage::createBackupStatic: Failed to copy" << dbPath << "to" << destPath;
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Failed to copy" << dbPath << "to" << destPath;
         }
 
         db.close();
@@ -4310,7 +4318,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
         return QString();
     }
 
-    qDebug() << "ShotHistoryStorage::createBackupStatic: Created backup at" << destPath;
+    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Created backup at" << destPath;
     return destPath;
 }
 
@@ -4332,7 +4340,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         QSqlDatabase srcDb = QSqlDatabase::addDatabase("QSQLITE", srcConnName);
         srcDb.setDatabaseName(srcFilePath);
         if (!srcDb.open()) {
-            qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to open source:" << srcDb.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to open source:" << srcDb.lastError().text();
             srcDb = QSqlDatabase();  // Release connection before removeDatabase
             QSqlDatabase::removeDatabase(srcConnName);
             return false;
@@ -4342,7 +4350,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         QSqlDatabase destDb = QSqlDatabase::addDatabase("QSQLITE", destConnName);
         destDb.setDatabaseName(destDbPath);
         if (!destDb.open()) {
-            qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to open dest:" << destDb.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to open dest:" << destDb.lastError().text();
             srcDb.close();
             srcDb = QSqlDatabase();
             destDb = QSqlDatabase();  // Release connections before removeDatabase
@@ -4359,7 +4367,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         {
             QSqlQuery srcCheck(srcDb);
             if (!srcCheck.exec("SELECT COUNT(*) FROM shots")) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: No shots table in source";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: No shots table in source";
                 goto cleanup;
             }
             srcCheck.next();
@@ -4367,16 +4375,16 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         }
 
         if (sourceCount == 0) {
-            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Source has no shots (empty backup)";
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Source has no shots (empty backup)";
             result = true;
             goto cleanup;
         }
 
-        qDebug() << "ShotHistoryStorage::importDatabaseStatic: Source has" << sourceCount << "shots";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Source has" << sourceCount << "shots";
 
         // Begin transaction on destination
         if (!destDb.transaction()) {
-            qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to begin transaction:" << destDb.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to begin transaction:" << destDb.lastError().text();
             goto cleanup;
         }
 
@@ -4386,11 +4394,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             if (!delQuery.exec("DELETE FROM shot_phases") ||
                 !delQuery.exec("DELETE FROM shot_samples") ||
                 !delQuery.exec("DELETE FROM shots")) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to clear data:" << delQuery.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to clear data:" << delQuery.lastError().text();
                 destDb.rollback();
                 goto cleanup;
             }
-            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Cleared existing data for replace";
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Cleared existing data for replace";
         }
 
         {
@@ -4417,7 +4425,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // equipment_id.
             QHash<qint64, qint64> bagIdMap;
             if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap, packageIdMap)) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Bag import failed";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Bag import failed";
                 destDb.rollback();
                 goto cleanup;
             }
@@ -4432,7 +4440,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             QHash<qint64, qint64> recipeIdMap;
             if (!RecipeStorage::importRecipesStatic(srcDb, destDb, merge, recipeIdMap, packageIdMap,
                                                     bagIdMap)) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Recipe import failed";
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Recipe import failed";
                 destDb.rollback();
                 goto cleanup;
             }
@@ -4464,7 +4472,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         "the check for shots already present could not run (%1), so existing "
                         "shots could not be identified. Your existing shots were not changed.")
                         .arg(uuidQuery.lastError().text());
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
                     destDb.rollback();
                     goto cleanup;
@@ -4503,7 +4511,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         "the existing shot history could not be counted (%1), so this import "
                         "could not be checked for safety. Your existing shots were not changed.")
                         .arg(countQuery.lastError().text());
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
                     destDb.rollback();
                     goto cleanup;
@@ -4520,13 +4528,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         .arg(uuidQuery.lastError().isValid()
                                  ? uuidQuery.lastError().text()
                                  : QStringLiteral("no error was reported"));
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
                     destDb.rollback();
                     goto cleanup;
                 }
 
-                qDebug() << "ShotHistoryStorage::importDatabaseStatic: Destination holds"
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Destination holds"
                          << *tally.destShotsBefore << "shot(s);" << existingByUuid.size()
                          << "matched for de-duplication";
             }
@@ -4554,7 +4562,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
             QSqlQuery srcShots(srcDb);
             if (!srcShots.exec("SELECT * FROM shots")) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query source:" << srcShots.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to query source:" << srcShots.lastError().text();
                 destDb.rollback();
                 goto cleanup;
             }
@@ -4764,11 +4772,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxFlowCalibration));
 
                 if (!insert.exec()) {
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
                     failed++;
                     if (!merge) {
                         // In replace mode, existing data was deleted — abort to rollback
-                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting replace-mode import due to INSERT failure";
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Aborting replace-mode import due to INSERT failure";
                         destDb.rollback();
                         goto cleanup;
                     }
@@ -4809,7 +4817,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     // Distinct from "this shot has no samples": collapsing the
                     // two imports a graphless shot and counts it a success,
                     // with nothing in the log to explain the missing graph.
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to read samples for shot"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to read samples for shot"
                                << uuid << ":" << srcSamples.lastError().text();
                 } else if (srcSamples.next()) {
                     QSqlQuery insertSample(destDb);
@@ -4818,7 +4826,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     insertSample.addBindValue(srcSamples.value(0));
                     insertSample.addBindValue(srcSamples.value(1));
                     if (!insertSample.exec()) {
-                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import sample for shot"
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import sample for shot"
                                    << uuid << ":" << insertSample.lastError().text();
                     }
                 }
@@ -4834,13 +4842,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     // the same branch and would silently import every phase with
                     // an empty reason, so say which one this was rather than
                     // treating the two as the same thing.
-                    qDebug() << "ShotHistoryStorage::importDatabaseStatic: phases query without transition_reason for shot"
+                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: phases query without transition_reason for shot"
                              << uuid << "- retrying on the older column set. Reported:"
                              << srcPhases.lastError().text();
                     srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode FROM shot_phases WHERE shot_id = ?");
                     srcPhases.addBindValue(oldId);
                     if (!srcPhases.exec()) {
-                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query phases for shot"
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to query phases for shot"
                                    << uuid << ":" << srcPhases.lastError().text();
                     }
                 }
@@ -4854,7 +4862,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     insertPhase.addBindValue(srcPhases.value(3));
                     insertPhase.addBindValue(hasReason ? srcPhases.value(4).toString() : QString());
                     if (!insertPhase.exec()) {
-                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import phase for shot"
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import phase for shot"
                                    << uuid << ":" << insertPhase.lastError().text();
                     }
                 }
@@ -4863,7 +4871,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             }
 
             if (!destDb.commit()) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to commit:" << destDb.lastError().text();
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to commit:" << destDb.lastError().text();
                 destDb.rollback();
                 goto cleanup;
             }
@@ -4882,7 +4890,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // destDb.lastError() would be stale — begin runs on its own QSqlQuery.
                 DbWriteTxn backfillTxn = DbWriteTxn::begin(destDb, "import beverage-type backfill");
                 if (!backfillTxn.ok()) {
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed - skipping backfill";
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Backfill transaction failed - skipping backfill";
                 } else {
                 QSqlQuery query(destDb);
                 query.prepare("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
@@ -4909,7 +4917,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 if (!beanbaseBackfill.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
                                            "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL "
                                            "AND json_valid(beanbase_json)"))
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: beanbase_id backfill failed:"
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: beanbase_id backfill failed:"
                                << beanbaseBackfill.lastError().text();
                 // Replace mode restores the DATABASE, so the id sequence should
                 // match the backup as well as the rows. DELETE does not reset
@@ -4923,7 +4931,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     QSqlQuery seqFix(destDb);
                     if (!seqFix.exec("UPDATE sqlite_sequence SET seq = "
                                      "(SELECT IFNULL(MAX(id), 0) FROM shots) WHERE name = 'shots'"))
-                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: could not realign"
+                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: could not realign"
                                    << "sqlite_sequence after replace:" << seqFix.lastError().text();
                 }
 
@@ -4931,7 +4939,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // into existing bags by identity (idempotent, NULL-only).
                 CoffeeBagStorage::linkOrphanShotsStatic(destDb);
                 if (!backfillTxn.commit())
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
                 }
             }
 
@@ -4940,7 +4948,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // populated one? Both used to print the same thing. It is only
             // measured in merge mode, so say "not measured" rather than print a
             // 0 that reads as "the database was empty".
-            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Import complete - destination held"
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Import complete - destination held"
                      << (tally.destShotsBefore ? QString::number(*tally.destShotsBefore)
                                                : QStringLiteral("(not measured, replace mode)"))
                      << "before;" << imported << "imported," << skipped
@@ -5054,7 +5062,7 @@ std::optional<QSet<qint64>> ShotHistoryStorage::existingShotIds(const QSet<qint6
         q.addBindValue(id);
 
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::existingShotIds: lookup failed, reporting"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "existingShotIds: lookup failed, reporting"
                    << "\"could not answer\" rather than \"none exist\":" << q.lastError().text();
         return std::nullopt;
     }
@@ -5064,7 +5072,7 @@ std::optional<QSet<qint64>> ShotHistoryStorage::existingShotIds(const QSet<qint6
     // A scan that stopped early would under-report, and under-reporting here
     // deletes references. Same reasoning as GUARD 2 in importDatabaseStatic.
     if (q.lastError().isValid()) {
-        qWarning() << "ShotHistoryStorage::existingShotIds: read stopped early, reporting"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "existingShotIds: read stopped early, reporting"
                    << "\"could not answer\":" << q.lastError().text();
         return std::nullopt;
     }
@@ -5079,7 +5087,7 @@ int ShotHistoryStorage::getShotCountStatic(const QString& dbPath)
         if (query.exec("SELECT COUNT(*) FROM shots") && query.next())
             count = query.value(0).toInt();
         else
-            qWarning() << "ShotHistoryStorage::getShotCountStatic: COUNT query failed:" << query.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "getShotCountStatic: COUNT query failed:" << query.lastError().text();
     });
     return count;
 }
@@ -5087,7 +5095,7 @@ int ShotHistoryStorage::getShotCountStatic(const QString& dbPath)
 qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overwriteExisting)
 {
     if (!m_ready) {
-        qWarning() << "ShotHistoryStorage: Cannot import - not ready";
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot import - not ready";
         return -1;
     }
     // beginAttempts = 1: this overload runs synchronously on the GUI thread
@@ -5192,7 +5200,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     DbWriteTxn txn = DbWriteTxn::begin(db, "shot import", beginAttempts);
     if (!txn.ok()) {
-        qWarning() << "ShotHistoryStorage: import could not start a transaction, skipping shot"
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "import could not start a transaction, skipping shot"
                    << record.summary.uuid;
         return -1;
     }
@@ -5200,7 +5208,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     // Now inside the transaction, so these roll back with everything else.
     for (const qint64 replaceId : std::as_const(replaceIds)) {
         if (!deleteShotStatic(db, replaceId)) {
-            qWarning() << "ShotHistoryStorage: import could not remove the shot it replaces"
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "import could not remove the shot it replaces"
                        << replaceId << "for" << record.summary.uuid
                        << "- aborting rather than leaving a duplicate";
             return -1;
@@ -5315,7 +5323,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.bindValue(":pour_truncated_detected", record.pourTruncatedDetected ? 1 : 0);
 
     if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to import shot:" << query.lastError().text();
         return -1;
     }
 
@@ -5345,7 +5353,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.bindValue(":blob", compressedData);
 
     if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to insert imported samples:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to insert imported samples:" << query.lastError().text();
         return -1;
     }
 
@@ -5368,7 +5376,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     // report an imported shot that does not exist. (The guard has already rolled
     // back by this point, so nothing is left open on the connection.)
     if (!txn.commit()) {
-        qWarning() << "ShotHistoryStorage: import commit failed for" << record.summary.uuid
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "import commit failed for" << record.summary.uuid
                    << "-" << txn.commitError();
         return -1;
     }
@@ -5402,7 +5410,7 @@ void ShotHistoryStorage::backfillBeverageType()
     }
 
     if (updated > 0)
-        qDebug() << "ShotHistoryStorage: Backfilled beverage_type for" << updated << "shots";
+        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Backfilled beverage_type for" << updated << "shots";
 }
 
 void ShotHistoryStorage::refreshTotalShots()
@@ -5418,11 +5426,11 @@ void ShotHistoryStorage::refreshTotalShots()
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: refreshTotalShots callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "refreshTotalShots callback dropped (object destroyed)";
                 return;
             }
             if (count < 0) {
-                qWarning() << "ShotHistoryStorage::refreshTotalShots: count query failed, keeping previous count" << m_totalShots;
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "refreshTotalShots: count query failed, keeping previous count" << m_totalShots;
                 return;
             }
             if (count != m_totalShots) {
@@ -5432,4 +5440,3 @@ void ShotHistoryStorage::refreshTotalShots()
         }, Qt::QueuedConnection);
     });
 }
-

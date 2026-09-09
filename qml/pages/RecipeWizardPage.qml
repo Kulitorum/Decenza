@@ -627,7 +627,7 @@ T.Page {
             fPitcherFlow = s.flow || 0
             fPitcherTemperatureC = s.temperatureC || 0
         } catch (e) {
-            console.warn("RecipeWizard: bad steam JSON:", e)
+            WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad steam JSON:", e].map(String).join(" "))
         }
     }
 
@@ -665,7 +665,7 @@ T.Page {
             fVesselTemperatureC = w.temperatureC || 0
             fWaterOrder = w.order === "before" ? "before" : "after"
         } catch (e) {
-            console.warn("RecipeWizard: bad hot water JSON:", e)
+            WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad hot water JSON:", e].map(String).join(" "))
         }
     }
 
@@ -712,7 +712,7 @@ T.Page {
             try {
                 beanBaseId = JSON.parse(shot.beanBaseJson).id || ""
             } catch (e) {
-                console.warn("RecipeWizard: bad beanBaseJson on promoted shot:", e)
+                WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad beanBaseJson on promoted shot:", e].map(String).join(" "))
             }
         }
         // Route through `prefill` so save() picks up the provenance fields.
@@ -767,7 +767,7 @@ T.Page {
                 try {
                     promoteAnchor = Number(JSON.parse(shot.profileJson).espresso_temperature) || 0
                 } catch (e) {
-                    console.warn("RecipeWizard: shot profile snapshot JSON unparsable:", e)
+                    WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: shot profile snapshot JSON unparsable:", e].map(String).join(" "))
                 }
             }
             if (promoteAnchor <= 0)
@@ -809,7 +809,7 @@ T.Page {
             // Embedded fallback for a renamed/uninstalled profile — the same
             // ladder the recipe cards use.
             try { d = JSON.parse(fProfileJson) } catch (e) {
-                console.warn("RecipeWizard: embedded profile JSON unparsable:", e)
+                WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: embedded profile JSON unparsable:", e].map(String).join(" "))
                 d = null
             }
         }
@@ -1425,7 +1425,7 @@ T.Page {
         if (fBagBlob === "")
             return ""
         try { return JSON.parse(fBagBlob).link || "" }
-        catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e); return "" }
+        catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")); return "" }
     }
 
     // Profile card: a RICH read-out of what PICKING A PROFILE brings to the
@@ -1487,7 +1487,7 @@ T.Page {
             return ProfileManager.getProfileByFilename(fn)
         if (fProfileJson !== "") {
             try { return JSON.parse(fProfileJson) }
-            catch (e) { console.warn("RecipeWizard: embedded profile JSON unparsable:", e); return null }
+            catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: embedded profile JSON unparsable:", e].map(String).join(" ")); return null }
         }
         return null
     }
@@ -1561,7 +1561,7 @@ T.Page {
         if (isTeaDrink) {
             _teaBrewing = ({})
             if (fBagBlob !== "") {
-                try { _teaBrewing = JSON.parse(fBagBlob) } catch (e) { _teaBrewing = ({}); console.warn("RecipeWizard: bad bag blob JSON:", e) }
+                try { _teaBrewing = JSON.parse(fBagBlob) } catch (e) { _teaBrewing = ({}); WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
             }
             var stated = parseFloat(_teaBrewing.brewTempC) || 0
             var typeMatched = fProfileTitle !== ""
@@ -1614,7 +1614,7 @@ T.Page {
         _ranked = ({})
         var teaType = ""
         if (isTeaDrink && fBagBlob !== "") {
-            try { teaType = String(JSON.parse(fBagBlob).teaType || "") } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e) }
+            try { teaType = String(JSON.parse(fBagBlob).teaType || "") } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
         }
         var roastLevel = ""  // the bag list carries roastLevel per bag
         if (!isTeaDrink && _selectedBagRoastLevel !== "")
@@ -1729,7 +1729,7 @@ T.Page {
         }
         var statedTemp = 0
         if (isTeaDrink && fBagBlob !== "") {
-            try { statedTemp = parseFloat(JSON.parse(fBagBlob).brewTempC) || 0 } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e) }
+            try { statedTemp = parseFloat(JSON.parse(fBagBlob).brewTempC) || 0 } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
         }
         if (statedTemp > 0) {
             var withTemp = rest.map(function(p) {
@@ -1753,7 +1753,7 @@ T.Page {
 
     function _teaBrewingTypeForRanking() {
         if (fBagBlob === "") return ""
-        try { return String(JSON.parse(fBagBlob).teaType || "") } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e); return "" }
+        try { return String(JSON.parse(fBagBlob).teaType || "") } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")); return "" }
     }
 
     // --- connections --------------------------------------------------------
@@ -1874,8 +1874,8 @@ T.Page {
                 // The recipe was deleted between opening the list and the load
                 // landing — don't leave a blank "edit" form the user fills in
                 // and only fails to save. Leave the page instead.
-                console.warn("RecipeWizard: recipe", wizardPage.editRecipeId,
-                             "no longer exists — leaving edit")
+                WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: recipe", wizardPage.editRecipeId,
+                             "no longer exists — leaving edit"].map(String).join(" "))
                 AppShell.backRequested()
             }
         }

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "steamdatamodel.h"
 #include "rendering/fastlinerenderer.h"
 #include <QDebug>
@@ -53,7 +54,7 @@ void SteamDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRend
         m_lastFlushedTemp = m_temperaturePoints.size();
     }
 
-    qDebug() << "SteamDataModel: Registered fast renderers";
+    DIAG_DEBUG(STEAM, "SteamDataModel") << "Registered fast renderers";
     m_flushTimer->start();
 }
 

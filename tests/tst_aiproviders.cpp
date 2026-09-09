@@ -38,6 +38,7 @@
 #include <memory>
 
 #include "ai/aiprovider.h"
+#include "helpers/diagnosticcapture.h"
 #include "core/translationmanager.h"
 
 // Canned-response HTTP server for the provider request/reply contracts below.
@@ -97,8 +98,10 @@ public:
 
                     *responded = true;
                     m_requestBodies.append(body);
+                    const int status = m_nextStatus;
+                    m_nextStatus = 200;
                     const QByteArray resp =
-                        "HTTP/1.1 200 OK\r\n"
+                        "HTTP/1.1 " + QByteArray::number(status) + " Test\r\n"
                         "Content-Type: application/json\r\n"
                         "Content-Length: " + QByteArray::number(m_responseBody.size()) + "\r\n"
                         "Connection: close\r\n"
@@ -123,6 +126,7 @@ public:
     }
 
     void respondWith(const QByteArray& body) { m_responseBody = body; }
+    void failNextRequest(int status) { m_nextStatus = status; }
 
     // Body of the last request the provider actually sent, parsed as JSON.
     QJsonObject lastRequest() const {
@@ -135,6 +139,7 @@ private:
     QTcpServer m_server;
     QByteArray m_responseBody = "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}";
     QList<QByteArray> m_requestBodies;
+    int m_nextStatus = 200;
 };
 
 namespace {
@@ -202,6 +207,65 @@ class tst_AIProviders : public QObject {
     Q_OBJECT
 
 private slots:
+    void retryKeepsOperationIdentityAndOneSuccess()
+    {
+        DiagnosticCapture logs;
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
+        server.failNextRequest(503);
+        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        provider.setBaseUrl(server.baseUrl());
+        const auto operation = AIOperationLog::begin("advisor", false, 0, 71);
+        operation->useProvider("openrouter", "fake/model", "providerText");
+        provider.setDiagnosticOperation(operation);
+        connect(&provider, &AIProvider::analysisComplete, this,
+                [operation](const QString&) { operation->finish("success", "adviceReady"); });
+        QSignalSpy completed(&provider, &AIProvider::analysisComplete);
+        QSignalSpy failed(&provider, &AIProvider::analysisFailed);
+        provider.analyze("secret-system", "secret-page");
+        QVERIFY(completed.wait(5000));
+        QCOMPARE(server.requestCount(), 2);
+        QCOMPARE(failed.size(), 0);
+        QCOMPARE(logs.terminals().size(), 1);
+        QVERIFY(logs.terminals().first().contains("outcome=success"));
+        const auto text = logs.lines().join('\n');
+        QVERIFY(text.contains("httpStatus=503"));
+        QVERIFY(text.contains("httpStatus=200"));
+        QVERIFY(text.contains("retry 1"));
+        QVERIFY(!text.contains("secret-"));
+        for (const auto& line : logs.lines())
+            if (line.contains("op="))
+                QVERIFY(line.contains("op=" + operation->id));
+    }
+
+    void upstreamErrorContentNeverEntersDiagnostics()
+    {
+        DiagnosticCapture logs;
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        server.respondWith("{\"choices\":[{\"error\":{\"code\":\"secret-code\","
+                           "\"message\":\"secret-prompt-and-api-key\"}}]}");
+        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        provider.setBaseUrl(server.baseUrl());
+        const auto operation = AIOperationLog::begin("bagExtraction", true, 71);
+        operation->useProvider("openrouter", "fake/model", "providerText");
+        provider.setDiagnosticOperation(operation);
+        QSignalSpy failed(&provider, &AIProvider::analysisFailed);
+        provider.analyze("secret-system", "secret-page");
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(server.requestCount(), 1);
+        // The user's detailed error remains available, while the shared log omits it.
+        QVERIFY(failed.first().first().toString().contains("secret-prompt"));
+        operation->finish("failed", "providerFailure");
+        const auto text = logs.lines().join('\n');
+        QVERIFY(!text.contains("secret-"));
+        QVERIFY(text.contains("httpStatus=200"));
+        QVERIFY(text.contains("remoteErrorContentOmitted"));
+        QCOMPARE(logs.terminals().size(), 1);
+        QVERIFY(logs.terminals().first().startsWith("[BeanBase][Operation]"));
+    }
+
     // The bulk translator keeps its own fallback model per provider (see
     // TranslationManager::fallbackTranslationModel) because decenza_testlib compiles the
     // translator but not the AI stack. This is the test that keeps the two in step.
@@ -423,7 +487,7 @@ private slots:
 
         QSignalSpy failed(&p, &AIProvider::analysisFailed);
         QSignalSpy complete(&p, &AIProvider::analysisComplete);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Anthropic: model"));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("Anthropic.*model"));
 
         // analyze() is machine-parsed, so its policy is Fail.
         p.analyze(QStringLiteral("system"), QStringLiteral("user"));
@@ -446,7 +510,7 @@ private slots:
 
         QSignalSpy failed(&p, &AIProvider::analysisFailed);
         QSignalSpy complete(&p, &AIProvider::analysisComplete);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Anthropic: model"));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("Anthropic.*model"));
 
         QJsonArray messages;
         QJsonObject userMsg;
@@ -476,7 +540,7 @@ private slots:
 
         QSignalSpy failed(&p, &AIProvider::analysisFailed);
         QSignalSpy complete(&p, &AIProvider::analysisComplete);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Anthropic: model"));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("Anthropic.*model"));
 
         p.analyze(QStringLiteral("system"), QStringLiteral("user"));
         QVERIFY(failed.wait(5000));
@@ -499,7 +563,7 @@ private slots:
 
         QSignalSpy failed(&p, &AIProvider::analysisFailed);
         QSignalSpy complete(&p, &AIProvider::analysisComplete);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Anthropic: model"));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("Anthropic.*model"));
 
         p.analyzeUrl(QStringLiteral("system"), QStringLiteral("https://example.com/bag"));
         QVERIFY(failed.wait(5000));
@@ -544,7 +608,7 @@ private slots:
                           "\"message\":{\"content\":\"Grind fine\"}}]}")
             << QByteArray("{\"choices\":[{\"finish_reason\":\"stop\","
                           "\"message\":{\"content\":\"Grind finer.\"}}]}")
-            << QStringLiteral("OpenAI: model");
+            << QStringLiteral("OpenAI.*model");
 
         // No content key at all — the shape that made this branch unreachable.
         QTest::newRow("gemini-thinking-ate-the-budget")
@@ -552,7 +616,7 @@ private slots:
             << QByteArray("{\"candidates\":[{\"finishReason\":\"MAX_TOKENS\"}]}")
             << QByteArray("{\"candidates\":[{\"finishReason\":\"STOP\",\"content\":"
                           "{\"parts\":[{\"text\":\"Grind finer.\"}]}}]}")
-            << QStringLiteral("Gemini: model");
+            << QStringLiteral("Gemini.*model");
 
         QTest::newRow("openrouter")
             << QStringLiteral("openrouter")
@@ -560,13 +624,13 @@ private slots:
                           "\"message\":{\"content\":\"Grind fine\"}}]}")
             << QByteArray("{\"choices\":[{\"finish_reason\":\"stop\","
                           "\"message\":{\"content\":\"Grind finer.\"}}]}")
-            << QStringLiteral("OpenRouter: model");
+            << QStringLiteral("OpenRouter.*model");
 
         QTest::newRow("ollama")
             << QStringLiteral("ollama")
             << QByteArray("{\"done_reason\":\"length\",\"message\":{\"content\":\"Grind fine\"}}")
             << QByteArray("{\"done_reason\":\"stop\",\"message\":{\"content\":\"Grind finer.\"}}")
-            << QStringLiteral("Ollama: model");
+            << QStringLiteral("Ollama.*model");
     }
 
     void otherProvidersReportTruncation()
@@ -601,7 +665,7 @@ private slots:
         server.respondWith(truncatedBody);
         QSignalSpy failed(p.get(), &AIProvider::analysisFailed);
         QSignalSpy complete(p.get(), &AIProvider::analysisComplete);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warningPrefix));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(warningPrefix));
         p->analyze(QStringLiteral("system"), QStringLiteral("user"));
         QVERIFY(failed.wait(5000));
         QVERIFY2(failed.first().first().toString().contains(QStringLiteral("cut off")),

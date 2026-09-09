@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "autowakemanager.h"
 #include "settings_autowake.h"
 #include <QDateTime>
@@ -13,14 +14,14 @@ AutoWakeManager::AutoWakeManager(SettingsAutoWake* settings, QObject* parent)
 
     // Reschedule when settings change
     connect(m_settings, &SettingsAutoWake::autoWakeScheduleChanged, this, [this]() {
-        qDebug() << "AutoWakeManager: Schedule changed, rescheduling";
+        DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "Schedule changed, rescheduling";
         m_lastTriggeredDates.clear();
         scheduleNextWake();
     });
 }
 
 void AutoWakeManager::onTimerFired() {
-    qDebug() << "AutoWakeManager: *** WAKE TIME REACHED ***";
+    DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "*** WAKE TIME REACHED ***";
 
     // Mark today as triggered for this day of week
     QDate today = QDate::currentDate();
@@ -89,21 +90,21 @@ void AutoWakeManager::scheduleNextWake() {
             timeStr = QString("%1s").arg(seconds);
         }
 
-        qDebug() << "AutoWakeManager: Next wake:" << dayNames[wakeDay]
+        DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "Next wake:" << dayNames[wakeDay]
                  << wakeTime.toString("HH:mm") << "in" << timeStr;
         m_checkTimer->start(static_cast<int>(minMsToWake));
     } else {
-        qDebug() << "AutoWakeManager: No wake times enabled";
+        DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "No wake times enabled";
     }
 }
 
 void AutoWakeManager::start() {
-    qDebug() << "AutoWakeManager: Starting";
+    DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "Starting";
     scheduleNextWake();
 }
 
 void AutoWakeManager::stop() {
-    qDebug() << "AutoWakeManager: Stopping";
+    DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "Stopping";
     m_checkTimer->stop();
 }
 

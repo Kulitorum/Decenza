@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "recipestorage.h"
 #include "coffeebagstorage.h"
 #include "core/dbutils.h"
@@ -335,7 +336,7 @@ void RecipeStorage::runAsync(const QString& connPrefix,
                              std::function<void(bool dbOpened)> done)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: not initialized, dropping" << connPrefix;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "not initialized, dropping" << connPrefix;
         return;
     }
     if (!m_dbWorker)
@@ -385,7 +386,7 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
     // job on an empty dbPath, which would leave a caller waiting on this
     // specific id (recipe-auto-load) hanging forever on a pending flag.
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestRecipe on uninitialized storage, recipe" << recipeId;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestRecipe on uninitialized storage, recipe" << recipeId;
         emit recipeCheckFailed(recipeId);
         return;
     }
@@ -433,13 +434,13 @@ qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QS
             "SELECT equipment_id FROM recipes "
             "WHERE drink_type = :type AND COALESCE(equipment_id, 0) > 0 AND archived = 0 "
             "ORDER BY last_used DESC, id DESC LIMIT 1"))) {
-        qWarning() << "RecipeStorage: lastEquipmentForDrinkType prepare failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "lastEquipmentForDrinkType prepare failed:"
                    << query.lastError().text();
         return 0;
     }
     query.bindValue(":type", drinkType);
     if (!query.exec()) {
-        qWarning() << "RecipeStorage: lastEquipmentForDrinkType query failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "lastEquipmentForDrinkType query failed:"
                    << query.lastError().text();
         return 0;
     }
@@ -454,7 +455,7 @@ void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
     // empty recipe map is the not-found contract applyActivatedRecipe already
     // handles → recipeActivated(id, false).
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestRecipeForActivation on uninitialized storage, recipe" << recipeId;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestRecipeForActivation on uninitialized storage, recipe" << recipeId;
         emit recipeActivationReady(recipeId, QVariantMap(), -1, QVariantMap());
         return;
     }
@@ -502,7 +503,7 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
     // silently drops the job on an empty dbPath, which would leave MCP/web
     // one-shot listeners hanging forever (see requestUpdateRecipe).
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestCreateRecipe on uninitialized storage";
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestCreateRecipe on uninitialized storage";
         QVariantMap failure;
         if (!requestToken.isEmpty())
             failure.insert(QStringLiteral("requestToken"), requestToken);
@@ -532,7 +533,7 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
                     if (recipe.roasterName.isEmpty()) recipe.roasterName = bag.roasterName;
                     if (recipe.coffeeName.isEmpty()) recipe.coffeeName = bag.coffeeName;
                 } else {
-                    qWarning() << "RecipeStorage: create carried unknown bag id"
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "create carried unknown bag id"
                                << recipe.bagId << "- dropping the bag link";
                     recipe.bagId = 0;
                 }
@@ -580,7 +581,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
     // CoffeeBagStorage::requestUpdateBag: MCP/web callers arm a one-shot
     // recipeUpdated to send their response and would hang without it).
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestUpdateRecipe on uninitialized storage, recipe" << recipeId;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestUpdateRecipe on uninitialized storage, recipe" << recipeId;
         emit recipeUpdated(recipeId, false);
         return;
     }
@@ -596,7 +597,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
     if (patch.isEmpty()) {
         // A hint-only patch would reach updateRecipeFieldsStatic with zero
         // assignments and fail with a mystery success=false — name the cause.
-        qWarning() << "RecipeStorage: update for recipe" << recipeId
+        DIAG_WARN(RECIPES, "RecipeStorage") << "update for recipe" << recipeId
                    << "carried no persistable fields";
         emit recipeUpdated(recipeId, false);
         return;
@@ -614,7 +615,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // caller's work too. No such caller exists today.
             DbWriteTxn txn = DbWriteTxn::begin(db, "recipe update");
             if (!txn.ok()) {
-                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId;
+                DIAG_WARN(RECIPES, "RecipeStorage") << "update transaction begin failed for recipe" << recipeId;
                 // "busy" is the one failure here the user can act on — pressing
                 // Save again works. Without it every surface reports the generic
                 // string, and MCP's is "Recipe N not found or update failed",
@@ -649,7 +650,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     // another surface must not turn "rename the recipe" into
                     // a misleading whole-update failure. The recipe's
                     // existing link stays as stored.
-                    qWarning() << "RecipeStorage: update for recipe" << recipeId
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "update for recipe" << recipeId
                                << "carried unknown bag id" << patchBagId
                                << "- dropping the bag-link field, applying the rest";
                     mergedFields.remove(QStringLiteral("bagId"));
@@ -677,7 +678,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // profile-less recipe).
             if (!Recipe::saveValidationPasses(updated.name, updated.profileTitle,
                                               updated.hotWaterJson)) {
-                qWarning() << "RecipeStorage: rejecting update that would strand recipe"
+                DIAG_WARN(RECIPES, "RecipeStorage") << "rejecting update that would strand recipe"
                            << recipeId << "(name/profile/hot-water invariant)";
                 *success = false;
                 return;
@@ -697,7 +698,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             const bool restored = before.archived && !updated.archived;
             if ((renamed || restored) && !updated.archived
                 && findRecipeByNameStatic(db, updated.name, recipeId) > 0) {
-                qWarning() << "RecipeStorage: rejecting update of recipe" << recipeId
+                DIAG_WARN(RECIPES, "RecipeStorage") << "rejecting update of recipe" << recipeId
                            << "- name" << updated.name.trimmed()
                            << "is already used by another active recipe";
                 *success = false;
@@ -733,11 +734,11 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                 }
                 if (!updateRecipeFieldsStatic(db, recipeId,
                         {{QStringLiteral("drinkType"), Recipe::deriveDrinkType(updated, bev)}}))
-                    qWarning() << "RecipeStorage: drink-type re-derivation stamp failed for recipe"
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "drink-type re-derivation stamp failed for recipe"
                                << recipeId << "- stored type may be stale";
             }
             if (!txn.commit()) {
-                qWarning() << "RecipeStorage: update commit failed for recipe" << recipeId
+                DIAG_WARN(RECIPES, "RecipeStorage") << "update commit failed for recipe" << recipeId
                            << "-" << txn.commitError();
                 *success = false;
             }
@@ -758,7 +759,7 @@ void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName,
                                        const QString& requestToken)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestCloneRecipe on uninitialized storage";
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestCloneRecipe on uninitialized storage";
         QVariantMap failure;
         if (!requestToken.isEmpty())
             failure.insert(QStringLiteral("requestToken"), requestToken);
@@ -773,7 +774,7 @@ void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName,
         [sourceId, newName, newId, created, requestToken](QSqlDatabase& db) {
             Recipe source = loadRecipeStatic(db, sourceId);
             if (!source.isValid()) {
-                qWarning() << "RecipeStorage: clone source" << sourceId << "not found";
+                DIAG_WARN(RECIPES, "RecipeStorage") << "clone source" << sourceId << "not found";
                 return;
             }
             Recipe copy = source;
@@ -825,7 +826,7 @@ void RecipeStorage::requestTouchLastUsed(qint64 recipeId)
             query.bindValue(":now", QDateTime::currentSecsSinceEpoch());
             query.bindValue(":id", recipeId);
             if (!query.exec())
-                qWarning() << "RecipeStorage: touch last_used failed:" << query.lastError().text();
+                DIAG_WARN(RECIPES, "RecipeStorage") << "touch last_used failed:" << query.lastError().text();
         },
         [](bool) {});
 }
@@ -833,7 +834,7 @@ void RecipeStorage::requestTouchLastUsed(qint64 recipeId)
 void RecipeStorage::requestDeleteRecipe(qint64 recipeId)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "RecipeStorage: requestDeleteRecipe on uninitialized storage, recipe" << recipeId;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "requestDeleteRecipe on uninitialized storage, recipe" << recipeId;
         emit recipeDeleted(recipeId, false);
         return;
     }
@@ -847,11 +848,11 @@ void RecipeStorage::requestDeleteRecipe(qint64 recipeId)
             countQuery.prepare("SELECT COUNT(*) FROM shots WHERE recipe_id = :id");
             countQuery.bindValue(":id", recipeId);
             if (!countQuery.exec() || !countQuery.next()) {
-                qWarning() << "RecipeStorage: delete pre-check failed:" << countQuery.lastError().text();
+                DIAG_WARN(RECIPES, "RecipeStorage") << "delete pre-check failed:" << countQuery.lastError().text();
                 return;
             }
             if (countQuery.value(0).toInt() > 0) {
-                qWarning() << "RecipeStorage: refusing to delete recipe" << recipeId << "with linked shots";
+                DIAG_WARN(RECIPES, "RecipeStorage") << "refusing to delete recipe" << recipeId << "with linked shots";
                 return;
             }
             QSqlQuery deleteQuery(db);
@@ -859,7 +860,7 @@ void RecipeStorage::requestDeleteRecipe(qint64 recipeId)
             deleteQuery.bindValue(":id", recipeId);
             *success = deleteQuery.exec();
             if (!*success)
-                qWarning() << "RecipeStorage: delete failed:" << deleteQuery.lastError().text();
+                DIAG_WARN(RECIPES, "RecipeStorage") << "delete failed:" << deleteQuery.lastError().text();
         },
         // Write: emit regardless — *success is false on open failure, terminal.
         [this, recipeId, success](bool) {
@@ -903,7 +904,7 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
         )
     )");
     if (!ok) {
-        qWarning() << "RecipeStorage: failed to create recipes table:" << query.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "failed to create recipes table:" << query.lastError().text();
         return false;
     }
     query.exec("CREATE INDEX IF NOT EXISTS idx_recipes_inventory ON recipes(archived, last_used DESC)");
@@ -941,7 +942,7 @@ qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe)
         query.bindValue(i, binds.at(i));
 
     if (!query.exec()) {
-        qWarning() << "RecipeStorage: insert failed:" << query.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "insert failed:" << query.lastError().text();
         return -1;
     }
     return query.lastInsertId().toLongLong();
@@ -1009,7 +1010,7 @@ int RecipeStorage::countRecipesUsingProfileStatic(QSqlDatabase& db, const QStrin
         // collision on the main thread at dialog-open time is a real event, not
         // a hypothetical. Not blocking the delete and telling the user we could
         // not check are different things; only the first is a requirement.
-        qWarning() << "[recipe] countRecipesUsingProfile failed for" << target << ":"
+        DIAG_WARN(RECIPES, "recipestorage") << "countRecipesUsingProfile failed for" << target << ":"
                    << query.lastError().text();
         return kRecipeCountUnknown;
     }
@@ -1026,7 +1027,7 @@ int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
     if (!withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
             count = countRecipesUsingProfileStatic(db, profileTitle);
         })) {
-        qWarning() << "[recipe] countRecipesUsingProfile could not open the database for"
+        DIAG_WARN(RECIPES, "recipestorage") << "countRecipesUsingProfile could not open the database for"
                    << profileTitle;
         return kRecipeCountUnknown;
     }
@@ -1049,7 +1050,7 @@ QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bo
                           "ORDER BY last_used DESC, id DESC").arg(recipeColumnList()));
     query.bindValue(":archived", archived ? 1 : 0);
     if (!query.exec()) {
-        qWarning() << "RecipeStorage: inventory query failed:" << query.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "inventory query failed:" << query.lastError().text();
         return recipes;
     }
     // Read the aggregates by alias, not a hardcoded position.
@@ -1085,7 +1086,7 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
         const RecipeCol* col = kColumnFor.value(it.key());
         if (!col) {
-            qWarning() << "RecipeStorage: ignoring unknown update key" << it.key();
+            DIAG_WARN(RECIPES, "RecipeStorage") << "ignoring unknown update key" << it.key();
             continue;
         }
         // Coerce through the same set+bind hooks as insert so update-time
@@ -1107,7 +1108,7 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
     query.bindValue(bindIndex, recipeId);
 
     if (!query.exec()) {
-        qWarning() << "RecipeStorage: update failed:" << query.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "update failed:" << query.lastError().text();
         return false;
     }
     return query.numRowsAffected() > 0;
@@ -1136,7 +1137,7 @@ bool wouldDuplicateOnBag(QSqlDatabase& db, const Recipe& recipe, qint64 targetBa
     query.bindValue(":profile", recipe.profileTitle);
     query.bindValue(":type", recipe.drinkType);
     if (!query.exec() || !query.next()) {
-        qWarning() << "RecipeStorage: dup-guard query failed:" << query.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "dup-guard query failed:" << query.lastError().text();
         // Fail safe: a wrongly-skipped relink costs one manual tap; a
         // wrongly-executed one silently collapses a comparison pair.
         return true;
@@ -1164,7 +1165,7 @@ qint64 RecipeStorage::resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recip
                       "AND in_inventory = 1 ORDER BY last_used DESC, id DESC LIMIT 1");
         query.bindValue(":bb", recipe.beanBaseId);
         if (!query.exec())
-            qWarning() << "RecipeStorage: open-bag canonical query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "open-bag canonical query failed:"
                        << query.lastError().text();
         else if (query.next())
             return query.value(0).toLongLong();
@@ -1180,7 +1181,7 @@ qint64 RecipeStorage::resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recip
         query.bindValue(":roaster", recipe.roasterName);
         query.bindValue(":coffee", recipe.coffeeName);
         if (!query.exec())
-            qWarning() << "RecipeStorage: open-bag identity query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "open-bag identity query failed:"
                        << query.lastError().text();
         else if (query.next())
             return query.value(0).toLongLong();
@@ -1200,7 +1201,7 @@ bool RecipeStorage::migrateBagLinksStatic(QSqlDatabase& db)
             "SELECT id, beanbase_id, roaster_name, coffee_name FROM recipes "
             "WHERE bag_id IS NULL AND (COALESCE(beanbase_id,'') <> '' "
             "OR COALESCE(roaster_name,'') <> '' OR COALESCE(coffee_name,'') <> '')"))) {
-        qWarning() << "RecipeStorage: bag-link migration query failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "bag-link migration query failed:"
                    << query.lastError().text();
         return false;
     }
@@ -1229,13 +1230,13 @@ bool RecipeStorage::migrateBagLinksStatic(QSqlDatabase& db)
         if (update.exec()) {
             linked++;
         } else {
-            qWarning() << "RecipeStorage: bag-link migration update failed for recipe"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "bag-link migration update failed for recipe"
                        << link.first << "-" << update.lastError().text();
             complete = false;
         }
     }
     if (linked > 0 || unresolved > 0)
-        qDebug() << "RecipeStorage: bag-link migration -" << linked << "recipes linked,"
+        DIAG_DEBUG(RECIPES, "RecipeStorage") << "bag-link migration -" << linked << "recipes linked,"
                  << unresolved << "left unlinked (no open bag of their bean)";
     return complete;
 }
@@ -1277,12 +1278,12 @@ bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
     QSqlQuery query(db);
     const bool ok = query.exec(sql);
     if (!ok) {
-        qWarning() << "RecipeStorage: grind-ownership migration failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "grind-ownership migration failed:"
                    << query.lastError().text();
         return false;
     }
     if (query.numRowsAffected() > 0)
-        qDebug() << "RecipeStorage: grind-ownership migration -" << query.numRowsAffected()
+        DIAG_DEBUG(RECIPES, "RecipeStorage") << "grind-ownership migration -" << query.numRowsAffected()
                  << "inherit-mode recipes adopted their bag's grind";
     return true;
 }
@@ -1309,7 +1310,7 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
     if (!select.exec("SELECT id, name, profile_title, profile_json, "
                      "COALESCE(temp_override_c, 0) FROM recipes "
                      "WHERE temp_offset_c IS NULL")) {
-        qWarning() << "RecipeStorage: temp-offset conversion select failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion select failed:"
                    << select.lastError().text();
         return false;
     }
@@ -1334,7 +1335,7 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
                 const QJsonObject o =
                     QJsonDocument::fromJson(json.toUtf8(), &parseError).object();
                 if (parseError.error != QJsonParseError::NoError)
-                    qWarning() << "RecipeStorage: temp-offset conversion - recipe" << name
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion - recipe" << name
                                << "has malformed embedded profile JSON:"
                                << parseError.errorString();
                 profileTemp = o.value(QStringLiteral("espresso_temperature")).toString().toDouble();
@@ -1346,7 +1347,7 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
                 if (qAbs(offset) < 0.05)
                     offset = 0;
             } else {
-                qWarning() << "RecipeStorage: temp-offset conversion could not resolve profile"
+                DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion could not resolve profile"
                            << title << "for recipe" << name << "- dropping its temperature pin";
             }
         }
@@ -1359,7 +1360,7 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
         update.bindValue(":offset", row.offset);
         update.bindValue(":id", row.id);
         if (!update.exec()) {
-            qWarning() << "RecipeStorage: temp-offset conversion update failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion update failed:"
                        << update.lastError().text();
             return false;
         }
@@ -1367,7 +1368,7 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
             ++(*outConvertedCount);
     }
     if (!rows.isEmpty())
-        qDebug() << "RecipeStorage: temp-offset conversion -" << rows.size()
+        DIAG_DEBUG(RECIPES, "RecipeStorage") << "temp-offset conversion -" << rows.size()
                  << "recipes converted to relative offsets";
     return true;
 }
@@ -1386,7 +1387,7 @@ void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, doubl
             // on every launch.
             QSqlQuery probe(db);
             if (!probe.exec("SELECT 1 FROM recipes WHERE temp_offset_c IS NULL LIMIT 1")) {
-                qWarning() << "RecipeStorage: temp-offset conversion probe failed"
+                DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion probe failed"
                               "(temp_offset_c column missing? migration 31 will retry):"
                            << probe.lastError().text();
                 return;
@@ -1417,7 +1418,7 @@ bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
     QSqlQuery select(db);
     if (!select.exec("SELECT id, steam_json FROM recipes "
                      "WHERE steam_json IS NOT NULL AND steam_json != ''")) {
-        qWarning() << "RecipeStorage: heater-off rewrite select failed:"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "heater-off rewrite select failed:"
                    << select.lastError().text();
         return false;
     }
@@ -1457,7 +1458,7 @@ bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
         update.bindValue(":json", row.json);
         update.bindValue(":id", row.id);
         if (!update.exec()) {
-            qWarning() << "RecipeStorage: heater-off rewrite update failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "heater-off rewrite update failed:"
                        << update.lastError().text();
             return false;
         }
@@ -1465,7 +1466,7 @@ bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
             ++(*outRewrittenCount);
     }
     if (!rows.isEmpty())
-        qInfo() << "RecipeStorage: rewrote" << rows.size()
+        DIAG_INFO(RECIPES, "RecipeStorage") << "rewrote" << rows.size()
                 << "recipe(s) from a removed Off pitcher to the Heater off marker";
     return true;
 }
@@ -1518,7 +1519,7 @@ QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint
         query.bindValue(":bb", finished.beanBaseId);
         query.bindValue(":self", finishedBagId);
         if (!query.exec())
-            qWarning() << "RecipeStorage: roll successor canonical query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "roll successor canonical query failed:"
                        << query.lastError().text();
         else if (query.next())
             targetBagId = query.value(0).toLongLong();
@@ -1533,7 +1534,7 @@ QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint
         query.bindValue(":roaster", finished.roasterName);
         query.bindValue(":coffee", finished.coffeeName);
         if (!query.exec())
-            qWarning() << "RecipeStorage: roll successor identity query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "roll successor identity query failed:"
                        << query.lastError().text();
         else if (query.next())
             targetBagId = query.value(0).toLongLong();
@@ -1552,7 +1553,7 @@ QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint
                               "ORDER BY last_used DESC, id DESC").arg(recipeColumnList()));
         query.bindValue(":bag", finishedBagId);
         if (!query.exec()) {
-            qWarning() << "RecipeStorage: roll-on-finish candidate query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "roll-on-finish candidate query failed:"
                        << query.lastError().text();
             return moved;
         }
@@ -1594,7 +1595,7 @@ QVector<qint64> RecipeStorage::relinkForRestockedBagStatic(QSqlDatabase& db, qin
             "     WHERE b.id = recipes.bag_id AND b.in_inventory = 1)) "
             "ORDER BY last_used DESC, id DESC").arg(recipeColumnList()));
         if (!query.exec()) {
-            qWarning() << "RecipeStorage: wake-on-restock candidate query failed:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "wake-on-restock candidate query failed:"
                        << query.lastError().text();
             return moved;
         }
@@ -1685,7 +1686,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     if (!merge) {
         QSqlQuery clearQuery(destDb);
         if (!clearQuery.exec("DELETE FROM recipes")) {
-            qWarning() << "RecipeStorage: failed to clear recipes for replace import:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "failed to clear recipes for replace import:"
                        << clearQuery.lastError().text();
             return false;
         }
@@ -1704,7 +1705,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             // Fatal: an empty column set would substitute NULL for EVERY column,
             // repopulating a cleared table with nameless all-NULL recipes while
             // reporting success.
-            qWarning() << "RecipeStorage: failed to read source recipe schema:"
+            DIAG_WARN(RECIPES, "RecipeStorage") << "failed to read source recipe schema:"
                        << info.lastError().text();
             return false;
         }
@@ -1712,7 +1713,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             srcColumns.insert(info.value(1).toString());
     }
     if (!srcColumns.contains(QStringLiteral("id"))) {
-        qWarning() << "RecipeStorage: source recipes schema has no id column - aborting import";
+        DIAG_WARN(RECIPES, "RecipeStorage") << "source recipes schema has no id column - aborting import";
         return false;
     }
     QStringList selectCols;
@@ -1767,7 +1768,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
 
     QSqlQuery srcRecipes(srcDb);
     if (!srcRecipes.exec(selectSql)) {
-        qWarning() << "RecipeStorage: failed to query source recipes:" << srcRecipes.lastError().text();
+        DIAG_WARN(RECIPES, "RecipeStorage") << "failed to query source recipes:" << srcRecipes.lastError().text();
         return false;
     }
 
@@ -1824,7 +1825,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 // Without this, an exec failure short-circuits to "no duplicate
                 // found" and silently inserts a duplicate on merge — log so a
                 // dedup DB error is at least visible.
-                qWarning() << "RecipeStorage: import dedup query failed (may insert a duplicate):"
+                DIAG_WARN(RECIPES, "RecipeStorage") << "import dedup query failed (may insert a duplicate):"
                            << dupQuery.lastError().text();
             } else if (dupQuery.next()) {
                 destId = dupQuery.value(0).toLongLong();
@@ -1850,7 +1851,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 keepCreated.bindValue(":c", recipe.createdEpoch);
                 keepCreated.bindValue(":id", destId);
                 if (!keepCreated.exec())
-                    qWarning() << "RecipeStorage: could not preserve created_at on import:"
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "could not preserve created_at on import:"
                                << keepCreated.lastError().text();
             }
             if (rowUnconverted && legacyAbsTemp > 0) {
@@ -1863,7 +1864,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 stage.bindValue(":abs", legacyAbsTemp);
                 stage.bindValue(":id", destId);
                 if (!stage.exec()) {
-                    qWarning() << "RecipeStorage: failed to stage legacy temp for import:"
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "failed to stage legacy temp for import:"
                                << stage.lastError().text();
                     return false;
                 }
@@ -1880,10 +1881,10 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     // deliberately cleared grind must not have its bag's dial stamped back by
     // an unrelated import (post-migration, empty grind is a supported state).
     if (!RecipeStorage::migrateGrindOwnershipStatic(destDb, &insertedIds))
-        qWarning() << "RecipeStorage: post-import grind-ownership backfill failed"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "post-import grind-ownership backfill failed"
                    << "- imported inherit-mode recipes stay grind-less (a valid state; "
                       "editing the recipe sets one)";
 
-    qDebug() << "RecipeStorage: recipe import -" << imported << "imported," << matched << "matched existing";
+    DIAG_DEBUG(RECIPES, "RecipeStorage") << "recipe import -" << imported << "imported," << matched << "matched existing";
     return true;
 }

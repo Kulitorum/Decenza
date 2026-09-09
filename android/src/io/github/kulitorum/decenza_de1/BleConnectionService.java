@@ -74,14 +74,14 @@ public class BleConnectionService extends Service {
                     m_wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                         "Decenza::BLEKeepalive");
                     m_wakeLock.acquire();
-                    Log.d(TAG, "Acquired PARTIAL_WAKE_LOCK for BLE keepalive");
+                    DiagnosticLog.d("Bluetooth", TAG, "Acquired PARTIAL_WAKE_LOCK for BLE keepalive");
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Failed to acquire wake lock: " + e.getMessage());
+                DiagnosticLog.w("Bluetooth", TAG, "Failed to acquire wake lock: " + e.getMessage());
             }
         }
 
-        Log.d(TAG, "Foreground service started");
+        DiagnosticLog.d("Bluetooth", TAG, "Foreground service started");
 
         // Don't restart if killed — C++ will restart on BLE reconnect
         return START_NOT_STICKY;
@@ -96,9 +96,9 @@ public class BleConnectionService extends Service {
     public void onDestroy() {
         if (m_wakeLock != null && m_wakeLock.isHeld()) {
             m_wakeLock.release();
-            Log.d(TAG, "Released PARTIAL_WAKE_LOCK");
+            DiagnosticLog.d("Bluetooth", TAG, "Released PARTIAL_WAKE_LOCK");
         }
-        Log.d(TAG, "Foreground service stopped");
+        DiagnosticLog.d("Bluetooth", TAG, "Foreground service stopped");
         super.onDestroy();
     }
 
@@ -138,7 +138,7 @@ public class BleConnectionService extends Service {
 
     // Called from C++ via JNI
     public static void start(Context context) {
-        Log.d(TAG, "Starting BLE connection service");
+        DiagnosticLog.d("Bluetooth", TAG, "Starting BLE connection service");
         Intent intent = new Intent(context, BleConnectionService.class);
         try {
             context.startForegroundService(intent);
@@ -146,13 +146,13 @@ public class BleConnectionService extends Service {
             // Android 12+ throws ForegroundServiceStartNotAllowedException
             // if app is not in a foreground state. Safe to ignore — the service
             // is a keep-alive optimization, not a functional requirement.
-            Log.w(TAG, "Could not start foreground service: " + e.getMessage());
+            DiagnosticLog.w("Bluetooth", TAG, "Could not start foreground service: " + e.getMessage());
         }
     }
 
     // Called from C++ via JNI
     public static void stop(Context context) {
-        Log.d(TAG, "Stopping BLE connection service");
+        DiagnosticLog.d("Bluetooth", TAG, "Stopping BLE connection service");
         Intent intent = new Intent(context, BleConnectionService.class);
         context.stopService(intent);
     }

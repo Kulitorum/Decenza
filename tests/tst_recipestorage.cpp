@@ -516,7 +516,7 @@ private slots:
         QSignalSpy readySpy(&storage, &RecipeStorage::recipeReady);
         QSignalSpy failedSpy(&storage, &RecipeStorage::recipeCheckFailed);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("RecipeStorage: requestRecipe on uninitialized storage.*"));
+            QRegularExpression("RecipeStorage.* requestRecipe on uninitialized storage.*"));
         storage.requestRecipe(42);
         QCOMPARE(failedSpy.count(), 1);
         QCOMPARE(failedSpy.at(0).at(0).toLongLong(), (qint64)42);
@@ -2204,7 +2204,7 @@ private slots:
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-                QString("RecipeStorage: rejecting update that would strand recipe %1 .*").arg(espId)));
+                QString("RecipeStorage.* rejecting update that would strand recipe %1 .*").arg(espId)));
             storage.requestUpdateRecipe(espId, {{"profileTitle", QString()}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());  // failed
@@ -2214,7 +2214,7 @@ private slots:
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-                QString("RecipeStorage: rejecting update that would strand recipe %1 .*").arg(hwId)));
+                QString("RecipeStorage.* rejecting update that would strand recipe %1 .*").arg(hwId)));
             storage.requestUpdateRecipe(hwId, {{"hotWaterJson", QString()}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());
@@ -2223,7 +2223,7 @@ private slots:
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-                QString("RecipeStorage: update for recipe %1 carried no persistable fields").arg(espId)));
+                QString("RecipeStorage.* update for recipe %1 carried no persistable fields").arg(espId)));
             storage.requestUpdateRecipe(espId, {{"profileBeverageType", "espresso"}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());

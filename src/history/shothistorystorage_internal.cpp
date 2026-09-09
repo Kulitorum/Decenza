@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shothistorystorage_internal.h"
 
 #include "ai/shotsummarizer.h"
@@ -25,7 +26,7 @@ ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
         // fires. Without this the shot silently analyses against whatever the
         // persisted id happened to be, with nothing recording that its own
         // profile could not be read.
-        qWarning() << "profileFrameInfoFromJson: stored profile JSON unparseable ("
+        DIAG_WARN(STORAGE, "shothistorystorage_internal") << "profileFrameInfoFromJson: stored profile JSON unparseable ("
                    << parseError.errorString()
                    << ") - shape resolution disabled for this shot; falling back"
                    << "to the persisted kbId";
@@ -93,7 +94,7 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
     // fall back to the STALE id, silently reinstating the bug D14a targets.
     if (resolution.isEmpty() && !frameInfo.profileTitle.isEmpty()
         && !profileKbId.isEmpty()) {
-        qDebug() << "prepareAnalysisInputs: fresh re-resolve missed for title="
+        DIAG_DEBUG(STORAGE, "shothistorystorage_internal") << "prepareAnalysisInputs: fresh re-resolve missed for title="
                  << frameInfo.profileTitle
                  << "— falling back to stored kbId=" << profileKbId;
     }
@@ -105,7 +106,7 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
     // then changes from what it was, and this is the only place that knows.
     if (resolution.origin == KbResolution::Origin::Shape
         && !profileKbId.isEmpty() && !resolution.ids.contains(profileKbId)) {
-        qInfo() << "prepareAnalysisInputs: shape match" << resolution.ids
+        DIAG_INFO(STORAGE, "shothistorystorage_internal") << "prepareAnalysisInputs: shape match" << resolution.ids
                 << "disagrees with the recorded kbId" << profileKbId
                 << "for title" << frameInfo.profileTitle
                 << "- using the shape match; the recorded id is being ignored";
