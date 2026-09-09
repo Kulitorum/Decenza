@@ -6,7 +6,7 @@ No new logging behavior is proposed here.
 
 - [ ] 1. Verify Android, iOS and other beta builds containing PRs #1930 and #1931. Record source revision, platform, run and result.
 - [ ] 2. Retrieve a representative updated mobile charging/mismatch log through DE1 MCP. Verify requested-versus-observed charge wording, meaningful transitions and suppression; distinguish measured volume from the historical estimate.
-- [ ] 3. Publish the short wiki logging guidance with the released feature. Reconcile the current wiki with both archived patches and verify the rendered page.
+- [x] 3. Publish the short wiki logging guidance with the released feature. Reconcile the current wiki with both archived patches and verify the rendered page.
 
 Source records (repository-relative paths):
 

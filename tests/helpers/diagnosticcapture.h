@@ -6,8 +6,8 @@
 // Capture only the logging paths under test; unrelated warnings still reach Qt Test.
 class DiagnosticCapture {
 public:
-    explicit DiagnosticCapture(QStringList prefixes = {"[AI]", "[BeanBase]"})
-        : prefixes(std::move(prefixes)) { active = this; previous = qInstallMessageHandler(receive); }
+    explicit DiagnosticCapture(QStringList capturedPrefixes = {"[AI]", "[BeanBase]"})
+        : prefixes(std::move(capturedPrefixes)) { active = this; previous = qInstallMessageHandler(receive); }
     ~DiagnosticCapture() { qInstallMessageHandler(previous); active = nullptr; }
     QStringList lines() const { QMutexLocker lock(&mutex); return messages; }
     QList<QtMsgType> levels() const { QMutexLocker lock(&mutex); return messageLevels; }
