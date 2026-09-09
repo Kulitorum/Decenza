@@ -6,7 +6,21 @@ The earlier implementation and its 117-suite Mac run / 21-line live Visualizer e
 
 ## Historical volume
 
-9,342 physical lines reviewed from the rolling DE1 week. Removing automatic FD inventories eliminates the 2,052 observed inventory/header records without replacing them. A replay of the 1,267 battery snapshots using state changes plus five-point progress retains 364 and suppresses 903. These are source/replay estimates against historical messages, not counts from an updated mobile build. The historical memory log is sparsely emitted; it cannot reproduce the complete minute-by-minute input to the new trend gate.
+9,342 physical lines reviewed from the rolling DE1 week. Matching deleted emitters and replaying the battery gate accounts for **3,641 fewer historical rows (38.97%)**:
+
+| Source | Historical rows removed/suppressed | Basis |
+| --- | ---: | --- |
+| Automatic FD inventories and headers | 2,052 | 2,044 descriptor rows plus eight headers; emitters deleted |
+| Battery snapshots | 903 | Replay retains 364 of 1,267; state change or five points from last emitted percentage, reset per session |
+| Extraction color / raw scale weight traces | 248 | 127 + 121; emitters deleted |
+| Routine settling progress | 137 | Four interrupted-stability records and final outcomes retained |
+| QObject class-delta reports | 124 | Routine delta emitter deleted; on-demand data retained |
+| Auto-load invocation receipts | 76 | 60 idle-countdown + 16 Sleep-to-Idle invocations; actual work logs retained |
+| Duplicate SteamPage state receipts | 77 | Phase/state/substate/isSteaming/settings-visible emitters deleted; scaling decisions retained |
+| AI diagnostic-file receipts | 24 | Eight each for prompt, response and Q&A; files still written |
+| **Total** | **3,641** | Disjoint source families |
+
+Subtracting only these rows leaves 5,701. This is a historical source/replay estimate, **not a measured total from the updated mobile build or an exact PR-to-PR log comparison**: the captured binaries predate PR #1930. It excludes additional reductions from healthy constant-weight messages, discovery/reconnect/forecast repeats, successful Visualizer file receipts and AI stage chatter added in #1930. It also excludes shorter payload/source context, which saves bytes rather than necessarily saving lines. The historical memory log is sparsely emitted; it cannot reproduce the complete minute-by-minute input to the new trend gate, so no reduction is claimed for its 590 RSS records.
 
 ## On-demand FD access
 
@@ -26,7 +40,17 @@ One process from this checkout (PID 58735), started through Qt Creator at 13:25:
 
 Three hostname-resolution attempts produced one failure warning; repeated connection-timeout/fallback failures were also suppressed. The two on-demand memory samples (startup and the first full QML-tree sample) remained available, with no routine `[Memory]` snapshot or QObject-delta record. One battery poll and one forecast-availability record remained. MQTT is excluded as requested.
 
-That capture exposed repetitive discovery start/end receipts, so the final source removes duplicate manager/worker starts and ends and collapses unchanged discovery outcomes. The full suite above includes this final trim. Verification in the user-restarted build is pending.
+That capture exposed repetitive discovery start/end receipts, so the final source removes duplicate manager/worker starts and ends and collapses unchanged discovery outcomes. The full suite above includes this final trim.
+
+## Final user-started Mac verification
+
+The user started the final build on September 9 at 16:43:36 (session 76). Background process inspection found exactly one Decenza process, PID 94580, running this checkout's `build/Qt_6_11_2_for_macOS_Debug/Decenza.app/Contents/MacOS/Decenza`; its startup record reports the final build time 13:31:14. No tool launched, restarted, foregrounded or sent input to this instance.
+
+Read all **157 physical rows through 245.948 seconds**, with `hasMore=false`, through the local Mac MCP endpoint. The capture includes one DNS-SD result at 29.720 seconds, one hostname-resolution warning, and one each of the distinct connection-timeout, WiFi-to-Bluetooth fallback and FlowScale-fallback warnings. Reconnect attempts continued at 49.669, 79.669 and 139.768 seconds without repeating those warnings or the unchanged DNS-SD result. No resolver browse start/end receipts remain. One battery snapshot and one forecast-availability record remain.
+
+The appended on-demand memory summary contains five samples, including four minute-spaced full-QML samples, with no automatic RSS or QObject-delta log lines. This short run verifies sampling and startup silence; the deterministic regressions above validate sustained-growth detection. On-demand memory text is returned at download time, not appended to the persisted log. MQTT remains excluded as requested.
+
+The prior 84-second Mac capture had four completed DNS-SD cycles and 16 discovery/resolver receipt lines; the final 246-second capture has one discovery result. These runs have different activity and observation windows, so their overall totals (203 versus 157) are not a whole-app percentage comparison. Neither Mac capture establishes mobile charging behavior or a week-long post-change volume.
 
 ## On-demand FD verification
 

@@ -17,7 +17,7 @@
 ## 3. Verify and review
 
 - [x] 3.1 Run the full Mac suite/build through Qt Creator MCP, source gates and strict OpenSpec validation; fix failures and record final results.
-- [ ] 3.2 Inspect the rebuilt live Mac app and its persisted log with exactly one user-launched app instance; distinguish measured runtime output from historical replay estimates.
+- [x] 3.2 Inspect the rebuilt live Mac app and its persisted log with exactly one user-launched app instance; distinguish measured runtime output from historical replay estimates.
 - [x] 3.3 Reconcile docs, audit and evidence with the final change; review the diff and update the existing PR title/body.
 
 ## 4. Inherited user holds

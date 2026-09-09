@@ -63,11 +63,11 @@ Candidate reductions must preserve transitions and failures and be tested.
 | Extraction color tracking / raw scale weights | 127 / 121 | Repeats numbers already in recorded shot data and UI calculations. Remove main-log traces; retain actual stop, tare, scale fault and frame-exit decisions. |
 | Settling samples | 141 | Routine half-second progress is redundant with final settling results. Keep interrupted stability where it explains a delay, final weight and timeout/refusal outcomes. |
 | Weather success receipts | 169 | Temperature changes are normal, not diagnostic novelty. Collapse unchanged success state, preserving first result, failure and recovery. |
-| Idle auto-load invocation | 60 | Source must distinguish a request that did useful work from an unchanged no-op; avoid repeating an invocation receipt when nothing changes. |
+| Auto-load invocation | 76 | 60 idle-countdown and 16 Sleep-to-Idle receipts. Source must distinguish a request that did useful work from an unchanged no-op; avoid repeating an invocation receipt when nothing changes. |
 | SSE connection lifecycle | 103 | Retain connection identity/errors when diagnosing loss; do not promote every normal poll/session bookkeeping event to an issue. |
 | Visualizer metadata bodies | 4 | Existing result and record ID carry the useful fact. Remove full metadata JSON from main log; do not add a separate body-size receipt merely to replace it. |
 | AI diagnostic-file receipts | 24 | Three receipts per exchange add no result evidence. Keep a useful artifact location only where needed for a failure or explicit diagnostics; terminal result is what answers the user's question. |
-| Steam UI state / timer traces | 91 / 76 | Remove duplicate SteamPage state handlers; retain actual scale-timer commands and timer recovery/refusal events, with decorative banners removed. Keep steam-scaling decisions that explain applied settings. |
+| Duplicate Steam UI state / timer traces | 77 / 76 | Remove duplicate SteamPage state handlers; retain actual scale-timer commands and timer recovery/refusal events, with decorative banners removed. Keep steam-scaling decisions that explain applied settings. The 77 count matches only the five deleted state/visibility emitters. |
 
 Within a session, 4,056 rows repeat exact message text (timestamps and existing
 collapse annotations removed for this count). This is an upper-bound candidate
@@ -123,8 +123,8 @@ The earlier live Mac capture showed repeated reconnect failures being demoted to
 DEBUG rather than suppressed, plus hostname-resolution warnings bypassing the
 shared failure sink. These sources now use LogCollapse, with one first failure and
 one pending-count record at the end of an episode. Distinct failures and fresh
-user attempts remain visible. The rebuilt Mac capture then exposed five duplicate discovery cycles in 84
-seconds: manager intent, discovery start, resolver start/end and discovery result.
+user attempts remain visible. The rebuilt Mac capture then exposed four completed discovery cycles in 84
+seconds, with 16 discovery-start, resolver-start/end and discovery-result receipts, plus repeated direct-wake intent.
 Those redundant starts and resolver receipts are removed; one changes-only
 discovery result retains backend, resolved/unresolved/withdrawn counts and error
 state, with elapsed time excluded from the suppression key. Found-device records
