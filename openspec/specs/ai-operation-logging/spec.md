@@ -7,7 +7,7 @@ Make AI-backed user actions diagnosable from the persisted application log, incl
 
 ### Requirement: Each AI-backed operation has a correlated terminal outcome
 
-Each advisor request, product-page search and bag-details extraction SHALL have a session-unique diagnostic identifier that relates its stage events to exactly one terminal outcome. A request rejected before execution SHALL have an explicit rejection outcome. Cancellation and supersession SHALL be distinguishable from success and failure.
+Each advisor request, product-page search and bag-details extraction SHALL have a session-unique diagnostic identifier that relates any necessary retry/error records to exactly one terminal outcome. A request rejected before execution SHALL have an explicit rejection outcome. Cancellation and supersession SHALL be distinguishable from success and failure.
 
 The terminal event SHALL identify the operation, relevant bag or shot when known, elapsed time for a started operation, the stage reached, and its result or bounded failure reason. Provider and model SHALL identify the selection actually used when a provider was invoked; a local failure SHALL state that no provider was invoked. Retries SHALL remain associated with their original operation.
 
@@ -40,7 +40,7 @@ The terminal event SHALL identify the operation, relevant bag or shot when known
 
 Successful receipt or saving of a provider response SHALL NOT by itself be reported as successful search, extraction or advice. The terminal result SHALL reflect the validation and interpretation required by that operation. An empty valid result SHALL be distinguishable from invalid output or a failed request. An archive availability lookup with no returned capture SHALL describe that observed result rather than assert that no capture exists.
 
-Success or a valid empty outcome SHALL be readable at INFO; terminal failure and actionable rejection SHALL be readable at WARN or above. User cancellation SHALL NOT be represented as a fault. Prompt/response file-write receipts SHALL remain developer detail.
+Success or a valid empty outcome SHALL be readable at INFO; terminal failure and actionable rejection SHALL be readable at WARN or above. User cancellation SHALL NOT be represented as a fault. Successful prompt/response file-write receipts SHALL NOT be emitted automatically. File-write failures SHALL remain diagnosable.
 
 #### Scenario: Invalid extraction JSON
 
@@ -64,12 +64,12 @@ Success or a valid empty outcome SHALL be readable at INFO; terminal failure and
 
 ### Requirement: A bag query includes its AI stages
 
-A query for the registered bag subsystem SHALL retrieve the complete recorded bag operation, including local fetch, archive recovery attempt, provider invocation and interpretation outcome. General advisor operations SHALL be retrievable under their own registered subsystem. A terminal event SHALL NOT be duplicated under multiple subsystem markers merely to make both filters match.
+A query for the registered bag subsystem SHALL retrieve the terminal result with known page status, the final stage reached, provider/model when invoked and the failure or interpretation outcome. General advisor operations SHALL be retrievable under their own registered subsystem. Context SHALL be updated without automatically logging start, dispatch, response or ready records. A terminal event SHALL NOT be duplicated under multiple subsystem markers.
 
 #### Scenario: The bag fetch succeeds but provider parsing fails
 
 - **WHEN** an assistant filters the main log for the bag subsystem
-- **THEN** the fetch and subsequent parsing failure are present with the same operation identifier
+- **THEN** one terminal result identifies the provider parsing failure with known page status and the operation identifier, without automatic per-stage chatter
 
 ### Requirement: Outcome diagnostics do not expose request content or secrets
 
