@@ -940,7 +940,7 @@ Item {
             // A failed download means the user switched to a language whose strings never
             // arrived. NOTE: this only reaches the log, not the user — surfacing it needs a
             // banner/toast this tab does not currently have. Not claiming otherwise.
-            console.warn("Language download failed for", langCode, ":", error)
+            WebDebugLogger.warn("App", "SettingsLanguageTab", ["Language download failed for", langCode, ":", error].map(String).join(" "))
         }
         // Switching to an already-downloaded language fires no download.
         function onCurrentLanguageChanged() {
@@ -1123,7 +1123,7 @@ Item {
                 // Deliberately the translated generic string, not `message`: the backend
                 // messages are raw English literals, and this dialog is only ever shown to
                 // users running a non-English UI. The provider's text goes to the log.
-                console.warn("[AI translate] failed:", message)
+                WebDebugLogger.warn("App", "SettingsLanguageTab", ["failed:", message].map(String).join(" "))
                 aiTranslateOfferPopup.resultText =
                     TranslationManager.translate("language.aiOffer.failedGeneric",
                         "Translation failed. Check your AI provider settings and try again.")

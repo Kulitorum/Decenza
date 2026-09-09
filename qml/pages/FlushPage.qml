@@ -35,9 +35,9 @@ T.Page {
     property int editingPresetIndex: -1
 
     onIsFlushingChanged: {
-        console.log("FlushPage: isFlushing changed to", isFlushing, "phase=", MachineState.phase)
+        WebDebugLogger.debug("DE1", "FlushPage", ["isFlushing changed to", isFlushing, "phase=", MachineState.phase].map(String).join(" "))
         if (!isFlushing) {
-            console.log("FlushPage: Settings view now visible (isFlushing=false)")
+            WebDebugLogger.debug("DE1", "FlushPage", ["Settings view now visible (isFlushing=false)"].map(String).join(" "))
         }
     }
 

@@ -624,20 +624,28 @@ bool BeanBaseClient::blobDiffersFromCanonical(const QString& blob) {
     return BeanBaseBlob::differsFromCanonical(blob);
 }
 
-void BeanBaseClient::fetchPageText(const QString& url) {
+void BeanBaseClient::abandonPageOperation(const QString& operationId) {
+    if (auto operation = AIOperationLog::find(operationId))
+        operation->finish(QStringLiteral("superseded"), QStringLiteral("consumerStoppedWaiting"));
+}
+
+QString BeanBaseClient::fetchPageText(const QString& url, qint64 bagId) {
+    const auto operation = AIOperationLog::begin(QStringLiteral("bagExtraction"), true, bagId);
+    operation->service = AIOperationLog::safeUrl(url);
+    operation->stage = QStringLiteral("localFetch");
     // Failure reasons: stable codes ("invalidUrl", "notAWebPage", "emptyPage")
     // the QML layer translates; transport failures pass Qt's errorString.
     const QUrl parsed(url);
     if (!parsed.isValid() || !parsed.scheme().startsWith(QLatin1String("http"))) {
         // The http(s)-only gate matters: the URL is user-entered and the text
         // goes to a third-party AI provider — a file:// URL must never be read.
-        BEANBASE_WARN_STDERR("Extract", QStringLiteral("Rejected non-http url %1").arg(url));
+        operation->finish(QStringLiteral("rejected"), QStringLiteral("invalidUrl"));
         QPointer<BeanBaseClient> self(this);
-        QMetaObject::invokeMethod(this, [self, url]() {
+        QMetaObject::invokeMethod(this, [self, url, operation]() {
             if (self)
-                emit self->pageTextFailed(url, QStringLiteral("invalidUrl"));
+                emit self->pageTextFailed(url, QStringLiteral("invalidUrl"), operation->id);
         }, Qt::QueuedConnection);
-        return;
+        return operation->id;
     }
     // An archive snapshot is read in its `id_` form: the original page bytes,
     // free of the archive's own toolbar markup, which would otherwise reach the
@@ -646,7 +654,8 @@ void BeanBaseClient::fetchPageText(const QString& url) {
     //
     // A URL that is already a snapshot has nowhere further to fall back to, so
     // it asks the archive nothing.
-    requestPageText(archiveRawForm(url), url, !isArchiveUrl(url));
+    requestPageText(archiveRawForm(url), url, !isArchiveUrl(url), operation);
+    return operation->id;
 }
 
 // static
@@ -659,25 +668,30 @@ bool BeanBaseClient::archiveRetryApplies(int httpStatus, bool archiveFallback) {
 }
 
 void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& reportUrl,
-                                     bool archiveFallback) {
+                                     bool archiveFallback, const AIOperationLog::Ptr& operation) {
     QNetworkRequest request{QUrl(fetchUrl)};
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, reportUrl, archiveFallback]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, reportUrl, archiveFallback, operation]() {
         reply->deleteLater();
+        operation->network(isArchiveUrl(reply->url().toString()) ? QStringLiteral("archiveReplay")
+                                                                : QStringLiteral("localFetch"),
+                           reply->url().toString(),
+                           reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+                           int(reply->error()));
         if (reply->error() != QNetworkReply::NoError) {
             const QString pageError = reply->errorString();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (archiveRetryApplies(status, archiveFallback)) {
                 fetchArchiveAvailability(
-                    reportUrl, [this, reportUrl, pageError](const QString& snapshot, bool answered) {
+                    reportUrl, [this, reportUrl, pageError, operation](const QString& snapshot, bool answered) {
                         if (!snapshot.isEmpty()) {
                             // reportUrl, not the snapshot: the caller gates
                             // completion on the URL it sent. `false`: a snapshot
                             // that is itself gone ends the line, never a chain.
-                            requestPageText(archiveRawForm(snapshot), reportUrl, false);
+                            requestPageText(archiveRawForm(snapshot), reportUrl, false, operation);
                             return;
                         }
                         // The USER is told about the page either way: nothing
@@ -687,18 +701,17 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
                         // asked about. The LOG keeps it, because "no capture"
                         // and "the archive refused to answer" send a reader to
                         // different places — a rate limit succeeds on retry.
-                        BEANBASE_WARN_STDERR("Extract",
-                            QStringLiteral("%1 unreadable, %2 - %3")
-                                .arg(reportUrl,
-                                     answered ? QStringLiteral("no archived copy")
-                                              : QStringLiteral("archive gave no answer"),
-                                     pageError));
-                        emit pageTextFailed(reportUrl, pageError);
-                    });
+                        operation->detail(QStringLiteral("archiveLookup"), answered
+                            ? QStringLiteral("lookupReturnedNoCapture") : QStringLiteral("lookupUnanswered"));
+                        operation->finish(QStringLiteral("failed"), answered
+                            ? QStringLiteral("pageFailed_lookupReturnedNoCapture")
+                            : QStringLiteral("pageFailed_lookupUnanswered"));
+                        emit pageTextFailed(reportUrl, pageError, operation->id);
+                    }, operation);
                 return;
             }
-            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 unreadable - %2").arg(reportUrl, pageError));
-            emit pageTextFailed(reportUrl, pageError);
+            operation->finish(QStringLiteral("failed"), QStringLiteral("pageFetchFailed"));
+            emit pageTextFailed(reportUrl, pageError, operation->id);
             return;
         }
         // A PDF/image/zip URL would decode to replacement-character soup that
@@ -709,9 +722,8 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
             && !contentType.startsWith(QLatin1String("text/"))
             && !contentType.contains(QLatin1String("html"), Qt::CaseInsensitive)
             && !contentType.contains(QLatin1String("xml"), Qt::CaseInsensitive)) {
-            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 is not a web page (%2)")
-                                                .arg(reportUrl, contentType));
-            emit pageTextFailed(reportUrl, QStringLiteral("notAWebPage"));
+            operation->finish(QStringLiteral("failed"), QStringLiteral("notAWebPage"));
+            emit pageTextFailed(reportUrl, QStringLiteral("notAWebPage"), operation->id);
             return;
         }
         // The 15 s transfer timeout bounds time, not bytes — cap the body so
@@ -724,11 +736,18 @@ void BeanBaseClient::requestPageText(const QString& fetchUrl, const QString& rep
         // Visualizer treats < 100 chars as "blocked or empty" and falls back
         // to a scraping proxy; we have no proxy, so it is simply a failure.
         if (text.size() < 100) {
-            BEANBASE_WARN_STDERR("Extract", QStringLiteral("%1 yielded no readable text").arg(reportUrl));
-            emit pageTextFailed(reportUrl, QStringLiteral("emptyPage"));
+            operation->detail(QStringLiteral("pageInterpretation"), QStringLiteral("emptyPage"));
+            // Existing direct consumers may hand this operation to the provider's
+            // URL reader during signal delivery. Only a stopped ladder fails here.
+            emit pageTextFailed(reportUrl, QStringLiteral("emptyPage"), operation->id);
+            if (!operation->providerInvoked)
+                operation->finish(QStringLiteral("failed"), QStringLiteral("emptyPage_noProviderContinuation"));
             return;
         }
-        emit pageTextReady(reportUrl, text);
+        operation->detail(QStringLiteral("pageInterpretation"), QStringLiteral("pageTextReady"));
+        emit pageTextReady(reportUrl, text, operation->id);
+        if (!operation->providerInvoked)
+            operation->finish(QStringLiteral("superseded"), QStringLiteral("noProviderContinuation"));
     });
 }
 
@@ -847,7 +866,7 @@ QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
         // parse of its URL means this code is out of date, not that the page is
         // unarchived — and reporting a miss here would stamp dead a bag whose
         // capture demonstrably exists.
-        BEANBASE_WARN_STDERR("Archive", QStringLiteral("Availability API reported a capture at an unparseable URL %1").arg(url));
+        BEANBASE_WARN_STDERR("Archive", QStringLiteral("Availability API reported a capture at an unparseable URL %1").arg(AIOperationLog::safeUrl(url)));
         return fault();
     }
     // The API answers in http even for an https capture; the app never stores
@@ -858,7 +877,8 @@ QString BeanBaseClient::parseArchiveSnapshot(const QByteArray& json, bool* ok) {
 }
 
 void BeanBaseClient::fetchArchiveAvailability(const QString& productUrl,
-                                             std::function<void(const QString&, bool)> done) {
+                                             std::function<void(const QString&, bool)> done,
+                                             const AIOperationLog::Ptr& operation) {
     QUrl url(QStringLiteral("%1/wayback/available").arg(m_archiveBaseUrl));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("url"), productUrl);
@@ -868,8 +888,12 @@ void BeanBaseClient::fetchArchiveAvailability(const QString& productUrl,
     request.setTransferTimeout(kTransferTimeoutMs);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [reply, done = std::move(done)]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, operation, done = std::move(done)]() {
         reply->deleteLater();
+        if (operation)
+            operation->network(QStringLiteral("archiveLookup"), reply->url().toString(),
+                               reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+                               int(reply->error()));
         if (reply->error() != QNetworkReply::NoError) {
             done({}, false);  // Archive fault — never a "no capture" verdict.
             return;

@@ -1,3 +1,4 @@
+#include "core/applogging.h"
 #include "blemanager.h"
 #include "blegattqueue.h"
 
@@ -3302,9 +3303,7 @@ void BLEManager::openLocationSettings()
         activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
     }
 #else
-    // log-marker-exempt: platform-availability note about a UI action, not a
-    // subsystem event — no device or radio state is being reported.
-    qDebug() << "openLocationSettings is only available on Android";
+    APP_LOG_STDERR("LocationSettings", QStringLiteral("Settings deep-link is only available on Android"));
 #endif
 }
 
@@ -3331,9 +3330,7 @@ void BLEManager::openBluetoothSettings()
     // macOS: Open System Settings to Bluetooth privacy pane
     QDesktopServices::openUrl(QUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth"));
 #else
-    // log-marker-exempt: as above — a note that a settings deep-link has no
-    // implementation here, not a report about the radio.
-    qDebug() << "openBluetoothSettings is not implemented for this platform";
+    APP_LOG_STDERR("BluetoothSettings", QStringLiteral("Settings deep-link is not implemented for this platform"));
 #endif
 }
 

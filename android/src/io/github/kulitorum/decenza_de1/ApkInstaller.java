@@ -111,19 +111,19 @@ public class ApkInstaller {
      */
     public static boolean install(Activity activity, String apkPath) {
         if (activity == null || apkPath == null) {
-            Log.e(TAG, "install: null activity or path");
+            DiagnosticLog.e("App", TAG, "install: null activity or path");
             return false;
         }
 
         final File apk = new File(apkPath);
         final long apkLen = apk.length();
         if (!apk.exists() || apkLen <= 0) {
-            Log.e(TAG, "install: APK missing or empty: " + apkPath);
+            DiagnosticLog.e("App", TAG, "install: APK missing or empty: " + apkPath);
             return false;
         }
 
         if (!sInstallInFlight.compareAndSet(false, true)) {
-            Log.w(TAG, "install: session already in flight, ignoring duplicate request");
+            DiagnosticLog.w("App", TAG, "install: session already in flight, ignoring duplicate request");
             return false;
         }
 
@@ -153,7 +153,7 @@ public class ApkInstaller {
             // Reports INTERNAL_STATUS_WRITE_FAILED as a generic unexpected-error
             // sentinel; the more specific INTERNAL_STATUS_CREATE_FAILED is only
             // produced by the narrower catches inside doSessionInstall.
-            Log.e(TAG, "install: unexpected error in worker: " + t);
+            DiagnosticLog.e("App", TAG, "install: unexpected error in worker: " + t);
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, t.toString());
         }
@@ -180,7 +180,7 @@ public class ApkInstaller {
         try {
             sessionId = installer.createSession(params);
         } catch (IOException | SecurityException | IllegalArgumentException | IllegalStateException e) {
-            Log.e(TAG, "install: createSession failed: " + e);
+            DiagnosticLog.e("App", TAG, "install: createSession failed: " + e);
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
             return;
@@ -190,7 +190,7 @@ public class ApkInstaller {
         try {
             session = installer.openSession(sessionId);
         } catch (IOException | SecurityException e) {
-            Log.e(TAG, "install: openSession failed: " + e);
+            DiagnosticLog.e("App", TAG, "install: openSession failed: " + e);
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
             return;
@@ -217,11 +217,11 @@ public class ApkInstaller {
                     appContext, sessionId, statusIntent, piFlags);
 
             session.commit(pi.getIntentSender());
-            Log.i(TAG, "install: session " + sessionId + " committed (" + apkLen + " bytes)");
+            DiagnosticLog.i("App", TAG, "install: session " + sessionId + " committed (" + apkLen + " bytes)");
         } catch (Exception e) {
-            Log.e(TAG, "install: write/commit failed: " + e);
+            DiagnosticLog.e("App", TAG, "install: write/commit failed: " + e);
             try { session.abandon(); } catch (Exception e2) {
-                Log.w(TAG, "session.abandon() failed: " + e2);
+                DiagnosticLog.w("App", TAG, "session.abandon() failed: " + e2);
             }
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
@@ -229,7 +229,7 @@ public class ApkInstaller {
             try { session.close(); } catch (Exception e) {
                 // Closing an already-abandoned session throws IllegalStateException
                 // on some Android versions. Log and ignore — the session is gone.
-                Log.w(TAG, "session.close() after abandon: " + e);
+                DiagnosticLog.w("App", TAG, "session.close() after abandon: " + e);
             }
         }
     }
@@ -241,7 +241,7 @@ public class ApkInstaller {
             // Native side not yet registered (unit tests, or install()
             // called before UpdateChecker construction). Logged status is
             // the fallback signal.
-            Log.w(TAG, "reportStatus: native not registered, status=" + status);
+            DiagnosticLog.w("App", TAG, "reportStatus: native not registered, status=" + status);
         }
     }
 
@@ -280,7 +280,7 @@ public class ApkInstaller {
                     confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
                 }
                 if (confirm == null) {
-                    Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
+                    DiagnosticLog.w("App", TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
                     sInstallInFlight.set(false);
                     reportStatus(INTERNAL_STATUS_NO_CONFIRM_INTENT,
                             "STATUS_PENDING_USER_ACTION delivered with no EXTRA_INTENT");
@@ -289,21 +289,21 @@ public class ApkInstaller {
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
                     context.getApplicationContext().startActivity(confirm);
-                    Log.i(TAG, "install: user confirmation dialog launched");
+                    DiagnosticLog.i("App", TAG, "install: user confirmation dialog launched");
                     // sInstallInFlight stays true while the user interacts with
                     // the confirmation dialog; the terminal STATUS_* broadcast
                     // clears it below. Note: some OEM ROMs fail to deliver
                     // STATUS_FAILURE_ABORTED on back-dismiss, which can leave the
                     // flag stuck until the process restarts.
                 } catch (Exception e) {
-                    Log.e(TAG, "install: startActivity for confirm failed: " + e);
+                    DiagnosticLog.e("App", TAG, "install: startActivity for confirm failed: " + e);
                     sInstallInFlight.set(false);
                     reportStatus(INTERNAL_STATUS_NO_CONFIRM_INTENT, "failed to launch install dialog: " + e);
                 }
                 return;
             }
 
-            Log.i(TAG, "install: status=" + status + " msg=" + msg);
+            DiagnosticLog.i("App", TAG, "install: status=" + status + " msg=" + msg);
             sInstallInFlight.set(false);
             reportStatus(status, msg);
         }

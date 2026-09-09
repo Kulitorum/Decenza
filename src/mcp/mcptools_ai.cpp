@@ -38,6 +38,13 @@ static constexpr int kAdvisorMcpTimeoutMs = 135 * 1000;
 void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
 void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager);
 
+namespace {
+void rejectAiEntry(const QString& kind, bool bag, const QString& reason, qint64 id = 0)
+{
+    AIOperationLog::begin(kind, bag, bag ? id : 0, bag ? 0 : id)->finish("rejected", reason);
+}
+}
+
 void registerAITools(McpToolRegistry* registry, MainController* mainController)
 {
     // ai_advisor_invoke — registered at "control" tier (matches the
@@ -71,6 +78,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
         },
         [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!mainController || !mainController->aiManager()) {
+                if (!args.value("dryRun").toBool()) rejectAiEntry("advisor", false, "dependenciesUnavailable", args.value("shot_id").toInteger());
                 respond(QJsonObject{{"error", "AI advisor not available"}});
                 return;
             }
@@ -81,10 +89,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             // a dry run just assembles prompts.
             if (!dryRun) {
                 if (!ai->isConfigured()) {
+                    rejectAiEntry("advisor", false, "notConfigured", args.value("shot_id").toInteger());
                     respond(QJsonObject{{"error", "AI provider not configured. Set provider + API key in app settings first."}});
                     return;
                 }
                 if (ai->isAnalyzing()) {
+                    rejectAiEntry("advisor", false, "busy", args.value("shot_id").toInteger());
                     respond(QJsonObject{{"error", "AI advisor busy with another request — try again in a moment."}});
                     return;
                 }
@@ -92,6 +102,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
 
             ShotHistoryStorage* shotHistory = mainController->shotHistory();
             if (!shotHistory || !shotHistory->isReady()) {
+                if (!dryRun) rejectAiEntry("advisor", false, "historyUnavailable", args.value("shot_id").toInteger());
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
             }
@@ -128,6 +139,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 }
 
                 if (resolvedShotId <= 0) {
+                    if (!dryRun) rejectAiEntry("advisor", false, "noShots");
                     QMetaObject::invokeMethod(qApp, [respond]() {
                         respond(QJsonObject{{"error", "No shots available — record a shot before invoking the advisor."}});
                     }, Qt::QueuedConnection);
@@ -135,7 +147,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 }
 
                 withTempDb(dbPath, "mcp_advisor", [&](QSqlDatabase& db) {
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId, nullptr, Q_FUNC_INFO);
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
@@ -162,10 +174,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
                      resolvedShotId, blocks, respond]() {
                     if (!aiPtr) {
+                        if (!dryRun) rejectAiEntry("advisor", false, "managerDestroyed", resolvedShotId);
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
                     }
                     if (!shot.isValid()) {
+                        if (!dryRun) rejectAiEntry("advisor", false, "shotUnavailable", resolvedShotId);
                         respond(QJsonObject{{"error", QString("Shot not found: %1").arg(resolvedShotId)}});
                         return;
                     }
@@ -179,6 +193,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     // calls — between the gate above and here, the user
                     // may have triggered an in-app advisor call.
                     if (!dryRun && aiLive->isAnalyzing()) {
+                        rejectAiEntry("advisor", false, "busy", resolvedShotId);
                         respond(QJsonObject{{"error", "AI advisor busy with another request — try again in a moment."}});
                         return;
                     }
@@ -211,6 +226,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // the same helpers in DialingBlocks.
                         QJsonObject userPromptObj = aiLive->buildUserPromptObjectForShot(shot);
                         if (userPromptObj.isEmpty()) {
+                            if (!dryRun) rejectAiEntry("advisor", false, "contextUnavailable", resolvedShotId);
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
@@ -242,6 +258,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     // operation finalize() owns its lifetime explicitly
                     // (deleteLater) so per-call timers don't accumulate
                     // as permanent AIManager children.
+                    const auto operation = AIOperationLog::begin(QStringLiteral("advisor"), false, 0, resolvedShotId);
                     struct CallState {
                         bool done = false;
                         QMetaObject::Connection successConn;
@@ -261,11 +278,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     const QString modelName = aiLive->currentModelName();
                     QPointer<AIManager> aiPtrInner(aiLive);
 
-                    auto finalize = [state, aiPtrInner, providerId, modelName,
+                    auto finalize = [state, operation, aiPtrInner, providerId, modelName,
                                      systemPrompt, userPrompt, resolvedShotId, respond](
                                         const QJsonObject& body) {
                         if (state->done) return;
                         state->done = true;
+                        operation->finish(QStringLiteral("superseded"), QStringLiteral("consumerStoppedWaiting"));
                         if (aiPtrInner) {
                             QObject::disconnect(state->successConn);
                             QObject::disconnect(state->errorConn);
@@ -343,7 +361,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             finalize(QJsonObject{{"error", error}});
                         });
                     state->timeoutConn = QObject::connect(state->timeout, &QTimer::timeout,
-                        aiLive, [finalize]() {
+                        aiLive, [finalize, operation]() {
+                            operation->finish(QStringLiteral("failed"), QStringLiteral("consumerTimeout"));
                             finalize(QJsonObject{{"error",
                                 QString("Advisor call timed out after %1s")
                                     .arg(kAdvisorMcpTimeoutMs / 1000)}});
@@ -362,7 +381,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         });
 
                     state->timeout->start();
-                    aiLive->analyze(systemPrompt, userPrompt);
+                    aiLive->analyze(systemPrompt, userPrompt, resolvedShotId, operation->id);
                 }, Qt::QueuedConnection);
             });
 
@@ -400,15 +419,18 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             BeanBaseClient* beanbase = mainController ? mainController->beanbase() : nullptr;
             CoffeeBagStorage* bagStorage = mainController ? mainController->bagStorage() : nullptr;
             if (!bagStorage || !aiManager || !beanbase) {
+                rejectAiEntry("bagExtraction", true, "dependenciesUnavailable", args.value("bagId").toInteger());
                 respond(QJsonObject{{"error", "Extraction dependencies not available"}});
                 return;
             }
             if (!aiManager->isConfigured()) {
+                rejectAiEntry("bagExtraction", true, "notConfigured", args.value("bagId").toInteger());
                 respond(QJsonObject{{"error", "No AI provider configured"}});
                 return;
             }
             const qint64 bagId = args["bagId"].toInteger();
             if (bagId <= 0) {
+                rejectAiEntry("bagExtraction", true, "invalidBagId", bagId);
                 respond(QJsonObject{{"error", "Valid bagId is required"}});
                 return;
             }
@@ -421,6 +443,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             // requestBag/fetch for the same key would otherwise re-fire a step
             // and torpedo this run.
             struct ExtractState {
+                QString operationId;
                 QList<QMetaObject::Connection> conns;
                 QString url;
                 QString kind;
@@ -443,6 +466,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             auto finish = [st](std::function<void()> reply) {
                 if (st->done) return;
                 st->done = true;
+                if (const auto operation = AIOperationLog::find(st->operationId))
+                    operation->finish(QStringLiteral("superseded"), QStringLiteral("consumerStoppedWaiting"));
                 for (const auto& c : st->conns)
                     QObject::disconnect(c);
                 reply();
@@ -451,11 +476,11 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             // Step 2a: local fetch succeeded -> stage-1 extraction. One-shot:
             // disarm so a concurrent fetch of the same URL can't re-enter.
             st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextReady, qApp,
-                [st, aiManager](const QString& url, const QString& text) {
+                [st, aiManager](const QString& url, const QString& text, const QString& operationId) {
                     if (st->done || st->fetchArmed || url != st->url) return;
                     st->fetchArmed = true;
                     st->textChars = text.size();
-                    aiManager->extractCoffeeBagDetails(st->url, text, st->kind);
+                    aiManager->extractCoffeeBagDetails(st->url, text, st->kind, operationId);
                 });
 
             // Step 2b: local fetch failed -> provider-side web fetch, but ONLY
@@ -463,13 +488,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             // or a down site would just burn provider tokens on a guaranteed
             // stage-2 failure. Otherwise surface the stage-1 error.
             st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextFailed, qApp,
-                [st, aiManager, finish, respond](const QString& url, const QString& error) {
+                [st, aiManager, finish, respond](const QString& url, const QString& error, const QString& operationId) {
                     if (st->done || st->fetchArmed || url != st->url) return;
                     st->fetchArmed = true;
                     st->stage1Error = error;
                     if (error == QLatin1String("emptyPage") && aiManager->supportsUrlExtraction()) {
                         st->stage = 2;
-                        aiManager->extractCoffeeBagDetailsFromUrl(st->url, st->url, st->kind);
+                        aiManager->extractCoffeeBagDetailsFromUrl(st->url, st->url, st->kind, operationId);
                     } else if (error == QLatin1String("emptyPage")) {
                         finish([respond, error]() { respond(QJsonObject{{"error",
                             QString("Page fetch returned nothing (%1) and the configured provider has "
@@ -577,10 +602,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         st->roaster = roaster;
                         st->coffee = coffee;
                         if (!opened) {
+                            rejectAiEntry("bagExtraction", true, "databaseUnavailable", bagId);
                             finish([respond]() { respond(QJsonObject{{"error", "Could not open bag database"}}); });
                             return;
                         }
                         if (!valid) {
+                            rejectAiEntry("bagExtraction", true, "bagUnavailable", bagId);
                             finish([respond]() { respond(QJsonObject{{"error", "Bag not found"}}); });
                             return;
                         }
@@ -594,15 +621,16 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             if (ai && ai->isConfigured() && ai->supportsProductPageSearch()
                                 && !st->roaster.isEmpty() && !st->coffee.isEmpty()) {
                                 st->searchingForPage = true;
-                                ai->findProductPage(st->url = QStringLiteral("mcpfind:%1").arg(bagId),
+                                st->operationId = ai->findProductPage(st->url = QStringLiteral("mcpfind:%1").arg(bagId),
                                                     st->roaster, st->coffee,
-                                                    tea ? QStringLiteral("tea") : QStringLiteral("coffee"));
+                                                    tea ? QStringLiteral("tea") : QStringLiteral("coffee"), bagId);
                                 return;
                             }
                             // Naming WHICH of the two states it is: telling a
                             // caller a bag "has no product URL" when it holds a
                             // dead one prescribes a fix it cannot act on — it
                             // would set the URL that is already there.
+                            rejectAiEntry("bagExtraction", true, "noUsableLinkOrSearch", bagId);
                             finish([respond, deadLink]() { respond(QJsonObject{{"error",
                                 deadLink.isEmpty()
                                     ? QStringLiteral("Bag has no product URL (set one with bag_update link=...)")
@@ -612,7 +640,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         }
                         st->url = link;
                         st->kind = tea ? QStringLiteral("tea") : QStringLiteral("coffee");
-                        beanbase->fetchPageText(st->url);
+                        st->operationId = beanbase->fetchPageText(st->url, bagId);
                     }, Qt::QueuedConnection);
                 });
             QObject::connect(loadThread, &QThread::finished, loadThread, &QObject::deleteLater);

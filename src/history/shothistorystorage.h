@@ -219,7 +219,8 @@ public:
     // (when non-null) is set true when a write happened, false otherwise — used by
     // requestReanalyzeBadges to decide whether to emit shotBadgesUpdated.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
-                                            bool* outBadgesPersisted = nullptr);
+                                            bool* outBadgesPersisted = nullptr,
+                                            const char* requestedBy = "unspecified");
 
     // Compute resistance, conductance, Darcy resistance, and the conductance
     // derivative from a shot's own raw pressure/flow data. Called

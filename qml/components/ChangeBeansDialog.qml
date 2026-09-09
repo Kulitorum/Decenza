@@ -168,6 +168,7 @@ DecenzaDialog {
     // in-flight reply and leaves the "asking the AI…" line on screen forever.
     // Same rule `_fetchUrl` follows for the extraction.
     property string _pageSearchToken: ""
+    property string _pageSearchOperationId: ""
     property int _pageSearchSeq: 0
     // A found URL is probed before it is offered: the user must not be asked to
     // confirm a page that is already gone.
@@ -181,6 +182,7 @@ DecenzaDialog {
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
     // wasn't requested for.
     property string _fetchUrl: ""
+    property string _infoOperationId: ""
     // Set while a search the USER asked for is in flight. It decides two things
     // that always coincide: read the found page on accept rather than asking for
     // a second press, and say so when the search comes back empty.
@@ -234,7 +236,7 @@ DecenzaDialog {
         try { return JSON.parse(fBeanBaseData) } catch (e) {
             // The C++ merge refuses to touch a corrupt blob, so the stored
             // data survives — but the form renders blank detail fields.
-            console.warn("ChangeBeansDialog: corrupt beanBaseData for bag", editBagId, e)
+            WebDebugLogger.warn("BeanBase", "ChangeBeansDialog", ["corrupt beanBaseData for bag", editBagId, e].map(String).join(" "))
             return ({})
         }
     }
@@ -513,8 +515,8 @@ DecenzaDialog {
         // The bag id and a counter, so a reply for a bag the user has moved on
         // from is discarded even when the next bag is the same coffee.
         root._pageSearchToken = "findpage:" + root.editBagId + ":" + root._pageSearchSeq
-        MainController.aiManager.findProductPage(
-            root._pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind)
+        root._pageSearchOperationId = MainController.aiManager.findProductPage(
+            root._pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind, root.editBagId)
     }
 
     // Read the page at `url`: the second half of Get info, entered either
@@ -524,7 +526,8 @@ DecenzaDialog {
         root._fetchUrl = url
         root.infoStatus = TranslationManager.translate(
             "changebeans.form.getInfo.fetching", "Reading page…")
-        MainController.beanbase.fetchPageText(root._fetchUrl)
+        MainController.beanbase.abandonPageOperation(root._infoOperationId)
+        root._infoOperationId = MainController.beanbase.fetchPageText(root._fetchUrl, root.editBagId)
     }
 
     // The user-facing name of a blob detail key, for the correction report —
@@ -1072,6 +1075,10 @@ DecenzaDialog {
     }
 
     onClosed: {
+        MainController.aiManager.abandonDiagnosticOperation(root._pageSearchOperationId)
+        root._pageSearchOperationId = ""
+        MainController.beanbase.abandonPageOperation(root._infoOperationId)
+        root._infoOperationId = ""
         _awaitingCreate = false
         // Abandoning the dialog cancels a Get info in flight: a late page
         // result must not spend an AI call for a form nobody is looking at.
@@ -1530,13 +1537,13 @@ DecenzaDialog {
                             if (url === root._pendingSuggestion)
                                 root.acceptOrDropSuggestion(state)
                         }
-                        function onPageTextReady(url, text) {
+                        function onPageTextReady(url, text, operationId) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.extracting", "Extracting details…")
-                            MainController.aiManager.extractCoffeeBagDetails(url, text, root.bagKind)
+                            MainController.aiManager.extractCoffeeBagDetails(url, text, root.bagKind, operationId)
                         }
-                        function onPageTextFailed(url, error) {
+                        function onPageTextFailed(url, error, operationId) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
                             // Stage 2 (add-recipe-wizard-tea): an empty page is
                             // the JS-rendered-shop signature — let the provider
@@ -1545,7 +1552,7 @@ DecenzaDialog {
                             if (error === "emptyPage" && MainController.aiManager.supportsUrlExtraction()) {
                                 root.infoStatus = TranslationManager.translate(
                                     "changebeans.form.getInfo.stage2", "Page is script-rendered — asking the AI to fetch it…")
-                                MainController.aiManager.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind)
+                                MainController.aiManager.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind, operationId)
                                 return
                             }
                             root.fetchingInfo = false
@@ -1740,7 +1747,7 @@ DecenzaDialog {
                                 // Keep the minimal entry; without the log the
                                 // detail fields just never populate, which is
                                 // indistinguishable from an empty API result.
-                                console.warn("ChangeBeansDialog: dropping enrichment, corrupt staged blob:", e)
+                                WebDebugLogger.warn("BeanBase", "ChangeBeansDialog", ["dropping enrichment, corrupt staged blob:", e].map(String).join(" "))
                             }
                         }
                     }

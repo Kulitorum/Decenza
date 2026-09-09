@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "librarysharing.h"
 #include "version.h"
@@ -86,12 +87,12 @@ void LibrarySharing::uploadEntryWithThumbnails(const QString& entryId,
 
     QByteArray body = buildMultipart(entryJson, fullPng, compactPng, boundary);
 
-    qDebug() << "LibrarySharing: Uploading entry" << entryId
+    DIAG_DEBUG(APP, "LibrarySharing") << "Uploading entry" << entryId
              << "(" << body.size() << "bytes)";
     if (!fullPng.isEmpty())
-        qDebug() << "LibrarySharing: Thumbnail full:" << fullPng.size() << "bytes";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Thumbnail full:" << fullPng.size() << "bytes";
     if (!compactPng.isEmpty())
-        qDebug() << "LibrarySharing: Thumbnail compact:" << compactPng.size() << "bytes";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Thumbnail compact:" << compactPng.size() << "bytes";
 
     QNetworkReply* reply = m_networkManager.post(request, body);
 
@@ -147,7 +148,7 @@ void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& l
 
     QByteArray responseBody = reply->readAll();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    qDebug() << "LibrarySharing: Upload response status:" << statusCode
+    DIAG_DEBUG(APP, "LibrarySharing") << "Upload response status:" << statusCode
              << "for local entry:" << localEntryId;
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
@@ -156,7 +157,7 @@ void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& l
     // 409 = duplicate entry already exists on server
     if (statusCode == 409) {
         QString existingId = obj["existingId"].toString();
-        qDebug() << "LibrarySharing: Already shared (existing ID:" << existingId << ")";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Already shared (existing ID:" << existingId << ")";
 
         // Still adopt the server ID so future downloads match
         if (!existingId.isEmpty() && existingId != localEntryId) {
@@ -171,7 +172,7 @@ void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& l
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = obj["error"].toString(reply->errorString());
-        qWarning() << "LibrarySharing: Upload failed -" << error;
+        DIAG_WARN(APP, "LibrarySharing") << "Upload failed -" << error;
         setLastError(error);
         emit uploadFailed(error);
         return;
@@ -179,7 +180,7 @@ void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& l
 
     if (obj.contains("id")) {
         QString serverId = obj["id"].toString();
-        qDebug() << "LibrarySharing: Upload successful, server ID:" << serverId
+        DIAG_DEBUG(APP, "LibrarySharing") << "Upload successful, server ID:" << serverId
                  << "(local was:" << localEntryId << ")";
 
         // Rename local entry to match server ID so downloads won't create duplicates
@@ -190,7 +191,7 @@ void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& l
         emit uploadSuccess(serverId);
     } else {
         QString error = obj["error"].toString("Upload failed");
-        qWarning() << "LibrarySharing: Server error -" << error;
+        DIAG_WARN(APP, "LibrarySharing") << "Server error -" << error;
         setLastError(error);
         emit uploadFailed(error);
     }
@@ -208,7 +209,7 @@ void LibrarySharing::browseCommunity(const QString& type,
                                        int page)
 {
     if (m_browsing) {
-        qWarning() << "LibrarySharing: Already browsing";
+        DIAG_WARN(APP, "LibrarySharing") << "Already browsing";
         return;
     }
 
@@ -247,7 +248,7 @@ void LibrarySharing::browseCommunity(const QString& type,
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
     request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
-    qDebug() << "LibrarySharing: Browsing community -" << url.toString();
+    DIAG_DEBUG(APP, "LibrarySharing") << "Browsing community -" << url.toString();
 
     QNetworkReply* reply = m_networkManager.get(request);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onBrowseFinished);
@@ -256,7 +257,7 @@ void LibrarySharing::browseCommunity(const QString& type,
 void LibrarySharing::browseMyUploads(int page)
 {
     if (m_browsing) {
-        qWarning() << "LibrarySharing: Already browsing";
+        DIAG_WARN(APP, "LibrarySharing") << "Already browsing";
         return;
     }
 
@@ -275,7 +276,7 @@ void LibrarySharing::browseMyUploads(int page)
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
     request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
-    qDebug() << "LibrarySharing: Browsing my uploads";
+    DIAG_DEBUG(APP, "LibrarySharing") << "Browsing my uploads";
 
     QNetworkReply* reply = m_networkManager.get(request);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onBrowseFinished);
@@ -290,7 +291,7 @@ void LibrarySharing::onBrowseFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
-        qWarning() << "LibrarySharing: Browse failed -" << error;
+        DIAG_WARN(APP, "LibrarySharing") << "Browse failed -" << error;
         setLastError(error);
         return;
     }
@@ -318,12 +319,12 @@ void LibrarySharing::onBrowseFinished()
                 }),
             m_cachedEntries.end());
 
-        qDebug() << "LibrarySharing: Removed" << deletedIds.size() << "deleted entries from cache";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Removed" << deletedIds.size() << "deleted entries from cache";
     }
 
     if (m_browseIsIncremental) {
         // Incremental: merge new entries into cache
-        qDebug() << "LibrarySharing: Incremental fetch returned" << entries.size() << "new entries";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Incremental fetch returned" << entries.size() << "new entries";
         if (!entries.isEmpty()) {
             mergeIntoCache(entries);
         }
@@ -342,7 +343,7 @@ void LibrarySharing::onBrowseFinished()
         }
         saveCommunityCache();
         m_communityEntries = entries;
-        qDebug() << "LibrarySharing: Cached" << entries.size() << "entries, newest:" << m_newestCreatedAt;
+        DIAG_DEBUG(APP, "LibrarySharing") << "Cached" << entries.size() << "entries, newest:" << m_newestCreatedAt;
     } else {
         // Filtered or paginated query - no caching
         m_communityEntries = entries;
@@ -352,7 +353,7 @@ void LibrarySharing::onBrowseFinished()
     int total = obj["total"].toInt(static_cast<int>(m_communityEntries.size()));
     setTotalCommunityResults(total);
 
-    qDebug() << "LibrarySharing: Browse total:" << total << "displayed:" << m_communityEntries.size();
+    DIAG_DEBUG(APP, "LibrarySharing") << "Browse total:" << total << "displayed:" << m_communityEntries.size();
     m_browseIsIncremental = false;
     m_browseIsUnfiltered = false;
 }
@@ -378,7 +379,7 @@ void LibrarySharing::loadFeatured()
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
     request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
-    qDebug() << "LibrarySharing: Loading featured entries -" << url.toString();
+    DIAG_DEBUG(APP, "LibrarySharing") << "Loading featured entries -" << url.toString();
 
     QNetworkReply* reply = m_networkManager.get(request);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onFeaturedFinished);
@@ -391,7 +392,7 @@ void LibrarySharing::onFeaturedFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "LibrarySharing: Featured load failed -" << reply->errorString();
+        DIAG_WARN(APP, "LibrarySharing") << "Featured load failed -" << reply->errorString();
         return;
     }
 
@@ -407,7 +408,7 @@ void LibrarySharing::onFeaturedFinished()
     m_featuredEntries = entries;
     emit featuredEntriesChanged();
 
-    qDebug() << "LibrarySharing: Loaded" << entries.size() << "featured entries";
+    DIAG_DEBUG(APP, "LibrarySharing") << "Loaded" << entries.size() << "featured entries";
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +418,7 @@ void LibrarySharing::onFeaturedFinished()
 void LibrarySharing::downloadEntry(const QString& serverId)
 {
     if (m_downloading) {
-        qWarning() << "LibrarySharing: Already downloading";
+        DIAG_WARN(APP, "LibrarySharing") << "Already downloading";
         return;
     }
 
@@ -428,7 +429,7 @@ void LibrarySharing::downloadEntry(const QString& serverId)
     // Fetch full entry data
     QNetworkRequest request = buildRequest("/entries/" + serverId);
 
-    qDebug() << "LibrarySharing: Downloading entry" << serverId;
+    DIAG_DEBUG(APP, "LibrarySharing") << "Downloading entry" << serverId;
 
     QNetworkReply* reply = m_networkManager.get(request);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onDownloadDataFinished);
@@ -450,7 +451,7 @@ void LibrarySharing::onDownloadDataFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
-        qWarning() << "LibrarySharing: Download failed -" << error;
+        DIAG_WARN(APP, "LibrarySharing") << "Download failed -" << error;
         setLastError(error);
         emit downloadFailed(error);
         return;
@@ -462,7 +463,7 @@ void LibrarySharing::onDownloadDataFinished()
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QString serverId = doc.object()["id"].toString();
     if (!serverId.isEmpty() && !m_library->getEntry(serverId).isEmpty()) {
-        qDebug() << "LibrarySharing: Entry already in library:" << serverId;
+        DIAG_DEBUG(APP, "LibrarySharing") << "Entry already in library:" << serverId;
         emit downloadAlreadyExists(serverId);
         return;
     }
@@ -476,7 +477,7 @@ void LibrarySharing::onDownloadDataFinished()
         return;
     }
 
-    qDebug() << "LibrarySharing: Downloaded and imported as" << localId;
+    DIAG_DEBUG(APP, "LibrarySharing") << "Downloaded and imported as" << localId;
     emit downloadComplete(localId);
 
     // Record download on server (fire-and-forget)
@@ -493,7 +494,7 @@ void LibrarySharing::onRecordDownloadFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qDebug() << "LibrarySharing: Failed to record download (non-critical) -"
+        DIAG_DEBUG(APP, "LibrarySharing") << "Failed to record download (non-critical) -"
                  << reply->errorString();
     }
 }
@@ -509,7 +510,7 @@ void LibrarySharing::deleteFromServer(const QString& serverId)
     QNetworkRequest request = buildRequest("/entries/" + serverId);
 
     m_pendingDeleteId = serverId;
-    qDebug() << "LibrarySharing: Deleting server entry" << serverId;
+    DIAG_DEBUG(APP, "LibrarySharing") << "Deleting server entry" << serverId;
 
     QNetworkReply* reply = m_networkManager.deleteResource(request);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onDeleteFinished);
@@ -523,7 +524,7 @@ void LibrarySharing::onDeleteFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
-        qWarning() << "LibrarySharing: Delete failed -" << error;
+        DIAG_WARN(APP, "LibrarySharing") << "Delete failed -" << error;
         setLastError(error);
         emit deleteFailed(error);
         return;
@@ -540,7 +541,7 @@ void LibrarySharing::onDeleteFinished()
         saveCommunityCache();
     }
 
-    qDebug() << "LibrarySharing: Server entry deleted";
+    DIAG_DEBUG(APP, "LibrarySharing") << "Server entry deleted";
     emit deleteSuccess();
 }
 
@@ -570,9 +571,9 @@ void LibrarySharing::onFlagFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "LibrarySharing: Flag failed -" << reply->errorString();
+        DIAG_WARN(APP, "LibrarySharing") << "Flag failed -" << reply->errorString();
     } else {
-        qDebug() << "LibrarySharing: Entry flagged";
+        DIAG_DEBUG(APP, "LibrarySharing") << "Entry flagged";
     }
 }
 
@@ -603,7 +604,7 @@ void LibrarySharing::loadCommunityCache()
         m_cachedEntries.append(val.toObject().toVariantMap());
     }
 
-    qDebug() << "LibrarySharing: Loaded community cache -"
+    DIAG_DEBUG(APP, "LibrarySharing") << "Loaded community cache -"
              << m_cachedEntries.size() << "entries, newest:" << m_newestCreatedAt;
 }
 

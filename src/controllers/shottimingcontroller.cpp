@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shottimingcontroller.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
@@ -171,7 +172,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     if (!isSettling && frameNumber != m_currentFrameNumber) {
         if (m_currentProfile && frameNumber >= 0 && frameNumber < m_currentProfile->steps().size()) {
             const auto& frame = m_currentProfile->steps()[frameNumber];
-            qDebug() << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
+            DIAG_DEBUG(SHOT, "shottimingcontroller") << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
                      << "name:" << frame.name << "exitWeight:" << frame.exitWeight;
         }
         m_currentFrameNumber = frameNumber;
@@ -181,7 +182,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
         if (!m_extractionStarted) {
             m_extractionStarted = true;
             m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
-            qDebug() << "EXTRACTION STARTED at frame" << frameNumber;
+            DIAG_DEBUG(SHOT, "shottimingcontroller") << "EXTRACTION STARTED at frame" << frameNumber;
         }
     }
 

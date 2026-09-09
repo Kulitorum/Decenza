@@ -49,7 +49,7 @@ Item {
     property bool minuteOnesFlipping: false
 
     Component.onCompleted: {
-        console.log("[Screensaver] Component loaded, use24Hour:", use24Hour, "use3D:", use3D)
+        WebDebugLogger.debug("Screensaver", "FlipClockScreensaver", ["Component loaded, use24Hour:", use24Hour, "use3D:", use3D].map(String).join(" "))
         updateTime()
     }
 

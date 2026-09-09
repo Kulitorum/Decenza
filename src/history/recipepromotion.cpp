@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "recipepromotion.h"
 
 #include "shothistory_types.h"
@@ -20,7 +21,7 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(steamJson.toUtf8(), &parseError);
         if (parseError.error != QJsonParseError::NoError) {
-            qWarning() << "RecipePromotion::fieldsFromShotRecord: malformed steamJson for shot"
+            DIAG_WARN(RECIPES, "RecipePromotion") << "fieldsFromShotRecord: malformed steamJson for shot"
                        << record.summary.id << "-" << parseError.errorString()
                        << "- other steam fields (e.g. milkWeightG) will be dropped";
         }
@@ -82,7 +83,7 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
             if (qAbs(tempOffsetC) < 0.05)
                 tempOffsetC = 0;
         } else {
-            qWarning() << "RecipePromotion: shot" << record.summary.id
+            DIAG_WARN(RECIPES, "RecipePromotion") << "shot" << record.summary.id
                        << "has a temperature override but its profile snapshot has no"
                           " espresso_temperature - dropping the temperature pin";
         }

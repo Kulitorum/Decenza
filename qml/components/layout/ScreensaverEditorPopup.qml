@@ -157,7 +157,7 @@ DecenzaDialog {
             ok = Settings.network.setItemProperty(itemId, "shotPlanYieldTargetOnly", shotPlanYieldTargetOnly) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan) && ok
             if (!ok)
-                console.warn("ScreensaverEditorPopup: shot plan save failed (item deleted?)", itemId)
+                WebDebugLogger.warn("Shot", "ScreensaverEditorPopup", ["shot plan save failed (item deleted?)", itemId].map(String).join(" "))
         }
         saved()
         close()

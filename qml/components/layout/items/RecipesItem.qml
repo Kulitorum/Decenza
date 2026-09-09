@@ -53,17 +53,17 @@ LayoutWidgetItem {
             return
         }
         if (!root.canStartOperations) {
-            console.log("[recipe pill/compact] start blocked: app cannot start operations (active GHC?) — recipe=" + recipe.id
-                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode)
+            WebDebugLogger.warn("Recipes", "RecipesItem", ["start blocked: GHC active; app start disallowed — recipe=" + recipe.id
+                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode].map(String).join(" "))
         } else if (!MachineState.isReady) {
-            console.log("[recipe pill/compact] start blocked: machine not ready — recipe=" + recipe.id
-                        + " phase=" + MachineState.phase)
+            WebDebugLogger.warn("Recipes", "RecipesItem", ["start blocked: machine not ready — recipe=" + recipe.id
+                        + " phase=" + MachineState.phase].map(String).join(" "))
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
             // Deferred in MainController until the recipe's profile is applied,
             // so a fast second tap can't pull a shot on the previous profile.
-            console.log("[recipe pill/compact] requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase)
+            WebDebugLogger.info("Recipes", "RecipesItem", ["requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase].map(String).join(" "))
             MainController.startSelectedRecipeShotWhenApplied()
         }
     }

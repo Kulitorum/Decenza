@@ -5,6 +5,7 @@
 
 #include "core/settings.h"
 #include "core/updatechecker.h"
+#include "helpers/diagnosticcapture.h"
 
 // Tests for UpdateChecker::releaseInfoRequest() — the single GitHub releases
 // request shared by the manual check and the hourly poll.
@@ -53,6 +54,7 @@ private slots:
     void releaseInfoRequestCarriesGithubHeaders();
     void theCheckPathIssuesTheSharedRequest();
     void notesWithoutABuildNumberYieldNoBuildNumber();
+    void failedCheckLogsOneRecovery();
 
 private:
     // UpdateChecker's constructor dereferences Settings::app() to read
@@ -172,6 +174,34 @@ void tst_UpdateChecker::notesWithoutABuildNumberYieldNoBuildNumber()
 
     checker.parseReleaseInfo(withBuild);
 
+    QCOMPARE(checker.latestVersionCode(), 4242);
+}
+
+void tst_UpdateChecker::failedCheckLogsOneRecovery()
+{
+    Settings settings;
+    QNetworkAccessManager nam;
+    UpdateChecker checker(&nam, &settings);
+    DiagnosticCapture logs({"[App][Update]"});
+    checker.parseReleaseInfo("[]");
+    QVERIFY(logs.lines().last().contains("No eligible releases"));
+    QCOMPARE(logs.levels().last(), QtWarningMsg);
+
+    const QByteArray releases = R"([{"tag_name":"v9.9.7","body":"Build: 4242",
+        "assets":[{"name":"Decenza.apk","browser_download_url":"https://example.invalid/a.apk"},
+                  {"name":"Decenza.dmg","browser_download_url":"https://example.invalid/a.dmg"}]}])";
+    checker.parseReleaseInfo(releases);
+    checker.parseReleaseInfo(releases);
+    int recoveries = 0;
+    const auto lines = logs.lines();
+    const auto levels = logs.levels();
+    for (qsizetype i = 0; i < lines.size(); ++i) {
+        if (lines[i].contains("Update check recovered")) {
+            ++recoveries;
+            QCOMPARE(levels[i], QtInfoMsg);
+        }
+    }
+    QCOMPARE(recoveries, 1);
     QCOMPARE(checker.latestVersionCode(), 4242);
 }
 

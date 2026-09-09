@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "recipegenerator.h"
 #include "profile.h"
 #include <QDebug>
@@ -31,7 +32,7 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
 
     // Fallback: add empty frame if no frames were created (consistency with other generators)
     if (frames.isEmpty()) {
-        qWarning() << "RecipeGenerator: D-Flow generateFrames produced 0 frames, adding fallback";
+        DIAG_WARN(PROFILES, "RecipeGenerator") << "D-Flow generateFrames produced 0 frames, adding fallback";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -78,7 +79,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     }
 
     if (profile.steps().size() == 1 && profile.steps()[0].name == "empty") {
-        qWarning() << "RecipeGenerator::createProfile: recipe produced fallback empty frame for" << title;
+        DIAG_WARN(PROFILES, "RecipeGenerator") << "createProfile: recipe produced fallback empty frame for" << title;
     }
 
     // Use recipe's preinfuseFrameCount if set (D-Flow/A-Flow templates provide this via
@@ -637,7 +638,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        qWarning() << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "recipegenerator") << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -773,7 +774,7 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        qWarning() << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "recipegenerator") << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;

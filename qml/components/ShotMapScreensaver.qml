@@ -43,7 +43,7 @@ Item {
     readonly property real globeRadius: 150
 
     Component.onCompleted: {
-        console.log("[Screensaver] Started, shape:", mapShape, "texture:", mapTexture)
+        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Started, shape:", mapShape, "texture:", mapTexture].map(String).join(" "))
         fetchShots()
     }
 
@@ -66,12 +66,12 @@ Item {
                         shots = data.shots || []
                         topProfiles = data.top_profiles || []
                         shotCount = shots.length
-                        console.log("[Screensaver] Loaded", shots.length, "shots,", topProfiles.length, "profiles")
+                        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Loaded", shots.length, "shots,", topProfiles.length, "profiles"].map(String).join(" "))
                     } catch (e) {
-                        console.log("[Screensaver] JSON parse error:", e)
+                        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["JSON parse error:", e].map(String).join(" "))
                     }
                 } else {
-                    console.log("[Screensaver] Fetch failed:", xhr.status)
+                    WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Fetch failed:", xhr.status].map(String).join(" "))
                 }
             }
         }

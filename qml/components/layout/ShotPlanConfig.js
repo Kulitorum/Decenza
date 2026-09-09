@@ -1,4 +1,5 @@
 .pragma library
+.import Decenza 1.0 as Decenza
 
 // Shot Plan widget item-list config, shared by the widget (ShotPlanItem.qml)
 // and the in-app editor (ScreensaverEditorPopup.qml) so the legacy-derivation
@@ -41,7 +42,7 @@ function itemsFor(props) {
             for (var i = 0; i < items.length; i++) out.push(String(items[i]))
             return out
         }
-        console.warn("ShotPlanConfig: malformed shotPlanItems (" + typeof items + "), using legacy derivation")
+        Decenza.WebDebugLogger.warn("Shot", "ShotPlanConfig", ["malformed shotPlanItems (" + typeof items + "), using legacy derivation"].map(String).join(" "))
     }
     var order = []
     if (props.shotPlanShowDoseYield !== false) order.push("doseYield")

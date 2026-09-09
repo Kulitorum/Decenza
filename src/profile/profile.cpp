@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profile.h"
 #include "de1apptclfields.h"
 #include "profilejson.h"
@@ -38,7 +39,7 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
             // (a pressure frame carrying "flow":"") is silenced at its call
             // site in ProfileFrame::fromJson, which knows the frame's pump and
             // can tell "doesn't apply" from "lost".
-            qWarning() << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+            DIAG_WARN(PROFILES, "profile") << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;
     }
@@ -284,7 +285,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
-        qWarning() << "generatePressureProfileFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "profile") << "generatePressureProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -415,7 +416,7 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
-        qWarning() << "generateFlowProfileFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "profile") << "generateFlowProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -981,8 +982,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
             // disagree. Re-deriving the alias from the canonical field destroys
             // de1app's value; adopting the alias changes what Decenza brews.
             // Both are behaviour changes on shipped profiles.
-            qDebug().noquote()
-                << "Profile: de1app alias disagrees with the canonical field in"
+            DIAG_DEBUG(PROFILES, "Profile").noquote()
+                << "de1app alias disagrees with the canonical field in"
                 << obj.value(QStringLiteral("title")).toString()
                 << "— flow_profile_minimum_pressure=" << alias
                 << "vs minimum_pressure=" << profile.m_minimumPressure
@@ -1071,7 +1072,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     if (profile.m_steps.isEmpty() &&
         (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
         profile.regenerateSimpleFrames();
-        qDebug() << "Generated" << profile.m_steps.size() << "frames from simple"
+        DIAG_DEBUG(PROFILES, "profile") << "Generated" << profile.m_steps.size() << "frames from simple"
                  << profile.m_profileType << "profile (JSON)";
     }
 
@@ -1115,7 +1116,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
             } else {
                 // Out of range. Say so — the block is about to be removed from disk,
                 // so this is the only chance anyone has to notice the value existed.
-                qWarning() << "Profile::fromJson:" << profile.m_title
+                DIAG_WARN(PROFILES, "Profile") << "fromJson:" << profile.m_title
                            << "carries a recipe dose of" << blockDose
                            << "g, outside [0, 100] — not promoted to recommended_dose";
             }
@@ -1155,7 +1156,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
             && (kDefaultTemp > maxTemp + 0.1 || kDefaultTemp < minTemp - 0.1);
         if (!hadEspressoTemperature || leakedDefault) {
             if (leakedDefault) {
-                qDebug() << "Profile::fromJson: replacing leaked 93.0 default espresso_temperature"
+                DIAG_DEBUG(PROFILES, "Profile") << "fromJson: replacing leaked 93.0 default espresso_temperature"
                          << "(frames" << minTemp << ".." << maxTemp << ") with first-frame temp for"
                          << profile.m_title;
             }
@@ -1196,7 +1197,7 @@ Profile Profile::loadFromFile(const QString& filePath) {
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Profile::loadFromFile: Failed to open file:" << filePath
+        DIAG_WARN(PROFILES, "Profile") << "loadFromFile: Failed to open file:" << filePath
                    << "- Error:" << file.errorString();
         return Profile();
     }
@@ -1205,7 +1206,7 @@ Profile Profile::loadFromFile(const QString& filePath) {
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
     if (doc.isNull()) {
-        qWarning() << "Profile::loadFromFile: JSON parse error:" << parseError.errorString()
+        DIAG_WARN(PROFILES, "Profile") << "loadFromFile: JSON parse error:" << parseError.errorString()
                    << "at offset" << parseError.offset << "in file:" << filePath;
         return Profile();
     }
@@ -1230,7 +1231,7 @@ bool Profile::saveToFile(const QString& filePath) const {
     // direct write rather than refusing where it is not.
     file.setDirectWriteFallback(true);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "Profile::saveToFile: Failed to open file for writing:" << filePath
+        DIAG_WARN(PROFILES, "Profile") << "saveToFile: Failed to open file for writing:" << filePath
                    << "- Error:" << file.errorString();
         return false;
     }
@@ -1247,7 +1248,7 @@ bool Profile::saveToFile(const QString& filePath) const {
     QByteArray data = QJsonDocument(canonical).toJson(QJsonDocument::Indented);
     qint64 bytesWritten = file.write(data);
     if (bytesWritten != data.size()) {
-        qWarning() << "Profile::saveToFile: Failed to write all data to:" << filePath
+        DIAG_WARN(PROFILES, "Profile") << "saveToFile: Failed to write all data to:" << filePath
                    << "- Expected:" << data.size() << "bytes, wrote:" << bytesWritten
                    << "- Error:" << file.errorString();
         return false;   // ~QSaveFile discards the temporary; the original survives
@@ -1257,7 +1258,7 @@ bool Profile::saveToFile(const QString& filePath) const {
     // into cancelWriteFile() and the target is never touched — a silent no-op
     // that would read as success.
     if (!file.commit()) {
-        qWarning() << "Profile::saveToFile: Failed to commit:" << filePath
+        DIAG_WARN(PROFILES, "Profile") << "saveToFile: Failed to commit:" << filePath
                    << "- Error:" << file.errorString();
         return false;
     }
@@ -1269,7 +1270,7 @@ Profile Profile::loadFromJsonString(const QString& jsonContent) {
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseError);
     if (doc.isNull()) {
-        qWarning() << "Profile::loadFromJsonString: JSON parse error:" << parseError.errorString()
+        DIAG_WARN(PROFILES, "Profile") << "loadFromJsonString: JSON parse error:" << parseError.errorString()
                    << "at offset" << parseError.offset;
         return Profile();
     }
@@ -1302,8 +1303,8 @@ void Profile::warnIfNotPortable(const QJsonObject& canonical, const QString& tit
     const QStringList contractErrors = decaidReadabilityErrors(canonical);
     if (contractErrors.isEmpty())
         return;
-    qWarning().noquote()
-        << QStringLiteral("Profile::%1: SAVED, but this profile is not readable by "
+    DIAG_WARN(PROFILES, "Profile").noquote()
+        << QStringLiteral("%1: SAVED, but this profile is not readable by "
                           "other DE1 apps (Decaid) —").arg(context)
         << contractErrors.join(QStringLiteral("; "))
         << "| profile:" << title
@@ -1321,7 +1322,7 @@ QString Profile::toJsonString() const {
 Profile Profile::loadFromTclFile(const QString& filePath) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Failed to open Tcl profile:" << filePath;
+        DIAG_WARN(PROFILES, "profile") << "Failed to open Tcl profile:" << filePath;
         return Profile();
     }
 
@@ -1369,7 +1370,7 @@ Profile Profile::loadFromTclString(const QString& content) {
         const QString entry = key + QStringLiteral("=") + raw;
         if (!profile.m_malformedValues.contains(entry))
             profile.m_malformedValues << entry;
-        qWarning() << "Profile::loadFromTclString: cannot interpret" << key << "value" << raw
+        DIAG_WARN(PROFILES, "Profile") << "loadFromTclString: cannot interpret" << key << "value" << raw
                    << "in profile" << profile.m_title << "— refusing rather than substituting";
     };
 
@@ -1554,7 +1555,7 @@ Profile Profile::loadFromTclString(const QString& content) {
                         for (const QString& bad : ProfileFrame::malformedTclValues(stepStr)) {
                             if (!profile.m_malformedValues.contains(bad))
                                 profile.m_malformedValues << bad;
-                            qWarning() << "Profile::loadFromTclString: cannot interpret frame value"
+                            DIAG_WARN(PROFILES, "Profile") << "loadFromTclString: cannot interpret frame value"
                                        << bad << "in profile" << profile.m_title;
                         }
                     }
@@ -1586,7 +1587,7 @@ Profile Profile::loadFromTclString(const QString& content) {
         // Same generator the app runs at activation time — an imported profile
         // and a re-activated one must not produce different frames.
         profile.regenerateSimpleFrames();
-        qDebug() << "Generated" << profile.m_steps.size() << "frames from simple"
+        DIAG_DEBUG(PROFILES, "profile") << "Generated" << profile.m_steps.size() << "frames from simple"
                  << profile.m_profileType << "profile";
     }
 
@@ -1639,7 +1640,7 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
-    qDebug() << "Loaded Tcl profile:" << profile.m_title
+    DIAG_DEBUG(PROFILES, "profile") << "Loaded Tcl profile:" << profile.m_title
              << "with" << profile.m_steps.size() << "steps";
 
     return profile;
@@ -1647,7 +1648,7 @@ Profile Profile::loadFromTclString(const QString& content) {
 
 void Profile::moveStep(int from, int to) {
     if (from < 0 || from >= m_steps.size() || to < 0 || to >= m_steps.size()) {
-        qWarning() << "Cannot move step: invalid indices from" << from << "to" << to << "(size:" << m_steps.size() << ")";
+        DIAG_WARN(PROFILES, "profile") << "Cannot move step: invalid indices from" << from << "to" << to << "(size:" << m_steps.size() << ")";
         return;
     }
     m_steps.move(from, to);
@@ -2192,7 +2193,7 @@ QString Profile::describeFramesFromJson(const QString& json)
     if (p.steps().isEmpty()) {
         // Distinguish between valid profile with no steps vs parse failure
         if (p.title().isEmpty()) {
-            qWarning() << "Profile::describeFramesFromJson: Could not parse profile JSON";
+            DIAG_WARN(PROFILES, "Profile") << "describeFramesFromJson: Could not parse profile JSON";
             return QStringLiteral("(Profile recipe not available — stored profile data could not be parsed)\n");
         }
         return QString();
@@ -2349,7 +2350,7 @@ QList<QByteArray> Profile::toFrameBytes() const {
 void Profile::regenerateSimpleFrames() {
     if (m_profileType != QLatin1String("settings_2a")
         && m_profileType != QLatin1String("settings_2b")) {
-        qWarning() << "regenerateSimpleFrames called on non-simple profile type:" << m_profileType;
+        DIAG_WARN(PROFILES, "profile") << "regenerateSimpleFrames called on non-simple profile type:" << m_profileType;
         return;
     }
 
@@ -2512,7 +2513,7 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
     const bool recognisedLayout =
         aflow ? (frameCount == 6 || frameCount == 9) : (frameCount == 3);
     if (!recognisedLayout) {
-        qWarning() << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
+        DIAG_WARN(PROFILES, "profile") << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
                    << "frames, which is not a" << (aflow ? "6- or 9-frame A-Flow"
                                                          : "3-frame D-Flow")
                    << "layout — fields the plugin preserves were NOT restored";
@@ -2554,7 +2555,7 @@ void Profile::regenerateFromRecipe() {
     // entirely — the expensive failure. Keeping the frames and saying so is the
     // correct outcome (REC-1; design D7).
     if (!m_hasRecipeParams) {
-        qWarning() << "regenerateFromRecipe: no established recipe parameters for" << m_title
+        DIAG_WARN(PROFILES, "profile") << "regenerateFromRecipe: no established recipe parameters for" << m_title
                    << "— keeping its frames rather than generating from defaults";
         return;
     }
@@ -2566,7 +2567,7 @@ void Profile::regenerateFromRecipe() {
     m_steps = RecipeGenerator::generateFrames(m_recipeParams);
 
     if (m_steps.size() == 1 && m_steps[0].name == "empty") {
-        qWarning() << "regenerateFromRecipe: recipe produced fallback empty frame"
+        DIAG_WARN(PROFILES, "profile") << "regenerateFromRecipe: recipe produced fallback empty frame"
                    << "- check recipe parameters for" << m_title;
     }
 

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
@@ -197,7 +198,7 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
     applySecretString(obj, "mqttPassword", [m](const QString& v){ m->setMqttPassword(v); });
 
     if (brokerRedirectBlocked) {
-        qWarning() << "ShotServer: refused MQTT broker host/port change without password"
+        DIAG_WARN(NETWORK, "ShotServer") << "refused MQTT broker host/port change without password"
                       " re-entry (broker-redirect guard)";
     } else {
         if (obj.contains("mqttBrokerHost"))
@@ -1464,7 +1465,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
             // Unreachable with the current main.cpp wiring order, but if that
             // ever regresses the model picker vanishes from the web page with
             // no other symptom -- leave a breadcrumb.
-            qWarning() << "ShotServer: /api/settings served without AIManager -- model picker suppressed";
+            DIAG_WARN(NETWORK, "ShotServer") << "/api/settings served without AIManager -- model picker suppressed";
         }
     }
 
@@ -1654,9 +1655,9 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
         timer->stop();
         timer->deleteLater();
         if (!success)
-            qWarning() << "ShotServer: Visualizer test failed:" << message;
+            DIAG_WARN(NETWORK, "ShotServer") << "Visualizer test failed:" << message;
         else
-            qDebug() << "ShotServer: Visualizer test succeeded";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Visualizer test succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
         QJsonObject result;
@@ -1736,9 +1737,9 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
         timer->stop();
         timer->deleteLater();
         if (!success)
-            qWarning() << "ShotServer: AI test failed:" << message;
+            DIAG_WARN(NETWORK, "ShotServer") << "AI test failed:" << message;
         else
-            qDebug() << "ShotServer: AI test succeeded";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "AI test succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
@@ -1806,9 +1807,9 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         timer->stop();
         timer->deleteLater();
         if (!success)
-            qWarning() << "ShotServer: MQTT connect failed:" << message;
+            DIAG_WARN(NETWORK, "ShotServer") << "MQTT connect failed:" << message;
         else
-            qDebug() << "ShotServer: MQTT connect succeeded";
+            DIAG_DEBUG(NETWORK, "ShotServer") << "MQTT connect succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 

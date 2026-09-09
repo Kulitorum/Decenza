@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "stepexitarbiter.h"
 
 #include <QDebug>
@@ -23,7 +24,7 @@ FrameExitCondition FrameExitCondition::fromExitFields(bool exitIf, const QString
     // None here. Anything else with exitIf set is unexpected — log it, since it
     // silently disables the double-skip guard for that frame.
     if (exitType != QLatin1String("weight")) {
-        qWarning() << "[StepExitArbiter] exitIf set with unrecognized exitType"
+        DIAG_WARN(SHOT, "stepexitarbiter") << "exitIf set with unrecognized exitType"
                    << exitType << "— frame treated as weight-only (no arbitration)";
     }
     return {};
@@ -51,7 +52,7 @@ StepExitArbiter::Verdict StepExitArbiter::evaluate(int profileFrame,
     // Far from the firmware threshold — no race risk, fire now.
     if (distance > window) {
         m_deferrals.remove(profileFrame);
-        qDebug() << "[StepExitArbiter] frame" << profileFrame
+        DIAG_DEBUG(SHOT, "stepexitarbiter") << "frame" << profileFrame
                  << "sensor" << sensorValue << "far from exit" << exit.value
                  << "(window" << window << ") — FIRE";
         return Verdict::Fire;
@@ -62,20 +63,20 @@ StepExitArbiter::Verdict StepExitArbiter::evaluate(int profileFrame,
     deferral.record(sensorValue);
 
     if (deferral.count() >= kMaxDeferralSamples) {
-        qDebug() << "[StepExitArbiter] frame" << profileFrame
+        DIAG_DEBUG(SHOT, "stepexitarbiter") << "frame" << profileFrame
                  << "max deferral (" << kMaxDeferralSamples << ") reached — FIRE";
         return Verdict::Fire;
     }
 
     if (deferral.isTrending(exit.isOver())) {
-        qDebug() << "[StepExitArbiter] frame" << profileFrame
+        DIAG_DEBUG(SHOT, "stepexitarbiter") << "frame" << profileFrame
                  << "near exit" << exit.value << "(distance" << distance
                  << ") and trending — DEFER" << deferral.count() << "/"
                  << kMaxDeferralSamples;
         return Verdict::Defer;
     }
 
-    qDebug() << "[StepExitArbiter] frame" << profileFrame
+    DIAG_DEBUG(SHOT, "stepexitarbiter") << "frame" << profileFrame
              << "near exit" << exit.value << "but NOT trending — FIRE";
     return Verdict::Fire;
 }

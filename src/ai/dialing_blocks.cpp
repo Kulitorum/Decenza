@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "dialing_blocks.h"
 #include "dialing_helpers.h"
 #include "shotsummarizer.h"
@@ -66,7 +67,7 @@ double effectiveTargetWeightG(const ShotProjection& shot)
     QJsonParseError err{};
     QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8(), &err).object();
     if (err.error != QJsonParseError::NoError) {
-        qWarning() << "effectiveTargetWeightG: profileJson parse failed for shot" << shot.id
+        DIAG_WARN(AI, "dialing_blocks") << "effectiveTargetWeightG: profileJson parse failed for shot" << shot.id
                    << ":" << err.errorString();
         return 0.0;
     }
@@ -371,14 +372,14 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // Whitespace before () dodges a permission-hook false-positive on the
     // pattern `.exec(`. Do not auto-format.
     if (!bestQ.exec ()) {
-        qWarning() << "buildBestRecentShotBlock: best-shot query failed:"
+        DIAG_WARN(AI, "dialing_blocks") << "buildBestRecentShotBlock: best-shot query failed:"
                    << bestQ.lastError().text() << "kbId=" << profileKbId;
         return QJsonObject();
     }
     if (!bestQ.next()) return QJsonObject();   // no rated shot in window — documented omission
 
     const qint64 bestId = bestQ.value(0).toLongLong();
-    ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
+    ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId, nullptr, Q_FUNC_INFO);
     const ShotProjection best = ShotHistoryStorage::convertShotRecord(bestRecord);
     if (!best.isValid()) return QJsonObject();
 
@@ -659,7 +660,7 @@ RecommendationKind classifyGrinderRecommendation(const QJsonObject& sn,
 
     const QJsonValue v = sn.value(QStringLiteral("grinderSetting"));
     if (!v.isString()) {
-        qWarning() << "computeAdherence: grinderSetting is not a JSON string (type"
+        DIAG_WARN(AI, "dialing_blocks") << "computeAdherence: grinderSetting is not a JSON string (type"
                    << int(v.type()) << ") — cannot score it";
         return RecommendationKind::Unscoreable;
     }
@@ -671,7 +672,7 @@ RecommendationKind classifyGrinderRecommendation(const QJsonObject& sn,
         return RecommendationKind::None;   // explicit "grind unchanged"
 
     if (!GrinderAliases::looksLikeSetting(s)) {
-        qWarning() << "computeAdherence: grinderSetting is prose, not a setting —"
+        DIAG_WARN(AI, "dialing_blocks") << "computeAdherence: grinderSetting is prose, not a setting —"
                    << "cannot score it:" << s;
         return RecommendationKind::Unscoreable;
     }
@@ -700,13 +701,13 @@ RecommendationKind classifyPositiveNumberField(const QJsonObject& sn, const char
 
     const QJsonValue v = sn.value(k);
     if (!v.isDouble()) {
-        qWarning() << "computeAdherence:" << key << "is not a JSON number (type"
+        DIAG_WARN(AI, "dialing_blocks") << "computeAdherence:" << key << "is not a JSON number (type"
                    << int(v.type()) << ") — cannot score it";
         return RecommendationKind::Unscoreable;
     }
     const double d = v.toDouble();
     if (d <= 0.0) {
-        qWarning() << "computeAdherence:" << key << "is" << d
+        DIAG_WARN(AI, "dialing_blocks") << "computeAdherence:" << key << "is" << d
                    << "— not a usable recommendation, cannot score it";
         return RecommendationKind::Unscoreable;
     }
@@ -726,7 +727,7 @@ RecommendationKind classifyStringField(const QJsonObject& sn, const char* key,
 
     const QJsonValue v = sn.value(k);
     if (!v.isString()) {
-        qWarning() << "computeAdherence:" << key << "is not a JSON string (type"
+        DIAG_WARN(AI, "dialing_blocks") << "computeAdherence:" << key << "is not a JSON string (type"
                    << int(v.type()) << ") — cannot score it";
         return RecommendationKind::Unscoreable;
     }
@@ -1042,7 +1043,7 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         q.prepare("SELECT profile_kb_id, timestamp FROM shots WHERE id = ?");
         q.addBindValue(static_cast<qint64>(turn.shotId));
         if (!q.exec ()) {
-            qWarning() << "buildRecentAdviceBlock: prior-shot lookup failed:"
+            DIAG_WARN(AI, "dialing_blocks") << "buildRecentAdviceBlock: prior-shot lookup failed:"
                        << q.lastError().text() << "id=" << turn.shotId;
             continue;
         }
@@ -1064,21 +1065,21 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         nextQ.addBindValue(priorTs);
         nextQ.addBindValue(static_cast<qint64>(in.currentShotId));
         if (!nextQ.exec ()) {
-            qWarning() << "buildRecentAdviceBlock: follow-up shot lookup failed:"
+            DIAG_WARN(AI, "dialing_blocks") << "buildRecentAdviceBlock: follow-up shot lookup failed:"
                        << nextQ.lastError().text();
             continue;
         }
         if (!nextQ.next()) continue;  // user hasn't pulled a follow-up yet
 
         const qint64 nextId = nextQ.value(0).toLongLong();
-        ShotRecord nextRec = ShotHistoryStorage::loadShotRecordStatic(db, nextId);
+        ShotRecord nextRec = ShotHistoryStorage::loadShotRecordStatic(db, nextId, nullptr, Q_FUNC_INFO);
         const ShotProjection actual = ShotHistoryStorage::convertShotRecord(nextRec);
         if (!actual.isValid()) continue;
 
         // Load the prior turn's shot too — adherence uses it to detect
         // "the user didn't move" cases where the recommendation happens
         // to be within tolerance of where the user already was.
-        ShotRecord priorRec = ShotHistoryStorage::loadShotRecordStatic(db, turn.shotId);
+        ShotRecord priorRec = ShotHistoryStorage::loadShotRecordStatic(db, turn.shotId, nullptr, Q_FUNC_INFO);
         const ShotProjection prior = ShotHistoryStorage::convertShotRecord(priorRec);
 
         ++turnsAgo;  // turn qualifies — claim its slot.
@@ -1155,12 +1156,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // extrapolated past a hard UGS cap. No usable signal → directional
     // (finer/coarser from KB ordering only), never a fabricated number.
     if (grinderModel.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: skipped — grinderModel empty";
+        DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: skipped — grinderModel empty";
         return QJsonObject();
     }
     const QString bev = beverageType.trimmed().toLower();
     if (bev == QStringLiteral("filter") || bev == QStringLiteral("pourover")) {
-        qDebug() << "buildGrinderCalibrationBlock: skipped — beverageType is" << beverageType;
+        DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: skipped — beverageType is" << beverageType;
         return QJsonObject();
     }
 
@@ -1168,10 +1169,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // numbers anchor on) and the current profile's UGS (the reference for
     // directional finer/coarser). Internal load — no signature change, one
     // extra indexed read on the caller's background thread.
-    const ShotRecord curRec = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
+    const ShotRecord curRec = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId, nullptr, Q_FUNC_INFO);
     const ShotProjection cur = ShotHistoryStorage::convertShotRecord(curRec);
     if (!cur.isValid()) {
-        qDebug() << "buildGrinderCalibrationBlock: resolved shot invalid → empty";
+        DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: resolved shot invalid → empty";
         return QJsonObject();
     }
 
@@ -1249,7 +1250,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
         "ORDER BY timestamp DESC"));
     if (!q.exec ()) {
-        qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
+        DIAG_WARN(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
     }
 
@@ -1324,7 +1325,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
 
     if (rows.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
+        DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
                  << scope.bucket() << "(" << grinderModel << ")";
         return QJsonObject();
     }
@@ -1464,11 +1465,15 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     const QString confidence = approximate
         ? QStringLiteral("approximate") : QStringLiteral("directional");
 
-    qDebug() << "buildGrinderCalibrationBlock:" << confidence
+    DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock:" << confidence
              << "pairs=" << slopes.size()
-             << "key=" << conversionKey << "keyValid=" << keyValid
+             << "key=" << (std::isfinite(conversionKey) ? QString::number(conversionKey)
+                                                        : QStringLiteral("unavailable:no-valid-pairs"))
+             << "keyValid=" << keyValid
              << "anchor=" << haveAnchor
-             << "validUGS=[" << validLo << "," << validHi << "]"
+             << "validUGS=" << (std::isfinite(validLo) && std::isfinite(validHi) && validLo <= validHi
+                  ? QStringLiteral("[%1,%2]").arg(validLo).arg(validHi)
+                  : QStringLiteral("unavailable:no-valid-pairs"))
              << "curUgsPlaced=" << curUgsPlaced;
 
     // ---- Assemble profiles[] : one entry per KB profile with a UGS ----

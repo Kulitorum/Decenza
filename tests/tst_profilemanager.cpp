@@ -1123,7 +1123,7 @@ private slots:
         f.transport.clearWrites();
 
         QSignalSpy spy(&f.profileManager, &ProfileManager::profileUploadBlocked);
-        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
         f.profileManager.uploadCurrentProfile();
 
         // Should NOT write to BLE
@@ -3007,7 +3007,7 @@ private slots:
             MachineState::Phase::Cleaning
         };
 
-        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
         for (MachineState::Phase phase : blockedPhases) {
             McpTestFixture f;
             loadDFlowProfile(f);
@@ -3028,7 +3028,7 @@ private slots:
     void pendingUploadRetriesOnIdle() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
@@ -3051,7 +3051,7 @@ private slots:
     void pendingUploadClearedOnDisconnect() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
@@ -4640,7 +4640,7 @@ private slots:
         // active-phase gap.
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
 
         // Prime: one retryable failure arms the retry timer and sets
         // attempts=1.

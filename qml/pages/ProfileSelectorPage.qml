@@ -812,7 +812,7 @@ T.Page {
                                     if (!editFavoriteAction.row) {
                                         // A tap that does nothing at all is the hardest kind of
                                         // defect to report; say so in the log.
-                                        console.warn("ProfileSelectorPage: edit tapped with no row bound")
+                                        WebDebugLogger.warn("Profiles", "ProfileSelectorPage", ["edit tapped with no row bound"].map(String).join(" "))
                                         return
                                     }
                                     Settings.app.selectedFavoriteProfile = editFavoriteAction.rowIndex

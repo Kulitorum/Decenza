@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profilesavehelper.h"
 #include "../controllers/maincontroller.h"
 #include "../core/profilestorage.h"
@@ -27,7 +28,7 @@ QVariantMap ProfileSaveHelper::checkProfileStatus(const QString& profileTitle, c
     result["filename"] = "";
 
     if (!m_controller) {
-        qWarning() << "ProfileSaveHelper::checkProfileStatus: m_controller is null, cannot check status for" << profileTitle;
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "checkProfileStatus: m_controller is null, cannot check status for" << profileTitle;
         return result;
     }
 
@@ -100,7 +101,7 @@ Profile ProfileSaveHelper::loadLocalProfile(const QString& filename) const
 ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& profile, const QString& filename)
 {
     if (m_pending.has_value()) {
-        qWarning() << "ProfileSaveHelper::saveProfile: called while pending resolution for"
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveProfile: called while pending resolution for"
                    << m_pending->profile.title() << "- ignoring" << profile.title();
         emit importFailed("Cannot save: another profile is awaiting duplicate resolution.");
         return SaveResult::Failed;
@@ -108,7 +109,7 @@ ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& prof
 
     QString dlPath = ProfileSaveHelper::downloadedProfilesPath();
     if (dlPath.isEmpty()) {
-        qWarning() << "ProfileSaveHelper::saveProfile: Cannot determine profile storage path for" << profile.title();
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveProfile: Cannot determine profile storage path for" << profile.title();
         return SaveResult::Failed;
     }
 
@@ -117,7 +118,7 @@ ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& prof
     // Check for duplicates in downloaded folder
     if (QFile::exists(fullPath)) {
         m_pending = PendingResolution{profile, filename};
-        qDebug() << "ProfileSaveHelper: Duplicate found for" << profile.title();
+        DIAG_DEBUG(PROFILES, "ProfileSaveHelper") << "Duplicate found for" << profile.title();
         emit duplicateFound(profile.title(), filename);
         return SaveResult::PendingResolution;
     }
@@ -126,34 +127,34 @@ ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& prof
     QString builtinPath = ":/profiles/" + filename + ".json";
     if (QFile::exists(builtinPath)) {
         m_pending = PendingResolution{profile, filename};
-        qDebug() << "ProfileSaveHelper: Matches built-in profile" << profile.title();
+        DIAG_DEBUG(PROFILES, "ProfileSaveHelper") << "Matches built-in profile" << profile.title();
         emit duplicateFound(profile.title(), filename);
         return SaveResult::PendingResolution;
     }
 
     if (profile.saveToFile(fullPath)) {
-        qDebug() << "ProfileSaveHelper: Saved" << profile.title() << "to" << fullPath;
+        DIAG_DEBUG(PROFILES, "ProfileSaveHelper") << "Saved" << profile.title() << "to" << fullPath;
         if (m_controller) {
             m_controller->profileManager()->refreshProfiles();
         }
         return SaveResult::Saved;
     }
 
-    qWarning() << "ProfileSaveHelper: Failed to save" << profile.title() << "to" << fullPath;
+    DIAG_WARN(PROFILES, "ProfileSaveHelper") << "Failed to save" << profile.title() << "to" << fullPath;
     return SaveResult::Failed;
 }
 
 void ProfileSaveHelper::saveOverwrite()
 {
     if (!m_pending.has_value()) {
-        qWarning() << "ProfileSaveHelper::saveOverwrite: No pending profile to overwrite";
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveOverwrite: No pending profile to overwrite";
         emit importFailed("No pending profile to overwrite");
         return;
     }
 
     QString destDir = ProfileSaveHelper::downloadedProfilesPath();
     if (destDir.isEmpty()) {
-        qWarning() << "ProfileSaveHelper::saveOverwrite: Cannot determine profile storage path";
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveOverwrite: Cannot determine profile storage path";
         emit importFailed("Cannot access profile storage folder. Check app permissions.");
         m_pending.reset();
         return;
@@ -161,7 +162,7 @@ void ProfileSaveHelper::saveOverwrite()
 
     QString fullPath = destDir + "/" + m_pending->filename + ".json";
 
-    qDebug() << "ProfileSaveHelper::saveOverwrite: Saving to" << fullPath;
+    DIAG_DEBUG(PROFILES, "ProfileSaveHelper") << "saveOverwrite: Saving to" << fullPath;
 
     if (m_pending->profile.saveToFile(fullPath)) {
         emit importSuccess(m_pending->profile.title());
@@ -169,7 +170,7 @@ void ProfileSaveHelper::saveOverwrite()
             m_controller->profileManager()->refreshProfiles();
         }
     } else {
-        qWarning() << "ProfileSaveHelper::saveOverwrite: saveToFile() failed for" << fullPath;
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveOverwrite: saveToFile() failed for" << fullPath;
         emit importFailed("Failed to overwrite: " + m_pending->profile.title() + " (check app permissions)");
     }
 
@@ -179,14 +180,14 @@ void ProfileSaveHelper::saveOverwrite()
 void ProfileSaveHelper::saveAsNew()
 {
     if (!m_pending.has_value()) {
-        qWarning() << "ProfileSaveHelper::saveAsNew: No pending profile to save";
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveAsNew: No pending profile to save";
         emit importFailed("No pending profile to save");
         return;
     }
 
     QString dlPath = ProfileSaveHelper::downloadedProfilesPath();
     if (dlPath.isEmpty()) {
-        qWarning() << "ProfileSaveHelper::saveAsNew: Cannot determine profile storage path";
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveAsNew: Cannot determine profile storage path";
         emit importFailed("Cannot access profile storage folder. Check app permissions.");
         m_pending.reset();
         return;
@@ -226,7 +227,7 @@ void ProfileSaveHelper::saveAsNew()
                 newFilename = titleToFilename(newTitle);
                 counter++;
                 if (counter > MAX_ATTEMPTS) {
-                    qWarning() << "ProfileSaveHelper::saveAsNew: Could not find unique name after"
+                    DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveAsNew: Could not find unique name after"
                                << MAX_ATTEMPTS << "attempts for" << baseTitle;
                     emit importFailed("Could not find a unique name for: " + baseTitle);
                     m_pending.reset();
@@ -247,7 +248,7 @@ void ProfileSaveHelper::saveAsNew()
                 newFilename = titleToFilename(newTitle);
                 counter++;
                 if (counter > MAX_ATTEMPTS) {
-                    qWarning() << "ProfileSaveHelper::saveAsNew: Could not find unique numbered name after"
+                    DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveAsNew: Could not find unique numbered name after"
                                << MAX_ATTEMPTS << "attempts for" << baseTitle;
                     emit importFailed("Could not find a unique name for: " + baseTitle);
                     m_pending.reset();
@@ -271,7 +272,7 @@ void ProfileSaveHelper::saveAsNew()
             m_controller->profileManager()->refreshProfiles();
         }
     } else {
-        qWarning() << "ProfileSaveHelper::saveAsNew: saveToFile() failed for" << fullPath;
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveAsNew: saveToFile() failed for" << fullPath;
         emit importFailed("Failed to save: " + newTitle + " (check app permissions)");
     }
 
@@ -287,7 +288,7 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
 
     QString dlPath = ProfileSaveHelper::downloadedProfilesPath();
     if (dlPath.isEmpty()) {
-        qWarning() << "ProfileSaveHelper::saveWithNewName: Cannot determine profile storage path";
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveWithNewName: Cannot determine profile storage path";
         emit importFailed("Cannot access profile storage folder. Check app permissions.");
         m_pending.reset();
         return;
@@ -309,7 +310,7 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
             newFilename = titleToFilename(dedupedTitle);
             counter++;
             if (counter > MAX_ATTEMPTS) {
-                qWarning() << "ProfileSaveHelper::saveWithNewName: Could not find unique name after"
+                DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveWithNewName: Could not find unique name after"
                            << MAX_ATTEMPTS << "attempts for" << newName;
                 emit importFailed("Could not find a unique name for: " + newName);
                 m_pending.reset();
@@ -329,7 +330,7 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
             m_controller->profileManager()->refreshProfiles();
         }
     } else {
-        qWarning() << "ProfileSaveHelper::saveWithNewName: Failed to save"
+        DIAG_WARN(PROFILES, "ProfileSaveHelper") << "saveWithNewName: Failed to save"
                    << m_pending->profile.title() << "as" << filename << "to" << fullPath;
         emit importFailed("Failed to save \"" + m_pending->profile.title() + "\" (check app permissions)");
     }
@@ -356,7 +357,7 @@ QString ProfileSaveHelper::downloadedProfilesPath()
     QDir dir(path);
     if (!dir.exists()) {
         if (!dir.mkpath(".")) {
-            qWarning() << "ProfileSaveHelper: Failed to create directory:" << path;
+            DIAG_WARN(PROFILES, "ProfileSaveHelper") << "Failed to create directory:" << path;
             return QString();
         }
     }
@@ -369,7 +370,7 @@ QString ProfileSaveHelper::titleToFilename(const QString& title) const
     if (m_controller) {
         return m_controller->profileManager()->titleToFilename(title);
     }
-    qWarning() << "ProfileSaveHelper::titleToFilename: m_controller is null, falling back to simple sanitization for" << title;
+    DIAG_WARN(PROFILES, "ProfileSaveHelper") << "titleToFilename: m_controller is null, falling back to simple sanitization for" << title;
     // Fallback: simple sanitization (shouldn't happen in practice)
     QString filename = title.toLower();
     filename.replace(QRegularExpression("[^a-z0-9]+"), "_");

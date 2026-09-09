@@ -127,7 +127,7 @@ T.Page {
             if (success) {
                 shotDetailPage.loadShot()
             } else {
-                console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
+                WebDebugLogger.warn("Shot", "ShotDetailPage", ["Failed to save visualizer info for shot", id].map(String).join(" "))
             }
         }
         function onShotBadgesUpdated(id, channeling, grindIssue, skipFirstFrame, pourTruncated) {
@@ -212,7 +212,7 @@ T.Page {
             if ((s.milkWeightG || 0) > 0)
                 parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
             return parts.join(" · ")
-        } catch (e) { console.warn("ShotDetailPage: bad steamJson on shot", shotData.id, e); return "" }
+        } catch (e) { WebDebugLogger.warn("Steam", "ShotDetailPage", ["bad steamJson on shot", shotData.id, e].map(String).join(" ")); return "" }
     }
     // Hot water (vessel · volume · temp) — empty unless the recipe adds water.
     function recipeWaterText() {
@@ -225,7 +225,7 @@ T.Page {
             if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
             if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
             return parts.join(" · ")
-        } catch (e) { console.warn("ShotDetailPage: bad hotWaterJson on shot", shotData.id, e); return "" }
+        } catch (e) { WebDebugLogger.warn("Shot", "ShotDetailPage", ["bad hotWaterJson on shot", shotData.id, e].map(String).join(" ")); return "" }
     }
 
     function graphAccessibleDescription() {

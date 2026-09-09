@@ -195,7 +195,7 @@ void ShotComparisonModel::scheduleLoad()
         QList<ComparisonShot> shots;
         withTempDb(dbPath, "scm_load", [&](QSqlDatabase& db) {
             for (qint64 id : windowIds) {
-                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id);
+                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
                 if (record.summary.id == 0) continue;
 
                 ComparisonShot shot;

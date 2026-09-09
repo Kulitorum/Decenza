@@ -1181,7 +1181,6 @@ KeyboardAwareContainer {
         target: MainController.backupManager
 
         function onBackupCreated(path) {
-            console.log("Backup created:", path);
             historyDataTab.backupInProgress = false;
             backupStatusText.text = TranslationManager.translate("settings.data.backupsuccess", "✓ Backup created successfully");
             backupStatusText.color = Theme.successColor;
@@ -1196,7 +1195,6 @@ KeyboardAwareContainer {
         }
 
         function onBackupFailed(error) {
-            console.error("Backup failed:", error);
             historyDataTab.backupInProgress = false;
             backupStatusText.text = "✗ " + error;
             backupStatusText.color = Theme.errorColor;
@@ -1212,7 +1210,7 @@ KeyboardAwareContainer {
 
         function onStoragePermissionNeeded() {
             // Note: backupInProgress is reset by onBackupFailed which fires alongside this signal
-            console.log("Storage permission needed - user should grant access");
+            WebDebugLogger.debug("Storage", "SettingsHistoryDataTab", ["Storage permission needed - user should grant access"].map(String).join(" "));
         }
     }
 
@@ -1564,7 +1562,7 @@ KeyboardAwareContainer {
             historyDataTab.restoreInProgress = false;
             restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
-            console.log("Restore completed:", filename);
+            WebDebugLogger.debug("Storage", "SettingsHistoryDataTab", ["Restore completed:", filename].map(String).join(" "));
             backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
                 "✓ Backup restored successfully");
             backupStatusText.color = Theme.successColor;
@@ -1582,7 +1580,7 @@ KeyboardAwareContainer {
             historyDataTab.restoreInProgress = false;
             restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
-            console.error("Restore failed:", error);
+            WebDebugLogger.error("Storage", "SettingsHistoryDataTab", ["Restore failed:", error].map(String).join(" "));
             backupStatusText.text = "✗ " + error;
             backupStatusText.color = Theme.errorColor;
             backupStatusBackground.visible = true;

@@ -298,7 +298,7 @@ private slots:
 
         // Storage logs each id it could not load. That warning IS the mechanism
         // under test, not a fault.
-        ScopedWarningFilter missingShotFilter("loadShotRecordStatic: Shot not found");
+        ScopedWarningFilter missingShotFilter("operation=loadShotRecord.*result=missingRow");
 
         QJsonObject result = f.callAsyncTool("shots_compare",
             QJsonObject{{"shotIds", QJsonArray{a, b, 99999}}});
@@ -317,7 +317,7 @@ private slots:
 
         // Storage logs each id it could not load. That warning IS the mechanism
         // under test, not a fault.
-        ScopedWarningFilter missingShotFilter("loadShotRecordStatic: Shot not found");
+        ScopedWarningFilter missingShotFilter("operation=loadShotRecord.*result=missingRow");
 
         QJsonObject result = f.callAsyncTool("shots_compare",
             QJsonObject{{"shotIds", QJsonArray{99998, 99999}}});

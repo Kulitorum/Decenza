@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "recipeanalyzer.h"
 #include <QDebug>
 #include <cmath>
@@ -65,7 +66,7 @@ RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
         // The plugin would leave its globals at whatever the last profile set;
         // we keep the profile's own params and say so, rather than inventing a
         // shape the frames do not have.
-        qWarning() << "prepDFlow:" << profile.title() << "has" << steps.size()
+        DIAG_WARN(PROFILES, "recipeanalyzer") << "prepDFlow:" << profile.title() << "has" << steps.size()
                    << "frames, expected 3 — parameters left as they were";
         return params;
     }
@@ -118,7 +119,7 @@ RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
     const qsizetype iPouring      = nine ? 8 : 5;
 
     if (n < (nine ? 9 : 6)) {
-        qWarning() << "prepAFlow:" << profile.title() << "has" << n
+        DIAG_WARN(PROFILES, "recipeanalyzer") << "prepAFlow:" << profile.title() << "has" << n
                    << "frames, too few for either A-Flow layout — parameters left as they were";
         return params;
     }
@@ -266,14 +267,14 @@ bool RecipeAnalyzer::framesFitEditorLayout(const Profile& profile) {
 
 bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {
     if (!canConvertToRecipe(profile)) {
-        qDebug() << "Profile" << profile.title() << "cannot be converted to recipe mode";
+        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "cannot be converted to recipe mode";
         return false;
     }
 
     RecipeParams params = extractRecipeParams(profile);
     profile.setRecipeParams(params);
 
-    qDebug() << "Converted profile" << profile.title() << "to recipe mode";
+    DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Converted profile" << profile.title() << "to recipe mode";
     return true;
 }
 
@@ -282,7 +283,7 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
     if (canConvertToRecipe(profile)) {
         RecipeParams params = extractRecipeParams(profile);
         profile.setRecipeParams(params);
-        qDebug() << "Profile" << profile.title() << "converted to recipe mode (standard)";
+        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "converted to recipe mode (standard)";
         return;
     }
 
@@ -300,7 +301,7 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
     if (steps.isEmpty()) {
         // No frames at all, use pure defaults
         profile.setRecipeParams(params);
-        qDebug() << "Profile" << profile.title() << "converted to recipe mode (empty, using defaults)";
+        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "converted to recipe mode (empty, using defaults)";
         return;
     }
 
@@ -365,7 +366,7 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
     }
 
     profile.setRecipeParams(params);
-    qDebug() << "Profile" << profile.title() << "force-converted to recipe mode (simplified from"
+    DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "force-converted to recipe mode (simplified from"
              << steps.size() << "frames)";
 }
 

@@ -34,7 +34,7 @@ Every returned line carries its absolute line number in the `lines` array.
 
 ## Subsystem markers
 
-Device and radio log lines begin with a bracketed subsystem marker, then optionally their own
+First-party runtime log lines begin with a bracketed subsystem marker, then optionally their own
 source: `[Scale][BLE AcaiaScale] tare sent`. Passing one as `filter` returns that subsystem's
 whole narrative — that is what the markers exist for. `families=true` returns the catalog.
 
@@ -50,11 +50,16 @@ so these lines are the ones a user can read on screen — but the page shows onl
 session and only its last few hundred lines, while you are addressing the whole file. Expect to
 see more than the user does, not less.
 
-**The registered markers are a minority of the log.** A subsystem missing from the catalog is not
-missing from the log; it is just not searchable by marker. The census is how you find out it
-exists at all, and its `searchWith` field gives the filter to use — a plain substring over one
-hand-written prefix, so it may be incomplete where the same subsystem logs under more than one
-spelling.
+**Older logs may contain many unregistered messages.** A missing catalog marker does not mean
+that subsystem was absent. Census `searchWith` fields help recover older class prefixes; those
+filters can still miss alternate spellings. Current first-party emitters use registered helpers,
+while unattributed/framework messages appear under Runtime with whatever source context Qt
+supplied. Runtime formatting does not prove first-party source conformance.
+
+Read the complete unfiltered time window before concluding there were no problems. INFO+
+queries omit DEBUG-only evidence, and historical multiline continuations may have no prefix.
+BeanBase includes page/archive/provider stages and the terminal extraction/search outcome;
+AI covers advice and conversations. A prompt/response file receipt is not a success verdict.
 
 A census describes LINES, not the current build: the log is a ring buffer spanning runs and app
 versions, so an unregistered prefix may be one that has since been converted. Pass `session` to

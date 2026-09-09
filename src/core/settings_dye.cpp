@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settings_dye.h"
 #include "settings.h"
 #include "../history/bagid.h"
@@ -29,7 +30,7 @@ SettingsDye::SettingsDye(QObject* parent)
                 if (m_settings.value("dye/grinderBurrs").toString().isEmpty()) {
                     m_settings.setValue("dye/grinderBurrs", result.stockBurrs);
                 }
-                qDebug() << "SettingsDye: Migrated DYE grinder ->"
+                DIAG_DEBUG(APP, "SettingsDye") << "Migrated DYE grinder ->"
                          << result.brand << result.model << result.stockBurrs;
             }
         }
@@ -53,7 +54,7 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     return;
                 if (bag.isEmpty()) {
                     // Active bag vanished (deleted row / failed migration map).
-                    qWarning() << "SettingsDye: active bag" << bagId << "not found - clearing selection";
+                    DIAG_WARN(APP, "SettingsDye") << "active bag" << bagId << "not found - clearing selection";
                     m_keepFieldsOnNextApply = false;
                     setActiveBagId(-1);
                     return;

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "autoflowcalclassifier.h"
 
 #include <QSet>
@@ -142,7 +143,7 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
         // only set alongside a target picked from a frame that passed
         // isActiveFlowFrame() (flow > kAutoFlowCalMinFlowTarget > 0). If
         // this ever fires, one of those two invariants broke upstream.
-        qWarning() << "Auto flow cal: target check called with non-positive target"
+        DIAG_WARN(CALIBRATION, "autoflowcalclassifier") << "Auto flow cal: target check called with non-positive target"
                    << targetFlow << "— treating as no deviation";
         return result;
     }

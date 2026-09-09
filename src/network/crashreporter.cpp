@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "crashreporter.h"
 #include "version.h"
 
@@ -53,7 +54,7 @@ void CrashReporter::submitReport(const QString& crashLog,
                                   const QString& debugLogTail)
 {
     if (m_submitting) {
-        qWarning() << "CrashReporter: Already submitting a report";
+        DIAG_WARN(APP, "CrashReporter") << "Already submitting a report";
         return;
     }
 
@@ -78,7 +79,7 @@ void CrashReporter::submitReport(const QString& crashLog,
     QJsonDocument doc(body);
     QByteArray data = doc.toJson(QJsonDocument::Compact);
 
-    qDebug() << "CrashReporter: Submitting crash report to" << API_URL;
+    DIAG_DEBUG(APP, "CrashReporter") << "Submitting crash report to" << API_URL;
 
     // Create request
     QNetworkRequest request{QUrl(API_URL)};
@@ -100,7 +101,7 @@ void CrashReporter::onReplyFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
-        qWarning() << "CrashReporter: Failed to submit -" << error;
+        DIAG_WARN(APP, "CrashReporter") << "Failed to submit -" << error;
         setLastError(error);
         emit failed(error);
         return;
@@ -113,11 +114,11 @@ void CrashReporter::onReplyFinished()
 
     if (obj["success"].toBool()) {
         QString issueUrl = obj["issue_url"].toString();
-        qDebug() << "CrashReporter: Report submitted successfully -" << issueUrl;
+        DIAG_DEBUG(APP, "CrashReporter") << "Report submitted successfully -" << issueUrl;
         emit submitted(issueUrl);
     } else {
         QString error = obj["error"].toString("Unknown error");
-        qWarning() << "CrashReporter: Server error -" << error;
+        DIAG_WARN(APP, "CrashReporter") << "Server error -" << error;
         setLastError(error);
         emit failed(error);
     }

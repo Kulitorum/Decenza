@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotprojection.h"
 
 #include <QMetaType>
@@ -196,7 +197,7 @@ ShotProjection ShotProjection::coerce(const QVariant& v)
     // surfacing only as a generic "No shot data available". Matches the diagnostic
     // in AIManager::coerceShot() (#1298).
     if (m.isEmpty())
-        qWarning() << "ShotProjection::coerce: empty/non-map arg (type"
+        DIAG_WARN(STORAGE, "ShotProjection") << "coerce: empty/non-map arg (type"
                    << v.typeName() << ") — result will be invalid";
     return ShotProjection::fromVariantMap(m);
 }

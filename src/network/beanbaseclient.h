@@ -1,4 +1,5 @@
 #pragma once
+#include "ai/operationlog.h"
 
 #include <QObject>
 #include <QString>
@@ -228,7 +229,10 @@ public:
     // "Get info" AI extraction — the same reduction Visualizer's scraper
     // performs (drop script/style/svg/img, strip tags, squish). Follows
     // redirects; emits pageTextReady/pageTextFailed.
-    Q_INVOKABLE void fetchPageText(const QString& url);
+    Q_INVOKABLE QString fetchPageText(const QString& url, qint64 bagId = 0);
+    // Ends only the diagnostic narrative when the consumer stops waiting. It
+    // deliberately leaves the existing network/cancellation policy in charge.
+    Q_INVOKABLE void abandonPageOperation(const QString& operationId);
     // The HTML -> squished-plain-text reduction. Static + public for tests.
     static QString extractPageText(const QByteArray& html);
 
@@ -284,8 +288,8 @@ signals:
     // "Get info" page fetch (add-bag-detail-editing): the product page's
     // plain text (tags stripped, whitespace squished, length-capped), ready
     // for AI extraction. url is echoed back so stale results are discardable.
-    void pageTextReady(const QString& url, const QString& text);
-    void pageTextFailed(const QString& url, const QString& error);
+    void pageTextReady(const QString& url, const QString& text, const QString& operationId);
+    void pageTextFailed(const QString& url, const QString& error, const QString& operationId);
     // The image re-search recovered a product URL for a blob that lacked
     // `link` (linked before the url→link capture). BagCard backfills it into
     // the bag blob so the details popup can offer the reorder link.
@@ -335,12 +339,14 @@ private:
     // per (bag, url), the link-state probe once per url, and the extraction
     // fallback not at all — a user who presses Get info twice asked twice.
     void fetchArchiveAvailability(const QString& productUrl,
-                                  std::function<void(const QString&, bool)> done);
+                                  std::function<void(const QString&, bool)> done,
+                                  const AIOperationLog::Ptr& operation = {});
     // The page-text GET itself. `reportUrl` is what the signals echo, so the
     // caller matches on the URL it asked for however the fetch was redirected
     // through the archive. `archiveFallback` is false on the retry, which is
     // what bounds the recursion at one extra fetch.
-    void requestPageText(const QString& fetchUrl, const QString& reportUrl, bool archiveFallback);
+    void requestPageText(const QString& fetchUrl, const QString& reportUrl, bool archiveFallback,
+                         const AIOperationLog::Ptr& operation);
     void startLinkStateProbe(const QString& url, bool useGet);
     void finishLinkStateProbe(const QString& url, const QString& state);
     // fallbackImageUrl is tried whenever the first URL yields nothing usable

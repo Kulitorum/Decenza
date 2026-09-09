@@ -276,6 +276,7 @@ void UpdateChecker::onReleaseInfoReceived()
         m_errorMessage = tr_("update.error.checkFailed", "Failed to check for updates: %1").arg(m_currentReply->errorString());
         emit errorMessageChanged();
         APP_WARN_STREAM("Update") << m_errorMessage;
+        m_checkFailureLogged = true;
         m_currentReply->deleteLater();
         m_currentReply = nullptr;
         return;
@@ -294,6 +295,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     if (!doc.isArray()) {
         m_errorMessage = tr_("update.error.invalidResponse", "Invalid response from GitHub");
         APP_WARN_STREAM("Update") << m_errorMessage << "- response:" << data.left(200);
+        m_checkFailureLogged = true;
         emit errorMessageChanged();
         return;
     }
@@ -316,11 +318,17 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 
     if (!found) {
         m_errorMessage = tr_("update.error.noReleases", "No releases found");
+        APP_WARN_STREAM("Update") << "No eligible releases in the response";
+        m_checkFailureLogged = true;
         emit errorMessageChanged();
         return;
     }
 
     QString tagName = release["tag_name"].toString();
+    if (m_checkFailureLogged) {
+        APP_INFO_STREAM("Update") << "Update check recovered; received an eligible release";
+        m_checkFailureLogged = false;
+    }
     QString body = release["body"].toString();
     bool wasBeta = m_latestIsBeta;
     m_latestIsBeta = release["prerelease"].toBool();

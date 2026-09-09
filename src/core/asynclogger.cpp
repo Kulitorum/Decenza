@@ -92,9 +92,9 @@ void AsyncLogger::WriterThread::run()
         case QtFatalMsg:    prio = ANDROID_LOG_FATAL;  break;
         default:            prio = ANDROID_LOG_DEBUG;  break;
         }
-        __android_log_print(prio, "Decenza", "%s", qPrintable(entry.message));
+        __android_log_print(prio, "Decenza", "%s", qPrintable(entry.message)); // log-marker-exempt: terminal console writer must not reenter the Qt handler it drains
 #else
-        fprintf(stderr, "%s\n", qPrintable(entry.message));
+        fprintf(stderr, "%s\n", qPrintable(entry.message)); // log-marker-exempt: terminal console writer must not reenter the Qt handler it drains
 #endif
     }
 }

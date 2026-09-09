@@ -133,16 +133,16 @@ T.Page {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            console.log("SteamPage: MachineState.phase changed to", MachineState.phase, "isSteaming=", steamPage.isSteaming)
+            WebDebugLogger.debug("Steam", "SteamPage", ["MachineState.phase changed to", MachineState.phase, "isSteaming=", steamPage.isSteaming].map(String).join(" "))
         }
     }
     Connections {
         target: DE1Device
         function onStateChanged() {
-            console.log("SteamPage: DE1Device.state changed to", DE1Device.stateString, "(", DE1Device.state, ")")
+            WebDebugLogger.debug("Steam", "SteamPage", ["DE1Device.state changed to", DE1Device.stateString, "(", DE1Device.state, ")"].map(String).join(" "))
         }
         function onSubStateChanged() {
-            console.log("SteamPage: DE1Device.subState changed to", DE1Device.subStateString)
+            WebDebugLogger.debug("Steam", "SteamPage", ["DE1Device.subState changed to", DE1Device.subStateString].map(String).join(" "))
         }
     }
 
@@ -163,7 +163,7 @@ T.Page {
 
     // Reset state when steaming starts/ends
     onIsSteamingChanged: {
-        console.log("SteamPage: isSteaming changed to", isSteaming, "phase=", MachineState.phase, "steamSoftStopped=", steamSoftStopped)
+        WebDebugLogger.debug("Steam", "SteamPage", ["isSteaming changed to", isSteaming, "phase=", MachineState.phase, "steamSoftStopped=", steamSoftStopped].map(String).join(" "))
         if (isSteaming) {
             wasSteaming = true
             steamSoftStopped = false
@@ -212,7 +212,7 @@ T.Page {
             // preset before the next onStateChanged fires, so the BLE write
             // that session uses the correct values.
         } else {
-            console.log("SteamPage: Settings view now visible (isSteaming=false)")
+            WebDebugLogger.debug("Steam", "SteamPage", ["Settings view now visible (isSteaming=false)"].map(String).join(" "))
             if (wasSteaming) {
                 // Discard +5s/-5s adjustments made during this session so the
                 // next one starts from the pitcher preset.
@@ -442,7 +442,7 @@ T.Page {
     // untared or out of range".
     function logSteamScalingDecision(tag, scaledResult, appliedDuration, appliedSource) {
         var pitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        console.log("SteamPage:", tag, "scaling decision —",
+        WebDebugLogger.debug("Steam", "SteamPage", ["", tag, "scaling decision —",
                     "sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
                     "lastOnScaleMilk=", steamPage.lastOnScaleMilk,
                     "rawScaleWeight=", MachineState.scaleWeight,
@@ -454,7 +454,7 @@ T.Page {
                     "steamSecondsPerGram=", Settings.brew.steamSecondsPerGram,
                     "scaledResult=", scaledResult,
                     "appliedDuration=", appliedDuration,
-                    "appliedSource=", appliedSource)
+                    "appliedSource=", appliedSource].map(String).join(" "))
     }
 
     // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled

@@ -44,7 +44,7 @@ public class BleHelper {
      */
     public static void onFlowingStarted() {
         setHeapUtilization(HEAP_UTIL_DEFERRED);
-        Log.d(TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED);
+        DiagnosticLog.d("Memory", TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED);
     }
 
     /**
@@ -62,7 +62,7 @@ public class BleHelper {
             System.gc();
             System.runFinalization();
         }, "DecenzaPostShotGC").start();
-        Log.d(TAG, "onFlowingEnded: heap utilization set to " + HEAP_UTIL_IDLE + ", post-shot GC scheduled");
+        DiagnosticLog.d("Memory", TAG, "onFlowingEnded: heap utilization set to " + HEAP_UTIL_IDLE + ", post-shot GC scheduled");
     }
 
     /**
@@ -79,7 +79,7 @@ public class BleHelper {
             System.runFinalization();
             System.gc();
         }, "DecenzaIdleGC").start();
-        Log.d(TAG, "idleGc: heap utilization set to " + HEAP_UTIL_IDLE + ", proactive GC scheduled");
+        DiagnosticLog.d("Memory", TAG, "idleGc: heap utilization set to " + HEAP_UTIL_IDLE + ", proactive GC scheduled");
     }
 
     /**
@@ -96,7 +96,7 @@ public class BleHelper {
             setUtil.invoke(vmRuntime, utilization);
         } catch (Exception e) {
             // Hidden API restricted on this Android version — gracefully ignore.
-            Log.d(TAG, "setHeapUtilization: unavailable (" + e.getMessage() + ")");
+            DiagnosticLog.d("Memory", TAG, "setHeapUtilization: unavailable (" + e.getMessage() + ")");
         }
     }
 

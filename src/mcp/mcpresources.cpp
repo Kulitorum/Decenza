@@ -408,7 +408,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
     // 3x the next-largest description, while clients were already truncating the
     // list. Deriving it is still right; the question is where it is SERVED, and
     // on-demand is where a 40-line table belongs. The guidance that went with it —
-    // the regex trap, what each severity is for, why the markers are a minority of
+    // the regex trap, what each severity is for, why older markers may cover only part of
     // the log — is in resources/ai/tools/debug_get_log.md.
 
     // debug_get_log — chunked access to the persisted debug log with session awareness
@@ -442,10 +442,9 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                      "how many lines carry each REGISTERED marker, each unregistered bracketed "
                      "prefix, and each bare \"ClassName:\" prefix, plus how many carry no prefix "
                      "at all. Start here when you do not already know which subsystem you need. "
-                     "The registered markers are the only ones this tool's description names, and "
-                     "they are a minority of the log — a subsystem missing from that list is not "
-                     "absent from the log, it is just not searchable by marker, and this census "
-                     "is how you find out it exists at all. Combine with `session` to census ONE "
+                     "Older runs may contain unregistered messages; current framework or unattributed "
+                     "messages use Runtime. Read the unfiltered window before ruling out problems. "
+                     "Combine with `session` to census ONE "
                      "run — unscoped it sums every app version that ever wrote to the ring "
                      "buffer, which cannot show whether a subsystem got quieter."}
                 }},

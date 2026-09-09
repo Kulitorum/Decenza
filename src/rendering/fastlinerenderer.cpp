@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "fastlinerenderer.h"
 #include <QDebug>
 #include <cmath>
@@ -68,7 +69,7 @@ void FastLineRenderer::appendPoint(double x, double y) {
         m_geometryDirty = true;
         update();
     } else if (!m_overflowLogged) {
-        qWarning() << "FastLineRenderer: MAX_POINTS (" << MAX_POINTS
+        DIAG_WARN(APP, "FastLineRenderer") << "MAX_POINTS (" << MAX_POINTS
                    << ") reached — further points will be discarded."
                       " Increase MAX_POINTS if shots regularly exceed 10 minutes.";
         m_overflowLogged = true;
@@ -84,7 +85,7 @@ void FastLineRenderer::clear() {
 
 void FastLineRenderer::setPoints(const QVector<QPointF>& points) {
     if (points.size() > MAX_POINTS)
-        qWarning() << "FastLineRenderer::setPoints: received" << points.size()
+        DIAG_WARN(APP, "FastLineRenderer") << "setPoints: received" << points.size()
                    << "points, truncating to MAX_POINTS (" << MAX_POINTS << ")."
                       " Increase MAX_POINTS if shots regularly exceed 10 minutes.";
     m_pointCount = static_cast<int>(qMin(points.size(), qsizetype(MAX_POINTS)));

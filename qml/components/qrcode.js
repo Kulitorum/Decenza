@@ -1,4 +1,5 @@
 .pragma library
+.import Decenza 1.0 as Decenza
 
 // QR Code Generator for QML
 // Ported from Project Nayuki's QR Code Generator (MIT License)
@@ -25,7 +26,7 @@ function generate(text) {
         }
         return result;
     } catch (e) {
-        console.log("QR generate error: " + e);
+        Decenza.WebDebugLogger.debug("App", "qrcode", ["QR generate error: " + e].map(String).join(" "));
         return null;
     }
 }

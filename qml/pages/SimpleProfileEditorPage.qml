@@ -166,7 +166,7 @@ T.Page {
             profileGraph.frames = []
             profileGraph.frames = profile.steps.slice()
         } else {
-            console.warn("SimpleProfileEditorPage: loadCurrentProfile failed to get valid profile")
+            WebDebugLogger.warn("Profiles", "SimpleProfileEditorPage", ["loadCurrentProfile failed to get valid profile"].map(String).join(" "))
         }
     }
 
@@ -1275,8 +1275,8 @@ T.Page {
         var freshConversion = false
         if (!ProfileManager.isCurrentProfileRecipe) {
             freshConversion = true
-            console.warn("SimpleProfileEditorPage: Converting non-recipe profile to",
-                         isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName)
+            WebDebugLogger.warn("Recipes", "SimpleProfileEditorPage", ["Converting non-recipe profile to",
+                         isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName].map(String).join(" "))
             var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             if (isFlow) {
                 ProfileManager.createNewFlowProfile(ProfileManager.currentProfileName || defaultName)

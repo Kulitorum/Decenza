@@ -16,6 +16,7 @@
 // which explains why three separate detection routes are needed. It is included
 // before everything else deliberately: these hooks must be compiled or not
 // compiled, and that decision cannot depend on Qt headers.
+#include "core/diagnosticlogging.h"
 #include "core/sanitizers.h"
 
 #ifdef DECENZA_SANITIZERS_PRESENT
@@ -297,7 +298,7 @@ MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& des
     if (!QDir(destRoot).exists()) {
         const QString destParent = QFileInfo(destRoot).absolutePath();
         if (!QDir().mkpath(destParent)) {
-            qWarning() << "AppNameMigration: Failed to create destination parent directory:" << destParent;
+            DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination parent directory:" << destParent;
             result.failed++;
             return result;
         }
@@ -308,7 +309,7 @@ MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& des
     }
 
     if (!QDir().mkpath(destRoot)) {
-        qWarning() << "AppNameMigration: Failed to create destination directory:" << destRoot;
+        DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination directory:" << destRoot;
         result.failed++;
         return result;
     }
@@ -322,7 +323,7 @@ MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& des
 
         if (sourceInfo.isDir()) {
             if (!QDir().mkpath(destPath)) {
-                qWarning() << "AppNameMigration: Failed to create subdirectory:" << destPath;
+                DIAG_WARN(APP, "AppNameMigration") << "Failed to create subdirectory:" << destPath;
                 result.failed++;
             }
             continue;
@@ -335,7 +336,7 @@ MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& des
 
         const QString destParent = QFileInfo(destPath).absolutePath();
         if (!QDir().mkpath(destParent)) {
-            qWarning() << "AppNameMigration: Failed to create parent directory:" << destParent;
+            DIAG_WARN(APP, "AppNameMigration") << "Failed to create parent directory:" << destParent;
             result.failed++;
             continue;
         }
@@ -351,7 +352,7 @@ MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& des
             QFile::remove(sourceInfo.absoluteFilePath());
             result.copiedFallback++;
         } else {
-            qWarning() << "AppNameMigration: Failed to copy file:" << sourceInfo.absoluteFilePath()
+            DIAG_WARN(APP, "AppNameMigration") << "Failed to copy file:" << sourceInfo.absoluteFilePath()
                        << "->" << destPath;
             result.failed++;
         }
@@ -450,7 +451,7 @@ void runAppNameMigrationOnce()
     migrationSettings.setValue(kMigrationKey, true);
     migrationSettings.sync();
 
-    qInfo() << "AppNameMigration: completed"
+    DIAG_INFO(APP, "AppNameMigration") << "completed"
             << "settingsCopied=" << settingsCopied
             << "settingsSkipped=" << settingsSkipped
             << "filesMoved=" << filesMoved
@@ -508,7 +509,7 @@ void announceSanitizerReports(const QString& whenLabel)
             ++unreadable;
             continue;
         }
-        qWarning().noquote() << "SANITIZER REPORT (" << whenLabel << ") —"
+        DIAG_WARN(APP, "main").noquote() << "SANITIZER REPORT (" << whenLabel << ") —"
                              << dir.filePath(name) << "\n"
                              << QString::fromUtf8(head).trimmed();
         // The rename is what stops a finding being re-announced forever, so
@@ -518,22 +519,22 @@ void announceSanitizerReports(const QString& whenLabel)
         // every launch, in a log that assistants read over MCP and act on.
         if (!QFile::rename(dir.filePath(name),
                            dir.filePath(name + QStringLiteral(".reported")))) {
-            qWarning().noquote()
-                << "Sanitizer: could not mark" << dir.filePath(name)
+            DIAG_WARN(APP, "Sanitizer").noquote()
+                << "could not mark" << dir.filePath(name)
                 << "as reported — it will be announced again next launch."
                 << "Delete it by hand once the finding is dealt with.";
         }
         ++announced;
     }
     if (announced > 0) {
-        qWarning().noquote()
-            << "Sanitizer: announced" << announced << "report(s) from" << whenLabel
+        DIAG_WARN(APP, "Sanitizer").noquote()
+            << "announced" << announced << "report(s) from" << whenLabel
             << "- a sanitizer does not write one unless it detected something, so"
             << "treat each as real until the source location says otherwise.";
     }
     if (unreadable > 0) {
-        qWarning().noquote()
-            << "Sanitizer:" << unreadable << "report file(s) in" << dir.path()
+        DIAG_WARN(APP, "Sanitizer").noquote()
+            << unreadable << "report file(s) in" << dir.path()
             << "could not be read or were empty. Something was written; its"
             << "contents are lost. Inspect them by hand.";
     }
@@ -547,7 +548,7 @@ void announceSanitizerReports(const QString& whenLabel)
         //
         // Gated on `unreadable` too: claiming "none pending" while an
         // unreadable file sits there would be the same lie in a new place.
-        qDebug().noquote() << "Sanitizer report scan (" << whenLabel
+        DIAG_DEBUG(APP, "main").noquote() << "Sanitizer report scan (" << whenLabel
                            << "): none pending in" << dir.path();
     }
 }
@@ -933,7 +934,7 @@ int main(int argc, char *argv[])
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
 
-    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode()
+    DIAG_DEBUG(APP, "main") << "App started - version" << VERSION_STRING << "build" << versionCode()
 #ifdef QT_NO_DEBUG
              << "(release)"
 #else
@@ -981,9 +982,9 @@ int main(int argc, char *argv[])
             activeSanitizers << QStringLiteral("TSan");
 #endif
         if (activeSanitizers.isEmpty())
-            qDebug() << "Sanitizers: none (uninstrumented build)";
+            DIAG_DEBUG(APP, "Sanitizers") << "none (uninstrumented build)";
         else
-            qDebug().noquote() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
+            DIAG_DEBUG(APP, "main").noquote() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
                                << "- a clean run means something in this build";
     }
 
@@ -1013,7 +1014,7 @@ int main(int argc, char *argv[])
         announceSanitizerReports(QStringLiteral("this run"));
     });
 #endif
-    qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
+    DIAG_DEBUG(APP, "Platform") << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
@@ -1022,7 +1023,7 @@ int main(int argc, char *argv[])
         // setHighDpiScaleFactorRoundingPolicy() rounds it — logged here so a
         // reporter's debug log actually shows what scale/DPI their box ran at
         // instead of us guessing (font/layout overflow reports, e.g. #1469).
-        qDebug() << "Display:" << screen->name()
+        DIAG_DEBUG(APP, "Display") << screen->name()
                  << "devicePixelRatio:" << screen->devicePixelRatio()
                  << "logicalDPI:" << screen->logicalDotsPerInch()
                  << "physicalDPI:" << screen->physicalDotsPerInch()
@@ -1035,7 +1036,7 @@ int main(int argc, char *argv[])
         QJniObject release = QJniObject::getStaticObjectField<jstring>("android/os/Build$VERSION", "RELEASE");
         QJniObject model = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MODEL");
         QJniObject mfr = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MANUFACTURER");
-        qDebug() << "Android" << (release.isValid() ? release.toString() : QString())
+        DIAG_DEBUG(APP, "SDK") << "Android" << (release.isValid() ? release.toString() : QString())
                  << "SDK:" << sdkInt
                  << "device:" << (mfr.isValid() ? mfr.toString() : QString())
                  << (model.isValid() ? model.toString() : QString());
@@ -1065,11 +1066,11 @@ int main(int argc, char *argv[])
                 return val.isValid() ? val.toString() : QString();
             };
             const QString services = secureSetting("enabled_accessibility_services");
-            qDebug() << "Accessibility settings:"
+            DIAG_DEBUG(ACCESSIBILITY, "main") << "Accessibility settings:"
                      << "enabled=" << secureSetting("accessibility_enabled")
                      << "touchExploration=" << secureSetting("touch_exploration_enabled")
                      << "QAccessible.isActive=" << QAccessible::isActive();
-            qDebug() << "Accessibility services:" << services;
+            DIAG_DEBUG(ACCESSIBILITY, "main") << "Accessibility services:" << services;
 
             // TalkBack version: the package id is the part before '/' of the first
             // enabled service component (getPackageInfo throws NameNotFound for an
@@ -1087,7 +1088,7 @@ int main(int argc, char *argv[])
                     if (info.isValid()) {
                         QJniObject ver = info.getObjectField<jstring>("versionName");
                         QJniEnvironment().checkAndClearExceptions();
-                        qDebug() << "Screen reader package:" << pkg
+                        DIAG_DEBUG(APP, "main") << "Screen reader package:" << pkg
                                  << "version:" << (ver.isValid() ? ver.toString() : QString());
                     }
                 }
@@ -1114,7 +1115,7 @@ int main(int argc, char *argv[])
                             "get", "(I)Ljava/lang/Object;", i);
                         QJniEnvironment().checkAndClearExceptions();
                         if (svc.isValid())
-                            qDebug() << "A11y service config:" << svc.toString();
+                            DIAG_DEBUG(APP, "main") << "A11y service config:" << svc.toString();
                     }
                 }
             }
@@ -1136,7 +1137,7 @@ int main(int argc, char *argv[])
                 "/Versions/A/Support/lsregister",
                 {"-f", QFileInfo(bundlePath).canonicalFilePath()});
             s.setValue("internal/lastIconRegisteredVersion", VERSION_STRING);
-            qDebug() << "Re-registered app bundle with Launch Services for icon refresh";
+            DIAG_DEBUG(APP, "main") << "Re-registered app bundle with Launch Services for icon refresh";
         }
     }
 #endif
@@ -1148,7 +1149,7 @@ int main(int argc, char *argv[])
     auto checkpoint = [&startupTimer](const char* label) {
         // Not bracketed: a leading "[token]" is subsystem-marker grammar, and this is
         // one timing label, not a subsystem anyone retrieves as a group.
-        qDebug().noquote() << QStringLiteral("Startup timing: %1 - %2 ms")
+        DIAG_DEBUG(APP, "main").noquote() << QStringLiteral("Startup timing: %1 - %2 ms")
                                   .arg(label).arg(startupTimer.elapsed());
     };
 
@@ -1165,9 +1166,9 @@ int main(int argc, char *argv[])
         // CrashHandler::getDebugLogTail(), which strips these blocks out of the
         // tail it submits. Both markers come from CrashHandler so a respelling
         // cannot desynchronise the writer from the stripper.
-        qWarning() << "=== PREVIOUS CRASH DETECTED ===";
-        qWarning().noquote() << previousCrashLog;
-        qWarning() << CrashHandler::kReportEnd;
+        DIAG_WARN(APP, "main") << "=== PREVIOUS CRASH DETECTED ===";
+        DIAG_WARN(APP, "main").noquote() << previousCrashLog;
+        DIAG_WARN(APP, "main") << CrashHandler::kReportEnd;
     }
     checkpoint("Crash check done");
 
@@ -1281,7 +1282,7 @@ int main(int argc, char *argv[])
     // Wire TranslationManager so user-visible BLE error strings get i18n
     // (scale debug-log lines stay in English regardless — they're diagnostic).
     bleManager.setTranslationManager(&translationManager);
-    qDebug() << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
+    DIAG_DEBUG(APP, "main") << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.app()->simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
     FlowScale flowScale;  // Virtual scale using DE1 flow data (fallback when no BLE scale)
@@ -1875,13 +1876,13 @@ int main(int argc, char *argv[])
         if (!flagFile.exists())
             return;
 
-        qWarning() << "BLE recovery: dead BLE binder detected, triggering reconnect";
+        DIAG_WARN(APP, "main") << "BLE recovery: dead BLE binder detected, triggering reconnect";
         flagFile.remove();
 
         // The BLE handler thread is dead — Qt's QLowEnergyController won't emit
         // disconnected() on its own. Force-disconnect and re-scan.
         if (de1Device.isConnected()) {
-            qWarning() << "BLE recovery: forcing DE1 disconnect";
+            DIAG_WARN(DE1, "main") << "BLE recovery: forcing DE1 disconnect";
             de1Device.disconnect();
         }
         bleManager.resetScaleConnectionState();
@@ -1891,7 +1892,7 @@ int main(int argc, char *argv[])
         // death a parked direct-connect to a possibly-absent scale is exactly the
         // contention we avoid (#1303); the scan reconnects it when it advertises.
         QTimer::singleShot(3000, [&bleManager]() {
-            qDebug() << "BLE recovery: attempting reconnect";
+            DIAG_DEBUG(APP, "main") << "BLE recovery: attempting reconnect";
             bleManager.tryDirectConnectToDE1();
             bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         });
@@ -2036,7 +2037,7 @@ int main(int argc, char *argv[])
     // (process replaced) or fails (rare; user can restart).
     // CrashReporter is wired separately below because it's declared later.
     auto quietNetworkForApkInstall = [&mainController, &sharedNetworkManager, &relayClient, &librarySharing]() {
-        qDebug() << "Quieting network services for APK install handover";
+        DIAG_DEBUG(APP, "main") << "Quieting network services for APK install handover";
         if (auto* server = mainController.shotServer()) {
             server->stop();
         }
@@ -2074,7 +2075,7 @@ int main(int argc, char *argv[])
     // Also wake the scale and reconnect DE1 if needed
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      [&physicalScale, &bleManager, &settings, &de1Device, &de1ReconnectTimer, &de1ReconnectAttempt]() {
-        qDebug() << "AutoWakeManager: Waking scale and reconnecting DE1 if needed";
+        DIAG_DEBUG(SCALE, "AutoWakeManager") << "Waking scale and reconnecting DE1 if needed";
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             // Reset reconnect counter and start fresh retry sequence
             de1ReconnectAttempt = 0;
@@ -2126,14 +2127,6 @@ int main(int argc, char *argv[])
                                        &profileStorage, &screensaverManager);
     mainController.setBackupManager(&backupManager);
     backupManager.setTranslationManager(&translationManager);
-    QObject::connect(&backupManager, &DatabaseBackupManager::backupCreated,
-                     [](const QString& path) {
-        qDebug() << "DatabaseBackupManager: Backup created successfully:" << path;
-    });
-    QObject::connect(&backupManager, &DatabaseBackupManager::backupFailed,
-                     [](const QString& error) {
-        qWarning() << "DatabaseBackupManager: Backup failed:" << error;
-    });
     QObject::connect(&backupManager, &DatabaseBackupManager::profilesRestored,
                      mainController.profileManager(), &ProfileManager::refreshProfiles);
     QObject::connect(&backupManager, &DatabaseBackupManager::mediaRestored,
@@ -2534,7 +2527,7 @@ int main(int argc, char *argv[])
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed]() {
         if (settings.scaleAddress().isEmpty()) {
-            qDebug() << "Scale reconnect (startup): no saved address, skipping";
+            DIAG_DEBUG(SCALE, "main") << "Scale reconnect (startup): no saved address, skipping";
             return;
         }
         // USB scales reconnect via UsbScaleManager (usbScaleAvailable), not this
@@ -2544,11 +2537,11 @@ int main(int argc, char *argv[])
             return;
         }
         if (scaleAutoReconnectSuppressed) {
-            qDebug() << "Scale reconnect (startup): suppressed (deliberate DE1-sleep disconnect), skipping";
+            DIAG_DEBUG(SCALE, "main") << "Scale reconnect (startup): suppressed (deliberate DE1-sleep disconnect), skipping";
             return;
         }
         if (scaleReconnectTimer.isActive()) {
-            qDebug() << "Scale reconnect (startup): timer already active, skipping";
+            DIAG_DEBUG(SCALE, "main") << "Scale reconnect (startup): timer already active, skipping";
             return;
         }
         scaleReconnectAttempt = 0;
@@ -2801,7 +2794,7 @@ int main(int argc, char *argv[])
         if (de1Device.isConnected() || de1Device.isConnecting()) return;
         de1ReconnectAttempt = 0;
         de1ReconnectTimer.start(500);
-        qDebug() << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder (#1309)";
+        DIAG_DEBUG(DE1, "main") << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder (#1309)";
     });
 
     // When DE1 connects or disconnects, manage reconnect timer.
@@ -2846,7 +2839,7 @@ int main(int argc, char *argv[])
             }
 #endif
             if (settings.machineAddress().isEmpty()) {
-                qDebug() << "DE1 reconnect: no saved address — skipping auto-reconnect";
+                DIAG_DEBUG(DE1, "main") << "DE1 reconnect: no saved address — skipping auto-reconnect";
             } else if (!de1ReconnectTimer.isActive()) {
                 // Distinguish a fresh disconnect (attempt counter is 0) from a
                 // mid-schedule retry attempt that failed (counter > 0). Resetting
@@ -2863,16 +2856,16 @@ int main(int argc, char *argv[])
                 // schedule to the next backoff step.
                 if (de1ReconnectAttempt == 0) {
                     de1ReconnectTimer.start(5000);  // Fresh disconnect — first retry after 5s
-                    qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+                    DIAG_DEBUG(DE1, "main") << "DE1 reconnect: scheduled first retry in 5000 ms";
                 } else if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
                     const int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
                     de1ReconnectTimer.start(delay);
-                    qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt
+                    DIAG_DEBUG(DE1, "main") << "DE1 reconnect: attempt" << de1ReconnectAttempt
                              << "failed, next retry in" << delay << "ms";
                 } else {
                     // Don't give up permanently (#1309) — fall to the slow tier.
                     de1ReconnectTimer.start(kDE1SlowReconnectMs);
-                    qDebug() << "DE1 reconnect: fast retries exhausted — slow background retry in"
+                    DIAG_DEBUG(DE1, "main") << "DE1 reconnect: fast retries exhausted — slow background retry in"
                              << kDE1SlowReconnectMs << "ms";
                 }
             }
@@ -2933,7 +2926,7 @@ int main(int argc, char *argv[])
         if (physicalScale) {
             // Compare types via enum to handle format differences (e.g., "decent" vs "Decent Scale")
             if (ScaleFactory::resolveScaleType(physicalScale->type()) != ScaleFactory::resolveScaleType(type)) {
-                qDebug() << "Scale type changed from" << physicalScale->type() << "to" << type << "- creating new scale";
+                DIAG_DEBUG(SCALE, "main") << "Scale type changed from" << physicalScale->type() << "to" << type << "- creating new scale";
                 // IMPORTANT: Clear all references before deleting the scale to prevent dangling pointers
                 machineState.setScale(&flowScale);  // Switch to FlowScale first
                 timingController.setScale(&flowScale);
@@ -2991,7 +2984,7 @@ int main(int argc, char *argv[])
         // Create new scale object
         physicalScale = ScaleFactory::createScale(device, type);
         if (!physicalScale) {
-            qWarning() << "Failed to create scale for type:" << type;
+            DIAG_WARN(SCALE, "main") << "Failed to create scale for type:" << type;
             return;
         }
 
@@ -3150,7 +3143,7 @@ int main(int argc, char *argv[])
                 // Restore the LCD now. WiFi never sets this flag (its onConnected
                 // sends "display on" on the reconnect handshake instead).
                 if (scaleLcdRestorePending) {
-                    qDebug() << "Scale reconnected with LCD-restore pending - waking";
+                    DIAG_DEBUG(SCALE, "main") << "Scale reconnected with LCD-restore pending - waking";
                     physicalScale->wake();
                     scaleLcdRestorePending = false;
                 }
@@ -3171,7 +3164,7 @@ int main(int argc, char *argv[])
                     mainController.mqttClient()->onScaleConnectedChanged(true);
                 }
                 settings.setUseFlowScale(false);
-                qDebug() << "Scale connected - switched to physical scale, disabled FlowScale";
+                DIAG_DEBUG(SCALE, "main") << "Scale connected - switched to physical scale, disabled FlowScale";
             } else if (physicalScale) {
                 // Scale disconnected - fall back to FlowScale
                 machineState.setScale(&flowScale);
@@ -3190,7 +3183,7 @@ int main(int argc, char *argv[])
                     mainController.mqttClient()->onScaleConnectedChanged(false);
                 }
                 emit bleManager.scaleDisconnected();
-                qDebug() << "Scale disconnected - switched to FlowScale";
+                DIAG_DEBUG(SCALE, "main") << "Scale disconnected - switched to FlowScale";
                 // Start auto-reconnect if we have a saved scale address, unless
                 // the disconnect was a deliberate one from a DE1-sleep path —
                 // either keepScaleOn=false on any transport, or keepScaleOn=true
@@ -3198,7 +3191,7 @@ int main(int argc, char *argv[])
                 // see main.cpp's DE1-sleep handler below). In either case the
                 // DE1-wake handler re-arms the reconnect.
                 if (scaleAutoReconnectSuppressed) {
-                    qDebug() << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
+                    DIAG_DEBUG(SCALE, "main") << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
                 } else {
                     bleManager.requestScaleReconnectRampRestart(
                         QStringLiteral("Scale disconnected"));
@@ -3301,7 +3294,7 @@ int main(int argc, char *argv[])
         scaleLcdRestorePending = false;
         scaleReconnectAttempt = 0;
         if (physicalScale) {
-            qDebug() << "Disconnecting scale before scan";
+            DIAG_DEBUG(SCALE, "main") << "Disconnecting scale before scan";
             // Switch to FlowScale first
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
@@ -4270,9 +4263,9 @@ int main(int argc, char *argv[])
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
             [](QObject *obj, const QUrl &objUrl) {
                 if (!obj) {
-                    qWarning() << "GHC Simulator: Failed to load" << objUrl;
+                    DIAG_WARN(APP, "main") << "GHC Simulator: Failed to load" << objUrl;
                 } else {
-                    qDebug() << "GHC Simulator: Window created successfully";
+                    DIAG_DEBUG(APP, "main") << "GHC Simulator: Window created successfully";
                 }
             }, Qt::QueuedConnection);
 
@@ -4368,7 +4361,7 @@ int main(int argc, char *argv[])
             case Qt::ApplicationActive:    name = "Active";    break;
         }
         // Not bracketed, for the same reason as the startup timing line above.
-            qDebug().noquote() << QStringLiteral("App state changed -> %1").arg(name);
+            DIAG_DEBUG(APP, "main").noquote() << QStringLiteral("App state changed -> %1").arg(name);
 
         // Gate BatteryManager's poll while suspended; re-arm on any other state
         // so a missed Active transition can't strand it (see m_appActive in
@@ -4449,7 +4442,7 @@ int main(int argc, char *argv[])
             mainController.drainDbWork(250, MainController::DrainReason::Backgrounding);
         }
         else if (state == Qt::ApplicationActive && wasSuspended) {
-            qDebug() << "App resumed from suspended state";
+            DIAG_DEBUG(APP, "main") << "App resumed from suspended state";
             wasSuspended = false;
             mainController.hdsFirmwareUpdate()->checkForUpdates();
 
@@ -4478,7 +4471,7 @@ int main(int argc, char *argv[])
             // suppression flag so the normal reconnect runs.
             scaleAutoReconnectSuppressed = false;
             if (physicalScale && physicalScale->isConnected()) {
-                qDebug() << "App resumed - scale still connected";
+                DIAG_DEBUG(SCALE, "main") << "App resumed - scale still connected";
             } else {
                 bleManager.requestScaleReconnectRampRestart(QStringLiteral("App resumed"));
             }
@@ -4494,7 +4487,7 @@ int main(int argc, char *argv[])
                 && !refractometerReconnectTimer.isActive()) {
                 refractometerReconnectAttempt = 0;
                 refractometerReconnectTimer.start(reconnectDelays[0]);
-                qDebug() << "App resumed - arming refractometer reconnect tick (effective only while hunting)";
+                DIAG_DEBUG(APP, "main") << "App resumed - arming refractometer reconnect tick (effective only while hunting)";
             }
 
             // Resume smart charging check now that app is active again
@@ -4530,11 +4523,11 @@ int main(int argc, char *argv[])
         const bool active = screensaverManager.screensaverActive();
         if (active) {
             if (scaleReconnectTimer.isActive()) {
-                qDebug() << "Screensaver entered - pausing scale reconnect loop";
+                DIAG_DEBUG(SCALE, "main") << "Screensaver entered - pausing scale reconnect loop";
                 scaleReconnectTimer.stop();
             }
             if (refractometerReconnectTimer.isActive()) {
-                qDebug() << "Screensaver entered - pausing refractometer reconnect loop";
+                DIAG_DEBUG(APP, "main") << "Screensaver entered - pausing refractometer reconnect loop";
                 refractometerReconnectTimer.stop();
             }
             return;
@@ -4550,14 +4543,14 @@ int main(int argc, char *argv[])
             && !refractometerReconnectTimer.isActive()) {
             refractometerReconnectAttempt = 0;
             refractometerReconnectTimer.start(reconnectDelays[0]);
-            qDebug() << "Screensaver exited - resuming refractometer reconnect sequence";
+            DIAG_DEBUG(APP, "main") << "Screensaver exited - resuming refractometer reconnect sequence";
         }
     });
 
     // Remote sleep via MQTT/REST API - put scale to sleep
     QObject::connect(&mainController, &MainController::remoteSleepRequested,
                      [&physicalScale]() {
-        qDebug() << "Remote sleep requested - sleeping scale";
+        DIAG_DEBUG(SCALE, "main") << "Remote sleep requested - sleeping scale";
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->sleep();
         }
@@ -4606,7 +4599,7 @@ int main(int argc, char *argv[])
             }
             if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
                 if (settings.keepScaleOn()) {
-                    qDebug() << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
+                    DIAG_DEBUG(SCALE, "main") << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
                     physicalScale->disableLcd();
                     // WiFi only: also gracefully close the WS so the tablet's
                     // WiFi radio can park and the HDS doesn't reap us mid-sleep.
@@ -4615,7 +4608,7 @@ int main(int argc, char *argv[])
                     // the link to survive the screensaver. See comment above
                     // and DecentScaleWifi::onConnected for the LCD-restore.
                     if (physicalScale->type() == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi)) {
-                        qDebug() << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
+                        DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
                         scaleAutoReconnectSuppressed = true;
                         physicalScale->disconnectFromScale();
                     } else {
@@ -4627,7 +4620,7 @@ int main(int argc, char *argv[])
                         scaleLcdRestorePending = true;
                     }
                 } else {
-                    qDebug() << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
+                    DIAG_DEBUG(SCALE, "main") << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
                     // Suppress the reconnect timer that connectedChanged would
                     // otherwise schedule when disconnectFromScale() fires.
                     scaleAutoReconnectSuppressed = true;
@@ -4656,7 +4649,7 @@ int main(int argc, char *argv[])
                     // restore it. (WiFi keepScaleOn=true closes the WS and
                     // takes the next branch; its onConnected() handles LCD
                     // restore via "display on" on the reconnect handshake.)
-                    qDebug() << "DE1 woke up - waking scale LCD";
+                    DIAG_DEBUG(SCALE, "main") << "DE1 woke up - waking scale LCD";
                     physicalScale->wake();
                     scaleLcdRestorePending = false;
                 } else if (scaleAutoReconnectSuppressed
@@ -4682,7 +4675,7 @@ int main(int argc, char *argv[])
                     // reconnect on its own) or app-resume already cleared the
                     // suppression flag. Leave scaleLcdRestorePending intact so
                     // connectedChanged restores the LCD when the scale lands.
-                    qDebug() << "DE1 woke up - no immediate wake action"
+                    DIAG_DEBUG(SCALE, "main") << "DE1 woke up - no immediate wake action"
                              << "(physicalScale=" << (physicalScale ? "yes" : "no")
                              << "connected=" << (physicalScale && physicalScale->isConnected())
                              << "suppressed=" << scaleAutoReconnectSuppressed
@@ -4710,7 +4703,7 @@ int main(int argc, char *argv[])
 
     // Cleanup on exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &shotHistoryExporter]() {
-        qDebug() << "Application exiting - shutting down devices";
+        DIAG_DEBUG(APP, "main") << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
         // doesn't keep showing the last live state after the app is gone.
@@ -4749,14 +4742,14 @@ int main(int argc, char *argv[])
 
         // Put DE1 to sleep if connected (this is more reliable than QML onClosing on mobile)
         if (de1Device.isConnected()) {
-            qDebug() << "Sending DE1 to sleep on app exit";
+            DIAG_DEBUG(DE1, "main") << "Sending DE1 to sleep on app exit";
             de1Device.goToSleep();
             needBleWait = de1TransportConnected;
         }
 
         // Put scale to sleep if connected
         if (physicalScale && physicalScale->isConnected()) {
-            qDebug() << "Sending physical scale to sleep on app exit";
+            DIAG_DEBUG(SCALE, "main") << "Sending physical scale to sleep on app exit";
             needBleWait = true;
         }
 
@@ -4794,14 +4787,14 @@ int main(int argc, char *argv[])
                 physicalScale->sleep();
             }
 
-            qDebug() << "Waiting for BLE queue to drain before exit...";
+            DIAG_DEBUG(BLUETOOTH, "main") << "Waiting for BLE queue to drain before exit...";
             QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
             waitLoop.exec();
 
             if (drained)
-                qDebug() << "BLE queue drained successfully, exiting.";
+                DIAG_DEBUG(BLUETOOTH, "main") << "BLE queue drained successfully, exiting.";
             else
-                qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
+                DIAG_WARN(BLUETOOTH, "main") << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
 
         // Neutralize the auto-reconnect path before BLE disconnect, otherwise

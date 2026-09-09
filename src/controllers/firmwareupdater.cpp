@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "controllers/firmwareupdater.h"
 
 #include <QCryptographicHash>
@@ -120,7 +121,7 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
     const uint32_t v = m_installedVersionProvider();
     if (v != m_installedVersion) {
         m_installedVersion = v;
-        qCDebug(firmwareLog) << "[firmware] installed version refreshed:" << v;
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "installed version refreshed:" << v;
         emit installedVersionChanged();
     }
 
@@ -147,9 +148,9 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
         // is proof the DE1 has booted into the new bank.
         if (v == m_availableVersion) {
             if (retroactiveFromFailed) {
-                qCWarning(firmwareLog).noquote()
+                DIAG_CWARN(DE1, "Firmware", firmwareLog)
                     << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-                    << "[firmware] retroactive success: DE1 reconnected on v" << v
+                    << "retroactive success: DE1 reconnected on v" << v
                     << "after failure — flashing actually worked";
                 m_errorMessage.clear();
                 m_retryAvailable = false;
@@ -168,9 +169,9 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
             if (!m_needsManualReboot) {
                 m_needsManualReboot = true;
                 emit needsManualRebootChanged();
-                qCWarning(firmwareLog).noquote()
+                DIAG_CWARN(DE1, "Firmware", firmwareLog)
                     << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-                    << "[firmware] DE1 reports old version" << v
+                    << "DE1 reports old version" << v
                     << "after flash — prompting user to power-cycle";
             }
             // Leave m_verifyingAmbiguous=true so a later disconnect+
@@ -313,9 +314,9 @@ QString FirmwareUpdater::stateText() const {
 
 void FirmwareUpdater::setState(State newState) {
     if (m_state == newState) return;
-    qCDebug(firmwareLog).noquote()
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
         << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-        << "[firmware] state:" << stateText() << "->" << [&]{
+        << "state:" << stateText() << "->" << [&]{
             const State old = m_state; m_state = newState;
             const QString s = stateText(); m_state = old;
             return s;
@@ -336,9 +337,9 @@ void FirmwareUpdater::setState(State newState) {
         newState == State::Verifying || newState == State::AwaitingReboot;
     if (wasActiveFlash && !nowActiveFlash && m_device &&
         m_device->firmwareFlashInProgress()) {
-        qCWarning(firmwareLog).noquote()
+        DIAG_CWARN(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] leaving active-flash state without completeSuccess/"
+            << "leaving active-flash state without completeSuccess/"
                "failWith — clearing MMR guard as a safety net";
         m_device->setFirmwareFlashInProgress(false);
     }
@@ -376,9 +377,9 @@ void FirmwareUpdater::checkForUpdate() {
     // flash completes.
     if (m_state == State::Erasing || m_state == State::Uploading ||
         m_state == State::Verifying || m_state == State::AwaitingReboot) {
-        qCDebug(firmwareLog).noquote()
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] check skipped (flash in progress, state="
+            << "check skipped (flash in progress, state="
             << stateText() << ")";
         return;
     }
@@ -386,9 +387,9 @@ void FirmwareUpdater::checkForUpdate() {
     const uint32_t installed = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
     m_installedVersion = installed;
-    qCDebug(firmwareLog).noquote()
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
         << formatElapsed(m_updateTimer.elapsed())
-        << "[firmware] check started, installed=" << installed;
+        << "check started, installed=" << installed;
     setState(State::Checking);
     m_cache->checkForUpdate(installed);
 }
@@ -404,9 +405,9 @@ void FirmwareUpdater::startUpdate() {
     if (m_state == State::Erasing || m_state == State::Uploading ||
         m_state == State::Verifying || m_state == State::AwaitingReboot ||
         m_state == State::Downloading) {
-        qCWarning(firmwareLog).noquote()
+        DIAG_CWARN(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] startUpdate ignored (flash already in progress, state="
+            << "startUpdate ignored (flash already in progress, state="
             << stateText() << ")";
         return;
     }
@@ -428,7 +429,7 @@ void FirmwareUpdater::startUpdate() {
     // unreachable via the UI — but keep the guard as a hard safety net
     // against direct invocation (MCP, tests, remote control).
     if (m_device->simulationMode()) {
-        qCDebug(firmwareLog) << "[firmware] startUpdate refused (simulator)";
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "startUpdate refused (simulator)";
         return;
     }
 
@@ -527,8 +528,8 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     } else {
         m_updateAvailable = false;
     }
-    qCDebug(firmwareLog).noquote()
-        << "[firmware] check finished: remote=" << result.remoteVersion
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
+        << "check finished: remote=" << result.remoteVersion
         << " kind=" << (result.kind == FirmwareAssetCache::CheckResult::Newer ? "Newer"
                        : result.kind == FirmwareAssetCache::CheckResult::Older ? "Older"
                        : result.kind == FirmwareAssetCache::CheckResult::Same  ? "Same"
@@ -580,8 +581,8 @@ void FirmwareUpdater::onDownloadFinished(QString path, Header header) {
 void FirmwareUpdater::onDownloadFailed(QString reason) {
     if (m_state != State::Downloading) return;
     if (m_cache && m_cache->usesBundledSource()) {
-        qCWarning(firmwareLog).noquote()
-            << "[firmware] bundled source validation failed:" << reason;
+        DIAG_CWARN(DE1, "Firmware", firmwareLog)
+            << "bundled source validation failed:" << reason;
         failWith(QStringLiteral("The firmware file is not valid. Please report this."),
                  /*retryable*/ false);
         return;
@@ -641,7 +642,7 @@ void FirmwareUpdater::beginErasePhase() {
     // (see beginVerifyPhase), and de1app gates on nothing at all. So a
     // dropped notification costs the old fixed delay instead of hanging in
     // Erasing forever.
-    qCDebug(firmwareLog) << "[firmware] erase command sent, waiting for "
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "erase command sent, waiting for "
                             "erase-complete notification or"
                          << m_postEraseWaitMs << "ms, whichever is first";
     if (m_postEraseWaitMs <= 0) {
@@ -686,7 +687,7 @@ void FirmwareUpdater::beginUploadPhase() {
                 this, &FirmwareUpdater::onFirmwareWriteAcked,
                 Qt::UniqueConnection);
     } else {
-        qCWarning(firmwareLog) << "[firmware] beginUploadPhase: no transport — "
+        DIAG_CWARN(DE1, "Firmware", firmwareLog) << "beginUploadPhase: no transport — "
                                   "progress/verify will stall";
     }
 
@@ -716,9 +717,9 @@ void FirmwareUpdater::loadCachedPayload() {
     const QByteArray digest =
         QCryptographicHash::hash(m_firmwareBytes, QCryptographicHash::Sha256).toHex();
     auto header = DE1::Firmware::parseHeader(m_firmwareBytes);
-    qCDebug(firmwareLog).noquote()
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
         << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-        << "[firmware] payload:" << m_firmwareBytes.size() << "bytes sha256="
+        << "payload:" << m_firmwareBytes.size() << "bytes sha256="
         << QString::fromLatin1(digest)
         << "version=" << (header ? header->version : 0)
         << "byteCount=" << (header ? header->byteCount : 0)
@@ -738,7 +739,7 @@ void FirmwareUpdater::onChunkPumpTick() {
         // each ACK clears the wire, instead of jumping to 90 % the moment
         // we queue the last chunk and then freezing silently for minutes.
         m_chunkPumpTimer.stop();
-        qCDebug(firmwareLog) << "[firmware] upload queued to BLE ("
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "upload queued to BLE ("
                              << m_chunksTotal << "chunks), waiting for ACKs";
         return;
     }
@@ -780,9 +781,9 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     if (m_chunksAcked % fivePercent == 0) {
         // qRound (not int-truncation) so the 5% boundary prints "5%" rather
         // than "4%" (1449/28992 = 4.9985...).
-        qCDebug(firmwareLog).noquote()
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] upload progress:"
+            << "upload progress:"
             << m_chunksAcked << "/" << m_chunksTotal
             << "(" << qRound(100.0 * m_chunksAcked / m_chunksTotal) << "%)";
     }
@@ -791,9 +792,9 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     setProgress(PROGRESS_ERASE_MAX + uploadFrac * (PROGRESS_UPLOAD_MAX - PROGRESS_ERASE_MAX));
 
     if (m_chunksAcked >= m_chunksTotal) {
-        qCDebug(firmwareLog).noquote()
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] all" << m_chunksTotal
+            << "all" << m_chunksTotal
             << "chunks ACKed, settling"
             << m_postUploadSettleMs << "ms before verify";
         QTimer::singleShot(m_postUploadSettleMs, this, [this]() {
@@ -833,8 +834,8 @@ void FirmwareUpdater::onVerifyTimeout() {
 
 void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
                                      uint8_t fwToMap, QByteArray firstError) {
-    qCDebug(firmwareLog).noquote()
-        << "[firmware] fwMapResponse received: windowIncrement=" << windowIncrement
+    DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
+        << "fwMapResponse received: windowIncrement=" << windowIncrement
         << "erase=" << fwToErase
         << "map=" << fwToMap << "firstError=" << firstError.toHex(' ');
 
@@ -857,8 +858,8 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
             // verify response lands in the new Erasing window. Acting on it
             // would stream the whole upload into a bank still being erased —
             // the exact failure this phase exists to avoid.
-            qCDebug(firmwareLog).noquote()
-                << "[firmware] ignoring A009 notification before the erase request "
+            DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
+                << "ignoring A009 notification before the erase request "
                    "was ACKed (stale response from a previous phase): firstError="
                 << firstError.toHex(' ');
             return;
@@ -869,9 +870,9 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
         // comparing it to a constant tests our own outbound bytes, not the
         // machine. decaid's _isEraseComplete does exactly that against
         // 0xFF,0xFF,0xFF because 0xFF,0xFF,0xFF is what it happens to send.
-        qCDebug(firmwareLog).noquote()
+        DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] erase-complete notification — starting chunk pump "
+            << "erase-complete notification — starting chunk pump "
                "without waiting out the remaining"
             << m_postEraseWaitTimer.remainingTime() << "ms";
         m_postEraseWaitTimer.stop();
@@ -901,8 +902,8 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
         const QByteArray noErrorYet = QByteArray::fromHex("FFFFFF");
         if (windowIncrement != 0 || fwToErase != 0 || fwToMap != 1 ||
             firstError == noErrorYet) {
-            qCDebug(firmwareLog).noquote()
-                << "[firmware] ignoring non-terminal verify notification: "
+            DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
+                << "ignoring non-terminal verify notification: "
                    "windowIncrement=" << windowIncrement << "erase=" << fwToErase
                 << "map=" << fwToMap << "firstError=" << firstError.toHex(' ');
             return;
@@ -926,9 +927,9 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
             m_flashCompleted = true;
             m_needsManualReboot = true;
             emit needsManualRebootChanged();
-            qCDebug(firmwareLog).noquote()
+            DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
                 << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-                << "[firmware] verify OK — prompting user to power-cycle";
+                << "verify OK — prompting user to power-cycle";
             setProgress(1.0);
             setState(State::AwaitingReboot);
         } else {
@@ -966,9 +967,9 @@ void FirmwareUpdater::completeSuccess() {
 }
 
 void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
-    qCWarning(firmwareLog).noquote()
+    DIAG_CWARN(DE1, "Firmware", firmwareLog)
         << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-        << "[firmware] FAIL phase=" << stateText()
+        << "FAIL phase=" << stateText()
         << " chunks acked=" << m_chunksAcked
         << " queued=" << m_chunksQueued
         << " total=" << m_chunksTotal

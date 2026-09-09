@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "databasebackupmanager.h"
 #include "appsettings.h"
 #include "settings.h"
@@ -95,7 +96,7 @@ void DatabaseBackupManager::setAiConversationNote(const QString& note)
 void DatabaseBackupManager::start()
 {
     if (!m_settings || !m_storage) {
-        qWarning() << "DatabaseBackupManager: Cannot start - missing settings or storage";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot start - missing settings or storage";
         return;
     }
 
@@ -122,7 +123,7 @@ void DatabaseBackupManager::stop()
 {
     if (m_checkTimer->isActive()) {
         m_checkTimer->stop();
-        qDebug() << "DatabaseBackupManager: Stopped";
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Stopped";
     }
 }
 
@@ -173,7 +174,7 @@ QString DatabaseBackupManager::getBackupDirectory() const
     if (javaPath.isValid()) {
         backupDir = javaPath.toString();
     } else {
-        qWarning() << "DatabaseBackupManager: Failed to get backup path from Java";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to get backup path from Java";
         return QString();
     }
 #elif defined(Q_OS_IOS)
@@ -186,7 +187,7 @@ QString DatabaseBackupManager::getBackupDirectory() const
 #endif
 
     if (backupDir.isEmpty()) {
-        qWarning() << "DatabaseBackupManager: Could not determine backup directory";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Could not determine backup directory";
         return QString();
     }
 
@@ -195,16 +196,16 @@ QString DatabaseBackupManager::getBackupDirectory() const
     if (!dir.exists()) {
 #ifdef Q_OS_ANDROID
         // On Android, Java's mkdirs() should have created it — missing means permission issue
-        qWarning() << "DatabaseBackupManager: Backup directory does not exist:" << backupDir;
-        qWarning() << "DatabaseBackupManager: This may be due to missing storage permissions";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Backup directory does not exist:" << backupDir;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "This may be due to missing storage permissions";
         return QString();
 #else
         // On desktop/iOS, create the directory
         if (!dir.mkpath(".")) {
-            qWarning() << "DatabaseBackupManager: Failed to create backup directory:" << backupDir;
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create backup directory:" << backupDir;
             return QString();
         }
-        qDebug() << "DatabaseBackupManager: Created backup directory:" << backupDir;
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Created backup directory:" << backupDir;
 #endif
     }
 
@@ -236,9 +237,9 @@ void DatabaseBackupManager::cleanOldBackups(const QString& backupDir)
 
         if (backupDate.isValid() && backupDate < cutoffDate) {
             if (QFile::remove(fileInfo.absoluteFilePath())) {
-                qDebug() << "DatabaseBackupManager: Removed old backup" << fileName;
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Removed old backup" << fileName;
             } else {
-                qWarning() << "DatabaseBackupManager: Failed to remove old backup" << fileName;
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to remove old backup" << fileName;
             }
         }
     }
@@ -255,7 +256,7 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
 {
     QZipReader reader(zipPath);
     if (!reader.isReadable()) {
-        qWarning() << "DatabaseBackupManager: Cannot read ZIP file:" << zipPath;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot read ZIP file:" << zipPath;
         return false;
     }
 
@@ -272,13 +273,13 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
 
         // Guard against ZIP Slip path traversal
         if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
-            qWarning() << "DatabaseBackupManager: Skipping ZIP entry with path traversal:" << entry.filePath;
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Skipping ZIP entry with path traversal:" << entry.filePath;
             continue;
         }
 
         if (entry.isDir) {
             if (!baseDir.mkpath(entry.filePath)) {
-                qWarning() << "DatabaseBackupManager: Failed to create directory:" << filePath;
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create directory:" << filePath;
                 reader.close();
                 return false;
             }
@@ -286,12 +287,12 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
             // Ensure parent directory exists
             QFileInfo fi(filePath);
             if (!baseDir.mkpath(fi.path().mid(baseDir.absolutePath().length() + 1))) {
-                qWarning() << "DatabaseBackupManager: Failed to create parent dir for:" << filePath;
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create parent dir for:" << filePath;
             }
 
             QFile outFile(filePath);
             if (!outFile.open(QIODevice::WriteOnly)) {
-                qWarning() << "DatabaseBackupManager: Failed to create file:" << filePath << outFile.errorString();
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create file:" << filePath << outFile.errorString();
                 reader.close();
                 return false;
             }
@@ -301,7 +302,7 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
             {
                 QByteArray data = reader.fileData(entry.filePath);
                 if (data.isEmpty() && entry.size > 0) {
-                    qWarning() << "DatabaseBackupManager: Failed to read ZIP entry:" << entry.filePath
+                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to read ZIP entry:" << entry.filePath
                                << "(expected" << entry.size << "bytes)";
                     outFile.close();
                     reader.close();
@@ -309,7 +310,7 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
                 }
                 qint64 written = outFile.write(data);
                 if (written != data.size()) {
-                    qWarning() << "DatabaseBackupManager: Incomplete write for" << filePath
+                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Incomplete write for" << filePath
                                << "- wrote" << written << "of" << data.size() << "bytes:" << outFile.errorString();
                     outFile.close();
                     reader.close();
@@ -321,7 +322,7 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
     }
 
     reader.close();
-    qDebug() << "DatabaseBackupManager: Extracted" << entries.size() << "entries from ZIP";
+    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracted" << entries.size() << "entries from ZIP";
     return true;
 }
 
@@ -329,17 +330,17 @@ bool DatabaseBackupManager::createBackup(bool force)
 {
     // Prevent concurrent backups or backup during restore
     if (m_backupInProgress) {
-        qWarning() << "DatabaseBackupManager: Backup already in progress";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Backup already in progress";
         return false;
     }
     if (m_restoreInProgress) {
-        qWarning() << "DatabaseBackupManager: Cannot backup while restore is in progress";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot backup while restore is in progress";
         return false;
     }
 
     if (!m_storage) {
         QString error = tr_("backup.error.storageUnavailable", "Storage not available");
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         emit backupFailed(error);
         return false;
     }
@@ -350,7 +351,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     // Check storage permissions on Android (must be on main thread)
     if (!hasStoragePermission()) {
         QString error = tr_("backup.error.storagePermission", "Storage permission not granted. Please enable storage access in Settings.");
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         m_backupInProgress = false;
         emit backupFailed(error);
         emit storagePermissionNeeded();
@@ -361,7 +362,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     QString backupDir = getBackupDirectory();
     if (backupDir.isEmpty()) {
         QString error = tr_("backup.error.accessDirFailed", "Failed to access backup directory");
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         m_backupInProgress = false;
         emit backupFailed(error);
         return false;
@@ -375,7 +376,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     QFileInfo existingZip(zipPath);
     if (!force && existingZip.exists() && existingZip.size() > 0) {
         // Automatic backup - skip if valid backup exists
-        qDebug() << "DatabaseBackupManager: Valid backup already exists for today";
+        DIAG_INFO(STORAGE, "DatabaseBackupManager") << "Using existing valid backup for today:" << zipPath;
         m_lastBackupDate = QDate::currentDate();
 
 #ifdef Q_OS_ANDROID
@@ -395,12 +396,12 @@ bool DatabaseBackupManager::createBackup(bool force)
         // File exists - delete it to create fresh backup
         if (!QFile::remove(zipPath)) {
             QString error = tr_("backup.error.removeExistingFailed", "Failed to remove existing backup: %1").arg(zipPath);
-            qWarning() << "DatabaseBackupManager:" << error;
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
             m_backupInProgress = false;
             emit backupFailed(error);
             return false;
         }
-        qDebug() << "DatabaseBackupManager: Removed existing backup to create fresh one:" << zipPath;
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Removed existing backup to create fresh one:" << zipPath;
     }
 
     // Snapshot settings and AI conversations on main thread (reads QSettings which
@@ -456,11 +457,12 @@ bool DatabaseBackupManager::createBackup(bool force)
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
                 m_backupInProgress = false;
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Backup database file missing after creation";
                 emit backupFailed(tr_("backup.error.createFileFailed", "Failed to create backup file"));
             }, Qt::QueuedConnection);
             return;
         }
-        qDebug() << "DatabaseBackupManager: DB file created:" << dbResult
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "DB file created:" << dbResult
                  << "size:" << dbInfo.size() << "bytes";
 
         // Write settings.json (from pre-captured snapshot)
@@ -470,21 +472,21 @@ bool DatabaseBackupManager::createBackup(bool force)
             if (file.open(QIODevice::WriteOnly)) {
                 file.write(QJsonDocument(settingsJson).toJson(QJsonDocument::Indented));
                 file.close();
-                qDebug() << "DatabaseBackupManager: Settings exported to" << settingsPath;
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Settings exported to" << settingsPath;
             } else {
-                qWarning() << "DatabaseBackupManager: Failed to write settings.json:" << file.errorString();
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to write settings.json:" << file.errorString();
             }
         }
 
         // Copy profiles
         if (!userProfilesPath.isEmpty() && QDir(userProfilesPath).exists()) {
             if (copyDirectory(userProfilesPath, stagingDir + "/profiles/user")) {
-                qDebug() << "DatabaseBackupManager: User profiles backed up";
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "User profiles backed up";
             }
         }
         if (!downloadedProfilesPath.isEmpty() && QDir(downloadedProfilesPath).exists()) {
             if (copyDirectory(downloadedProfilesPath, stagingDir + "/profiles/downloaded")) {
-                qDebug() << "DatabaseBackupManager: Downloaded profiles backed up";
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Downloaded profiles backed up";
             }
         }
 
@@ -498,7 +500,7 @@ bool DatabaseBackupManager::createBackup(bool force)
             }
             if (hasMedia) {
                 if (copyDirectory(personalMediaDir, stagingDir + "/media")) {
-                    qDebug() << "DatabaseBackupManager: Personal media backed up";
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Personal media backed up";
                 }
             }
         }
@@ -525,7 +527,7 @@ bool DatabaseBackupManager::createBackup(bool force)
                             writer.addFile(entryPath, &f);
                             f.close();
                         } else {
-                            qWarning() << "DatabaseBackupManager: Failed to add to ZIP:" << fi.absoluteFilePath() << f.errorString();
+                            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to add to ZIP:" << fi.absoluteFilePath() << f.errorString();
                         }
                     }
                 }
@@ -536,11 +538,11 @@ bool DatabaseBackupManager::createBackup(bool force)
             if (writer.status() == QZipWriter::NoError) {
                 zipSuccess = true;
             } else {
-                qWarning() << "DatabaseBackupManager: QZipWriter failed with status:" << writer.status();
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "QZipWriter failed with status:" << writer.status();
             }
             writer.close();
             if (zipSuccess) {
-                qDebug() << "DatabaseBackupManager: ZIP created:" << zipPath;
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "ZIP created:" << zipPath;
             }
         }
 
@@ -548,7 +550,7 @@ bool DatabaseBackupManager::createBackup(bool force)
 
         if (!zipSuccess) {
             QFile::remove(zipPath);
-            qWarning() << "DatabaseBackupManager: Failed to create ZIP";
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create ZIP";
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
                 m_backupInProgress = false;
@@ -557,7 +559,7 @@ bool DatabaseBackupManager::createBackup(bool force)
             return;
         } else {
             QFileInfo zi(zipPath);
-            qDebug() << "DatabaseBackupManager: ZIP size:" << zi.size() << "bytes";
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "ZIP size:" << zi.size() << "bytes";
         }
 
         // Deliver result back to main thread
@@ -571,10 +573,11 @@ bool DatabaseBackupManager::createBackup(bool force)
                 "scanFile",
                 "(Ljava/lang/String;)V",
                 QJniObject::fromString(zipPath).object<jstring>());
-            qDebug() << "DatabaseBackupManager: Triggered media scan for ZIP";
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Triggered media scan for ZIP";
 #endif
 
             m_backupInProgress = false;
+            DIAG_INFO(STORAGE, "DatabaseBackupManager") << "Backup created:" << zipPath;
             emit backupCreated(zipPath);
             refreshBackupList();
             cleanOldBackups(backupDir);
@@ -587,7 +590,7 @@ bool DatabaseBackupManager::createBackup(bool force)
         // Safety net: if the thread ended without resetting the flag
         // (e.g., crash or unhandled exception), reset it here
         if (m_backupInProgress) {
-            qWarning() << "DatabaseBackupManager: Backup thread ended without result signal - resetting state";
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Backup thread ended without result signal - resetting state";
             m_backupInProgress = false;
             emit backupFailed(tr_("backup.error.unexpected", "Backup failed unexpectedly"));
         }
@@ -710,17 +713,17 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
 {
     // Prevent concurrent restores or restore during backup
     if (m_restoreInProgress) {
-        qWarning() << "DatabaseBackupManager: Restore already in progress";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Restore already in progress";
         return false;
     }
     if (m_backupInProgress) {
-        qWarning() << "DatabaseBackupManager: Cannot restore while backup is in progress";
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot restore while backup is in progress";
         return false;
     }
 
     if (!m_storage) {
         QString error = tr_("backup.error.storageUnavailable", "Storage not available");
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         emit restoreFailed(error);
         return false;
     }
@@ -730,7 +733,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     QString backupDir = getBackupDirectory();
     if (backupDir.isEmpty()) {
         QString error = tr_("backup.error.accessDirFailed", "Failed to access backup directory");
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -740,7 +743,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     QFileInfo zipInfo(zipPath);
     if (!zipInfo.exists()) {
         QString error = tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename);
-        qWarning() << "DatabaseBackupManager:" << error;
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -787,7 +790,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             }
         } else {
             // ZIP backup - extract first
-            qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracting" << zipPath << "to" << tempDir;
 
             if (!extractZip(zipPath, tempDir)) {
                 QDir(tempDir).removeRecursively();
@@ -805,15 +808,15 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             QString tempDbPath;
             if (isRawDb) {
                 tempDbPath = zipPath;
-                qDebug() << "DatabaseBackupManager: Using raw .db backup:" << tempDbPath;
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
             } else {
                 QDir tempDirObj(tempDir);
                 QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
                 if (!dbFiles.isEmpty()) {
                     tempDbPath = tempDir + "/" + dbFiles.first();
-                    qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
                 } else {
-                    qDebug() << "DatabaseBackupManager: No DB file in backup, skipping shot restore";
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup, skipping shot restore";
                 }
             }
 
@@ -829,7 +832,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                     QStringLiteral("Extracted file not found"))
                         : qMakePair(QStringLiteral("backup.error.extractedTooSmall"),
                                     QStringLiteral("Extracted file is too small to be a valid database"));
-                    qWarning() << "DatabaseBackupManager:" << error.second;
+                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << error.second;
                     errors << error;
                     dbValid = false;
                 }
@@ -841,13 +844,13 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         QByteArray header = dbFile.read(16);
                         dbFile.close();
                         if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
-                            qWarning() << "DatabaseBackupManager: Invalid SQLite header:" << header.toHex();
+                            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Invalid SQLite header:" << header.toHex();
                             errors << qMakePair(QStringLiteral("backup.error.notSqlite"),
                                                 QStringLiteral("Extracted file is not a valid SQLite database"));
                             dbValid = false;
                         }
                     } else {
-                        qWarning() << "DatabaseBackupManager: Cannot open extracted file for validation";
+                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot open extracted file for validation";
                         errors << qMakePair(QStringLiteral("backup.error.cannotOpenExtracted"),
                                             QStringLiteral("Cannot open extracted file for validation"));
                         dbValid = false;
@@ -855,10 +858,10 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 }
 
                 if (dbValid) {
-                    qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
 
                     // Import the database (uses separate connections, safe on background thread)
-                    qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Importing database from" << tempDbPath
                              << (merge ? "(merge mode)" : "(replace mode)");
                     // shotImport carries the shot id map out to the AI-conversation
                     // restore below, which must remap every stored reference
@@ -867,7 +870,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                                                                  &shotImport);
 
                     if (!importSuccess) {
-                        qWarning() << "DatabaseBackupManager: Shots import failed";
+                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Shots import failed";
                         // An integrity refusal says WHICH counts disagreed and that
                         // nothing was changed. Reporting it as the generic "failed to
                         // import" would leave the user unable to tell a refusal from
@@ -895,7 +898,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         }
                     } else {
                         shotsImported = true;
-                        qDebug() << "DatabaseBackupManager: Database restore completed successfully";
+                        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Database restore completed successfully";
                     }
                 }
             }
@@ -919,7 +922,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 };
                 if (!userProfilesPath.isEmpty()) clearProfileDir(userProfilesPath);
                 if (!downloadedProfilesPath.isEmpty()) clearProfileDir(downloadedProfilesPath);
-                qDebug() << "DatabaseBackupManager: Cleared existing profiles (replace mode)";
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Cleared existing profiles (replace mode)";
             }
 
             // Helper: restore profiles from a source dir to a dest dir, with
@@ -976,13 +979,13 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             QString srcUser = restoreDir + "/profiles/user";
             int userRestored = restoreProfileDir(srcUser, userProfilesPath);
             if (userRestored > 0) profilesRestored = true;
-            qDebug() << "DatabaseBackupManager: Restored" << userRestored << "user profiles";
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << userRestored << "user profiles";
 
             // Restore downloaded profiles
             QString srcDownloaded = restoreDir + "/profiles/downloaded";
             int dlRestored = restoreProfileDir(srcDownloaded, downloadedProfilesPath);
             if (dlRestored > 0) profilesRestored = true;
-            qDebug() << "DatabaseBackupManager: Restored" << dlRestored << "downloaded profiles";
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << dlRestored << "downloaded profiles";
 
             // In replace mode, profiles were restored even if backup had none (existing were cleared)
             if (!merge) profilesRestored = true;
@@ -1016,7 +1019,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 }
                 if (restored > 0) {
                     mediaWasRestored = true;
-                    qDebug() << "DatabaseBackupManager: Restored" << restored << "personal media files";
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << restored << "personal media files";
                 }
             }
         }
@@ -1028,7 +1031,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             if (QFile::exists(settingsPath)) {
                 QFile file(settingsPath);
                 if (!file.open(QIODevice::ReadOnly)) {
-                    qWarning() << "DatabaseBackupManager: Failed to open settings.json:" << file.errorString();
+                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to open settings.json:" << file.errorString();
                     errors << qMakePair(QStringLiteral("backup.error.readSettingsFailed"),
                                         QStringLiteral("Failed to read settings from backup"));
                 } else {
@@ -1037,11 +1040,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     QJsonParseError parseError;
                     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
                     if (doc.isNull()) {
-                        qWarning() << "DatabaseBackupManager: Failed to parse settings.json:" << parseError.errorString();
+                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to parse settings.json:" << parseError.errorString();
                         errors << qMakePair(QStringLiteral("backup.error.settingsCorrupted"),
                                             QStringLiteral("Settings file in backup is corrupted"));
                     } else if (!doc.isObject()) {
-                        qWarning() << "DatabaseBackupManager: settings.json is not a JSON object";
+                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "settings.json is not a JSON object";
                         errors << qMakePair(QStringLiteral("backup.error.settingsInvalidFormat"),
                                             QStringLiteral("Settings file in backup has invalid format"));
                     } else {
@@ -1081,9 +1084,9 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 QJsonObject json = settingsJson;
                 QStringList excludeKeys = SettingsSerializer::sensitiveKeys();
                 if (SettingsSerializer::importFromJson(m_settings, json, excludeKeys)) {
-                    qDebug() << "DatabaseBackupManager: Settings restored from backup";
+                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Settings restored from backup";
                 } else {
-                    qWarning() << "DatabaseBackupManager: Settings import returned failure";
+                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Settings import returned failure";
                     // Key + fallback, untranslated: joinErrors() translates.
                     restoreErrors << qMakePair(QStringLiteral("backup.error.settingsImport"),
                                                QStringLiteral("Some settings could not be restored"));
@@ -1113,7 +1116,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                             }
                         }
                         qsettings.remove("ai/conversations/index");
-                        qDebug() << "DatabaseBackupManager: Cleared" << existingIndex.size() << "existing AI conversations (replace mode)";
+                        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Cleared" << existingIndex.size() << "existing AI conversations (replace mode)";
                     }
 
                     // The shots in this same archive were re-INSERTed and given
@@ -1137,7 +1140,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         // retry that recovers both look optional.
                         conversationNote = AIConversation::importHeldBackNote(
                             conversations.size(), m_translationManager);
-                        qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
+                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "shot import was refused, so AI"
                                    << "conversations were NOT imported — retry the restore"
                                    << "rather than lose their shot links";
                     } else {
@@ -1153,7 +1156,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
 
                         if (convTally.conversationsImported > 0) {
                             qsettings.sync();
-                            qDebug() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
+                            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Imported" << convTally.conversationsImported
                                      << "AI conversations;" << convTally.turnsRemapped
                                      << "shot reference(s) remapped," << convTally.turnsCleared
                                      << "cleared";
@@ -1185,7 +1188,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         // Safety net: if the thread ended without resetting the flag
         // (e.g., crash or unhandled exception), reset it here
         if (m_restoreInProgress) {
-            qWarning() << "DatabaseBackupManager: Restore thread ended without result signal - resetting state";
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Restore thread ended without result signal - resetting state";
             m_restoreInProgress = false;
             emit restoreFailed(tr_("backup.error.restoreUnexpected", "Restore failed unexpectedly"));
         }
@@ -1220,7 +1223,7 @@ bool DatabaseBackupManager::copyDirectory(const QString& srcDir, const QString& 
                 QFile::remove(destPath);
             }
             if (!QFile::copy(fi.absoluteFilePath(), destPath)) {
-                qWarning() << "DatabaseBackupManager: Failed to copy" << fi.absoluteFilePath() << "to" << destPath;
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to copy" << fi.absoluteFilePath() << "to" << destPath;
                 success = false;
             }
         }

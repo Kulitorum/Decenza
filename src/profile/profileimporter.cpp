@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profileimporter.h"
 #include "profilesavehelper.h"
 #include "../controllers/maincontroller.h"
@@ -85,27 +86,27 @@ QString ProfileImporter::detectDE1AppPath() const
             QStringList tclFiles = dir.entryList(QStringList() << "*.tcl", QDir::Files);
             QStringList jsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files);
             if (!tclFiles.isEmpty() || !jsonFiles.isEmpty()) {
-                qDebug() << "ProfileImporter: Found DE1 app profiles at" << path
+                DIAG_DEBUG(PROFILES, "ProfileImporter") << "Found DE1 app profiles at" << path
                          << "with" << tclFiles.size() << "TCL and" << jsonFiles.size() << "JSON profiles";
                 // Return the parent de1plus folder
                 QDir parent(path);
                 parent.cdUp();
                 return parent.absolutePath();
             }
-            qDebug() << "ProfileImporter: Directory exists but no .tcl/.json files:" << path;
+            DIAG_DEBUG(PROFILES, "ProfileImporter") << "Directory exists but no .tcl/.json files:" << path;
         } else {
-            qDebug() << "ProfileImporter: Directory not found:" << path;
+            DIAG_DEBUG(PROFILES, "ProfileImporter") << "Directory not found:" << path;
         }
     }
 
-    qWarning() << "ProfileImporter: Could not find DE1 app profiles in any known location";
+    DIAG_WARN(PROFILES, "ProfileImporter") << "Could not find DE1 app profiles in any known location";
     return QString();
 }
 
 void ProfileImporter::importFromDE1App(bool overwriteExisting)
 {
     if (m_scanning || m_importing) {
-        qDebug() << "ProfileImporter: importFromDE1App - already busy";
+        DIAG_DEBUG(PROFILES, "ProfileImporter") << "importFromDE1App - already busy";
         return;
     }
     QString path = detectDE1AppPath();
@@ -114,7 +115,7 @@ void ProfileImporter::importFromDE1App(bool overwriteExisting)
         emit batchImportComplete(0, 0, 0);
         return;
     }
-    qDebug() << "ProfileImporter: importFromDE1App - scanning" << path << "overwrite:" << overwriteExisting;
+    DIAG_DEBUG(PROFILES, "ProfileImporter") << "importFromDE1App - scanning" << path << "overwrite:" << overwriteExisting;
     m_autoImportAfterScan = true;
     m_autoImportOverwrite = overwriteExisting;
     scanProfilesFromPath(path);
@@ -179,7 +180,7 @@ void ProfileImporter::scanProfilesFromPath(const QString& path)
         while (tclIt.hasNext()) {
             m_pendingFiles.append(tclIt.next());
         }
-        qDebug() << "ProfileImporter: Found" << m_pendingFiles.size() << "TCL profiles in" << tclPath;
+        DIAG_DEBUG(PROFILES, "ProfileImporter") << "Found" << m_pendingFiles.size() << "TCL profiles in" << tclPath;
     }
 
     // Scan profiles_v2/ for JSON files
@@ -191,7 +192,7 @@ void ProfileImporter::scanProfilesFromPath(const QString& path)
         while (jsonIt.hasNext()) {
             m_pendingFiles.append(jsonIt.next());
         }
-        qDebug() << "ProfileImporter: Found" << (m_pendingFiles.size() - beforeCount) << "JSON profiles in" << jsonPath;
+        DIAG_DEBUG(PROFILES, "ProfileImporter") << "Found" << (m_pendingFiles.size() - beforeCount) << "JSON profiles in" << jsonPath;
     }
 
     m_totalProfiles = static_cast<int>(m_pendingFiles.size());
@@ -236,10 +237,10 @@ void ProfileImporter::onProcessNextScan()
             bool overwrite = m_autoImportOverwrite;
             m_autoImportOverwrite = false;
             if (!m_availableProfiles.isEmpty()) {
-                qDebug() << "ProfileImporter: auto-importing from" << m_availableProfiles.size() << "scanned profiles, overwrite:" << overwrite;
+                DIAG_DEBUG(PROFILES, "ProfileImporter") << "auto-importing from" << m_availableProfiles.size() << "scanned profiles, overwrite:" << overwrite;
                 importAll(overwrite);
             } else {
-                qDebug() << "ProfileImporter: no new profiles to import";
+                DIAG_DEBUG(PROFILES, "ProfileImporter") << "no new profiles to import";
             }
         }
         return;
@@ -264,7 +265,7 @@ void ProfileImporter::onProcessNextScan()
             // Log the reason, not just the verdict. A field AI reading this log is
             // often the only thing that will connect "my profile vanished from the
             // import list" to the one key we could not parse.
-            qWarning() << "ProfileImporter: Skipping invalid profile" << filename
+            DIAG_WARN(PROFILES, "ProfileImporter") << "Skipping invalid profile" << filename
                        << "-" << profile.validationErrors().join(QStringLiteral("; "));
             m_processedProfiles++;
             continue;
@@ -658,7 +659,7 @@ void ProfileImporter::onProcessNextImport()
 
     if (!profile.isValid() || profile.title().isEmpty()) {
         m_batchFailed++;
-        qWarning() << "ProfileImporter: Failed to load profile from" << sourcePath << "(invalid or empty)";
+        DIAG_WARN(PROFILES, "ProfileImporter") << "Failed to load profile from" << sourcePath << "(invalid or empty)";
         QTimer::singleShot(0, this, &ProfileImporter::onProcessNextImport);
         return;
     }
@@ -670,7 +671,7 @@ void ProfileImporter::onProcessNextImport()
     bool inStorage = storage && storage->isConfigured() && storage->profileExists(filename);
     bool inDownloaded = QFile::exists(downloadedPath);
 
-    qDebug() << "ProfileImporter: batch processing" << profile.title()
+    DIAG_DEBUG(PROFILES, "ProfileImporter") << "batch processing" << profile.title()
              << "- inStorage:" << inStorage << "inDownloaded:" << inDownloaded;
 
     // Handle existing files
@@ -680,15 +681,15 @@ void ProfileImporter::onProcessNextImport()
             if (inStorage) {
                 // Write to the same location loadLocalProfile() reads from, so re-scan sees the update
                 saved = storage->writeProfile(filename, profile.toJsonString());
-                qDebug() << "ProfileImporter: overwrote in ProfileStorage:" << filename << "ok:" << saved;
+                DIAG_DEBUG(PROFILES, "ProfileImporter") << "overwrote in ProfileStorage:" << filename << "ok:" << saved;
             } else {
                 saved = profile.saveToFile(downloadedPath);
-                qDebug() << "ProfileImporter: overwrote in downloaded:" << downloadedPath << "ok:" << saved;
+                DIAG_DEBUG(PROFILES, "ProfileImporter") << "overwrote in downloaded:" << downloadedPath << "ok:" << saved;
             }
             if (saved) {
                 m_batchImported++;
             } else {
-                qWarning() << "ProfileImporter: Failed to overwrite" << profile.title();
+                DIAG_WARN(PROFILES, "ProfileImporter") << "Failed to overwrite" << profile.title();
                 m_batchFailed++;
             }
         } else {
@@ -699,7 +700,7 @@ void ProfileImporter::onProcessNextImport()
         if (profile.saveToFile(downloadedPath)) {
             m_batchImported++;
         } else {
-            qWarning() << "ProfileImporter: Failed to save" << profile.title() << "to" << downloadedPath;
+            DIAG_WARN(PROFILES, "ProfileImporter") << "Failed to save" << profile.title() << "to" << downloadedPath;
             m_batchFailed++;
         }
     }
@@ -731,7 +732,7 @@ void ProfileImporter::refreshProfileStatus(int index)
     }
 
     if (!profile.isValid()) {
-        qWarning() << "ProfileImporter::refreshProfileStatus: Cannot reload profile from" << sourcePath;
+        DIAG_WARN(PROFILES, "ProfileImporter") << "refreshProfileStatus: Cannot reload profile from" << sourcePath;
         entry["status"] = "error";
         m_availableProfiles[index] = entry;
         emit availableProfilesChanged();

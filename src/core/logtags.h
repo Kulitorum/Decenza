@@ -86,11 +86,29 @@
 #define DECENZA_LOG_MARKER_APP           "App"
 #define DECENZA_LOG_MARKER_ACCESSIBILITY "Accessibility"
 #define DECENZA_LOG_MARKER_BEANBASE     "BeanBase"
+#define DECENZA_LOG_MARKER_BATTERY      "Battery"
+#define DECENZA_LOG_MARKER_MEMORY       "Memory"
+#define DECENZA_LOG_MARKER_AI           "AI"
+#define DECENZA_LOG_MARKER_SHOT         "Shot"
+#define DECENZA_LOG_MARKER_STEAM        "Steam"
+#define DECENZA_LOG_MARKER_PROFILES     "Profiles"
+#define DECENZA_LOG_MARKER_RECIPES      "Recipes"
+#define DECENZA_LOG_MARKER_VISUALIZER   "Visualizer"
+#define DECENZA_LOG_MARKER_RUNTIME      "Runtime"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
 // description verbatim, so write it for someone who has never read this code.
 #define DECENZA_LOG_SUBSYSTEMS(X)                                              \
+    X(DECENZA_LOG_MARKER_BATTERY, "Tablet charging: policy commands and observed power state") \
+    X(DECENZA_LOG_MARKER_MEMORY, "Memory samples, object lifetimes and file descriptor dumps") \
+    X(DECENZA_LOG_MARKER_AI, "AI advice and conversations: selected provider/model, request stages and usable outcomes. Bag operations belong to BeanBase") \
+    X(DECENZA_LOG_MARKER_SHOT, "Shot lifecycle, frame transitions, timers and extraction display; weight-stop decisions remain under SAW") \
+    X(DECENZA_LOG_MARKER_STEAM, "Steam sessions, pitcher capture and steam health") \
+    X(DECENZA_LOG_MARKER_PROFILES, "Profile loading, saving, conversion and import") \
+    X(DECENZA_LOG_MARKER_RECIPES, "Recipe storage, activation, overrides and start refusals; scheduled profile reload remains under AutoLoad") \
+    X(DECENZA_LOG_MARKER_VISUALIZER, "Visualizer uploads, imports and coffee-management synchronization") \
+    X(DECENZA_LOG_MARKER_RUNTIME, "Framework and unattributed diagnostics, with supplied category and source location when available. Does not imply first-party source conformance") \
     X(DECENZA_LOG_MARKER_SCALE,                                                \
       "Scales: BLE, WiFi and USB drivers, their transports, and scale "         \
       "discovery")                                                             \
@@ -120,27 +138,18 @@
       "Users report these as layout or language bugs, so this is the first "     \
       "thing to check for clipped or garbled text in a non-Latin locale")       \
     X(DECENZA_LOG_MARKER_NETWORK,                                              \
-      "Local network reachability — whether this device can reach the LAN at "   \
-      "all — as opposed to any one device's link. Separate from Scale and DE1 "  \
-      "because a routing or permission failure is not a fault in the scale "     \
-      "driver, and filing it under Scale sends a reader to the wrong file. "     \
-      "NOTE: currently reachability only. The app's own servers (ShotServer, "   \
-      "MQTT) still log under hand-rolled prefixes and are NOT reachable through " \
-      "this marker yet")                                                         \
+      "LAN reachability, ShotServer/REST, MQTT and relay transport. Device "       \
+      "links retain Scale/DE1; Visualizer synchronization has its own owner")      \
     X(DECENZA_LOG_MARKER_SCREENSAVER,                                            \
       "The screensaver: when it engages and releases, screen dimming and "        \
       "brightness restore, the idle timer, and video playback. Users report "     \
       "these as \"the screen went dark mid-shot\" or \"it never woke up\", and "  \
       "the answer is usually which of several independent things (idle timer, "   \
       "brightness, video) did or did not fire")                                   \
-    X(DECENZA_LOG_MARKER_STORAGE,                                                \
-      "Whether an edit you made actually reached the database. Answers \"I "      \
-      "rated that shot and it came back blank\" and \"my note vanished\": writes " \
-      "are queued to a background worker per storage, and a worker destroyed "     \
-      "with tasks still queued discards them. Covers the drain at quit and at "    \
-      "backgrounding, that discard, and the shot-file export those writes "        \
-      "trigger. Not about WHAT was stored — that is Equipment for gear identity "  \
-      "— only about whether the write survived")                                   \
+    X(DECENZA_LOG_MARKER_STORAGE,                                              \
+      "Database reads/writes, missing rows versus SQL failures, exports, backups, " \
+      "restores, migrations and worker draining. Equipment identity decisions "  \
+      "remain under Equipment; bag and recipe operations use their own owners") \
     X(DECENZA_LOG_MARKER_THEME,                                                  \
       "Appearance: theme selection and switching, custom colours, background "    \
       "images and presets, and per-role font-size overrides. Separate from Font, " \
@@ -220,16 +229,9 @@
       "active, wrong phase). Answers \"the E key stopped starting shots\", "      \
       "where the press itself is invisible and the refusal is the whole story")   \
     X(DECENZA_LOG_MARKER_APP,                                                      \
-      "The app's own housekeeping, as distinct from anything the machine does: "   \
-      "the update check (when it ran, the versions it compared, whether a newer "  \
-      "build was offered) and the weather and sun-time fetches behind the idle "   \
-      "screen. Tagged Update and Weather. Answers \"why am I not being offered "   \
-      "the update\" — usually a release with no asset for this platform rather "   \
-      "than a check that failed — and \"why is the weather wrong or stale\", "     \
-      "which separates a provider outage from a location resolved incorrectly. "   \
-      "One marker rather than two because neither is a machine subsystem and a "   \
-      "reader reaching for either is asking the same kind of question: is the "    \
-      "APP misbehaving, or the espresso machine")
+      "App startup/shutdown, settings, translations, location/weather, updates, "  \
+      "widgets and general UI housekeeping. Machine operations use their own "   \
+      "owners; Accessibility and Font remain separately searchable")
 
 // ---- The one place a log line's shape is built -------------------------
 //
@@ -243,7 +245,7 @@
 // call site cannot describe its own event two different ways — the drift that
 // hit 21 USB sites. It requires `emit logMessage(QString)` in scope.
 #define DECENZA_SUBSYS_LOG(marker, tag, msg, qFn) do { \
-    QString _msg = QString("[" marker "][" tag "] ") + (msg); \
+    QString _msg = DecenzaLog::prefix(QLatin1String(marker), QLatin1String(tag)) + QLatin1Char(' ') + (msg); \
     qFn().noquote() << _msg; \
     emit logMessage(_msg); \
 } while(0)
@@ -251,7 +253,7 @@
 // For code with no logMessage signal to emit — free functions, static helpers,
 // JNI shims. Same marker, so the line is still found by the one search.
 #define DECENZA_SUBSYS_LOG_STDERR(marker, tag, msg, qFn) \
-    qFn().noquote() << (QString("[" marker "][" tag "] ") + (msg))
+    qFn().noquote() << (DecenzaLog::prefix(QLatin1String(marker), QLatin1String(tag)) + QLatin1Char(' ') + (msg))
 
 // Stream form, for files whose sites interleave several values apiece and would
 // only be made harder to read by composing a QString at each one (mdnsresolver's
@@ -262,7 +264,13 @@
 // single QString to hand to logMessage, so a site needing the in-app view wants
 // the statement forms above instead.
 #define DECENZA_SUBSYS_STREAM(marker, tag, qFn) \
-    qFn().noquote() << "[" marker "][" tag "]"
+    (qFn().noquote() << DecenzaLog::prefix(QLatin1String(marker), QLatin1String(tag)))
+
+// For an operation whose registered owner is captured at dispatch (bag AI and
+// advisor AI use the same provider implementation). The owner is never inferred
+// from its response text.
+#define DECENZA_SUBSYS_VALUE_STREAM(marker, tag, qFn) \
+    (qFn().noquote() << DecenzaLog::prefix((marker), QLatin1String(tag)))
 
 // As above, but `tag` is a runtime QString instead of a literal. Only for a
 // helper that logs on behalf of SEVERAL sources — one whose own class name would
@@ -274,7 +282,7 @@
 // Prefer the literal form everywhere else: it costs no runtime concatenation and
 // a literal cannot be handed the wrong value by a caller.
 #define DECENZA_SUBSYS_LOG_STDERR_DYN(marker, tag, msg, qFn) \
-    qFn().noquote() << (QLatin1String("[" marker "][") + (tag) + QLatin1String("] ") + (msg))
+    qFn().noquote() << (DecenzaLog::prefix(QLatin1String(marker), (tag)) + QLatin1Char(' ') + (msg))
 
 // ---- Canonical wording for the shared BLE device lifecycle ------------
 //
@@ -335,6 +343,21 @@ inline QList<Subsystem> subsystems()
 inline QString markerFilter(const char* marker)
 {
     return QLatin1String("[") + QLatin1String(marker) + QLatin1String("]");
+}
+
+// Shared by the QML entry points and capture-boundary fallback. Never guesses an
+// owner from message wording; callers must supply a registered identifier.
+inline bool isRegistered(const QString& marker)
+{
+#define DECENZA_LOG_MATCH(markerToken, description) if (marker == QLatin1String(markerToken)) return true;
+    DECENZA_LOG_SUBSYSTEMS(DECENZA_LOG_MATCH)
+#undef DECENZA_LOG_MATCH
+    return false;
+}
+
+inline QString prefix(const QString& marker, const QString& tag)
+{
+    return QLatin1String("[") + marker + QLatin1String("][") + tag + QLatin1Char(']');
 }
 
 } // namespace DecenzaLog

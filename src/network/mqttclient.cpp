@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "mqttclient.h"
 
 #include <QDateTime>
@@ -107,7 +108,7 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
             // Same reasoning as the else below, and it was missing here: a backend that
             // loads but yields no instance leaves the whole feature inert while the log
             // looks exactly like a healthy install.
-            qInfo() << "MqttClient: QNetworkInformation backend loaded but no instance - "
+            DIAG_INFO(NETWORK, "MqttClient") << "QNetworkInformation backend loaded but no instance - "
                        "reconnect attempts will be spent while offline";
         }
     }
@@ -115,7 +116,7 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
         // Not an error — but without it a field debug log cannot distinguish "the
         // network was fine" from "we had no way to tell", which matters when the
         // whole reachability feature is inert.
-        qInfo() << "MqttClient: no QNetworkInformation backend - reconnect attempts "
+        DIAG_INFO(NETWORK, "MqttClient") << "no QNetworkInformation backend - reconnect attempts "
                    "will be spent while offline (pre-existing behaviour)";
     }
 
@@ -165,7 +166,7 @@ QString MqttClient::generateClientId()
         // Persist the generated client ID so it survives app restarts/updates
         if (m_settingsMqtt) {
             m_settingsMqtt->setMqttClientId(clientId);
-            qDebug() << "MqttClient: Generated and saved new client ID:" << clientId;
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Generated and saved new client ID:" << clientId;
         }
     }
     return clientId;
@@ -262,14 +263,14 @@ void MqttClient::onDisconnectSuccess(void* context, MQTTAsync_successData* /*res
 void MqttClient::onSubscribeSuccess(void* context, MQTTAsync_successData* /*response*/)
 {
     Q_UNUSED(context);
-    qDebug() << "MqttClient: Subscription successful";
+    DIAG_DEBUG(NETWORK, "MqttClient") << "Subscription successful";
 }
 
 void MqttClient::onSubscribeFailure(void* context, MQTTAsync_failureData* response)
 {
     Q_UNUSED(context);
     QString error = response && response->message ? QString::fromUtf8(response->message) : "Unknown error";
-    qWarning() << "MqttClient: Subscription failed -" << error;
+    DIAG_WARN(NETWORK, "MqttClient") << "Subscription failed -" << error;
 }
 
 void MqttClient::connectToBroker()
@@ -317,15 +318,15 @@ void MqttClient::connectToBroker()
                 // "Waiting for network..." status, and dial a dead interface.
                 if (guard->m_networkDown || !guard->m_settingsMqtt
                     || !guard->m_settingsMqtt->mqttEnabled()) {
-                    qDebug() << "MqttClient: mDNS resolve finished but conditions changed"
+                    DIAG_DEBUG(NETWORK, "MqttClient") << "mDNS resolve finished but conditions changed"
                              << "(networkDown=" << guard->m_networkDown << ") - not connecting";
                     return;
                 }
                 if (!resolved.isEmpty()) {
-                    qDebug() << "MqttClient: Resolved" << host << "to" << resolved << "via mDNS";
+                    DIAG_DEBUG(NETWORK, "MqttClient") << "Resolved" << host << "to" << resolved << "via mDNS";
                     guard->connectWithHost(resolved);
                 } else {
-                    qWarning() << "MqttClient: mDNS resolution failed for" << host
+                    DIAG_WARN(NETWORK, "MqttClient") << "mDNS resolution failed for" << host
                                << "- trying direct connection";
                     guard->connectWithHost(host);
                 }
@@ -426,7 +427,7 @@ void MqttClient::connectWithHost(const QString& host)
         const QString text = QStringLiteral("Connecting to ") + serverUri;
         if (m_logCollapse.shouldLog(QStringLiteral("connecting"), text,
                                     QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-            qDebug().noquote() << QStringLiteral("MqttClient: ") + text
+            DIAG_DEBUG(NETWORK, "MqttClient").noquote() << text
                                       + m_logCollapse.suffix(collapsed);
         }
     }
@@ -518,9 +519,9 @@ void MqttClient::onInternalConnected()
                            .arg(failedAttempts);
         if (unprinted.suppressed > 0)
             line += QStringLiteral(" (%1 collapsed, never printed)").arg(unprinted.suppressed);
-        qInfo().noquote() << line;
+        DIAG_INFO(NETWORK, "mqttclient").noquote() << line;
     } else {
-        qDebug() << "MqttClient: Connected to broker";
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Connected to broker";
     }
 
     {
@@ -567,7 +568,7 @@ void MqttClient::onInternalConnected()
 
 void MqttClient::onInternalDisconnected()
 {
-    qDebug() << "MqttClient: Disconnected from broker";
+    DIAG_DEBUG(NETWORK, "MqttClient") << "Disconnected from broker";
 
     {
         QMutexLocker locker(&m_mutex);
@@ -629,7 +630,7 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
         const QString text = QStringLiteral("Connection failed - ") + error;
         if (m_logCollapse.shouldLog(QStringLiteral("failed"), text,
                                     QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-            qWarning().noquote() << QStringLiteral("MqttClient: ") + text
+            DIAG_WARN(NETWORK, "MqttClient").noquote() << text
                                         + m_logCollapse.suffix(collapsed);
         }
     }
@@ -665,7 +666,7 @@ void MqttClient::scheduleReconnect(const QString& reason)
         // status latched at "Connecting...", discarded the Paho rc, and turned a precise
         // BAD_PROTOCOL (the tcp://tcp:// typo) into the ShotServer poller's generic
         // "Connection timed out" — pointing the user at their network instead of the typo.
-        qWarning() << "MqttClient: connect attempt failed while MQTT is disabled -"
+        DIAG_WARN(NETWORK, "MqttClient") << "connect attempt failed while MQTT is disabled -"
                    << "not retrying. Reason:" << reason;
         m_status = "Error: " + reason;
         emit statusChanged();
@@ -679,7 +680,7 @@ void MqttClient::scheduleReconnect(const QString& reason)
         // a bad credential, a broker that moved, a container still restarting. Worth
         // one warning naming the cause; not worth one every 15 minutes thereafter.
         m_slowRetryAnnounced = true;
-        qWarning() << "MqttClient: broker unreachable after" << m_reconnectAttempts
+        DIAG_WARN(NETWORK, "MqttClient") << "broker unreachable after" << m_reconnectAttempts
                    << "attempts - backing off to one retry every" << delay / 60000
                    << "min. Reason:" << reason;
     }
@@ -689,7 +690,7 @@ void MqttClient::scheduleReconnect(const QString& reason)
                                  .arg(delay / 1000).arg(reason);
         if (m_logCollapse.shouldLog(QStringLiteral("retry"), text,
                                     QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-            qDebug().noquote() << QStringLiteral("MqttClient: ") + text
+            DIAG_DEBUG(NETWORK, "MqttClient").noquote() << text
                                       + m_logCollapse.suffix(collapsed);
         }
     }
@@ -721,7 +722,7 @@ QString MqttClient::reconnectStatusText() const
 
 void MqttClient::onInternalMessageReceived(const QString& topic, const QString& payload)
 {
-    qDebug() << "MqttClient: Received message on" << topic << ":" << payload;
+    DIAG_DEBUG(NETWORK, "MqttClient") << "Received message on" << topic << ":" << payload;
 
     if (topic.endsWith("/command")) {
         handleCommand(payload.trimmed().toLower());
@@ -729,7 +730,7 @@ void MqttClient::onInternalMessageReceived(const QString& topic, const QString& 
         // Profile selection - payload is the profile name (filename without .json)
         QString profileName = payload.trimmed();
         if (!profileName.isEmpty()) {
-            qDebug() << "MqttClient: Profile selection requested:" << profileName;
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Profile selection requested:" << profileName;
             emit profileSelectRequested(profileName);
         }
     }
@@ -749,9 +750,9 @@ void MqttClient::setupSubscriptions()
     QByteArray commandBytes = commandTopic.toUtf8();
     int rc = MQTTAsync_subscribe(m_client, commandBytes.constData(), 1, &opts);
     if (rc != MQTTASYNC_SUCCESS) {
-        qWarning() << "MqttClient: Failed to subscribe to" << commandTopic << "- error" << rc;
+        DIAG_WARN(NETWORK, "MqttClient") << "Failed to subscribe to" << commandTopic << "- error" << rc;
     } else {
-        qDebug() << "MqttClient: Subscribing to" << commandTopic;
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Subscribing to" << commandTopic;
     }
 
     // Subscribe to profile/set topic for profile selection
@@ -759,9 +760,9 @@ void MqttClient::setupSubscriptions()
     QByteArray profileBytes = profileTopic.toUtf8();
     rc = MQTTAsync_subscribe(m_client, profileBytes.constData(), 1, &opts);
     if (rc != MQTTASYNC_SUCCESS) {
-        qWarning() << "MqttClient: Failed to subscribe to" << profileTopic << "- error" << rc;
+        DIAG_WARN(NETWORK, "MqttClient") << "Failed to subscribe to" << profileTopic << "- error" << rc;
     } else {
-        qDebug() << "MqttClient: Subscribing to" << profileTopic;
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Subscribing to" << profileTopic;
     }
 }
 
@@ -770,25 +771,25 @@ void MqttClient::handleCommand(const QString& command)
     if (command == "wake") {
         if (m_device) {
             m_device->wakeUp();
-            qDebug() << "MqttClient: Wake command executed";
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Wake command executed";
         }
         emit commandReceived("wake");
     } else if (command == "sleep") {
         if (m_device) {
             m_device->goToSleep();
-            qDebug() << "MqttClient: Sleep command executed";
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Sleep command executed";
         }
         emit commandReceived("sleep");
     } else if (command == "steam_on") {
         emit steamOnRequested();
         emit commandReceived("steam_on");
-        qDebug() << "MqttClient: Steam on command executed";
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Steam on command executed";
     } else if (command == "steam_off") {
         emit steamOffRequested();
         emit commandReceived("steam_off");
-        qDebug() << "MqttClient: Steam off command executed";
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Steam off command executed";
     } else {
-        qWarning() << "MqttClient: Unknown command:" << command;
+        DIAG_WARN(NETWORK, "MqttClient") << "Unknown command:" << command;
     }
 }
 
@@ -802,7 +803,7 @@ void MqttClient::setCurrentProfile(const QString& profile)
         if (isConnected() && profile != m_lastPublishedProfile) {
             publish(topicPath("profile"), profile, true);
             m_lastPublishedProfile = profile;
-            qDebug() << "MqttClient: Published profile change:" << profile;
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Published profile change:" << profile;
         }
     }
 }
@@ -815,7 +816,7 @@ void MqttClient::setCurrentProfileFilename(const QString& filename)
         // Publish filename change
         if (isConnected() && !filename.isEmpty()) {
             publish(topicPath("profile_filename"), filename, true);
-            qDebug() << "MqttClient: Published profile filename change:" << filename;
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Published profile filename change:" << filename;
         }
     }
 }
@@ -836,7 +837,7 @@ void MqttClient::onReconnectTimerTick()
     // onNetworkReachabilityChanged() resumes on the event, rather than polling a
     // condition we are already told about.
     if (m_networkDown) {
-        qDebug() << "MqttClient: reconnect deferred - no network (attempt"
+        DIAG_DEBUG(NETWORK, "MqttClient") << "reconnect deferred - no network (attempt"
                  << (m_reconnectAttempts + 1) << "not spent)";
         m_status = kWaitingForNetwork;
         emit statusChanged();
@@ -847,9 +848,9 @@ void MqttClient::onReconnectTimerTick()
     emit reconnectAttemptsChanged();
 
     if (m_reconnectAttempts > MAX_FAST_RECONNECT_ATTEMPTS) {
-        qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "(slow retry)";
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Reconnection attempt" << m_reconnectAttempts << "(slow retry)";
     } else {
-        qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Reconnection attempt" << m_reconnectAttempts
                  << "of" << MAX_FAST_RECONNECT_ATTEMPTS << "before backing off";
     }
 
@@ -866,7 +867,7 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
     m_networkDown = nowDown;
 
     if (m_networkDown) {
-        qDebug() << "MqttClient: network down - reconnect attempts suspended";
+        DIAG_DEBUG(NETWORK, "MqttClient") << "network down - reconnect attempts suspended";
         // Cancel a pending tick rather than let it fire and log a deferral. The
         // flag is cleared by the reachable event below, not by waiting this out.
         m_reconnectTimer.stop();
@@ -879,7 +880,7 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
         return;
     }
 
-    qDebug() << "MqttClient: network back - resuming reconnect";
+    DIAG_DEBUG(NETWORK, "MqttClient") << "network back - resuming reconnect";
 
     // Clear BOTH statuses the down-edge can write, BEFORE any early return. They describe
     // a condition that has just ended, so leaving either in place strands the Home
@@ -970,7 +971,7 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
 
     int rc = MQTTAsync_sendMessage(m_client, topicBytes.constData(), &msg, nullptr);
     if (rc != MQTTASYNC_SUCCESS) {
-        qWarning() << "MqttClient: Failed to publish to" << topic << "- error" << rc;
+        DIAG_WARN(NETWORK, "MqttClient") << "Failed to publish to" << topic << "- error" << rc;
     }
 }
 
@@ -1018,7 +1019,7 @@ void MqttClient::onScaleConnectedChanged(bool connected)
     if (connected != m_lastPublishedScaleConnected) {
         publish(topicPath("scale_connected"), connected ? "true" : "false", true);
         m_lastPublishedScaleConnected = connected;
-        qDebug() << "MqttClient: Published scale connected:" << connected;
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Published scale connected:" << connected;
     }
 }
 
@@ -1462,6 +1463,6 @@ void MqttClient::publishHomeAssistantDiscovery()
     // The count is the part a reader can act on: it says the set was complete
     // without spending a line per member. A short count is the signal that
     // something returned early.
-    qDebug() << "MqttClient: Home Assistant discovery published —"
+    DIAG_DEBUG(NETWORK, "MqttClient") << "Home Assistant discovery published —"
              << m_discoveryEntityCount << "entities";
 }

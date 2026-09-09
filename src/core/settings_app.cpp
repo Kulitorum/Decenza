@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settings_app.h"
 #include "settings.h"
 
@@ -92,14 +93,14 @@ int SettingsApp::selectedFavoriteProfile() const {
 
 void SettingsApp::setSelectedFavoriteProfile(int index) {
     if (selectedFavoriteProfile() != index) {
-        qDebug() << "setSelectedFavoriteProfile:" << selectedFavoriteProfile() << "->" << index;
+        DIAG_DEBUG(APP, "settings_app") << "setSelectedFavoriteProfile:" << selectedFavoriteProfile() << "->" << index;
         m_settings.setValue("profile/selectedFavorite", index);
         emit selectedFavoriteProfileChanged();
     }
 }
 
 void SettingsApp::addFavoriteProfile(const QString& name, const QString& filename) {
-    qDebug() << "SettingsApp: addFavoriteProfile name=" << name << "filename=" << filename;
+    DIAG_DEBUG(APP, "SettingsApp") << "addFavoriteProfile name=" << name << "filename=" << filename;
     QByteArray data = m_settings.value("profile/favorites").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
@@ -142,7 +143,7 @@ void SettingsApp::removeFavoriteProfile(int index) {
 
     if (index >= 0 && index < arr.size()) {
         QString filename = arr[index].toObject()["filename"].toString();
-        qDebug() << "SettingsApp: removeFavoriteProfile index=" << index << "filename=" << filename;
+        DIAG_DEBUG(APP, "SettingsApp") << "removeFavoriteProfile index=" << index << "filename=" << filename;
         arr.removeAt(index);
         m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
 
@@ -491,7 +492,7 @@ void SettingsApp::setTemperatureUnit(const QString& unit) {
     // celsius — loudly, not silently.
     QString normalized = unit.trimmed().toLower();
     if (normalized != QLatin1String("celsius") && normalized != QLatin1String("fahrenheit")) {
-        qWarning() << "SettingsApp: invalid temperatureUnit" << unit << "- coercing to celsius";
+        DIAG_WARN(APP, "SettingsApp") << "invalid temperatureUnit" << unit << "- coercing to celsius";
         normalized = QStringLiteral("celsius");
     }
     if (temperatureUnit() != normalized) {
@@ -589,7 +590,7 @@ void SettingsApp::setSimulationMode(bool enabled) {
     // effect the next time the same install ran a build that HAS the simulator
     // — booting it into simulation with DE1 BLE disabled and no way back.
     if (enabled) {
-        qWarning() << "SettingsApp: simulation mode requested, but no simulator is "
+        DIAG_WARN(APP, "SettingsApp") << "simulation mode requested, but no simulator is "
                       "compiled into this build - ignoring";
         return;
     }

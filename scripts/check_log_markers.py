@@ -1,71 +1,11 @@
 #!/usr/bin/env python3
-"""Every covered subsystem's log lines carry a registered marker, applied by a helper.
+"""Enforce registered logging across first-party runtime C++, QML/JS and native bridges.
 
-WHY THIS IS CHECKED AND NOT JUST DOCUMENTED
--------------------------------------------
-The markers exist so that one grep over a user-submitted log returns a whole
-subsystem's story. That property is only worth anything if it holds for EVERY line:
-a single site that hand-rolls its own prefix is invisible to the search, and the
-reader cannot know it was missed — the log looks complete.
-
-That is not hypothetical. While the markers were being introduced, nine separate
-hand-rolled prefix families were found in code that had already been "converted",
-and every one of them was found by a person reading a running app's log, never by
-the tree. Two of the worst:
-
-  - `[R2-diag]`, 21 sites. A debug-session prefix that no registered marker matched,
-    so a [Refractometer] search returned the driver's packets but NOT the
-    connect/churn story those lines were added to explain.
-  - `DE1Simulator:`, 37 sites, all at DEBUG. On a simulator session the entire DE1
-    view was EMPTY — the machine the page is about was the one thing it could not
-    report — and nothing in the tree said so.
-
-A grep finds both in milliseconds. Guidance did not.
-
-WHAT IT ENFORCES
-----------------
-There are TWO coverage sets, because the rules do not all generalise the same way:
-
-  COVERED_GLOBS      all rules. Files wholly about one subsystem, where "use the
-                     helper" is always the right instruction.
-  MARKER_ONLY_GLOBS  rules 2 and 5 only. Files that HOST a subsystem's lines beside
-                     unrelated code — main.cpp and SAW's three. Rule 1 there produced
-                     over a hundred "violations" that were lines with no subsystem to
-                     belong to, and a check reporting that many non-defects is one
-                     people switch off.
-
-  1. No bare qDebug/qInfo/qWarning/qCritical. Log through the subsystem's helper,
-     which is the only place the marker and tier are applied. Suppressible per line
-     with a `// log-marker-exempt: <reason>` comment on or above the call.
-  2. No REGISTERED marker typed into a log message. `HELPER("[Scale] ...")` means the
-     marker was applied twice, once by hand and once by the helper — the
-     `[Scale] [BLE DecentScaleWifi] …` shape.
-  3. Every marker literal a helper header applies is one the registry declares, so a
-     helper cannot quietly invent a subsystem. The header set is derived from the
-     tree, not listed — see helper_headers().
-  4. Every bracketed marker literal in qml/ is one the registry declares. The two
-     on-screen log views name their subsystems as plain QML strings, so a rename
-     would otherwise pass rules 1-3 and leave a view silently empty.
-  5. No UNREGISTERED bracketed token opening a log message. `HELPER("[R2-diag] …")`
-     passes rules 1 and 2 — it uses the helper, and the token is not a registered
-     marker — yet it advertises a subsystem query that returns an incomplete answer
-     while looking exactly like one that works.
-
-     This block previously documented rule 5's absence as a known hole ("caught by
-     nothing here"), and kept saying so after the rule existed. Two descriptions of
-     one policy, one of them false, is the drift this script exists to catch — worth
-     leaving on the record, since the stale text read as a deliberate decision.
-
-  Every marker literal must also carry a DECENZA_LOG_SUBSYSTEMS row; see
-  registered_markers(). Without one the marker works everywhere in the code and is
-  still missing from debug_get_log's description, so nobody knows to search for it.
-
-The registry is PARSED from src/core/logtags.h, never restated here. A copy of the
-marker list in this script would be one more thing to drift, which is the exact
-failure mode the script exists to prevent.
-
-No Qt, no compiler, no build: pure text over the source, so it can run as a
-per-PR gate (see .github/workflows/text-invariants.yml).
+Raw output must use a shared formatter, with explicit registry ownership at the
+emitter. Inline exemptions require a reason (bootstrap, terminal sink, crash-safe
+writer); Runtime capture never excuses a first-party bypass. Registered tokens
+and catalog rows are derived from logtags.h. No compiler, Qt, or network needed.
+Run --self-test to exercise negative fixtures through this same checker.
 """
 
 import re
@@ -75,143 +15,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 LOGTAGS = REPO / "src/core/logtags.h"
 
-# Files whose logging must go through a marked helper. Deliberately narrow: these are
-# the subsystems that have helpers and a registry entry. Widen it when a subsystem is
-# added to the registry, not before — a glob that covers code with nowhere to log to
-# would only teach people to add exemptions.
+# All first-party runtime source, including mixed-owner files and dormant bridges.
 COVERED_GLOBS = [
-    "src/ble/**/*.cpp",
-    "src/ble/**/*.mm",
-    "src/usb/**/*.cpp",
-    "src/simulator/de1simulator.cpp",
-    "src/simulator/simulatedscale.cpp",
-    # Both already log through SCALE_*, so the rationale above does not describe
-    # them — they have somewhere to log to. wifiscalediscovery.cpp especially:
-    # it is the home of the "[DecentScaleWifi]" family that logtags.h cites as the
-    # original sin, and leaving it uncovered means a future bare qDebug there is
-    # the one place nobody would think to check.
-    "src/network/wifiscalediscovery.cpp",
-    # Wholly about HDS firmware updates: manifest fetch, eligibility, release
-    # notes, and dispatching the start command. Covered because "the Update
-    # button never appeared" is answered only by whether the manifest check ran
-    # and what it said — and it shipped with four hand-typed "[Scale][HDS Update]"
-    # prefixes on bare qWarnings, which no registered marker would have matched.
-    "src/core/hdsfirmwareupdatecontroller.cpp",
-    # Wholly about the Android multicast lock: every line in it is that lock's
-    # lifecycle or its failure to be taken. Worth covering because whether the
-    # lock was held is the FIRST question a "browse ran and found nothing" report
-    # has to answer, and it shipped with five hand-typed "[MulticastLock]"
-    # prefixes that no registered marker would ever match.
-    "src/network/multicastlock.cpp",
-    # Wholly about mDNS/DNS-SD: socket setup, query/retransmit, record parsing,
-    # both backends. Every line is a [Network] line. It carried a hand-typed
-    # "[MdnsResolver]" prefix that the registry never knew about, so a reader
-    # pulling the [Network] story out of a submitted log got everything about the
-    # WiFi scale EXCEPT why its name would not resolve — which is the half that
-    # usually explains the other.
-    "src/network/mdnsresolver.cpp",
-    "src/core/settings_hardware.cpp",
-    # Wholly about the coffee-bag detail pipeline: canonical search, the product
-    # URL's state, archive recovery, page extraction and the image cache. Covered
-    # rather than marker-only because every log line in it is a [BeanBase] line —
-    # and it shipped with TWO hand-rolled prefixes ("BeanBaseClient:" and
-    # "BeanBase:") across twelve calls, so no single grep returned the story.
-    "src/network/beanbaseclient.cpp",
-    # Wholly about sensor calibration: every line in it is either a refused
-    # correction and why, or a correction being applied with the pair it was
-    # computed from. That is the whole answer to "why can I not apply a
-    # correction", so "use the helper" is always right here.
-    "src/controllers/sensorcalibrationcontroller.cpp",
-    # Wholly about the screensaver: every log line in it is a screensaver line.
-    "src/screensaver/screensavervideomanager.cpp",
-    # Wholly about equipment packages: every log line in it is an [Equipment] line
-    # (identity edits and their fork/merge/in-place decision, package CRUD, the
-    # enrichment-fork heal, the equipment migration and device import).
-    "src/history/equipmentstorage.cpp",
-    # Wholly about the MCP server: sessions, the HTTP/SSE transport, tool
-    # dispatch, remote access and the tunnel. Every log line in src/mcp is an
-    # [MCP] line, so "use the helper" is always the right instruction here. The
-    # tool files are included deliberately — a query failure inside shots_list is
-    # still something an assistant's user reports as "my AI can't see my shots".
-    "src/mcp/**/*.cpp",
-    # Wholly about the weather/sun-time fetches, and wholly about the update
-    # check. Both carried a hand-typed "WeatherManager: " / "UpdateChecker: "
-    # prefix that no registered marker matched, which is exactly why they were
-    # invisible to a per-marker analysis of a submitted log while being two of
-    # its largest repeaters. Covered so a future bare qDebug in either cannot
-    # re-open that hole.
-    "src/weather/weathermanager.cpp",
-    "src/core/updatechecker.cpp",
-    # Wholly about screen-reader announcements and the TTS engine behind them:
-    # every line is either the route an announcement took or the setup that
-    # decides which routes exist. Covered because "TalkBack says nothing on this
-    # screen" is answered ONLY by these lines, and the file shipped with two
-    # hand-rolled conventions that had already drifted apart — eight "[a11y] "
-    # bare-qInfo lines and six "AccessibilityManager: " ones — so neither a
-    # marker filter nor a single grep returned the whole story.
-    "src/core/accessibilitymanager.cpp",
+    "src/**/*.cpp", "src/**/*.h", "src/**/*.mm", "src/**/*.m",
+    "ios/**/*.mm", "ios/**/*.m", "android/**/*.java", "android/**/*.kt",
 ]
-
-# Files that HOST a registered subsystem's lines alongside unrelated code.
-#
-# Rules 2 and 5 apply (do not fake a marker); rule 1 does not (not every line here
-# belongs to a marked subsystem, so "route it through a helper" has no answer).
-#
-# The distinction is real, not a concession. COVERED_GLOBS above are files that are
-# WHOLLY about their subsystem — every log line in src/ble/scales/acaiascale.cpp is a
-# scale line, so "use the helper" is always the right instruction. main.cpp is not
-# like that: it drives the scale and refractometer reconnect ladders AND initialises
-# fonts, translations, TTS and accessibility. Applying rule 1 there produced 118
-# "violations" that were mostly lines with no subsystem to belong to — a check
-# reporting a hundred non-defects is one people switch off, which is how the previous
-# generation of this convention died.
-#
-# What DOES hold everywhere is the marker invariant: if you write a bracketed prefix,
-# it must be a registered marker applied by its helper. That is what rules 2 and 5
-# enforce, and it is what caught the real finds here — seven device lines under a
-# hand-typed "[USB Scale]"/"[BLE DE1]" that no [Scale]/[DE1] search returned, and two
-# lines that applied [Refractometer] twice.
-MARKER_ONLY_GLOBS = [
-    # Hosts the [Equipment] migration lines (the enrichment-fork heal) beside the
-    # whole schema-migration chain and the shot CRUD, none of which is equipment.
-    "src/history/shothistorystorage.cpp",
-    # Hosts the [Equipment] grinder census beside every other history query, which
-    # is why it is here and not in COVERED_GLOBS: the file's bare qWarning calls
-    # are query failures belonging to no subsystem at all.
-    "src/history/shothistorystorage_queries.cpp",
-    # Drives both reconnect ladders through BLEManager's public tier helpers, so a
-    # device subsystem's most-asked-about narrative is written here, in a file that is
-    # not about logging at all.
-    "src/main.cpp",
-    # SAW's own files, now that [SAW] is registered and has a helper header. Each
-    # also carries unrelated lines (frame transitions, flow calibration), which is
-    # why they are here rather than in COVERED_GLOBS.
-    "src/controllers/shottimingcontroller.cpp",
-    "src/core/settings_calibration.cpp",
-    "src/machine/weightprocessor.cpp",
-    # Added after the fact: this file gained [SAW] lines in the same change that
-    # added these rules and was left out of both sets, so rules 2 and 5 did not run
-    # on the file carrying the [SAW][HotWater] narrative. The check for "does every
-    # file using a helper appear in a glob" is one nobody ran, because the script
-    # has no way to ask it of itself — worth remembering before adding a subsystem.
-    "src/machine/machinestate.cpp",
-    # Both found by rule 6 below, on its first run, having been given [Font] lines
-    # in this same change and added to no glob — which is the whole argument for
-    # rule 6 existing rather than for adding files by hand.
-    "src/core/settings_theme.cpp",
-    "src/screensaver/iosbrightness.mm",
-    # Hosts the [BeanBase][FindPage] decline line beside the advisor, the
-    # conversation store and every provider dispatch, none of which is the bag
-    # pipeline — marker-only for exactly that reason.
-    "src/ai/aimanager.cpp",
-    # Hosts two subsystems' lines: [Equipment][Migration] (the constructor's
-    # adoption of the package migration 35/36 healed) and [DE1][SettingsDrift]
-    # (the ShotSettings resend ladder in onShotSettingsReported). Both sit beside
-    # a constructor wiring shot history, bags, recipes, profiles, the DE1 and the
-    # scales, and ~110 bare qDebug calls belonging to no subsystem at all. Rule 1
-    # has no answer for those, which is exactly the main.cpp case above.
-    "src/controllers/maincontroller.cpp",
-]
+MARKER_ONLY_GLOBS = []  # retained for callers of covered_files(); no runtime exemptions
 
 # Helper headers define the macros; they are allowed to name markers and to contain
 # the qFn tokens the macros expand to.
@@ -240,7 +49,7 @@ def helper_headers():
 # the single false answer this whole change exists to stop a reader being given.
 # logtags.h calls a marker "API, not an implementation detail"; rule 4 is what makes
 # the QML side of that true.
-QML_GLOBS = ["qml/**/*.qml"]
+QML_GLOBS = ["qml/**/*.qml", "qml/**/*.js"]
 # A bracketed marker in QML. Matches BOTH shapes this rule has to cover, which
 # is the part that took two tries to get right.
 #
@@ -276,8 +85,11 @@ QML_GLOBS = ["qml/**/*.qml"]
 # rather than skipped for not looking like an identifier.
 QML_MARKER_RE = re.compile(r'''["'`]\[([A-Z][A-Za-z0-9-]*)\](?=[ :"'`])''')
 
-BARE_LOG_RE = re.compile(r"\bq(Debug|Info|Warning|Critical)\s*\(\s*\)")
-EXEMPT_RE = re.compile(r"log-marker-exempt")
+BARE_LOG_RE = re.compile(
+    r"\b(?:q(?:Debug|Info|Warning|Critical|Fatal|CDebug|CInfo|CWarning|CCritical|CFatal|ErrnoWarning)|"
+    r"console\.(?:log|debug|info|warn|error)|(?:android\.util\.)?Log\.(?:[dviwe]|println|wtf)|"
+    r"NSLogv?|os_log(?:_debug|_info|_error|_fault|_with_type)?|__android_log_print|__android_log_write|fprintf|fputs|printf|puts)\s*\(")
+EXEMPT_RE = re.compile(r"log-marker-exempt:\s*[^\s].{10,}")
 
 # A REGISTERED marker token typed at the start of a log message string. Built from
 # the registry at runtime (see build_inline_prefix_re) so it cannot drift from it.
@@ -323,13 +135,13 @@ def build_inline_prefix_re(tokens):
 # Neither is an allowlist, deliberately. An allowlist of permitted tokens would be a
 # second registry, free to drift from the first — the exact failure this convention
 # exists to prevent.
-LEADING_BRACKET_RE = re.compile(r'"\s*\[([A-Z][A-Za-z0-9 _.-]*)\]')
+LEADING_BRACKET_RE = re.compile(r'''["'`]\[([A-Za-z][A-Za-z0-9 _./-]*)\]''')
 
 # A logging call: a bare Qt one, or any subsystem helper macro (FOO_LOG, SCALE_WARN,
 # SAW_INFO_STDERR, DECENZA_SUBSYS_LOG…). Derived from the naming convention rather
 # than listed, for the same reason helper_headers() is derived.
 LOG_CALL_RE = re.compile(
-    r"\bq(Debug|Info|Warning|Critical)\s*\(|\b[A-Z][A-Z0-9_]*_(LOG|INFO|WARN)[A-Z0-9_]*\s*\(")
+    r"\bq(Debug|Info|Warning|Critical|Fatal)\s*\(|\b[A-Z][A-Z0-9_]*_(LOG|INFO|WARN|DEBUG|ERROR|FATAL)[A-Z0-9_]*\s*\(")
 
 # Where a marker literal is applied by a helper: DECENZA_LOG_MARKER_<NAME>.
 MARKER_USE_RE = re.compile(r"\bDECENZA_LOG_MARKER_([A-Z0-9_]+)\b")
@@ -377,9 +189,7 @@ def _expand(globs):
 
 
 def covered_files():
-    # COVERED_GLOBS matches only .cpp/.mm, so helper headers cannot appear here and
-    # need no exclusion. Yields (rel, path, all_rules) — all_rules False for the
-    # marker-only set, where rule 1 does not apply (see MARKER_ONLY_GLOBS).
+    # All rules apply to every first-party runtime file.
     full = [(rel, path, True) for rel, path in _expand(COVERED_GLOBS)]
     full_rels = {rel for rel, _, _ in full}
     marker_only = [(rel, path, False) for rel, path in _expand(MARKER_ONLY_GLOBS)
@@ -455,6 +265,29 @@ def statement_starts(lines):
     return result
 
 
+SOURCE_TOKEN_RE = re.compile(
+    r'''R"([^\s()\\]*)\(.*?\)\1"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|//[^\n]*|/\*.*?\*/''', re.S)
+
+def code_only(text):
+    return SOURCE_TOKEN_RE.sub(
+        lambda m: "".join("\n" if c == "\n" else " " for c in m.group()), text)
+
+def helper_arguments(text, markers, rel):
+    failures = []
+    # Registry identifiers in the generic C++ stream alias are as strongly
+    # checked as the literal-marker aliases in subsystem headers.
+    for m in re.finditer(r"\bDIAG_(?:C?DEBUG|INFO|C?WARN|ERROR|FATAL)\s*\(\s*([^,]+),", text):
+        owner = m.group(1).strip()
+        is_macro_parameter = owner == "owner" and text[text.rfind("\n", 0, m.start()) + 1:m.start()].lstrip().startswith("#define")
+        if not is_macro_parameter and owner not in markers:
+            failures.append(f"{rel}:{text.count(chr(10), 0, m.start()) + 1}: unknown diagnostic owner {owner}")
+    for m in re.finditer(r'''\b(?:WebDebugLogger\.(?:debug|info|warn|error)|DiagnosticLog\.(?:[dviwe]|println|wtf))\s*\(\s*([^,]+),''', text):
+        owner = m.group(1).strip().strip('"')
+        if owner not in markers.values():
+            failures.append(f"{rel}:{text.count(chr(10), 0, m.start()) + 1}: diagnostic owner must be a registered literal: {owner}")
+    return failures
+
+
 def main():
     markers = registered_markers()
     tokens = set(markers.values())
@@ -464,6 +297,8 @@ def main():
     for rel, path, all_rules in covered_files():
         raw = path.read_text(encoding="utf-8")
         lines = strip_block_comments(raw).splitlines()
+        bare_lines = code_only(raw).splitlines()
+        failures.extend(helper_arguments(raw, markers, rel))
         statements = statement_starts(lines)
 
         for n, line in enumerate(lines, 1):
@@ -471,18 +306,14 @@ def main():
             if not code.strip():
                 continue
 
-            # Rule 1: bare log call. An exemption may sit on the line or in the
-            # comment block directly above it. The window is 6 lines because a
-            # worthwhile exemption states WHY, and a real reason rarely fits on one
-            # line — a 1-line window would push people toward terse, useless reasons
-            # or toward giving up and deleting the check.
-            if all_rules and BARE_LOG_RE.search(code):
-                context = "\n".join(lines[max(0, n - 7):n])
+            # Exempt only the physical call line, never neighboring emitters.
+            if all_rules and BARE_LOG_RE.search(bare_lines[n - 1]):
+                context = lines[n - 1]
                 if not EXEMPT_RE.search(context):
                     failures.append(
-                        f"{rel}:{n}: bare {BARE_LOG_RE.search(code).group(0)} — log through "
+                        f"{rel}:{n}: bare {BARE_LOG_RE.search(bare_lines[n - 1]).group(0)} — log through "
                         f"this subsystem's helper so the marker and tier are applied in one "
-                        f"place. If this line genuinely cannot (no helper in scope), append "
+                        f"place. If this is a crash-safe writer, bootstrap fallback, or terminal sink, append "
                         f"`// log-marker-exempt: <reason>`.")
 
             # Rule 2: a bracketed prefix typed into the message itself.
@@ -537,7 +368,12 @@ def main():
 
     # Rule 4: a bracketed marker literal in QML must be one the registry declares.
     for rel, path in qml_files():
-        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        raw = path.read_text(encoding="utf-8")
+        failures.extend(helper_arguments(raw, markers, rel))
+        for n, bare in enumerate(code_only(raw).splitlines(), 1):
+            if BARE_LOG_RE.search(bare):
+                failures.append(f"{rel}:{n}: raw QML/JS logging bypasses WebDebugLogger's shared formatter")
+        for n, line in enumerate(raw.splitlines(), 1):
             code = line.split("//", 1)[0]
             for inner in QML_MARKER_RE.findall(code):
                 if inner not in tokens:
@@ -550,7 +386,8 @@ def main():
 
     # Rule 6: a file that USES a logging helper must be in a glob set.
     #
-    # The globs are hand-maintained lists, and nothing made them keep up with the
+    # Guard future changes to the source roots. Historically, hand-maintained
+    # per-file lists did not keep up with the
     # code. machinestate.cpp gained [SAW] lines in the same change that wrote these
     # rules and was added to neither set, so rules 2 and 5 did not run on the file
     # carrying the [SAW][HotWater] narrative — found by review, not by the gate.
@@ -580,9 +417,7 @@ def main():
             failures.append(
                 f"{rel}: includes the logging helper \"{m.group(1)}\" but is in neither "
                 f"COVERED_GLOBS nor MARKER_ONLY_GLOBS in scripts/check_log_markers.py, so "
-                f"the marker rules do not run on it. Add it to MARKER_ONLY_GLOBS if it hosts "
-                f"a subsystem's lines beside unrelated code, or to COVERED_GLOBS if every log "
-                f"line in it belongs to one subsystem.")
+                f"the marker rules do not run on it. Extend COVERED_GLOBS to include its first-party source root.")
 
     if failures:
         print("Log-marker invariant violated:\n")
@@ -600,5 +435,55 @@ def main():
     return 0
 
 
+def self_test():
+    """Run the production checker against isolated positive/negative source trees."""
+    import contextlib
+    import io
+    import tempfile
+    global REPO, LOGTAGS
+    original_repo, original_tags = REPO, LOGTAGS
+    # Preserve the real registry/helpers so fixtures also test registry derivation.
+    helpers = {name: (REPO / name).read_text() for name in (
+        "src/core/logtags.h", "src/core/diagnosticlogging.h")}
+    cases = [
+        ("src/mixed.cpp", 'void f() { printf("bare\\n"); }', False),
+        ("src/main.cpp", 'void f() { qDebug() << "bare"; }', False),
+        ("src/core/mixed.h", 'void f() { qWarning() << prefix << "x"; }', False),
+        ("src/mixed.cpp", 'void f() { qInfo() << "[lowercase] x"; }', False),
+        ("src/mixed.cpp", 'void f() { DIAG_DEBUG(UNKNOWN, "x") << "x"; }', False),
+        ("src/mixed.cpp", 'void f() { DIAG_DEBUG(owner, "x") << "x"; }', False),
+        ("src/mixed.cpp", 'void f() { DIAG_DEBUG(APP, "x") << "[unregistered] x"; }', False),
+        ("qml/View.qml", 'Item { Component.onCompleted: console.warn("x") }', False),
+        ("qml/shared.js", 'function f() { console.log(prefix + "x") }', False),
+        ("qml/View.qml", 'Item { Component.onCompleted: WebDebugLogger.warn(owner, "x", "x") }', False),
+        ("android/Bridge.java", 'void f() { Log.w("x", "bad"); }', False),
+        ("android/Bridge.java", 'void f() { Log.println(5, "x", "bad"); }', False),
+        ("ios/Bridge.mm", 'void f() { NSLog(@"bad"); }', False),
+        ("src/mixed.cpp", 'void f() { DIAG_WARN(APP, "x") << "valid"; }', True),
+        ("qml/View.qml", 'Item { Component.onCompleted: WebDebugLogger.warn("App", "x", "ok") }', True),
+        ("android/Bridge.java", 'void f() { DiagnosticLog.w("App", "x", "ok"); }', True),
+        ("src/crash.cpp", 'void f() { fprintf(stderr, "crash"); } // log-marker-exempt: crash-safe writer cannot reenter Qt', True),
+        ("src/mixed.cpp", '// log-marker-exempt: crash-safe writer cannot reenter Qt\nvoid f() { qDebug() << "not exempt"; }', False),
+    ]
+    try:
+        for rel, source, accepted in cases:
+            with tempfile.TemporaryDirectory(prefix="log-marker-fixture-") as directory:
+                REPO = Path(directory)
+                LOGTAGS = REPO / "src/core/logtags.h"
+                for name, text in {**helpers, rel: source}.items():
+                    path = REPO / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(text)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    result = main()
+                if (result == 0) != accepted:
+                    raise AssertionError(f"fixture {rel}: {source}\n{output.getvalue()}")
+    finally:
+        REPO, LOGTAGS = original_repo, original_tags
+    print(f"OK: {len(cases)} marker-gate fixtures")
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(self_test() if "--self-test" in sys.argv else main())

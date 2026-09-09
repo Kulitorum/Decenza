@@ -29,6 +29,7 @@
 
 #include "ai/aimanager.h"
 #include "ai/aiprovider.h"
+#include "helpers/diagnosticcapture.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "ai/conversationkey.h"
@@ -124,6 +125,25 @@ struct AiSettingsGuard {
 
 } // namespace
 
+// Deliberately holds the reply until the test emits it; never opens a socket.
+class DiagnosticTestProvider : public AIProvider {
+public:
+    DiagnosticTestProvider() : AIProvider(nullptr) {}
+    QString selectedModel = QStringLiteral("model-at-dispatch");
+    int calls = 0;
+    QString name() const override { return "Fake"; }
+    QString id() const override { return "openai"; }
+    QString modelName() const override { return selectedModel; }
+    bool isConfigured() const override { return true; }
+    bool supportsUrlAnalysis() const override { return true; }
+    bool supportsWebSearch() const override { return true; }
+    void analyze(const QString&, const QString&) override { ++calls; }
+    void analyzeUrl(const QString& s, const QString& u) override { analyze(s, u); }
+    void analyzeConversation(const QString&, const QJsonArray&) override { ++calls; }
+    void searchWeb(const QString& s, const QString& u) override { analyze(s, u); }
+    void testConnection() override {}
+};
+
 class tst_AIManager : public QObject {
     Q_OBJECT
 
@@ -141,6 +161,22 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void conversationEntryRejectionsHaveTerminalOutcomes()
+    {
+        DiagnosticCapture logs;
+        AIConversation conversation(nullptr);
+        QSignalSpy errors(&conversation, &AIConversation::errorOccurred);
+        conversation.ask("secret-system", "secret-user");
+        QVERIFY(!conversation.followUp("secret-user"));
+        QCOMPARE(errors.size(), 2);
+        QCOMPARE(logs.terminals().size(), 2);
+        for (const auto& line : logs.terminals()) {
+            QVERIFY(line.contains("outcome=rejected"));
+            QVERIFY(line.contains("reason=managerUnavailable"));
+            QVERIFY(line.contains("provider=not-invoked"));
+        }
+        QVERIFY(!logs.lines().join('\n').contains("secret-"));
+    }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
     // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
     // parseProductPageUrl: the last-rung search's reply contract. A model's
@@ -301,6 +337,7 @@ private slots:
         AIManager mgr(&nam, &settings);
         QSignalSpy failed(&mgr, &AIManager::bagDetailsExtractionFailed);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=rejected reason=notConfigured"));
         mgr.extractCoffeeBagDetailsFromUrl("https://x/bag", "https://x/bag", "coffee");
         QCOMPARE(failed.count(), 1);
         QCOMPARE(failed.last().at(1).toString(), QString("notConfigured"));
@@ -311,6 +348,7 @@ private slots:
         settings.ai()->setOllamaModel("llama3");
         AIManager mgr2(&nam, &settings);
         QSignalSpy failed2(&mgr2, &AIManager::bagDetailsExtractionFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=rejected reason=urlFetchUnsupported"));
         mgr2.extractCoffeeBagDetailsFromUrl("https://x/bag", "https://x/bag", "coffee");
         QCOMPARE(failed2.count(), 1);
         QCOMPARE(failed2.last().at(1).toString(), QString("urlFetchUnsupported"));
@@ -333,6 +371,7 @@ private slots:
         // Busy guard: synchronous failure with the "busy" code and the echoed
         // token; does not clobber the in-flight request's state.
         mgr.m_analyzing = true;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("terminal outcome=rejected reason=busy"));
         mgr.extractCoffeeBagDetails("https://x/bag", "some page text");
         QCOMPARE(extractFailed.count(), 1);
         QCOMPARE(extractFailed.last().at(0).toString(), QString("https://x/bag"));
@@ -372,6 +411,140 @@ private slots:
         mgr.onAnalysisComplete("plain advice");
         QCOMPARE(recommendation.count(), 1);  // routing restored
         QCOMPARE(extracted.count(), 1);
+    }
+
+    void operationOutcomesAreOnceOnlyAndDescribeInterpretation()
+    {
+        DiagnosticCapture logs;
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setOpenaiApiKey("test-key-never-sent");
+        AIManager mgr(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete, &mgr, &AIManager::onAnalysisComplete);
+        connect(provider, &AIProvider::analysisFailed, &mgr, &AIManager::onAnalysisFailed);
+        mgr.m_openaiProvider = std::move(fake);
+        QSignalSpy extracted(&mgr, &AIManager::bagDetailsExtracted);
+        QStringList ids;
+        const QList<QPair<QString, QString>> replies{
+            {"{\"origin\":\"Colombia\"}", "success"}, {"{}", "empty"},
+            {"sensitive-page-response", "failed"}};
+        for (const auto& [reply, outcome] : replies) {
+            mgr.extractCoffeeBagDetails("token", "sensitive-page-body");
+            const auto op = mgr.m_logOperation;
+            QVERIFY(op);
+            QVERIFY(!ids.contains(op->id));
+            ids << op->id;
+            const auto before = logs.terminals().size();
+            emit provider->analysisComplete(reply);
+            QCOMPARE(logs.terminals().size(), before + 1);
+            QVERIFY(logs.terminals().last().startsWith("[BeanBase][Operation]"));
+            QVERIFY(logs.terminals().last().contains("outcome=" + outcome));
+            QVERIFY(!op->finish("failed", "lateCallback"));
+            QCOMPARE(logs.terminals().size(), before + 1);
+        }
+        QCOMPARE(extracted.count(), 2); // valid empty remains a usable interpretation
+        mgr.extractCoffeeBagDetails("token", "secret prompt");
+        const auto failed = mgr.m_logOperation;
+        emit provider->analysisFailed("secret-key echoed from the provider");
+        QVERIFY(logs.terminals().last().contains("reason=providerFailure"));
+        QCOMPARE(logs.terminals().size(), 4);
+        mgr.conversation()->ask("secret-system", "secret prompt");
+        emit provider->analysisFailed("secret-key echoed in conversation failure");
+        QCOMPARE(logs.terminals().size(), 5);
+        const auto all = logs.lines().join('\n');
+        QVERIFY(!all.contains("secret-key"));
+        QVERIFY(!all.contains("sensitive-page"));
+        QVERIFY(!all.contains("secret prompt"));
+        QCOMPARE(provider->calls, 5);
+    }
+
+    void reusedDiagnosticIdentityCannotTerminateAnInFlightRequest()
+    {
+        DiagnosticCapture logs;
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setOpenaiApiKey("unused-test-key");
+        AIManager mgr(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete, &mgr, &AIManager::onAnalysisComplete);
+        mgr.m_openaiProvider = std::move(fake);
+        const auto page = AIOperationLog::begin("bagExtraction", true, 71);
+        mgr.extractCoffeeBagDetails("page", "text", "coffee", page->id);
+        QCOMPARE(mgr.m_logOperation, page);
+        mgr.extractCoffeeBagDetails("page", "text", "coffee", page->id);
+        QCOMPARE(provider->calls, 1);
+        QVERIFY(!page->terminal);
+        QCOMPARE(logs.terminals().size(), 1);
+        QVERIFY(logs.terminals().first().contains("outcome=rejected reason=busy"));
+        QVERIFY(!logs.terminals().first().contains("op=" + page->id));
+        emit provider->analysisComplete("{\"origin\":\"Colombia\"}");
+        QCOMPARE(logs.terminals().size(), 2);
+        QVERIFY(logs.terminals().last().contains("op=" + page->id));
+        QVERIFY(logs.terminals().last().contains("outcome=success"));
+
+        mgr.extractCoffeeBagDetails("page", "text", "coffee", page->id);
+        const auto next = mgr.m_logOperation;
+        QVERIFY(next->id != page->id);
+        QCOMPARE(next->bagId, 71);
+        next->finish("failed", "consumerTimeout");
+        emit provider->analysisComplete("{\"origin\":\"Colombia\"}");
+        QCOMPARE(logs.terminals().size(), 3);
+        QVERIFY(logs.terminals().last().contains("outcome=failed reason=consumerTimeout"));
+        QCOMPARE(provider->calls, 2);
+    }
+
+    void operationSnapshotSurvivesRejectionSettingsChangeAndAbandonment()
+    {
+        DiagnosticCapture logs;
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setOpenaiApiKey("unused-test-key");
+        AIManager mgr(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete, &mgr, &AIManager::onAnalysisComplete);
+        mgr.m_openaiProvider = std::move(fake);
+        mgr.analyze("system", "user", 1080);
+        const auto first = mgr.m_logOperation;
+        mgr.extractCoffeeBagDetails("overlap", "page");
+        QCOMPARE(logs.terminals().size(), 1);
+        QVERIFY(logs.terminals().last().contains("outcome=rejected reason=busy"));
+        QCOMPARE(mgr.m_logOperation, first);
+        provider->selectedModel = "model-after-dispatch";
+        settings.ai()->setAiProvider("ollama");
+        emit provider->analysisComplete("advice");
+        QCOMPARE(logs.terminals().size(), 2);
+        const auto terminal = logs.terminals().last();
+        QVERIFY(terminal.startsWith("[AI][Operation]"));
+        QVERIFY(terminal.contains("shotId=1080 provider=openai model=model-at-dispatch"));
+        settings.ai()->setAiProvider("openai");
+        const auto searchId = mgr.findProductPage("search", "roaster", "coffee", "coffee", 42);
+        mgr.abandonDiagnosticOperation(searchId);
+        QCOMPARE(logs.terminals().size(), 3);
+        QVERIFY(logs.terminals().last().contains("bagId=42"));
+        QVERIFY(logs.terminals().last().contains("outcome=superseded"));
+        QVERIFY(mgr.isAnalyzing()); // logging never cancels the actual request
+        emit provider->analysisComplete("{\"url\":\"https://roaster.example/bag\"}");
+        QCOMPARE(logs.terminals().size(), 3);
+        QCOMPARE(provider->calls, 2);
+        mgr.analyze("system", "user");
+        const auto abandoned = mgr.m_logOperation;
+        // The ordinary manager destruction path owns the cancellation verdict.
+        mgr.m_logOperation.reset();
+        auto owner = std::make_unique<AIManager>(&nam, &settings);
+        owner->m_logOperation = abandoned;
+        owner.reset();
+        QVERIFY(logs.terminals().last().contains("outcome=cancelled reason=managerDestroyed"));
+        QCOMPARE(logs.terminals().size(), 4);
     }
 
     void initTestCase()
@@ -1301,7 +1474,7 @@ private slots:
         // structuredNext object. Pin the expected qWarning per TESTING.md
         // so a silent failure of the warning path would fail the test.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("AIManager::parseStructuredNext: structuredNext parse failed.*"));
+            QRegularExpression("parseStructuredNext: structuredNext parse failed.*"));
         const QString message = QStringLiteral(
             "advice\n\n```json\n{grinderSetting: 4.75\n```");
         const auto parsed = AIManager::parseStructuredNext(message);

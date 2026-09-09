@@ -236,8 +236,8 @@ Item {
                     // Empty source means the Loader never loads, so neither onLoaded nor the
                     // Loader.Error branch of onStatusChanged below ever fires — an unrecognised
                     // type would vanish from the layout with no diagnostic at all.
-                    console.warn("LayoutItemDelegate: unknown widget type '" + root.itemType
-                                 + "' (id '" + root.itemId + "') — not rendered")
+                    WebDebugLogger.warn("App", "LayoutItemDelegate", ["unknown widget type '" + root.itemType
+                                 + "' (id '" + root.itemId + "') — not rendered"].map(String).join(" "))
                     src = ""
                     break
             }
@@ -252,9 +252,9 @@ Item {
                 // Not just unstyled: the early return also skips the anchors.fill below, and
                 // root.widget stays null so implicitWidth/implicitHeight are 0 — the widget
                 // takes no space and paints nothing.
-                console.warn("LayoutItemDelegate: widget type '" + root.itemType + "' (id '"
+                WebDebugLogger.warn("App", "LayoutItemDelegate", ["widget type '" + root.itemType + "' (id '"
                              + root.itemId + "') does not root at LayoutWidgetItem — "
-                             + "it will not render")
+                             + "it will not render"].map(String).join(" "))
                 return
             }
 
@@ -313,8 +313,8 @@ Item {
 
         onStatusChanged: {
             if (status === Loader.Error)
-                console.warn("LayoutItemDelegate: failed to load widget type '" + root.itemType
-                             + "' (id '" + root.itemId + "') from " + source)
+                WebDebugLogger.warn("App", "LayoutItemDelegate", ["failed to load widget type '" + root.itemType
+                             + "' (id '" + root.itemId + "') from " + source].map(String).join(" "))
         }
     }
 }

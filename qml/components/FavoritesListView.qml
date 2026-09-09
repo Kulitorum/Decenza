@@ -245,8 +245,8 @@ Item {
                                 // report than one that is simply absent. Same call as
                                 // LayoutItemDelegate, which says outright that the widget will
                                 // not render.
-                                console.warn("FavoritesListView: trailingActionDelegate does not "
-                                             + "root at FavoritesRowAction — it will not render")
+                                WebDebugLogger.warn("App", "FavoritesListView", ["trailingActionDelegate does not "
+                                             + "root at FavoritesRowAction — it will not render"].map(String).join(" "))
                                 trailingActionLoader.visible = false
                                 return
                             }

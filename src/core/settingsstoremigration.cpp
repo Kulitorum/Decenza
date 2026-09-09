@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "settingsstoremigration.h"
 
 #include "appsettings.h"
@@ -47,7 +48,7 @@ void destroyStore(QSettings& store, const char* what)
     store.clear();
     store.sync();
     if (!path.isEmpty() && QFile::exists(path) && !QFile::remove(path))
-        qInfo() << "Settings store migration: cleared" << what
+        DIAG_INFO(STORAGE, "settingsstoremigration") << "Settings store migration: cleared" << what
                 << "but its file lingers at" << path << "— will be removed on next launch";
 }
 
@@ -73,7 +74,7 @@ void removeEmptyLegacyStoreFile(const QString& organization, const QString& appl
 
     const QString path = store.fileName();
     if (!path.isEmpty() && QFile::exists(path) && QFile::remove(path))
-        qInfo() << "Settings store migration: removed leftover empty store file at" << path;
+        DIAG_INFO(STORAGE, "settingsstoremigration") << "Settings store migration: removed leftover empty store file at" << path;
 }
 #endif
 
@@ -131,7 +132,7 @@ SettingsStoreMigrationOutcome migrateLegacySettingsStore(QSettings& canonical, Q
     // anything else means the write did not land the way we asked.
     for (const QString& key : copiedKeys) {
         if (canonical.value(key) != legacy.value(key)) {
-            qWarning() << "Settings store migration: verification failed for key" << key
+            DIAG_WARN(STORAGE, "settingsstoremigration") << "Settings store migration: verification failed for key" << key
                        << "— legacy store left intact, will retry on next launch";
             out.deferredOnError = true;
             return out;
@@ -155,7 +156,7 @@ void runSettingsStoreMigrationOnce()
     // PID-scoped test file, but the legacy handle below is unconditionally the
     // developer's REAL DE1Qt store — and this migration destroys what it reads.
     // Tests exercise migrateLegacySettingsStore() directly, over temp stores.
-    qWarning() << "Settings store migration: skipped (test build)";
+    DIAG_WARN(STORAGE, "settingsstoremigration") << "Settings store migration: skipped (test build)";
     return;
 #else
     // Store identities named only here — the branch that actually opens them.
@@ -184,7 +185,7 @@ void runSettingsStoreMigrationOnce()
     if (r.deferredOnError) {
         // Touch nothing else. The migration kept the legacy store precisely because
         // it could not read it, and every cleanup below removes a store.
-        qWarning() << "Settings store migration: deferred, legacy store left intact "
+        DIAG_WARN(STORAGE, "settingsstoremigration") << "Settings store migration: deferred, legacy store left intact "
                       "and guard NOT stamped";
         return;
     }
@@ -226,7 +227,7 @@ void runSettingsStoreMigrationOnce()
     // "nothing to migrate" (legacyKeyCount == 0) apart from "everything was
     // already present" (copied == 0 && legacyKeyCount > 0). An irreversible
     // one-time migration deserves a durable, unambiguous breadcrumb.
-    qInfo() << "Settings store migration: copied" << r.copied << "of" << r.legacyKeyCount
+    DIAG_INFO(STORAGE, "settingsstoremigration") << "Settings store migration: copied" << r.copied << "of" << r.legacyKeyCount
             << "legacy key(s) into the canonical store; legacy store destroyed:"
             << r.legacyDestroyed;
 #endif

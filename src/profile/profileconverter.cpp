@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "profileconverter.h"
 #include "profile.h"
 #include <QDir>
@@ -38,7 +39,7 @@ QString ProfileConverter::detectDE1AppProfilesPath() const
             // Check if it contains .tcl files
             QStringList tclFiles = dir.entryList(QStringList() << "*.tcl", QDir::Files);
             if (!tclFiles.isEmpty()) {
-                qDebug() << "ProfileConverter: Found DE1 app profiles at" << path
+                DIAG_DEBUG(PROFILES, "ProfileConverter") << "Found DE1 app profiles at" << path
                          << "with" << tclFiles.size() << "profiles";
                 return path;
             }
@@ -134,7 +135,7 @@ void ProfileConverter::onProcessNextFile()
         QString error = QString("Failed to parse: %1").arg(filename);
         m_errors.append(error);
         m_errorCount++;
-        qWarning() << "ProfileConverter:" << error;
+        DIAG_WARN(PROFILES, "ProfileConverter") << error;
     } else {
         // Generate output filename from title
         QString outputFilename = generateFilename(profile.title());
@@ -143,19 +144,19 @@ void ProfileConverter::onProcessNextFile()
         // Check if file already exists
         if (QFile::exists(outputPath) && !m_overwriteExisting) {
             m_skippedCount++;
-            qDebug() << "ProfileConverter: Skipped" << filename << "(already exists)";
+            DIAG_DEBUG(PROFILES, "ProfileConverter") << "Skipped" << filename << "(already exists)";
         } else {
             // editorType is derived from title/profileType in fromJson(), keep as-is.
-            qDebug() << "ProfileConverter:" << filename << "→" << profile.profileType();
+            DIAG_DEBUG(PROFILES, "ProfileConverter") << filename << "→" << profile.profileType();
 
             if (profile.saveToFile(outputPath)) {
                 m_successCount++;
-                qDebug() << "ProfileConverter: Converted" << filename << "→" << outputFilename + ".json";
+                DIAG_DEBUG(PROFILES, "ProfileConverter") << "Converted" << filename << "→" << outputFilename + ".json";
             } else {
                 QString error = QString("Failed to save: %1").arg(outputFilename);
                 m_errors.append(error);
                 m_errorCount++;
-                qWarning() << "ProfileConverter:" << error;
+                DIAG_WARN(PROFILES, "ProfileConverter") << error;
             }
         }
     }
@@ -217,13 +218,13 @@ void ProfileConverter::updateResourcesQrc()
 
     QFile qrcFile(qrcPath);
     if (!qrcFile.exists()) {
-        qWarning() << "ProfileConverter: resources.qrc not found at" << qrcPath;
+        DIAG_WARN(PROFILES, "ProfileConverter") << "resources.qrc not found at" << qrcPath;
         return;
     }
 
     // Read current qrc content
     if (!qrcFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "ProfileConverter: Cannot read resources.qrc";
+        DIAG_WARN(PROFILES, "ProfileConverter") << "Cannot read resources.qrc";
         return;
     }
     QString content = QTextStream(&qrcFile).readAll();
@@ -234,7 +235,7 @@ void ProfileConverter::updateResourcesQrc()
     QStringList jsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files, QDir::Name);
 
     if (jsonFiles.isEmpty()) {
-        qWarning() << "ProfileConverter: No JSON files found in" << m_destDir;
+        DIAG_WARN(PROFILES, "ProfileConverter") << "No JSON files found in" << m_destDir;
         return;
     }
 
@@ -280,19 +281,19 @@ void ProfileConverter::updateResourcesQrc()
                 content = content.left(lineStart) + newProfilesSection.trimmed() + content.mid(lineEnd);
             }
         } else {
-            qWarning() << "ProfileConverter: Could not find profiles section in resources.qrc";
+            DIAG_WARN(PROFILES, "ProfileConverter") << "Could not find profiles section in resources.qrc";
             return;
         }
     }
 
     // Write updated qrc file
     if (!qrcFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        qWarning() << "ProfileConverter: Cannot write resources.qrc";
+        DIAG_WARN(PROFILES, "ProfileConverter") << "Cannot write resources.qrc";
         return;
     }
     QTextStream out(&qrcFile);
     out << content;
     qrcFile.close();
 
-    qDebug() << "ProfileConverter: Updated resources.qrc with" << jsonFiles.size() << "profiles";
+    DIAG_DEBUG(PROFILES, "ProfileConverter") << "Updated resources.qrc with" << jsonFiles.size() << "profiles";
 }

@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
@@ -236,7 +237,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            qWarning() << "ShotServer: Library browse request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
+            DIAG_WARN(NETWORK, "ShotServer") << "Library browse request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
@@ -250,7 +251,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         // Guard against TOCTOU: isBrowsing() may be false if the cache already
         // completed the request synchronously, so also check the request still exists.
         if (!m_librarySharing->isBrowsing() && m_pendingLibraryRequests.contains(reqId)) {
-            qWarning() << "ShotServer: browseCommunity() was rejected (busy between check and call)";
+            DIAG_WARN(NETWORK, "ShotServer") << "browseCommunity() was rejected (busy between check and call)";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Browse request was rejected, please try again"}});
         }
 
@@ -266,7 +267,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
     if (err.error != QJsonParseError::NoError) {
-        qWarning() << "ShotServer: Failed to parse POST body:" << err.errorString();
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to parse POST body:" << err.errorString();
         sendResponse(socket, 400, "application/json", R"({"error":"Invalid JSON body"})");
         return;
     }
@@ -579,7 +580,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            qWarning() << "ShotServer: Library download request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
+            DIAG_WARN(NETWORK, "ShotServer") << "Library download request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
@@ -591,7 +592,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         // Guard against TOCTOU: isDownloading() may be false if the request already
         // completed synchronously, so also check the request still exists.
         if (!m_librarySharing->isDownloading() && m_pendingLibraryRequests.contains(reqId)) {
-            qWarning() << "ShotServer: downloadEntry() was rejected (busy between check and call)";
+            DIAG_WARN(NETWORK, "ShotServer") << "downloadEntry() was rejected (busy between check and call)";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Download service busy, please try again"}});
         }
     }
@@ -642,7 +643,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             completeLibraryRequest(reqId, resp);
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            qWarning() << "ShotServer: Library upload request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
+            DIAG_WARN(NETWORK, "ShotServer") << "Library upload request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
@@ -653,18 +654,18 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         QImage thumbnail, thumbnailCompact;
         if (m_widgetLibrary && m_widgetLibrary->hasThumbnail(entryId)) {
             if (!thumbnail.load(m_widgetLibrary->thumbnailPath(entryId)))
-                qWarning() << "ShotServer: Failed to load thumbnail for upload:" << entryId;
+                DIAG_WARN(NETWORK, "ShotServer") << "Failed to load thumbnail for upload:" << entryId;
         }
         if (m_widgetLibrary && m_widgetLibrary->hasThumbnailCompact(entryId)) {
             if (!thumbnailCompact.load(m_widgetLibrary->thumbnailCompactPath(entryId)))
-                qWarning() << "ShotServer: Failed to load compact thumbnail for upload:" << entryId;
+                DIAG_WARN(NETWORK, "ShotServer") << "Failed to load compact thumbnail for upload:" << entryId;
         }
         m_librarySharing->uploadEntryWithThumbnails(entryId, thumbnail, thumbnailCompact);
 
         // Guard against TOCTOU: isUploading() may be false if the request was
         // rejected synchronously, so also check the request still exists.
         if (!m_librarySharing->isUploading() && m_pendingLibraryRequests.contains(reqId)) {
-            qWarning() << "ShotServer: uploadEntryWithThumbnails() was rejected (busy between check and call)";
+            DIAG_WARN(NETWORK, "ShotServer") << "uploadEntryWithThumbnails() was rejected (busy between check and call)";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Upload service busy, please try again"}});
         }
     }
@@ -698,7 +699,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            qWarning() << "ShotServer: Library delete request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
+            DIAG_WARN(NETWORK, "ShotServer") << "Library delete request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 

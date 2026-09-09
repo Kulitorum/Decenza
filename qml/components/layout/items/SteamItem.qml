@@ -239,7 +239,7 @@ LayoutWidgetItem {
                         if (MachineState.isReady && root.canStartOperations) {
                             DE1Device.startSteam()
                         } else {
-                            console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                            WebDebugLogger.debug("Steam", "SteamItem", ["Cannot start steam - machine not ready, phase:", MachineState.phase].map(String).join(" "))
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                         }

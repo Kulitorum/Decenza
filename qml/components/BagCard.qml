@@ -50,7 +50,7 @@ Rectangle {
             // fatal for a write: re-serializing that {} would replace the stored
             // data with an empty object. Every writer below sends
             // `rawBeanBase` instead, so the C++ corrupt-blob guards can see it.
-            console.warn("BagCard: corrupt beanBaseData for bag", bag.id, e)
+            WebDebugLogger.warn("BeanBase", "BagCard", ["corrupt beanBaseData for bag", bag.id, e].map(String).join(" "))
             return ({})
         }
     }

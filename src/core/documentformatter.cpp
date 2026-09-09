@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "documentformatter.h"
 #include <QTextBlock>
 #include <QTextFragment>
@@ -197,7 +198,7 @@ void DocumentFormatter::mergeFormatOnSelection(const QTextCharFormat &format)
 {
     QTextCursor cursor = textCursorForFormat();
     if (!cursor.hasSelection()) {
-        qDebug() << "DocumentFormatter: no selection after fallback chain, skipping format";
+        DIAG_DEBUG(APP, "DocumentFormatter") << "no selection after fallback chain, skipping format";
         return;
     }
     cursor.mergeCharFormat(format);
@@ -231,7 +232,7 @@ void DocumentFormatter::setColorOnRange(const QString &color, int selStart, int 
 {
     QTextDocument *doc = textDocument();
     if (!doc || selStart == selEnd) {
-        qDebug() << "DocumentFormatter::setColorOnRange: no document or empty range";
+        DIAG_DEBUG(APP, "DocumentFormatter") << "setColorOnRange: no document or empty range";
         return;
     }
     const int maxPos = doc->characterCount() - 1;
@@ -267,7 +268,7 @@ void DocumentFormatter::clearColorOnRange(int selStart, int selEnd)
     if (from == to) {
         const QTextCursor fallback = textCursorForFormat();
         if (!fallback.hasSelection()) {
-            qDebug() << "DocumentFormatter::clearColorOnRange: no selection after fallback chain";
+            DIAG_DEBUG(APP, "DocumentFormatter") << "clearColorOnRange: no selection after fallback chain";
             return;
         }
         from = fallback.selectionStart();
@@ -317,7 +318,7 @@ void DocumentFormatter::clearFormatting()
 {
     QTextCursor cursor = textCursorForFormat();
     if (!cursor.hasSelection()) {
-        qDebug() << "DocumentFormatter::clearFormatting: no selection after fallback chain";
+        DIAG_DEBUG(APP, "DocumentFormatter") << "clearFormatting: no selection after fallback chain";
         return;
     }
     QTextCharFormat fmt; // default format — clears all
@@ -398,10 +399,10 @@ void DocumentFormatter::fromSegments(const QVariantList &segments)
 {
     QTextDocument *doc = textDocument();
     if (!doc) {
-        qDebug() << "DocumentFormatter::fromSegments: no document!";
+        DIAG_DEBUG(APP, "DocumentFormatter") << "fromSegments: no document!";
         return;
     }
-    qDebug() << "DocumentFormatter::fromSegments: loading" << segments.size() << "segments";
+    DIAG_DEBUG(APP, "DocumentFormatter") << "fromSegments: loading" << segments.size() << "segments";
 
     QTextCursor cursor(doc);
     cursor.select(QTextCursor::Document);

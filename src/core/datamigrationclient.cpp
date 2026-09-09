@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "datamigrationclient.h"
 #include "appsettings.h"
 #include "settings.h"
@@ -47,7 +48,7 @@ void DataMigrationClient::setupSslHandling(QNetworkReply* reply)
 {
     // Ignore SSL errors for self-signed certificates on LAN migration servers
     connect(reply, &QNetworkReply::sslErrors, this, [reply](const QList<QSslError>& errors) {
-        qDebug() << "DataMigrationClient: Ignoring SSL errors for LAN migration:" << errors.size();
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Ignoring SSL errors for LAN migration:" << errors.size();
         reply->ignoreSslErrors();
     });
 }
@@ -189,7 +190,7 @@ void DataMigrationClient::startReachabilityPreflight()
         return;
     }
 
-    qDebug() << "DataMigrationClient: multi-homed on target subnet, probing"
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "multi-homed on target subnet, probing"
              << candidates.size() << "candidate interfaces for" << m_connectHost;
     m_probeCandidates = candidates;
     m_probeIndex = 0;
@@ -222,7 +223,7 @@ void DataMigrationClient::tryNextProbeCandidate()
             [this](QAbstractSocket::SocketError) { onProbeFailed(); });
 
     if (!m_probeSocket->bind(source)) {
-        qWarning() << "DataMigrationClient: could not bind probe to" << source.toString()
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "could not bind probe to" << source.toString()
                    << "-" << m_probeSocket->errorString();
         onProbeFailed();
         return;
@@ -242,7 +243,7 @@ void DataMigrationClient::onProbeSucceeded()
     }
     const QHostAddress via = m_probeSocket->localAddress();
     teardownProbeSocket();
-    qDebug() << "DataMigrationClient: reachable via local source" << via.toString();
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "reachable via local source" << via.toString();
     finishProbe(true);
 }
 
@@ -257,7 +258,7 @@ void DataMigrationClient::onProbeFailed()
     const QHostAddress tried = m_probeIndex < m_probeCandidates.size()
                                    ? m_probeCandidates.at(m_probeIndex)
                                    : QHostAddress();
-    qDebug() << "DataMigrationClient: candidate source" << tried.toString()
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "candidate source" << tried.toString()
              << "cannot reach" << m_connectHost;
     teardownProbeSocket();
     m_probeIndex++;
@@ -325,7 +326,7 @@ void DataMigrationClient::onManifestReply()
         const QString transientMsg = reply->errorString();
         reply->deleteLater();
         m_currentReply = nullptr;
-        qDebug() << "DataMigrationClient: transient manifest error (" << transientMsg
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "transient manifest error (" << transientMsg
                  << ") — retrying," << m_manifestRetriesLeft << "left";
         fetchManifest();
         return;
@@ -336,7 +337,7 @@ void DataMigrationClient::onManifestReply()
 
     // Check for 401 (authentication required) — reachable, needs a code.
     if (statusCode == 401) {
-        qDebug() << "DataMigrationClient: Server requires authentication (401)";
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Server requires authentication (401)";
         reply->deleteLater();
         m_currentReply = nullptr;
 
@@ -385,7 +386,7 @@ void DataMigrationClient::onManifestReply()
     setCurrentOperation(tr("Connected"));
     emit connected();
 
-    qDebug() << "DataMigrationClient: Connected to" << m_serverUrl
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Connected to" << m_serverUrl
              << "- Device:" << m_manifest["deviceName"].toString()
              << "- Profiles:" << m_manifest["profileCount"].toInt()
              << "- Shots:" << m_manifest["shotCount"].toInt()
@@ -457,7 +458,7 @@ void DataMigrationClient::onAuthReply()
             QUrl parsedUrl(m_serverUrl);
             saveSessionToken(parsedUrl.host(), m_sessionToken);
 
-            qDebug() << "DataMigrationClient: Authenticated successfully, session cached";
+            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Authenticated successfully, session cached";
         }
 
         m_needsAuthentication = false;
@@ -618,7 +619,7 @@ void DataMigrationClient::onAIConversationsReply()
         // Same defect as the non-array case below — they are two arms of one if,
         // and only the second was fixed the first time.
         setErrorIfFirst(tr("The AI conversations could not be fetched from the other device."));
-        qWarning() << "DataMigrationClient: Failed to import AI conversations:" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import AI conversations:" << reply->errorString();
     } else {
         QByteArray data = reply->readAll();
         m_receivedBytes += data.size();
@@ -630,7 +631,7 @@ void DataMigrationClient::onAIConversationsReply()
             // through to a green "Import complete" with nothing imported.
             setErrorIfFirst(tr("The other device did not return a usable list of "
                                "AI conversations."));
-            qWarning() << "DataMigrationClient: AI conversations payload was not a JSON array ("
+            DIAG_WARN(STORAGE, "DataMigrationClient") << "AI conversations payload was not a JSON array ("
                        << data.size() << "bytes )";
         }
         if (doc.isArray()) {
@@ -658,7 +659,7 @@ void DataMigrationClient::onAIConversationsReply()
                 // recovers both looks optional.
                 setAiConversationNote(
                     AIConversation::importHeldBackNote(doc.array().size(), m_translationManager));
-                qWarning() << "DataMigrationClient: shot import was refused, so AI conversations"
+                DIAG_WARN(STORAGE, "DataMigrationClient") << "shot import was refused, so AI conversations"
                            << "were NOT imported — retry the migration rather than lose their"
                            << "shot links";
             } else {
@@ -679,7 +680,7 @@ void DataMigrationClient::onAIConversationsReply()
                 if (tally.conversationsImported > 0 && m_aiManager)
                     m_aiManager->reloadConversations();
 
-                qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported" << m_aiConversationsImported
                          << "AI conversations;" << tally.turnsRemapped
                          << "shot reference(s) remapped," << tally.turnsCleared << "cleared";
             }
@@ -714,7 +715,7 @@ void DataMigrationClient::startNextImport()
             emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported,
                                 m_mediaImported, m_aiConversationsImported);
         } else {
-            qWarning() << "DataMigrationClient: import finished with errors -" << m_errorMessage;
+            DIAG_WARN(STORAGE, "DataMigrationClient") << "import finished with errors -" << m_errorMessage;
         }
         return;
     }
@@ -760,7 +761,7 @@ void DataMigrationClient::onSettingsReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to import settings:" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import settings:" << reply->errorString();
         // Continue with next import
     } else {
         QByteArray data = reply->readAll();
@@ -776,9 +777,9 @@ void DataMigrationClient::onSettingsReply()
             // re-exclude any mqttPassword key on import.
             if (SettingsSerializer::importFromJson(m_settings, doc.object(), {"flowCalibration", "mqttPassword"})) {
                 m_settingsImported = 1;
-                qDebug() << "DataMigrationClient: Settings imported successfully";
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Settings imported successfully";
             } else {
-                qWarning() << "DataMigrationClient: Settings import returned failure";
+                DIAG_WARN(STORAGE, "DataMigrationClient") << "Settings import returned failure";
             }
         }
     }
@@ -814,7 +815,7 @@ void DataMigrationClient::onExtraSettingsReply()
     if (reply->error() != QNetworkReply::NoError) {
         // Older server without the endpoint (404) or a transient error — the
         // extra settings simply don't transfer; continue with the import.
-        qDebug() << "DataMigrationClient: extra-settings not available:" << reply->errorString();
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "extra-settings not available:" << reply->errorString();
     } else {
         const QByteArray data = reply->readAll();
         m_receivedBytes += data.size();
@@ -844,7 +845,7 @@ void DataMigrationClient::onExtraSettingsReply()
             }
             if (extra.contains("language"))
                 settings.setValue("localization/language", extra["language"].toString());
-            qDebug() << "DataMigrationClient: extra settings imported (location, accessibility, language)";
+            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "extra settings imported (location, accessibility, language)";
         }
     }
 
@@ -879,7 +880,7 @@ void DataMigrationClient::onProfileListReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to fetch profile list:" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to fetch profile list:" << reply->errorString();
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -892,7 +893,7 @@ void DataMigrationClient::onProfileListReply()
 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
-        qWarning() << "DataMigrationClient: Invalid profile list response";
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid profile list response";
         startNextImport();
         return;
     }
@@ -909,7 +910,7 @@ void DataMigrationClient::onProfileListReply()
         m_pendingProfiles.append(pd);
     }
 
-    qDebug() << "DataMigrationClient: Found" << m_pendingProfiles.size() << "profiles to download";
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Found" << m_pendingProfiles.size() << "profiles to download";
     downloadNextProfile();
 }
 
@@ -922,7 +923,7 @@ void DataMigrationClient::downloadNextProfile()
     }
 
     if (m_pendingProfiles.isEmpty()) {
-        qDebug() << "DataMigrationClient: Imported" << m_profilesImported << "profiles";
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported" << m_profilesImported << "profiles";
         startNextImport();
         return;
     }
@@ -959,7 +960,7 @@ void DataMigrationClient::onProfileFileReply()
     QString filename = reply->property("filename").toString();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to download profile" << filename << ":" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to download profile" << filename << ":" << reply->errorString();
     } else if (m_profileStorage) {
         QByteArray content = reply->readAll();
         m_receivedBytes += content.size();
@@ -979,7 +980,7 @@ void DataMigrationClient::onProfileFileReply()
         Profile incomingProfile = Profile::loadFromJsonString(QString::fromUtf8(content));
 
         if (!incomingProfile.isValid()) {
-            qWarning() << "DataMigrationClient: Invalid profile, skipping:" << filename;
+            DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid profile, skipping:" << filename;
             reply->deleteLater();
             m_currentReply = nullptr;
             downloadNextProfile();
@@ -993,7 +994,7 @@ void DataMigrationClient::onProfileFileReply()
             Profile builtIn = Profile::loadFromFile(builtinPath);
             if (builtIn.isValid() && ProfileSaveHelper::compareProfiles(incomingProfile, builtIn)) {
                 // Identical to built-in — skip entirely
-                qDebug() << "DataMigrationClient: Skipping profile identical to built-in:" << filename;
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Skipping profile identical to built-in:" << filename;
                 shouldSkip = true;
             }
             // Different from built-in — force unique filename below
@@ -1006,7 +1007,7 @@ void DataMigrationClient::onProfileFileReply()
             if (existingProfile.isValid() &&
                 ProfileSaveHelper::compareProfiles(existingProfile, incomingProfile)) {
                 // True duplicate — skip import
-                qDebug() << "DataMigrationClient: Skipping duplicate profile:" << filename;
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Skipping duplicate profile:" << filename;
                 shouldSkip = true;
             }
 
@@ -1034,7 +1035,7 @@ void DataMigrationClient::onProfileFileReply()
             // Default", so a device-to-device migration reported success for a
             // profile nobody can open. Refuse it loudly instead.
             if (!incomingProfile.isValid()) {
-                qWarning() << "DataMigrationClient: Refusing to import invalid profile"
+                DIAG_WARN(STORAGE, "DataMigrationClient") << "Refusing to import invalid profile"
                            << incomingProfile.title() << "->" << targetPath
                            << "- no frames; source is malformed or unsupported";
                 reply->deleteLater();
@@ -1044,9 +1045,9 @@ void DataMigrationClient::onProfileFileReply()
             }
             if (incomingProfile.saveToFile(targetPath)) {
                 m_profilesImported++;
-                qDebug() << "DataMigrationClient: Imported profile:" << incomingProfile.title();
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported profile:" << incomingProfile.title();
             } else {
-                qWarning() << "DataMigrationClient: Failed to save profile:" << targetPath;
+                DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to save profile:" << targetPath;
             }
         }
     }
@@ -1082,7 +1083,7 @@ void DataMigrationClient::onShotsReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to import shots:" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import shots:" << reply->errorString();
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -1107,7 +1108,7 @@ void DataMigrationClient::onShotsReply()
     QString tempDbPath = QDir::temp().filePath("decenza_migration_shots.db");
     QFile tempFile(tempDbPath);
     if (!tempFile.open(QIODevice::WriteOnly)) {
-        qWarning() << "DataMigrationClient: Failed to create temp file for shots import:" << tempDbPath;
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to create temp file for shots import:" << tempDbPath;
         startNextImport();
         return;
     }
@@ -1131,7 +1132,7 @@ void DataMigrationClient::onShotsReply()
 
         QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, shotImport, destroyed]() {
             if (*destroyed) {
-                qDebug() << "DataMigrationClient: Shots import callback dropped (object destroyed)";
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Shots import callback dropped (object destroyed)";
                 return;
             }
 
@@ -1164,10 +1165,10 @@ void DataMigrationClient::onShotsReply()
                     setError(tr("Shots could not be imported. Your existing shots were not changed."));
                 }
             } else if (!m_shotHistory) {
-                qWarning() << "DataMigrationClient: shots imported but no storage to refresh";
+                DIAG_WARN(STORAGE, "DataMigrationClient") << "shots imported but no storage to refresh";
             } else {
                 m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
-                qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
+                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported" << m_shotsImported << "new shots";
                 m_shotHistory->refreshTotalShots();
             }
 
@@ -1205,7 +1206,7 @@ void DataMigrationClient::onMediaListReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to fetch media list:" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to fetch media list:" << reply->errorString();
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -1218,7 +1219,7 @@ void DataMigrationClient::onMediaListReply()
 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
-        qWarning() << "DataMigrationClient: Invalid media list response";
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid media list response";
         startNextImport();
         return;
     }
@@ -1234,7 +1235,7 @@ void DataMigrationClient::onMediaListReply()
         m_pendingMedia.append(md);
     }
 
-    qDebug() << "DataMigrationClient: Found" << m_pendingMedia.size() << "media files to download";
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Found" << m_pendingMedia.size() << "media files to download";
     downloadNextMedia();
 }
 
@@ -1247,7 +1248,7 @@ void DataMigrationClient::downloadNextMedia()
     }
 
     if (m_pendingMedia.isEmpty()) {
-        qDebug() << "DataMigrationClient: Imported" << m_mediaImported << "media files";
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported" << m_mediaImported << "media files";
         startNextImport();
         return;
     }
@@ -1282,7 +1283,7 @@ void DataMigrationClient::onMediaFileReply()
     QString filename = reply->property("filename").toString();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to download media" << filename << ":" << reply->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to download media" << filename << ":" << reply->errorString();
     } else if (m_screensaver) {
         QByteArray content = reply->readAll();
         m_receivedBytes += content.size();
@@ -1386,7 +1387,7 @@ void DataMigrationClient::setError(const QString& error)
 {
     m_errorMessage = error;
     emit errorMessageChanged();
-    qWarning() << "DataMigrationClient:" << error;
+    DIAG_WARN(STORAGE, "DataMigrationClient") << error;
 }
 
 void DataMigrationClient::setErrorIfFirst(const QString& error)
@@ -1399,7 +1400,7 @@ void DataMigrationClient::setErrorIfFirst(const QString& error)
     // not usable", so the user never learned their history had been refused.
     // First failure wins; every failure is still logged by its own call site.
     if (!m_errorMessage.isEmpty()) {
-        qWarning() << "DataMigrationClient: additional failure (not shown, an earlier one "
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "additional failure (not shown, an earlier one "
                       "is already displayed) -" << error;
         return;
     }
@@ -1432,7 +1433,7 @@ void DataMigrationClient::startDiscovery()
 
     // Bind to receive responses (random port)
     if (!m_discoverySocket->bind(QHostAddress::Any, 0)) {
-        qWarning() << "DataMigrationClient: Failed to bind discovery socket:" << m_discoverySocket->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to bind discovery socket:" << m_discoverySocket->errorString();
         stopDiscovery();
         return;
     }
@@ -1476,10 +1477,10 @@ void DataMigrationClient::sendDiscoveryBroadcasts()
     // Send to global broadcast address
     qint64 sent = m_discoverySocket->writeDatagram(discoveryMessage, QHostAddress::Broadcast, DISCOVERY_PORT);
     if (sent == -1) {
-        qWarning() << "DataMigrationClient: Failed to send broadcast (burst" << burst << "):" << m_discoverySocket->errorString();
-        qWarning() << "DataMigrationClient: This may be due to firewall, network configuration, or missing permissions";
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to send broadcast (burst" << burst << "):" << m_discoverySocket->errorString();
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "This may be due to firewall, network configuration, or missing permissions";
     } else {
-        qDebug() << "DataMigrationClient: Sent discovery broadcast to 255.255.255.255"
+        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Sent discovery broadcast to 255.255.255.255"
                  << "port" << DISCOVERY_PORT << "(burst" << burst << "," << sent << "bytes)";
     }
 
@@ -1495,23 +1496,23 @@ void DataMigrationClient::sendDiscoveryBroadcasts()
 
         interfaceCount++;
         if (burst == 0) {
-            qDebug() << "DataMigrationClient: Interface" << interface.name() << "is up";
+            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Interface" << interface.name() << "is up";
         }
 
         for (const QNetworkAddressEntry& entry : interface.addressEntries()) {
             if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
                 QHostAddress broadcast = entry.broadcast();
                 if (burst == 0) {
-                    qDebug() << "DataMigrationClient:   Local IP:" << entry.ip().toString()
+                    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Local IP:" << entry.ip().toString()
                              << "Broadcast:" << (broadcast.isNull() ? "none" : broadcast.toString());
                 }
                 if (!broadcast.isNull() && broadcast != QHostAddress::Broadcast) {
                     const qint64 bytesSent = m_discoverySocket->writeDatagram(discoveryMessage, broadcast, DISCOVERY_PORT);
                     if (bytesSent > 0) {
-                        qDebug() << "DataMigrationClient:   Sent discovery to" << broadcast.toString()
+                        DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Sent discovery to" << broadcast.toString()
                                  << "(burst" << burst << "," << bytesSent << "bytes)";
                     } else {
-                        qWarning() << "DataMigrationClient:   Failed to send to" << broadcast.toString()
+                        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to send to" << broadcast.toString()
                                    << "(burst" << burst << "):" << m_discoverySocket->errorString();
                     }
                 }
@@ -1519,7 +1520,7 @@ void DataMigrationClient::sendDiscoveryBroadcasts()
         }
     }
     if (interfaceCount == 0 && burst == 0) {
-        qWarning() << "DataMigrationClient: No active network interfaces found!";
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "No active network interfaces found!";
     }
 }
 
@@ -1600,7 +1601,7 @@ void DataMigrationClient::onDiscoveryDatagram()
             if (isOurself) break;
         }
         if (isOurself) {
-            qDebug() << "DataMigrationClient: Ignoring own device at" << senderIp;
+            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Ignoring own device at" << senderIp;
             continue;
         }
 
@@ -1627,7 +1628,7 @@ void DataMigrationClient::onDiscoveryDatagram()
             m_discoveredDevices.append(device);
             emit discoveredDevicesChanged();
 
-            qDebug() << "DataMigrationClient: Found device:" << device["deviceName"].toString()
+            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Found device:" << device["deviceName"].toString()
                      << "at" << serverUrl;
         }
     }
@@ -1635,7 +1636,7 @@ void DataMigrationClient::onDiscoveryDatagram()
 
 void DataMigrationClient::onDiscoveryTimeout()
 {
-    qDebug() << "DataMigrationClient: Discovery timeout, found" << m_discoveredDevices.size() << "devices";
+    DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Discovery timeout, found" << m_discoveredDevices.size() << "devices";
     stopDiscovery();
     emit discoveryComplete();
 }

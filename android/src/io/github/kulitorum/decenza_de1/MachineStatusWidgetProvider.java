@@ -114,7 +114,7 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
                     v.setTextViewText(R.id.widget_status, stalenessLine(o));
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Snapshot parse failed", e);
+                DiagnosticLog.w("App", TAG, "Snapshot parse failed", e);
             }
         }
 
@@ -183,7 +183,7 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
         } catch (Exception e) {
             // Unparsable timestamp is a writer/schema bug — log it, and treat
             // as stale rather than silently claiming the data is live.
-            Log.w(TAG, "capturedAt parse failed: " + captured, e);
+            DiagnosticLog.w("App", TAG, "capturedAt parse failed: " + captured, e);
             return "updated a while ago";
         }
         return "";

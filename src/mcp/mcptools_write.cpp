@@ -252,7 +252,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                                 .arg(shotId).arg(idQuery.lastError().text()));
                         }
                         if (!visualizerId.isEmpty()) {
-                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
+                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                             vizShot = ShotHistoryStorage::convertShotRecord(record);
                         }
                     }
@@ -373,7 +373,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         shotFound = true;
                         existingVisualizerId = idQuery.value(0).toString();
                         if (existingVisualizerId.isEmpty()) {
-                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
+                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                             shot = ShotHistoryStorage::convertShotRecord(record);
                         }
                     }

@@ -1,0 +1,10 @@
+diff --git a/Manual.md b/Manual.md
+index 187b077..f77da4d 100644
+--- a/Manual.md
++++ b/Manual.md
+@@ -1928,0 +1929,5 @@ Two things to try before anything else:
++Logs label the subsystem that produced each message, such as Battery, BeanBase, or AI.
++For missing coffee-bag information, BeanBase records the page/archive stage and whether AI
++returned usable details, an empty result, or an error. Include the complete time window
++when reporting a problem: older logs and framework warnings may need more than a subsystem filter.
++

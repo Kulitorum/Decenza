@@ -104,7 +104,8 @@ struct PendingConfirmation {
 // carry `equipment`. Note what the fingerprint below CANNOT see: those are
 // RESPONSE-shape changes, and the budget script hashes registrations. A response
 // change is on the author to notice.
-inline constexpr const char* McpSurfaceVersion = "1.7.0";
+// 1.8.0: expanded diagnostic owner catalog and current/legacy log guidance.
+inline constexpr const char* McpSurfaceVersion = "1.8.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "c9127bcb5730";

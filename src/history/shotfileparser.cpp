@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotfileparser.h"
 #include "core/grinderaliases.h"
 #include "network/tastecvamap.h"
@@ -70,7 +71,7 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
             // setTimeZone() relabels without converting; construct explicitly as UTC instead.
             QDateTime utcDt(dt.date(), dt.time(), QTimeZone::utc());
             timestamp = utcDt.toSecsSinceEpoch();
-            qDebug() << "ShotFileParser: no clock field in" << filename << "- derived timestamp from filename:" << timestamp;
+            DIAG_DEBUG(STORAGE, "ShotFileParser") << "no clock field in" << filename << "- derived timestamp from filename:" << timestamp;
         }
     }
 
@@ -285,7 +286,7 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
     // but with a chopped-off trace. That's better than dropping it, but log so a
     // systematic upstream truncation is diagnosable rather than silent.
     if (pressure.size() < elapsed.size() - 1) {
-        qWarning() << "parseVisualizerShot: pressure series truncated for" << visualizerId
+        DIAG_WARN(STORAGE, "shotfileparser") << "parseVisualizerShot: pressure series truncated for" << visualizerId
                    << "-" << pressure.size() << "of" << elapsed.size()
                    << "samples; importing partial trace";
     }
@@ -427,7 +428,7 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
         // Present but unusable (fewer than 2 samples, or longer than the
         // timeframe => misaligned). The shot imports fine but the detail view
         // draws no frame lines; log so a schema drift is diagnosable.
-        qWarning() << "parseVisualizerShot: unusable espresso_state_change for" << visualizerId
+        DIAG_WARN(STORAGE, "shotfileparser") << "parseVisualizerShot: unusable espresso_state_change for" << visualizerId
                    << "(" << stateChange.size() << "samples vs" << elapsed.size()
                    << "timeframe); no frame markers";
     }
@@ -438,7 +439,7 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
         if (!pdoc.isNull())
             result.record.profileJson = profileJson;
         else
-            qWarning() << "parseVisualizerShot: malformed profile JSON for"
+            DIAG_WARN(STORAGE, "shotfileparser") << "parseVisualizerShot: malformed profile JSON for"
                        << visualizerId << "- importing shot without a profile";
     }
 

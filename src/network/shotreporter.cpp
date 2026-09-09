@@ -1,3 +1,4 @@
+#include "core/diagnosticlogging.h"
 #include "shotreporter.h"
 #include "locationprovider.h"
 #include "../core/settings.h"
@@ -51,7 +52,7 @@ void ShotReporter::setEnabled(bool enabled)
         m_locationProvider->requestUpdate();
     }
 
-    qDebug() << "ShotReporter:" << (enabled ? "Enabled" : "Disabled");
+    DIAG_DEBUG(APP, "ShotReporter") << (enabled ? "Enabled" : "Disabled");
 }
 
 bool ShotReporter::hasLocation() const
@@ -91,12 +92,12 @@ bool ShotReporter::isGpsEnabled() const
 void ShotReporter::reportShot(const QString& profileName, const QString& machineModel)
 {
     if (!m_enabled) {
-        qDebug() << "ShotReporter: Not enabled, skipping";
+        DIAG_DEBUG(APP, "ShotReporter") << "Not enabled, skipping";
         return;
     }
 
     if (!m_locationProvider || !m_locationProvider->hasLocation()) {
-        qDebug() << "ShotReporter: No location available, skipping";
+        DIAG_DEBUG(APP, "ShotReporter") << "No location available, skipping";
         m_lastError = "No location available";
         emit lastErrorChanged();
         return;
@@ -114,7 +115,7 @@ void ShotReporter::reportShot(const QString& profileName, const QString& machine
     event.machineModel = machineModel.isEmpty() ? "Decent DE1" : machineModel;
     event.timestampMs = QDateTime::currentMSecsSinceEpoch();
 
-    qDebug() << "ShotReporter: Reporting shot -"
+    DIAG_DEBUG(APP, "ShotReporter") << "Reporting shot -"
              << "City:" << event.city
              << "Profile:" << event.profileName;
 
@@ -156,7 +157,7 @@ void ShotReporter::sendShotEvent(const ShotEvent& event)
         onReplyFinished(reply);
     });
 
-    qDebug() << "ShotReporter: Sending to" << API_URL;
+    DIAG_DEBUG(APP, "ShotReporter") << "Sending to" << API_URL;
 }
 
 void ShotReporter::onReplyFinished(QNetworkReply* reply)
@@ -172,20 +173,20 @@ void ShotReporter::onReplyFinished(QNetworkReply* reply)
 
         if (obj["ok"].toBool()) {
             QString eventId = obj["event_id"].toString();
-            qDebug() << "ShotReporter: Success - event_id:" << eventId;
+            DIAG_DEBUG(APP, "ShotReporter") << "Success - event_id:" << eventId;
             m_lastError.clear();
             emit lastErrorChanged();
             emit shotReported(eventId);
         } else {
             QString error = obj["error"].toString();
-            qDebug() << "ShotReporter: API error -" << error;
+            DIAG_DEBUG(APP, "ShotReporter") << "API error -" << error;
             m_lastError = error;
             emit lastErrorChanged();
             emit shotReportFailed(error);
         }
     } else if (statusCode == 409) {
         // Duplicate idempotency key - treat as success
-        qDebug() << "ShotReporter: Duplicate event (409), treating as success";
+        DIAG_DEBUG(APP, "ShotReporter") << "Duplicate event (409), treating as success";
         m_lastError.clear();
         emit lastErrorChanged();
         emit shotReported("");
@@ -200,7 +201,7 @@ void ShotReporter::onReplyFinished(QNetworkReply* reply)
             error = QString("HTTP %1: %2").arg(statusCode).arg(reply->errorString());
         }
 
-        qDebug() << "ShotReporter: Failed -" << error;
+        DIAG_DEBUG(APP, "ShotReporter") << "Failed -" << error;
         m_lastError = error;
         emit lastErrorChanged();
         emit shotReportFailed(error);
@@ -209,7 +210,7 @@ void ShotReporter::onReplyFinished(QNetworkReply* reply)
 
 void ShotReporter::onLocationChanged()
 {
-    qDebug() << "ShotReporter: Location updated -"
+    DIAG_DEBUG(APP, "ShotReporter") << "Location updated -"
              << m_locationProvider->city()
              << m_locationProvider->countryCode();
     emit locationStatusChanged();
@@ -218,7 +219,7 @@ void ShotReporter::onLocationChanged()
 void ShotReporter::onLocationError(const QString& error)
 {
     bool gpsEnabled = m_locationProvider ? m_locationProvider->isGpsEnabled() : false;
-    qDebug() << "ShotReporter: Location error -" << error
+    DIAG_DEBUG(APP, "ShotReporter") << "Location error -" << error
              << "hasPrompted:" << m_hasPromptedForLocation
              << "hasLocation:" << (m_locationProvider ? m_locationProvider->hasLocation() : false)
              << "gpsEnabled:" << gpsEnabled;
@@ -231,7 +232,7 @@ void ShotReporter::onLocationError(const QString& error)
     // - GPS is actually disabled at system level
     if (m_enabled && !m_hasPromptedForLocation && m_locationProvider && !gpsEnabled) {
         m_hasPromptedForLocation = true;
-        qDebug() << "ShotReporter: GPS disabled at system level, opening Location Settings";
+        DIAG_DEBUG(APP, "ShotReporter") << "GPS disabled at system level, opening Location Settings";
         m_locationProvider->openLocationSettings();
     }
 }

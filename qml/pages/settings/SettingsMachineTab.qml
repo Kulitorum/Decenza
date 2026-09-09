@@ -1131,11 +1131,11 @@ KeyboardAwareContainer {
                                 checked: machineTab.configurePageScaleEnabled
                                 accessibleName: TranslationManager.translate("settings.machine.configureZoom", "Configure zoom per screen")
                                 onClicked: {
-                                    console.log("Switch clicked, checked =", checked)
+                                    WebDebugLogger.debug("App", "SettingsMachineTab", ["Switch clicked, checked =", checked].map(String).join(" "))
                                     Settings.setValue("ui/configurePageScale", checked)
                                     // Also set Theme directly as fallback
                                     Theme.configurePageScaleEnabled = checked
-                                    console.log("Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled)
+                                    WebDebugLogger.debug("App", "SettingsMachineTab", ["Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled].map(String).join(" "))
                                 }
                             }
                         }

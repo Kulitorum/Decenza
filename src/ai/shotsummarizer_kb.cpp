@@ -18,6 +18,7 @@
 // unresolved. The order-dependent greedy startsWith/contains fallback stays
 // DELETED — the prefix step is anchored, prefix-only and longest-wins, not
 // a guess.
+#include "core/diagnosticlogging.h"
 #include "shotsummarizer.h"
 #include "shotanalysis.h"  // ShotAnalysis::ExpertBand (expertBandForKbId return)
 
@@ -90,7 +91,7 @@ expertBandFromJson(const QString& whoFor, const QJsonObject& eb)
     if (eb.isEmpty()) return std::nullopt;
 
     auto reject = [&](const char* why) -> std::optional<EB> {
-        qWarning() << "ShotSummarizer: expertBand dropped for" << whoFor
+        DIAG_WARN(AI, "ShotSummarizer") << "expertBand dropped for" << whoFor
                    << "—" << why << "(degraded to no band)";
         return std::nullopt;
     };
@@ -141,7 +142,7 @@ void ShotSummarizer::loadProfileKnowledge()
 
     QFile file(QStringLiteral(":/ai/profile_knowledge.json"));
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
+        DIAG_WARN(AI, "ShotSummarizer") << "Failed to load profile knowledge resource";
         // Latch even on failure: the resource won't reappear within a
         // process lifetime; a per-call retry in test binaries (which may
         // not link the qrc) is noise. Empty KB → every consumer no-ops.
@@ -154,7 +155,7 @@ void ShotSummarizer::loadProfileKnowledge()
     QJsonParseError perr {};
     const QJsonDocument doc = QJsonDocument::fromJson(raw, &perr);
     if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-        qWarning() << "ShotSummarizer: profile_knowledge.json parse error:"
+        DIAG_WARN(AI, "ShotSummarizer") << "profile_knowledge.json parse error:"
                    << perr.errorString();
         s_knowledgeLoaded = true;
         return;
@@ -189,7 +190,7 @@ void ShotSummarizer::loadProfileKnowledge()
         }
 
         if (pk.id.isEmpty()) {
-            qWarning() << "ShotSummarizer: KB entry with empty id — skipped";
+            DIAG_WARN(AI, "ShotSummarizer") << "KB entry with empty id — skipped";
             continue;
         }
         pk.expertBand = expertBandFromJson(
@@ -201,7 +202,7 @@ void ShotSummarizer::loadProfileKnowledge()
         // an alias re-pointing to a *different* id is loud, never a silent
         // QMap-overwrite that mis-resolves a real profile.
         if (s_profileKnowledge.contains(pk.id))
-            qWarning() << "ShotSummarizer: duplicate KB id" << pk.id
+            DIAG_WARN(AI, "ShotSummarizer") << "duplicate KB id" << pk.id
                        << "— later entry overwrites earlier (validator gate"
                           " should have rejected this)";
         s_profileKnowledge.insert(pk.id, pk);
@@ -223,7 +224,7 @@ void ShotSummarizer::loadProfileKnowledge()
             const QString key = normalizeProfileKey(alias);
             const auto it = s_aliasToId.constFind(key);
             if (it != s_aliasToId.constEnd() && it.value() != pk.id)
-                qWarning() << "ShotSummarizer: alias collision —" << alias
+                DIAG_WARN(AI, "ShotSummarizer") << "alias collision —" << alias
                            << "maps to both" << it.value() << "and" << pk.id
                            << "(validator gate should have rejected this)";
             const bool firstSeen = (it == s_aliasToId.constEnd());
@@ -256,7 +257,7 @@ void ShotSummarizer::loadProfileKnowledge()
                   return a.key.size() > b.key.size();
               });
 
-    qDebug() << "ShotSummarizer: Loaded" << s_profileKnowledge.size()
+    DIAG_DEBUG(AI, "ShotSummarizer") << "Loaded" << s_profileKnowledge.size()
              << "profile knowledge entries (" << s_aliasToId.size()
              << "alias keys )";
 
@@ -283,7 +284,7 @@ void ShotSummarizer::buildProfileCatalog()
     lines.sort(Qt::CaseInsensitive);
     s_profileCatalog = lines.join('\n');
 
-    qDebug() << "ShotSummarizer: Built profile catalog with" << lines.size() << "entries";
+    DIAG_DEBUG(AI, "ShotSummarizer") << "Built profile catalog with" << lines.size() << "entries";
 }
 
 QString ShotSummarizer::crossProfileReferenceContent()
@@ -309,7 +310,7 @@ void ShotSummarizer::loadDialInReference()
 
     QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "ShotSummarizer: Failed to load dial-in reference resource";
+        DIAG_WARN(AI, "ShotSummarizer") << "Failed to load dial-in reference resource";
         s_dialInReferenceLoaded = true;
         return;
     }
@@ -323,7 +324,7 @@ void ShotSummarizer::loadDialInReference()
         content = content.mid(pos + 5).trimmed();
 
     s_dialInReference = content;
-    qDebug() << "ShotSummarizer: Loaded dial-in reference tables ("
+    DIAG_DEBUG(AI, "ShotSummarizer") << "Loaded dial-in reference tables ("
              << s_dialInReference.size() << "chars)";
 }
 

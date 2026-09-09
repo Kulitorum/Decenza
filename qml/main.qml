@@ -161,7 +161,7 @@ T.ApplicationWindow {
 
         // Send scale sleep first (it's faster/simpler)
         if (ScaleDevice && ScaleDevice.connected) {
-            console.log("Sending scale to sleep on app close")
+            WebDebugLogger.debug("Scale", "main", ["Sending scale to sleep on app close"].map(String).join(" "))
             ScaleDevice.sleep()
         }
 
@@ -356,7 +356,7 @@ T.ApplicationWindow {
         onTriggered: {
             // Now send DE1 to sleep
             if (DE1Device && DE1Device.connected) {
-                console.log("Sending DE1 to sleep on app close")
+                WebDebugLogger.debug("DE1", "main", ["Sending DE1 to sleep on app close"].map(String).join(" "))
                 DE1Device.goToSleep()
             }
             // Wait for DE1 command to complete
@@ -389,7 +389,7 @@ T.ApplicationWindow {
         if (autoSleepMinutes > 0 && sleepCountdownNormal < 0) {
             sleepCountdownNormal = autoSleepMinutes
             stayAwakeSuppressionLogged = false
-            console.log("[AutoSleep] Setting changed: normal=" + sleepCountdownNormal)
+            WebDebugLogger.debug("AutoSleep", "main", ["Setting changed: normal=" + sleepCountdownNormal].map(String).join(" "))
         }
     }
     property int sleepCountdownNormal: -1      // Minutes remaining (-1 = not started)
@@ -448,11 +448,11 @@ T.ApplicationWindow {
                     // window reports itself again.
                     if (!root.stayAwakeSuppressionLogged) {
                         root.stayAwakeSuppressionLogged = true
-                        console.info("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake until it ends")
+                        WebDebugLogger.info("AutoSleep", "main", ["Inactivity elapsed but inside scheduled stay-awake window — staying awake until it ends"].map(String).join(" "))
                     }
                 } else {
                     root.stayAwakeSuppressionLogged = false
-                    console.info("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
+                    WebDebugLogger.info("AutoSleep", "main", ["Inactivity elapsed, no stay-awake window — triggering sleep"].map(String).join(" "))
                     root.triggerAutoSleep()
                 }
             }
@@ -481,7 +481,7 @@ T.ApplicationWindow {
             if (root.autoLoadIdleCountdown <= 0) {
                 var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (pageName === "idlePage") {
-                    console.info("[AutoLoad] Idle countdown expired — invoking auto-load")
+                    WebDebugLogger.info("AutoLoad", "main", ["Idle countdown expired — invoking auto-load"].map(String).join(" "))
                     ProfileManager.loadAutoLoadProfileIfNeeded()
                     MainController.loadAutoLoadRecipeIfNeeded()
                 }
@@ -542,7 +542,7 @@ T.ApplicationWindow {
             var curr = DE1Device.state
             root.autoLoadPreviousDe1State = curr
             if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
-                console.info("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
+                WebDebugLogger.info("AutoLoad", "main", ["DE1 Sleep -> Idle — invoking auto-load"].map(String).join(" "))
                 ProfileManager.loadAutoLoadProfileIfNeeded()
                 MainController.loadAutoLoadRecipeIfNeeded()
             }
@@ -583,7 +583,7 @@ T.ApplicationWindow {
             if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 root.stayAwakeSuppressionLogged = false
-                console.log("[AutoSleep] Reset by phase change: normal=" + root.sleepCountdownNormal)
+                WebDebugLogger.debug("AutoSleep", "main", ["Reset by phase change: normal=" + root.sleepCountdownNormal].map(String).join(" "))
             }
             // Phase change is also user activity for the auto-load countdown
             root.autoLoadResetCountdown()
@@ -646,7 +646,7 @@ T.ApplicationWindow {
                 // own, so the live settings — the last real pitcher's duration,
                 // flow and temperature — are what get used. Say so rather than
                 // silently substituting them.
-                console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
+                WebDebugLogger.debug("Steam", "main", ["DE1 entered Steam state - starting heater, navigating to SteamPage"].map(String).join(" "))
                 MainController.startSteamHeating("de1-state-steam")
                 if (Settings.brew.isHeaterOffPitcher(Settings.brew.selectedSteamPitcher)) {
                     steamHeaterOffToast.show(trSteamHeaterOffSteaming.text)
@@ -665,9 +665,9 @@ T.ApplicationWindow {
             // DE1::SubState::Puffing = 20
             // When entering Puffing, start the auto-flush countdown if enabled
             if (DE1Device.state === 5 && DE1Device.subState === 20) {
-                console.log("DE1 entered Puffing substate")
+                WebDebugLogger.debug("DE1", "main", ["DE1 entered Puffing substate"].map(String).join(" "))
                 if (Settings.brew.steamAutoFlushSeconds > 0) {
-                    console.log("Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds")
+                    WebDebugLogger.debug("Steam", "main", ["Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds"].map(String).join(" "))
                     AppShell.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
                     steamAutoFlushTimer.restart()
                 }
@@ -690,17 +690,17 @@ T.ApplicationWindow {
                 }
             } else if (key === "ui/configurePageScale") {
                 var val = Settings.value("ui/configurePageScale", false)
-                console.log("configurePageScale changed:", val, "type:", typeof val)
+                WebDebugLogger.debug("App", "main", ["configurePageScale changed:", val, "type:", typeof val].map(String).join(" "))
                 Theme.configurePageScaleEnabled = (val === true || val === "true")
-                console.log("configurePageScaleEnabled set to:", Theme.configurePageScaleEnabled)
+                WebDebugLogger.debug("App", "main", ["configurePageScaleEnabled set to:", Theme.configurePageScaleEnabled].map(String).join(" "))
             }
         }
     }
 
     function triggerAutoSleep() {
-        console.log("[AutoSleep] triggerAutoSleep called — DE1 connected=" +
+        WebDebugLogger.debug("AutoSleep", "main", ["triggerAutoSleep called — DE1 connected=" +
                    (DE1Device ? DE1Device.connected : "null") +
-                   ", scale connected=" + (ScaleDevice ? ScaleDevice.connected : "null"))
+                   ", scale connected=" + (ScaleDevice ? ScaleDevice.connected : "null")].map(String).join(" "))
         // Put scale to LCD-off mode (keep connected for wake)
         if (ScaleDevice && ScaleDevice.connected) {
             ScaleDevice.disableLcd()  // LCD off only, stay connected
@@ -896,7 +896,7 @@ T.ApplicationWindow {
             if (AppShell.steamAutoFlushCountdown <= 0) {
                 AppShell.steamAutoFlushCountdown = 0
                 steamAutoFlushTimer.stop()
-                console.log("Steam auto-flush countdown complete, requesting Idle state")
+                WebDebugLogger.debug("Steam", "main", ["Steam auto-flush countdown complete, requesting Idle state"].map(String).join(" "))
                 // The steam event is over — re-resolve rather than force off.
                 MainController.releaseSteamEventPermission()
                 if (DE1Device && DE1Device.connected) {
@@ -1177,7 +1177,7 @@ T.ApplicationWindow {
                 // Retry deferred disconnect navigation (#575)
                 if (root.pendingDisconnectNavigation) {
                     root.pendingDisconnectNavigation = false
-                    console.log("Retrying deferred disconnect navigation to idle")
+                    WebDebugLogger.debug("App", "main", ["Retrying deferred disconnect navigation to idle"].map(String).join(" "))
                     pageStack.replace(null, idlePage)
                     root.clearReturnTo()
                 }
@@ -1297,7 +1297,7 @@ T.ApplicationWindow {
                 if (newScale !== currentScale) {
                     Theme.pageScaleMultiplier = newScale
                     Settings.setValue("pageScale/" + pageName, newScale)
-                    console.log("Ctrl+wheel zoom:", pageName, "scale =", newScale.toFixed(2))
+                    WebDebugLogger.debug("Scale", "main", ["Ctrl+wheel zoom:", pageName, "scale =", newScale.toFixed(2)].map(String).join(" "))
                 }
             }
         }
@@ -2516,14 +2516,14 @@ T.ApplicationWindow {
                 // Settings.value() may return string on Windows (REG_SZ), coerce to Number
                 var timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
-                    console.log("Post-shot review timeout is Instant, skipping review page")
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot review timeout is Instant, skipping review page"].map(String).join(" "))
                     root.goToIdle()
                     return
                 }
                 if (root.pendingShotId > 0) {
                     root.goToShotMetadata(root.pendingShotId)
                 } else {
-                    console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
+                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId, going to idle"].map(String).join(" "))
                     root.goToIdle()
                 }
             } else if (pageStack.currentItem
@@ -2581,7 +2581,7 @@ T.ApplicationWindow {
             root.stopOverlayVisible = true
             popInAnim.start()
             stopOverlayTimer.start()
-            console.log("Stop overlay:", root.getStopReasonText())
+            WebDebugLogger.debug("App", "main", ["Stop overlay:", root.getStopReasonText()].map(String).join(" "))
 
             // Reset for next operation
             root.wasEspressoOperation = false
@@ -3632,7 +3632,7 @@ T.ApplicationWindow {
                 root.startupGracePeriod = true
                 // If we're on an operation page, navigate to idle (#575)
                 if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage" || currentPage === "transportPage") {
-                    console.log("Disconnected while on operation page (" + currentPage + ") - navigating to idle")
+                    WebDebugLogger.debug("App", "main", ["Disconnected while on operation page (" + currentPage + ") - navigating to idle"].map(String).join(" "))
                     if (!pageStack.busy) {
                         pageStack.replace(null, idlePage)
                     } else {
@@ -3660,10 +3660,10 @@ T.ApplicationWindow {
                 steamAutoFlushTimer.stop()
             } else if (phase === MachineState.Phase.HotWater && wasIdle) {
                 MainController.applyHotWaterSettings()
-                console.log("Applied hot water settings on phase change")
+                WebDebugLogger.debug("DE1", "main", ["Applied hot water settings on phase change"].map(String).join(" "))
             } else if (phase === MachineState.Phase.Flushing && wasIdle) {
                 MainController.applyFlushSettings()
-                console.log("Applied flush settings on phase change")
+                WebDebugLogger.debug("DE1", "main", ["Applied flush settings on phase change"].map(String).join(" "))
             }
 
             // Check if steaming just ended
@@ -3691,7 +3691,7 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Preinfusion ||
                 phase === MachineState.Phase.Pouring) {
                 if (root.completionPending) {
-                    console.log("Cancelling pending completion - new operation started (phase=" + phase + ")")
+                    WebDebugLogger.debug("App", "main", ["Cancelling pending completion - new operation started (phase=" + phase + ")"].map(String).join(" "))
                     root.completionPending = false
                     completionTimer.stop()
                     completionOverlay.opacity = 0
@@ -3766,7 +3766,7 @@ T.ApplicationWindow {
                 // Skip if machine has never been awake since connecting (initial connect reports
                 // Sleep before the wake command takes effect)
                 if (!root.screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
-                    console.log("Machine entered Sleep - showing screensaver")
+                    WebDebugLogger.debug("Screensaver", "main", ["Machine entered Sleep - showing screensaver"].map(String).join(" "))
                     // Scale LCD disable is handled by C++ phaseChanged handler in main.cpp
                     root.goToScreensaver()
                 }
@@ -3774,7 +3774,7 @@ T.ApplicationWindow {
                 // DE1 went to idle - if we're on an operation page, show completion.
                 // Don't check pageStack.busy: completion must be handled, except when
                 // the user explicitly exited a flush (userExitedFlush below).
-                console.log("Phase Idle/Ready: currentPage=" + currentPage + " completionOverlay.opacity=" + completionOverlay.opacity)
+                WebDebugLogger.debug("App", "main", ["Phase Idle/Ready: currentPage=" + currentPage + " completionOverlay.opacity=" + completionOverlay.opacity].map(String).join(" "))
 
                 if (currentPage === "steamPage") {
                     root.showCompletion(trSteamComplete.text, "steam")
@@ -3782,12 +3782,12 @@ T.ApplicationWindow {
                     root.showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
                     if (AppShell.userExitedFlush) {
-                        console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
+                        WebDebugLogger.debug("DE1", "main", ["Phase Idle/Ready: flush exited by user, skipping completion overlay"].map(String).join(" "))
                     } else {
                         root.showCompletion(trFlushComplete.text, "flush")
                     }
                 } else {
-                    console.log("Phase Idle/Ready: NOT on operation page, no completion shown")
+                    WebDebugLogger.debug("App", "main", ["Phase Idle/Ready: NOT on operation page, no completion shown"].map(String).join(" "))
                 }
 
                 // Always clear the flag, even when currentPage is no longer flushPage
@@ -3907,8 +3907,8 @@ T.ApplicationWindow {
             // that grows props rediscover it the same way. (History itself no
             // longer reaches this: goToShotHistory re-filters in place.)
             if (props && Object.keys(props).length > 0)
-                console.warn("pushUnlessCurrent: " + pageObjectName + " is already current; "
-                             + "its props were NOT applied — that page needs an in-place path")
+                WebDebugLogger.warn("App", "main", ["pushUnlessCurrent: " + pageObjectName + " is already current; "
+                             + "its props were NOT applied — that page needs an in-place path"].map(String).join(" "))
             return null
         }
         return props ? pageStack.push(component, props) : pageStack.push(component)
@@ -4184,7 +4184,7 @@ T.ApplicationWindow {
     property bool screensaverActive: false
 
     function goToScreensaver() {
-        console.log("[Screensaver] goToScreensaver called, type:", ScreensaverManager.screensaverType)
+        WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
         screensaverActive = true
         // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
         // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
@@ -4245,8 +4245,8 @@ T.ApplicationWindow {
         // (manually or via auto-wake) needs no separate arming.
         root.sleepCountdownNormal = root.autoSleepMinutes
         root.stayAwakeSuppressionLogged = false
-        console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
-                    " pendingPopups=" + pendingPopups.length)
+        WebDebugLogger.debug("Screensaver", "main", ["Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
+                    " pendingPopups=" + pendingPopups.length].map(String).join(" "))
         pageStack.replace(null, idlePage)
         // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
@@ -4347,7 +4347,7 @@ T.ApplicationWindow {
                 var prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 root.stayAwakeSuppressionLogged = false
-                if (prev <= 5) console.log("[AutoSleep] Reset by touch: " + prev + " -> " + root.sleepCountdownNormal)
+                if (prev <= 5) WebDebugLogger.debug("AutoSleep", "main", ["Reset by touch: " + prev + " -> " + root.sleepCountdownNormal].map(String).join(" "))
             }
             // Touch also resets the auto-load countdown so reading on the
             // Idle page doesn't silently swap the active profile.
@@ -4366,7 +4366,7 @@ T.ApplicationWindow {
         enabled: Settings.app.simulatorAvailable
         onActivated: {
             var newState = !DE1Device.simulationMode
-            console.log("Toggling simulation mode:", newState ? "ON" : "OFF")
+            WebDebugLogger.debug("App", "main", ["Toggling simulation mode:", newState ? "ON" : "OFF"].map(String).join(" "))
             DE1Device.simulationMode = newState
             if (ScaleDevice) {
                 ScaleDevice.simulationMode = newState
@@ -4380,10 +4380,10 @@ T.ApplicationWindow {
         sequence: "E"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.info("[Keyboard] Starting espresso via 'E' key")
+                WebDebugLogger.info("Keyboard", "main", ["Starting espresso via 'E' key"].map(String).join(" "))
                 DE1Device.startEspresso()
             } else {
-                console.info("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
+                WebDebugLogger.info("Keyboard", "main", ["Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase].map(String).join(" "))
             }
         }
     }
@@ -4393,10 +4393,10 @@ T.ApplicationWindow {
         sequence: "S"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.info("[Keyboard] Starting steam via 'S' key")
+                WebDebugLogger.info("Keyboard", "main", ["Starting steam via 'S' key"].map(String).join(" "))
                 DE1Device.startSteam()
             } else {
-                console.info("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
+                WebDebugLogger.info("Keyboard", "main", ["Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase].map(String).join(" "))
             }
         }
     }
@@ -4406,10 +4406,10 @@ T.ApplicationWindow {
         sequence: "W"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.info("[Keyboard] Starting hot water via 'W' key")
+                WebDebugLogger.info("Keyboard", "main", ["Starting hot water via 'W' key"].map(String).join(" "))
                 DE1Device.startHotWater()
             } else {
-                console.info("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
+                WebDebugLogger.info("Keyboard", "main", ["Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase].map(String).join(" "))
             }
         }
     }
@@ -4419,10 +4419,10 @@ T.ApplicationWindow {
         sequence: "F"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.info("[Keyboard] Starting flush via 'F' key")
+                WebDebugLogger.info("Keyboard", "main", ["Starting flush via 'F' key"].map(String).join(" "))
                 DE1Device.startFlush()
             } else {
-                console.info("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
+                WebDebugLogger.info("Keyboard", "main", ["Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase].map(String).join(" "))
             }
         }
     }
@@ -4431,7 +4431,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "Space"
         onActivated: {
-            console.info("[Keyboard] Stop/Idle via Space key, phase:", MachineState.phase)
+            WebDebugLogger.info("Keyboard", "main", ["Stop/Idle via Space key, phase:", MachineState.phase].map(String).join(" "))
             DE1Device.stopOperation()
             root.goToIdle()
         }
@@ -4441,7 +4441,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "P"
         onActivated: {
-            console.info("[Keyboard] Going to sleep via 'P' key")
+            WebDebugLogger.info("Keyboard", "main", ["Going to sleep via 'P' key"].map(String).join(" "))
             // Put scale to LCD-off mode (keep connected for wake)
             if (ScaleDevice && ScaleDevice.connected) {
                 ScaleDevice.disableLcd()
@@ -4524,8 +4524,8 @@ T.ApplicationWindow {
             // deliberately NOT lastSavedShotId, which still points at the
             // previous shot after a failed save and would wrongly open it.
             root.pendingShotId = shotId
-            console.log("Shot ended, navigate to review. shotId:", root.pendingShotId,
-                        "overlayVisible:", root.stopOverlayVisible)
+            WebDebugLogger.debug("Shot", "main", ["Shot ended, navigate to review. shotId:", root.pendingShotId,
+                        "overlayVisible:", root.stopOverlayVisible].map(String).join(" "))
 
             if (root.stopOverlayVisible) {
                 // Stop overlay still showing — defer navigation to when it expires
@@ -4541,18 +4541,18 @@ T.ApplicationWindow {
                 // late. Don't interrupt the active shot.
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage === "espressoPage") {
-                    console.log("Post-shot navigation: new shot in progress, skipping stale review")
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot navigation: new shot in progress, skipping stale review"].map(String).join(" "))
                     return
                 }
 
                 var timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
-                    console.log("Post-shot review: Instant timeout, going to idle")
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: Instant timeout, going to idle"].map(String).join(" "))
                     root.goToIdle()
                 } else if (root.pendingShotId > 0) {
                     root.goToShotMetadata(root.pendingShotId)
                 } else {
-                    console.warn("Post-shot navigation: no valid pendingShotId after overlay expired")
+                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId after overlay expired"].map(String).join(" "))
                 }
             }
         }
@@ -4563,7 +4563,7 @@ T.ApplicationWindow {
         target: MainController
 
         function onAutoWakeTriggered() {
-            console.info("[AutoSleep] Auto-wake triggered")
+            WebDebugLogger.info("AutoSleep", "main", ["Auto-wake triggered"].map(String).join(" "))
             if (root.screensaverActive) {
                 root.goToIdleFromScreensaver()
             }
@@ -4574,7 +4574,7 @@ T.ApplicationWindow {
         }
 
         function onRemoteSleepRequested() {
-            console.info("[AutoSleep] Remote sleep requested via MQTT/REST API")
+            WebDebugLogger.info("AutoSleep", "main", ["Remote sleep requested via MQTT/REST API"].map(String).join(" "))
             if (!root.screensaverActive) {
                 root.goToScreensaver()
             }
