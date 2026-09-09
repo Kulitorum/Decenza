@@ -105,8 +105,20 @@ Read through the DE1 Android MCP debug_get_log tool, unfiltered session pages 7â
 
 ## Remaining validation
 
-Native platform builds and current-build MCP runtime/volume evidence remain pending. The historical 5,240-line census above is
-not reused as proof of any new-build result.
+Native platform builds and a representative updated-device charge/mismatch capture
+remain pending. Current Mac MCP runtime/volume evidence was subsequently completed
+and is recorded below. The historical 5,240-line census above is not reused as proof
+of any new-build result.
+
+### Archive disposition (2026-09-09)
+
+The user authorized merging PR #1930 while explicitly holding beta builds, and
+requested use of `openspec archive` with its result committed last in the PR.
+Implementation and Mac validation are complete; the remaining portions of tasks
+3.6 and 5.2 stay unchecked and are carried into the next logging change. Archival
+records this disposition and synchronizes the implemented requirements; it does
+not certify Android, iOS or other beta builds or the updated-device capture.
+The prepared wiki patch remains queued for publication with the shipped feature.
 
 ### Focused and full-suite follow-up
 

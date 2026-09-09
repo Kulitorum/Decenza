@@ -43,3 +43,10 @@ checks are recorded in evidence.md. Tasks 3.6 and 5.2 remain unchecked for the m
 charge/mismatch observation and normal beta platform builds; the update, R2 and
 calibration diagnostic checks within 3.6 already pass on Mac. No separate platform
 test workflows will be dispatched, per the user's clarification.
+
+On 2026-09-09 the user authorized merging PR #1930, explicitly held beta builds,
+and requested CLI archival as the PR's final commit. Archive closure therefore
+does not claim the two outstanding validation portions passed. They remain
+recorded here and will be carried into the follow-up logging change after merge;
+the updated mobile capture depends on an eventual beta build. No beta workflow
+or deployment is authorized by this archive.
