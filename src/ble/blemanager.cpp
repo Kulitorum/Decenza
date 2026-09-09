@@ -3025,8 +3025,7 @@ void BLEManager::startReconnectBrowseIfNeeded() {
     // pre-v3.0.9 firmware that answers A-queries, and answering A-queries is
     // precisely the thing that already works; the driver's own resolve covers
     // it. What is missing is the browse, so that is what this adds.
-    scaleInfo(QStringLiteral("Reconnect: browsing for %1 (a direct attempt already failed)")
-                  .arg(m_savedScaleAddress));
+
     m_reconnectDiscovery->browse(kReconnectBrowseTimeoutMs);
 }
 
@@ -3102,8 +3101,9 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // marked scaleInfo saying the same thing in different words, 1 ms apart. A
         // [Scale] search returned one of them, so the marker did not in fact return
         // the whole story, and an unfiltered reader saw the event twice.
-        scaleInfo(QStringLiteral("Direct wake (WiFi): connecting to %1 "
-                                 "(cached IP first, mDNS fallback)").arg(hostname));
+        scaleRepeatFailure(QStringLiteral("Direct wake (WiFi): connecting to %1 "
+                                          "(cached IP first, mDNS fallback)").arg(hostname),
+                           RepeatTier::Info, QStringLiteral("BLEManager"));
 
         // Reconnect through the scale driver's own connect path instead of
         // gating on a fresh mDNS probe. DecentScaleWifi::connectToHost() tries
@@ -3363,90 +3363,40 @@ void BLEManager::scaleRepeatFailure(const QString& message) {
 
 void BLEManager::scaleRepeatFailure(const QString& message, RepeatTier tier,
                                     const QString& source) {
-    // Counted PER MESSAGE, not per subsystem. A single subsystem counter looked
-    // simpler and was wrong twice over:
-    //
-    //   - It suppressed NOVELTY. A genuinely different failure arriving mid-run
-    //     — "WiFi scale X unreachable and Bluetooth unavailable", i.e. the user
-    //     just turned the radio off, which is actionable — was logged at DEBUG
-    //     because an unrelated timeout had already spent the budget.
-    //   - Its numbers skipped, because one attempt reports several messages, so
-    //     "(repeat 4)" appeared on a line that had been printed twice.
-    //
-    // Per-message fixes both: each distinct failure gets its own first few
-    // warnings, and the count means what it says.
-    //
-    // Cardinality WAS bounded — "literals with at most a host name interpolated"
-    // — and that is no longer true, so do not rely on it. DecentScaleWifi's
-    // failure line now interpolates the error string, an error code, the target,
-    // the phrase describing where the target came from, and the local address.
-    // The target-source phrase varies WITHIN one dead ladder (remembered, then
-    // freshly resolved, then remembered-after-a-failed-resolve), so a single
-    // repeating failure claims a separate budget per phrasing and can emit
-    // roughly three times the intended warnings before going quiet.
-    //
-    // Left as-is deliberately: the provenance on that line is what makes
-    // "the scale moved" separable from "the scale is off", which was the point of
-    // adding it, and three cycles of a real failure is a tolerable price. Keying
-    // the budget on a stable substring while logging the full line is the fix if
-    // it ever becomes a problem. Recorded rather than silently accepted, because
-    // the old sentence would have been read as a guarantee.
-    const int count = ++m_repeatFailureCounts[message];
-    if (count <= kScaleFailuresAtWarn) {
-        // At the caller's own tier, not always WARN. A failing cycle emits
-        // narrative as well as problems, and promoting the narrative to WARN to
-        // budget it would trade one kind of noise for a worse one.
-        if (tier == RepeatTier::Warn)
-            scaleWarn(message, source);
-        else
-            scaleInfo(message, source);
-    } else {
-        // Same event, still true, nothing new — DEBUG, so the log still proves the
-        // ladder is running without another alarm.
-        //
-        // But NOT DEBUG forever, and this is a correction to the first cut of this
-        // budget. Once DecentScaleWifi's warning was routed in here too, a
-        // permanently-absent scale produced nothing whatsoever above DEBUG — so at
-        // the tier debug_get_log's INFO view and the connections page both read,
-        // "retrying every 60 s for the last eight hours" and "gave up hours ago"
-        // became byte-identical: empty. That is the same fault this subsystem was
-        // just fixed for in the other direction. Silence is not honest while the
-        // condition persists; it only looks tidy.
-        //
-        // Milestones, not a period: the gaps widen, so an overnight failure costs a
-        // handful of INFO lines rather than one every 60 s, and the reader still
-        // gets proof of life with a repeat count that says how long it has been.
-        const bool milestone = (count == 10 || count == 30 || count == 100
-                                || (count % 500) == 0);
-        const QString line = QString("%1 (repeat %2)").arg(message).arg(count);
-        if (milestone)
-            scaleInfo(line, source);
-        else
-            scaleDebug(line, source);
-    }
+    if (!shouldReportRepeatFailure(QStringLiteral("Scale"), source, message))
+        return;
+    if (tier == RepeatTier::Warn)
+        scaleWarn(message, source);
+    else
+        scaleInfo(message, source);
 }
 
-// Clears the per-message warn budgets so the next failure of each kind is loud
-// again. Called on a successful connect AND on any fresh user-initiated attempt:
-// a user who plugs the scale in and taps Connect after an hour of a dead ladder
-// is asking a new question, and the answer must not arrive at DEBUG because the
-// ladder had already used up the budget. Missing the user-initiated half was the
-// actual defect — the two sibling latches (m_scaleConnectionFailed,
-// m_flowScaleFallbackEmitted) were reset on those paths and this was not.
-// Same budget, [DE1] marker. Needed because the DE1's "no machine found" outcome
-// is reported once per scan cycle and the reconnect ladder scans forever, so a
-// flat WARN there would be the cry-wolf pattern all over again.
+bool BLEManager::shouldReportRepeatFailure(const QString& owner, const QString& source,
+                                          const QString& message) {
+    const QString key = owner + QLatin1Char('\n') + source + QLatin1Char('\n') + message;
+    // Preserve novel failures even when the bounded episode cache is full.
+    if (!m_repeatFailureLog.hasKey(key) && m_repeatFailureLog.keyCount() >= 64)
+        return true;
+    return m_repeatFailureLog.shouldLog(key, message, QDateTime::currentMSecsSinceEpoch(), nullptr);
+}
+
 void BLEManager::de1RepeatFailure(const QString& message) {
-    const int count = ++m_repeatFailureCounts[message];
-    if (count <= kScaleFailuresAtWarn) {
+    if (shouldReportRepeatFailure(QStringLiteral("DE1"), QStringLiteral("BLEManager"), message))
         de1Warn(message);
-    } else {
-        de1Debug(QString("%1 (repeat %2)").arg(message).arg(count));
-    }
 }
 
 void BLEManager::resetRepeatFailureBudget() {
-    m_repeatFailureCounts.clear();
+    // A successful connect or fresh user attempt ends the old retry episode.
+    // Retain its repeat count once, rather than a DEBUG record on every retry.
+    for (const auto& [key, collapsed] : m_repeatFailureLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        const QString source = key.section(QLatin1Char('\n'), 1, 1);
+        const QString message = QStringLiteral("Previous attempt: %1")
+            .arg(key.section(QLatin1Char('\n'), 2)) + LogCollapse::suffix(collapsed);
+        if (key.startsWith(QStringLiteral("Scale\n")))
+            scaleDebug(message, source);
+        else
+            de1Debug(message, source);
+    }
 }
 
 // The DE1 tiers. One write, to the system log, carrying the marker.

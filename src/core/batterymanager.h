@@ -182,11 +182,9 @@ private:
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
 
-    // Nothing while the poll result is unchanged; a change emits at once, carrying the count of
-    // identical polls it stood for. The poll runs every ~60 s and a plugged-in tablet never varies
-    // — the 643 byte-identical lines cited above were 2.5% of a user's log, and a window only chose
-    // how many of them survived rather than whether any of them said anything.
-    // Periodic: polls for the process lifetime, so there is no run end and nothing to flush. The
-    // pending tally is not lost by that: it rides out on the next line whose text differs.
+    // Process-lifetime polls: retain state transitions and five-point progress.
+    // Pending similar-sample counts ride on the next meaningful change.
     LogCollapse m_pollCollapse{LogCollapse::kChangesOnly};
+    int m_lastLoggedBatteryPercent = -1;
+    QString m_lastLoggedBatteryState;
 };

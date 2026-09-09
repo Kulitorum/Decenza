@@ -265,7 +265,6 @@ private:
     double m_cachedFlowRateShort = 0.0;
 
     // Throttled debug logging for scale weight during active phases
-    qint64 m_lastWeightLogMs = 0;
 
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/diagnosticlogging.h"
+#include "core/logfields.h"
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMutex>
@@ -24,7 +25,6 @@ public:
             QMutexLocker lock(&indexMutex());
             index().insert(op->id, op);
         }
-        op->event(QtInfoMsg, QStringLiteral("start"));
         return op;
     }
 
@@ -41,29 +41,8 @@ public:
         index().remove(id);
     }
 
-    static QString safeUrl(const QString& text)
-    {
-        QUrl url(text);
-        if (!url.isValid() || (url.scheme() != QLatin1String("https") && url.scheme() != QLatin1String("http"))
-            || url.host().isEmpty())
-            return QStringLiteral("invalid-or-non-http-url");
-        url.setUserInfo(QString());
-        url.setQuery(QString());
-        url.setFragment(QString());
-        // QUrl encodes control characters, so URL identity cannot create fields
-        // or physical log lines. Never decode the result before writing it.
-        return url.toString(QUrl::FullyEncoded).left(384);
-    }
-
-    static QString field(QString value)
-    {
-        // Provider/model identifiers, never remote prose. Keep one bounded field.
-        for (auto& c : value) {
-            if (!(c.isLetterOrNumber() || QStringLiteral("._-/:@").contains(c)))
-                c = QLatin1Char('_');
-        }
-        return value.left(128);
-    }
+    static QString safeUrl(const QString& text) { return DecenzaLog::safeUrl(text); }
+    static QString field(QString value) { return DecenzaLog::field(std::move(value)); }
 
     void useProvider(const QString& providerId, const QString& modelId, const QString& nextStage)
     {
@@ -71,7 +50,6 @@ public:
         model = field(modelId);
         providerInvoked = true;
         stage = nextStage;
-        event(QtDebugMsg, QStringLiteral("dispatch"));
     }
 
     void network(const QString& nextStage, const QString& url, int status, int error)
@@ -82,13 +60,6 @@ public:
         networkError = error;
         if (!providerInvoked && !pageHttpStatus)
             pageHttpStatus = status;
-        event(QtDebugMsg, QStringLiteral("response"));
-    }
-
-    void detail(const QString& nextStage, const QString& reason)
-    {
-        stage = nextStage;
-        event(QtDebugMsg, reason);
     }
 
     bool finish(const QString& outcome, const QString& reason, qsizetype count = -1)

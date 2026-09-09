@@ -1,0 +1,9 @@
+diff --git a/Manual.md b/Manual.md
+--- a/Manual.md
++++ b/Manual.md
+@@ -1928,0 +1929,5 @@ Two things to try before anything else:
++Logs label each subsystem, such as Battery, BeanBase, AI, or Visualizer.
++BeanBase records whether a coffee-bag lookup returned usable details, an empty result, or an error.
++Routine repeated messages are suppressed so faults and meaningful changes are easier to find.
++Include the complete time window when reporting a problem: older entries and framework warnings may fall outside a subsystem filter.
++

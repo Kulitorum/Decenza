@@ -481,7 +481,6 @@ T.ApplicationWindow {
             if (root.autoLoadIdleCountdown <= 0) {
                 var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (pageName === "idlePage") {
-                    WebDebugLogger.info("AutoLoad", "main", ["Idle countdown expired — invoking auto-load"].map(String).join(" "))
                     ProfileManager.loadAutoLoadProfileIfNeeded()
                     MainController.loadAutoLoadRecipeIfNeeded()
                 }
@@ -542,7 +541,6 @@ T.ApplicationWindow {
             var curr = DE1Device.state
             root.autoLoadPreviousDe1State = curr
             if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
-                WebDebugLogger.info("AutoLoad", "main", ["DE1 Sleep -> Idle — invoking auto-load"].map(String).join(" "))
                 ProfileManager.loadAutoLoadProfileIfNeeded()
                 MainController.loadAutoLoadRecipeIfNeeded()
             }

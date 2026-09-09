@@ -1,9 +1,4 @@
-# ai-operation-logging Specification
-
-## Purpose
-Make AI-backed user actions diagnosable from the persisted application log, including failures before a provider is called and failures interpreting a provider response.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Each AI-backed operation has a correlated terminal outcome
 

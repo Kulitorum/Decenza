@@ -129,23 +129,6 @@ T.Page {
         return preset ? preset.disabled === true : false
     }
 
-    // Debug logging for steam phase issues
-    Connections {
-        target: MachineState
-        function onPhaseChanged() {
-            WebDebugLogger.debug("Steam", "SteamPage", ["MachineState.phase changed to", MachineState.phase, "isSteaming=", steamPage.isSteaming].map(String).join(" "))
-        }
-    }
-    Connections {
-        target: DE1Device
-        function onStateChanged() {
-            WebDebugLogger.debug("Steam", "SteamPage", ["DE1Device.state changed to", DE1Device.stateString, "(", DE1Device.state, ")"].map(String).join(" "))
-        }
-        function onSubStateChanged() {
-            WebDebugLogger.debug("Steam", "SteamPage", ["DE1Device.subState changed to", DE1Device.subStateString].map(String).join(" "))
-        }
-    }
-
     // Last net-milk reading while the pitcher rested on the scale this session, used to
     // apply the weight-scaled steam time at steam-start even after the pitcher is lifted
     // to the wand. Decoupled from the auto-capture's settle detector, whose virtual zero
@@ -163,7 +146,6 @@ T.Page {
 
     // Reset state when steaming starts/ends
     onIsSteamingChanged: {
-        WebDebugLogger.debug("Steam", "SteamPage", ["isSteaming changed to", isSteaming, "phase=", MachineState.phase, "steamSoftStopped=", steamSoftStopped].map(String).join(" "))
         if (isSteaming) {
             wasSteaming = true
             steamSoftStopped = false
@@ -212,7 +194,6 @@ T.Page {
             // preset before the next onStateChanged fires, so the BLE write
             // that session uses the correct values.
         } else {
-            WebDebugLogger.debug("Steam", "SteamPage", ["Settings view now visible (isSteaming=false)"].map(String).join(" "))
             if (wasSteaming) {
                 // Discard +5s/-5s adjustments made during this session so the
                 // next one starts from the pitcher preset.

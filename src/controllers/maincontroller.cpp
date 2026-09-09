@@ -602,7 +602,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         if (!ok) {
             // NOT the same as an empty queue: the read failed, so shots that
             // need repairing may be sitting there unseen.
-            DIAG_WARN(VISUALIZER, "MainController") << "Visualizer bean-repair queue could not be read "
+            DIAG_WARN(STORAGE, "MainController") << "Visualizer bean-repair queue could not be read "
                           "- no repair this session";
             return;
         }
@@ -669,7 +669,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         dispatchNextPendingVisualizerSync();
     });
     connect(m_visualizer, &VisualizerUploader::updateFailed, this,
-            [this](const QString& visualizerId, bool permanent, const QString& error) {
+            [this](const QString& visualizerId, bool permanent, const QString&) {
         // Same in-flight filter as updateSuccess above: ignore failures
         // from PATCHes we didn't issue (user edits from the review pages).
         if (m_migration16InFlightVisualizerId.isEmpty()
@@ -682,8 +682,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             // VisualizerUploader::onUpdateFinished): leave the entry in
             // the pending list and abort the drain — the queue picks up
             // on the next boot.
-            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync — transient failure ("
-                     << error << "); drain paused until next boot";
+            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync pending until next boot for remote shot" << visualizerId;
             return;
         }
 
@@ -713,8 +712,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         else
             s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        DIAG_WARN(VISUALIZER, "MainController") << "migration16 sync — dropping visualizerId"
-                   << visualizerId << "after permanent failure:" << error;
+        DIAG_INFO(VISUALIZER, "MainController") << "migration16 removed missing remote shot" << visualizerId
+            << "from pending queue";
         dispatchNextPendingVisualizerSync();
     });
 
@@ -4095,7 +4094,6 @@ void MainController::onEspressoCycleStarted() {
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
     m_lastSampleTime = 0;  // prior shot's last sample.timer would otherwise stale-out the inter-sample delta gate
-    m_trackLogCounter = 0;
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
     m_lastPressure = 0;
@@ -5032,32 +5030,6 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                /*temperatureGoal*/ sample.setTempGoal,
                                /*temperatureMixGoal*/ sample.setMixTempGoal,
                                sample.frameNumber, isFlowMode);
-
-    // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,
-    // this is roughly every 2 seconds). Only log when a goal is active.
-    if (isExtracting && m_trackLogCounter++ % 10 == 0) {
-        double goal = isFlowMode ? flowGoal : pressureGoal;
-        if (goal > 0) {
-            double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
-            double delta = qAbs(actual - goal);
-            // Thresholds must match Theme.trackingColor() in Theme.qml
-            double floorGood = isFlowMode ? 0.4 : 0.8;
-            double floorWarn = isFlowMode ? 0.8 : 1.8;
-            double threshGood = qMax(floorGood, goal * 0.25);
-            double threshWarn = qMax(floorWarn, goal * 0.50);
-            QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
-            // Prefix deliberately unbracketed: a per-sample trace is not a
-            // subsystem narrative, and "[ExtractionTrack]" advertised a
-            // debug_get_log filter that would return an incomplete answer.
-            DIAG_DEBUG(SHOT, "ExtractionTrack") << (isFlowMode ? "flow" : "pressure")
-                     << "actual=" << QString::number(actual, 'f', 2)
-                     << "goal=" << QString::number(goal, 'f', 2)
-                     << "delta=" << QString::number(delta, 'f', 2)
-                     << "threshG=" << QString::number(threshGood, 'f', 2)
-                     << "threshW=" << QString::number(threshWarn, 'f', 2)
-                     << color;
-        }
-    }
 }
 
 void MainController::onScaleWeightChanged(double weight) {
@@ -5271,7 +5243,7 @@ void MainController::processVisualizerReconciliation()
             // run-once flag unset so it retries on the next boot rather
             // than permanently skipping the backfill after one transient
             // hiccup (e.g. DB momentarily locked at boot).
-            DIAG_WARN(VISUALIZER, "MainController") << "Visualizer reconciliation did not "
+            DIAG_WARN(STORAGE, "MainController") << "Visualizer reconciliation did not "
                           "complete (DB error) — will retry next boot";
             return;
         }

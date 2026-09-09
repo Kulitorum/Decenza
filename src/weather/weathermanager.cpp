@@ -289,7 +289,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            APP_WARN_STREAM("Weather") << "Open-Meteo request failed:" << reply->errorString();
+            logForecastResult(QStringLiteral("Open-Meteo request failed: ") + reply->errorString(), true);
             m_fetchInProgress = false;
             setLoading(false);
             return;
@@ -299,7 +299,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
         QList<HourlyForecast> forecasts = parseOpenMeteoResponse(doc);
 
         if (forecasts.isEmpty()) {
-            APP_WARN_STREAM("Weather") << "Open-Meteo returned no forecast data";
+            logForecastResult(QStringLiteral("Open-Meteo returned no forecast data"), true);
             m_fetchInProgress = false;
             setLoading(false);
             return;
@@ -382,7 +382,7 @@ void WeatherManager::fetchFromNWS(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            APP_WARN_STREAM("Weather") << "NWS points request failed:" << reply->errorString();
+            logForecastResult(QStringLiteral("NWS points request failed: ") + reply->errorString(), true);
             fallbackToOpenMeteo(lat, lon, "NWS points lookup failed");
             return;
         }
@@ -392,7 +392,7 @@ void WeatherManager::fetchFromNWS(double lat, double lon)
         QString forecastHourlyUrl = props["forecastHourly"].toString();
 
         if (forecastHourlyUrl.isEmpty()) {
-            APP_WARN_STREAM("Weather") << "NWS returned no forecastHourly URL";
+            logForecastResult(QStringLiteral("NWS returned no forecastHourly URL"), true);
             fallbackToOpenMeteo(lat, lon, "NWS missing forecastHourly URL");
             return;
         }
@@ -421,7 +421,7 @@ void WeatherManager::fetchNWSHourlyFromGridUrl(const QString& forecastHourlyUrl)
         double lon = m_lastFetchLon;
 
         if (reply->error() != QNetworkReply::NoError) {
-            APP_WARN_STREAM("Weather") << "NWS hourly request failed:" << reply->errorString();
+            logForecastResult(QStringLiteral("NWS hourly request failed: ") + reply->errorString(), true);
             fallbackToOpenMeteo(lat, lon, "NWS hourly forecast failed");
             return;
         }
@@ -430,7 +430,7 @@ void WeatherManager::fetchNWSHourlyFromGridUrl(const QString& forecastHourlyUrl)
         QList<HourlyForecast> forecasts = parseNWSResponse(doc);
 
         if (forecasts.isEmpty()) {
-            APP_WARN_STREAM("Weather") << "NWS returned no hourly periods";
+            logForecastResult(QStringLiteral("NWS returned no hourly periods"), true);
             fallbackToOpenMeteo(lat, lon, "NWS parsing failed");
             return;
         }
@@ -509,7 +509,7 @@ void WeatherManager::fetchFromMetNorway(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            APP_WARN_STREAM("Weather") << "MET Norway request failed:" << reply->errorString();
+            logForecastResult(QStringLiteral("MET Norway request failed: ") + reply->errorString(), true);
             fallbackToOpenMeteo(lat, lon, "MET Norway request failed");
             return;
         }
@@ -518,7 +518,7 @@ void WeatherManager::fetchFromMetNorway(double lat, double lon)
         QList<HourlyForecast> forecasts = parseMetNorwayResponse(doc);
 
         if (forecasts.isEmpty()) {
-            APP_WARN_STREAM("Weather") << "MET Norway returned no timeseries data";
+            logForecastResult(QStringLiteral("MET Norway returned no timeseries data"), true);
             fallbackToOpenMeteo(lat, lon, "MET Norway parsing failed");
             return;
         }
@@ -597,9 +597,19 @@ void WeatherManager::storeForecasts(const QList<HourlyForecast>& forecasts, Weat
     // Fetch accurate sunrise/sunset times to fix isDaytime
     fetchSunTimes(m_lastFetchLat, m_lastFetchLon);
 
-    APP_DBG_STREAM("Weather") << "Stored" << forecasts.size() << "hourly forecasts from"
-             << providerName() << "- current temp:"
-             << (forecasts.isEmpty() ? 0.0 : forecasts.first().temperature) << "°C";
+    logForecastResult(QStringLiteral("Forecast available: provider=%1 hours=%2")
+        .arg(providerName()).arg(forecasts.size()), false);
+}
+
+void WeatherManager::logForecastResult(const QString& message, bool failed)
+{
+    LogCollapse::Collapsed collapsed;
+    if (!m_forecastLog.shouldLog(QStringLiteral("forecast"), message,
+                                QDateTime::currentMSecsSinceEpoch(), &collapsed))
+        return;
+    const QString text = message + LogCollapse::suffix(collapsed);
+    if (failed) { APP_WARN_STREAM("Weather") << text; }
+    else { APP_INFO_STREAM("Weather") << text; }
 }
 
 // ─── Sunrise/sunset from Open-Meteo ──────────────────────────────────────────

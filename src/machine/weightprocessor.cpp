@@ -19,9 +19,7 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
-// The collapse key for the constant-weight liveness line. A CONSTANT, not the
-// line's text, and m_constantSampleLog's declaration says why: the text carries
-// the weight, so keying on it would open a run per value and close none of them.
+// One liveness episode per shot/tare, independent of the held weight.
 constexpr auto kConstantSampleLogKey = QLatin1String("constantWeightAlive");
 // Collapse key for the disagreement line: measured interval in 50 ms buckets, capped.
 // Bucketed rather than constant so an episode's worst window still speaks; capped
@@ -361,36 +359,10 @@ void WeightProcessor::processWeight(double weight)
         m_rateWindowCount = 1;
     }
 
-    // #1176 liveness diagnostic. An unchanged-value sample during a shot's
-    // static window (classically an empty cup through EspressoPreheating)
-    // would, pre-fix, have been swallowed by ScaleDevice's weightChanged
-    // dedup — the feed looked dead and a false scale-feed stall fired. It now
-    // reaches us via weightSampleReceived. Log it (shot context only) so the fix
-    // is provable from a field debug log without needing the recorded weight
-    // curve.
-    //
-    // Collapsed, not throttled. This carried a 2 s throttle until the line was
-    // measured at 567 occurrences in one submitted log — a 100 s static window
-    // produced 50 identical lines, none of which said anything the first had
-    // not. m_constantSampleLog replaces it with kChangesOnly, which has no time
-    // window at all: a changed weight emits at once carrying the previous
-    // value's tally, an unchanged one is counted and never repeated.
+    // One proof that constant-value samples arrive per shot/tare episode. The
+    // existing feed summary and stall/resume events carry the useful outcomes.
     if (sampleValueUnchanged && (m_active || m_preheatActive) && m_tareComplete) {
-        // [Scale], not [SAW], even though this file is otherwise SAW's worker:
-        // the line answers "did the weight readings keep arriving", which is a
-        // scale question. Filing it under SAW would leave a reader chasing a
-        // missing feed inside the stop logic. It was a fifth hand-rolled
-        // marker-shaped prefix ("[ScaleFeed]") that no registered marker matched.
-        //
-        // DEBUG, not INFO: it exists to prove a NON-bug (a static reading is a
-        // live feed, not a stalled one). None of them is a line a user needs,
-        // which is why the 2 s dedupe window that used to gate this is now a
-        // collapse instead — see m_constantSampleLog. One line per constant
-        // value, and the count says how long that value held.
-        const QString aliveText =
-            QStringLiteral("alive: constant weight %1 g still streaming via "
-                           "weightSampleReceived (pre-#1176 this static window read "
-                           "as a stalled feed)").arg(weight, 0, 'f', 1);
+        const QString aliveText = QStringLiteral("Constant-weight samples are arriving");
         LogCollapse::Collapsed collapsed;
         if (m_constantSampleLog.shouldLog(kConstantSampleLogKey, aliveText,
                                           wallClock, &collapsed)) {

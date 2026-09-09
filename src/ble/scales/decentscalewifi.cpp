@@ -451,7 +451,6 @@ void DecentScaleWifi::attemptHostname() {
     if (m_hostname.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
         const QString host = m_hostname;
         const int generation = ++m_resolveGeneration;
-        WIFI_LOG(QString("Resolving %1 via QHostInfo...").arg(host));
         QHostInfo::lookupHost(host, this, [this, host, generation](const QHostInfo& info) {
             // `this` is the lookup's context object, so Qt already drops this
             // callback if `this` was destroyed; the generation check further
@@ -464,9 +463,13 @@ void DecentScaleWifi::attemptHostname() {
                 // don't dial, don't pop a modal. BLEManager's connection timer
                 // (onScaleConnectionTimeout) is the backstop.
                 if (dialCachedIpAfterResolveFailure()) return;
-                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — no cached IP; "
-                                  "not dialing (transient; auto-reconnect will retry)")
-                          .arg(host, info.errorString()));
+                const QString failure = QString("QHostInfo resolution failed for %1: %2 — no cached IP; "
+                                                "not dialing (transient; auto-reconnect will retry)")
+                    .arg(host, info.errorString());
+                if (m_repeatFailureSink)
+                    m_repeatFailureSink(failure, /*warn=*/true);
+                else
+                    WIFI_WARN(failure);
                 m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
                 return;
             }

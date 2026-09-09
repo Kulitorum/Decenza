@@ -377,35 +377,22 @@ void BatteryManager::applySmartCharging() {
     case 4: osPlugged = "WIRELESS";  break;
     }
 
-    // Collapse an UNCHANGING poll to one line per window; emit a CHANGE at once.
-    //
-    // This was "log every 5th cycle (~5 min) to reduce noise", which reduces rate
-    // but not redundancy: it prints on a schedule whether or not anything moved.
-    // A user's 25,720-line capture carries 643 of these, and all 643 are
-    // byte-identical — "battery= 100 % … charger= ON … status= FULL plugged= AC"
-    // — a tablet that sat on the charger. That is 2.5% of their whole log saying
-    // nothing changed, in the log they attached to a bug report about something
-    // else entirely.
-    //
-    // LogCollapse is the opposite trade and the right one: a changed line is the
-    // interesting event and is never held back, while an unchanged one is spoken
-    // once per window and carries the count it stood in for. Reused rather than
-    // re-implemented — it already serves the MMR keepalive, the memory sampler
-    // and the ShotServer request log, and a fourth hand-rolled counter is exactly
-    // the drift its own header warns about.
-    const QString pollText = QStringLiteral("battery= %1 % mode= %2 charger= %3 "
-                                            "discharging= %4 status= %5 plugged= %6")
-                                 .arg(m_batteryPercent)
-                                 .arg(modeName)
-                                 .arg(shouldChargerBeOn ? QStringLiteral("ON") : QStringLiteral("OFF"))
-                                 .arg(m_discharging ? QStringLiteral("true") : QStringLiteral("false"))
-                                 .arg(osStatus)
-                                 .arg(osPlugged);
+    // Retain state transitions and five percentage points of progress. Normal
+    // one-percent movement otherwise defeats changes-only suppression.
+    const QString state = QStringLiteral("mode=%1 requestedCharger=%2 discharging=%3 status=%4 plugged=%5")
+        .arg(modeName, shouldChargerBeOn ? QStringLiteral("ON") : QStringLiteral("OFF"))
+        .arg(m_discharging ? QStringLiteral("true") : QStringLiteral("false"))
+        .arg(osStatus, osPlugged);
+    if (state != m_lastLoggedBatteryState || m_lastLoggedBatteryPercent < 0
+        || qAbs(m_batteryPercent - m_lastLoggedBatteryPercent) >= 5)
+        m_lastLoggedBatteryPercent = m_batteryPercent;
+    const QString gate = state + QStringLiteral(" progress=%1").arg(m_lastLoggedBatteryPercent);
     LogCollapse::Collapsed collapsed;
-    if (m_pollCollapse.shouldLog(QStringLiteral("poll"), pollText,
-                                 QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-        DIAG_DEBUG(BATTERY, "BatteryManager").noquote() << pollText
-                                  + m_pollCollapse.suffix(collapsed);
+    if (m_pollCollapse.shouldLog(QStringLiteral("poll"), gate,
+                                QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+        m_lastLoggedBatteryState = state;
+        DIAG_DEBUG(BATTERY, "BatteryManager") << QStringLiteral("battery=%1% %2")
+            .arg(m_batteryPercent).arg(state) + m_pollCollapse.suffixSimilar(collapsed);
     }
 
     // ── Step 3: send the command to the DE1 ──────────────────────────────────
