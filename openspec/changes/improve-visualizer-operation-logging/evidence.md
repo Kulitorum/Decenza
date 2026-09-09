@@ -52,6 +52,12 @@ The appended on-demand memory summary contains five samples, including four minu
 
 The prior 84-second Mac capture had four completed DNS-SD cycles and 16 discovery/resolver receipt lines; the final 246-second capture has one discovery result. These runs have different activity and observation windows, so their overall totals (203 versus 157) are not a whole-app percentage comparison. Neither Mac capture establishes mobile charging behavior or a week-long post-change volume.
 
+## Final PR review and longer live observation
+
+Reviewed PR #1931 at `a527e9784f5c9bda6d37f7b16b50eda64250c3ce`: no actionable findings. Reviewed suppression/recovery resets, memory trend detection, retained error context and the deleted emission paths. Current-head text-invariants run 34414169562 passed; source markers, `git diff --check` and strict OpenSpec validation were rechecked successfully. No production code changed after the passing full Mac suite.
+
+A further background read of the same user-started process (PID 94580, session 76) retrieved all **207 rows through 1,035.662 seconds**, `hasMore=false`. The DNS-SD result and each distinct connection failure still appeared only once. The actual retry-policy change remained visible: after ten failed attempts, the scale reported slowing retries to five minutes. Eighteen on-demand memory samples remained available; the startup rise and subsequent fluctuating plateau produced no automatic memory records. MQTT was excluded, and no app input or machine command was sent.
+
 ## On-demand FD verification
 
 Called DE1 MCP `debug_get_fds` successfully during the review: `supported=true`, with descriptor and socket details returned. This verifies availability, not a leak verdict; one census cannot establish sustained growth. The MCP implementation remains byte-for-byte unchanged in this PR.
