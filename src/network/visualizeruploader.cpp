@@ -73,6 +73,18 @@ QString grinderSettingWithRpm(const QString& setting, qint64 rpm) {
 }
 } // namespace
 
+// Keep the explicit upload artifacts in their existing production location.
+// Tests use the same writers but must never overwrite the user's last upload.
+static QString visualizerDebugDirectory()
+{
+#ifdef DECENZA_TESTING
+    return Settings::testQSettingsPath() + QStringLiteral(".visualizer");
+#else
+    QString path = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    return path.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) : path;
+#endif
+}
+
 VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
@@ -166,24 +178,28 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
                                      qint64 shotEpoch,
                                      qint64 dbShotId)
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "upload", dbShotId, metadata.bagId);
     if (!shotData) {
+        op->finish("rejected", "missingShotData");
         emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
 
     QString beverageType = profile ? profile->beverageType() : QString();
-    if (!validateUpload(beverageType, duration))
+    if (!validateUpload(beverageType, duration, op))
         return;
 
     m_uploadingDbShotId = dbShotId;
     m_uploadRetries = 0;
     QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata, debugLog, shotEpoch);
-    sendUpload(jsonData);
+    sendUpload(jsonData, op);
 }
 
 void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "upload", shotData.id, shotData.bagId);
     if (!shotData.isValid()) {
+        op->finish("rejected", "missingShotData");
         emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
@@ -197,13 +213,13 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
         }
     }
 
-    if (!validateUpload(beverageType, shotData.durationSec))
+    if (!validateUpload(beverageType, shotData.durationSec, op))
         return;
 
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
     QByteArray jsonData = buildHistoryShotJson(shotData);
-    sendUpload(jsonData);
+    sendUpload(jsonData, op);
 }
 
 void VisualizerUploader::uploadShotFromHistoryWithOverrides(
@@ -211,6 +227,7 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
 {
     ShotProjection shot = ShotProjection::coerce(baseShot);
     if (!shot.isValid()) {
+        Log::begin(Log::Emitter::Uploader, "upload")->finish("rejected", "missingShotData");
         emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
@@ -265,6 +282,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     // catch a coerce miss here — otherwise a PATCH could go out with id=0 /
     // durationSec=0 / empty curves.
     if (!shot.isValid()) {
+        Log::begin(Log::Emitter::Uploader, "update", 0, 0, visualizerId)->finish("rejected", "missingShotData");
         emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         emit updateFailed(visualizerId, false, "No shot data available");
         return;
@@ -312,7 +330,9 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
 
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "update", shotData.id, shotData.bagId, visualizerId);
     if (visualizerId.isEmpty()) {
+        op->finish("rejected", "missingRemoteId");
         emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
         emit updateFailed(visualizerId, false, "No visualizer ID for update");
         return;
@@ -323,6 +343,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     QString password = m_settings->value("visualizer/password", "").toString();
 
     if (username.isEmpty() || password.isEmpty()) {
+        op->finish("rejected", "missingCredentials");
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
@@ -416,7 +437,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         // every consumer degrades identically/silently, so log it here at the
         // upload chokepoint where it would otherwise vanish without a trace.
         if (!QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).isObject())
-            DIAG_WARN(VISUALIZER, "VisualizerUploader") << "corrupt beanBaseJson on shot" << shotData.id;
+            op->problem("prepare", "invalidBeanSnapshot");
         const QString canonicalId = BeanBaseBlob::canonicalId(shotData.beanBaseJson);
         // ...but never when that record names a different coffee than the shot
         // does. The server rewrites bean_brand/bean_type from the canonical
@@ -426,9 +447,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         // on visualizer.coffee. The link stays local; only the export stops.
         if (BeanBaseBlob::canonicalIdentityConflicts(shotData.beanBaseJson,
                                                      {shotData.beanBrand, shotData.beanType})) {
-            DIAG_DEBUG(VISUALIZER, "Visualizer") << "canonical link withheld -" << shotData.beanBrand
-                     << "/" << shotData.beanType
-                     << "is not what the linked canonical record is named";
+            op->detail("prepare", "canonicalIdentityConflict");
         } else if (!canonicalId.isEmpty()) {
             shotObj["canonical_coffee_bag_id"] = canonicalId;
         }
@@ -440,7 +459,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     QJsonDocument doc(root);
     QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
 
-    DIAG_DEBUG(VISUALIZER, "Visualizer") << "Updating shot" << visualizerId << "with:" << jsonData;
+    op->detail("update", "dispatch");
 
     // Build PATCH request
     QUrl url(QString(VISUALIZER_SHOTS_API_URL) + visualizerId);
@@ -458,13 +477,14 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 
     QNetworkReply* reply = m_networkManager->sendCustomRequest(request, "PATCH", buffer);
     buffer->setParent(reply);  // Auto-delete buffer when reply is deleted
-    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerId]() {
-        onUpdateFinished(reply, visualizerId);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerId, op]() {
+        onUpdateFinished(reply, visualizerId, op);
     });
 }
 
-void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& visualizerId)
+void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& visualizerId, const Op& op)
 {
+    op->response("update", reply);
     m_uploading = false;
     emit uploadingChanged();
 
@@ -474,8 +494,8 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     if (reply->error() == QNetworkReply::NoError) {
         m_lastUploadStatus = tr_("visualizer.status.updateSuccess", "Update successful");
         emit lastUploadStatusChanged();
+        op->finish("success", "updated");
         emit updateSuccess(visualizerId);
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Update successful for shot" << visualizerId;
     } else {
         QString errorMsg;
 
@@ -496,13 +516,13 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        op->finish("failed", "requestFailed");
         emit uploadFailed(errorMsg);
         // 404 is the one terminal outcome: the shot is gone from (or was
         // never on) Visualizer, so no retry can ever succeed. Everything
         // else — offline, 5xx, 401 (fixable credentials), 422 — is worth
         // retrying on a later boot.
         emit updateFailed(visualizerId, statusCode == 404, errorMsg);
-        DIAG_WARN(VISUALIZER, "Visualizer") << "Update failed -" << errorMsg << "Response:" << response;
     }
 
     reply->deleteLater();
@@ -510,6 +530,7 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
 
 void VisualizerUploader::testConnection()
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "connectionTest");
     // Re-detect Coffee Management on the next upload — the user may have
     // toggled it (or switched accounts) since the last probe.
     setCmState(CmState::Unknown);
@@ -518,6 +539,7 @@ void VisualizerUploader::testConnection()
     QString password = m_settings->value("visualizer/password", "").toString();
 
     if (username.isEmpty() || password.isEmpty()) {
+        op->finish("rejected", "missingCredentials");
         emit connectionTestResult(false, tr_("visualizer.test.noUserPass", "Username or password not set"));
         return;
     }
@@ -528,13 +550,14 @@ void VisualizerUploader::testConnection()
     request.setRawHeader("Authorization", authHeader().toUtf8());
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onTestFinished(reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
+        onTestFinished(reply, op);
     });
 }
 
-void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
+void VisualizerUploader::onUploadFinished(QNetworkReply* reply, const Op& op)
 {
+    op->response("upload", reply);
     m_uploading = false;
     emit uploadingChanged();
 
@@ -542,39 +565,37 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray response = reply->readAll();
 
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
+    const QString debugPath = visualizerDebugDirectory();
     QString responseFile = debugPath + "/last_upload_response.txt";
     QFile file(responseFile);
     if (file.open(QIODevice::WriteOnly)) {
         file.write(QString("HTTP Status: %1\n\n").arg(statusCode).toUtf8());
         file.write(response);
         file.close();
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Saved response to" << responseFile;
+        op->detail("upload", "responseFileSaved");
     }
 
     if (reply->error() == QNetworkReply::NoError) {
         QJsonDocument doc = QJsonDocument::fromJson(response);
         QJsonObject obj = doc.object();
 
+        op->detail("interpret", "validateShotId");
         QString shotId = obj["id"].toString();
         if (!shotId.isEmpty()) {
             m_lastShotUrl = QString(VISUALIZER_SHOT_URL) + shotId;
             m_lastUploadStatus = tr_("visualizer.status.uploadSuccess", "Upload successful");
             emit lastShotUrlChanged();
             emit lastUploadStatusChanged();
+            op->set("remoteId", shotId);
+            op->finish("success", "uploaded");
             emit uploadSuccess(shotId, m_lastShotUrl);
             // Authoritative C++ writeback path: carry the originating
             // local shots.id so MainController can persist the link
             // regardless of which (if any) UI page is alive.
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
-            DIAG_DEBUG(VISUALIZER, "Visualizer") << "Upload successful, ID:" << shotId
-                     << "for local shot" << m_uploadingDbShotId;
             // Coffee Management: the server auto-links the shot to its bag on
             // upload; read that link back and enrich the bag's descriptive fields.
-            syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId);
+            syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId, op);
         } else {
             // A 200 with no parseable shot id is a failure, not a success: the
             // local shot row never gets its visualizer_id and the bag sync
@@ -582,8 +603,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // retry path, instead of a benign-looking "completed" status.
             m_lastUploadStatus = tr_("visualizer.error.noShotIdReturned", "Upload returned no shot id (unexpected response)");
             emit lastUploadStatusChanged();
-            DIAG_WARN(VISUALIZER, "Visualizer") << "upload succeeded (HTTP" << statusCode
-                       << ") but response had no shot id:" << response.left(200);
+            op->finish("failed", "missingReturnedShotId");
             emit uploadFailed(m_lastUploadStatus);
         }
     } else {
@@ -595,11 +615,10 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         const bool transient = (statusCode == 0 || statusCode >= 500);
         if (transient && m_uploadRetries < kMaxUploadRetries && !m_lastUploadJson.isEmpty()) {
             ++m_uploadRetries;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "upload transient failure (HTTP" << statusCode
-                       << reply->errorString() << ") - retry" << m_uploadRetries
-                       << "of" << kMaxUploadRetries;
+            op->set("retry", m_uploadRetries);
+            op->detail("upload", "retry");
             reply->deleteLater();
-            sendUpload(m_lastUploadJson);  // keeps m_uploadingDbShotId for the retry
+            sendUpload(m_lastUploadJson, op);  // keeps m_uploadingDbShotId for the retry
             return;
         }
 
@@ -620,8 +639,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        op->finish("failed", "requestFailed");
         emit uploadFailed(errorMsg);
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Upload failed -" << errorMsg << "Response:" << response;
     }
 
     // Clear the per-upload id on every terminal outcome (success,
@@ -633,9 +652,11 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
     reply->deleteLater();
 }
 
-void VisualizerUploader::onTestFinished(QNetworkReply* reply)
+void VisualizerUploader::onTestFinished(QNetworkReply* reply, const Op& op)
 {
+    op->response("connectionTest", reply);
     if (reply->error() == QNetworkReply::NoError) {
+        op->finish("success", "connected");
         emit connectionTestResult(true, tr_("visualizer.test.success", "Connection successful!"));
     } else {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -647,6 +668,7 @@ void VisualizerUploader::onTestFinished(QNetworkReply* reply)
             errorMsg = reply->errorString();
         }
 
+        op->finish("failed", "requestFailed");
         emit connectionTestResult(false, errorMsg);
     }
 
@@ -655,17 +677,19 @@ void VisualizerUploader::onTestFinished(QNetworkReply* reply)
 
 void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "shotList");
     const QString username = m_settings->value("visualizer/username", "").toString();
     const QString password = m_settings->value("visualizer/password", "").toString();
     if (username.isEmpty() || password.isEmpty()) {
+        op->finish("rejected", "missingCredentials");
         emit shotListFailed("Visualizer credentials not configured");
         return;
     }
-    fetchShotListPage(1, windowStartEpoch, QVariantList());
+    fetchShotListPage(1, windowStartEpoch, QVariantList(), op);
 }
 
 void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
-                                           QVariantList accumulated)
+                                           QVariantList accumulated, const Op& op)
 {
     // GET /api/shots?page=N&items=100 — authenticated => own shots.
     // Response shape { data: [{id, clock, updated_at}], paging:
@@ -689,7 +713,10 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
 
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, page, windowStartEpoch, accumulated]() mutable {
+            [this, reply, page, windowStartEpoch, accumulated, op]() mutable {
+        op->set("page", page);
+        op->set("resultCount", accumulated.size());
+        op->response("shotList", reply);
         // Capture everything off `reply` BEFORE deleteLater() — reading
         // it afterwards is fragile and would make the one diagnostic on
         // the only failure surface unreliable.
@@ -697,6 +724,7 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
             const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QString errStr = reply->errorString();
             reply->deleteLater();
+            op->finish("failed", "requestFailed");
             emit shotListFailed(QString("Shot list fetch failed (HTTP %1): %2")
                                 .arg(sc).arg(errStr));
             return;
@@ -713,10 +741,14 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
                                           std::numeric_limits<qint64>::max());
         switch (pr.reason) {
         case FailReason::ParseError:
+            op->detail("interpret", "invalidResponse");
+            op->finish("failed", "invalidResponse");
             emit shotListFailed(QStringLiteral("Shot list response parse error: %1")
                                 .arg(pr.parseError));
             return;
         case FailReason::MissingPaging:
+            op->detail("interpret", "missingPaging");
+            op->finish("failed", "missingPaging");
             // A 200 without paging metadata is almost certainly an auth/error
             // envelope (e.g. expired session returning {}), NOT a legitimately
             // empty library — treating it as success would permanently burn the
@@ -725,6 +757,8 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
                 "Shot list response missing paging metadata (likely auth/error envelope)"));
             return;
         case FailReason::PageCeiling:
+            op->detail("interpret", "pageLimit");
+            op->finish("failed", "pageLimit");
             // Hitting the defensive page ceiling without reaching the real end is
             // an ABNORMAL exit (oversized library, or the assumed newest-first
             // sort was violated). Emitting a truncated list as "success" would
@@ -747,10 +781,12 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
         }
 
         if (pr.verdict == Verdict::Done) {
+            op->set("resultCount", accumulated.size());
+            op->finish(accumulated.isEmpty() ? "empty" : "success", "listComplete");
             emit shotListFetched(accumulated);
             return;
         }
-        fetchShotListPage(page + 1, windowStartEpoch, accumulated);
+        fetchShotListPage(page + 1, windowStartEpoch, accumulated, op);
     });
 }
 
@@ -765,7 +801,7 @@ void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)
         // dropped is what lets the caller re-drain when the pass ends, so a bag
         // unlinked mid-pass is not stranded until the next launch.
         m_beanRepairMissedWork = true;
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair already running - ignoring re-entry";
+        DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "bean repair already running - ignoring re-entry";
         return;
     }
     // Cleared for ANY snapshot we accept, empty included: this one supersedes
@@ -777,36 +813,42 @@ void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)
         // re-drain consumer answer its own signal with another empty read.
         return;
     }
+    const auto op = Log::begin(Log::Emitter::Uploader, "beanRepair");
+    op->set("total", repairs.size());
     m_beanRepairQueue = repairs;
     m_beanRepairDone = 0;
     m_beanRepairCleared = 0;
     m_beanRepairDeclined = 0;
     m_beanRepairFailed = false;
     m_beanRepairRunning = true;
-    DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair over" << repairs.size() << "queued shot(s)";
-    sendNextBeanRepair();
+    op->detail("repairRead", "dispatch");
+    sendNextBeanRepair(op);
 }
 
-void VisualizerUploader::sendNextBeanRepair()
+void VisualizerUploader::sendNextBeanRepair(const Op& op)
 {
     if (m_beanRepairQueue.isEmpty()) {
         m_beanRepairRunning = false;
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair pass ended -" << m_beanRepairDone
-                 << "name(s) restored," << m_beanRepairCleared << "link(s) cleared,"
-                 << m_beanRepairDeclined << "declined (server bag decides those)"
-                 << (m_beanRepairFailed ? "- incomplete, resumes next boot" : "");
+        op->set("namesRestored", m_beanRepairDone);
+        op->set("linksCleared", m_beanRepairCleared);
+        op->set("declined", m_beanRepairDeclined);
+        op->set("shotId", 0); op->set("remoteId", QString());
+        op->finish(m_beanRepairFailed || op->problems ? "partial" : "success",
+                   m_beanRepairFailed ? "pendingRetry" : "repairComplete");
         emit beanRepairFinished(m_beanRepairDone, !m_beanRepairFailed);
         return;
     }
     const BeanRepair repair = m_beanRepairQueue.takeFirst();
+    op->set("shotId", repair.shotId);
+    op->set("remoteId", repair.visualizerId);
+    op->detail("repairRead", "nextItem");
     if (repair.visualizerId.isEmpty() || repair.shotId <= 0) {
         // The producer's SQL makes this unreachable; if it ever becomes
         // reachable, an empty id addresses the COLLECTION endpoint and a shotId
         // of 0 can never be settled, so refuse rather than send.
-        DIAG_WARN(VISUALIZER, "Visualizer") << "skipping malformed bean-repair entry (shot"
-                   << repair.shotId << "id" << repair.visualizerId << ")";
+        op->problem("entry", "invalidRepairEntry");
         m_beanRepairFailed = true;
-        scheduleNextBeanRepair();
+        scheduleNextBeanRepair(op);
         return;
     }
     // Read the shot BEFORE deciding anything. The paged list cannot answer this
@@ -819,25 +861,24 @@ void VisualizerUploader::sendNextBeanRepair()
                                                  + repair.visualizerId
                                                  + QStringLiteral("?essentials=1"));
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, repair]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, repair, op]() {
+        op->response("repairRead", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QNetworkReply::NetworkError netError = reply->error();
-        const QString netErrorText = reply->errorString();
         const QByteArray body = reply->readAll();
 
         if (isBeanRepairFatalStatus(status)) {
-            abandonBeanRepairPass(status);
+            abandonBeanRepairPass(status, op);
             return;
         }
         if (status == 404) {
             // `with_shot`'s Shot.find_by came back empty (shots_controller.rb:
             // 105-112) — deleted on visualizer.coffee. Nothing to repair, and the
             // flag has to go or it is re-read on every boot forever.
-            DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair skipped - shot" << repair.visualizerId
-                     << "is gone";
+            op->detail("repairRead", "remoteShotGone");
             emit beanRepairSettled(repair.shotId);
-            scheduleNextBeanRepair();
+            scheduleNextBeanRepair(op);
             return;
         }
         if (status == 403) {
@@ -850,14 +891,13 @@ void VisualizerUploader::sendNextBeanRepair()
             // IP-wide: settling shots against it would clear every flag in the
             // queue, irreversibly, for a condition that has nothing to do with
             // any individual shot.
-            abandonBeanRepairPass(status);
+            abandonBeanRepairPass(status, op);
             return;
         }
         if (netError != QNetworkReply::NoError) {
             m_beanRepairFailed = true;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair read failed for shot" << repair.visualizerId
-                       << "(HTTP" << status << "," << netError << netErrorText << ") - stays queued";
-            scheduleNextBeanRepair();
+            op->problem("repairRead", "pendingRetry");
+            scheduleNextBeanRepair(op);
             return;
         }
 
@@ -871,9 +911,8 @@ void VisualizerUploader::sendNextBeanRepair()
         if (parseError.error != QJsonParseError::NoError
             || !remote.contains(QStringLiteral("bean_brand"))) {
             m_beanRepairFailed = true;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair read unusable for shot" << repair.visualizerId
-                       << "-" << parseError.errorString() << "- stays queued";
-            scheduleNextBeanRepair();
+            op->problem("interpret", "invalidResponse");
+            scheduleNextBeanRepair(op);
             return;
         }
 
@@ -883,9 +922,8 @@ void VisualizerUploader::sendNextBeanRepair()
             // not evidence. This one decides whether the pass WRITES, so a wrong
             // answer here is a PATCH the account did not need.
             m_beanRepairFailed = true;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair - shot" << repair.visualizerId
-                       << "returned an unreadable coffee_bag_id - stays queued";
-            scheduleNextBeanRepair();
+            op->problem("interpret", "unreadableBagId");
+            scheduleNextBeanRepair(op);
             return;
         }
         switch (planBeanRepair(bagState == RemoteBagState::Present,
@@ -895,16 +933,13 @@ void VisualizerUploader::sendNextBeanRepair()
             // every touch, so its identity comes from that bag and no write to
             // the SHOT can change it. The residual work, if any, is on the bag.
             m_beanRepairDeclined++;
-            DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair declined - shot" << repair.visualizerId
-                     << "takes its identity from a server coffee_bag; nothing written."
-                     << "If it still reads wrong, the bag is what to correct.";
+            op->detail("interpret", "serverBagOwnsIdentity");
             emit beanRepairSettled(repair.shotId);
-            scheduleNextBeanRepair();
+            scheduleNextBeanRepair(op);
             return;
         case BeanRepairPlan::ClearCanonicalOnly:
-            DIAG_DEBUG(VISUALIZER, "Visualizer") << "bean repair - shot" << repair.visualizerId
-                     << "has no complete local bean names; clearing the canonical link only";
-            scheduleBeanRepairRequest([this, repair]() { sendCanonicalClearOnly(repair); });
+            op->detail("interpret", "clearCanonicalOnly");
+            scheduleBeanRepairRequest([this, repair, op]() { sendCanonicalClearOnly(repair, op); });
             return;
         case BeanRepairPlan::RestoreNames:
             break;
@@ -917,22 +952,13 @@ void VisualizerUploader::sendNextBeanRepair()
             // The server already agrees — the common case, and it must not
             // produce a write.
             emit beanRepairSettled(repair.shotId);
-            scheduleNextBeanRepair();
+            scheduleNextBeanRepair(op);
             return;
         }
 
-        // Logged BEFORE the write, and carrying both sides: this line is the
-        // only record of what a user's cloud history looked like before the
-        // repair touched it.
-        const QDateTime when = QDateTime::fromSecsSinceEpoch(repair.timestamp);
-        DIAG_DEBUG(VISUALIZER, "visualizeruploader").noquote() << "Visualizer bean repair"
-                           << when.toString(Qt::ISODate)
-                           << "server:" << (remoteBrand + QLatin1String(" / ") + remoteType)
-                           << "-> app:" << (repair.beanBrand + QLatin1String(" / ") + repair.beanType)
-                           << "| canonical:"
-                           << (repair.canonicalId.isEmpty() ? QStringLiteral("clear")
-                                                            : QStringLiteral("keep"));
-        scheduleBeanRepairRequest([this, repair]() { sendBeanRepairPatch(repair); });
+        // Record the repair decision before writing, without copying bean names into the main log.
+        op->detail("repairPatch", "restoreNames");
+        scheduleBeanRepairRequest([this, repair, op]() { sendBeanRepairPatch(repair, op); });
     });
 }
 
@@ -1020,7 +1046,7 @@ bool VisualizerUploader::isBeanRepairFatalStatus(int status)
     return status == 429 || status == 401;
 }
 
-void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
+void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair, const Op& op)
 {
     QJsonObject shot{
         {QStringLiteral("bean_brand"), repair.beanBrand},
@@ -1056,7 +1082,8 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(QJsonObject{{QStringLiteral("shot"), shot}})
                               .toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, repair]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, repair, op]() {
+        op->response("repairPatch", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray body = reply->readAll();
@@ -1083,22 +1110,15 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
                 // lose the shot permanently on a captive portal, a proxy error
                 // page served as 200, or a truncated response.
                 m_beanRepairFailed = true;
-                DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair PATCH result unreadable for shot"
-                           << repair.visualizerId << "-" << patchParse.errorString()
-                           << "- stays queued";
-                scheduleNextBeanRepair();
+                op->problem("interpret", "invalidResponse");
+                scheduleNextBeanRepair(op);
                 return;
             }
             if (decideBeanRepair(saved.value(QStringLiteral("bean_brand")).toString(),
                                  saved.value(QStringLiteral("bean_type")).toString(),
                                  repair.beanBrand, repair.beanType)
                 != BeanRepairAction::AlreadyCorrect) {
-                DIAG_WARN(VISUALIZER, "Visualizer").noquote()
-                    << "bean repair PATCH accepted but not applied for shot"
-                    << repair.visualizerId << "- server kept"
-                    << (saved.value(QStringLiteral("bean_brand")).toString()
-                        + QLatin1String(" / ") + saved.value(QStringLiteral("bean_type")).toString())
-                    << "(its coffee_bag outranks the shot; the bag re-push is what corrects it)";
+                op->problem("interpret", "patchNotApplied");
                 // Settled but NOT repaired. Deliberately does NOT set
                 // m_beanRepairFailed: that flag drives "resumes next boot", and
                 // this shot's flag is gone, so it will not. The warning above is
@@ -1110,7 +1130,7 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
             }
             emit beanRepairSettled(repair.shotId);
         } else if (isBeanRepairFatalStatus(status)) {
-            abandonBeanRepairPass(status);
+            abandonBeanRepairPass(status, op);
             return;
         } else if (status == 403 || status == 404) {
             // THIS is where an ownership verdict lands: `update` does run
@@ -1121,22 +1141,17 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
             // boot, at two requests per shot, forever. A shot can reach here
             // with someone else's id after a device-to-device transfer, which
             // the GET cannot detect because `show` authorizes nothing.
-            DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair abandoned for shot" << repair.visualizerId
-                       << "- HTTP" << status
-                       << (status == 403 ? "(not this account's shot)" : "(gone)")
-                       << "- flag cleared, it can never succeed";
+            op->problem("repairPatch", "remoteShotUnavailable");
             emit beanRepairSettled(repair.shotId);
         } else {
             m_beanRepairFailed = true;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair PATCH failed for shot" << repair.visualizerId
-                       << "(HTTP" << status << "," << reply->error() << reply->errorString()
-                       << ") - stays queued";
+            op->problem("repairPatch", "pendingRetry");
         }
-        scheduleNextBeanRepair();
+        scheduleNextBeanRepair(op);
     });
 }
 
-void VisualizerUploader::sendCanonicalClearOnly(const BeanRepair& repair)
+void VisualizerUploader::sendCanonicalClearOnly(const BeanRepair& repair, const Op& op)
 {
     // The half of the repair that needs no local names: drop the borrowed link
     // so refresh_coffee_bag_fields stops re-deriving this shot's identity from
@@ -1151,7 +1166,8 @@ void VisualizerUploader::sendCanonicalClearOnly(const BeanRepair& repair)
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(QJsonObject{{QStringLiteral("shot"), shot}})
                               .toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, repair]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, repair, op]() {
+        op->response("canonicalClear", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status >= 200 && status < 300) {
@@ -1161,41 +1177,38 @@ void VisualizerUploader::sendCanonicalClearOnly(const BeanRepair& repair)
             m_beanRepairCleared++;
             emit beanRepairSettled(repair.shotId);
         } else if (isBeanRepairFatalStatus(status)) {
-            abandonBeanRepairPass(status);
+            abandonBeanRepairPass(status, op);
             return;
         } else if (status == 403 || status == 404) {
-            DIAG_WARN(VISUALIZER, "Visualizer") << "canonical clear abandoned for shot"
-                       << repair.visualizerId << "- HTTP" << status
-                       << "- flag cleared, it can never succeed";
+            op->problem("canonicalClear", "remoteShotUnavailable");
             emit beanRepairSettled(repair.shotId);
         } else {
             m_beanRepairFailed = true;
-            DIAG_WARN(VISUALIZER, "Visualizer") << "canonical clear failed for shot" << repair.visualizerId
-                       << "(HTTP" << status << ") - stays queued";
+            op->problem("canonicalClear", "pendingRetry");
         }
-        scheduleNextBeanRepair();
+        scheduleNextBeanRepair(op);
     });
 }
 
-void VisualizerUploader::abandonBeanRepairPass(int status)
+void VisualizerUploader::abandonBeanRepairPass(int status, const Op& op)
 {
     // Abandon rather than walking the queue collecting the same refusal — the
     // first live version did exactly that and burned 349 requests for nothing.
     // Everything still flagged is retried on a later boot.
     m_beanRepairFailed = true;
     m_beanRepairQueue.clear();
-    DIAG_WARN(VISUALIZER, "Visualizer") << "bean repair stopped on HTTP" << status << "after"
-               << m_beanRepairDone << "shot(s) - resumes next boot";
-    scheduleNextBeanRepair();
+    op->set("httpStatus", status);
+    op->problem("repair", "passStoppedPendingRetry");
+    scheduleNextBeanRepair(op);
 }
 
-void VisualizerUploader::scheduleNextBeanRepair()
+void VisualizerUploader::scheduleNextBeanRepair(const Op& op)
 {
     // Pace the queue. This is a THROTTLE, not a guard: visualizer.coffee rate
     // limits, and this is the one path that paces itself — fetchShotListPage
     // above walks its pages back to back, which is why a library-wide pass had
     // to stop being built on it.
-    scheduleBeanRepairRequest([this]() { sendNextBeanRepair(); });
+    scheduleBeanRepairRequest([this, op]() { sendNextBeanRepair(op); });
 }
 
 void VisualizerUploader::scheduleBeanRepairRequest(std::function<void()> send)
@@ -1633,7 +1646,7 @@ QString VisualizerUploader::authHeader() const
     return "Basic " + QString::fromLatin1(base64);
 }
 
-bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
+bool VisualizerUploader::validateUpload(const QString& beverageType, double duration, const Op& op)
 {
     // Skip maintenance profiles (shared tier — see Profile::isMaintenanceBeverageType)
     if (Profile::isMaintenanceBeverageType(beverageType)) {
@@ -1645,8 +1658,8 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         // treat uploadFailed as a real failure. The page wraps the reason
         // with a translated "Upload skipped:" prefix; emit just the reason
         // payload so the C++ "Skipped:" prefix doesn't double up.
+        op->finish("skipped", "maintenanceProfile");
         emit uploadSkipped(reason);
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Skipping upload for maintenance profile:" << beverageType;
         return false;
     }
 
@@ -1656,6 +1669,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     if (username.isEmpty() || password.isEmpty()) {
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
+        op->finish("rejected", "missingCredentials");
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         return false;
     }
@@ -1668,8 +1682,8 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         emit lastUploadStatusChanged();
         // Policy skip, not an error — see uploadSkipped rationale on the
         // maintenance branch above. Emit just the reason payload.
+        op->finish("skipped", "shotTooShort");
         emit uploadSkipped(reason);
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Shot too short, not uploading";
         return false;
     }
 
@@ -1680,13 +1694,10 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     return true;
 }
 
-void VisualizerUploader::sendUpload(const QByteArray& jsonData)
+void VisualizerUploader::sendUpload(const QByteArray& jsonData, const Op& op)
 {
     // Save JSON to file for debugging
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
+    const QString debugPath = visualizerDebugDirectory();
     QDir().mkpath(debugPath);
 
     QString debugFile = debugPath + "/last_upload.json";
@@ -1695,9 +1706,9 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
         QJsonDocument doc = QJsonDocument::fromJson(jsonData);
         file.write(doc.toJson(QJsonDocument::Indented));
         file.close();
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Saved debug JSON to" << debugFile;
+        op->detail("upload", "requestFileSaved");
     } else {
-        DIAG_DEBUG(VISUALIZER, "Visualizer") << "Failed to save debug JSON to" << debugFile;
+        op->detail("upload", "requestFileWriteFailed");
     }
 
     // Retain the payload so onUploadFinished can re-POST it on a transient
@@ -1733,11 +1744,11 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 
     // Send request
     QNetworkReply* reply = m_networkManager->post(request, multipartData);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onUploadFinished(reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, op]() {
+        onUploadFinished(reply, op);
     });
 
-    DIAG_DEBUG(VISUALIZER, "Visualizer") << "Uploading shot...";
+    op->detail("upload", "dispatch");
 }
 
 // static
@@ -2049,7 +2060,7 @@ void VisualizerUploader::setCmState(CmState state)
 {
     if (m_cmState == state)
         return;
-    DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: state" << cmStateName(m_cmState) << "->" << cmStateName(state);
+    DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: state" << cmStateName(m_cmState) << "->" << cmStateName(state);
     m_cmState = state;
 }
 
@@ -2065,40 +2076,54 @@ QNetworkRequest VisualizerUploader::makeApiJsonRequest(const QString& path) cons
     return request;
 }
 
-void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId)
+void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId, const Op& parent)
 {
-    if (dbShotId <= 0 || visualizerShotId.isEmpty() || m_localDbPath.isEmpty())
+    const auto op = Log::begin(Log::Emitter::Uploader, "coffeeSync", dbShotId, 0, visualizerShotId, parent);
+    if (dbShotId <= 0 || visualizerShotId.isEmpty() || m_localDbPath.isEmpty()) {
+        op->finish("skipped", "localContextUnavailable");
         return;
+    }
     // CM-off accounts have no bags to enrich. Cached per session (reset by
     // testConnection) so toggling Coffee Management converges next upload.
-    if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
+    if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm) {
+        op->finish("skipped", "capabilityUnavailable");
         return;
+    }
 
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);
-    QThread* thread = QThread::create([self, dbPath, dbShotId, visualizerShotId]() {
+    QThread* thread = QThread::create([self, dbPath, dbShotId, visualizerShotId, op]() {
         QVariantMap bagMap;
+        QString reason = "databaseUnavailable";
         withTempDb(dbPath, "viz_bagsync", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("SELECT bag_id FROM shots WHERE id = :id");
             query.bindValue(":id", dbShotId);
-            if (!query.exec() || !query.next() || query.value(0).isNull())
-                return;
+            if (!query.exec()) { reason = "queryFailed"; return; }
+            if (!query.next()) { reason = "shotMissing"; return; }
+            if (query.value(0).isNull()) { reason = "noLocalBag"; return; }
+            reason = "bagUnavailable";
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, query.value(0).toLongLong());
             if (bag.isValid())
                 bagMap = bag.toVariantMap();
         });
         // QPointer dereference only on the main thread (see loadShotWithMetadata note).
-        QMetaObject::invokeMethod(qApp, [self, visualizerShotId, bagMap]() {
-            if (self && !bagMap.isEmpty())
-                self->reconcileShotBag(visualizerShotId, bagMap);
+        QMetaObject::invokeMethod(qApp, [self, visualizerShotId, bagMap, reason, op]() {
+            if (!self) return;
+            op->detail("localBag", "loaded");
+            if (!bagMap.isEmpty()) {
+                op->set("bagId", bagMap.value("id").toLongLong());
+                self->reconcileShotBag(visualizerShotId, bagMap, op);
+            } else {
+                op->finish(reason == "noLocalBag" ? "skipped" : "failed", reason);
+            }
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }
 
-void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag)
+void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag, const Op& op)
 {
     // Read back the bag the SERVER linked to this shot. visualizer.coffee's
     // upload parser find-or-creates the user's coffee_bag from bean_brand/
@@ -2111,16 +2136,18 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
     QNetworkReply* reply = m_networkManager->get(request);
     const qint64 localBagId = bag.value("id").toLongLong();
-    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag, localBagId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag, localBagId, op]() {
+        op->response("shotReadBack", reply);
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: shot read-back failed - retry next upload";
+            op->finish("failed", "pendingRetry");
             return;
         }
         QJsonParseError parseError;
         const QJsonObject shot = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
         if (parseError.error != QJsonParseError::NoError) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: shot read-back unparseable - retry next upload";
+            op->detail("interpret", "invalidResponse");
+            op->finish("failed", "invalidResponse");
             return;
         }
         const QString serverBagId = shot.value("coffee_bag_id").toString();
@@ -2148,11 +2175,9 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
                 bag.value("beanBaseData").toString(),
                 {bag.value("roasterName").toString(), bag.value("coffeeName").toString()});
             if (!canonicalId.isEmpty() && !conflicts)
-                linkShotCanonical(visualizerShotId, canonicalId);
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: shot has no server bag -"
-                     << (canonicalId.isEmpty() ? "nothing to link"
-                         : conflicts ? "canonical link withheld (record names another coffee)"
-                                     : "linking canonical coffee");
+                linkShotCanonical(visualizerShotId, canonicalId, op);
+            if (canonicalId.isEmpty() || conflicts)
+                op->finish("skipped", conflicts ? "canonicalIdentityConflict" : "noServerBag");
             return;
         }
 
@@ -2162,13 +2187,14 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
         // also the self-heal: a stale local id is simply overwritten with the
         // server's current one, so a bag deleted on visualizer.coffee converges
         // the moment its replacement is auto-created on the next upload.
+        op->set("remoteBagId", serverBagId);
         setCmState(CmState::Active);
         if (bag.value("visualizerBagId").toString() != serverBagId)
             persistBagSyncIds(localBagId, serverBagId, serverRoasterId);
-        enrichRemoteBag(serverBagId, bag);
+        enrichRemoteBag(serverBagId, bag, op);
         // CM just (re)confirmed Active: drain bag edits whose push failed
         // retryably or was parked while the state was still Unknown.
-        retrySyncPendingBags();
+        retrySyncPendingBags(op);
 
         // Verified-roaster badge: the server creates the roaster bare, so link it
         // to its canonical when we have one (best-effort; the badge is cosmetic).
@@ -2176,11 +2202,11 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             bag.value("beanBaseData").toString().toUtf8())
                 .object().value("canonicalRoasterId").toString();
         if (!serverRoasterId.isEmpty() && !canonicalRoasterId.isEmpty())
-            enrichRemoteRoaster(serverRoasterId, canonicalRoasterId);
+            enrichRemoteRoaster(serverRoasterId, canonicalRoasterId, op);
     });
 }
 
-void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId)
+void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId, const Op& op)
 {
     // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
     // Management). The DYE-metadata PATCH (updateShotOnVisualizer) also carries
@@ -2192,16 +2218,16 @@ void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, cons
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(root).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [reply, visualizerShotId, canonicalId]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, op]() {
+        op->response("canonicalLink", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: linked shot" << visualizerShotId << "to canonical" << canonicalId;
+            op->finish("success", "canonicalLinked");
         } else {
-            // status is 0 on a transport error (no HTTP response) — surface the
-            // network error string then, matching the sibling read-back handlers.
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: shot canonical link failed (HTTP" << status
-                     << reply->errorString() << ") - retry next upload";
+            // The response event carries status and numeric network error; a
+            // future pass owns any eventual recovery.
+            op->finish("failed", "pendingRetry");
         }
     });
 }
@@ -2245,24 +2271,24 @@ QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag,
     return body;
 }
 
-void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag)
+void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag, const Op& op)
 {
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + serverBagId);
     QNetworkReply* reply = m_networkManager->get(request);
     const qint64 localBagId = bag.value("id").toLongLong();
-    connect(reply, &QNetworkReply::finished, this, [this, reply, bag, serverBagId, localBagId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, bag, serverBagId, localBagId, op]() {
+        op->response("bagRead", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 404) {
             // Raced a deletion since the shot read-back. Drop the stale id; the
             // next upload recreates+relinks the bag server-side.
             persistBagSyncIds(localBagId, QString(), QString());
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << serverBagId << "gone before enrich - cleared local id";
+            op->finish("skipped", "remoteBagGone");
             return;
         }
         if (reply->error() != QNetworkReply::NoError) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag read for enrich failed (HTTP" << status
-                     << ") - retry next upload";
+            op->finish("failed", "pendingRetry");
             return;
         }
         QJsonParseError parseError;
@@ -2270,7 +2296,8 @@ void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVari
         if (parseError.error != QJsonParseError::NoError) {
             // A 200 with an unparseable body would read as "every field blank" and
             // trigger a full-overwrite PATCH, clobbering the user's server values.
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << serverBagId << "enrich GET unparseable - retry next upload";
+            op->detail("interpret", "invalidResponse");
+            op->finish("failed", "invalidResponse");
             return;
         }
         // Fill only the fields the server left blank — never clobber a value the
@@ -2281,77 +2308,93 @@ void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVari
         // every upload, so no version check is needed.
         const QJsonObject body = buildBagEnrichBody(remote, bag);
         if (body.isEmpty()) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << serverBagId << "already complete - nothing to enrich";
+            op->finish("skipped", "alreadyComplete");
             return;
         }
         QNetworkRequest patch = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + serverBagId);
         QNetworkReply* preply = m_networkManager->sendCustomRequest(
             patch, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
-        connect(preply, &QNetworkReply::finished, this, [this, preply, serverBagId, localBagId]() {
+        connect(preply, &QNetworkReply::finished, this, [this, preply, serverBagId, localBagId, op]() {
+            op->response("bagEnrich", preply);
             preply->deleteLater();
             const int st = preply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (st == 200) {
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: enriched bag" << serverBagId << "with descriptive fields";
+                op->finish("success", "bagEnriched");
             } else if (st == 403) {
                 setCmState(CmState::NoCoffeeManagement);
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag enrich 403 - account is not premium";
+                op->finish("skipped", "capabilityUnavailable");
             } else if (st == 404) {
                 persistBagSyncIds(localBagId, QString(), QString());
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << serverBagId << "gone during enrich - cleared local id";
+                op->finish("skipped", "remoteBagGone");
             } else {
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag enrich failed (HTTP" << st << ") - retry next upload";
+                op->finish("failed", "pendingRetry");
             }
         });
     });
 }
 
-void VisualizerUploader::enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId)
+void VisualizerUploader::enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId, const Op& parent)
 {
+    const auto op = Log::begin(Log::Emitter::Uploader, "roasterEnrich", 0, 0, roasterId, parent);
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters/") + roasterId);
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, roasterId, canonicalRoasterId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, roasterId, canonicalRoasterId, op]() {
+        op->response("roasterRead", reply);
         reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
-            return;  // best-effort: the verified-roaster badge is cosmetic
+        if (reply->error() != QNetworkReply::NoError) {
+            op->finish("failed", "requestFailed");
+            return;
+        }  // best-effort: the verified-roaster badge is cosmetic
         QJsonParseError parseError;
         const QJsonObject roaster = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
-        if (parseError.error != QJsonParseError::NoError)
+        if (parseError.error != QJsonParseError::NoError) {
+            op->finish("failed", "invalidResponse");
             return;
+        }
         // Only set it when blank — never repoint a roaster the user/server
         // already linked elsewhere. An unparseable body bails above rather than
         // reading the field as null and force-linking.
-        if (!roaster.value("canonical_roaster_id").isNull())
+        if (!roaster.value("canonical_roaster_id").isNull()) {
+            op->finish("skipped", "alreadyLinked");
             return;
+        }
         QJsonObject body{{QStringLiteral("canonical_roaster_id"), canonicalRoasterId}};
         QNetworkRequest patch = makeApiJsonRequest(QStringLiteral("/api/roasters/") + roasterId);
         QNetworkReply* preply = m_networkManager->sendCustomRequest(
             patch, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
-        connect(preply, &QNetworkReply::finished, this, [preply, roasterId]() {
+        connect(preply, &QNetworkReply::finished, this, [preply, op]() {
+            op->response("roasterLink", preply);
             preply->deleteLater();
             const int st = preply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: roaster" << roasterId << "canonical link PATCH HTTP" << st;
+            op->finish(st >= 200 && st < 300 ? "success" : "failed",
+                       st >= 200 && st < 300 ? "linkAccepted" : "requestFailed");
         });
     });
 }
 
 void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
-                                          std::function<void(const QString&)> onResolved)
+                                          std::function<void(const QString&)> onResolved, const Op& op)
 {
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters?items=100"));
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, roasterName, canonicalRoasterId, onResolved = std::move(onResolved)]() {
+            [this, reply, roasterName, canonicalRoasterId, op, onResolved = std::move(onResolved)]() {
+        op->response("roasterList", reply);
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: roaster list failed - retry next time";
+            op->finish("failed", "pendingRetry");
             return;
         }
-        const QJsonArray data = QJsonDocument::fromJson(reply->readAll())
-                                    .object().value("data").toArray();
+        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+        if (!document.isObject() || !document.object().value("data").isArray())
+            op->problem("roasterList", "invalidResponse");
+        const QJsonArray data = document.object().value("data").toArray();
         for (const QJsonValue& value : data) {
             const QJsonObject roaster = value.toObject();
             if (roaster.value("name").toString().compare(roasterName, Qt::CaseInsensitive) == 0) {
-                onResolved(roaster.value("id").toString());
+                const QString id = roaster.value("id").toString();
+                if (id.isEmpty()) op->problem("roasterList", "missingRoasterId");
+                onResolved(id);
                 return;
             }
         }
@@ -2367,18 +2410,20 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
         QNetworkReply* createReply = m_networkManager->post(
             createRequest, QJsonDocument(body).toJson(QJsonDocument::Compact));
         connect(createReply, &QNetworkReply::finished, this,
-                [this, createReply, onResolved]() {
+                [this, createReply, onResolved, op]() {
+            op->response("roasterCreate", createReply);
             createReply->deleteLater();
             const int status = createReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 201) {
-                onResolved(QJsonDocument::fromJson(createReply->readAll())
-                               .object().value("id").toString());
+                const QString id = QJsonDocument::fromJson(createReply->readAll()).object().value("id").toString();
+                if (id.isEmpty()) op->problem("roasterCreate", "missingRoasterId");
+                onResolved(id);
             } else if (status == 403) {
                 // Bag/roaster CRUD is premium-gated: a 403 means not premium.
                 setCmState(CmState::NoCoffeeManagement);
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: roaster create 403 - account is not premium";
+                op->finish("skipped", "capabilityUnavailable");
             } else {
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: roaster create failed (HTTP" << status << ")";
+                op->finish("failed", "pendingRetry");
             }
         });
     });
@@ -2436,7 +2481,7 @@ void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& vis
             if (!visualizerRoasterId.isEmpty())
                 fields.insert(QStringLiteral("visualizerRoasterId"), visualizerRoasterId);
             if (!CoffeeBagStorage::updateBagFieldsStatic(db, localBagId, fields))
-                DIAG_WARN(VISUALIZER, "visualizeruploader") << "Visualizer CM: failed to persist sync ids for bag" << localBagId;
+                DIAG_WARN(STORAGE, "VisualizerUploader") << "Visualizer CM: failed to persist sync ids for bag" << localBagId;
         });
     });
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -2445,8 +2490,15 @@ void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& vis
 
 void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
 {
-    if (localBagId <= 0 || m_localDbPath.isEmpty())
+    updateBagWithLog(localBagId, Log::begin(Log::Emitter::Uploader, "bagUpdate", 0, localBagId));
+}
+
+void VisualizerUploader::updateBagWithLog(qint64 localBagId, const Op& op)
+{
+    if (localBagId <= 0 || m_localDbPath.isEmpty()) {
+        op->finish("rejected", "localContextUnavailable");
         return;
+    }
     // Only push to CM-active accounts — matches the create path; a CM-off
     // user's remote bag list is dormant state we never add to. Unknown (pre
     // first-upload this session) also skips: a bag PATCH is premium-gated, NOT
@@ -2457,6 +2509,7 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
     if (m_cmState != CmState::Active) {
         if (m_cmState == CmState::Unknown)
             persistBagSyncPending(localBagId, true);
+        op->finish("skipped", m_cmState == CmState::Unknown ? "pendingCapabilityCheck" : "capabilityUnavailable");
         return;
     }
 
@@ -2472,7 +2525,7 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
 
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);
-    QThread* thread = QThread::create([self, dbPath, localBagId]() {
+    QThread* thread = QThread::create([self, dbPath, localBagId, op]() {
         QVariantMap bagMap;
         withTempDb(dbPath, "viz_bagupd", [&](QSqlDatabase& db) {
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, localBagId);
@@ -2480,14 +2533,15 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
                 bagMap = bag.toVariantMap();
         });
         // QPointer dereference only on the main thread.
-        QMetaObject::invokeMethod(qApp, [self, bagMap, localBagId]() {
+        QMetaObject::invokeMethod(qApp, [self, bagMap, localBagId, op]() {
             if (!self)
                 return;
             if (bagMap.isEmpty()) {
                 // Deleted bag (row gone, flag moot) or a transient load
                 // failure (flag stays set, retried next cycle). Log so the
                 // retry drain's count is explainable.
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << localBagId << "load failed or deleted - push skipped";
+                op->detail("localBag", "load");
+                op->finish("failed", "bagUnavailable");
                 return;
             }
             // Not synced yet → nothing to PATCH, and pending is moot: the
@@ -2497,14 +2551,14 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
             // in the pending set forever.
             if (bagMap.value("visualizerBagId").toString().isEmpty()) {
                 self->persistBagSyncPending(localBagId, false);
-                DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag" << localBagId << "not synced yet - upload-time create covers it";
+                op->finish("skipped", "notSyncedYet");
                 return;
             }
             const QString roasterName = bagMap.value("roasterName").toString().trimmed();
             if (roasterName.isEmpty()) {
                 // No roaster to (re)resolve — PATCH descriptive fields only,
                 // leaving the remote roaster_id untouched.
-                self->patchRemoteBag(bagMap, QString());
+                self->patchRemoteBag(bagMap, QString(), op);
                 return;
             }
             const QString canonicalRoasterId = QJsonDocument::fromJson(
@@ -2513,21 +2567,21 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
             // Re-resolve so a roaster rename re-points roaster_id; patchRemoteBag
             // writes roaster_id only when it actually changed.
             self->resolveRoasterId(roasterName, canonicalRoasterId,
-                                   [self, bagMap](const QString& roasterId) {
+                                   [self, bagMap, op](const QString& roasterId) {
                 if (self)
-                    self->patchRemoteBag(bagMap, roasterId);
-            });
+                    self->patchRemoteBag(bagMap, roasterId, op);
+            }, op);
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }
 
-void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& roasterId)
+void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& roasterId, const Op& op)
 {
     const QString bagUuid = bag.value("visualizerBagId").toString();
-    if (bagUuid.isEmpty())
-        return;
+    if (bagUuid.isEmpty()) { op->finish("skipped", "missingRemoteBagId"); return; }
+    op->set("remoteBagId", bagUuid);
 
     QJsonObject body;
     addBagDescriptiveFields(body, bag);
@@ -2544,11 +2598,12 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName]() {
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, op]() {
+        op->response("bagUpdate", reply);
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: updated coffee bag" << bagUuid;
+            op->finish(op->problems ? "partial" : "success", "bagUpdated");
             persistBagSyncPending(localBagId, false);
             // A roaster rename moved the bag to a different roaster_id — persist
             // it so the next update diffs against the new value.
@@ -2559,13 +2614,13 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
             // clear the pending flag so it doesn't retry forever.
             setCmState(CmState::NoCoffeeManagement);
             persistBagSyncPending(localBagId, false);
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag update 403 - account is not premium";
+            op->finish("skipped", "capabilityUnavailable");
         } else if (status == 404) {
             // The remote bag was deleted on visualizer.coffee; our id is stale.
             // Leave it — the next shot upload re-creates and re-links the bag
             // (carrying the current local fields), so pending is moot.
             persistBagSyncPending(localBagId, false);
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag update 404 - remote bag" << bagUuid << "gone";
+            op->finish("skipped", "remoteBagGone");
         } else if (status == 422) {
             // The server rejected the values (name+roast_date uniqueness,
             // defrost-before-frozen). Retrying the same body cannot succeed —
@@ -2577,14 +2632,13 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
             QString message = err.value(QStringLiteral("error")).toString();
             if (message.isEmpty())
                 message = tr_("visualizer.bag.rejected", "Visualizer rejected the bag update");
+            op->finish("rejected", "invalidBagData");
             emit bagPushRejected(localBagId, bagDisplayName, message);
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag update 422 for bag" << localBagId
-                     << "(" << bagDisplayName << ") -" << message;
         } else {
             // Transport error (status 0), 429, or 5xx: retryable. Park the bag
             // as sync-pending; the next upload cycle re-pushes it.
             persistBagSyncPending(localBagId, true);
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: bag update failed (HTTP" << status << ") - queued for retry";
+            op->finish("failed", "pendingRetry");
         }
     });
 }
@@ -2598,14 +2652,14 @@ void VisualizerUploader::persistBagSyncPending(qint64 localBagId, bool pending)
         withTempDb(dbPath, "viz_bagpend", [&](QSqlDatabase& db) {
             if (!CoffeeBagStorage::updateBagFieldsStatic(
                     db, localBagId, {{QStringLiteral("visualizerSyncPending"), pending}}))
-                DIAG_WARN(VISUALIZER, "visualizeruploader") << "Visualizer CM: failed to persist sync-pending for bag" << localBagId;
+                DIAG_WARN(STORAGE, "VisualizerUploader") << "Visualizer CM: failed to persist sync-pending for bag" << localBagId;
         });
     });
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }
 
-void VisualizerUploader::retrySyncPendingBags()
+void VisualizerUploader::retrySyncPendingBags(const Op& parent)
 {
     // Re-push bags whose edit-time push never completed (parked while CM was
     // Unknown, or any failure after the park-first set). Called from the
@@ -2614,27 +2668,31 @@ void VisualizerUploader::retrySyncPendingBags()
     // success/definitive outcomes and re-parks on repeat failure.
     if (m_localDbPath.isEmpty() || m_cmState != CmState::Active)
         return;
+    const auto op = Log::begin(Log::Emitter::Uploader, "pendingBagScan", 0, 0, {}, parent);
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);
-    QThread* thread = QThread::create([self, dbPath]() {
+    QThread* thread = QThread::create([self, dbPath, op]() {
         QVector<qint64> pendingIds;
+        bool read = false;
         withTempDb(dbPath, "viz_bagretry", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (!query.exec("SELECT id FROM coffee_bags WHERE visualizer_sync_pending = 1")) {
                 // This is the ONLY drain trigger — a silent skip here would
                 // make "my edit never reached Visualizer" undebuggable.
-                DIAG_WARN(VISUALIZER, "visualizeruploader") << "Visualizer CM: sync-pending query failed:" << query.lastError().text();
+                DIAG_WARN(STORAGE, "VisualizerUploader") << "Visualizer CM: sync-pending query failed:" << query.lastError().text();
                 return;
             }
+            read = true;
             while (query.next())
                 pendingIds << query.value(0).toLongLong();
         });
-        QMetaObject::invokeMethod(qApp, [self, pendingIds]() {
-            if (!self || pendingIds.isEmpty())
-                return;
-            DIAG_DEBUG(VISUALIZER, "visualizeruploader") << "Visualizer CM: re-pushing" << pendingIds.size() << "sync-pending bag(s)";
+        QMetaObject::invokeMethod(qApp, [self, pendingIds, read, op]() {
+            if (!self) return;
+            op->set("resultCount", pendingIds.size());
+            op->finish(!read ? "failed" : pendingIds.isEmpty() ? "empty" : "success", !read ? "queryFailed" : "scanComplete");
+            if (pendingIds.isEmpty()) return;
             for (qint64 bagId : pendingIds)
-                self->updateBagOnVisualizer(bagId);
+                self->updateBagWithLog(bagId, Log::begin(Log::Emitter::Uploader, "bagUpdate", 0, bagId, {}, op));
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);

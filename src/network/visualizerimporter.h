@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QObject>
+#include "visualizeroperationlog.h"
+#include "../profile/profilesavehelper.h"
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QVariantList>
@@ -9,6 +11,7 @@
 
 #include <QtQml/qqmlregistration.h>
 class MainController;
+class ShotHistoryStorage;
 class ProfileSaveHelper;
 class Settings;
 class TranslationManager;
@@ -111,9 +114,17 @@ signals:
     // counted in `failed` and surfaced via recoveryComplete.
     void recoveryFailed(const QString& error);
 
-private slots:
-    void onFetchFinished(QNetworkReply* reply);
-    void onProfileFetchFinished(QNetworkReply* reply);
+private:
+#ifdef DECENZA_TESTING
+    friend class TstVisualizerShotParse;
+    ShotHistoryStorage* m_testHistory = nullptr;
+#endif
+    ShotHistoryStorage* recoveryHistory() const;
+
+    using Log = VisualizerOperationLog;
+    using Op = Log::Ptr;
+    void onFetchFinished(QNetworkReply* reply, const Op& op);
+    void onProfileFetchFinished(QNetworkReply* reply, const QString& remoteId, const Op& op);
 
 private:
     // Convert Visualizer JSON format to our Profile format
@@ -133,15 +144,15 @@ private:
         qint64 clockEpoch = 0;
     };
     // Page GET /api/shots collecting in-window ids, then start downloads.
-    void recoverFetchListPage(int page);
+    void recoverFetchListPage(int page, const Op& op);
     // Advance to the next queued shot (resets the per-shot retry counter) and
     // kick off its download.
-    void recoverNextShot();
+    void recoverNextShot(const Op& op);
     // Download the current shot's full record (with bounded transient retry) +
     // profile, then parse and insert.
-    void recoverDownloadCurrent();
+    void recoverDownloadCurrent(const Op& op);
     // Finish the run: emit recoveryComplete and reset state.
-    void finishRecovery();
+    void finishRecovery(const Op& op);
 
     // Recovery state (single run at a time — guarded by m_recovering).
     bool m_recovering = false;
@@ -161,8 +172,13 @@ private:
         "https://visualizer.coffee/api/shots";
 
     // Fetch profile details for shared shots (chained after fetchSharedShots)
-    void fetchProfileDetailsForShots();
-    void onProfileDetailsFetched(QNetworkReply* reply, int shotIndex);
+    void fetchProfileDetailsForShots(const Op& op);
+    void onProfileDetailsFetched(QNetworkReply* reply, int shotIndex, const QString& remoteId, const Op& op);
+
+    ProfileSaveHelper::SaveResult saveImportedProfile(const Profile& profile, const QString& filename, const Op& op);
+    void resolvePendingImport(const QString& action, const std::function<void()>& resolve);
+    Op m_pendingImportLog;
+    Op m_resolutionLog;
 
     MainController* m_controller;
     Settings* m_settings;

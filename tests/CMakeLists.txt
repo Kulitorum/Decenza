@@ -493,7 +493,10 @@ target_include_directories(tst_builtinprofileformat PRIVATE ${CMAKE_BINARY_DIR})
 add_decenza_test(tst_visualizershotparse
     tst_visualizershotparse.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotfileparser.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizerimporter.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
 )
+target_link_libraries(tst_visualizershotparse PRIVATE decenza_shotlib decenza_profilelib decenza_webdebugloggerlib)
 target_compile_definitions(tst_visualizershotparse PRIVATE
     TST_VIS_PARSE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )

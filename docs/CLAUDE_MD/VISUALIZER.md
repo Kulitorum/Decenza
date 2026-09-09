@@ -222,3 +222,18 @@ This is an intentional divergence for cross-platform filesystem compatibility. B
 | Visualizer category | Auto-prefixes `"Visualizer/"` to title | No category prefix |
 | Comparison fields | DYE viewer: 5 textual lines per step | 6 profile fields + all frame fields |
 | Profile comparison for imports | None (file existence only) | Full frame-by-frame comparison |
+
+### Operation diagnostics
+
+Filter `[Visualizer]` at INFO to follow uploads, metadata updates, connection tests,
+profile imports, recovery and coffee synchronization. Each operation carries an
+`op`, `kind`, `stage` and `elapsedMs`; retries/pages retain its identity. WARN shows
+failed/rejected/partial outcomes, and duplicate imports remain pending until the
+save decision resolves. Post-upload coffee work carries `parentOp` and cannot
+replace a successful upload result.
+
+Batch summaries retain the UI's imported/skipped/failed counters and add
+`diagnosticFailures` for failed items previously classified as skips. The main log
+uses bounded IDs/status/reason codes; request bodies, response snippets, share-code
+queries and remote error prose stay out. Existing dedicated upload files and UI
+errors are unchanged. See `LOGGING.md` for ownership and filtering conventions.

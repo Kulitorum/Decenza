@@ -9,7 +9,7 @@ was `f92c76be36fb9e4fd3d0c73499d091d491afe364`, and the squash merge is
 Source record: `../archive/2026-09-09-normalize-app-diagnostic-logging/tasks.md`
 and `evidence.md`. That archive retains tasks 3.6 and 5.2 unchecked for their
 outstanding portions. The prior Mac suite passed all 117 suites through Qt Creator
-MCP (run 1788809091554); those results do not validate this unimplemented follow-up.
+MCP (run 1788809091554); those results do not validate this follow-up; its Mac results are in `evidence.md`.
 
 | Outstanding work | Origin | Resume condition and evidence |
 | --- | --- | --- |

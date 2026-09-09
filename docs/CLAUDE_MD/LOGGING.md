@@ -69,13 +69,13 @@ The helper headers, one per subsystem:
 | `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` | **stderr-only by construction** — nothing here has a `logMessage`, so there is no `BT_*_STDERR_TAGGED` and `BT_*_TAGGED` does not emit |
 | `[SAW]` | `src/machine/sawlogging.h` | `SAW_{LOG,INFO,WARN}_{TAGGED,STDERR}` | mostly stderr in practice — SAW lives in controllers, a settings store and a worker thread, none of which carry `logMessage` |
 | `[Font]` | `src/core/fontlogging.h` | `FONT_{LOG,INFO,WARN}_STDERR` | stderr-only by construction — font setup runs before any object with a `logMessage` exists |
-| `[Network]` | `src/core/networklogging.h` | `NETWORK_{LOG,INFO,WARN}_{TAGGED,STDERR}` | reachability only so far — the app's servers still use hand-rolled prefixes |
+| `[Network]` | `src/core/networklogging.h` | `NETWORK_{LOG,INFO,WARN}_{TAGGED,STDERR}` | reachability; app servers also use the registered `DIAG_*` helpers with the Network owner |
 | `[Screensaver]` | `src/screensaver/screensaverlogging.h` | `SCREENSAVER_{LOG,INFO,WARN}_{TAGGED,STDERR}` | |
 | `[Theme]` | `src/core/themelogging.h` | `THEME_{LOG,INFO,WARN}_{TAGGED,STDERR}` | appearance: themes, colours, backgrounds, font SIZES (vs `[Font]`, which is which family resolved) |
 
-All families stop at `WARN`. There is no marked CRITICAL/FATAL tier — a genuine
-`qCritical` in a covered file has to take an exemption, which is deliberate: nothing
-in these subsystems is unrecoverable enough to warrant aborting.
+The specialized families above stop at `WARN`. The general `DIAG_ERROR` and
+`DIAG_FATAL` helpers also preserve a registered marker for critical/fatal events.
+Choose severity for the actual outcome; ordinary request failures use WARN.
 
 **Alias the macro, never copy its body.** `difluidr1.cpp` and `difluidr2.cpp` each
 hand-copied `SCALE_LOG`'s body once, so a one-line fix to the shared macro had to be
@@ -369,6 +369,33 @@ continuation receives the same timestamp, severity, identity and warning context
 Only a session banner starting at the beginning of a physical line creates a session;
 banner-like content inside a captured message cannot create a false restart.
 Memory/FD dump rows carry the dump id and reason even on pages without the header.
+
+## Visualizer operation outcomes
+
+`network/visualizeroperationlog.h` carries a callback-owned operation ID through
+upload/update, connection tests, lists, profile imports, history recovery and
+coffee synchronization. INFO contains starts and successful, empty, skipped or
+cancelled results. WARN contains terminal failures, actionable rejections and
+partial batches; retries stay DEBUG. A pending duplicate import ends only when
+its save or cancellation resolves.
+
+Each event names the kind, stage, elapsed milliseconds and known local shot,
+remote shot and bag IDs. Parent IDs connect post-upload coffee work without
+changing the upload's result. Batch summaries preserve existing UI counters and
+add `diagnosticFailures` where older behavior counts a failed fetch as a skip.
+An empty/dropped background repair snapshot does not start an operation.
+
+The shared `core/logfields.h` formatter bounds identifier fields to 128 characters
+and URL identity to 384, stripping URL credentials, queries and fragments. Use
+stable reason codes, never payloads, notes, share codes or remote error prose.
+Dedicated upload files and user-facing error text keep their separate roles.
+Storage/profile failures retain their owners; controller consumers record distinct
+queue decisions instead of forwarding the backend's terminal log again.
+
+The controlled regression capture compares complete persisted output with
+Visualizer INFO/WARN selections. Untagged historical entries remain available in
+the full log and can fall outside a subsystem selection; inspect the full time
+window when investigating older reports.
 
 ## AI operation outcomes
 

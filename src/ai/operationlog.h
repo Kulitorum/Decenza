@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/diagnosticlogging.h"
+#include "core/logfields.h"
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMutex>
@@ -41,29 +42,8 @@ public:
         index().remove(id);
     }
 
-    static QString safeUrl(const QString& text)
-    {
-        QUrl url(text);
-        if (!url.isValid() || (url.scheme() != QLatin1String("https") && url.scheme() != QLatin1String("http"))
-            || url.host().isEmpty())
-            return QStringLiteral("invalid-or-non-http-url");
-        url.setUserInfo(QString());
-        url.setQuery(QString());
-        url.setFragment(QString());
-        // QUrl encodes control characters, so URL identity cannot create fields
-        // or physical log lines. Never decode the result before writing it.
-        return url.toString(QUrl::FullyEncoded).left(384);
-    }
-
-    static QString field(QString value)
-    {
-        // Provider/model identifiers, never remote prose. Keep one bounded field.
-        for (auto& c : value) {
-            if (!(c.isLetterOrNumber() || QStringLiteral("._-/:@").contains(c)))
-                c = QLatin1Char('_');
-        }
-        return value.left(128);
-    }
+    static QString safeUrl(const QString& text) { return DecenzaLog::safeUrl(text); }
+    static QString field(QString value) { return DecenzaLog::field(std::move(value)); }
 
     void useProvider(const QString& providerId, const QString& modelId, const QString& nextStage)
     {

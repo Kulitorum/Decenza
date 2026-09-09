@@ -602,7 +602,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         if (!ok) {
             // NOT the same as an empty queue: the read failed, so shots that
             // need repairing may be sitting there unseen.
-            DIAG_WARN(VISUALIZER, "MainController") << "Visualizer bean-repair queue could not be read "
+            DIAG_WARN(STORAGE, "MainController") << "Visualizer bean-repair queue could not be read "
                           "- no repair this session";
             return;
         }
@@ -669,7 +669,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         dispatchNextPendingVisualizerSync();
     });
     connect(m_visualizer, &VisualizerUploader::updateFailed, this,
-            [this](const QString& visualizerId, bool permanent, const QString& error) {
+            [this](const QString& visualizerId, bool permanent, const QString&) {
         // Same in-flight filter as updateSuccess above: ignore failures
         // from PATCHes we didn't issue (user edits from the review pages).
         if (m_migration16InFlightVisualizerId.isEmpty()
@@ -682,8 +682,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             // VisualizerUploader::onUpdateFinished): leave the entry in
             // the pending list and abort the drain — the queue picks up
             // on the next boot.
-            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync — transient failure ("
-                     << error << "); drain paused until next boot";
+            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 drain paused until next boot"
+                     << "remoteId=" << DecenzaLog::field(visualizerId);
             return;
         }
 
@@ -713,8 +713,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         else
             s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        DIAG_WARN(VISUALIZER, "MainController") << "migration16 sync — dropping visualizerId"
-                   << visualizerId << "after permanent failure:" << error;
+        DIAG_INFO(VISUALIZER, "MainController") << "migration16 removed missing remote shot from pending queue"
+                   << "remoteId=" << DecenzaLog::field(visualizerId);
         dispatchNextPendingVisualizerSync();
     });
 
@@ -4410,7 +4410,7 @@ void MainController::onShotEnded() {
                     // intentionally do NOT auto-upload it (avoids the
                     // orphaned-upload bug this change exists to fix).
                     if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
-                        DIAG_DEBUG(VISUALIZER, "maincontroller") << "  -> Auto-uploading to visualizer for shot" << shotId;
+                        DIAG_DEBUG(VISUALIZER, "MainController") << "  -> Auto-uploading to visualizer for shot" << shotId;
                         m_visualizer->uploadShot(
                             m_shotDataModel, m_profileManager->currentProfilePtr(),
                             duration, finalWeight, doseWeight, metadata, debugLog,
@@ -5252,10 +5252,9 @@ void MainController::processVisualizerReconciliation()
 
     // Fetch → reconcile → self-correct, each a single-shot hop.
     connect(m_visualizer, &VisualizerUploader::shotListFailed, this,
-            [](const QString& err) {
-        // Fail safe: do NOT set the run-once flag — retried next boot.
-        DIAG_WARN(VISUALIZER, "MainController") << "Visualizer reconciliation list fetch failed:"
-                   << err << "(will retry next boot)";
+            [](const QString&) {
+        // The uploader owns the request outcome; this records only queue policy.
+        DIAG_DEBUG(VISUALIZER, "MainController") << "reconciliation remains pending until next boot";
     }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
     connect(m_visualizer, &VisualizerUploader::shotListFetched, this,
@@ -5271,7 +5270,7 @@ void MainController::processVisualizerReconciliation()
             // run-once flag unset so it retries on the next boot rather
             // than permanently skipping the backfill after one transient
             // hiccup (e.g. DB momentarily locked at boot).
-            DIAG_WARN(VISUALIZER, "MainController") << "Visualizer reconciliation did not "
+            DIAG_WARN(STORAGE, "MainController") << "Visualizer reconciliation did not "
                           "complete (DB error) — will retry next boot";
             return;
         }

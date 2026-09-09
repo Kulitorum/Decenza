@@ -1,0 +1,11 @@
+[   0.001] WARN  [Visualizer] historical tagged entry
+[   0.002] WARN  Visualizer: historical unformatted entry
+[   0.000] INFO  [Visualizer][VisualizerUploader] op=900e7738-0295-4ac4-84f5-cc36947854fb kind=connectionTest stage=entry elapsedMs=0 bagId=0 shotId=0 start
+[   0.000] DEBUG [Visualizer][VisualizerUploader] op=900e7738-0295-4ac4-84f5-cc36947854fb kind=connectionTest stage=connectionTest elapsedMs=0 bagId=0 httpStatus=503 networkError=403 shotId=0 url=https://visualizer.coffee/api/shots response
+[   0.000] WARN  [Visualizer][VisualizerUploader] op=900e7738-0295-4ac4-84f5-cc36947854fb kind=connectionTest stage=connectionTest elapsedMs=0 bagId=0 httpStatus=503 networkError=403 shotId=0 url=https://visualizer.coffee/api/shots terminal outcome=failed reason=requestFailed
+[   0.000] INFO  [Visualizer][VisualizerUploader] op=e1223584-8eee-47e7-9a00-0d3bc296e132 kind=connectionTest stage=entry elapsedMs=0 bagId=0 shotId=0 start
+[   0.000] DEBUG [Visualizer][VisualizerUploader] op=e1223584-8eee-47e7-9a00-0d3bc296e132 kind=connectionTest stage=connectionTest elapsedMs=0 bagId=0 httpStatus=200 networkError=0 shotId=0 url=https://visualizer.coffee/api/shots response
+[   0.001] INFO  [Visualizer][VisualizerUploader] op=e1223584-8eee-47e7-9a00-0d3bc296e132 kind=connectionTest stage=connectionTest elapsedMs=0 bagId=0 httpStatus=200 networkError=0 shotId=0 url=https://visualizer.coffee/api/shots terminal outcome=success reason=connected
+[   0.001] INFO  [Visualizer][VisualizerUploader] op=16cebe22-f47a-40f6-9bb9-f82bbb6a72a4 kind=shotList stage=entry elapsedMs=0 bagId=0 shotId=0 start
+[   0.001] DEBUG [Visualizer][VisualizerUploader] op=16cebe22-f47a-40f6-9bb9-f82bbb6a72a4 kind=shotList stage=shotList elapsedMs=0 bagId=0 httpStatus=200 networkError=0 page=1 resultCount=0 shotId=0 url=https://visualizer.coffee/api/shots response
+[   0.002] INFO  [Visualizer][VisualizerUploader] op=16cebe22-f47a-40f6-9bb9-f82bbb6a72a4 kind=shotList stage=shotList elapsedMs=0 bagId=0 httpStatus=200 networkError=0 page=1 resultCount=0 shotId=0 url=https://visualizer.coffee/api/shots terminal outcome=empty reason=listComplete
