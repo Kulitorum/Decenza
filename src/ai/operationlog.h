@@ -106,9 +106,9 @@ public:
     int pageHttpStatus = 0;
 
 private:
-    AIOperationLog(const QString& kind, bool bag, qint64 bagId, qint64 shotId)
-        : id(QUuid::createUuid().toString(QUuid::WithoutBraces)), kind(field(kind)),
-          bag(bag), bagId(bagId), shotId(shotId)
+    AIOperationLog(const QString& operationKind, bool bagOperation, qint64 localBagId, qint64 localShotId)
+        : id(QUuid::createUuid().toString(QUuid::WithoutBraces)), kind(field(operationKind)),
+          bag(bagOperation), bagId(localBagId), shotId(localShotId)
     { timer.start(); }
 
     void event(QtMsgType type, const QString& text) const

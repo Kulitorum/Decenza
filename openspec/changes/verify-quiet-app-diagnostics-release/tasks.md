@@ -1,7 +1,8 @@
-# Held release follow-up
+# Release follow-up
 
-Tracking only: these checks are outstanding, not passed. Do not start beta builds
-until the user lifts the hold. No new logging implementation is proposed here.
+These checks remain outstanding until evidence is recorded. The user authorized
+the updated v2.0.5 prerelease on September 9, lifting the build/publication hold.
+No new logging behavior is proposed here.
 
 - [ ] 1. Verify Android, iOS and other beta builds containing PRs #1930 and #1931. Record source revision, platform, run and result.
 - [ ] 2. Retrieve a representative updated mobile charging/mismatch log through DE1 MCP. Verify requested-versus-observed charge wording, meaningful transitions and suppression; distinguish measured volume from the historical estimate.
