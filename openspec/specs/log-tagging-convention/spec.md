@@ -1,13 +1,15 @@
 # log-tagging-convention Specification
 
 ## Purpose
-TBD - created by archiving change replace-scale-log-with-system-log-filter. Update Purpose after archive.
+Make each subsystem's diagnostic story retrievable through stable registered markers, shared formatting helpers and audience-based severity, with source enforcement that keeps new emitters searchable.
+
 ## Requirements
+
 ### Requirement: Log lines carry a subsystem marker in a fixed grammar
 
-A subsystem whose log lines need to be retrievable as a group SHALL prefix every line it logs with a marker in the form `[Subsystem]`, optionally followed by a source tag naming the specific emitter: `[Subsystem][Source]`.
+Every first-party runtime diagnostic SHALL belong to a registered subsystem and SHALL prefix every line it logs with a marker in the form `[Subsystem]`, optionally followed by a source tag naming the specific emitter: `[Subsystem][Source]`.
 
-The marker SHALL be the first thing on the line, so a caller can anchor on it. The subsystem marker alone SHALL be sufficient to retrieve the whole subsystem — no line may be reachable only through its source tag — so that adding a new source cannot silently shrink what a subsystem query returns.
+After the logger's elapsed-time and severity envelope, the marker SHALL be the first thing in the message, so a caller can anchor on it. The subsystem marker alone SHALL be sufficient to retrieve the whole subsystem — no line may be reachable only through its source tag — so that adding a new source cannot silently shrink what a subsystem query returns.
 
 Markers SHALL be stable. Renaming one breaks every saved query, filter and habit built on it, so a marker is treated as a published name rather than an implementation detail.
 
@@ -22,6 +24,11 @@ Markers SHALL be stable. Renaming one breaks every saved query, filter and habit
 #### Scenario: Subsystems do not collide
 - **WHEN** the log is filtered on one subsystem's marker
 - **THEN** no other subsystem's lines are returned
+
+#### Scenario: A formerly unformatted app event is emitted
+
+- **WHEN** a first-party C++, QML or native runtime source emits a diagnostic
+- **THEN** its persisted message has a registered owner selected by the diagnostic question, rather than only a class prefix, lowercase bracket or unlabelled text
 
 ### Requirement: Severity carries audience, in three tiers
 
@@ -83,19 +90,21 @@ Every other surface that names the markers SHALL derive from that registry rathe
 
 ### Requirement: The marker contract is enforced at source level
 
-A build-time or pre-merge check SHALL verify that device logging helpers apply a registered marker, and that log call sites in subsystems covered by the convention go through a helper rather than composing a prefix inline.
+A build-time or pre-merge check SHALL verify that runtime logging helpers apply a registered marker, and that log call sites in subsystems covered by the convention go through a helper rather than composing a prefix inline.
 
 The check SHALL be enforceable without building or running the app, so it can run per pull request. A violation SHALL fail rather than warn: a helper that forgets its marker produces lines that are silently missing from the subsystem's view and from every query that names it, which review has repeatedly failed to catch.
 
-The set of files the check covers SHALL include every file that logs on a registered
-subsystem's behalf, not only the files in which that subsystem's helpers are defined. A
+The set of files the check covers SHALL include all first-party runtime emitters in
+C++, headers, QML and platform bridges, including mixed-subsystem files. A
 file that drives a subsystem's narrative from outside its directory — a reconnect ladder
 in application startup, for instance — is exactly where an unmarked line is least likely
 to be noticed, because the surrounding code is not about logging at all.
 
-Where coverage is deliberately narrower than the convention, the gap SHALL be stated in
-the reference documentation, so that "the rule you follow" and "the rule the gate
-enforces" are never mistaken for each other.
+Generated/vendor code, test-harness output and crash-signal-safe writes SHALL be
+explicitly distinguished from ordinary runtime emitters. Any necessary exemption SHALL
+identify a concrete call-site constraint. A file's mixed ownership SHALL NOT be grounds
+for exempting all of its unmarked messages. The reference documentation SHALL state
+remaining limitations so the rule and the gate's actual coverage are not confused.
 
 #### Scenario: A helper missing its marker fails the check
 
@@ -124,6 +133,16 @@ enforces" are never mistaken for each other.
 - **THEN** it states which files the check covers and which carry subsystem lines without
   being covered
 
+#### Scenario: A QML or header call bypasses formatting
+
+- **WHEN** a first-party QML, header or native bridge adds a raw runtime log call outside an approved helper or justified exception
+- **THEN** the build-free gate fails and identifies its source location
+
+#### Scenario: A prefix is dynamically assembled or lowercase
+
+- **WHEN** a first-party runtime call bypasses its helper using a lowercase or dynamically assembled bracketed prefix
+- **THEN** the gate rejects the bypass rather than treating its spelling as an exemption
+
 ### Requirement: The convention is documented as the pattern for future logging
 
 The convention SHALL be documented as reference material covering the marker grammar, the three tiers with guidance on choosing between them, how to add a helper, how to register a new subsystem, and how to retrieve a subsystem's narrative from a log or over MCP.
@@ -145,16 +164,10 @@ A reader cannot distinguish `[SAW]` from `[Scale]` by looking at it, so an unreg
 bracketed prefix advertises a subsystem query that returns an incomplete answer — or
 none — while looking exactly like one that works.
 
-A subsystem currently using such a prefix SHALL take one of two paths:
-
-- **Register it.** The token joins the registry and the subsystem gains a helper
-  aliasing the shared one, at which point every rule of this convention applies to it.
-- **Stop being marker-shaped.** The prefix is rewritten in a form no reader would take
-  for a marker, and the lines are understood to be unretrievable as a group.
-
-Choosing the second path SHALL be a decision, not a default: a prefix exists because
-someone wanted those lines findable, and the convention's answer to that want is
-registration.
+A first-party subsystem using such a prefix SHALL migrate to a registered owner and
+shared helper. Rewriting it as an unmarked class prefix SHALL NOT satisfy the convention.
+Framework and unattributed diagnostics follow the runtime-context contract rather than
+being assigned to an application subsystem by guessing from the message.
 
 This closes the one hole the enforcement check was documented as leaving open — a
 hand-rolled prefix inside a helper call passed every rule, because the marker rule
@@ -205,3 +218,42 @@ question, not merely because it lives in a different file.
 - **THEN** it uses that subsystem's marker with its own source tag rather than registering
   a second marker
 
+### Requirement: Diagnostic wording distinguishes observations from outcomes
+
+A runtime event SHALL describe the state actually known at the emitting point. A command request SHALL NOT be described as a confirmed physical outcome. Expected benign status SHALL NOT be logged as a fault, and an actionable failure SHALL NOT be hidden below WARN solely because it originates in background work. Recovery from a previously reported failure SHALL be available at INFO.
+
+Invalid or unavailable numerical diagnostics SHALL be labeled accordingly rather than rendered as valid measurements or ranges. Routine telemetry SHALL stay at DEBUG and existing repeat suppression SHALL be preserved.
+
+#### Scenario: Charge enable precedes a fresh OS sample
+
+- **WHEN** the app requests charging using an OS sample taken before that command
+- **THEN** the log distinguishes the request and sampled state without claiming a measured interruption duration
+
+#### Scenario: A background request fails
+
+- **WHEN** an update check fails with an HTTP error
+- **THEN** the failure is visible at WARN, while later recovery is visible at INFO without promoting every unchanged successful check
+
+#### Scenario: A device reports benign status
+
+- **WHEN** a device status is classified as benign by the existing logic
+- **THEN** its message does not use a problem severity or claim an error
+
+#### Scenario: A diagnostic range has no valid samples
+
+- **WHEN** a diagnostic has no finite range to report
+- **THEN** it reports the unavailable state and relevant reason instead of a numeric range containing sentinel infinities
+
+### Requirement: Completion is verified against source and current runtime evidence
+
+A completed logging migration SHALL include a census of first-party runtime call sites and an unfiltered current-build log review for the exercised workflows. Any remaining unmarked or fallback first-party event SHALL be corrected or carry a documented, justified exception. A historical whole-file census SHALL NOT be presented as evidence that the current build does or does not conform.
+
+#### Scenario: Old prefixes survive in the retained ring buffer
+
+- **WHEN** the retained log includes pre-migration sessions
+- **THEN** validation reports current-session conformance separately from historical unformatted content
+
+#### Scenario: A dormant failure path was not exercised
+
+- **WHEN** a first-party logging call was absent from the runtime capture
+- **THEN** it remains subject to source enforcement rather than being omitted from the migration
