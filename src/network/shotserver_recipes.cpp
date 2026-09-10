@@ -1003,7 +1003,8 @@ QString ShotServer::generateRecipesPage() const
             } else {
                 el('list').innerHTML = '<div class="grid">' + active.map(cardHtml).join('') + '</div>';
             }
-
+)HTML";
+    html += R"HTML(
             el('archivedHead').style.display = archived.length ? '' : 'none';
             el('archivedToggle').textContent = (showArchived ? 'Hide archived (' : 'Show archived (')
                 + archived.length + ')';

@@ -1101,7 +1101,8 @@ QString ShotServer::generateBeansPage() const
             if (!confirm('Delete this bag permanently?')) return;
             post('/api/bag/' + id + '/delete').then(load).catch(e => status(e.message));
         }
-
+)HTML";
+    html += R"HTML(
         function showInfo(id) {
             const b = bags.find(x => x.id === id) || {};
             const bb = parseBlob(b.beanBaseData);
@@ -1272,7 +1273,8 @@ QString ShotServer::generateBeansPage() const
             refreshFindPageButton();
             editorStatus('Linked to Bean Base — review and Save.');
         }
-
+)HTML";
+    html += R"HTML(
         // --- AI product-page search (the ladder's last rung) ---
         // Offered, not automatic: the app runs this on open because it knows
         // the bag has never been searched; the web editor has no such marker to
@@ -1472,7 +1474,8 @@ QString ShotServer::generateBeansPage() const
                     el('btnGetInfo').disabled = false;
                 });
         }
-
+)HTML";
+    html += R"HTML(
         function saveEditor() {
             const bodyData = {
                 roasterName: el('fRoaster').value.trim(),

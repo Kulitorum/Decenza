@@ -1240,6 +1240,8 @@ add_decenza_test(tst_dialing_blocks
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_DIALING_BLOCKS_AI_RESOURCES}
 )
+# The ShotRow fixtures use designated initializers; MSVC requires C++20 for them.
+set_property(TARGET tst_dialing_blocks PROPERTY CXX_STANDARD 20)
 target_link_libraries(tst_dialing_blocks PRIVATE decenza_dialingblockslib decenza_shotlib)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
 # Built-in profile corpus, for the KB-coverage gate (every shipped profile
