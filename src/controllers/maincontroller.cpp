@@ -4136,7 +4136,7 @@ void MainController::onEspressoCycleStarted() {
 }
 
 void MainController::onShotEnded() {
-    // Clear any +10g bump applied via bumpTargetWeight() so MachineState::targetWeight
+    // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
     if (m_machineState && m_profileManager) {
@@ -4763,7 +4763,12 @@ void MainController::bumpTargetWeight(double deltaG)
         return;
     }
 
-    const double newTarget = current + deltaG;
+    // Zero disables stop-at-weight. Decreasing a live target must keep it armed,
+    // and an unconditional clamp would do the opposite below the floor -- at
+    // current 0.5 g a -5 g press would RAISE the target to 1.0 g.
+    if (deltaG < 0.0 && !m_machineState->canDecreaseTargetWeight()) return;
+    const double newTarget = std::max(MachineState::MinLiveTargetWeightG, current + deltaG);
+    if (newTarget == current) return;
     DIAG_INFO(SHOT, "MainController").noquote() << "bumpTargetWeight: targetWeight"
                       << current << "->" << newTarget << "g (delta=" << deltaG << ")";
     m_machineState->setTargetWeight(newTarget);

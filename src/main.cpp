@@ -1766,7 +1766,7 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
-    // Forward live SAW target changes (e.g. user pressed +10g mid-shot) to the worker.
+    // Forward live SAW target changes (the mid-shot SAW adjustment buttons) to the worker.
     // Pre-shot callers (profile activation, recipe save) also fire this signal, but
     // configure() overwrites m_targetWeight at shot start, so any pre-shot forwarding
     // is harmless. Only mid-shot bumps observably move the worker's target.
@@ -1775,8 +1775,9 @@ int main(int argc, char *argv[])
     // latched at espressoCycleStarted (see above), so neither a dose write nor
     // an anchor write/clear moves it — and therefore this forwarder — during a
     // shot. Latching only the dose would not have covered the anchor writes.
-    // The deliberately mid-shot caller (the phase-gated +10 g bump) writes
-    // MachineState directly rather than through the ladder, so it still flows.
+    // The deliberately mid-shot caller (the phase-gated adjustment grid, via
+    // MainController::bumpTargetWeight) writes MachineState directly rather than
+    // through the ladder, so it still flows.
     QObject::connect(&machineState, &MachineState::targetWeightChanged,
                      [&weightProcessor, &machineState]() {
                          const double w = machineState.targetWeight();

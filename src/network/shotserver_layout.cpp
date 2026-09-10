@@ -1591,7 +1591,8 @@ QString ShotServer::generateLayoutPage() const
             .editor-tools-row { flex-direction: column; }
             .editor-preview-col { flex-direction: row; gap: 0.5rem; }
         }
-
+)HTML";
+    html += R"HTML(
         /* ---- Page grid (D1): instructions span full width on top; below,
            zones on the left and a fixed-width right column (preview + library)
            on the right. Stacks to a single column at <=1100px so the sticky
@@ -3011,7 +3012,8 @@ QString ShotServer::generateLayoutPage() const
     // design (see design.md's non-goals) — placement, order, distribution/
     // alignment/style, offset, scale, and widget labels/colors are what it
     // is required to get right.
-
+)HTML";
+    html += R"HTML(
     // One mini-chip per item: custom items show emoji + truncated text
     // (mirrors renderZones()'s custom-chip rendering above); spacer/separator
     // render as a gap/divider instead of a labeled chip; everything else shows
@@ -3371,7 +3373,8 @@ QString ShotServer::generateLayoutPage() const
         html += roGestureRow("doubleclickAction", "Double-click", dc, dcLocked, reserved);
         return html;
     }
-
+)HTML";
+    html += R"HTML(
     function roGestureRow(key, label, actionId, isLocked, reservedAction) {
         // No override: the gesture does whatever the widget reserves — say that.
         // Only a widget that reserves nothing (tap already opens its page) is
@@ -3606,7 +3609,8 @@ QString ShotServer::generateLayoutPage() const
         if (ssAutoSaveTimer) clearTimeout(ssAutoSaveTimer);
         ssAutoSaveTimer = setTimeout(function() { ssAutoSaveTimer = null; ssSaveProperty(); }, 200);
     }
-
+)HTML";
+    html += R"HTML(
     function ssSaveProperty() {
         if (!ssEditingItem) return;
         var id = ssEditingItem.id;
