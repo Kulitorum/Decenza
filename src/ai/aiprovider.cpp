@@ -155,7 +155,11 @@ bool AIProvider::tryScheduleRetry(QNetworkReply* reply)
     // new analyze() call arrives before this one fires.
     const int gen = m_reqGen;
     QTimer::singleShot(delay, this, [this, gen]() {
-        if (gen == m_reqGen) m_retryFn();
+        if (gen != m_reqGen) return;
+        // sendRequest replaces m_retryFn. Keep this callable and its captured
+        // request alive until the resend has finished reading that request.
+        const auto retry = m_retryFn;
+        retry();
     });
     return true;
 }
