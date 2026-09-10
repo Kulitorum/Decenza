@@ -26,6 +26,24 @@ T.Page {
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0
 
+    readonly property bool canAdjustExtraction: MachineState.phase === MachineState.Phase.Preinfusion ||
+                                               MachineState.phase === MachineState.Phase.Pouring
+
+    component ExtractionButton: AccessibleButton {
+        Layout.minimumWidth: implicitWidth
+        Layout.preferredWidth: Theme.scaled(72)
+        Layout.preferredHeight: Theme.touchTargetMedium
+        Layout.alignment: Qt.AlignVCenter
+        primary: true
+        topInset: 0
+        bottomInset: 0
+        leftPadding: Theme.scaled(12)
+        rightPadding: Theme.scaled(12)
+        verticalPadding: Theme.spacingSmall
+        _customFontWeight: Font.Medium
+        activeFocusOnTab: true
+    }
+
     // Frame name shown in the phase pill; updated on every frame change.
     property string displayedFrameName: ""
 
@@ -37,23 +55,23 @@ T.Page {
     focus: true
 
     StackView.onActivated: {
-        espressoPage.forceActiveFocus()  // Ensure keyboard focus
+        espressoBackButton.forceActiveFocus()
     }
 
     // Accessibility: get current value for announcement
     function getAccessibilityValue(index) {
         switch (index) {
             case 0: // Frame
-                var frameInfo = MainController.currentFrameName || "Starting"
-                return "Frame: " + frameInfo
+                var frameInfo = MainController.currentFrameName || TranslationManager.translate("espresso.accessible.starting", "Starting")
+                return TranslationManager.translate("espresso.accessible.frame", "Frame:") + " " + frameInfo
             case 1: // Time
-                return "Time: " + MachineState.shotTime.toFixed(1) + " seconds"
+                return TranslationManager.translate("espresso.accessible.time", "Time:") + " " + MachineState.shotTime.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.seconds", "seconds")
             case 2: // Pressure
-                return "Pressure: " + DE1Device.pressure.toFixed(1) + " bar"
+                return TranslationManager.translate("espresso.accessible.pressure", "Pressure:") + " " + DE1Device.pressure.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.bar", "bar")
             case 3: // Flow
-                return "Flow: " + DE1Device.flow.toFixed(1) + " milliliters per second"
+                return TranslationManager.translate("espresso.accessible.flow", "Flow:") + " " + DE1Device.flow.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.mlPerSec", "milliliters per second")
             case 4: // Temperature
-                return "Temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees"
+                return TranslationManager.translate("espresso.accessible.temperature", "Temperature:") + " " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " " + TranslationManager.translate("espresso.accessible.degrees", "degrees")
             case 5: // Weight and/or Volume
                 var parts = []
                 if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
@@ -83,7 +101,7 @@ T.Page {
     // Accessibility: announce full status
     function announceFullStatus() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var status = "Shot status. "
+            var status = TranslationManager.translate("espresso.accessible.shotStatus", "Shot status.") + " "
             status += getAccessibilityValue(0) + ". "  // Frame
             status += getAccessibilityValue(1) + ". "  // Time
             status += getAccessibilityValue(2) + ". "  // Pressure
@@ -93,18 +111,15 @@ T.Page {
         }
     }
 
-    // Keyboard shortcuts to stop and go back
-    Keys.onEscapePressed: {
+    function stopAndGoBack() {
         AppShell.stopReason = "manual"
         DE1Device.stopOperation()
         AppShell.idleRequested()
     }
 
-    Keys.onSpacePressed: {
-        AppShell.stopReason = "manual"
-        DE1Device.stopOperation()
-        AppShell.idleRequested()
-    }
+    // Keyboard shortcuts to stop and go back
+    Keys.onEscapePressed: espressoPage.stopAndGoBack()
+    Keys.onSpacePressed: espressoPage.stopAndGoBack()
 
     // Additional keyboard navigation for accessibility
     Keys.onPressed: function(event) {
@@ -122,9 +137,7 @@ T.Page {
         }
         // Backspace also goes back
         if (event.key === Qt.Key_Backspace) {
-            AppShell.stopReason = "manual"
-            DE1Device.stopOperation()
-            AppShell.idleRequested()
+            espressoPage.stopAndGoBack()
             event.accepted = true
         }
     }
@@ -419,7 +432,7 @@ T.Page {
             accessibleName: TranslationManager.translate("espresso.viewMode.button", "Change extraction view")
             accessibleItem: viewModeButton
             activeFocusOnTab: true
-            KeyNavigation.tab: espressoBackButton
+            KeyNavigation.tab: espressoStopButton.visible ? espressoStopButton : espressoBackButton
             KeyNavigation.backtab: skipFrameButton.visible ? skipFrameButton : espressoBackButton
             Keys.onReturnPressed: function(event) { viewSelectorDialog.open(); event.accepted = true }
             Keys.onSpacePressed:  function(event) { viewSelectorDialog.open(); event.accepted = true }
@@ -612,16 +625,18 @@ T.Page {
         border.width: Theme.scaled(2)
 
         activeFocusOnTab: true
+        KeyNavigation.tab: espressoBackButton
+        KeyNavigation.backtab: viewModeMouseArea
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
+        Accessible.focusable: true
+        Accessible.onPressAction: espressoPage.stopAndGoBack()
         Keys.onReturnPressed: function(event) {
-            AppShell.stopReason = "manual"
-            DE1Device.stopOperation()
-            AppShell.idleRequested()
+            espressoPage.stopAndGoBack()
             event.accepted = true
         }
         Keys.onSpacePressed: function(event) {
-            AppShell.stopReason = "manual"
-            DE1Device.stopOperation()
-            AppShell.idleRequested()
+            espressoPage.stopAndGoBack()
             event.accepted = true
         }
 
@@ -639,10 +654,9 @@ T.Page {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
             accessibleItem: espressoStopButton
+            Accessible.ignored: true
             onAccessibleClicked: {
-                AppShell.stopReason = "manual"
-                DE1Device.stopOperation()
-                AppShell.idleRequested()
+                espressoPage.stopAndGoBack()
             }
         }
     }
@@ -663,41 +677,39 @@ T.Page {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Theme.scaled(100)
+        height: weightAdjustmentGrid.visible
+                ? weightAdjustmentGrid.implicitHeight + 2 * Theme.spacingMedium
+                : Theme.scaled(100)
         color: Qt.darker(Theme.surfaceColor, 1.3)
 
         RowLayout {
+            id: infoBarRow
             anchors.fill: parent
             anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingMedium
+            spacing: Theme.spacingSmall
 
-            // Back button (square hitbox, full height)
+            // Keep the back target's width stable when the adjustment grid is shown.
             Item {
                 id: espressoBackButton
                 Layout.fillHeight: true
-                Layout.preferredWidth: height
+                Layout.preferredWidth: Theme.touchTargetLarge
 
                 activeFocusOnTab: true
-                KeyNavigation.tab: skipFrameButton.visible ? skipFrameButton : viewModeMouseArea
-                KeyNavigation.backtab: viewModeMouseArea
+                KeyNavigation.tab: weightAdjustmentGrid.visible ? subtractFiveButton
+                                   : (skipFrameButton.visible ? skipFrameButton : viewModeMouseArea)
+                KeyNavigation.backtab: espressoStopButton.visible ? espressoStopButton : viewModeMouseArea
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("espresso.accessible.stop", "Stop and go back")
                 Accessible.focusable: true
                 Accessible.onPressAction: {
-                    AppShell.stopReason = "manual"
-                    DE1Device.stopOperation()
-                    AppShell.idleRequested()
+                    espressoPage.stopAndGoBack()
                 }
                 Keys.onReturnPressed: function(event) {
-                    AppShell.stopReason = "manual"
-                    DE1Device.stopOperation()
-                    AppShell.idleRequested()
+                    espressoPage.stopAndGoBack()
                     event.accepted = true
                 }
                 Keys.onSpacePressed: function(event) {
-                    AppShell.stopReason = "manual"
-                    DE1Device.stopOperation()
-                    AppShell.idleRequested()
+                    espressoPage.stopAndGoBack()
                     event.accepted = true
                 }
 
@@ -721,10 +733,9 @@ T.Page {
                     anchors.fill: parent
                     accessibleName: TranslationManager.translate("espresso.accessible.stopAndGoBack", "Stop shot and go back")
                     accessibleItem: espressoBackButton
+                    Accessible.ignored: true
                     onAccessibleClicked: {
-                        AppShell.stopReason = "manual"
-                        DE1Device.stopOperation()
-                        AppShell.idleRequested()
+                        espressoPage.stopAndGoBack()
                     }
                 }
             }
@@ -736,7 +747,7 @@ T.Page {
                 spacing: Theme.scaled(2)
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.time", "Time:") + " " + MachineState.shotTime.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.seconds", "seconds")
+                Accessible.name: espressoPage.getAccessibilityValue(1)
 
                 Text {
                     text: MachineState.shotTime.toFixed(1) + "s"
@@ -778,7 +789,7 @@ T.Page {
                 property color trackColor: trackReady ? Theme.trackingColor(delta, goal, true) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.pressure", "Pressure:") + " " + DE1Device.pressure.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.bar", "bar")
+                Accessible.name: espressoPage.getAccessibilityValue(2)
 
                 Text {
                     text: DE1Device.pressure.toFixed(1)
@@ -821,7 +832,7 @@ T.Page {
                 property color trackColor: trackReady ? Theme.trackingColor(delta, goal, false) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.flow", "Flow:") + " " + DE1Device.flow.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.mlPerSec", "milliliters per second")
+                Accessible.name: espressoPage.getAccessibilityValue(3)
 
                 Text {
                     text: DE1Device.flow.toFixed(1)
@@ -858,7 +869,7 @@ T.Page {
                 spacing: Theme.scaled(2)
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.temperature", "Temperature:") + " " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " " + TranslationManager.translate("espresso.accessible.degrees", "degrees")
+                Accessible.name: espressoPage.getAccessibilityValue(4)
 
                 Text {
                     text: Theme.cToDisplay(DE1Device.temperature).toFixed(1)
@@ -915,6 +926,7 @@ T.Page {
             ColumnLayout {
                 id: weightVolumeColumn
                 Layout.fillWidth: true
+                Layout.minimumWidth: Theme.scaled(96)
                 spacing: Theme.scaled(4)
 
                 // Show volume display when only volume target is set (no weight target)
@@ -925,25 +937,17 @@ T.Page {
                 readonly property color displayColor: isVolumeMode ? Theme.flowColor : Theme.weightColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: {
-                    var parts = []
-                    if (MachineState.targetWeight > 0)
-                        parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
-                    if (MachineState.targetVolume > 0)
-                        parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
-                    return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
-                }
+                Accessible.name: espressoPage.getAccessibilityValue(5)
 
-                RowLayout {
+                ColumnLayout {
                     visible: espressoPage.showStats
-                    spacing: Theme.spacingSmall
+                    spacing: Theme.scaled(2)
 
                     Text {
                         text: weightVolumeColumn.currentValue.toFixed(1)
                         color: weightVolumeColumn.displayColor
                         font.pixelSize: Theme.scaled(28)
                         font.weight: Font.Medium
-                        Layout.alignment: Qt.AlignBaseline
                         Accessible.ignored: true
                     }
                     Text {
@@ -952,7 +956,6 @@ T.Page {
                             : "/ " + weightVolumeColumn.targetValue.toFixed(0) + " " + weightVolumeColumn.unit
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(18)
-                        Layout.alignment: Qt.AlignBaseline
                         Accessible.ignored: true
                     }
                 }
@@ -987,86 +990,79 @@ T.Page {
                 }
             }
 
-            // Bump SAW target by +10g (issue #792 — "salvage" a too-fast shot)
-            AccessibleButton {
-                id: addTenButton
-                Layout.preferredWidth: Theme.scaled(56)
-                Layout.preferredHeight: Theme.scaled(24)
+            RowLayout {
+                id: extractionControls
                 Layout.alignment: Qt.AlignVCenter
-                leftPadding: 0
-                rightPadding: 0
-                text: TranslationManager.translate("espresso.button.add10", "+10 g")
-                accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
-                visible: MachineState.targetWeight > 0 &&
-                         (MachineState.phase === MachineState.Phase.Preinfusion ||
-                          MachineState.phase === MachineState.Phase.Pouring)
+                spacing: Theme.spacingSmall
+                visible: espressoPage.canAdjustExtraction
 
-                activeFocusOnTab: true
-                KeyNavigation.tab: skipFrameButton
-                KeyNavigation.backtab: espressoBackButton
+                GridLayout {
+                    id: weightAdjustmentGrid
+                    columns: 2
+                    uniformCellWidths: true
+                    rowSpacing: Theme.spacingSmall
+                    columnSpacing: Theme.spacingSmall
+                    visible: MachineState.targetWeight > 0 && espressoPage.canAdjustExtraction
 
-                onClicked: MainController.bumpTargetWeight(10.0)
+                    ExtractionButton {
+                        id: subtractFiveButton
+                        text: TranslationManager.translate("espresso.button.subtract5", "-5 g")
+                        accessibleName: TranslationManager.translate("espresso.accessible.subtract5", "Subtract 5 grams from weight target")
+                        enabled: MachineState.targetWeight > 1
+                        KeyNavigation.tab: addFiveButton
+                        KeyNavigation.backtab: espressoBackButton
+                        onClicked: MainController.bumpTargetWeight(-5.0)
+                    }
 
-                background: Rectangle {
-                    implicitWidth: Theme.scaled(56)
-                    implicitHeight: Theme.scaled(24)
-                    color: addTenButton.isPressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
-                    radius: Theme.scaled(12)
+                    ExtractionButton {
+                        id: addFiveButton
+                        text: TranslationManager.translate("espresso.button.add5", "+5 g")
+                        accessibleName: TranslationManager.translate("espresso.accessible.add5", "Add 5 grams to weight target")
+                        KeyNavigation.tab: subtractTenButton
+                        KeyNavigation.backtab: subtractFiveButton
+                        onClicked: MainController.bumpTargetWeight(5.0)
+                    }
+
+                    ExtractionButton {
+                        id: subtractTenButton
+                        text: TranslationManager.translate("espresso.button.subtract10", "-10 g")
+                        accessibleName: TranslationManager.translate("espresso.accessible.subtract10", "Subtract 10 grams from weight target")
+                        enabled: MachineState.targetWeight > 1
+                        KeyNavigation.tab: addTenButton
+                        KeyNavigation.backtab: addFiveButton
+                        onClicked: MainController.bumpTargetWeight(-10.0)
+                    }
+
+                    ExtractionButton {
+                        id: addTenButton
+                        text: TranslationManager.translate("espresso.button.add10", "+10 g")
+                        accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
+                        KeyNavigation.tab: skipFrameButton
+                        KeyNavigation.backtab: subtractTenButton
+                        onClicked: MainController.bumpTargetWeight(10.0)
+                    }
                 }
-                contentItem: Text {
-                    text: addTenButton.text
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(11)
-                    font.weight: Font.Medium
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    Accessible.ignored: true
-                }
-            }
 
-            // Skip to next profile frame
-            AccessibleButton {
-                id: skipFrameButton
-                Layout.preferredWidth: Theme.scaled(56)
-                Layout.preferredHeight: Theme.scaled(24)
-                Layout.alignment: Qt.AlignVCenter
-                leftPadding: 0
-                rightPadding: 0
-                text: TranslationManager.translate("espresso.button.skip", "Skip")
-                accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
-                visible: MachineState.phase === MachineState.Phase.Preinfusion ||
-                         MachineState.phase === MachineState.Phase.Pouring
-
-                activeFocusOnTab: true
-                KeyNavigation.tab: viewModeMouseArea
-                KeyNavigation.backtab: addTenButton.visible ? addTenButton : espressoBackButton
-
-                onClicked: DE1Device.skipToNextFrame()
-
-                background: Rectangle {
-                    implicitWidth: Theme.scaled(56)
-                    implicitHeight: Theme.scaled(24)
-                    color: skipFrameButton.isPressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
-                    radius: Theme.scaled(12)
-                }
-                contentItem: Text {
-                    text: skipFrameButton.text
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(11)
-                    font.weight: Font.Medium
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    Accessible.ignored: true
+                ExtractionButton {
+                    id: skipFrameButton
+                    text: TranslationManager.translate("espresso.button.skip", "Skip")
+                    accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
+                    KeyNavigation.tab: viewModeMouseArea
+                    KeyNavigation.backtab: weightAdjustmentGrid.visible ? addTenButton : espressoBackButton
+                    onClicked: DE1Device.skipToNextFrame()
                 }
             }
         }
     }
 
-    // Accessibility: Swipe gesture detection on info bar (excludes back button)
+    // Keep announcement gestures over the readouts, clear of the shot controls.
     MouseArea {
         id: infoBarSwipeArea
         anchors.fill: infoBar
-        anchors.leftMargin: Theme.scaled(80)  // Don't cover back button
+        anchors.leftMargin: infoBarRow.x + espressoBackButton.width + infoBarRow.spacing
+        anchors.rightMargin: extractionControls.visible
+                             ? infoBar.width - (infoBarRow.x + extractionControls.x)
+                             : Theme.spacingMedium
         enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         propagateComposedEvents: true
 
@@ -1104,10 +1100,9 @@ T.Page {
         }
     }
 
-    // Two-finger tap for full status announcement (excludes back button)
+    // Two-finger tap for full status announcement over the same readouts.
     MultiPointTouchArea {
-        anchors.fill: infoBar
-        anchors.leftMargin: Theme.scaled(80)  // Don't cover back button
+        anchors.fill: infoBarSwipeArea
         enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         minimumTouchPoints: 2
         maximumTouchPoints: 2
