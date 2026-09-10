@@ -20,7 +20,7 @@
 //     necessarily evenly — a transport may hand over several samples at
 //     once, which is what the de-jitter block in processWeight() exists for
 //   - configure(): called once at shot start with targets and learning data
-//   - setTargetWeight(): may update SAW target mid-shot (e.g. user +10g bump)
+//   - setTargetWeight(): may update SAW target mid-shot (the adjustment buttons)
 //   - setCurrentFrame(): called at ~5Hz from DE1 shot samples
 //
 // Output (via QueuedConnection back to main thread):
@@ -43,7 +43,7 @@ public slots:
                    QVector<FrameExitCondition> frameExitConditions,
                    QVector<double> learningDrips, QVector<double> learningFlows,
                    bool sawConverged, double sensorLagSeconds = 0.38);
-    // Live SAW target update (e.g. user pressed +10g mid-shot). Writes are serialized
+    // Live SAW target update (the mid-shot adjustment buttons). Writes are serialized
     // on the worker thread via QueuedConnection from main thread, so no extra locking.
     void setTargetWeight(double weight);
     // pressure/flow are the live firmware sensor readings from the same DE1

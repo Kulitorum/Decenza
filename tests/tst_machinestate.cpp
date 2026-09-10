@@ -934,6 +934,35 @@ private slots:
         QCOMPARE(f.scale.tareCount(), 0);
     }
 
+    // The floor a live stop-at-weight target may not cross. Both minus buttons in
+    // EspressoPage and MainController::bumpTargetWeight()'s clamp read this one
+    // predicate, so pinning it here is what stops the three of them drifting apart
+    // -- they had already: the buttons wrote `targetWeight > 1` by hand while the
+    // clamp was an unconditional std::max, which RAISED a sub-floor target on a
+    // decrease. bumpTargetWeight() itself stays uncovered: no test constructs a
+    // MainController and there is no harness for one (see tst_autoflowcal.cpp:382).
+    void aDecreaseMayNotDisarmStopAtWeight_data() {
+        QTest::addColumn<double>("target");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("disabled")   << 0.0  << false;  // zero already means "no SAW"
+        QTest::newRow("sub-floor")  << 0.5  << false;
+        QTest::newRow("at floor")   << 1.0  << false;
+        QTest::newRow("just above") << 1.1  << true;
+        QTest::newRow("typical")    << 36.0 << true;
+    }
+
+    void aDecreaseMayNotDisarmStopAtWeight() {
+        QFETCH(double, target);
+        QFETCH(bool, expected);
+        TestFixture f;
+        f.state.setTargetWeight(target);
+        QCOMPARE(f.state.canDecreaseTargetWeight(), expected);
+    }
+
+    void theStopAtWeightFloorIsOneGram() {
+        QCOMPARE(MachineState::MinLiveTargetWeightG, 1.0);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_MachineState)

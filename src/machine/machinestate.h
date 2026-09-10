@@ -50,6 +50,7 @@ class MachineState : public QObject {
     Q_PROPERTY(bool isReady READ isReady NOTIFY phaseChanged)
     Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
+    Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double targetVolume READ targetVolume WRITE setTargetVolume NOTIFY targetVolumeChanged)
     // The type-id of the scale ACTUALLY serving, which is not always the saved primary:
     // the WiFi→BLE fallback preserves the WiFi primary on purpose, and a USB scale never
@@ -107,6 +108,12 @@ public:
     bool isReady() const;
     double shotTime() const;
     double targetWeight() const { return m_targetWeight; }
+    // A target of zero disables stop-at-weight, so a live decrease must stop above it.
+    // This is the only definition of that floor and of the rule built on it: the
+    // extraction buttons enable off this property and MainController::bumpTargetWeight()
+    // refuses a decrease it returns false for.
+    static constexpr double MinLiveTargetWeightG = 1.0;
+    bool canDecreaseTargetWeight() const { return m_targetWeight > MinLiveTargetWeightG; }
     double targetVolume() const { return m_targetVolume; }
     double cumulativeVolume() const { return m_cumulativeVolume; }
     double preinfusionVolume() const { return m_preinfusionVolume; }

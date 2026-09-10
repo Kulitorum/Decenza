@@ -49,7 +49,8 @@ T.Page {
 
     // Accessibility: value announcement cycling (swipe left/right)
     property int accessibilityValueIndex: 0
-    readonly property var accessibilityValueNames: ["Frame", "Time", "Pressure", "Flow", "Temperature", "Weight"]
+    // Number of cases getAccessibilityValue() answers; keep in step with its switch.
+    readonly property int accessibilityValueCount: 7
 
     // Enable keyboard focus for the page
     focus: true
@@ -77,6 +78,8 @@ T.Page {
                 if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
                 if (MachineState.targetVolume > 0) parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
                 return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
+            case 6: // Weight flow rate
+                return TranslationManager.translate("espresso.accessible.weightFlow", "Weight flow:") + " " + MachineState.smoothedScaleFlowRate.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.gramsPerSecond", "grams per second")
             default:
                 return ""
         }
@@ -84,7 +87,7 @@ T.Page {
 
     // Accessibility: announce next value
     function announceNextValue() {
-        accessibilityValueIndex = (accessibilityValueIndex + 1) % accessibilityValueNames.length
+        accessibilityValueIndex = (accessibilityValueIndex + 1) % accessibilityValueCount
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(getAccessibilityValue(accessibilityValueIndex), true)
         }
@@ -92,7 +95,7 @@ T.Page {
 
     // Accessibility: announce previous value
     function announcePreviousValue() {
-        accessibilityValueIndex = (accessibilityValueIndex - 1 + accessibilityValueNames.length) % accessibilityValueNames.length
+        accessibilityValueIndex = (accessibilityValueIndex - 1 + accessibilityValueCount) % accessibilityValueCount
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(getAccessibilityValue(accessibilityValueIndex), true)
         }
@@ -893,7 +896,7 @@ T.Page {
                 spacing: Theme.scaled(2)
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.weightFlow", "Weight flow:") + " " + MachineState.smoothedScaleFlowRate.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.gramsPerSecond", "grams per second")
+                Accessible.name: espressoPage.getAccessibilityValue(6)
 
                 Text {
                     text: MachineState.smoothedScaleFlowRate.toFixed(1)
@@ -1008,7 +1011,7 @@ T.Page {
                         id: subtractFiveButton
                         text: TranslationManager.translate("espresso.button.subtract5", "-5 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract5", "Subtract 5 grams from weight target")
-                        enabled: MachineState.targetWeight > 1
+                        enabled: MachineState.canDecreaseTargetWeight
                         KeyNavigation.tab: addFiveButton
                         KeyNavigation.backtab: espressoBackButton
                         onClicked: MainController.bumpTargetWeight(-5.0)
@@ -1027,7 +1030,7 @@ T.Page {
                         id: subtractTenButton
                         text: TranslationManager.translate("espresso.button.subtract10", "-10 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract10", "Subtract 10 grams from weight target")
-                        enabled: MachineState.targetWeight > 1
+                        enabled: MachineState.canDecreaseTargetWeight
                         KeyNavigation.tab: addTenButton
                         KeyNavigation.backtab: addFiveButton
                         onClicked: MainController.bumpTargetWeight(-10.0)

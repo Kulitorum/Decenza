@@ -4763,8 +4763,11 @@ void MainController::bumpTargetWeight(double deltaG)
         return;
     }
 
-    // Zero disables stop-at-weight. Decreasing a live target must keep it armed.
-    const double newTarget = std::max(1.0, current + deltaG);
+    // Zero disables stop-at-weight. Decreasing a live target must keep it armed,
+    // and an unconditional clamp would do the opposite below the floor -- at
+    // current 0.5 g a -5 g press would RAISE the target to 1.0 g.
+    if (deltaG < 0.0 && !m_machineState->canDecreaseTargetWeight()) return;
+    const double newTarget = std::max(MachineState::MinLiveTargetWeightG, current + deltaG);
     if (newTarget == current) return;
     DIAG_INFO(SHOT, "MainController").noquote() << "bumpTargetWeight: targetWeight"
                       << current << "->" << newTarget << "g (delta=" << deltaG << ")";
