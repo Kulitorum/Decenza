@@ -129,15 +129,15 @@ Profile: decenza-default, real DE1, real puck
 | Memory Native heap (kB)         |                 |                  |             |
 ```
 
-## Decision rule (P.5)
+## Original migration decision rule (P.5)
 
-Defined in `openspec/changes/migrate-charting-to-qt-graphs/tasks.md` §P.5. Repeated here for convenience:
+Defined in `openspec/changes/archive/2026-05-15-migrate-charting-to-qt-graphs/tasks.md` §P.5. These stages have since completed; this records how the original measurements were to guide the migration:
 
 - **Measurable CPU drop / FPS improvement** on the live-shot metric → schedule Stages 2 + 3 immediately on the 6.11 Quick Shapes backend.
-- **Neutral or worse** → pause Stages 2 + 3 until Qt 6.12 GA (2026-09-22). After Decenza upgrades to 6.12, flip `useCanvasPainter: true` on `FlowCalibrationPage`, re-measure, then re-decide.
+- **Neutral or worse** → defer later stages and re-evaluate the backend at Qt 6.12. The current upgrade plan below requires proving stock-backend availability and actual selection before attributing measurements to Canvas Painter.
 
 A "measurable" win on the tablet is a clear sustained delta on the live-shot mean frame time at a minimum, not a noisy single-millisecond difference. The bridge components and the migration pattern carry forward unchanged either way.
 
 ## Re-running after Qt 6.12
 
-When Decenza upgrades to Qt 6.12 (separate `upgrade-qt-6-12` change) and the `useCanvasPainter: true` flip lands on each migrated `GraphsView` (tracked in `charts-qt-6-12-polish`), re-run the protocol against the latest migrated graph. Append the results to the table; do not overwrite the 6.11 row — both rows are useful for future decisions.
+The combined `upgrade-qt-6-12` change owns the framework upgrade and chart follow-ups. If the installed stock Qt provides the Canvas Painter graph backend and it is adopted, confirm that it is active before re-running this protocol. Append the results to the table; do not overwrite the 6.11 row — both rows are useful for future decisions.

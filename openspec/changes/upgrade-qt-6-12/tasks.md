@@ -1,160 +1,81 @@
-# Tasks: Upgrade Qt from 6.11.1 to 6.12
+# Tasks: Qt 6.12 upgrade and chart improvements
 
-Work starts at Qt 6.12 GA (**2026-09-22**; Beta 3 **2026-08-18**, RC **2026-09-08**). Nothing here is
-blocked.
+One change owns the framework upgrade and the former chart-polish work. Implementation starts after GA; the September 10 review records planned RC **2026-09-14** and GA **2026-09-30**. Choose a released patch version before changing pins. Optional evaluations end with an explicit adopt/defer result; declining adoption does not block the framework upgrade.
 
-## 0. Decisions
+## 0. Completed decisions and investigation
 
-- [x] **iOS floor — decided 2026-07-29: take iOS 18, one Qt version on every platform.** Qt 6.12
-      requires iOS 18, so Decenza inherits that floor. Holding iOS on 6.11.1 and deferring the
-      upgrade were both rejected; proposal §"iOS 18 is a hard floor" records why, so they are not
-      re-proposed
-- [ ] **Carries one obligation, tracked in §2**: the release notes must state that the iOS minimum
-      rose *because of the Qt upgrade* — an upstream floor, not a decision to drop anyone — and name
-      the affected devices. Do not ship the upgrade without it
-- [ ] Acquire an **A12+ iPad** for iOS testing. Not a blocker for starting, but the iPad7,4 cannot
-      install a 6.12 build at all and the Simulator is unusable on this Mac
-      (`project_qt_ios_simulator_gap`), so iOS ships untested until this exists. The Home Screen
-      widget has iOS as its driver, which makes "test it later" expensive
-- [ ] **Gerrit 735089 first**: ask for the `AndroidDeadlockProtector` fix to be picked to 6.12 before
-      rebuilding any override. If it lands, `android/qt-overrides/` is deleted outright and §4 shrinks
-      to a deletion. Both a11y patches went upstream through the same account, so this is a
-      reasonable ask — and it is the README's own stated preference over rebuilding
-- [ ] **Canvas Painter Graphs backend**: after installing 6.12, record whether
-      `graphs-2d-high-performance-backend` is ON in the shipped Qt (read
-      `<QtDir>/lib/cmake/Qt6Graphs/*Config*.cmake`, or check whether `Qt6::CanvasPainter` is a link
-      dependency of `Qt6::Graphs`). Default answer to "should we build qtgraphs from source to get
-      it" is **no**; record the finding so `charts-qt-6-12-polish` §3 can act on it either way
+- [x] 0.1 Retain the July 29 decision: one Qt version across platforms, accepting iOS 18 and explaining the inherited floor; decision preserved in the proposal.
+- [x] 0.2 Preserve the July 29 source review of values, valueMapping, valueMin, stepSize, labelPostFormat, dynamicLabelMargins, and the backend gate; evidence and limitations are in the proposal.
+- [x] 0.3 Preserve the July 29 legend/auto-ranging/dashed-stroke/coordinate-mapping investigation: no replacement found; keep bridges.
+- [x] 0.4 Preserve the July 29 GraphsLine review: no configurable main-tick length; source findings are in the proposal.
+- [x] 0.5 Preserve the July 29 search for tick/clipping APIs: only private/3D/bar-series hits; retain the visual clipping check below.
+- [x] 0.6 Preserve the July 29 leftmost-label investigation: no public alignment property; accepted gap recorded.
+- [x] 0.7 Preserve the July 29 confirmation of ValueAxis.labelPostFormat; adoption remains pending below.
+- [x] 0.8 Consolidate the two changes and review September 10 notes against current code; remove superseded override work, retain both capability deltas, and validate the combined plan.
 
-## 1. Prerequisites
+## 1. Release and local prerequisites
 
-- [ ] Install Qt 6.12 on Jeff's Mac (macOS + iOS targets) via Qt Maintenance Tool, including **Qt
-      Canvas Painter** and **Qt Graphs**
-- [ ] Install Qt 6.12 on the Windows dev machine (MSVC 2022 x64), same addons
-- [ ] Create the Qt Creator kits. Put `-DDECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5D…` in the kit's
-      **Initial Configuration**, not just the cache — a new Qt means a fresh build directory, and
-      Initial Configuration is the only place that survives a cache wipe (`CLAUDE.local.md`). Without
-      it, macOS silently blocks LAN traffic and the WiFi scale "breaks"
-- [ ] Confirm the `cmake` each toolchain actually invokes is **≥ 3.25** (Qt 6.12 requires ≥ 3.16 in
-      `cmake_minimum_required` — ours says 3.21, still fine — but recommends 3.25 for the configuring
-      tool). Qt ships one at `~/Qt/Tools/CMake/CMake.app/Contents/bin`
-- [ ] Verify Qt 6.12 is installable through `install-qt-action`/aqtinstall at all before touching
-      seven workflows: dry-run one workflow via `workflow_dispatch` on the branch
+- [ ] 1.1 At RC/GA, verify schedule, known issues, release tag, and installer availability; record the exact patch and recheck chart API/feature assumptions against that tag.
+- [ ] 1.2 Install the chosen Qt on Mac (macOS/iOS) and Windows with existing addons, including Canvas Painter and Graphs; verify Qt Creator kits resolve it. Keep the macOS signing identity in Initial Configuration; record the actual CMake executable/version (3.25+).
+- [ ] 1.3 Reconfirm iOS hardware and simulator architecture support; record a usable iPadOS 18+ device and app/widget validation route. The previously recorded iPad7,4 cannot install this build; compatibility is not an A12 cutoff.
+- [ ] 1.4 Record graphs-2d-high-performance-backend availability for every shipping platform from installed feature configuration/link dependencies; if absent, close backend adoption for that platform under the stock-runtime policy.
+- [ ] 1.5 Check the released qtbase for the deadlock fix (Gerrit 735089 / QTBUG-140490 / QTBUG-144207); record fixed or known-issue status with tagged-source/review evidence. Do not rebuild the removed override.
 
-## 2. Source changes
+## 2. Build configuration and packaging
 
-- [ ] `CMakeLists.txt`:
-  - [ ] iOS `CMAKE_OSX_DEPLOYMENT_TARGET "17.0"` → `"18.0"` (line ≈160) and update its comment to say
-        Qt 6.12 requires iOS 18
-  - [ ] After the first configure, check for new `QTP` policy warnings and set any new ones NEW inside
-        the existing `Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0"` guard (≈:129-132). Zero policy
-        warnings is a `build-config` spec requirement, so this is not optional
-  - [ ] Confirm `QT_ANDROID_COMPILE_SDK_VERSION "android-35"` (≈:1128) is still what 6.12 wants;
-        `ANDROID_MIN_SDK_VERSION 28` is unchanged in 6.12 (API 28-36 supported)
-- [ ] `CLAUDE.md`: Qt version, `C:/Qt/6.11.1/msvc2022_64`, `~/Qt/6.11.1/Src` (both the path and the
-      "read it instead of guessing" instruction), and any build command quoting a 6.11.1 path
-- [ ] `README.md`: Qt badge → 6.12+, install-step minimum → 6.12
-- [ ] `openspec/config.yaml`: tech-stack line `Qt 6.11.1` → `Qt 6.12`
-- [ ] `docs/CLAUDE_MD/PLATFORM_BUILD.md`, `docs/CLAUDE_MD/TESTING.md`, `docs/IOS_CI_SETUP.md`,
-      `docs/IOS_CI_FOR_CLAUDE.md`: Qt version and example build-directory names
-      (`build/Qt_6_11_1_for_macOS_Debug` → 6.12)
-- [ ] `docs/CLAUDE_MD/BUILD_PERFORMANCE.md`: if its measurements were taken on 6.11.1, either
-      re-measure or label them as 6.11.1 numbers rather than leaving them to be read as current
-- [ ] Tell Jeff to update `CLAUDE.local.md` build-dir paths himself (uncommitted, his file)
-- [ ] **Release notes — the §0 obligation.** State that iOS now requires **iOS 18 or newer**, that the
-      cause is the **Qt 6.12 framework upgrade** (Qt dropped iOS 17 support; every Qt app on 6.12
-      inherits the same floor), and name the devices that cannot go to iOS 18 (pre-A12: iPad Pro
-      1st/2nd gen, iPad 6th gen, iPhone X and earlier). Factual and short — the cause is external, so
-      say so without apologising or padding. An iOS 17 user who stops seeing updates should be able to
-      find this line and understand it. Android, desktop and Linux users are unaffected; say that too,
-      so nobody reads a platform floor as an app-wide one
-- [ ] Check whether the wiki manual states a minimum iOS version anywhere
-      (https://github.com/Kulitorum/Decenza/wiki/Manual — separate repo, `Kulitorum/Decenza.wiki.git`).
-      If it does, update it in the same change; per `project_wiki_edits_held_for_release`, ask before
-      pushing the wiki edit
+- [ ] 2.1 Update six release workflows and nightly-sanitizers.yml to one Qt patch, including Windows sccache and Android Gradle cache keys; verify no active pin/key retains the old version.
+- [ ] 2.2 Verify actual CMake is 3.25+ in kits and runners, separately from the policy baseline; configure without new Qt policy warnings. Set applicable policies only; QTP0006's Wayland generators are currently unused.
+- [ ] 2.3 Set iOS to 18.0 and macOS to 14.4, reconciling CMake/CI overrides; inspect generated app/widget targets and packaged minimum-OS metadata for agreement.
+- [ ] 2.4 Diff android/build.gradle and the manifest against the installed 6.12 templates; reconcile AGP/Gradle, resConfig filtering, and packaging hooks. Verify signed, correctly named APK/AAB output and native widget resources. JDK 21 is already configured; confirm NDK derivation and compile SDK while retaining API 28 minimum.
+- [ ] 2.5 Review predictive-back manifest settings with DecenzaActivity and QML handlers; inspect the packaged manifest rather than assuming Qt's stock template replaces ours.
+- [ ] 2.6 Re-test the Windows aqtsource pin and iOS Xcode pin against the chosen binaries; retain/remove each based on successful installation/build.
+- [ ] 2.7 Inspect the generated Windows executable manifest for duplicate resources, long paths, compatibility, and elevation behavior; verify normal launch and installer/update operation. Check packaged OpenSSL libraries against Qt's actual ABI.
+- [ ] 2.8 Verify CMake integrations including qmlcachegen generated-path derivation and qmllint target/response files; clean configure and lint coverage checks must reach every intended QML file.
 
-## 3. CI workflows (7 files)
+## 3. QML runtime and tooling compatibility
 
-- [ ] `windows-release.yml`: `version: '6.11.1'` → 6.12; sccache key
-      `sccache-windows-x64-qt6.11.1-vs2026` → `…-qt6.12.x-vs2026`; **re-test the `aqtsource` pin**
-      (≈:80-85, `TODO(qt-6.11)`) against PyPI-head aqtinstall on 6.12 and drop it if it works
-- [ ] `macos-release.yml`: version bump
-- [ ] `ios-release.yml`: version bump; re-check whether the Xcode 26.4.1 pin is still needed for
-      6.12's prebuilt iOS binaries (Qt 6.12 requires Xcode 16+, which it satisfies either way)
-- [ ] `android-release.yml`: `env.QT_VERSION` bump; **`java-version: '17'` → `'21'`** (≈:69 — Qt 6.12
-      requires JDK 21); confirm the derived `QT_NDK_VERSION` (≈:88-97) resolves to r27c
-      `27.2.12479018`, the same revision 6.11.1 used
-- [ ] `linux-release.yml`, `linux-arm64-release.yml`: version bump
-- [ ] `nightly-sanitizers.yml`: version bump (easy to miss — it is not one of the six platform
-      workflows)
-- [ ] Module lists need **no** change: `qtcanvaspainter` is already in all seven and remains a module
-      in 6.12
-- [ ] Trigger all seven via `workflow_dispatch` on the branch and confirm green before merge
+- [ ] 3.1 Rebuild QML type information and run the existing qmllint gate; inspect opaque-type, shadowing, recursion, filename, and Array diagnostics by file/category. Fix real defects before baseline updates and keep full default warnings.
+- [ ] 3.2 Exercise dynamic pages/components, Loaders, and delegates under the new missing-required-property behavior; verify screens instantiate without errors and consumed model roles remain available.
+- [ ] 3.3 Verify CupFillView's existing C++ wrapper on Metal and Android; compare fills/animation before and after the upgrade and investigate new rendering warnings.
 
-## 4. Android platform overrides
+## 4. Chart data and labels
 
-Depends on the §0 Gerrit-735089 answer.
+- [ ] 4.1 Capture pre-upgrade graph screenshots and tablet frame-time/history-scroll measurements using PERFORMANCE_BASELINE.md; preserve existing baseline rows.
+- [ ] 4.2 Replace HistoryShotGraph's static append loops with values assignments; compare pressure, flow, weight-flow, resistance, conductance, and Darcy series, including multipliers, empty input, and shot switching. Preserve mix-temperature/goal behavior outside these loops.
+- [ ] 4.3 Replace FlowCalibrationPage's two static append loops with values assignments; verify coordinates and calibration readouts remain identical.
+- [ ] 4.4 Update ProfileGraph preview series last, collecting arrays before assignment; compare every frame-shape branch and edits. Use implicit X spacing only for proven uniform samples. Keep live FastLineRenderer and DashedLineSeries unchanged.
+- [ ] 4.5 Apply labelPostFormat on useful single-unit axes, starting with flow calibration seconds; compare screenshots, preserve translated bindings, and keep multi-unit axes' units in titles.
+- [ ] 4.6 Compare shared-axis margins and evaluate dynamicLabelMargins on history/comparison graphs; verify narrow screens, translated labels, hand-tuned margins, and zero-label placement. Remove only overrides made redundant by the result.
 
-**If 735089 is picked to 6.12** — delete the whole mechanism:
-- [ ] `git rm -r android/qt-overrides/`
-- [ ] Remove the override + validation step from `android-release.yml` (≈:190-215)
-- [ ] Note in the PR that three upstream bugs closed and the patch mechanism is gone
+## 5. Conditional chart backend and closed visual gaps
 
-**If not** — shrink it to the crash patch only:
-- [ ] Rebase `358540b2` (crash fix) from `skialpine/qtbase` onto the qtbase 6.12 tag; **drop the 12
-      a11y commits** — QTBUG-118858 and QTBUG-145786 are upstream on 6.12 (`505853d02184`,
-      `41e6aecb7cd3`)
-- [ ] Rebuild `libplugins_platforms_qtforandroid_arm64-v8a.so` via Qt's own `configure` +
-      `cmake --build . --target QAndroidIntegrationPlugin` (never a hand-rolled CMake — a mismatched
-      feature define crashes devices; see the README)
-- [ ] **Delete `android/qt-overrides/Qt6Android.jar`** — it existed only for the a11y Java classes,
-      now stock
-- [ ] Remove the jar handling from `android-release.yml` while keeping the `.so` copy and the
-      `BUILT_AGAINST_QT` guard
-- [ ] Update `BUILT_AGAINST_QT` to the exact 6.12 version **in the same commit as the new binary**
-- [ ] Rewrite `android/qt-overrides/README.md`: three bugs → one, drop the jar section, update the
-      qtbase SHA, and keep the `strings`-based verification recipe (check `[decenza-patch]` present
-      **and** stock `Failed to acquire deadlock protector for %s.` absent)
-- [ ] Verify the guard still fails a mismatched build (temporarily set `BUILT_AGAINST_QT` wrong in a
-      throwaway `workflow_dispatch` run) — it is the only thing standing between a stale plugin and an
-      APK that dies at startup for every user
+- [ ] 5.1 Where the stock painter backend is available, prove a graph selects it before benchmarking, through a controlled transition/readback or equivalent runtime evidence. A change signal alone cannot prove a selection already at its default.
+- [ ] 5.2 Where supported and beneficial, adopt the backend on the six migrated GraphsViews; verify overlays, clipping, colors, live traces, and frame times. Handle differing platform availability; no no-op flags or custom Qt binaries.
+- [ ] 5.3 Record backend-confirmed tablet measurements in PERFORMANCE_BASELINE.md without overwriting earlier rows; accept/decline adoption against rendering parity and existing frame-time targets, not an assumed FastLineRenderer speedup.
+- [ ] 5.4 Test whether clipPlotArea removes the apparent long ticks; if true ticks remain unconfigurable, retain the gap and prepare an upstream suggestion with shader evidence. Filing externally requires separate authorization.
+- [ ] 5.5 Recheck leftmost label alignment after margin changes; record resolved-by-reflow or accepted gap, without a new overlay.
 
-## 5. Verification
+## 6. Bounded API evaluations
 
-- [ ] Full local suite: `mcp__qtcreator__run_tests` scope `all`, zero failures, zero WARN lines. No
-      CI job builds or tests a PR, so this is the gate
-- [ ] qmllint clean per `QML_GOTCHAS.md` — diff per-file/per-category sets, do not read totals
-- [ ] Build Debug on macOS and confirm ASan/UBSan instrumentation still engages on 6.12
-- [ ] CI test builds of **iOS and Android** specifically: their code is `#ifdef`-guarded and only the
-      tag-push release workflows compile it
-- [ ] `openspec validate --all` passes after the `build-config` delta lands
+- [ ] 6.1 Compare QtCanvas2D with both CupFillView wrapper uses: drawing operations, paint/context semantics, synchronization, QML type visibility, and Metal/Android output/performance. Record adopt/defer with the TP tradeoff; remove the wrapper only if adopted and parity/deployment are verified.
+- [ ] 6.2 Evaluate setExternalSingletonInstance for app-owned objects; retain compile-time registration, identity assertions, setup-before-use, platform guards, and lifetime past engine destruction. Check failure returns and use existing registration tests where appropriate; record adoption or reason to defer.
+- [ ] 6.3 Compare Qt.escapeHtml and Color against helper contracts, including special characters, markup, alpha, and contrast; adopt only equivalents and record the result. Keep browser JavaScript independent of Qt.
+- [ ] 6.4 Evaluate ImhNoFullscreen, ImhDecimalNumbersOnly, and motionPreference on tablet controls/decorative animations; preserve signed inputs, numeric validation, IME commit, and telemetry. Record verified adoption or reason to defer.
 
-## 6. On-device verification (Android first — it is the primary platform)
+## 7. Integration and device validation
 
-- [ ] **TalkBack**, on the Samsung tablet, with the a11y overrides now stock: typing echo in an
-      editable field (QTBUG-118858) and no keyboard-on-focus trap (QTBUG-145786). These are the two
-      behaviours we shipped patches for; if upstream's version regresses either, that is a blocker
-      and the a11y patches go back
-- [ ] Re-check TalkBack on screens we tuned, for 6.12's *new* a11y behaviour we never had:
-      scrolled-viewport announcements (`0e3e5d8aacb0`, `cbd6b48998ce`), expandable/expanded state
-      (`56ae71c6cb27`), `ButtonDropDown` classname (`a52d5d20893f`)
-- [ ] **BLE scanning on Android**: 6.12 changes scan-record UUID/length parsing and defers
-      `canceled()` to match classic scan. Confirm the DE1 and every scale still appear in discovery,
-      and that our scan-stop path still behaves when it orders on `canceled()`. Use the real machine
-      (`mcp__de1__*`), and remember every operation starts from the GHC button
-      (`project_jeff_de1_has_ghc`)
-- [ ] Pull a full shot end-to-end on Android: graphs render, weight arrives, shot saves, Visualizer
-      upload succeeds
-- [ ] macOS smoke test: simulator extraction end-to-end; `JsCanvasPainterItem` initialises on Metal
-      with no slow-record warnings now that Canvas Painter is out of Technology Preview
-- [ ] WiFi scale on the macOS debug build — proves the re-signing identity took (`codesign -dvvv …
-      | grep TeamIdentifier` → `VDSK39AZYD`)
-- [ ] iOS, if (a): install on an A12+ device, confirm launch, BLE scale, and the Home Screen widget
-      snapshot path
+- [ ] 7.1 Build and run the full suite through Qt Creator MCP; verify desktop Debug still enables ASan/UBSan, record results, and investigate new warnings. Ask the user to start/restart the app for live checks.
+- [ ] 7.2 Dispatch six platform workflows and the sanitizer workflow on the branch; verify artifacts/tests, including linux-release.yml's suite, and read text-invariants PR results. Record platform-conditional and tsnet coverage accurately.
+- [ ] 7.3 Test Android gesture/button back through dialogs, unsaved editors, nested pages, root, and resume; verify root back backgrounds the task and machine operation, BLE, and foreground service remain correct.
+- [ ] 7.4 Test TalkBack typing echo, keyboard focus, scroll/show-on-screen actions, expanded states, and navigation; regressions require app/upstream remedies or holding the upgrade, not a patched Qt binary.
+- [ ] 7.5 Verify Android DE1/scale discovery, scan cancellation/restart, and connection on hardware; recheck earlier UUID/length parsing and canceled() timing findings against the release. Complete a shot with weight, graphs, save, and Visualizer upload.
+- [ ] 7.6 Run macOS simulated extraction, WiFi scale, screenshots, cup rendering, and optional Quick3D screensavers; verify signing identity and font/rendering behavior. Check representative history/import dates after the parser change.
+- [ ] 7.7 On supported iOS hardware, verify launch, BLE scale, a shot, and Home Screen widget snapshots; record device/OS coverage and any remaining validation hold.
+- [ ] 7.8 Compare tablet graph frame times/history scrolling with the baseline and screenshots for visible changes; verify adopted changes and record every declined conditional item.
 
-## 7. Follow-ups
+## 8. Documentation and completion
 
-- [ ] Update `charts-qt-6-12-polish` `tasks.md`: mark the precondition met, and fill in §3's gate with
-      the §0 Canvas-Painter-backend finding
-- [ ] Open the PR, run `/pr-review-toolkit:review-pr`, then merge with `/merge-pr`
-- [ ] Archive this change as the final commit on the same PR (`feedback_archive_last_commit_on_pr`)
+- [ ] 8.1 Update versions, paths, tool/platform requirements, and badges in CLAUDE.md, README.md, openspec/config.yaml, PLATFORM_BUILD.md, TESTING.md, IOS_CI_SETUP.md, and IOS_CI_FOR_CLAUDE.md; label historical BUILD_PERFORMANCE measurements accurately. Have Jeff update uncommitted kit/path notes.
+- [ ] 8.2 Write short release notes explaining iOS/iPadOS 18 and macOS 14.4 as Qt requirements, with accurate affected-device/OS wording; check final Qt and Apple compatibility sources.
+- [ ] 8.3 Review/update wiki platform minimums and adopted user-visible changes; prepare concrete edits and follow the repository's release timing for publishing.
+- [ ] 8.4 Reconcile tasks with results, validate OpenSpec, and review the implementation PR; archive upgrade-qt-6-12 as its final commit before a requested merge, then push/read checks. Declining an optional adoption resolves its evaluation; required validation not performed remains a hold.

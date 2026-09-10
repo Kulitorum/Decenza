@@ -4,7 +4,7 @@
 
 ### Requirement: Rendering Backend
 
-The charting subsystem SHALL use Qt Graphs (GPU-accelerated) as its sole rendering backend. Qt Charts (Graphics View-based) SHALL NOT be present in the build. Qt Graphs offers two 2D rendering backends — Quick Shapes (`USE_SHAPE_BACKEND`) and Canvas Painter (`USE_PAINTER_BACKEND`, Qt 6.12+) — and Decenza SHALL treat Quick Shapes as the backend it is guaranteed to have, selecting Canvas Painter only where the installed Qt was built with that feature enabled.
+The charting subsystem SHALL use Qt Graphs (GPU-accelerated) as its sole chart framework. Qt Charts (Graphics View-based) SHALL NOT be present in the build. Decenza SHALL retain Quick Shapes as the baseline Qt Graphs backend and select Canvas Painter only on platforms whose installed stock Qt provides that feature. The existing direct scene-graph rendering of live traces SHALL remain governed by the Live Series Rendering requirement.
 
 #### Scenario: Build configuration omits Qt Charts
 - **WHEN** a developer inspects `CMakeLists.txt`
@@ -20,9 +20,10 @@ The charting subsystem SHALL use Qt Graphs (GPU-accelerated) as its sole renderi
 
 #### Scenario: Canvas Painter backend is only selected when the Qt build provides it
 - **WHEN** a developer intends to set `GraphsView.useCanvasPainter: true`
-- **THEN** they SHALL first confirm the installed Qt has the `graphs-2d-high-performance-backend` feature enabled (that feature is `AUTODETECT OFF` upstream, so a stock Qt may not have it)
+- **THEN** they SHALL first confirm the installed stock Qt has the `graphs-2d-high-performance-backend` feature enabled on each platform where it will be selected
 - **AND** a `GraphsView` SHALL NOT be left with `useCanvasPainter: true` in a build where the feature is absent, because `QGraphsView::setUseCanvasPainter()` is compiled out there and the assignment is a silent no-op
 - **AND** every graph SHALL continue to render correctly on the Quick Shapes backend regardless of the flag's value
+- **AND** the upgrade SHALL NOT introduce a custom-built Qt runtime module to obtain the backend
 
 ### Requirement: Performance Parity
 
@@ -43,5 +44,5 @@ The migration from Qt Charts to Qt Graphs SHALL NOT regress graph rendering perf
 
 #### Scenario: A backend-attributed measurement proves the backend took effect
 - **WHEN** an FPS measurement is recorded in `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` and attributed to the Canvas Painter backend
-- **THEN** the recording SHALL state how the backend was confirmed active (for example: `useCanvasPainterChanged` observed to fire, or the Qt build's feature state inspected)
+- **THEN** the recording SHALL establish both availability in the installed Qt and actual selection by the measured graph, with runtime readback or equivalent evidence
 - **AND** a measurement that cannot show this SHALL be recorded as "backend unconfirmed" rather than attributed to Canvas Painter
