@@ -13,7 +13,7 @@
 
 # The tag this source tree expects. Not a cache variable: it is the pin, and a
 # stale build directory must not be able to silently disagree with it.
-set(_TSNET_EXPECTED_TAG "decenza-v1.94.1-5")
+set(_TSNET_EXPECTED_TAG "decenza-v1.94.1-6")
 
 set(TSNET_TAG "${_TSNET_EXPECTED_TAG}" CACHE STRING "libtailscale prebuilt release tag")
 
@@ -47,13 +47,13 @@ set(TSNET_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/tsnet-${TSNET_TAG}")
 # Per-platform artifact + expected SHA-256 (from manifest.json).
 if(IOS)
     set(_tsnet_zip "libtailscale-ios.zip")
-    set(_tsnet_sha "706cbbd25d60dce49f5935018931a500e48cd4d498847294eeafdc6efbb0b739")
+    set(_tsnet_sha "df405336afb4844f5fd9140c03b4c9ee52bb2edff14a3d899c3fc32021fa6ffc")
 elseif(ANDROID)
     set(_tsnet_zip "libtailscale-android.zip")
-    set(_tsnet_sha "80331572de0565b0be2465b67d8839efb564008281776393430b19d85cbdb3e0")
+    set(_tsnet_sha "83d8d2c13766d3fcfba2b9f1cc69f89dac71637f3e036b9e2f5e925c0f7256e1")
 elseif(APPLE)
     set(_tsnet_zip "libtailscale-macos.zip")
-    set(_tsnet_sha "9e6b42c895a7cd660c1233aead0c693417033a431b93450b79af9c0aeafc3582")
+    set(_tsnet_sha "8a4fb393215273f4eb1f8c46d7d4b6a52e1529fcdc511d48ae23ab0caffe82dd")
 else()
     message(FATAL_ERROR "ENABLE_TSNET: no prebuilt libtailscale artifact for this platform yet "
                         "(supported: macOS, Android, iOS). Use Mode C (BYO URL) instead.")
