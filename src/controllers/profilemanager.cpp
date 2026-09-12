@@ -72,33 +72,51 @@ static constexpr int kUploadRetryBaseMs = 1000;
 static constexpr int kUploadRetryMaxMs = 8000;
 static constexpr int kMaxUploadRetryAttempts = 5;
 
-// Reasons returned by DE1Device::profileUploaded(false, reason) that should
-// NOT trigger an auto-retry. The rest (frame sequence mismatch, ACK timeout)
-// are treated as retryable.
+// How a failed upload must be followed up. Reasons come from
+// DE1Device::profileUploaded(false, reason); matching them in one table keeps
+// the prefixes off the handler, where a second match site would be free to
+// drift from this one.
 //
 // We use startsWith() rather than exact equality so DE1Device can include
 // variable details after a stable prefix — for example "frame sequence
 // mismatch (expected [0x00, 0x01], got [0x00, 0x00])" carries the hex
-// payload in the same string. The exact retryable/non-retryable prefix
-// text is locked down by tst_profileupload.cpp's `.at(1).toString()`
-// assertions, so any future rename of a reason string in
-// finishProfileUpload() will break those tests loudly before it can
-// silently flip classification here.
-static bool isRetryableUploadFailure(const QString& reason) {
+// payload in the same string. The exact prefix text is locked down by
+// tst_profileupload.cpp's `.at(1).toString()` assertions, so any future
+// rename of a reason string in finishProfileUpload() will break those tests
+// loudly before it can silently flip classification here.
+enum class UploadFailureFollowUp {
+    Retry,    // Transient — arm the backoff timer.
+    ReArm,    // What the DE1 now holds is unknown — re-upload at the next safe moment.
+    Defer,    // Another path already owns the re-upload.
+};
+
+static UploadFailureFollowUp classifyUploadFailure(const QString& reason) {
     // Superseded: a newer upload is already in flight — let it own the outcome.
-    if (reason.startsWith(QStringLiteral("superseded"))) return false;
-    // Queue cleared: a shot/steam/hot-water just started, clearing the queue
-    // intentionally. The next uploadCurrentProfile() will re-arm.
-    if (reason.startsWith(QStringLiteral("command queue cleared"))) return false;
+    if (reason.startsWith(QStringLiteral("superseded")))
+        return UploadFailureFollowUp::Defer;
+    // Queue cleared: flow started and cleared the queue mid-upload. A timer
+    // retry would fight the shot, but Defer is wrong too — nothing else
+    // re-uploads, and what the DE1 holds is now unknown. Frames are indexed
+    // slot writes with no commit step (profile.cpp:2298) under a header that
+    // already declared the new frame COUNT (profile.cpp:2276), so an
+    // interrupted batch leaves the machine executing that count over a MIX of
+    // new frames and the previous profile's in the slots that never arrived —
+    // and the group-head button extracts that mix without the app in the loop.
+    // ReArm restores the invariant via phaseChanged, once the machine is
+    // Idle/Ready again: after the flow, never during it.
+    if (reason.startsWith(QStringLiteral("command queue cleared")))
+        return UploadFailureFollowUp::ReArm;
     // BLE disconnect: the reconnect path (initialSettingsComplete ->
     // applyAllSettings -> uploadCurrentProfile) already re-uploads when the
     // link comes back. Retrying on a timer would race with that.
-    if (reason.startsWith(QStringLiteral("BLE disconnect"))) return false;
+    if (reason.startsWith(QStringLiteral("BLE disconnect")))
+        return UploadFailureFollowUp::Defer;
     // Firmware flash: DE1Device dropped the call because a firmware update is in
     // progress. The reconnect path re-uploads once the flash completes and the
     // DE1 reconnects — no timer retry needed, and it would just flood the log.
-    if (reason.startsWith(QStringLiteral("firmware flash"))) return false;
-    return true;
+    if (reason.startsWith(QStringLiteral("firmware flash")))
+        return UploadFailureFollowUp::Defer;
+    return UploadFailureFollowUp::Retry;
 }
 
 
@@ -139,8 +157,8 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     // with a retryable reason, arm m_profileUploadRetryTimer with exponential
     // backoff (capped at 8s). After kMaxUploadRetryAttempts consecutive
     // failures, give up and set m_de1CommunicationFailure so the UI surfaces
-    // a "power-cycle the DE1" dialog. Success — or any non-retryable reason
-    // like "superseded" — resets the counter.
+    // a "power-cycle the DE1" dialog. Only success resets the counter; a
+    // non-retryable reason returns without touching it.
     m_profileUploadRetryTimer.setSingleShot(true);
     connect(&m_profileUploadRetryTimer, &QTimer::timeout, this, [this]() {
         DIAG_DEBUG(PROFILES, "ProfileManager") << "retrying failed profile upload (attempt"
@@ -177,13 +195,23 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 }
                 return;
             }
-            if (!isRetryableUploadFailure(reason)) {
-                // Not a retry condition — don't bump the counter. The
-                // existing m_profileUploadPending / phaseChanged machinery
-                // handles queue-clear and supersede cases on its own.
-                // The pending upload (if any) will ride the reconnect path.
-                if (hadPending) {
+            const UploadFailureFollowUp followUp = classifyUploadFailure(reason);
+            if (followUp != UploadFailureFollowUp::Retry) {
+                // Not a retry condition — don't bump the counter and don't arm
+                // the timer; it would race a shot, a newer upload, or a
+                // reconnect. A deferred profile change still rides the path
+                // that owns the re-upload.
+                if (hadPending || followUp == UploadFailureFollowUp::ReArm) {
                     m_profileUploadPending = true;
+                }
+                if (followUp == UploadFailureFollowUp::ReArm) {
+                    // The matching WARN is DE1Device's "Profile upload FAILED".
+                    // Say the recovery at a tier the connections views show
+                    // (they default to minLevel INFO), or a reader sees only
+                    // the failure half and concludes it never recovered.
+                    DIAG_INFO(PROFILES, "ProfileManager")
+                        << "profile upload was cleared by the machine; "
+                           "re-queued and will upload when it returns to idle";
                 }
                 return;
             }
