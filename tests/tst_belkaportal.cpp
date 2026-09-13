@@ -3,6 +3,15 @@
 #include <QLowEnergyCharacteristic>
 #include "ble/belkaportaldevice.h"
 #include "ble/belkaportaldiscovery.h"
+#include "ble/de1device.h"
+#include "controllers/portalcontroller.h"
+#include "controllers/shottimingcontroller.h"
+#include "core/settings.h"
+#include "core/settings_hardware.h"
+#include "core/settingsserializer.h"
+#include "machine/machinestate.h"
+#include "models/shotdatamodel.h"
+#include <QScopeGuard>
 
 class PortalDiscoveryReplay : public QObject {
     Q_OBJECT
@@ -25,13 +34,16 @@ public:
     QStringList operations;
     QList<QByteArray> writes;
     bool linked = false;
+    bool asynchronousDisconnect = false;
     bool managed = true;
     void setConnectionPriorityManaged(bool value) override { managed = value; }
     void connectToDevice(const QString&, const QString&) override {
         linked = true; operations << "connect"; emit connected();
     }
     void disconnectFromDevice() override {
-        linked = false; operations << "disconnect"; emit disconnected();
+        const bool wasLinked = linked;
+        linked = false; operations << "disconnect";
+        if (!asynchronousDisconnect && wasLinked) emit disconnected();
     }
     void discoverServices() override { operations << "services"; }
     void discoverCharacteristics(const QBluetoothUuid&) override { operations << "characteristics"; }
@@ -58,6 +70,20 @@ public:
     void notify(const QByteArray& bytes) { emit characteristicChanged(QBluetoothUuid(quint16(0x7410)), bytes); }
 };
 
+class PortalLogCapture {
+public:
+    QStringList lines;
+    PortalLogCapture() { sink = &lines; previous = qInstallMessageHandler(handler); }
+    ~PortalLogCapture() { qInstallMessageHandler(previous); sink = nullptr; }
+private:
+    inline static QStringList* sink = nullptr;
+    inline static QtMessageHandler previous = nullptr;
+    static void handler(QtMsgType type, const QMessageLogContext& context, const QString& message) {
+        if (message.startsWith("[PORTAL]")) sink->append(message);
+        if (previous) previous(type, context, message);
+    }
+};
+
 class tst_BelkaPortal : public QObject {
     Q_OBJECT
     const QBluetoothDeviceInfo device{QBluetoothAddress("11:22:33:44:55:66"), "PORTAL", 0};
@@ -70,6 +96,190 @@ class tst_BelkaPortal : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void stateAndPacketLoggingRemainsBoundedAcrossAutomaticCycles() {
+        PortalLogCapture logs;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        transport->notify(sample);
+        for (int i = 0; i < 6000; ++i) {
+            portal.expireReading(PortalSamples::StaleAfterMs + 1);
+            transport->notify(sample);
+        }
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Unknown PORTAL measurement format; raw packet retained");
+        for (int i = 0; i < 100; ++i) {
+            transport->notify(QByteArray(12, '\0'));
+            portal.setMachineBusy(true);
+            portal.setMachineBusy(false);
+            QCoreApplication::sendPostedEvents();
+            transport->announceService();
+            transport->notify(sample);
+        }
+        QCOMPARE(portal.packetCount(), 1); // counter restarts per link, log episode does not
+        QVERIFY2(logs.lines.size() <= 8, qPrintable(logs.lines.join('\n')));
+        portal.disconnectDevice();
+        QVERIFY(logs.lines.join('\n').contains("+5999 identical"));
+        const auto flushed = logs.lines.size();
+        portal.reconnect();
+        QCoreApplication::sendPostedEvents();
+        transport->announceService();
+        transport->notify(sample);
+        QVERIFY(logs.lines.size() > flushed); // explicit user reconnect opens a new log episode
+    }
+
+    void everyMachinePhaseAppliesConnectionPolicy() {
+        Settings settings;
+        DE1Device de1;
+        MachineState machine(&de1);
+        ShotTimingController timing(&de1);
+        ShotDataModel model;
+        BelkaPortalDevice portal(new PortalTransport);
+        PortalController controller(&portal, settings.hardware(), &machine, &timing, &model);
+        using Phase = MachineState::Phase;
+        const QList<Phase> available{Phase::Disconnected, Phase::Sleep, Phase::Idle, Phase::Heating, Phase::Ready};
+        const QList<Phase> busy{Phase::EspressoPreheating, Phase::Preinfusion, Phase::Pouring,
+            Phase::Ending, Phase::Steaming, Phase::HotWater, Phase::Flushing, Phase::Refill,
+            Phase::Descaling, Phase::Cleaning, Phase::Transport};
+        for (const auto phase : busy) {
+            machine.m_phase = phase;
+            emit machine.phaseChanged();
+            QVERIFY(portal.machineBusy());
+        }
+        for (const auto phase : available) {
+            machine.m_phase = phase;
+            emit machine.phaseChanged();
+            QVERIFY(!portal.machineBusy());
+        }
+    }
+
+    void liveBackupRestoreReplacesConnectionAndDisplayPreference() {
+        Settings settings;
+        auto* hardware = settings.hardware();
+        const auto oldAddress = hardware->portalAddress(), oldName = hardware->portalName();
+        const bool oldSync = hardware->portalSyncDisplay();
+        const auto restore = qScopeGuard([&] {
+            hardware->setPortalDevice(oldAddress, oldName);
+            hardware->setPortalSyncDisplay(oldSync);
+        });
+        hardware->setPortalDevice({}, {});
+        hardware->setPortalSyncDisplay(true);
+        DE1Device de1;
+        MachineState machine(&de1);
+        ShotTimingController timing(&de1);
+        ShotDataModel model;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        PortalController controller(&portal, hardware, &machine, &timing, &model);
+        QSignalSpy scan(&portal, &BelkaPortalDevice::scanRequested);
+        start(portal, transport);
+        transport->notify(sample);
+        QCOMPARE(hardware->portalAddress(), portal.savedAddress());
+        transport->asynchronousDisconnect = true;
+        const QBluetoothDeviceInfo replacement(QBluetoothAddress("22:33:44:55:66:77"), "PORTAL replacement", 0);
+        portal.observeDevice(replacement);
+        QJsonObject backup{{"portal", QJsonObject{{"address", "22:33:44:55:66:77"},
+            {"name", "PORTAL replacement"}, {"syncDisplay", false}}}};
+        QVERIFY(SettingsSerializer::importFromJson(&settings, backup));
+        QVERIFY(!portal.syncDisplay());
+        QVERIFY(!portal.hasReading());
+        QCOMPARE(portal.savedAddress(), QString("22:33:44:55:66:77"));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(transport->operations.count("connect"), 1); // old disconnect still outstanding
+        transport->notify(sample); // late packets cannot restore the old selection
+        QVERIFY(!portal.hasReading());
+        emit transport->disconnected();
+        QTRY_COMPARE(transport->operations.count("connect"), 2);
+        transport->announceService();
+        QCOMPARE(hardware->portalAddress(), QString("22:33:44:55:66:77"));
+        QCOMPARE(hardware->portalName(), QString("PORTAL replacement"));
+        QCOMPARE(scan.count(), 0); // restore/reconnect piggybacks existing discovery
+        portal.setSyncDisplay(true);
+        QVERIFY(hardware->portalSyncDisplay());
+        QVERIFY(SettingsSerializer::importFromJson(&settings, backup));
+        QVERIFY(!portal.syncDisplay());
+    }
+
+    void reconnectWaitsForDisconnectCompletion() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        transport->asynchronousDisconnect = true;
+        portal.disconnectDevice();
+        portal.reconnect();
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(transport->operations.count("connect"), 1);
+        QCOMPARE(portal.state(), QString("disconnecting"));
+        emit transport->disconnected();
+        QTRY_COMPARE(transport->operations.count("connect"), 2);
+        transport->announceService();
+        transport->notify(sample);
+        QVERIFY(portal.hasReading());
+    }
+
+    void failedDisplayWriteDoesNotStopMeasurements() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        emit transport->characteristicDiscovered(QBluetoothUuid(quint16(0x7400)),
+            QBluetoothUuid(quint16(0x7420)), QLowEnergyCharacteristic::Write);
+        portal.setGraphView(true);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL display command was not acknowledged");
+        emit transport->gattOperationFailed(QBluetoothUuid(quint16(0x7420)));
+        QCOMPARE(portal.displayCommandStatus(), QString("failed"));
+        emit transport->characteristicWritten(QBluetoothUuid(quint16(0x7420)));
+        QCOMPARE(portal.displayCommandStatus(), QString("failed"));
+        transport->notify(sample);
+        QVERIFY(portal.hasReading());
+        portal.setGraphView(false);
+        QCOMPARE(portal.displayCommandStatus(), QString("requested"));
+    }
+
+    void captureFollowsRealExtractionClockAndFinalization() {
+        Settings settings;
+        auto* hardware = settings.hardware();
+        const auto address = hardware->portalAddress(), name = hardware->portalName();
+        const auto restore = qScopeGuard([&] { hardware->setPortalDevice(address, name); });
+        hardware->setPortalDevice({}, {});
+        DE1Device de1;
+        MachineState machine(&de1);
+        ShotTimingController timing(&de1);
+        ShotDataModel model;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        PortalController controller(&portal, hardware, &machine, &timing, &model);
+        start(portal, transport);
+        transport->notify(sample);
+        QVERIFY(model.portalSamples().isEmpty());
+        timing.startShot();
+        transport->notify(sample); // espresso preheat has no extraction origin
+        QVERIFY(model.portalSamples().isEmpty());
+        ShotSample shot;
+        timing.onShotSample(shot, 9.0, 2.0, 93.0, 2, false);
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 1);
+        QVERIFY(model.portalSamples().first().time < 1.0);
+        portal.expireReading(PortalSamples::StaleAfterMs + 1);
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 2);
+        QVERIFY(model.portalSamples().last().breakBefore);
+        timing.endShot();
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 2);
+        model.clear(); // the normal shot-start wiring clears the previous recording
+        timing.startShot();
+        timing.onShotSample(shot, 9.0, 2.0, 93.0, 2, false);
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 1);
+        timing.onSawTriggered(35.0, 1.0, 36.0);
+        timing.endShot();
+        QVERIFY(timing.isSawSettling());
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 2); // capture remains open through real SAW settling
+        emit machine.phaseChanged(); // disconnected machine closes capture even before finalization
+        transport->notify(sample);
+        QCOMPARE(model.portalSampleCount(), 2);
+    }
+
     void sharedScanKeepsPortalSelectableAfterWifiAndUsbFinish() {
         PortalDiscoveryReplay discovery;
         auto* transport = new PortalTransport;
@@ -92,6 +302,8 @@ private slots:
         QCOMPARE(portal.devices().size(), 1);
         portal.connectDevice("11:22:33:44:55:66");
         QCOMPARE(transport->operations.count("connect"), 1);
+        QVERIFY(portal.savedAddress().isEmpty()); // discovery alone does not expose the panel
+        transport->announceService();
         QCOMPARE(portal.savedAddress(), "11:22:33:44:55:66");
 
         portal.disconnectDevice();
@@ -211,6 +423,7 @@ private slots:
         QSignalSpy readings(&portal, &BelkaPortalDevice::measurementReceived);
         start(portal, transport);
         transport->notify(sample);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Unknown PORTAL measurement format; raw packet retained");
         transport->notify(QByteArray(12, '\0'));
         QVERIFY(!portal.hasReading());
         QCOMPARE(readings.count(), 1);

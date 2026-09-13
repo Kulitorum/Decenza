@@ -711,6 +711,7 @@ set(SOURCES
     src/ble/blecapability.cpp
     src/ble/blegattqueue.cpp
     src/ble/belkaportaldevice.cpp
+    src/controllers/portalcontroller.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
@@ -961,6 +962,8 @@ set(HEADERS
     src/ble/blecontrollererror.h
     src/ble/bleserviceerror.h
     src/ble/belkaportaldevice.h
+    src/ble/portallogging.h
+    src/controllers/portalcontroller.h
     src/ble/belkaportaldiscovery.h
     src/ble/blemanager.h
     src/ble/de1transport.h

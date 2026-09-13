@@ -227,6 +227,9 @@ signals:
      */
     void characteristicWritten(const QBluetoothUuid& characteristicUuid);
 
+    // Terminal failure (including the shared operation timeout), after releasing the slot.
+    void gattOperationFailed(const QBluetoothUuid& key);
+
     /**
      * Emitted when notifications are successfully enabled.
      */

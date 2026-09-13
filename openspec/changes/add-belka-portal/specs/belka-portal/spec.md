@@ -81,4 +81,39 @@ When enabled and supported, Decenza SHALL send the known graph-on command once a
 #### Scenario: Display writes await acknowledgement
 
 - **WHEN** multiple ordered display commands have been submitted
-- **THEN** the UI SHALL remain pending until all submitted writes are acknowledged or the connection fails
+- **THEN** the UI SHALL remain pending until all submitted writes are acknowledged or a submitted operation or connection fails
+
+#### Scenario: Display command times out
+
+- **WHEN** the shared GATT queue abandons a display write
+- **THEN** PORTAL SHALL report the command as failed and allow another manual request while idle
+- **AND** valid measurements SHALL remain available
+
+### Requirement: Existing users retain their UI and behavior
+
+PORTAL-specific controls SHALL remain hidden until a device has connected with measurement capability or a previous pairing has been restored. The shared connection heading and scan-button availability SHALL remain unchanged.
+
+#### Scenario: No PORTAL is configured
+
+- **WHEN** a user without a saved PORTAL opens Connections or the extraction screen
+- **THEN** the existing section heading, shared scan action and extraction layout SHALL be retained
+
+### Requirement: Live settings restore updates the peripheral
+
+Settings backup restoration SHALL update the active PORTAL selection and display preference without restarting Decenza. A previously selected device SHALL NOT overwrite the restored selection.
+
+#### Scenario: Replace a connected PORTAL from backup
+
+- **WHEN** a backup selects a different PORTAL while the previous peripheral is connected
+- **THEN** the previous link SHALL be disconnected and the new selection SHALL be retained
+- **AND** reconnect SHALL wait for disconnect completion and reuse existing discovery
+
+### Requirement: Live rendering and logs remain bounded per notification
+
+Live notifications SHALL append points without rebuilding complete variant or segment lists. Recurring packet/state logs SHALL be collapsed for the selected-device episode.
+
+#### Scenario: Long extraction with intermittent measurements
+
+- **WHEN** many measurements arrive with repeated stale/recovery transitions
+- **THEN** existing live renderers SHALL receive incremental appends and gaps SHALL begin new segments
+- **AND** repeated state logs SHALL be summarized at episode end rather than emitted per cycle

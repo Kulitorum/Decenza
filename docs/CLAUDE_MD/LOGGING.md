@@ -68,6 +68,7 @@ The helper headers, one per subsystem:
 | `[Refractometer]` | `src/ble/refractometers/refractometerlogging.h` | `REFRACTOMETER_LOG/INFO/WARN` | same `"BLE "` short form |
 | `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` | **stderr-only by construction** — nothing here has a `logMessage`, so there is no `BT_*_STDERR_TAGGED` and `BT_*_TAGGED` does not emit |
 | `[SAW]` | `src/machine/sawlogging.h` | `SAW_{LOG,INFO,WARN}_{TAGGED,STDERR}` | mostly stderr in practice — SAW lives in controllers, a settings store and a worker thread, none of which carry `logMessage` |
+| `[PORTAL]` | `src/ble/portallogging.h` | `PORTAL_DEBUG/INFO/WARN` | stderr, BLE events collapsed per selection episode |
 | `[Font]` | `src/core/fontlogging.h` | `FONT_{LOG,INFO,WARN}_STDERR` | stderr-only by construction — font setup runs before any object with a `logMessage` exists |
 | `[Network]` | `src/core/networklogging.h` | `NETWORK_{LOG,INFO,WARN}_{TAGGED,STDERR}` | reachability; app servers also use the registered `DIAG_*` helpers with the Network owner |
 | `[Screensaver]` | `src/screensaver/screensaverlogging.h` | `SCREENSAVER_{LOG,INFO,WARN}_{TAGGED,STDERR}` | |

@@ -1,0 +1,6 @@
+#pragma once
+#include "core/logtags.h"
+
+#define PORTAL_DEBUG(msg) DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_PORTAL, "BLE", msg, qDebug)
+#define PORTAL_INFO(msg) DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_PORTAL, "BLE", msg, qInfo)
+#define PORTAL_WARN(msg) DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_PORTAL, "BLE", msg, qWarning)

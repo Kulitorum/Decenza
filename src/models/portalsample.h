@@ -13,6 +13,9 @@ struct PortalSample {
 };
 
 namespace PortalSamples {
+// About 10 Hz observed; one conservative silence policy for readout and chart gaps.
+inline constexpr qint64 StaleAfterMs = 5000;
+inline constexpr double StaleAfterSeconds = StaleAfterMs / 1000.0;
 inline QVariantList toVariant(const QVector<PortalSample>& samples)
 {
     QVariantList result;

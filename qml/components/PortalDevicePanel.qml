@@ -103,7 +103,9 @@ ColumnLayout {
             text: BelkaPortal.displayCommandStatus === "acknowledged"
                 ? TranslationManager.translate("portal.commandAck", "Display command delivered. Check the PORTAL screen.")
                 : BelkaPortal.displayCommandStatus === "requested"
-                  ? TranslationManager.translate("portal.commandPending", "Sending display command…") : ""
+                  ? TranslationManager.translate("portal.commandPending", "Sending display command…")
+                  : BelkaPortal.displayCommandStatus === "failed"
+                    ? TranslationManager.translate("portal.commandFailed", "Display command failed. Check the PORTAL screen before trying again.") : ""
         }
         Text {
             Layout.fillWidth: true

@@ -316,6 +316,7 @@ private:
     QTimer* m_flowRateTrailingTimer = nullptr;        // Trailing-edge for scaleFlowRateChanged
 
 #ifdef DECENZA_TESTING
+    friend class tst_BelkaPortal;
     friend class tst_SAV;
     friend class tst_MachineState;
     friend class tst_SensorCalibration;

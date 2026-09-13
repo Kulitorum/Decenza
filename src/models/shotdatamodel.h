@@ -29,6 +29,9 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(double weightAtStop READ weightAtStop NOTIFY weightAtStopChanged)
     Q_PROPERTY(double finalWeight READ finalWeight NOTIFY finalWeightChanged)
     Q_PROPERTY(QVariantList portalSamples READ portalSamplesVariant NOTIFY portalSamplesChanged)
+    Q_PROPERTY(qsizetype portalSampleCount READ portalSampleCount NOTIFY portalSamplesChanged)
+    Q_PROPERTY(double portalEcMin READ portalEcMin NOTIFY portalSamplesChanged)
+    Q_PROPERTY(double portalEcMax READ portalEcMax NOTIFY portalSamplesChanged)
     // Goal curves exposed as Qt.point()-compatible variant lists so DashedLineSeries
     // Repeaters can bind directly — replaces the QLineSeries handshake.
     Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
@@ -45,6 +48,9 @@ public:
     double stopTime() const { return m_stopTime; }
     double weightAtStop() const { return m_weightAtStop; }
     double finalWeight() const;
+    qsizetype portalSampleCount() const { return m_portalSamples.size(); }
+    double portalEcMin() const { return m_portalEcMin; }
+    double portalEcMax() const { return m_portalEcMax; }
     QVariantList portalSamplesVariant() const { return PortalSamples::toVariant(m_portalSamples); }
     const QVector<PortalSample>& portalSamples() const { return m_portalSamples; }
     QVariantList phaseMarkersVariant() const;
@@ -115,6 +121,7 @@ public slots:
 signals:
     void cleared();
     void portalSamplesChanged();
+    void portalSampleAdded(double time, double ecRaw, double temperatureC, bool breakBefore);
     void maxTimeChanged();
     void rawTimeChanged();
     void phaseMarkersChanged();
@@ -133,6 +140,8 @@ private:
     QVector<PortalSample> m_portalSamples;
     bool m_portalGap = true;
     bool m_portalDirty = false;
+    double m_portalEcMin = 0;
+    double m_portalEcMax = 0.1;
     QVector<QPointF> m_flowPoints;
     QVector<QPointF> m_temperaturePoints;
     QVector<QPointF> m_temperatureMixPoints;

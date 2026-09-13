@@ -212,7 +212,7 @@ public:
 
     // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
-    static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
+    static QByteArray buildHistoryShotJson(const ShotProjection& shotData, bool includePortal = true);
 
     // The descriptive-field PATCH body to enrich a server coffee bag: only the
     // fields we hold locally that the server left blank (fill-blanks, never

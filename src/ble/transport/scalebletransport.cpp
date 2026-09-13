@@ -52,7 +52,7 @@ void ScaleBleTransport::submitGattOperation(const QBluetoothUuid& key,
         m_operationTimeoutTimer.start(timeoutMs);
         issue();
     };
-    op.onAbandoned = [this, label]() {
+    op.onAbandoned = [this, key, label]() {
         m_operationTimeoutTimer.stop();
         onGattSlotReleased();
         // INFO, not DEBUG: the connections view a user reads filters to INFO, and
@@ -60,6 +60,7 @@ void ScaleBleTransport::submitGattOperation(const QBluetoothUuid& key,
         // fault whose resolution — or here, whose conclusion — sits a tier below
         // the noise around it, leaving the reader with half the story.
         GQ_INFO(QString("%1 failed and was not retried").arg(label));
+        emit gattOperationFailed(key);
     };
     m_gattQueue->submit(std::move(op));
 }

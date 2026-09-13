@@ -3,7 +3,7 @@ import QtQuick
 import Decenza
 
 // The one description of the shot graph's series: label, colour, settings property,
-// tooltip, and the two visibility gates.
+// tooltip, and the visibility gates (advanced, post-shot and PORTAL data).
 //
 // This list existed four times in four shapes — as the legend's model, as a name→key map in
 // ComparisonDataTable, as a key+default array in LastShotChartSource, and as eleven property
@@ -20,6 +20,7 @@ QtObject {
 
     // `advanced` entries appear only in advanced mode; `postShotOnly` entries are hidden on
     // the live graph, where the curve cannot be computed until the shot is complete.
+    // `portal` entries require a saved PORTAL or recorded PORTAL samples.
     readonly property var entries: [
         { label: TranslationManager.translate("portal.legendEc", "PORTAL EC"), sColor: Theme.portalEcColor, key: "showPortalEc", dataKey: "portalEc", shortLabel: "EC", portal: true,
           tip: TranslationManager.translate("portal.ecTip", "Electrical conductivity, raw value. Units are unverified; this is not TDS.") },

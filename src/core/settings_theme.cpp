@@ -376,6 +376,8 @@ const QVariantMap& SettingsTheme::darkDefaults() {
         {"highlightColor", "#ffaa00"},
         {"errorColor", "#ff4444"},
         {"borderColor", "#3a3a4e"},
+        {"portalEcColor", "#26d7bb"},
+        {"portalTemperatureColor", "#dd83ff"},
         {"pressureColor", "#18c37e"},
         {"pressureGoalColor", "#69fdb3"},
         {"flowColor", "#4e85f4"},
@@ -431,6 +433,8 @@ const QVariantMap& SettingsTheme::lightDefaults() {
         {"errorColor", "#d93030"},
         {"borderColor", "#c4c9d6"},
         // Chart — slightly deeper than dark-mode goal colors for white-background contrast
+        {"portalEcColor", "#007d68"},
+        {"portalTemperatureColor", "#872cac"},
         {"pressureColor", "#12a86b"},
         {"pressureGoalColor", "#40d898"},
         {"flowColor", "#3a6fd0"},

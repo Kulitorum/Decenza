@@ -2036,6 +2036,7 @@ private slots:
     void anUnansweredScaleOperationReleasesTheSlotAtItsTimeout() {
         BleGattQueue queue;
         MockScaleBleTransport t(nullptr, &queue);
+        QSignalSpy failed(&t, &ScaleBleTransport::gattOperationFailed);
         bool secondIssued = false;
 
         t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("silent"),
@@ -2063,6 +2064,10 @@ private slots:
         // it. Polling waits for the turn instead of betting on it.
         QTRY_COMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
         QVERIFY(secondIssued);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().value<QBluetoothUuid>(), DE1::Characteristic::STATE_INFO);
+        t.completeGattOperation(DE1::Characteristic::SHOT_SAMPLE);
+        QCOMPARE(failed.count(), 1); // successful successor is not reported as a failure
     }
 
     void aTornDownScaleTransportFreesTheSlotAndItsQueuedWork() {

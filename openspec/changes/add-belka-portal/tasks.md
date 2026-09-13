@@ -32,7 +32,7 @@
 - [ ] Exercise controlled PORTAL loss/reconnect and machine sleep/wake on hardware.
 - [ ] Verify a PORTAL-containing backup/restore round trip on the tablet.
 - [ ] Check the corrected layout on the physical tablet.
-- [ ] Verify preservation of the custom JSON extension by the external Visualizer service, or retain it as an explicitly unsupported integration path.
+- [x] Omit the unverified PORTAL extension from Visualizer uploads while preserving local export/record import.
 
 ## Documentation and Review
 
@@ -41,3 +41,15 @@
 - [x] Prepare representative live-shot and saved-history screenshots on the contributor fork, without private backups or settings.
 - [x] Open draft PR [#1938](https://github.com/Kulitorum/Decenza/pull/1938) with completed validation and remaining hardware checks clearly distinguished.
 - [ ] Before any requested merge, reconcile acceptance, archive this OpenSpec change and read checks on that final revision.
+
+## PR #1938 Review
+
+- [x] Preserve the non-owner UI, shared scanning and translated section heading; reveal PORTAL controls only after verified connection.
+- [x] Move pairing/display preferences into SettingsHardware and test live backup restoration with a connected driver.
+- [x] Move capture and phase policy into PortalController and share the freshness/gap threshold.
+- [x] Collapse packet/state logging per selection episode through a dedicated subsystem helper.
+- [x] Append live graph points incrementally and retain constant-time EC bounds.
+- [x] Support PORTAL colors in dark/light palettes, flash highlighting and app/web color pickers.
+- [x] Remove redundant startup scanning, wait for disconnect completion, report failed display writes and avoid irrelevant last-shot cache invalidation.
+- [x] Correct stale graph-series comments.
+- [x] Validate the review revision: 118/118 native tests with ASan/UBSan, production Android arm64 APK, 244/244 QML files, all text gates, 7 offscreen UI checks and three detected/restored mutations (live settings, log collapse, EC append).
