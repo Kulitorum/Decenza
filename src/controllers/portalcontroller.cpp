@@ -55,5 +55,6 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     };
     connect(machine, &MachineState::phaseChanged, this, updateMachine);
     updateMachine();
-    // Saved devices piggyback on BLEManager's existing startup scan via observeDevice().
+    // Saved devices reconnect when BLE discovery observes them. With USB-only
+    // startup, the user's shared scan supplies that observation.
 }

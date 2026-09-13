@@ -49,8 +49,9 @@ public:
     double weightAtStop() const { return m_weightAtStop; }
     double finalWeight() const;
     qsizetype portalSampleCount() const { return m_portalSamples.size(); }
-    double portalEcMin() const { return m_portalEcMin; }
-    double portalEcMax() const { return m_portalEcMax; }
+    double portalEcMin() const { return m_portalEcBounds.minimum; }
+    double portalEcMax() const { return m_portalEcBounds.maximum; }
+    Q_INVOKABLE QVariantList portalEcBounds(const QVariantList& samples) const;
     QVariantList portalSamplesVariant() const { return PortalSamples::toVariant(m_portalSamples); }
     const QVector<PortalSample>& portalSamples() const { return m_portalSamples; }
     QVariantList phaseMarkersVariant() const;
@@ -140,8 +141,7 @@ private:
     QVector<PortalSample> m_portalSamples;
     bool m_portalGap = true;
     bool m_portalDirty = false;
-    double m_portalEcMin = 0;
-    double m_portalEcMax = 0.1;
+    PortalSamples::EcBounds m_portalEcBounds;
     QVector<QPointF> m_flowPoints;
     QVector<QPointF> m_temperaturePoints;
     QVector<QPointF> m_temperatureMixPoints;

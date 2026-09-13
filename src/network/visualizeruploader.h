@@ -211,8 +211,9 @@ public:
     void repairShotBeans(const QVector<BeanRepair>& repairs);
 
     // Build a visualizer-compatible JSON payload from a ShotProjection.
+    // Local exporters opt in to the unverified PORTAL extension.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
-    static QByteArray buildHistoryShotJson(const ShotProjection& shotData, bool includePortal = true);
+    static QByteArray buildHistoryShotJson(const ShotProjection& shotData, bool includePortal = false);
 
     // The descriptive-field PATCH body to enrich a server coffee bag: only the
     // fields we hold locally that the server left blank (fill-blanks, never

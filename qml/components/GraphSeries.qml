@@ -52,13 +52,4 @@ QtObject {
         { label: TranslationManager.translate("graph.dCdt", "dC/dt"), sColor: Theme.conductanceDerivativeColor, key: "showConductanceDerivative", dataKey: "dCdt", shortLabel: "dC/dt", advanced: true, postShotOnly: true,
           tip: TranslationManager.translate("graph.tip.dCdt", "Rate of change of conductance. The best channeling detector — spikes reveal transient channels that are invisible in other curves.") }
     ]
-
-    // Property names only, for consumers that need to enumerate the settings rather than
-    // render them.
-    readonly property var keys: {
-        var out = []
-        for (var i = 0; i < graphSeries.entries.length; i++)
-            out.push(graphSeries.entries[i].key)
-        return out
-    }
 }

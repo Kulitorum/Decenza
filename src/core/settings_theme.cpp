@@ -1447,6 +1447,8 @@ QVariantMap SettingsTheme::generatePalette(double baseHue, double baseSat, doubl
 
     // Water level - analogous to flow color
     palette["waterLevelColor"] = hslColor(analogous1 + goldenAngle * 2, 70.0, 55.0);
+    palette["portalEcColor"] = hslColor(complementary + goldenAngle * 3, 75.0, 55.0);
+    palette["portalTemperatureColor"] = hslColor(complementary + goldenAngle * 4, 70.0, 65.0);
 
     // Highlight color - analogous to warning for attention-drawing
     palette["highlightColor"] = palette["warningColor"];

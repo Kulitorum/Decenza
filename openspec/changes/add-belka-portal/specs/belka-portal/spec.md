@@ -91,7 +91,7 @@ When enabled and supported, Decenza SHALL send the known graph-on command once a
 
 ### Requirement: Existing users retain their UI and behavior
 
-PORTAL-specific controls SHALL remain hidden until a device has connected with measurement capability or a previous pairing has been restored. The shared connection heading and scan-button availability SHALL remain unchanged.
+PORTAL-specific controls SHALL remain hidden until the user explicitly selects a discovered PORTAL or a previous pairing has been restored. First-selection progress and errors SHALL remain visible before pairing succeeds. The shared connection heading and scan-button availability SHALL remain unchanged.
 
 #### Scenario: No PORTAL is configured
 
@@ -106,14 +106,29 @@ Settings backup restoration SHALL update the active PORTAL selection and display
 
 - **WHEN** a backup selects a different PORTAL while the previous peripheral is connected
 - **THEN** the previous link SHALL be disconnected and the new selection SHALL be retained
-- **AND** reconnect SHALL wait for disconnect completion and reuse existing discovery
+- **AND** reconnect SHALL respect synchronous Qt teardown or pending native cancellation and reuse existing discovery
 
 ### Requirement: Live rendering and logs remain bounded per notification
 
-Live notifications SHALL append points without rebuilding complete variant or segment lists. Recurring packet/state logs SHALL be collapsed for the selected-device episode.
+Live notifications SHALL append points without rebuilding complete variant or segment lists. Recurring packet/state logs SHALL be collapsed within a shot or connection episode, with real link faults always reported.
 
 #### Scenario: Long extraction with intermittent measurements
 
 - **WHEN** many measurements arrive with repeated stale/recovery transitions
 - **THEN** existing live renderers SHALL receive incremental appends and gaps SHALL begin new segments
 - **AND** repeated state logs SHALL be summarized at episode end rather than emitted per cycle
+
+### Requirement: Optional display errors do not discard measurements
+
+Display-command failure SHALL leave an established measurement stream available. Subscription failure or absent initial notifications SHALL terminate setup with a visible failure. Only notification dispatch starts the initial-data deadline.
+
+#### Scenario: Graph-on fails at extraction start
+
+- **WHEN** the transport reports both the failed display operation and its error
+- **THEN** valid measurement notifications SHALL continue to be captured
+- **AND** finalization SHALL still attempt graph-off if the link supports it
+
+#### Scenario: Notification setup produces no data
+
+- **WHEN** notification enable fails or no valid notification arrives within the freshness window after dispatch
+- **THEN** setup SHALL end with a visible error and permit an idle retry

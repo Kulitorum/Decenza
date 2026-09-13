@@ -14,11 +14,12 @@
 QJsonObject ShotServer::buildThemeJson() const
 {
     QJsonObject result;
-    result["portalAvailable"] = !m_settings->hardware()->portalAddress().isEmpty();
 
     if (!m_settings) {
         return result;
     }
+
+    result["portalAvailable"] = !m_settings->hardware()->portalAddress().isEmpty();
 
     // Active theme name
     result["activeThemeName"] = m_settings->theme()->activeThemeName();

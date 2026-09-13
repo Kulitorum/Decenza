@@ -31,14 +31,9 @@ Item {
     readonly property var ecSegments: live ? [] : segments("ecRaw")
     readonly property var temperatureSegments: live ? [] : segments("temperatureC")
     readonly property var ecRange: {
-        if (live) return [ShotDataModel.portalEcMin * 1.1, ShotDataModel.portalEcMax * 1.1]
-        var lo = 0
-        var hi = 0.1
-        for (var i = 0; i < samples.length; i++) {
-            lo = Math.min(lo, samples[i].ecRaw)
-            hi = Math.max(hi, samples[i].ecRaw)
-        }
-        return [lo < 0 ? lo * 1.1 : 0, hi * 1.1]
+        var bounds = live ? [ShotDataModel.portalEcMin, ShotDataModel.portalEcMax]
+                          : ShotDataModel.portalEcBounds(samples)
+        return [bounds[0] * 1.1, bounds[1] * 1.1]
     }
     QtObject {
         id: ecAxis

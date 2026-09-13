@@ -16,6 +16,18 @@ namespace PortalSamples {
 // About 10 Hz observed; one conservative silence policy for readout and chart gaps.
 inline constexpr qint64 StaleAfterMs = 5000;
 inline constexpr double StaleAfterSeconds = StaleAfterMs / 1000.0;
+inline bool valid(double time, double ecRaw, double temperatureC, double previousTime = -1)
+{
+    return std::isfinite(time) && std::isfinite(ecRaw) && std::isfinite(temperatureC)
+        && time >= 0 && time >= previousTime;
+}
+
+struct EcBounds {
+    double minimum = 0;
+    double maximum = 0.1;
+    void add(double value) { minimum = qMin(minimum, value); maximum = qMax(maximum, value); }
+};
+
 inline QVariantList toVariant(const QVector<PortalSample>& samples)
 {
     QVariantList result;
@@ -37,9 +49,8 @@ inline QVector<PortalSample> fromVariant(const QVariantList& values)
         PortalSample sample{map.value("time").toDouble(&timeOk),
             map.value("ecRaw").toDouble(&ecOk), map.value("temperatureC").toDouble(&tempOk),
             map.value("breakBefore").toBool()};
-        if (!timeOk || !ecOk || !tempOk || !std::isfinite(sample.time)
-            || !std::isfinite(sample.ecRaw) || !std::isfinite(sample.temperatureC)
-            || sample.time < 0 || (!result.isEmpty() && sample.time < result.last().time)) {
+        if (!timeOk || !ecOk || !tempOk || !valid(sample.time, sample.ecRaw, sample.temperatureC,
+                result.isEmpty() ? -1 : result.last().time)) {
             gap = true;
             continue;
         }

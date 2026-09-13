@@ -22,13 +22,15 @@ ColumnLayout {
                 ? TranslationManager.translate("portal.disconnect", "Disconnect")
                 : TranslationManager.translate("portal.connect", "Connect")
             accessibleName: text + " PORTAL"
-            enabled: !BelkaPortal.machineBusy && BelkaPortal.savedAddress.length > 0
+            enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
+                && (BelkaPortal.active || BelkaPortal.savedAddress.length > 0)
             onClicked: BelkaPortal.active ? BelkaPortal.disconnectDevice() : BelkaPortal.reconnect()
         }
         AccessibleButton {
             text: TranslationManager.translate("portal.forget", "Forget")
             accessibleName: text + " PORTAL"
-            enabled: !BelkaPortal.machineBusy && BelkaPortal.savedAddress.length > 0
+            enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
+                && (BelkaPortal.active || BelkaPortal.savedAddress.length > 0)
             onClicked: BelkaPortal.forgetDevice()
         }
         Item { Layout.fillWidth: true }
@@ -60,7 +62,14 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: BelkaPortal.errorMessage.length > 0
-        text: BelkaPortal.errorMessage
+        text: TranslationManager.translate("portal.connectionProblem", "PORTAL connection or measurement problem. Reconnect while the machine is idle; details are available below.")
+        color: Theme.warningColor
+        wrapMode: Text.Wrap
+    }
+    Text {
+        Layout.fillWidth: true
+        visible: BelkaPortal.displayCommandStatus === "failed"
+        text: TranslationManager.translate("portal.displaySyncFailed", "PORTAL display sync failed. Measurements can continue; check the graph on PORTAL.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
     }
@@ -74,6 +83,13 @@ ColumnLayout {
     ColumnLayout {
         Layout.fillWidth: true
         visible: diagnosticToggle.expanded
+        Text {
+            Layout.fillWidth: true
+            visible: BelkaPortal.errorMessage.length > 0
+            text: BelkaPortal.errorMessage
+            color: Theme.textSecondaryColor
+            wrapMode: Text.Wrap
+        }
         Text {
             Layout.fillWidth: true
             text: TranslationManager.translate("portal.measurementNote", "EC is recorded as a raw value; units are unverified. The display commands do not report whether PORTAL saved a session.")

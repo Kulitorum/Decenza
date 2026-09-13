@@ -92,6 +92,7 @@ struct CoreBluetoothScaleBleTransport::Impl {
     // CoreBluetooth puts NO timeout on that wait, so it can be held
     // indefinitely. See isConnecting().
     bool pendingConnect = false;
+    QString disconnectingUuid;
     bool servicesDiscovered = false;  // Prevent re-discovery loops
     // The characteristic a queued READ is outstanding for, so a notification on
     // it can be told from its response. Null when the in-flight operation is not
@@ -210,7 +211,7 @@ struct CoreBluetoothScaleBleTransport::Impl {
                 d->log("PoweredOn: attempting connect now");
                 d->q->connectToDevice(d->targetUuidString, d->targetName);
             }
-        } else if (d->connected &&
+        } else if ((d->connected || d->pendingConnect || !d->disconnectingUuid.isEmpty()) &&
                    (state == CBManagerStatePoweredOff ||
                     state == CBManagerStateUnsupported ||
                     state == CBManagerStateUnauthorized)) {
@@ -229,7 +230,10 @@ struct CoreBluetoothScaleBleTransport::Impl {
             // Resetting does escalate to PoweredOff, this branch fires on that
             // follow-up state.
             d->connected = false;
+            d->pendingConnect = false;
+            d->disconnectingUuid.clear();
             d->clearCaches();
+            d->queueReleased();
             d->log(QString("Central state=%1 (terminal) — treating as disconnect").arg(state));
             emit d->q->disconnected();
         }
@@ -284,8 +288,10 @@ struct CoreBluetoothScaleBleTransport::Impl {
     // This prevents duplicate discoveries and gives scales control over timing
 
     // Notify Qt thread (don't capture ObjC pointers)
-    QMetaObject::invokeMethod(d->q, [d]{
-        if (!d->isValid) return;
+    const QString identifier = nsToQs(peripheral.identifier.UUIDString);
+    QMetaObject::invokeMethod(d->q, [d, identifier]{
+        if (!d->isValid || !d->periph || !d->disconnectingUuid.isEmpty()
+            || identifier != nsToQs(d->periph.identifier.UUIDString)) return;
         d->pendingConnect = false;
         d->connected = true;
         d->log("Connected!");
@@ -304,8 +310,12 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
     if (!d) return;
 
     QString reason = error ? nsToQs(error.localizedDescription) : QString("disconnected");
-    QMetaObject::invokeMethod(d->q, [d, reason]{
+    const QString identifier = nsToQs(peripheral.identifier.UUIDString);
+    QMetaObject::invokeMethod(d->q, [d, reason, identifier]{
         if (!d->isValid) return;
+        if (d->periph && identifier != nsToQs(d->periph.identifier.UUIDString)) return;
+        if (!d->periph && identifier != d->disconnectingUuid) return;
+        d->disconnectingUuid.clear();
         d->pendingConnect = false;
         d->connected = false;
         d->clearCaches();
@@ -313,6 +323,28 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
         // transport's queued work must not reach the next connection.
         d->queueReleased();
         d->log(QString("Disconnected: %1").arg(reason));
+        emit d->q->disconnected();
+    }, Qt::QueuedConnection);
+}
+
+- (void)centralManager:(CBCentralManager *)central
+ didFailToConnectPeripheral:(CBPeripheral *)peripheral
+                 error:(NSError *)error
+{
+    Q_UNUSED(central);
+    auto* d = self.impl;
+    if (!d) return;
+    const QString identifier = nsToQs(peripheral.identifier.UUIDString);
+    const QString reason = error ? nsToQs(error.localizedDescription) : QStringLiteral("Connection failed");
+    QMetaObject::invokeMethod(d->q, [d, identifier, reason] {
+        if (!d->isValid) return;
+        if (d->periph && identifier != nsToQs(d->periph.identifier.UUIDString)) return;
+        if (!d->periph && identifier != d->disconnectingUuid) return;
+        d->disconnectingUuid.clear();
+        d->pendingConnect = false;
+        d->connected = false;
+        d->queueReleased();
+        emit d->q->error(reason);
         emit d->q->disconnected();
     }, Qt::QueuedConnection);
 }
@@ -660,11 +692,6 @@ bool CoreBluetoothScaleBleTransport::isConnecting() const {
     // connectPeripheral: has no timeout of its own, so an unresolved attempt is
     // held indefinitely rather than for ~30 s.
     //
-    // There is no didFailToConnectPeripheral: handler on this delegate, so a
-    // connect that fails without ever disconnecting leaves this true until the
-    // next disconnectFromDevice(). That is the safe direction: it makes the
-    // timeout teardown fire, which issues cancelPeripheralConnection and clears
-    // the flag. It is not a substitute for handling that callback.
     return m_impl && m_impl->pendingConnect;
 #else
     return false;
@@ -732,6 +759,14 @@ void CoreBluetoothScaleBleTransport::onGattSlotReleased() {
 #endif
 }
 
+bool CoreBluetoothScaleBleTransport::isDisconnecting() const {
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    return m_impl && !m_impl->disconnectingUuid.isEmpty();
+#else
+    return false;
+#endif
+}
+
 void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl) return;
@@ -750,7 +785,12 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
         [m_impl->mgr stopScan];
     }
 
+    m_impl->targetName.clear();
+    m_impl->targetUuidString.clear();
     if (m_impl->periph) {
+        if (m_impl->connected || m_impl->pendingConnect
+            || m_impl->periph.state != CBPeripheralStateDisconnected)
+            m_impl->disconnectingUuid = nsToQs(m_impl->periph.identifier.UUIDString);
         log(QString("Disconnecting periph=%1").arg((quintptr)m_impl->periph, 0, 16));
         [m_impl->mgr cancelPeripheralConnection:m_impl->periph];
         CB_RELEASE(m_impl->periph);

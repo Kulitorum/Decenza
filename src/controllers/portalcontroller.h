@@ -7,7 +7,7 @@ class MachineState;
 class ShotTimingController;
 class ShotDataModel;
 
-// Owns capture and connection policy; the driver only owns the peripheral.
+// Bridges shot capture, settings and machine phases to the PORTAL driver.
 class PortalController : public QObject {
     Q_OBJECT
 public:

@@ -12,35 +12,49 @@ const QBluetoothUuid measurement(BelkaPortalProtocol::MeasurementUuid);
 const QBluetoothUuid command(BelkaPortalProtocol::CommandUuid);
 }
 
-BelkaPortalDevice::BelkaPortalDevice(ScaleBleTransport* transport, QObject* parent)
-    : QObject(parent), m_transport(transport)
+BelkaPortalDevice::BelkaPortalDevice(TransportFactory factory, QObject* parent)
+    : QObject(parent), m_transportFactory(std::move(factory))
 {
-    Q_ASSERT(transport);
     m_logClock.start();
+    m_healthTimer.setInterval(1000);
+    connect(&m_healthTimer, &QTimer::timeout, this, &BelkaPortalDevice::checkFreshness);
+}
+
+BelkaPortalDevice::BelkaPortalDevice(ScaleBleTransport* transport, QObject* parent)
+    : BelkaPortalDevice([transport] { return transport; }, parent)
+{
+    ensureTransport();
+}
+
+void BelkaPortalDevice::ensureTransport()
+{
+    if (m_transport) return;
+    auto* transport = m_transport = m_transportFactory();
+    Q_ASSERT(transport);
     transport->setParent(this);
     transport->setConnectionPriorityManaged(false);
     connect(transport, &ScaleBleTransport::connected, this, [this] {
-        if (!m_requested) return;
-        setState(QStringLiteral("discovering"));
+        if (!active()) return;
+        setState(State::Discovering);
         m_transport->discoverServices();
     });
     connect(transport, &ScaleBleTransport::serviceDiscovered, this, [this](const QBluetoothUuid& uuid) {
-        if (m_requested && uuid == service) m_serviceFound = true;
+        if (active() && uuid == service) m_serviceFound = true;
     });
     connect(transport, &ScaleBleTransport::servicesDiscoveryFinished, this, [this] {
-        if (!m_requested) return;
+        if (!active()) return;
         if (!m_serviceFound) { fail(QStringLiteral("PORTAL service 7400 not found")); return; }
         m_transport->discoverCharacteristics(service);
     });
     connect(transport, &ScaleBleTransport::characteristicDiscovered, this,
             [this](const QBluetoothUuid& svc, const QBluetoothUuid& chr, int properties) {
-        if (!m_requested || svc != service) return;
+        if (!active() || svc != service) return;
         if (chr == measurement) m_properties = properties;
         if (chr == command) m_commandProperties = properties;
     });
     connect(transport, &ScaleBleTransport::characteristicsDiscoveryFinished, this,
             [this](const QBluetoothUuid& svc) {
-        if (!m_requested || svc != service) return;
+        if (!active() || svc != service) return;
         if (!(m_properties & QLowEnergyCharacteristic::Notify)) {
             fail(QStringLiteral("PORTAL measurement 7410 does not support notifications"));
             return;
@@ -50,10 +64,8 @@ BelkaPortalDevice::BelkaPortalDevice(ScaleBleTransport* transport, QObject* pare
         m_savedAddress = m_selectedAddress;
         m_savedName = m_name;
         emit savedDeviceChanged();
-        setState(QStringLiteral("waiting"));
-        // Both requests pass through the existing shared GATT queue.
-        if (m_properties & QLowEnergyCharacteristic::Read)
-            m_transport->readCharacteristic(service, measurement);
+        setState(State::Waiting);
+        // Only notifications are measurements; an optional read adds no usable data.
         m_transport->enableNotifications(service, measurement);
     });
     connect(transport, &ScaleBleTransport::characteristicChanged, this,
@@ -61,47 +73,41 @@ BelkaPortalDevice::BelkaPortalDevice(ScaleBleTransport* transport, QObject* pare
     connect(transport, &ScaleBleTransport::characteristicRead, this,
             [this](const QBluetoothUuid& chr, const QByteArray& packet) { receive(chr, packet, false); });
     connect(transport, &ScaleBleTransport::characteristicWritten, this, [this](const QBluetoothUuid& chr) {
-        if (chr != command || !m_displayWritesPending) return;
-        if (--m_displayWritesPending > 0) return;
-        m_displayCommandStatus = QStringLiteral("acknowledged");
-        emit displayCommandStatusChanged();
-        PORTAL_INFO(QStringLiteral("Display command write acknowledged; session state is not reported by PORTAL"));
+        if (chr == command) finishDisplayWrite(true);
     });
     connect(transport, &ScaleBleTransport::gattOperationFailed, this, [this](const QBluetoothUuid& key) {
-        if (key != command || !m_displayWritesPending) return;
-        m_displayWritesPending = 0;
-        m_displayCommandStatus = QStringLiteral("failed");
-        emit displayCommandStatusChanged();
-        logEvent(QStringLiteral("display-failed"), QStringLiteral("PORTAL display command was not acknowledged"), QtWarningMsg);
+        if (!active()) return;
+        if (key == command) finishDisplayWrite(false);
+        else if (key == measurement) fail(QStringLiteral("PORTAL measurement subscription failed"));
+        else if (m_state == State::Discovering) fail(QStringLiteral("PORTAL discovery failed"));
     });
-    connect(transport, &ScaleBleTransport::error, this, &BelkaPortalDevice::fail);
-    connect(transport, &ScaleBleTransport::disconnected, this, [this] {
-        const bool unexpected = m_requested;
-        m_waitingForDisconnect = false;
-        m_requested = false;
-        m_valid = false;
-        m_healthTimer.stop();
-        m_displayWritesPending = 0;
-        m_commandProperties = 0;
-        m_displayCommandStatus.clear();
-        emit displayCommandStatusChanged();
-        emit readingInterrupted();
-        if (unexpected) m_error = QStringLiteral("PORTAL disconnected; reconnect when the machine is idle");
-        if (m_state != QStringLiteral("error")) setState(QStringLiteral("disconnected"));
-        emit readingChanged();
-        logEvent(QStringLiteral("disconnected"), QStringLiteral("Disconnected"));
-        tryReconnect();
+    connect(transport, &ScaleBleTransport::notificationsIssued, this, [this](const QBluetoothUuid& key) {
+        if (key != measurement || m_state != State::Waiting) return;
+        // Count from radio dispatch, not from time spent behind other GATT work.
+        m_lastMeasurement.start();
+        m_healthTimer.start();
     });
-    // Periodic freshness inspection, not a reconnect or GATT polling loop.
-    m_healthTimer.setInterval(1000);
-    connect(&m_healthTimer, &QTimer::timeout, this, &BelkaPortalDevice::checkFreshness);
+    connect(transport, &ScaleBleTransport::error, this, [this](const QString& error) {
+        if (!active()) return;
+        if (m_state == State::Connecting || m_state == State::Discovering || m_state == State::Waiting
+            || !m_transport->isConnected()) {
+            fail(error);
+        } else {
+            // Both transports also emit error after an optional operation fails.
+            // The live stream and disconnected signal determine link health.
+            PORTAL_WARN(error);
+        }
+    });
+    connect(transport, &ScaleBleTransport::disconnected, this, &BelkaPortalDevice::finishDisconnect);
 }
 
 BelkaPortalDevice::~BelkaPortalDevice()
 {
     flushLogs();
-    disconnect(m_transport, nullptr, this, nullptr);
-    m_transport->disconnectFromDevice();
+    if (m_transport) {
+        disconnect(m_transport, nullptr, this, nullptr);
+        m_transport->disconnectFromDevice();
+    }
 }
 
 void BelkaPortalDevice::observeDevice(const QBluetoothDeviceInfo& info)
@@ -137,7 +143,7 @@ void BelkaPortalDevice::setMachineBusy(bool busy)
     if (m_machineBusy == busy) return;
     m_machineBusy = busy;
     emit machineBusyChanged();
-    if (busy && m_requested && m_state != QStringLiteral("streaming") && m_state != QStringLiteral("stale")) {
+    if (busy && active() && m_state != State::Streaming && m_state != State::Stale) {
         stopConnection(false);
         m_reconnectEnabled = true;
     }
@@ -146,19 +152,19 @@ void BelkaPortalDevice::setMachineBusy(bool busy)
 
 void BelkaPortalDevice::connectDevice(const QString& identifier)
 {
-    if (m_machineBusy || m_extractionActive || m_requested || m_transport->isConnected() || m_transport->isConnecting()
-        || m_waitingForDisconnect) return;
+    if (m_machineBusy || m_extractionActive || active()
+        || (m_transport && (m_transport->isConnected() || m_transport->isConnecting()
+                           || m_transport->isDisconnecting()))) return;
     for (const auto& device : m_devices) {
         if (!deviceIdentifiersMatch(device, identifier)) continue;
-        m_requested = true;
+        ensureTransport();
         m_serviceFound = false;
         m_properties = 0;
         m_commandProperties = 0;
         m_displayCommandStatus.clear();
-        m_displayWritesPending = 0;
+        m_displayWrites.clear();
         m_reconnectEnabled = true;
         m_reconnectAttempted = true;
-        m_valid = false;
         m_error.clear();
         m_lastPacket.clear();
         m_packetCount = 0;
@@ -168,7 +174,7 @@ void BelkaPortalDevice::connectDevice(const QString& identifier)
         m_selectedAddress = identifier;
         emit displayCommandStatusChanged();
         emit readingInterrupted();
-        setState(QStringLiteral("connecting"));
+        setState(State::Connecting);
         emit readingChanged();
         logEvent(QStringLiteral("connecting"), QStringLiteral("Connecting to %1 (%2)").arg(m_name, identifier));
         m_transport->connectToDevice(device);
@@ -178,6 +184,7 @@ void BelkaPortalDevice::connectDevice(const QString& identifier)
 
 void BelkaPortalDevice::disconnectDevice()
 {
+    if (m_machineBusy || m_extractionActive) return;
     stopConnection(true);
 }
 
@@ -185,45 +192,101 @@ void BelkaPortalDevice::stopConnection(bool manual)
 {
     if (manual) flushLogs();
     m_reconnectEnabled = false;
-    m_displayWritesPending = 0;
-    emit readingInterrupted();
-    m_requested = false;
-    m_valid = false;
     m_error.clear();
     m_name.clear();
+    setState(State::Disconnecting);
+    clearConnectionData();
+    if (m_transport) m_transport->disconnectFromDevice();
+    // QtScaleBleTransport tears down and drops controller signals synchronously.
+    // CoreBluetooth exposes its outstanding cancellation through isDisconnecting().
+    if (!m_transport || !m_transport->isDisconnecting()) finishDisconnect();
+}
+
+void BelkaPortalDevice::clearConnectionData()
+{
     m_healthTimer.stop();
-    // CoreBluetooth clears isConnected before delivering its disconnect callback.
-    // Keep the outstanding lifecycle explicit so reconnect cannot overtake that callback.
-    m_waitingForDisconnect = m_waitingForDisconnect || m_transport->isConnected() || m_transport->isConnecting();
-    setState(m_waitingForDisconnect ? QStringLiteral("disconnecting") : QStringLiteral("disconnected"));
-    m_transport->disconnectFromDevice();
+    m_displayWrites.clear();
+    m_commandProperties = 0;
+    m_displayCommandStatus.clear();
+    emit displayCommandStatusChanged();
+    emit readingInterrupted();
     emit readingChanged();
 }
 
-void BelkaPortalDevice::setState(const QString& value)
+void BelkaPortalDevice::finishDisconnect()
 {
+    const bool unexpected = active();
+    if (unexpected) {
+        flushLogs();
+        m_error = QStringLiteral("PORTAL disconnected; reconnect when the machine is idle");
+        PORTAL_WARN(m_error);
+    }
+    if (m_state != State::Error) setState(unexpected ? State::Error : State::Disconnected);
+    clearConnectionData();
+    logEvent(QStringLiteral("disconnected"), QStringLiteral("Disconnected"));
+    tryReconnect();
+}
+
+bool BelkaPortalDevice::active() const
+{
+    return m_state == State::Connecting || m_state == State::Discovering
+        || m_state == State::Waiting || m_state == State::Streaming || m_state == State::Stale;
+}
+
+QString BelkaPortalDevice::state() const
+{
+    switch (m_state) {
+    case State::Disconnected: return QStringLiteral("disconnected");
+    case State::Connecting: return QStringLiteral("connecting");
+    case State::Discovering: return QStringLiteral("discovering");
+    case State::Waiting: return QStringLiteral("waiting");
+    case State::Streaming: return QStringLiteral("streaming");
+    case State::Stale: return QStringLiteral("stale");
+    case State::Error: return QStringLiteral("error");
+    case State::Disconnecting: return QStringLiteral("disconnecting");
+    }
+    Q_UNREACHABLE();
+}
+
+void BelkaPortalDevice::setState(State value)
+{
+    if (m_state == value) return;
     m_state = value;
     emit stateChanged();
 }
 
 void BelkaPortalDevice::fail(const QString& error)
 {
-    if (!m_requested) return;
-    m_requested = false;
-    m_valid = false;
+    if (!active()) return;
+    flushLogs();
     m_error = error;
-    m_healthTimer.stop();
-    setState(QStringLiteral("error"));
-    emit readingChanged();
-    emit readingInterrupted();
-    logEvent(QStringLiteral("error"), error, QtWarningMsg);
-    m_waitingForDisconnect = m_waitingForDisconnect || m_transport->isConnected() || m_transport->isConnecting();
+    setState(State::Error);
+    clearConnectionData();
+    PORTAL_WARN(error);
     m_transport->disconnectFromDevice();
+    if (!m_transport->isDisconnecting()) finishDisconnect();
+}
+
+void BelkaPortalDevice::finishDisplayWrite(bool succeeded)
+{
+    if (m_displayWrites.isEmpty()) return;
+    const auto bytes = m_displayWrites.takeFirst();
+    m_displayCommandStatus = m_displayWrites.isEmpty()
+        ? (succeeded ? QStringLiteral("acknowledged") : QStringLiteral("failed"))
+        : QStringLiteral("requested");
+    emit displayCommandStatusChanged();
+    if (succeeded) {
+        PORTAL_INFO(QStringLiteral("Display command %1 acknowledged; session state is not reported by PORTAL")
+            .arg(QString::fromLatin1(bytes.toHex(' '))));
+    } else {
+        PORTAL_WARN(QStringLiteral("PORTAL display command %1 was not acknowledged")
+            .arg(QString::fromLatin1(bytes.toHex(' '))));
+    }
 }
 
 void BelkaPortalDevice::receive(const QBluetoothUuid& chr, const QByteArray& packet, bool notification)
 {
-    if (!m_requested || !m_serviceFound || chr != measurement || !m_properties) return;
+    if (!active() || !m_serviceFound || chr != measurement || !m_properties) return;
     m_lastPacket = QString::fromLatin1(packet.toHex(' '));
     ++m_packetCount;
     if (!m_loggedPacketShape) {
@@ -233,21 +296,21 @@ void BelkaPortalDevice::receive(const QBluetoothUuid& chr, const QByteArray& pac
     }
     const auto value = BelkaPortalProtocol::decodeMeasurement(QByteArrayView(packet));
     if (!value) {
-        m_valid = false;
         emit readingInterrupted();
         m_error = QStringLiteral("Unknown PORTAL measurement format; raw packet retained");
-        logEvent(QStringLiteral("malformed"), m_error, QtWarningMsg);
-        setState(QStringLiteral("waiting"));
+        logEvent(QStringLiteral("malformed"), QStringLiteral("%1: length=%2")
+            .arg(m_error).arg(packet.size()), QtWarningMsg,
+            QStringLiteral(", hex=%1").arg(m_lastPacket));
+        if (m_state != State::Waiting) setState(State::Stale);
     } else if (notification) {
         m_ec = value->ecRaw;
         m_temperature = value->temperatureC;
-        m_valid = true;
         m_error.clear();
         m_lastMeasurement.start();
         m_healthTimer.start();
-        if (m_state != QStringLiteral("streaming")) {
+        if (m_state != State::Streaming) {
             logEvent(QStringLiteral("streaming"), QStringLiteral("Receiving measurements; EC and status units unverified"));
-            setState(QStringLiteral("streaming"));
+            setState(State::Streaming);
         }
         emit measurementReceived(m_ec, m_temperature);
     }
@@ -261,10 +324,11 @@ void BelkaPortalDevice::checkFreshness()
 
 void BelkaPortalDevice::expireReading(qint64 ageMs)
 {
-    if (m_valid && ageMs > PortalSamples::StaleAfterMs) {
-        m_valid = false;
+    if (m_state == State::Waiting && ageMs > PortalSamples::StaleAfterMs) {
+        fail(QStringLiteral("PORTAL sent no valid measurement after notification setup"));
+    } else if (hasReading() && ageMs > PortalSamples::StaleAfterMs) {
         emit readingInterrupted();
-        setState(QStringLiteral("stale"));
+        setState(State::Stale);
         emit readingChanged();
         logEvent(QStringLiteral("stale"), QStringLiteral("No measurement for more than %1 seconds")
             .arg(PortalSamples::StaleAfterSeconds));
@@ -273,14 +337,14 @@ void BelkaPortalDevice::expireReading(qint64 ageMs)
 
 bool BelkaPortalDevice::canControlDisplay() const
 {
-    return m_requested && m_transport->isConnected() && (m_commandProperties & QLowEnergyCharacteristic::Write);
+    return (m_state == State::Streaming || m_state == State::Stale) && m_transport->isConnected() && (m_commandProperties & QLowEnergyCharacteristic::Write);
 }
 
 void BelkaPortalDevice::restoreSavedDevice(const QString& address, const QString& name)
 {
     if (m_savedAddress == address && m_savedName == name) return;
     const bool replaced = m_selectedAddress != address;
-    if (replaced && (m_requested || m_waitingForDisconnect)) stopConnection(true);
+    if (replaced && (active() || (m_transport && m_transport->isDisconnecting()))) stopConnection(true);
     else if (replaced) flushLogs();
     m_savedAddress = address;
     m_savedName = name;
@@ -299,7 +363,7 @@ void BelkaPortalDevice::beginScan()
 void BelkaPortalDevice::tryReconnect()
 {
     if (!m_reconnectEnabled || m_reconnectAttempted || m_savedAddress.isEmpty()
-        || m_machineBusy || m_extractionActive || m_requested || m_waitingForDisconnect) return;
+        || m_machineBusy || m_extractionActive || active() || (m_transport && m_transport->isDisconnecting())) return;
     for (const auto& device : m_devices) {
         if (deviceIdentifiersMatch(device, m_savedAddress)) {
             // One attempt per discovery cycle; advertising cannot create a reconnect loop.
@@ -314,11 +378,11 @@ void BelkaPortalDevice::tryReconnect()
 
 void BelkaPortalDevice::reconnect()
 {
-    if (m_machineBusy || m_extractionActive || m_requested) return;
+    if (m_machineBusy || m_extractionActive || active()) return;
     m_reconnectEnabled = true;
     m_reconnectAttempted = false;
     tryReconnect();
-    if (!m_reconnectAttempted && !m_waitingForDisconnect) emit scanRequested();
+    if (!m_reconnectAttempted && !(m_transport && m_transport->isDisconnecting())) emit scanRequested();
 }
 
 void BelkaPortalDevice::forgetDevice()
@@ -347,9 +411,9 @@ void BelkaPortalDevice::writeGraphView(bool show)
 {
     if (!canControlDisplay()) return;
     m_displayCommandStatus = QStringLiteral("requested");
-    ++m_displayWritesPending;
-    emit displayCommandStatusChanged();
     const auto bytes = BelkaPortalProtocol::graphCommand(show);
+    m_displayWrites.append(bytes);
+    emit displayCommandStatusChanged();
     PORTAL_INFO(QStringLiteral("Requesting display graph %1, bytes=%2")
         .arg(show ? QStringLiteral("on") : QStringLiteral("off"), QString::fromLatin1(bytes.toHex(' '))));
     m_transport->writeCharacteristic(service, command, bytes, ScaleBleTransport::WriteType::WithResponse);
@@ -365,14 +429,16 @@ void BelkaPortalDevice::setExtractionActive(bool active)
     } else {
         if (m_displayStartedForShot) writeGraphView(false);
         m_displayStartedForShot = false;
+        flushLogs();
     }
 }
 
-void BelkaPortalDevice::logEvent(const QString& key, const QString& message, QtMsgType level)
+void BelkaPortalDevice::logEvent(const QString& key, const QString& message, QtMsgType level,
+                                const QString& detail)
 {
     LogCollapse::Collapsed collapsed;
     if (!m_logCollapse.shouldLog(key, message, m_logClock.elapsed(), &collapsed)) return;
-    const auto line = message + LogCollapse::suffix(collapsed);
+    const auto line = message + detail + LogCollapse::suffix(collapsed);
     if (level == QtWarningMsg) { PORTAL_WARN(line); }
     else if (level == QtDebugMsg) { PORTAL_DEBUG(line); }
     else { PORTAL_INFO(line); }

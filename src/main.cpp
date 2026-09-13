@@ -2249,9 +2249,9 @@ int main(int argc, char *argv[])
     ScaleDeviceProxy scaleProxy;
     RefractometerProxy refractometerProxy;
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    BelkaPortalDevice belkaPortal(new CoreBluetoothScaleBleTransport());
+    BelkaPortalDevice belkaPortal([] { return new CoreBluetoothScaleBleTransport(); });
 #else
-    BelkaPortalDevice belkaPortal(new QtScaleBleTransport());
+    BelkaPortalDevice belkaPortal([] { return new QtScaleBleTransport(); });
 #endif
     BelkaPortalForeign::s_singletonInstance = &belkaPortal;
     connectPortalDiscovery(&bleManager, &belkaPortal);
