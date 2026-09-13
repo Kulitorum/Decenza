@@ -203,7 +203,7 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
-    QByteArray jsonData = buildHistoryShotJson(shotData);
+    QByteArray jsonData = buildHistoryShotJson(shotData, false);
     sendUpload(jsonData);
 }
 
@@ -1219,8 +1219,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
                                               qint64 shotEpoch)
 {
     QJsonObject root;
-    if (!shotData->portalSamples().isEmpty())
-        root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData->portalSamplesVariant());
+    // The unverified PORTAL extension belongs to local exports only.
 
     // Get data from ShotDataModel
     const auto& pressureData = shotData->pressureData();
@@ -1745,10 +1744,10 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 }
 
 // static
-QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData)
+QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData, bool includePortal)
 {
     QJsonObject root;
-    if (!shotData.portalSamples.isEmpty())
+    if (includePortal && !shotData.portalSamples.isEmpty())
         root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData.portalSamples);
     root["version"] = 2;
 

@@ -55,10 +55,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     refractometer["name"] = settings->savedRefractometerName();
     root["refractometer"] = refractometer;
 
-    AppSettings portalSettings;
-    root["portal"] = QJsonObject{{"address", portalSettings.value("portal/address").toString()},
-        {"name", portalSettings.value("portal/name").toString()},
-        {"syncDisplay", portalSettings.value("portal/syncDisplay", true).toBool()}};
+    root["portal"] = QJsonObject{{"address", settings->hardware()->portalAddress()},
+        {"name", settings->hardware()->portalName()},
+        {"syncDisplay", settings->hardware()->portalSyncDisplay()}};
 
     // Espresso settings
     QJsonObject espresso;
@@ -440,10 +439,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
 {
     if (json.contains("portal") && !excludeKeys.contains("portal")) {
         const auto portal = json.value("portal").toObject();
-        AppSettings portalSettings;
-        portalSettings.setValue("portal/address", portal.value("address").toString());
-        portalSettings.setValue("portal/name", portal.value("name").toString());
-        portalSettings.setValue("portal/syncDisplay", portal.value("syncDisplay").toBool(true));
+        settings->hardware()->setPortalSyncDisplay(portal.value("syncDisplay").toBool(true));
+        settings->hardware()->setPortalDevice(portal.value("address").toString(), portal.value("name").toString());
     }
     // Set false by any step that could not apply what the backup asked for.
     // The single `return true` this function used to end on made every failure

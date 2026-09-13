@@ -52,6 +52,28 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void portalLiveAppendIsIncrementalAndRangeResets() {
+        ShotDataModel model;
+        QSignalSpy points(&model, &ShotDataModel::portalSampleAdded);
+        for (int i = 0; i < 6000; ++i) model.addPortalSample(i * 0.1, i * 0.001 - 1.0, 75.0);
+        QCOMPARE(points.count(), 6000);
+        QCOMPARE(model.portalSampleCount(), 6000);
+        QCOMPARE(model.portalEcMin(), -1.0);
+        QVERIFY(model.portalEcMax() > 4.9);
+        QCOMPARE(points.last()[0].toDouble(), 599.9);
+        QVERIFY(points.first()[3].toBool());
+        QVERIFY(!points.last()[3].toBool());
+        model.addPortalSample(599.8, 99.0, 75.0); // invalid ordering must not reach renderer or range
+        QCOMPARE(points.count(), 6000);
+        QVERIFY(model.portalEcMax() < 5.0);
+        model.clear();
+        QCOMPARE(model.portalSampleCount(), 0);
+        QCOMPARE(model.portalEcMin(), 0.0);
+        QCOMPARE(model.portalEcMax(), 0.1);
+        model.addPortalSample(0, 0.5, 25.0);
+        QVERIFY(points.last()[3].toBool());
+    }
+
     void portalSamplesKeepTimestampsAndGaps() {
         ShotDataModel model;
         QSignalSpy changed(&model, &ShotDataModel::portalSamplesChanged);
@@ -98,6 +120,9 @@ private slots:
         QCOMPARE(projection.portalSamples, model.portalSamplesVariant());
         QCOMPARE(ShotProjection::fromVariantMap(projection.toVariantMap()).portalSamples, model.portalSamplesVariant());
         const QJsonObject exported = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection)).object();
+        const auto upload = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection, false)).object();
+        QVERIFY(!upload.contains("decenza_portal_samples"));
+        QVERIFY(exported.contains("decenza_portal_samples"));
         // Visualizer's download schema differs from Decenza's v2 file export.
         // Exercise optional PORTAL decoding with a valid download-shaped fixture;
         // this does not assert that the remote service retains the extension.

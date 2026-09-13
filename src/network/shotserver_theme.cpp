@@ -2,6 +2,7 @@
 #include "shotserver.h"
 #include "../core/settings.h"
 #include "../core/settings_theme.h"
+#include "../core/settings_hardware.h"
 #include "../core/widgetlibrary.h"
 #include "webtemplates/theme_page.h"
 
@@ -13,6 +14,7 @@
 QJsonObject ShotServer::buildThemeJson() const
 {
     QJsonObject result;
+    result["portalAvailable"] = !m_settings->hardware()->portalAddress().isEmpty();
 
     if (!m_settings) {
         return result;

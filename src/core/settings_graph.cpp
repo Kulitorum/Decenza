@@ -55,7 +55,7 @@ void SettingsGraph::writeBool(QLatin1String key, bool defaultValue, bool value,
         writeBool(Key, Default, show, &SettingsGraph::Signal);       \
     }
 
-// Eleven properties differing only in key, default and signal. Written out by hand this is
+// Graph visibility properties differing only in key, default and signal. Written out by hand this is
 // 88 lines in which a single mismatched key or default hides indefinitely — the defaults in
 // particular were already duplicated across five QML files before this class existed.
 DECENZA_GRAPH_BOOL(showPortalEc, setShowPortalEc, kKeyShowPortalEc, true, showPortalEcChanged)

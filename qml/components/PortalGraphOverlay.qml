@@ -8,10 +8,11 @@ Item {
     property var axisX: null
     property var samples: []
     property bool showLabels: true
-    readonly property bool hasData: samples.length > 0
+    property bool live: false
+    readonly property bool hasData: live ? ShotDataModel.portalSampleCount > 0 : samples.length > 0
     readonly property bool hasVisibleData: hasData && (Settings.graph.showPortalEc || Settings.graph.showPortalTemperature)
     readonly property real labelWidth: hasVisibleData && showLabels ? Theme.scaled(125) : 0
-    readonly property real lastTime: hasData ? samples[samples.length - 1].time : 0
+    readonly property real lastTime: live ? ShotDataModel.rawTime : (hasData ? samples[samples.length - 1].time : 0)
 
     function segments(field) {
         var result = []
@@ -27,9 +28,10 @@ Item {
         if (current.length) result.push(current)
         return result
     }
-    readonly property var ecSegments: segments("ecRaw")
-    readonly property var temperatureSegments: segments("temperatureC")
+    readonly property var ecSegments: live ? [] : segments("ecRaw")
+    readonly property var temperatureSegments: live ? [] : segments("temperatureC")
     readonly property var ecRange: {
+        if (live) return [ShotDataModel.portalEcMin * 1.1, ShotDataModel.portalEcMax * 1.1]
         var lo = 0
         var hi = 0.1
         for (var i = 0; i < samples.length; i++) {
@@ -74,6 +76,73 @@ Item {
             strokeColor: Theme.portalTemperatureColor
             strokeWidth: Theme.graphLineWidth
             visible: Settings.graph.showPortalTemperature && points.length >= 2
+        }
+    }
+    // Live capture appends directly to persistent native renderers. Only page entry
+    // replays the saved list; packet arrivals never copy/re-segment that list.
+    property var liveSegments: []
+    function clearLive() {
+        for (var i = 0; i < liveSegments.length; i++) liveSegments[i].destroy()
+        liveSegments = []
+    }
+    function appendLive(time, ecRaw, temperatureC, breakBefore) {
+        if (!live) return
+        if (breakBefore || liveSegments.length === 0) {
+            var segment = liveSegment.createObject(portalGraph)
+            if (!segment) return
+            liveSegments.push(segment)
+        }
+        var current = liveSegments[liveSegments.length - 1]
+        current.ec.appendPoint(time, ecRaw)
+        current.temperature.appendPoint(time, temperatureC)
+    }
+    Component.onCompleted: {
+        if (!live) return
+        var initial = ShotDataModel.portalSamples
+        for (var i = 0; i < initial.length; i++) {
+            var sample = initial[i]
+            appendLive(sample.time, sample.ecRaw, sample.temperatureC, sample.breakBefore)
+        }
+    }
+    Connections {
+        target: portalGraph.live ? ShotDataModel : null
+        function onPortalSampleAdded(time, ecRaw, temperatureC, breakBefore) {
+            portalGraph.appendLive(time, ecRaw, temperatureC, breakBefore)
+        }
+        function onCleared() { portalGraph.clearLive() }
+    }
+    Component {
+        id: liveSegment
+        Item {
+            readonly property alias ec: liveEc
+            readonly property alias temperature: liveTemperature
+            x: portalGraph.graphsView ? portalGraph.graphsView.plotArea.x : 0
+            y: portalGraph.graphsView ? portalGraph.graphsView.plotArea.y : 0
+            width: portalGraph.graphsView ? portalGraph.graphsView.plotArea.width : 0
+            height: portalGraph.graphsView ? portalGraph.graphsView.plotArea.height : 0
+            clip: true
+            FastLineRenderer {
+                id: liveEc
+                anchors.fill: parent
+                minX: portalGraph.axisX ? portalGraph.axisX.min : 0
+                maxX: portalGraph.axisX ? portalGraph.axisX.max : 1
+                minY: ecAxis.min
+                maxY: ecAxis.max
+                color: Theme.portalEcColor
+                lineWidth: Theme.graphLineWidth
+                visible: Settings.graph.showPortalEc
+            }
+            FastLineRenderer {
+                id: liveTemperature
+                anchors.fill: parent
+                minX: portalGraph.axisX ? portalGraph.axisX.min : 0
+                maxX: portalGraph.axisX ? portalGraph.axisX.max : 1
+                minY: outletAxis.min
+                maxY: outletAxis.max
+                color: Theme.portalTemperatureColor
+                lineWidth: Theme.graphLineWidth
+                visible: Settings.graph.showPortalTemperature
+            }
         }
     }
     Item {

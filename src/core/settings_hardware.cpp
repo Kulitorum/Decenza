@@ -10,6 +10,31 @@
 #include <QtGlobal>
 #include <QDebug>
 
+namespace {
+constexpr auto portalAddressKey = "portal/address";
+constexpr auto portalNameKey = "portal/name";
+constexpr auto portalSyncDisplayKey = "portal/syncDisplay";
+}
+
+QString SettingsHardware::portalAddress() const { return m_settings.value(portalAddressKey).toString(); }
+QString SettingsHardware::portalName() const { return m_settings.value(portalNameKey).toString(); }
+bool SettingsHardware::portalSyncDisplay() const { return m_settings.value(portalSyncDisplayKey, true).toBool(); }
+
+void SettingsHardware::setPortalDevice(const QString& address, const QString& name)
+{
+    if (portalAddress() == address && portalName() == name) return;
+    m_settings.setValue(portalAddressKey, address);
+    m_settings.setValue(portalNameKey, name);
+    emit portalDeviceChanged();
+}
+
+void SettingsHardware::setPortalSyncDisplay(bool enabled)
+{
+    if (portalSyncDisplay() == enabled) return;
+    m_settings.setValue(portalSyncDisplayKey, enabled);
+    emit portalSyncDisplayChanged();
+}
+
 SettingsHardware::SettingsHardware(QObject* parent)
     : QObject(parent)
 {

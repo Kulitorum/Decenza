@@ -145,6 +145,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/belkaportaldiscovery.h"
+#include "controllers/portalcontroller.h"
 // For the [DE1][Simulator] attach line below — main.cpp owns the simulator's
 // lifetime, so it is the only place that can report it.
 #include "ble/de1logging.h"
@@ -2242,50 +2243,8 @@ int main(int argc, char *argv[])
 #endif
     BelkaPortalForeign::s_singletonInstance = &belkaPortal;
     connectPortalDiscovery(&bleManager, &belkaPortal);
-    AppSettings portalSettings;
-    belkaPortal.restoreSavedDevice(portalSettings.value("portal/address").toString(),
-                                  portalSettings.value("portal/name").toString());
-    belkaPortal.setSyncDisplay(portalSettings.value("portal/syncDisplay", true).toBool());
-    QObject::connect(&belkaPortal, &BelkaPortalDevice::savedDeviceChanged, &belkaPortal, [&] {
-        portalSettings.setValue("portal/address", belkaPortal.savedAddress());
-        portalSettings.setValue("portal/name", belkaPortal.savedName());
-    });
-    QObject::connect(&belkaPortal, &BelkaPortalDevice::syncDisplayChanged, &belkaPortal, [&] {
-        portalSettings.setValue("portal/syncDisplay", belkaPortal.syncDisplay());
-    });
-    bool portalCaptureOpen = false;
-    QObject::connect(&timingController, &ShotTimingController::extractionClockStarted, &belkaPortal, [&] {
-        portalCaptureOpen = true;
-        shotDataModel.markPortalGap();
-        belkaPortal.setExtractionActive(true);
-    });
-    QObject::connect(&timingController, &ShotTimingController::shotProcessingReady, &belkaPortal, [&] {
-        portalCaptureOpen = false;
-        belkaPortal.setExtractionActive(false);
-    });
-    QObject::connect(&belkaPortal, &BelkaPortalDevice::readingInterrupted, &shotDataModel, &ShotDataModel::markPortalGap);
-    QObject::connect(&belkaPortal, &BelkaPortalDevice::measurementReceived, &shotDataModel,
-                     [&](double ecRaw, double temperatureC) {
-        if (!portalCaptureOpen) return;
-        const auto time = timingController.sensorTime(QDateTime::currentMSecsSinceEpoch());
-        if (time) shotDataModel.addPortalSample(*time, ecRaw, temperatureC);
-    });
-    // Reuse discovery; a remembered peripheral is attempted once when it is observed.
-    if (!belkaPortal.savedAddress().isEmpty())
-        QMetaObject::invokeMethod(&belkaPortal, &BelkaPortalDevice::reconnect, Qt::QueuedConnection);
-    const auto updatePortalMachineState = [&] {
-        const auto phase = machineState.phase();
-        using Phase = MachineState::Phase;
-        if (phase == Phase::Disconnected) {
-            portalCaptureOpen = false;
-            belkaPortal.setExtractionActive(false);
-            shotDataModel.markPortalGap();
-        }
-        belkaPortal.setMachineBusy(phase != Phase::Disconnected && phase != Phase::Sleep
-            && phase != Phase::Idle && phase != Phase::Heating && phase != Phase::Ready);
-    };
-    QObject::connect(&machineState, &MachineState::phaseChanged, &belkaPortal, updatePortalMachineState);
-    updatePortalMachineState();
+    PortalController portalController(&belkaPortal, settings.hardware(), &machineState,
+                                     &timingController, &shotDataModel);
     mainController.setScaleDeviceProxy(&scaleProxy);
 
     // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —

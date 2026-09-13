@@ -1009,8 +1009,8 @@ Item {
                     spacing: Theme.scaled(10)
 
                     Tr {
-                        key: "settings.bluetooth.scalesSensors"
-                        fallback: "Scales & Sensors"
+                        key: "settings.bluetooth.scalesRefractometer"
+                        fallback: "Scales / Refractometer"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -1082,8 +1082,8 @@ Item {
                             text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
                             accessibleName: BLEManager.scanning
                                 ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
-                                : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, refractometers and PORTAL")
-                            enabled: !BLEManager.scanning && !BelkaPortal.machineBusy
+                                : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
+                            enabled: !BLEManager.scanning
                             onClicked: BLEManager.scanForDevices()
                         }
                     }
@@ -1772,7 +1772,10 @@ Item {
                         }
                     }
 
-                    PortalDevicePanel { Layout.fillWidth: true }
+                    PortalDevicePanel {
+                        Layout.fillWidth: true
+                        visible: BelkaPortal.savedAddress.length > 0
+                    }
 
                     Tr {
                         Layout.fillWidth: true

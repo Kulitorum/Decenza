@@ -120,6 +120,8 @@ void ShotDataModel::clear() {
     // Clear data vectors (keep capacity)
     m_pressurePoints.clear();
     m_portalSamples.clear();
+    m_portalEcMin = 0;
+    m_portalEcMax = 0.1;
     m_portalGap = true;
     m_portalDirty = false;
     m_flowPoints.clear();
@@ -514,8 +516,12 @@ void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatur
         return;
     }
     // A stalled event loop may deliver the next packet before the freshness timer runs.
-    const bool silentGap = !m_portalSamples.isEmpty() && time - m_portalSamples.last().time > 5.0;
-    m_portalSamples.append({time, ecRaw, temperatureC, m_portalGap || silentGap});
+    const bool silentGap = !m_portalSamples.isEmpty() && time - m_portalSamples.last().time > PortalSamples::StaleAfterSeconds;
+    const bool breakBefore = m_portalGap || silentGap;
+    m_portalSamples.append({time, ecRaw, temperatureC, breakBefore});
+    m_portalEcMin = qMin(m_portalEcMin, ecRaw);
+    m_portalEcMax = qMax(m_portalEcMax, ecRaw);
+    emit portalSampleAdded(time, ecRaw, temperatureC, breakBefore);
     m_portalGap = false;
     m_portalDirty = true;
     m_dirty = true;

@@ -3,6 +3,7 @@
 #include "transport/scalebletransport.h"
 #include "protocol/belkaportalprotocol.h"
 #include <QElapsedTimer>
+#include "core/logcollapse.h"
 #include <QVariantList>
 
 // PORTAL measurements and display commands; machine/scale control stays with their drivers.
@@ -82,6 +83,16 @@ private:
     void expireReading(qint64 ageMs);
     void tryReconnect();
     void writeGraphView(bool show);
+    void stopConnection(bool manual);
+    void logEvent(const QString& key, const QString& message, QtMsgType level = QtInfoMsg);
+    void flushLogs();
+    // One selected-device episode; flush on manual disconnect/selection change/destruction.
+    // Automatic busy/stale cycles keep their independent event keys collapsed.
+    LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
+    QElapsedTimer m_logClock;
+    bool m_loggedPacketShape = false;
+    bool m_waitingForDisconnect = false;
+    QString m_selectedAddress;
 
     ScaleBleTransport* m_transport;
     QList<QBluetoothDeviceInfo> m_devices;

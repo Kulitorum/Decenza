@@ -1335,7 +1335,12 @@ add_decenza_test(tst_belkaportal
     tst_belkaportal.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/belkaportaldevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/belkaportaldevice.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/portalcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/portalcontroller.h
+    ${CMAKE_BINARY_DIR}/version_code.cpp
 )
+target_link_libraries(tst_belkaportal PRIVATE decenza_shotlib decenza_settingsserializerlib)
+target_include_directories(tst_belkaportal PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_difluidr1: DiFluid R1 key derivation, AES decrypt, plaintext parsing (#1307) ---
 add_decenza_test(tst_difluidr1

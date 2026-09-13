@@ -146,7 +146,7 @@ Item {
         anchors.fill: parent
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        samples: ShotDataModel.portalSamples
+        live: true
     }
 
     // === HIDDEN RIGHT-AXIS HOLDERS ===
