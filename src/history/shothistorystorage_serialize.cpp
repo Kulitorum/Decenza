@@ -102,6 +102,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.flow = pointsToVariant(record.flow);
     p.temperature = pointsToVariant(record.temperature);
     p.temperatureMix = pointsToVariant(record.temperatureMix);
+    p.portalSamples = PortalSamples::toVariant(record.portalSamples);
     p.resistance = pointsToVariant(record.resistance);
     p.conductance = pointsToVariant(record.conductance);
     p.darcyResistance = pointsToVariant(record.darcyResistance);

@@ -775,6 +775,7 @@ signals:
     void refractometersChanged();
     void refractometerConnectedChanged();
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);
+    void portalDiscovered(const QBluetoothDeviceInfo& device);
     void disconnectRefractometerRequested();
     // Emitted when the review-page refractometer hunt turns on/off. The R2 is
     // only pursued while the hunt is active, so main.cpp arms the persistent

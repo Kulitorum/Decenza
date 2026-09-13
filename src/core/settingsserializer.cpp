@@ -55,6 +55,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     refractometer["name"] = settings->savedRefractometerName();
     root["refractometer"] = refractometer;
 
+    AppSettings portalSettings;
+    root["portal"] = QJsonObject{{"address", portalSettings.value("portal/address").toString()},
+        {"name", portalSettings.value("portal/name").toString()},
+        {"syncDisplay", portalSettings.value("portal/syncDisplay", true).toBool()}};
+
     // Espresso settings
     QJsonObject espresso;
     espresso["temperature"] = settings->brew()->espressoTemperature();
@@ -433,6 +438,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& json,
                                         const QStringList& excludeKeys)
 {
+    if (json.contains("portal") && !excludeKeys.contains("portal")) {
+        const auto portal = json.value("portal").toObject();
+        AppSettings portalSettings;
+        portalSettings.setValue("portal/address", portal.value("address").toString());
+        portalSettings.setValue("portal/name", portal.value("name").toString());
+        portalSettings.setValue("portal/syncDisplay", portal.value("syncDisplay").toBool(true));
+    }
     // Set false by any step that could not apply what the backup asked for.
     // The single `return true` this function used to end on made every failure
     // unreportable by construction.

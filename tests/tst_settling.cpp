@@ -91,6 +91,29 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.startShot();
+        QVERIFY(!tc.sensorTime(QDateTime::currentMSecsSinceEpoch()).has_value());
+        QSignalSpy started(&tc, &ShotTimingController::extractionClockStarted);
+        ShotSample sample;
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        QCOMPARE(started.count(), 1);
+        const qint64 origin = tc.m_displayTimeBase;
+        QCOMPARE(tc.sensorTime(origin + 425).value(), 0.425);
+        QVERIFY(!tc.sensorTime(origin - 1).has_value());
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 3, false);
+        QCOMPARE(started.count(), 1);
+        tc.m_shotActive = false;
+        tc.m_sawSettling = true;
+        QCOMPARE(tc.sensorTime(origin + 31000).value(), 31.0);
+        tc.m_sawSettling = false;
+        QVERIFY(!tc.sensorTime(origin + 32000).has_value());
+        tc.startShot();
+        QVERIFY(!tc.sensorTime(origin + 33000).has_value());
+    }
+
     // ===== trimSettlingData() =====
 
     void trimRemovesTrailingZeroPressure() {

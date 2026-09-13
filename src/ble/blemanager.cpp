@@ -1,5 +1,6 @@
 #include "core/applogging.h"
 #include "blemanager.h"
+#include "belkaportaldevice.h"
 #include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
@@ -1438,6 +1439,11 @@ void BLEManager::clearDevices() {
 void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
     // BLE is actually delivering devices → permission is healthy.
     m_anyBleSuccessThisSession = true;
+
+    if (BelkaPortalDevice::isPortal(device)) {
+        emit portalDiscovered(device);
+        return;
+    }
 
     // Check if it's a DE1
     if (isDE1Device(device)) {

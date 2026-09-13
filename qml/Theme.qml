@@ -927,6 +927,8 @@ QtObject {
     property color pressureGoalColor: _c("pressureGoalColor", Settings.theme.customThemeColors.pressureGoalColor || "#69fdb3")
     property color flowColor: _c("flowColor", Settings.theme.customThemeColors.flowColor || "#4e85f4")
     property color flowGoalColor: _c("flowGoalColor", Settings.theme.customThemeColors.flowGoalColor || "#7aaaff")
+    readonly property color portalEcColor: isDarkMode ? "#26d7bb" : "#007d68"
+    readonly property color portalTemperatureColor: isDarkMode ? "#dd83ff" : "#872cac"
     property color temperatureColor: _c("temperatureColor", Settings.theme.customThemeColors.temperatureColor || "#e73249")
     property color temperatureGoalColor: _c("temperatureGoalColor", Settings.theme.customThemeColors.temperatureGoalColor || "#ffa5a6")
     property color weightColor: _c("weightColor", Settings.theme.customThemeColors.weightColor || "#a2693d")

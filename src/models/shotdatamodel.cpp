@@ -9,6 +9,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
 {
     // Pre-allocate vectors to avoid reallocations during shot
     m_pressurePoints.reserve(INITIAL_CAPACITY);
+    m_portalSamples.reserve(INITIAL_CAPACITY);
     m_flowPoints.reserve(INITIAL_CAPACITY);
     m_temperaturePoints.reserve(INITIAL_CAPACITY);
     m_temperatureMixPoints.reserve(INITIAL_CAPACITY);
@@ -118,6 +119,9 @@ void ShotDataModel::clear() {
 
     // Clear data vectors (keep capacity)
     m_pressurePoints.clear();
+    m_portalSamples.clear();
+    m_portalGap = true;
+    m_portalDirty = false;
     m_flowPoints.clear();
     m_temperaturePoints.clear();
     m_temperatureMixPoints.clear();
@@ -177,6 +181,7 @@ void ShotDataModel::clear() {
     m_goalCurvesDirty = false;
 
     emit cleared();
+    emit portalSamplesChanged();
     emit phaseMarkersChanged();
     emit goalCurvesChanged();
     emit maxTimeChanged();
@@ -502,6 +507,22 @@ void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameN
     emit phaseMarkersChanged();
 }
 
+void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatureC) {
+    if (!std::isfinite(time) || !std::isfinite(ecRaw) || !std::isfinite(temperatureC)
+        || time < 0 || (!m_portalSamples.isEmpty() && time < m_portalSamples.last().time)) {
+        markPortalGap();
+        return;
+    }
+    // A stalled event loop may deliver the next packet before the freshness timer runs.
+    const bool silentGap = !m_portalSamples.isEmpty() && time - m_portalSamples.last().time > 5.0;
+    m_portalSamples.append({time, ecRaw, temperatureC, m_portalGap || silentGap});
+    m_portalGap = false;
+    m_portalDirty = true;
+    m_dirty = true;
+    if (time > m_rawTime) { m_rawTime = time; m_rawTimeDirty = true; }
+    if (!m_flushTimer->isActive()) m_flushTimer->start();
+}
+
 void ShotDataModel::onFlushTimerTick() {
     if (!m_dirty) return;
 
@@ -566,6 +587,10 @@ void ShotDataModel::onFlushTimerTick() {
         emit rawTimeChanged();
     }
 
+    if (m_portalDirty) {
+        m_portalDirty = false;
+        emit portalSamplesChanged();
+    }
     m_dirty = false;
     emit flushed();
 }

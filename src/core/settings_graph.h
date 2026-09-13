@@ -23,6 +23,8 @@ class SettingsGraph : public QObject {
 
     // Trace visibility. Names match the storage keys minus the `graph/` prefix, and match
     // the property names the graphs already used, so QML reads change only in their prefix.
+    Q_PROPERTY(bool showPortalEc READ showPortalEc WRITE setShowPortalEc NOTIFY showPortalEcChanged FINAL)
+    Q_PROPERTY(bool showPortalTemperature READ showPortalTemperature WRITE setShowPortalTemperature NOTIFY showPortalTemperatureChanged FINAL)
     Q_PROPERTY(bool showPressure READ showPressure WRITE setShowPressure NOTIFY showPressureChanged FINAL)
     Q_PROPERTY(bool showFlow READ showFlow WRITE setShowFlow NOTIFY showFlowChanged FINAL)
     Q_PROPERTY(bool showTemperature READ showTemperature WRITE setShowTemperature NOTIFY showTemperatureChanged FINAL)
@@ -64,6 +66,10 @@ public:
     static constexpr QLatin1String kRightAxisTemperature{"temperature"};
     static constexpr QLatin1String kRightAxisFlow{"flow"};
 
+    bool showPortalEc() const;
+    void setShowPortalEc(bool show);
+    bool showPortalTemperature() const;
+    void setShowPortalTemperature(bool show);
     bool showPressure() const;
     void setShowPressure(bool show);
     bool showFlow() const;
@@ -115,6 +121,8 @@ public:
     static QString nextRightAxisMode(const QString& current);
 
 signals:
+    void showPortalEcChanged();
+    void showPortalTemperatureChanged();
     void showPressureChanged();
     void showFlowChanged();
     void showTemperatureChanged();

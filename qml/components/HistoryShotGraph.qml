@@ -58,6 +58,7 @@ Item {
     property var inspectValues: ({})
 
     // Data to display (set from parent)
+    property var portalSamples: []
     property var pressureData: []
     property var flowData: []
     property var temperatureData: []
@@ -129,7 +130,7 @@ Item {
         for (var m = 0; m < phaseMarkers.length; m++) {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
         }
-        var axisEnd = Math.max(maxTime, markerMaxTime)
+        var axisEnd = Math.max(maxTime, markerMaxTime, portalOverlay.lastTime)
         timeAxis.max = Math.max(5, GraphUtils.paddedAxisEnd(axisEnd, graphsView.plotArea.width, Theme.scaled(5)))
     }
 
@@ -396,10 +397,21 @@ Item {
         }
     }
 
+    PortalGraphOverlay {
+        id: portalOverlay
+        anchors.fill: parent
+        z: 2
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        samples: chart.portalSamples
+        showLabels: chart.showLabels
+    }
+    onPortalSamplesChanged: Qt.callLater(chart.updateTimeAxis)
+
     GraphsView {
         id: graphsView
         anchors.fill: parent
-        anchors.rightMargin: chart.showLabels ? Theme.scaled(35) : 0
+        anchors.rightMargin: portalOverlay.labelWidth + (chart.showLabels ? Theme.scaled(portalOverlay.hasVisibleData ? 55 : 35) : 0)
         theme: DecenzaGraphsTheme {}
 
         axisX: timeAxis

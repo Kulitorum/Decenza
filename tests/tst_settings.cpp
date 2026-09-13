@@ -15,6 +15,8 @@
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
+#include "core/appsettings.h"
+#include <QScopeGuard>
 #include "network/grindcandidates.h"
 #include <QJsonObject>
 #include <QJsonArray>
@@ -320,6 +322,37 @@ private slots:
         // recipe-auto-load: restored last so it wins regardless of what the
         // autoLoadProfileFilename restore above may have cross-cleared it to.
         m_settings.dye()->setAutoLoadRecipeId(m_origAutoLoadRecipeId);
+    }
+
+    void portalSelectionAndDisplayPreferenceSurviveBackup() {
+        AppSettings raw;
+        const QStringList keys{"portal/address", "portal/name", "portal/syncDisplay"};
+        QVariantMap original;
+        for (const auto& key : keys) original[key] = raw.value(key);
+        const auto restore = qScopeGuard([&] {
+            for (const auto& key : keys) {
+                if (original[key].isValid()) raw.setValue(key, original[key]);
+                else raw.remove(key);
+            }
+        });
+        raw.setValue(keys[0], "AA:BB:CC:DD:EE:FF");
+        raw.setValue(keys[1], "Test PORTAL");
+        raw.setValue(keys[2], false);
+        const auto portal = SettingsSerializer::exportToJson(&m_settings, false)["portal"].toObject();
+        QCOMPARE(portal.value("address").toString(), QString("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(portal.value("name").toString(), QString("Test PORTAL"));
+        QVERIFY(portal.contains("syncDisplay"));
+        QVERIFY(!portal.value("syncDisplay").toBool());
+        for (const auto& key : keys) raw.remove(key);
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"portal", portal}});
+        QCOMPARE(raw.value(keys[0]).toString(), QString("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(raw.value(keys[1]).toString(), QString("Test PORTAL"));
+        QCOMPARE(raw.value(keys[2]), QVariant(false));
+        // Old backups and an explicitly excluded pairing must preserve this device.
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{});
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"portal", QJsonObject{}}}, {"portal"});
+        QCOMPARE(raw.value(keys[0]).toString(), QString("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(raw.value(keys[2]), QVariant(false));
     }
 
     // ==========================================

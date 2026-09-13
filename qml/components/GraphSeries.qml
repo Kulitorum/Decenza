@@ -21,6 +21,10 @@ QtObject {
     // `advanced` entries appear only in advanced mode; `postShotOnly` entries are hidden on
     // the live graph, where the curve cannot be computed until the shot is complete.
     readonly property var entries: [
+        { label: TranslationManager.translate("portal.legendEc", "PORTAL EC"), sColor: Theme.portalEcColor, key: "showPortalEc", dataKey: "portalEc", shortLabel: "EC", portal: true,
+          tip: TranslationManager.translate("portal.ecTip", "Electrical conductivity, raw value. Units are unverified; this is not TDS.") },
+        { label: TranslationManager.translate("portal.legendTemp", "PORTAL temp"), sColor: Theme.portalTemperatureColor, key: "showPortalTemperature", dataKey: "portalTemp", shortLabel: "Tp", portal: true,
+          tip: TranslationManager.translate("portal.tempTip", "Outlet temperature measured by PORTAL, on its own temperature axis.") },
         { label: TranslationManager.translate("graph.pressure", "Pressure"), sColor: Theme.pressureColor, key: "showPressure", dataKey: "pressure", shortLabel: "P",
           tip: TranslationManager.translate("graph.tip.pressure", "Pump pressure in bar. Shows the machine's intent — what it's trying to do.") },
         { label: TranslationManager.translate("graph.flow", "Flow"), sColor: Theme.flowColor, key: "showFlow", dataKey: "flow", shortLabel: "F",

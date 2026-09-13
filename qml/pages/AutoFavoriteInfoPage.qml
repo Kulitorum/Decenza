@@ -217,6 +217,7 @@ T.Page {
                     flowGoalData: autoFavoriteInfoPage.shotData.flowGoal || []
                     temperatureGoalData: autoFavoriteInfoPage.shotData.temperatureGoal || []
                     temperatureMixData: autoFavoriteInfoPage.shotData.temperatureMix || []
+                    portalSamples: autoFavoriteInfoPage.shotData.portalSamples || []
                     temperatureMixGoalData: autoFavoriteInfoPage.shotData.temperatureMixGoal || []
                     phaseMarkers: autoFavoriteInfoPage.shotData.phases || []
                     maxTime: autoFavoriteInfoPage.shotData.durationSec || 60
