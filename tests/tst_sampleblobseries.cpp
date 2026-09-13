@@ -59,6 +59,8 @@ private slots:
         QCOMPARE(points.count(), 6000);
         QCOMPARE(model.portalSampleCount(), 6000);
         QCOMPARE(model.portalEcMin(), -1.0);
+        QCOMPARE(model.portalEcBounds(model.portalSamplesVariant()),
+                 QVariantList({model.portalEcMin(), model.portalEcMax()}));
         QVERIFY(model.portalEcMax() > 4.9);
         QCOMPARE(points.last()[0].toDouble(), 599.9);
         QVERIFY(points.first()[3].toBool());
@@ -119,8 +121,8 @@ private slots:
         const auto projection = ShotHistoryStorage::convertShotRecord(record);
         QCOMPARE(projection.portalSamples, model.portalSamplesVariant());
         QCOMPARE(ShotProjection::fromVariantMap(projection.toVariantMap()).portalSamples, model.portalSamplesVariant());
-        const QJsonObject exported = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection)).object();
-        const auto upload = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection, false)).object();
+        const QJsonObject exported = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection, true)).object();
+        const auto upload = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection)).object();
         QVERIFY(!upload.contains("decenza_portal_samples"));
         QVERIFY(exported.contains("decenza_portal_samples"));
         // Visualizer's download schema differs from Decenza's v2 file export.

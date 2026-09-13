@@ -58,9 +58,11 @@ public:
 
     /**
      * Disconnect from the current device.
-     * Emits disconnected() when complete.
+     * Qt tears down synchronously without emitting disconnected(). Native
+     * transports may finish later; isDisconnecting() covers that interval.
      */
     virtual void disconnectFromDevice() = 0;
+    virtual bool isDisconnecting() const { return false; }
 
     /**
      * Start service discovery.

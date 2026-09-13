@@ -27,13 +27,17 @@ class BelkaPortalDevice : public QObject {
     Q_PROPERTY(QString displayCommandStatus READ displayCommandStatus NOTIFY displayCommandStatusChanged)
 
 public:
+    enum class State { Disconnected, Connecting, Discovering, Waiting, Streaming, Stale, Error, Disconnecting };
+    Q_ENUM(State)
+    using TransportFactory = std::function<ScaleBleTransport*()>;
+    explicit BelkaPortalDevice(TransportFactory factory, QObject* parent = nullptr);
     explicit BelkaPortalDevice(ScaleBleTransport* transport, QObject* parent = nullptr);
     ~BelkaPortalDevice() override;
-    QString state() const { return m_state; }
+    QString state() const;
     QString name() const { return m_name; }
-    bool active() const { return m_requested; }
+    bool active() const;
     bool machineBusy() const { return m_machineBusy; }
-    bool hasReading() const { return m_valid; }
+    bool hasReading() const { return m_state == State::Streaming; }
     double ecRaw() const { return m_ec; }
     double temperatureC() const { return m_temperature; }
     QString lastPacket() const { return m_lastPacket; }
@@ -76,7 +80,11 @@ signals:
     void scanRequested();
 
 private:
-    void setState(const QString& state);
+    void ensureTransport();
+    void setState(State state);
+    void finishDisconnect();
+    void clearConnectionData();
+    void finishDisplayWrite(bool succeeded);
     void fail(const QString& error);
     void receive(const QBluetoothUuid& characteristic, const QByteArray& packet, bool notification);
     void checkFreshness();
@@ -84,21 +92,21 @@ private:
     void tryReconnect();
     void writeGraphView(bool show);
     void stopConnection(bool manual);
-    void logEvent(const QString& key, const QString& message, QtMsgType level = QtInfoMsg);
+    void logEvent(const QString& key, const QString& message, QtMsgType level = QtInfoMsg,
+                  const QString& detail = {});
     void flushLogs();
-    // One selected-device episode; flush on manual disconnect/selection change/destruction.
-    // Automatic busy/stale cycles keep their independent event keys collapsed.
+    // Flush at shot end, faults, manual disconnect and selection changes.
     LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
     QElapsedTimer m_logClock;
     bool m_loggedPacketShape = false;
-    bool m_waitingForDisconnect = false;
     QString m_selectedAddress;
 
-    ScaleBleTransport* m_transport;
+    TransportFactory m_transportFactory;
+    ScaleBleTransport* m_transport = nullptr;
     QList<QBluetoothDeviceInfo> m_devices;
     QTimer m_healthTimer;
     QElapsedTimer m_lastMeasurement;
-    QString m_state = QStringLiteral("disconnected");
+    State m_state = State::Disconnected;
     QString m_name;
     QString m_error;
     QString m_lastPacket;
@@ -115,10 +123,8 @@ private:
     bool m_displayStartedForShot = false;
     bool m_reconnectEnabled = true;
     bool m_reconnectAttempted = false;
-    int m_displayWritesPending = 0;
-    bool m_requested = false;
+    QList<QByteArray> m_displayWrites;
     bool m_serviceFound = false;
-    bool m_valid = false;
     bool m_machineBusy = false;
 
 #ifdef DECENZA_TESTING

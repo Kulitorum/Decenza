@@ -1219,7 +1219,6 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
                                               qint64 shotEpoch)
 {
     QJsonObject root;
-    // The unverified PORTAL extension belongs to local exports only.
 
     // Get data from ShotDataModel
     const auto& pressureData = shotData->pressureData();

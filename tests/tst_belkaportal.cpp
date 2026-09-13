@@ -35,20 +35,23 @@ public:
     QList<QByteArray> writes;
     bool linked = false;
     bool asynchronousDisconnect = false;
+    bool disconnectPending = false;
     bool managed = true;
     void setConnectionPriorityManaged(bool value) override { managed = value; }
     void connectToDevice(const QString&, const QString&) override {
         linked = true; operations << "connect"; emit connected();
     }
     void disconnectFromDevice() override {
-        const bool wasLinked = linked;
+        disconnectPending = disconnectPending || (asynchronousDisconnect && linked);
         linked = false; operations << "disconnect";
-        if (!asynchronousDisconnect && wasLinked) emit disconnected();
+        // Qt tears down synchronously without emitting disconnected().
     }
+    bool isDisconnecting() const override { return disconnectPending; }
+    void completeDisconnect() { disconnectPending = false; emit disconnected(); }
     void discoverServices() override { operations << "services"; }
     void discoverCharacteristics(const QBluetoothUuid&) override { operations << "characteristics"; }
     void enableNotifications(const QBluetoothUuid&, const QBluetoothUuid& chr) override {
-        operations << "subscribe"; emit notificationsEnabled(chr);
+        operations << "subscribe"; emit notificationsIssued(chr); emit notificationsEnabled(chr);
     }
     void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override { operations << "read"; }
     void writeCharacteristic(const QBluetoothUuid& svc, const QBluetoothUuid& chr, const QByteArray& bytes, WriteType type) override {
@@ -96,35 +99,111 @@ class tst_BelkaPortal : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
-    void stateAndPacketLoggingRemainsBoundedAcrossAutomaticCycles() {
+    void stateLoggingCollapsesWithinEachShotAndReportsEveryLinkLoss() {
         PortalLogCapture logs;
         auto* transport = new PortalTransport;
         BelkaPortalDevice portal(transport);
         start(portal, transport);
         transport->notify(sample);
-        for (int i = 0; i < 6000; ++i) {
+        portal.setExtractionActive(true);
+        portal.expireReading(PortalSamples::StaleAfterMs + 1);
+        transport->notify(sample);
+        const auto initialLines = logs.lines;
+        for (int i = 0; i < 100; ++i) {
             portal.expireReading(PortalSamples::StaleAfterMs + 1);
             transport->notify(sample);
         }
-        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Unknown PORTAL measurement format; raw packet retained");
+        QCOMPARE(logs.lines, initialLines);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("\\[PORTAL\\]\\[BLE\\] Unknown PORTAL measurement format; raw packet retained: length=12, hex=.*"));
+        QByteArray malformed(12, '\0');
+        transport->notify(malformed);
+        const auto afterMalformed = logs.lines;
         for (int i = 0; i < 100; ++i) {
-            transport->notify(QByteArray(12, '\0'));
-            portal.setMachineBusy(true);
-            portal.setMachineBusy(false);
-            QCoreApplication::sendPostedEvents();
+            malformed[11] = static_cast<char>(i);
+            transport->notify(malformed);
+        }
+        QCOMPARE(logs.lines, afterMalformed); // raw diagnostics must not defeat collapsing
+        transport->notify(sample);
+        portal.setExtractionActive(false);
+        QVERIFY(logs.lines.size() > initialLines.size());
+        for (int i = 0; i < 2; ++i) {
+            QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL disconnected; reconnect when the machine is idle");
+            transport->linked = false;
+            transport->completeDisconnect();
+            portal.reconnect();
+            QTRY_VERIFY(portal.active());
             transport->announceService();
             transport->notify(sample);
         }
-        QCOMPARE(portal.packetCount(), 1); // counter restarts per link, log episode does not
-        QVERIFY2(logs.lines.size() <= 8, qPrintable(logs.lines.join('\n')));
+        QCOMPARE(logs.lines.filter("PORTAL disconnected;").size(), 2);
+        QVERIFY(logs.lines.filter("Receiving measurements").size() >= 3);
+    }
+
+    void transportIsCreatedOnlyAfterSelection() {
+        int creations = 0;
+        BelkaPortalDevice portal([&] { ++creations; return new PortalTransport; });
+        portal.restoreSavedDevice("11:22:33:44:55:66", "PORTAL");
+        portal.setMachineBusy(true);
+        portal.observeDevice(device);
+        QCOMPARE(creations, 0);
+        portal.setMachineBusy(false);
+        QTRY_COMPARE(creations, 1);
+    }
+
+    void classifierRecognizesServiceOrName() {
+        QVERIFY(BelkaPortalDevice::isPortal(device));
+        QBluetoothDeviceInfo serviceOnly(QBluetoothAddress("11:22:33:44:55:66"), "", 0);
+        serviceOnly.setServiceUuids({QBluetoothUuid(quint16(0x7400))});
+        QVERIFY(BelkaPortalDevice::isPortal(serviceOnly));
+        const QBluetoothDeviceInfo scale(QBluetoothAddress("22:22:33:44:55:66"), "Bookoo", 0);
+        QVERIFY(!BelkaPortalDevice::isPortal(scale));
+    }
+
+    void synchronousDisconnectCanReconnectForgetAndRecoverFromError() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
         portal.disconnectDevice();
-        QVERIFY(logs.lines.join('\n').contains("+5999 identical"));
-        const auto flushed = logs.lines.size();
+        QCOMPARE(portal.state(), "disconnected");
         portal.reconnect();
-        QCoreApplication::sendPostedEvents();
+        QTRY_COMPARE(transport->operations.count("connect"), 2);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Connection failed");
+        emit transport->error("Connection failed");
+        QCOMPARE(portal.state(), "error");
+        portal.reconnect();
+        QTRY_COMPARE(transport->operations.count("connect"), 3);
         transport->announceService();
+        portal.forgetDevice();
+        QCOMPARE(portal.state(), "disconnected");
+        QVERIFY(portal.savedAddress().isEmpty());
+        portal.connectDevice("11:22:33:44:55:66");
+        QCOMPARE(transport->operations.count("connect"), 4);
+    }
+
+    void subscriptionFailureAndFirstNotificationDeadlineAreTerminal() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL measurement subscription failed");
+        emit transport->gattOperationFailed(QBluetoothUuid(quint16(0x7410)));
+        QCOMPARE(portal.state(), "error");
+        QVERIFY(!portal.active());
+        portal.connectDevice("11:22:33:44:55:66");
+        transport->announceService();
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL sent no valid measurement after notification setup");
+        QTRY_COMPARE_WITH_TIMEOUT(portal.state(), "error", 7000);
+        QVERIFY(!portal.hasReading());
+    }
+
+    void healthTimerDetectsStaleDataAndRecovers() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
         transport->notify(sample);
-        QVERIFY(logs.lines.size() > flushed); // explicit user reconnect opens a new log episode
+        QTRY_COMPARE_WITH_TIMEOUT(portal.state(), "stale", 7000);
+        QVERIFY(!portal.hasReading());
+        transport->notify(sample);
+        QVERIFY(portal.hasReading());
     }
 
     void everyMachinePhaseAppliesConnectionPolicy() {
@@ -187,7 +266,7 @@ private slots:
         QCOMPARE(transport->operations.count("connect"), 1); // old disconnect still outstanding
         transport->notify(sample); // late packets cannot restore the old selection
         QVERIFY(!portal.hasReading());
-        emit transport->disconnected();
+        transport->completeDisconnect();
         QTRY_COMPARE(transport->operations.count("connect"), 2);
         transport->announceService();
         QCOMPARE(hardware->portalAddress(), QString("22:33:44:55:66:77"));
@@ -209,7 +288,7 @@ private slots:
         QCoreApplication::sendPostedEvents();
         QCOMPARE(transport->operations.count("connect"), 1);
         QCOMPARE(portal.state(), QString("disconnecting"));
-        emit transport->disconnected();
+        transport->completeDisconnect();
         QTRY_COMPARE(transport->operations.count("connect"), 2);
         transport->announceService();
         transport->notify(sample);
@@ -222,16 +301,44 @@ private slots:
         start(portal, transport);
         emit transport->characteristicDiscovered(QBluetoothUuid(quint16(0x7400)),
             QBluetoothUuid(quint16(0x7420)), QLowEnergyCharacteristic::Write);
-        portal.setGraphView(true);
-        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL display command was not acknowledged");
+        transport->notify(sample);
+        portal.setExtractionActive(true);
+        portal.setMachineBusy(true);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL display command 40 00 01 2d was not acknowledged");
         emit transport->gattOperationFailed(QBluetoothUuid(quint16(0x7420)));
-        QCOMPARE(portal.displayCommandStatus(), QString("failed"));
-        emit transport->characteristicWritten(QBluetoothUuid(quint16(0x7420)));
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Service error: CharacteristicWriteError");
+        emit transport->error("Service error: CharacteristicWriteError");
         QCOMPARE(portal.displayCommandStatus(), QString("failed"));
         transport->notify(sample);
         QVERIFY(portal.hasReading());
-        portal.setGraphView(false);
-        QCOMPARE(portal.displayCommandStatus(), QString("requested"));
+        QVERIFY(portal.active());
+        portal.setExtractionActive(false);
+        QCOMPARE(transport->writes.last(), QByteArray::fromHex("4000012e"));
+        emit transport->characteristicWritten(QBluetoothUuid(quint16(0x7420)));
+        QCOMPARE(portal.displayCommandStatus(), "acknowledged");
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Read failed");
+        emit transport->error("Read failed");
+        QVERIFY(portal.hasReading());
+    }
+
+    void lastDisplayCompletionWinsAfterEarlierFailure() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        emit transport->characteristicDiscovered(QBluetoothUuid(quint16(0x7400)),
+            QBluetoothUuid(quint16(0x7420)), QLowEnergyCharacteristic::Write);
+        transport->notify(sample);
+        portal.setExtractionActive(true);
+        portal.setExtractionActive(false);
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL display command 40 00 01 2d was not acknowledged");
+        emit transport->gattOperationFailed(QBluetoothUuid(quint16(0x7420)));
+        QCOMPARE(portal.displayCommandStatus(), "requested");
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Service error: CharacteristicWriteError");
+        emit transport->error("Service error: CharacteristicWriteError");
+        emit transport->characteristicWritten(QBluetoothUuid(quint16(0x7420)));
+        QCOMPARE(portal.displayCommandStatus(), "acknowledged");
+        portal.disconnectDevice();
+        QVERIFY(portal.displayCommandStatus().isEmpty());
     }
 
     void captureFollowsRealExtractionClockAndFinalization() {
@@ -248,6 +355,9 @@ private slots:
         BelkaPortalDevice portal(transport);
         PortalController controller(&portal, hardware, &machine, &timing, &model);
         start(portal, transport);
+        portal.setSyncDisplay(true);
+        emit transport->characteristicDiscovered(QBluetoothUuid(quint16(0x7400)),
+            QBluetoothUuid(quint16(0x7420)), QLowEnergyCharacteristic::Write);
         transport->notify(sample);
         QVERIFY(model.portalSamples().isEmpty());
         timing.startShot();
@@ -262,7 +372,12 @@ private slots:
         transport->notify(sample);
         QCOMPARE(model.portalSampleCount(), 2);
         QVERIFY(model.portalSamples().last().breakBefore);
+        QCOMPARE(transport->writes, QList<QByteArray>{QByteArray::fromHex("4000012d")});
         timing.endShot();
+        QCOMPARE(transport->writes.last(), QByteArray::fromHex("4000012e"));
+        QCOMPARE(transport->writes.size(), 2);
+        portal.setGraphView(true);
+        QCOMPARE(transport->writes.size(), 3); // finalization released the manual-control gate
         transport->notify(sample);
         QCOMPARE(model.portalSampleCount(), 2);
         model.clear(); // the normal shot-start wiring clears the previous recording
@@ -366,8 +481,9 @@ private slots:
         portal.setMachineBusy(false);
         QTRY_COMPARE(transport->operations.count("connect"), 1);
         transport->announceService();
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL disconnected; reconnect when the machine is idle");
         transport->linked = false;
-        emit transport->disconnected();
+        transport->completeDisconnect();
         portal.observeDevice(device);
         QCoreApplication::sendPostedEvents();
         QCOMPARE(transport->operations.count("connect"), 1);
@@ -391,7 +507,7 @@ private slots:
         QSignalSpy readings(&portal, &BelkaPortalDevice::measurementReceived);
         start(portal, transport);
         QVERIFY(!transport->managed);
-        QCOMPARE(transport->operations, QStringList({"connect", "services", "characteristics", "read", "subscribe"}));
+        QCOMPARE(transport->operations, QStringList({"connect", "services", "characteristics", "subscribe"}));
         QCOMPARE(portal.state(), "waiting");
         QVERIFY(!portal.hasReading());
         emit transport->characteristicRead(QBluetoothUuid(quint16(0x7410)), sample);
@@ -423,7 +539,7 @@ private slots:
         QSignalSpy readings(&portal, &BelkaPortalDevice::measurementReceived);
         start(portal, transport);
         transport->notify(sample);
-        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] Unknown PORTAL measurement format; raw packet retained");
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("\\[PORTAL\\]\\[BLE\\] Unknown PORTAL measurement format; raw packet retained: length=12, hex=.*"));
         transport->notify(QByteArray(12, '\0'));
         QVERIFY(!portal.hasReading());
         QCOMPARE(readings.count(), 1);
@@ -434,8 +550,9 @@ private slots:
         QCOMPARE(portal.state(), "stale");
         transport->notify(sample);
         QVERIFY(portal.hasReading());
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL disconnected; reconnect when the machine is idle");
         transport->linked = false;
-        emit transport->disconnected();
+        transport->completeDisconnect();
         QVERIFY(!portal.hasReading());
         transport->notify(sample);
         QVERIFY(!portal.hasReading());

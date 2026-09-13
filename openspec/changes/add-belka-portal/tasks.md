@@ -15,7 +15,7 @@
 
 - [x] Add decoder, discovery/lifecycle, display-command, timing and persistence regression tests; verify deliberate mutations fail and restored sources pass.
 - [x] Add one hardware packet fixture with screenshot provenance and rounded display expectations.
-- [x] Render the real EspressoPage, ShotGraph and PORTAL overlay offscreen with inert backend fixtures at tablet, large-scale and compact sizes. Verify both overlap mutations fail.
+- [x] Local check (fixture outside the repository): render the real EspressoPage, ShotGraph and PORTAL overlay offscreen with inert backend fixtures at tablet, large-scale and compact sizes. Verify both overlap mutations fail.
 - [x] Verify the PORTAL settings backup regression and its mutation.
 - [x] Run all 118 desktop CTest entries with ASan/UBSan, including both sanitizer canaries (Qt 6.11.2, Clang 23, Xcode libc++ 20 headers).
 - [x] Build the production Android arm64 APK with Qt 6.11.2.
@@ -47,9 +47,23 @@
 - [x] Preserve the non-owner UI, shared scanning and translated section heading; reveal PORTAL controls only after verified connection.
 - [x] Move pairing/display preferences into SettingsHardware and test live backup restoration with a connected driver.
 - [x] Move capture and phase policy into PortalController and share the freshness/gap threshold.
-- [x] Collapse packet/state logging per selection episode through a dedicated subsystem helper.
+- [x] Collapse routine packet/state logging with flushes at shot end and faults through a dedicated subsystem helper.
 - [x] Append live graph points incrementally and retain constant-time EC bounds.
 - [x] Support PORTAL colors in dark/light palettes, flash highlighting and app/web color pickers.
-- [x] Remove redundant startup scanning, wait for disconnect completion, report failed display writes and avoid irrelevant last-shot cache invalidation.
+- [x] Remove redundant startup scanning, respect synchronous Qt teardown and asynchronous native cancellation, report failed display writes and avoid irrelevant last-shot cache invalidation.
 - [x] Correct stale graph-series comments.
-- [x] Validate the review revision: 118/118 native tests with ASan/UBSan, production Android arm64 APK, 244/244 QML files, all text gates, 7 offscreen UI checks and three detected/restored mutations (live settings, log collapse, EC append).
+- [x] Validate the review revision: 118/118 native tests with ASan/UBSan, production Android arm64 APK, 244/244 QML files, all text gates, 7 local offscreen UI checks (fixture outside the repository) and three detected/restored mutations (live settings, log collapse, EC append).
+
+## Follow-up Review of d406e54
+
+- [x] Replace overlapping connection flags with an enum state and expose native disconnect completion in the transport contract; match Qt's silent synchronous teardown in the fake.
+- [x] Create the platform transport lazily and retain native callback identity checks during cancellation.
+- [x] Remove the unnecessary measurement read, keep streaming after optional display errors, and handle subscription failure plus first-notification timeout from radio dispatch.
+- [x] Track pending display commands in order, clear status on teardown, and surface failed synchronization outside diagnostics.
+- [x] Keep first-connection progress/errors visible after explicit selection; prevent a silent second selection while connecting.
+- [x] Preserve real disconnect/error/recovery logs, include malformed packet length/hex, and flush recurring events at natural boundaries.
+- [x] Assert automatic graph-on/off and manual control after actual shot finalization.
+- [x] Default history JSON to the Visualizer format; explicitly opt local exporters into PORTAL.
+- [x] Fix the theme null guard, include PORTAL in the app editor and palette generator, and share sample validity and EC bounds.
+- [x] Validate this follow-up revision: 118/118 native tests with ASan/UBSan, 244/244 QML files, all text gates, strict OpenSpec, 7 local offscreen checks, three detected/restored lifecycle mutations, and the private Android arm64 test APK.
+- [ ] Confirm reconnection, optional display failure and notification recovery on the physical tablet; verify native Apple cancellation on hardware separately.

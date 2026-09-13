@@ -22,6 +22,7 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
 
     void disconnectFromDevice() override;
+    bool isDisconnecting() const override;
 
     void discoverServices() override;
     void discoverCharacteristics(const QBluetoothUuid& serviceUuid) override;

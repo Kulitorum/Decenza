@@ -1774,7 +1774,7 @@ Item {
 
                     PortalDevicePanel {
                         Layout.fillWidth: true
-                        visible: BelkaPortal.savedAddress.length > 0
+                        visible: BelkaPortal.savedAddress.length > 0 || BelkaPortal.state !== "disconnected"
                     }
 
                     Tr {
@@ -1910,6 +1910,8 @@ Item {
                         delegate: ItemDelegate {
                             id: delegate2
                             required property var modelData
+                            enabled: modelData.deviceClass !== "portal"
+                                || (!BelkaPortal.active && BelkaPortal.state !== "disconnecting" && !BelkaPortal.machineBusy)
 
                             width: ListView.view.width
 

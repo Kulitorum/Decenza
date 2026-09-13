@@ -8,13 +8,13 @@ Characteristic 7420 accepts `40 00 01 2D` (show graph) and `40 00 01 2E` (end gr
 
 ## Connection Lifecycle
 
-`BelkaPortalDevice` owns a dedicated existing platform BLE transport and uses the shared GATT queue. It does not request HIGH connection priority or poll characteristics. Shared discovery uses the BLE `scanStarted` event; aggregate WiFi/USB progress must not clear an already discovered PORTAL. SettingsHardware owns the saved selection and display preference. PortalController binds live settings changes in both directions, including restore while connected. Pairing is saved after measurement capability discovery; PORTAL controls stay hidden until then. The existing Scales / Refractometer heading and shared scan availability are unchanged.
+`BelkaPortalDevice` lazily creates a dedicated platform BLE transport on first selection and uses the shared GATT queue. It does not request HIGH connection priority or poll characteristics. Shared discovery uses the BLE `scanStarted` event; aggregate WiFi/USB progress must not clear an already discovered PORTAL. SettingsHardware owns the saved selection and display preference. PortalController binds live settings changes in both directions, including restore while connected. Pairing is saved after measurement capability discovery; PORTAL controls stay hidden until then. The existing Scales / Refractometer heading and shared scan availability are unchanged.
 
 Automatic reconnect is limited to one attempt per scan/idle cycle, and manual disconnect disables it until explicit reconnect or app restart. Startup reconnect piggybacks on existing discovery. A reconnect waits for the previous transport disconnect callback. New connections are blocked during machine operation; an already streaming connection stays active. Failed subscription, invalid packets, disconnect and stale data cannot be presented as current readings.
 
 PortalController owns the capture window and busy-phase policy. A shared PortalSamples constant defines the five-second silence boundary for both freshness and curve gaps. A one-second health check marks readings stale beyond that boundary. This is conservative relative to the approximately 10 Hz cadence observed on the tested device, not a validated bound for every firmware. Controlled connection-loss and sleep/wake tests remain open.
 
-Log entries use the PORTAL helper header. Independent event keys collapse recurring stale/recovered and automatic reconnect cycles across the selected-device episode; explicit disconnect, selection changes and teardown flush repeat counts. Raw diagnostics remain in lastPacket/packetCount instead of per-notification log lines.
+Log entries use the PORTAL helper header. Independent keys collapse routine stale/recovered and busy-cycle events. Shot end, explicit disconnect, selection changes and faults flush repeat counts; unexpected disconnects and errors always log, and malformed packets include length and hex. Raw diagnostics remain in lastPacket/packetCount instead of per-notification log lines.
 
 ## Shot Data and Rendering
 
@@ -31,3 +31,13 @@ Decoder fixtures cover malformed lengths, non-finite values, distinct offsets an
 On Android, two short extractions yielded 107 and 125 stored PORTAL samples with median intervals around 98 ms; history remained available after app restart. Screenshots show the independent machine/scale and PORTAL data. This is initial hardware evidence, not completion of normal stop-at-weight, controlled radio-loss or saved-device-session validation.
 
 The full native suite, sanitizers, Android build and repository static gates are recorded in tasks.md. Test tooling uses the owner's explicitly authorized local Qt/Android environment. No automated verification operates the physical espresso machine.
+
+## Follow-up lifecycle contract
+
+One enum drives connection state, activity and reading validity. Qt teardown ends when `disconnectFromDevice()` returns; CoreBluetooth exposes pending cancellation with `isDisconnecting()` and rejects mismatched peripheral callbacks. The native transport handles failed connection callbacks and terminal adapter loss. No PORTAL transport or extra native manager exists before first selection.
+
+Only notifications feed measurements; the optional read was removed. Subscription failures terminate setup. A periodic health check starts at `notificationsIssued`, times out missing initial valid data, and marks interrupted established data stale. Once streaming, optional-operation errors are logged without discarding readings; disconnect callbacks still terminate the link. Pending display commands are completed in queue order, so a failed graph-on cannot erase a later graph-off acknowledgement.
+
+First-selection progress and errors appear in Connections even before pairing succeeds. Users who never select PORTAL retain the prior UI. Connection error details live in diagnostics behind translated guidance, and failed display synchronization is visible without expanding diagnostics.
+
+Stored EC bounds and validity use the same helpers as the live model; the QML overlay applies axis padding once. The app and web theme editors expose PORTAL colors to owners, and generated palettes include both colors. Local offscreen fixture checks are performed outside this repository; they do not establish physical GPU performance or Apple radio behavior.

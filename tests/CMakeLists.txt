@@ -1330,7 +1330,7 @@ add_decenza_test(tst_difluidr2
 target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
 
 # PORTAL transport lifecycle: subscription confirmation is not a measurement,
-# malformed/stale/disconnected samples must not appear live, and no brew-time writes.
+# malformed/stale/disconnected samples must not appear live; graph writes bracket capture.
 add_decenza_test(tst_belkaportal
     tst_belkaportal.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/belkaportaldevice.cpp
