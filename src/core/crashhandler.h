@@ -36,8 +36,11 @@ public:
     /// Get the path to the crash log file
     static QString crashLogPath();
 
-    /// Check if there's a crash log from a previous run
-    static bool hasCrashLog();
+    /// What the previous run left in crash.log. Returned rather than logged:
+    /// main() asks before WebDebugLogger is installed, so a line logged here
+    /// would never reach debug.log.
+    enum class PreviousCrash { None, Pending, DiscardedOnExit, DiscardFailed };
+    static PreviousCrash previousCrash();
 
     /// Read and clear the crash log (call after showing to user)
     static QString readAndClearCrashLog();
@@ -46,18 +49,21 @@ public:
     static QString readCrashLog();
 
     /// api.decenza.coffee keeps the first 5000 UTF-16 units of debug_log_tail when
-    /// it opens an issue (table in crashhandler.cpp). Anything past that is lost
-    /// from the end, which is the part nearest the crash.
+    /// it opens an issue, and sends none when it comments on an open one (table in
+    /// crashhandler.cpp). 100 under is margin, not a measurement.
     static constexpr qsizetype kDebugLogTailBudget = 4900;
 
-    /// The crashed run's story from debug.log, within charBudget: see
-    /// selectCrashNarrative(). Must be called before WebDebugLogger::install(),
-    /// which starts the new run's session in the same file.
+    /// The crashed run from debug.log, within charBudget: the session holding
+    /// writeCrashLog()'s own block, ended where that block starts, then
+    /// selectCrashNarrative(). A missing block or session start is stated in a
+    /// leading note rather than guessed around. Call before
+    /// WebDebugLogger::install(), which starts the new run's session in this file.
     static QString getDebugLogTail(qsizetype charBudget = kDebugLogTailBudget);
 
-    /// Picks from one run's lines what fits charBudget: the last lines, then
-    /// errors, warnings, info and debug, each newest first. Output is in log
-    /// order with omitted stretches marked.
+    /// Picks from one run's lines what fits charBudget: session markers, the last
+    /// 20 entries (consecutive repeats merged), then FATAL down to DEBUG, newest
+    /// first. Lines with no level tag survive only among the last entries. Output
+    /// is in log order with omitted stretches marked.
     static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
 
 private:

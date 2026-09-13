@@ -8,7 +8,7 @@
 #include <QStringList>
 
 // Shared filter/tail helpers for the debug_get_log and shots_get_debug_log MCP
-// tools, extracted so the pure-string-matching logic can be unit-tested
+// tools and CrashHandler's crash narrative, extracted so the pure-string-matching logic can be unit-tested
 // without the persisted log file or a shot database (see mcptools_shots_helpers.h
 // for the precedent).
 

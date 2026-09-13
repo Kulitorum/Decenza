@@ -747,11 +747,6 @@ private slots:
 
     // ---- CrashHandler::getDebugLogTail() ----------------------------------
     //
-    // Same debug.log this class writes: both resolve DecenzaPaths::logsDirectory()
-    // (they did NOT before #1746 — CrashHandler used AppDataLocation, which on
-    // Android is a different file whose only content was crash reports, which is
-    // why #1745's submitted tail had no app narrative in it at all).
-    //
     // The tail's job is to say what the app was doing before it died. Crash-report
     // text in it is pure duplicate — the same text ships as crashLog — so these
     // blocks are stripped. Fixtures below use CrashHandler's own marker constants
@@ -766,7 +761,7 @@ private slots:
             "\n"
             + startMarker() + "\n"
             "Signal: 6 (SIGABRT (Abort))\n"
-            "Backtrace (29 frames):\n"
+            "Backtrace (29 frames, module+offset):\n"
             "  #0: 0x6f925a7490\n"
             + endMarker() + "\n");
 
@@ -797,18 +792,18 @@ private slots:
 
         const QString tail = CrashHandler::getDebugLogTail();
 
+        // No writeCrashLog() block to anchor on, and the report must say so.
+        QVERIFY(tail.startsWith(QStringLiteral("(This crash's block is not in debug.log")));
         QVERIFY(tail.contains(QStringLiteral("app line one")));
         QVERIFY(tail.contains(QStringLiteral("app line after")));
         QVERIFY(!tail.contains(QStringLiteral("SIGSEGV")));
         QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
     }
 
-    // A block that never closes must not swallow the file. writeCrashLog()'s
-    // debug.log append can die mid-block — it demangles from a signal handler on
-    // the heap that may have caused the crash — and debug.log is append-mode, so
-    // latching to EOF would blank the tail for that run AND every later one. The
-    // empty QString that produced is also what "could not open the file" returns,
-    // so the failure would be unattributable at the far end.
+    // A block that never closes must not swallow the narrative before it, nor put
+    // its own text at the end of it. writeCrashLog()'s debug.log append can die
+    // mid-block — it demangles from a signal handler on the heap that may have
+    // caused the crash — and the narrative ends where that block begins.
     void debugLogTail_survivesAnUnterminatedBlock()
     {
         writeDebugLog(
@@ -819,8 +814,8 @@ private slots:
 
         const QString tail = CrashHandler::getDebugLogTail();
 
-        QVERIFY(!tail.isEmpty());
         QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
     }
 
     // WebDebugLogger::trimLogFile() keeps the TAIL of the file, so a trim can cut
@@ -836,7 +831,7 @@ private slots:
     void debugLogTail_dropsABlockWhoseStartWasTrimmedAway()
     {
         writeDebugLog(
-            "Backtrace (29 frames):\n"          // orphaned body, start marker trimmed off
+            "Backtrace (29 frames, module+offset):\n"          // orphaned body, start marker trimmed off
             "  #0: 0x6f925a7490\n"
             "Signal: 6 (SIGABRT (Abort))\n"
             + endMarker() + "\n"
@@ -849,9 +844,9 @@ private slots:
         QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
     }
 
-    // The strip must run BEFORE selection, not after. Stripping after would spend
-    // the budget on crash text and hand back a nearly empty narrative — #1745's
-    // symptom precisely, which the small fixtures above never reach a budget to see.
+    // Crash-report text must be stripped before selection: left in, it takes the
+    // last-entry slots the narrative needs (#1745's symptom), which the small
+    // fixtures above never reach a budget to show.
     void debugLogTail_spendsItsBudgetOnNarrativeNotCrashText()
     {
         QString content;
@@ -871,32 +866,49 @@ private slots:
         QVERIFY(!tail.contains(QStringLiteral("0x6f925a7490")));
     }
 
-    // #1937: the tail was read after the new launch had started its session, so
-    // it arrived padded with that launch's startup lines — and a plain tail also
-    // runs back into older runs. Only the run that crashed belongs in the report.
-    void debugLogTail_isOnlyTheCrashedRun()
+    // The crashed run is the session holding writeCrashLog()'s own block, not the
+    // last session: a launch that showed the report and closed before the user
+    // answered leaves crash.log in place and adds a session that did not crash.
+    void debugLogTail_isTheRunThatCrashed()
     {
         writeDebugLog(
             "========== SESSION START: 2026-09-13T08:00:00 ==========\n"
             "[   1.000] WARN  [Scale][BLEManager] an older run's warning\n"
             "\n"
             "========== SESSION START: 2026-09-13T09:00:00 ==========\n"
-            "[   2.000] INFO  [Scale][BLEManager] the crashed run\n");
+            "[   2.000] INFO  [Scale][BLEManager] the crashed run\n"
+            "\n\n"
+            + startMarker() + "\n"
+            "Signal: 11 (SIGSEGV (Segmentation fault))\n"
+            + endMarker() + "\n"
+            "\n"
+            "========== SESSION START: 2026-09-13T10:00:00 ==========\n"
+            "[   0.500] WARN  [App][main] " + startMarker() + "\n"
+            "[   0.500] WARN  [App][main] " + endMarker() + "\n"
+            "[   0.600] INFO  [App][main] the launch that showed the report\n");
 
         const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.startsWith(QStringLiteral("========== SESSION START: 2026-09-13T09:00:00")));
         QVERIFY(tail.contains(QStringLiteral("the crashed run")));
         QVERIFY(!tail.contains(QStringLiteral("an older run's warning")));
+        QVERIFY(!tail.contains(QStringLiteral("the launch that showed the report")));
     }
 
-    // #1937's shape: warnings early, DEBUG chatter to the end. A tail keeps the
-    // chatter and loses the warnings; the selection must keep both ends, fold a
-    // repeating warning into one line, and say where it cut.
+    // Warnings early, 400 DEBUG lines after: the selection must keep the session
+    // marker, both ends and every level, count a merged run correctly, fold a
+    // repeated warning into one line, keep a long warning's source location, and
+    // mark where it cut.
     void crashNarrative_keepsEarlierWarningsPastTrailingChatter()
     {
+        const QString marker = QStringLiteral("========== SESSION START: 2026-09-13T09:00:00 ==========");
         QStringList lines;
-        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] qrc:/qml/Page.qml:12: TypeError: boom");
+        lines << marker;
+        lines << QStringLiteral("[   0.500] ERROR [DE1][BLE] link lost");
+        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] qrc:/qml/Page.qml:12: TypeError: %1 {source=qml/Page.qml:12}")
+                     .arg(QString(400, QLatin1Char('x')));
+        for (int i = 0; i < 3; ++i)
+            lines << QStringLiteral("[   1.1%1] WARN  [Scale][BLEManager] retrying").arg(i);
         for (int i = 0; i < 5; ++i) {
             lines << QStringLiteral("[   2.%1] WARN  [Bluetooth][GattQueue] no answer within 3000 ms").arg(i);
             lines << QStringLiteral("[   2.%1] INFO  [Bluetooth][GattQueue] scale write failed").arg(i);
@@ -907,7 +919,11 @@ private slots:
         const QString out = CrashHandler::selectCrashNarrative(lines, CrashHandler::kDebugLogTailBudget);
 
         QVERIFY(out.size() <= CrashHandler::kDebugLogTailBudget);
-        QVERIFY(out.contains(QStringLiteral("TypeError: boom")));
+        QVERIFY(out.contains(marker));
+        QVERIFY(out.contains(QStringLiteral("link lost")));
+        QVERIFY(out.contains(QStringLiteral("TypeError: xxx")));
+        QVERIFY(out.contains(QStringLiteral(" … {source=qml/Page.qml:12}")));
+        QVERIFY(out.contains(QStringLiteral("retrying (x3)\n  … 8 lines omitted …")));
         QVERIFY(out.contains(QStringLiteral("chatter 399")));
         QVERIFY(out.contains(QStringLiteral("lines omitted")));
         QCOMPARE(out.count(QStringLiteral("no answer within 3000 ms")), 1);

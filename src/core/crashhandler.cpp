@@ -101,8 +101,8 @@ static size_t captureBacktrace(void** buffer, size_t max)
 }
 
 // Each frame as <module>+<offset>, the address llvm-symbolizer --obj=<module>
-// takes. dladdr names only exported symbols, so Qt's internal frames used to
-// print as bare runtime addresses that no other process can resolve (#1937).
+// resolves offline. dladdr names only exported symbols, and most of Qt's are
+// hidden (#1937).
 struct FrameLocation {
     const char* module = nullptr;
     uintptr_t offset = 0;
@@ -155,14 +155,16 @@ static void writeBacktraceToFile(FILE* f)
     FrameLookup lookup = {buffer, count, locations};
     dl_iterate_phdr(locateFrames, &lookup);
 
-    // Past frame #0 these are return addresses; the call is the instruction before.
+    // The frame after __kernel_rt_sigreturn is the faulting instruction; frames
+    // after it are return addresses, whose call is the instruction before. In
+    // #1937, #5 disassembles to the faulting stlxr and #6 to the insn after a bl.
     fprintf(f, "\nBacktrace (%zu frames, module+offset):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (size_t i = 0; i < count; ++i) {
         if (locations[i].module) {
             fprintf(f, "  #%zu: %s+0x%zx", i, moduleBaseName(locations[i].module), // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                     static_cast<size_t>(locations[i].offset));
         } else {
-            fprintf(f, "  #%zu: %p", i, buffer[i]); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+            fprintf(f, "  #%zu: %p (not in a loaded module)", i, buffer[i]); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         }
 
         Dl_info info;
@@ -216,7 +218,8 @@ static void writeBacktraceToFile(FILE* f)
 // So: 10000 normally, 5000 whenever someone has left the prior issue open. The
 // sizing below has to survive the 5000 case, and anything that grows what
 // precedes the capture has to be re-measured against both. In #1745 the header
-// and 29-frame backtrace alone were ~4117 chars.
+// and 29-frame backtrace were ~4117 chars; Android frames have since dropped the
+// APK path (~240 chars each in #1937, ~80 now), so that figure is an upper bound.
 //
 // #1745 is what this replaces: a blind `-t 200` unfiltered tail, which returned
 // 41 lines of OTHER THREADS' stacks and not one line of diagnosis. ART emits its
@@ -633,9 +636,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     // FAILED — the fallback runs the same binary the same way, so it would fail
     // identically and stack a second, contradictory marker under the first.
     //
-    // Smaller budget than the fatal pass: on this path the backtrace above has
-    // already spent ~4100 chars, so on a 5000-char comment only a few hundred
-    // survive submission anyway, and every byte here is also up to 3s of
+    // Smaller budget than the fatal pass: every byte here is up to 3s of
     // signal-handler time on a machine that may be mid-shot.
     if (artOutcome == CaptureOutcome::NoEntries)
         appendLogcatTailToFile(f, 1500);
@@ -655,15 +656,13 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
             if (s_lastDebugMessage[0] != '\0') {
                 fprintf(debugLog, "\nLast debug message:\n  %s\n", s_lastDebugMessage); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             }
+            // Flushed before the backtrace, which runs dl_iterate_phdr, dladdr and
+            // a malloc'ing demangler on a possibly-corrupt heap: if it faults, the
+            // start marker that getDebugLogTail() anchors on is already on disk.
+            fflush(debugLog);
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             writeBacktraceToFile(debugLog);
 #endif
-            // Flushed BEFORE the end marker as well as after: writeBacktrace
-            // runs dladdr and __cxa_demangle (which mallocs) from a signal
-            // handler on a possibly-corrupt heap, so a second fault in there
-            // would leave a start marker with no end — and getDebugLogTail()
-            // treats that as "everything after is report text". It recovers now
-            // (see the EOF handling there), but losing less is better.
             fprintf(debugLog, "\n%s\n", kReportEnd); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
             fflush(debugLog);
             fclose(debugLog);
@@ -763,30 +762,22 @@ QString CrashHandler::crashLogPath()
     return QString::fromUtf8(s_crashLogPath);
 }
 
-bool CrashHandler::hasCrashLog()
+CrashHandler::PreviousCrash CrashHandler::previousCrash()
 {
-    QString path = crashLogPath();
-    if (!QFile::exists(path)) {
-        return false;
-    }
+    const QString path = crashLogPath();
+    if (!QFile::exists(path))
+        return PreviousCrash::None;
 
-    // Check if this is a crash-on-exit (not actionable, don't bother user)
-    // These happen during C++ runtime cleanup after main() returns normally
+    // A crash after main() returned is C++ runtime cleanup: not actionable, so
+    // the report is deleted rather than shown.
     QFile file(path);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QString content = QString::fromUtf8(file.readAll());
+        const QString content = QString::fromUtf8(file.readAll());
         file.close();
-
-        // If the last debug message shows main() returned successfully,
-        // this is a cleanup crash we can't fix - delete and ignore it
-        if (content.contains("main() returned")) {
-            DIAG_DEBUG(APP, "CrashHandler") << "Ignoring crash-on-exit (main() returned normally)";
-            QFile::remove(path);
-            return false;
-        }
+        if (content.contains("main() returned"))
+            return QFile::remove(path) ? PreviousCrash::DiscardedOnExit : PreviousCrash::DiscardFailed;
     }
-
-    return true;
+    return PreviousCrash::Pending;
 }
 
 QString CrashHandler::readAndClearCrashLog()
@@ -823,20 +814,16 @@ QString CrashHandler::getDebugLogTail(qsizetype charBudget)
     }
 
     QFile file(debugPath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return QString();
-    }
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QStringLiteral("(debug.log could not be read: %1)").arg(file.errorString());
 
     // Read all lines, dropping any crash-report block.
     //
     // This tail is submitted as its own field to answer a question the crash log
     // cannot: what the app was doing before it died. Crash-report text in here
     // answers nothing, because the same text is already submitted as crashLog.
-    // (Budget note: the server slices debugLogTail to 5000 chars when OPENING an
-    // issue and drops the field entirely when commenting on an existing one —
-    // see the table in this file's capture section.)
     //
-    // Three writers put report text in this file:
+    // Two writers put report text in this file:
     //   - writeCrashLog() appends the whole report at crash time;
     //   - main.cpp re-logs the previous run's crash log at startup, as THREE
     //     qWarning records: "=== PREVIOUS CRASH DETECTED ===", then the report
@@ -852,6 +839,7 @@ QString CrashHandler::getDebugLogTail(qsizetype charBudget)
     QStringList blockLines;   // held while inside a block, restored if it never closes
     bool insideCrashBlock = false;
     bool sawAnyStart = false;
+    qsizetype crashAnchor = -1;  // where the last writeCrashLog() block began, in allLines
     QTextStream stream(&file);
     while (!stream.atEnd()) {
         const QString line = stream.readLine();
@@ -874,6 +862,11 @@ QString CrashHandler::getDebugLogTail(qsizetype charBudget)
             continue;
         }
         if (line.contains(kBlockStart)) {
+            // Only writeCrashLog()'s own copy puts the marker at the start of a
+            // line: WebDebugLogger::handleMessage() prefixes every physical line
+            // of main.cpp's re-log.
+            if (line.startsWith(kBlockStart))
+                crashAnchor = allLines.size();
             insideCrashBlock = true;
             sawAnyStart = true;
             blockLines.clear();
@@ -896,27 +889,47 @@ QString CrashHandler::getDebugLogTail(qsizetype charBudget)
     if (insideCrashBlock)
         allLines += blockLines;
 
-    // Only the crashed run. This is read before the new run writes its session
-    // marker, so the last marker in the file opens the run that crashed. The
-    // marker itself stays: its wall-clock start dates the elapsed-time prefixes.
+    // The crashed run ends where its crash-time block begins. The last session is
+    // not enough: a launch that showed the report and closed before the user
+    // answered leaves crash.log in place and adds a session that did not crash.
+    // Anything restored from an unclosed block lies past the anchor and is cut.
+    QString notes;
+    qsizetype end = allLines.size();
+    if (crashAnchor >= 0) {
+        end = crashAnchor;
+    } else {
+        notes += QStringLiteral("(This crash's block is not in debug.log; showing the last run "
+                                "logged, which may not be the one that crashed.)\n");
+    }
+
+    // The marker stays: its wall-clock start dates the elapsed-time prefixes.
     const QString& sessionMarker = McpLogFilter::sessionStartMarker();
-    for (qsizetype i = allLines.size() - 1; i >= 0; --i) {
+    qsizetype start = -1;
+    for (qsizetype i = end - 1; i >= 0; --i) {
         if (allLines[i].startsWith(sessionMarker)) {
-            allLines.remove(0, i);
+            start = i;
             break;
         }
     }
+    if (start < 0) {
+        start = 0;
+        notes += QStringLiteral("(This run's session start is not in debug.log, so its start "
+                                "time is unknown.)\n");
+    }
 
-    return selectCrashNarrative(allLines, charBudget);
+    QString narrative = selectCrashNarrative(allLines.mid(start, end - start),
+                                             charBudget - notes.size());
+    if (narrative.isEmpty())
+        narrative = QStringLiteral("(The crashed run wrote no log lines.)");
+    return (notes + narrative).left(charBudget);
 }
 
 QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype charBudget)
 {
     using McpLogFilter::LineMatch;
 
-    // A 5000-character field cannot hold a run, and a plain tail spends it on
-    // whatever was chattiest at the end — #1937's arrived as two dozen DEBUG
-    // lines while the warnings that preceded them were cut.
+    // A plain tail spends a 5000-char field on whatever came last; #1937's
+    // repeated one warning six times.
     constexpr qsizetype kTailEntries = 20;
     constexpr qsizetype kMaxLineChars = 300;
 
@@ -936,9 +949,20 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
     QList<int> ranks;
     rendered.reserve(n);
     ranks.reserve(n);
+    // WARN and above end with " {category=… source=file:line}" (WebDebugLogger's
+    // diagnosticContext()). A cut keeps that suffix: it is what locates the line.
+    const auto clip = [](const QString& text) {
+        if (text.size() <= kMaxLineChars)
+            return text;
+        const qsizetype context = text.endsWith(QLatin1Char('}'))
+            ? text.lastIndexOf(QStringLiteral(" {")) : -1;
+        const QString suffix = context > 0 ? text.mid(context) : QString();
+        const qsizetype keep = qMax(qsizetype(80), kMaxLineChars - suffix.size());
+        return text.left(qMin(context > 0 ? context : text.size(), keep))
+            + QStringLiteral(" …") + suffix;
+    };
     for (const LineMatch& e : entries) {
-        QString text = e.text.size() > kMaxLineChars
-            ? e.text.left(kMaxLineChars) + QStringLiteral(" …") : e.text;
+        QString text = clip(e.text);
         if (e.count > 1)
             text += QStringLiteral(" (x%1)").arg(e.count);
         rendered.append(text);
@@ -977,7 +1001,7 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
         if (chosen[i])
             continue;
         const QString key = McpLogFilter::stripTimestampPrefix(entries[i].text);
-        // A repeating warning is one fact; past the tail, its older copies are a
+        // A repeated line is one fact; past the tail, its older copies are a
         // count on the newest rather than more of the budget.
         if (k >= tailEnd) {
             const auto it = pickByText.constFind(key);
@@ -996,7 +1020,7 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
             pickByText.insert(key, i);
     }
 
-    // Gap markers and repeat counts are not in the estimate above, so assemble
+    // Gap markers and "(+N earlier)" are not in the estimate above, so assemble
     // for real and give back the least wanted picks until it fits.
     const auto assemble = [&]() {
         QString out;
@@ -1025,5 +1049,6 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
         chosen[picks.takeLast()] = false;
         out = assemble();
     }
-    return out;
+    // Only a budget smaller than the header and one gap marker gets here.
+    return out.left(charBudget);
 }
