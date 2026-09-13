@@ -16,7 +16,7 @@
 #endif
 
 namespace {
-const QString kSessionMarker = QStringLiteral("========== SESSION START:");
+const QString kSessionMarker = McpLogFilter::sessionStartMarker();
 // Written by trimLogFile() at the head of what survives a trim. Named because
 // it is produced at one site and READ at another (the headless-fragment scan in
 // sessionIndex(), which must not mistake it for log content) — and a banner
@@ -160,7 +160,7 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
     QFile file(m_logFilePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream stream(&file);
-        stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate) << " ==========\n";
+        stream << "\n" << kSessionMarker << " " << m_startTime.toString(Qt::ISODate) << " ==========\n";
     } else {
         m_writeFailureWarned = true;
         DIAG_WARN(RUNTIME, "WebDebugLogger") << "cannot write session marker to" << m_logFilePath
@@ -732,7 +732,7 @@ void WebDebugLogger::clear(bool clearFile)
             // Without it the clear banner alone reads as a headless fragment, and
             // the running session gets reported with an unknown start time and a
             // note blaming a trim that never happened. The user pressed Clear.
-            stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate)
+            stream << "\n" << kSessionMarker << " " << m_startTime.toString(Qt::ISODate)
                    << " ==========\n";
         } else {
             // Never silent: the in-memory buffer is now empty, so the user has

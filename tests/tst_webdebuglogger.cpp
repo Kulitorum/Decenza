@@ -770,7 +770,7 @@ private slots:
             "  #0: 0x6f925a7490\n"
             + endMarker() + "\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.contains(QStringLiteral("app line one")));
         QVERIFY(tail.contains(QStringLiteral("app line two")));
@@ -795,7 +795,7 @@ private slots:
             "[   0.300] WARN  " + endMarker() + "\n"              // main.cpp's standalone
             "[   0.400] INFO  app line after\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.contains(QStringLiteral("app line one")));
         QVERIFY(tail.contains(QStringLiteral("app line after")));
@@ -817,7 +817,7 @@ private slots:
             "Signal: 6 (SIGABRT (Abort))\n"
             "  #0: 0x6f925a7490\n");   // died here — no end marker
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(!tail.isEmpty());
         QVERIFY(tail.contains(QStringLiteral("app line one")));
@@ -842,18 +842,17 @@ private slots:
             + endMarker() + "\n"
             "[   0.400] INFO  app line after\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.contains(QStringLiteral("app line after")));
         QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
         QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
     }
 
-    // The strip must run BEFORE the last-N slice, not after. Stripping after
-    // would spend the caller's line budget on crash text and hand back a nearly
-    // empty tail — which is #1745's symptom precisely, and which the small
-    // fixtures above cannot see because they never reach the budget at all.
-    void debugLogTail_spendsItsLineBudgetOnNarrativeNotCrashText()
+    // The strip must run BEFORE selection, not after. Stripping after would spend
+    // the budget on crash text and hand back a nearly empty narrative — #1745's
+    // symptom precisely, which the small fixtures above never reach a budget to see.
+    void debugLogTail_spendsItsBudgetOnNarrativeNotCrashText()
     {
         QString content;
         for (int i = 0; i < 60; ++i)
@@ -865,11 +864,54 @@ private slots:
         content += endMarker() + "\n";
         writeDebugLog(content);
 
-        const QStringList tail = CrashHandler::getDebugLogTail(50).split('\n');
+        const QString tail = CrashHandler::getDebugLogTail(600);
 
-        QCOMPARE(tail.size(), 50);
-        QCOMPARE(tail.first(), QStringLiteral("[   0.010] INFO  narrative line 10"));
-        QCOMPARE(tail.last(), QStringLiteral("[   0.059] INFO  narrative line 59"));
+        QVERIFY(tail.size() <= 600);
+        QVERIFY(tail.contains(QStringLiteral("narrative line 59")));
+        QVERIFY(!tail.contains(QStringLiteral("0x6f925a7490")));
+    }
+
+    // #1937: the tail was read after the new launch had started its session, so
+    // it arrived padded with that launch's startup lines — and a plain tail also
+    // runs back into older runs. Only the run that crashed belongs in the report.
+    void debugLogTail_isOnlyTheCrashedRun()
+    {
+        writeDebugLog(
+            "========== SESSION START: 2026-09-13T08:00:00 ==========\n"
+            "[   1.000] WARN  [Scale][BLEManager] an older run's warning\n"
+            "\n"
+            "========== SESSION START: 2026-09-13T09:00:00 ==========\n"
+            "[   2.000] INFO  [Scale][BLEManager] the crashed run\n");
+
+        const QString tail = CrashHandler::getDebugLogTail();
+
+        QVERIFY(tail.startsWith(QStringLiteral("========== SESSION START: 2026-09-13T09:00:00")));
+        QVERIFY(tail.contains(QStringLiteral("the crashed run")));
+        QVERIFY(!tail.contains(QStringLiteral("an older run's warning")));
+    }
+
+    // #1937's shape: warnings early, DEBUG chatter to the end. A tail keeps the
+    // chatter and loses the warnings; the selection must keep both ends, fold a
+    // repeating warning into one line, and say where it cut.
+    void crashNarrative_keepsEarlierWarningsPastTrailingChatter()
+    {
+        QStringList lines;
+        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] qrc:/qml/Page.qml:12: TypeError: boom");
+        for (int i = 0; i < 5; ++i) {
+            lines << QStringLiteral("[   2.%1] WARN  [Bluetooth][GattQueue] no answer within 3000 ms").arg(i);
+            lines << QStringLiteral("[   2.%1] INFO  [Bluetooth][GattQueue] scale write failed").arg(i);
+        }
+        for (int i = 0; i < 400; ++i)
+            lines << QStringLiteral("[   3.%1] DEBUG [Shot][ShotDataModel] chatter %1").arg(i, 3, 10, QLatin1Char('0'));
+
+        const QString out = CrashHandler::selectCrashNarrative(lines, CrashHandler::kDebugLogTailBudget);
+
+        QVERIFY(out.size() <= CrashHandler::kDebugLogTailBudget);
+        QVERIFY(out.contains(QStringLiteral("TypeError: boom")));
+        QVERIFY(out.contains(QStringLiteral("chatter 399")));
+        QVERIFY(out.contains(QStringLiteral("lines omitted")));
+        QCOMPARE(out.count(QStringLiteral("no answer within 3000 ms")), 1);
+        QVERIFY(out.contains(QStringLiteral("(+4 earlier)")));
     }
 };
 

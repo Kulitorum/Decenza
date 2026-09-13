@@ -2,6 +2,7 @@
 #define CRASHHANDLER_H
 
 #include <QString>
+#include <QStringList>
 
 /**
  * @brief Installs signal handlers to catch crashes and log debug info before dying.
@@ -44,8 +45,20 @@ public:
     /// Read the crash log without clearing it
     static QString readCrashLog();
 
-    /// Get the last N lines of debug.log for context
-    static QString getDebugLogTail(int lines = 50);
+    /// api.decenza.coffee keeps the first 5000 UTF-16 units of debug_log_tail when
+    /// it opens an issue (table in crashhandler.cpp). Anything past that is lost
+    /// from the end, which is the part nearest the crash.
+    static constexpr qsizetype kDebugLogTailBudget = 4900;
+
+    /// The crashed run's story from debug.log, within charBudget: see
+    /// selectCrashNarrative(). Must be called before WebDebugLogger::install(),
+    /// which starts the new run's session in the same file.
+    static QString getDebugLogTail(qsizetype charBudget = kDebugLogTailBudget);
+
+    /// Picks from one run's lines what fits charBudget: the last lines, then
+    /// errors, warnings, info and debug, each newest first. Output is in log
+    /// order with omitted stretches marked.
+    static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
 
 private:
     static void signalHandler(int signal);

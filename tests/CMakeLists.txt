@@ -1636,8 +1636,10 @@ target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
+target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcplogfilter: shared filter/tail helpers for debug_get_log / shots_get_debug_log ---
 # (mcplogfilter.h is header-only — nothing to link beyond decenza_testlib's Qt Core.)

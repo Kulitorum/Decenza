@@ -566,6 +566,14 @@ int main(int argc, char *argv[])
     // Install crash handler - catches SIGSEGV, SIGABRT, etc.
     CrashHandler::install();
 
+    // Read the previous run's crash before WebDebugLogger::install() starts this
+    // run's session in debug.log; read after, the submitted narrative was padded
+    // with this launch's startup lines (#1937). Not cleared here — QML clears it
+    // after the user dismisses the report.
+    const bool previousRunCrashed = CrashHandler::hasCrashLog();
+    const QString previousCrashLog = previousRunCrashed ? CrashHandler::readCrashLog() : QString();
+    const QString previousDebugLogTail = previousRunCrashed ? CrashHandler::getDebugLogTail() : QString();
+
     // Include wall clock in all log messages on all platforms
     qSetMessagePattern("[LOG] [%{time HH:mm:ss.zzz}] %{message}");
 
@@ -1153,12 +1161,7 @@ int main(int argc, char *argv[])
                                   .arg(label).arg(startupTimer.elapsed());
     };
 
-    // Check for crash log from previous run (don't clear yet - QML will clear after user dismisses)
-    QString previousCrashLog;
-    QString previousDebugLogTail;
-    if (CrashHandler::hasCrashLog()) {
-        previousCrashLog = CrashHandler::readCrashLog();
-        previousDebugLogTail = CrashHandler::getDebugLogTail(50);
+    if (previousRunCrashed) {
         // The trailing end marker is NOT redundant with the one inside
         // previousCrashLog, and must not be tidied away. writeCrashLog() can die
         // before it writes its own closer (it demangles from a signal handler on

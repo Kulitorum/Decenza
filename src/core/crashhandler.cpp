@@ -1,6 +1,8 @@
 #include "core/diagnosticlogging.h"
 #include "crashhandler.h"
 #include "logpaths.h"
+#include "mcp/mcplogfilter.h"
+#include "version.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -22,6 +24,7 @@
 #ifdef Q_OS_ANDROID
 #include <unwind.h>
 #include <dlfcn.h>
+#include <link.h>
 #include <cxxabi.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -44,6 +47,9 @@
 static char s_crashLogPath[512] = {0};
 static char s_debugLogPath[512] = {0};
 static char s_lastDebugMessage[4096] = {0};
+// "<version> build <code>", precomputed in install(). The report title carries
+// only the version, and one version ships many builds.
+static char s_buildLine[64] = {0};
 
 #ifdef Q_OS_ANDROID
 // "--pid=<N>" argument for logcat, precomputed in install() so the signal
@@ -94,29 +100,81 @@ static size_t captureBacktrace(void** buffer, size_t max)
     return state.current - buffer;
 }
 
+// Each frame as <module>+<offset>, the address llvm-symbolizer --obj=<module>
+// takes. dladdr names only exported symbols, so Qt's internal frames used to
+// print as bare runtime addresses that no other process can resolve (#1937).
+struct FrameLocation {
+    const char* module = nullptr;
+    uintptr_t offset = 0;
+};
+
+struct FrameLookup {
+    void* const* pcs;
+    size_t count;
+    FrameLocation* out;
+};
+
+static int locateFrames(struct dl_phdr_info* info, size_t, void* data)
+{
+    auto* lookup = static_cast<FrameLookup*>(data);
+    for (size_t i = 0; i < lookup->count; ++i) {
+        if (lookup->out[i].module)
+            continue;
+        const uintptr_t pc = reinterpret_cast<uintptr_t>(lookup->pcs[i]);
+        for (ElfW(Half) h = 0; h < info->dlpi_phnum; ++h) {
+            const ElfW(Phdr)& ph = info->dlpi_phdr[h];
+            if (ph.p_type != PT_LOAD)
+                continue;
+            const uintptr_t start = info->dlpi_addr + ph.p_vaddr;
+            if (pc >= start && pc < start + ph.p_memsz) {
+                lookup->out[i].module = info->dlpi_name;
+                lookup->out[i].offset = pc - info->dlpi_addr;
+                break;
+            }
+        }
+    }
+    return 0;
+}
+
+// The APK-internal path before the library name is ~150 characters per frame
+// of a budgeted report and identifies nothing the version does not.
+static const char* moduleBaseName(const char* path)
+{
+    if (!path || !*path)
+        return "(main)";
+    const char* slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
 static void writeBacktraceToFile(FILE* f)
 {
     void* buffer[64];
     size_t count = captureBacktrace(buffer, 64);
 
-    fprintf(f, "\nBacktrace (%zu frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    FrameLocation locations[64];
+    FrameLookup lookup = {buffer, count, locations};
+    dl_iterate_phdr(locateFrames, &lookup);
+
+    // Past frame #0 these are return addresses; the call is the instruction before.
+    fprintf(f, "\nBacktrace (%zu frames, module+offset):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (size_t i = 0; i < count; ++i) {
+        if (locations[i].module) {
+            fprintf(f, "  #%zu: %s+0x%zx", i, moduleBaseName(locations[i].module), // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+                    static_cast<size_t>(locations[i].offset));
+        } else {
+            fprintf(f, "  #%zu: %p", i, buffer[i]); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+        }
+
         Dl_info info;
         if (dladdr(buffer[i], &info) && info.dli_sname) {
-            // Try to demangle C++ names
             int status = 0;
             char* demangled = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status);
             const char* name = (status == 0 && demangled) ? demangled : info.dli_sname;
-
-            fprintf(f, "  #%zu: %p %s + %td (%s)\n", // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
-                    i, buffer[i], name,
-                    static_cast<char*>(buffer[i]) - static_cast<char*>(info.dli_saddr),
-                    info.dli_fname ? info.dli_fname : "???");
-
+            fprintf(f, " %s + %td", name, // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+                    static_cast<char*>(buffer[i]) - static_cast<char*>(info.dli_saddr));
             if (demangled) free(demangled);
-        } else {
-            fprintf(f, "  #%zu: %p\n", i, buffer[i]); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         }
+        fputc('\n', f);
     }
 }
 
@@ -524,6 +582,8 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     // Write crash header
     fprintf(f, "%s\n", kReportStart); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     fprintf(f, "Signal: %d (%s)\n", signal, signalName); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    if (s_buildLine[0] != '\0')
+        fprintf(f, "Build: %s\n", s_buildLine); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Get current time (basic, signal-safe-ish)
     time_t now = time(nullptr);
@@ -658,6 +718,8 @@ void CrashHandler::install()
     QByteArray debugPathBytes = debugPath.toUtf8();
     strncpy(s_debugLogPath, debugPathBytes.constData(), sizeof(s_debugLogPath) - 1);
 
+    snprintf(s_buildLine, sizeof(s_buildLine), "%s build %d", VERSION_STRING, versionCode());
+
 #ifdef Q_OS_ANDROID
     snprintf(s_logcatPidArg, sizeof(s_logcatPidArg), "--pid=%d", getpid());
 #endif
@@ -751,7 +813,7 @@ QString CrashHandler::readCrashLog()
     return content;
 }
 
-QString CrashHandler::getDebugLogTail(int lines)
+QString CrashHandler::getDebugLogTail(qsizetype charBudget)
 {
     QString debugPath = QString::fromUtf8(s_debugLogPath);
     if (debugPath.isEmpty()) {
@@ -834,9 +896,134 @@ QString CrashHandler::getDebugLogTail(int lines)
     if (insideCrashBlock)
         allLines += blockLines;
 
-    // Get last N lines
-    qsizetype startIndex = qMax(qsizetype(0), allLines.size() - lines);
-    QStringList tailLines = allLines.mid(startIndex);
+    // Only the crashed run. This is read before the new run writes its session
+    // marker, so the last marker in the file opens the run that crashed. The
+    // marker itself stays: its wall-clock start dates the elapsed-time prefixes.
+    const QString& sessionMarker = McpLogFilter::sessionStartMarker();
+    for (qsizetype i = allLines.size() - 1; i >= 0; --i) {
+        if (allLines[i].startsWith(sessionMarker)) {
+            allLines.remove(0, i);
+            break;
+        }
+    }
 
-    return tailLines.join("\n");
+    return selectCrashNarrative(allLines, charBudget);
+}
+
+QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype charBudget)
+{
+    using McpLogFilter::LineMatch;
+
+    // A 5000-character field cannot hold a run, and a plain tail spends it on
+    // whatever was chattiest at the end — #1937's arrived as two dozen DEBUG
+    // lines while the warnings that preceded them were cut.
+    constexpr qsizetype kTailEntries = 20;
+    constexpr qsizetype kMaxLineChars = 300;
+
+    QStringList nonBlank;
+    nonBlank.reserve(lines.size());
+    for (const QString& line : lines) {
+        if (!line.trimmed().isEmpty())
+            nonBlank.append(line);
+    }
+    const QList<LineMatch> entries = McpLogFilter::dedupeConsecutive(
+        McpLogFilter::filterLines(nonBlank, 0, QString(), false, QString()));
+    const qsizetype n = entries.size();
+    if (n == 0)
+        return QString();
+
+    QStringList rendered;
+    QList<int> ranks;
+    rendered.reserve(n);
+    ranks.reserve(n);
+    for (const LineMatch& e : entries) {
+        QString text = e.text.size() > kMaxLineChars
+            ? e.text.left(kMaxLineChars) + QStringLiteral(" …") : e.text;
+        if (e.count > 1)
+            text += QStringLiteral(" (x%1)").arg(e.count);
+        rendered.append(text);
+        ranks.append(McpLogFilter::levelRank(McpLogFilter::lineLevel(e.text)));
+    }
+
+    // Priority: the session marker, the last lines, then each level from FATAL
+    // down to DEBUG, newest first within a level.
+    QList<qsizetype> order;
+    for (qsizetype i = 0; i < n; ++i) {
+        if (entries[i].text.startsWith(McpLogFilter::sessionStartMarker()))
+            order.append(i);
+    }
+    for (qsizetype i = n - 1; i >= qMax(qsizetype(0), n - kTailEntries); --i)
+        order.append(i);
+    const qsizetype tailEnd = order.size();
+    for (int rank = McpLogFilter::levelRank(QStringLiteral("FATAL")); rank >= 0; --rank) {
+        for (qsizetype i = n - 1; i >= 0; --i) {
+            if (ranks[i] == rank)
+                order.append(i);
+        }
+    }
+
+    const QString header = QStringLiteral(
+        "(Selected from %1 lines of the crashed run: the last lines, then errors, "
+        "warnings, info and debug, newest first. Gaps are marked.)\n").arg(nonBlank.size());
+    const qsizetype budget = charBudget - header.size();
+
+    QList<bool> chosen(n, false);
+    QList<qsizetype> picks;          // priority order, so trimming drops the least wanted
+    QList<qsizetype> earlier(n, 0);  // older identical lines folded into a pick
+    QHash<QString, qsizetype> pickByText;
+    qsizetype used = 0;
+    for (qsizetype k = 0; k < order.size(); ++k) {
+        const qsizetype i = order[k];
+        if (chosen[i])
+            continue;
+        const QString key = McpLogFilter::stripTimestampPrefix(entries[i].text);
+        // A repeating warning is one fact; past the tail, its older copies are a
+        // count on the newest rather than more of the budget.
+        if (k >= tailEnd) {
+            const auto it = pickByText.constFind(key);
+            if (it != pickByText.cend()) {
+                earlier[*it] += entries[i].count;
+                continue;
+            }
+        }
+        const qsizetype cost = rendered[i].size() + 1;
+        if (used + cost > budget)
+            continue;
+        chosen[i] = true;
+        picks.append(i);
+        used += cost;
+        if (!pickByText.contains(key))
+            pickByText.insert(key, i);
+    }
+
+    // Gap markers and repeat counts are not in the estimate above, so assemble
+    // for real and give back the least wanted picks until it fits.
+    const auto assemble = [&]() {
+        QString out;
+        if (picks.size() < n)
+            out = header;
+        qsizetype nextLine = 0;
+        for (qsizetype i = 0; i < n; ++i) {
+            if (!chosen[i])
+                continue;
+            if (entries[i].line > nextLine)
+                out += QStringLiteral("  … %1 lines omitted …\n").arg(entries[i].line - nextLine);
+            out += rendered[i];
+            if (earlier[i] > 0)
+                out += QStringLiteral(" (+%1 earlier)").arg(earlier[i]);
+            out += QLatin1Char('\n');
+            nextLine = entries[i].lastLine + 1;
+        }
+        if (nextLine < nonBlank.size())
+            out += QStringLiteral("  … %1 lines omitted …\n").arg(nonBlank.size() - nextLine);
+        out.chop(1);
+        return out;
+    };
+
+    QString out = assemble();
+    while (out.size() > charBudget && !picks.isEmpty()) {
+        chosen[picks.takeLast()] = false;
+        out = assemble();
+    }
+    return out;
 }
