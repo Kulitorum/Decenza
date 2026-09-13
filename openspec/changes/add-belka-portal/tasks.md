@@ -39,5 +39,5 @@
 - [x] Draft a short wiki manual entry covering connection, graphs and raw EC meaning.
 - [ ] Publish the manual through the maintainer's wiki workflow (the wiki is a separate repository).
 - [x] Prepare representative live-shot and saved-history screenshots on the contributor fork, without private backups or settings.
-- [ ] Open a draft PR with completed validation and remaining hardware checks clearly distinguished.
+- [x] Open draft PR [#1938](https://github.com/Kulitorum/Decenza/pull/1938) with completed validation and remaining hardware checks clearly distinguished.
 - [ ] Before any requested merge, reconcile acceptance, archive this OpenSpec change and read checks on that final revision.
