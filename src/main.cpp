@@ -566,6 +566,15 @@ int main(int argc, char *argv[])
     // Install crash handler - catches SIGSEGV, SIGABRT, etc.
     CrashHandler::install();
 
+    // Read the previous run's crash before WebDebugLogger::install() starts this
+    // run's session in debug.log; read after, the submitted narrative was padded
+    // with this launch's startup lines (#1937). Not cleared here — QML clears it
+    // after the user dismisses the report.
+    const CrashHandler::PreviousCrash previousCrash = CrashHandler::previousCrash();
+    const bool previousRunCrashed = previousCrash == CrashHandler::PreviousCrash::Pending;
+    const QString previousCrashLog = previousRunCrashed ? CrashHandler::readCrashLog() : QString();
+    const QString previousDebugLogTail = previousRunCrashed ? CrashHandler::getDebugLogTail() : QString();
+
     // Include wall clock in all log messages on all platforms
     qSetMessagePattern("[LOG] [%{time HH:mm:ss.zzz}] %{message}");
 
@@ -585,6 +594,14 @@ int main(int argc, char *argv[])
 
     // Install web debug logger early to capture all output
     WebDebugLogger::install();
+
+    // Logged only now: the crash check above ran before this run's log existed.
+    if (previousCrash == CrashHandler::PreviousCrash::DiscardedOnExit) {
+        DIAG_DEBUG(APP, "main") << "Discarded the previous run's crash report: it crashed after main() returned";
+    } else if (previousCrash == CrashHandler::PreviousCrash::DiscardFailed) {
+        DIAG_WARN(APP, "main") << "The previous run crashed after main() returned, but its crash.log "
+                                  "could not be deleted; it will be checked again at every launch";
+    }
 
     // Suppress Qt's spurious "Missing CAP_NET_ADMIN" bluetooth warning
     // when our own probe says caps are effective. Must run before Qt
@@ -1153,18 +1170,13 @@ int main(int argc, char *argv[])
                                   .arg(label).arg(startupTimer.elapsed());
     };
 
-    // Check for crash log from previous run (don't clear yet - QML will clear after user dismisses)
-    QString previousCrashLog;
-    QString previousDebugLogTail;
-    if (CrashHandler::hasCrashLog()) {
-        previousCrashLog = CrashHandler::readCrashLog();
-        previousDebugLogTail = CrashHandler::getDebugLogTail(50);
+    if (previousRunCrashed) {
         // The trailing end marker is NOT redundant with the one inside
         // previousCrashLog, and must not be tidied away. writeCrashLog() can die
         // before it writes its own closer (it demangles from a signal handler on
-        // a possibly-corrupt heap), and this line is what closes the block for
-        // CrashHandler::getDebugLogTail(), which strips these blocks out of the
-        // tail it submits. Both markers come from CrashHandler so a respelling
+        // a possibly-corrupt heap), and this line is what closes the block for the
+        // NEXT report's CrashHandler::getDebugLogTail(), which strips these blocks
+        // out of the narrative it submits. Both markers come from CrashHandler so a respelling
         // cannot desynchronise the writer from the stripper.
         DIAG_WARN(APP, "main") << "=== PREVIOUS CRASH DETECTED ===";
         DIAG_WARN(APP, "main").noquote() << previousCrashLog;

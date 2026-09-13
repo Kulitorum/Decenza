@@ -1628,16 +1628,17 @@ target_link_libraries(tst_mcptools_presets PRIVATE decenza_a11ylib decenza_appse
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search),
-# plus CrashHandler::getDebugLogTail(), which reads the debug.log WebDebugLogger
-# writes and whose result is the crash report's debugLogTail field. (Both resolve
-# DecenzaPaths::logsDirectory() as of #1746; before that CrashHandler used
-# AppDataLocation, a different file on Android.) crashhandler.cpp is compiled into
-# this target alone — no other test needs it, so no intermediate library. ---
+# plus CrashHandler::getDebugLogTail()/selectCrashNarrative(), which read the debug.log
+# WebDebugLogger writes and produce the crash report's debug_log_tail. crashhandler.cpp
+# is compiled into this target alone — no other test needs it, so no intermediate
+# library. It includes version.h and calls versionCode(), hence version_code.cpp. ---
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
+target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcplogfilter: shared filter/tail helpers for debug_get_log / shots_get_debug_log ---
 # (mcplogfilter.h is header-only — nothing to link beyond decenza_testlib's Qt Core.)

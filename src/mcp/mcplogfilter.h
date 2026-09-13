@@ -8,11 +8,20 @@
 #include <QStringList>
 
 // Shared filter/tail helpers for the debug_get_log and shots_get_debug_log MCP
-// tools, extracted so the pure-string-matching logic can be unit-tested
+// tools and CrashHandler's crash narrative, extracted so the pure-string-matching logic can be unit-tested
 // without the persisted log file or a shot database (see mcptools_shots_helpers.h
 // for the precedent).
 
 namespace McpLogFilter {
+
+// The prefix of the line WebDebugLogger writes at the start of every session.
+// One spelling for the writer and its readers (sessionIndex(), and CrashHandler
+// isolating the crashed run).
+inline const QString& sessionStartMarker()
+{
+    static const QString marker = QStringLiteral("========== SESSION START:");
+    return marker;
+}
 
 // One line (or, after dedupeConsecutive(), one run of consecutive identical
 // lines) addressed by its absolute position within whatever range the caller

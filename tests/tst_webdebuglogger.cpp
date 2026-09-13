@@ -747,11 +747,6 @@ private slots:
 
     // ---- CrashHandler::getDebugLogTail() ----------------------------------
     //
-    // Same debug.log this class writes: both resolve DecenzaPaths::logsDirectory()
-    // (they did NOT before #1746 — CrashHandler used AppDataLocation, which on
-    // Android is a different file whose only content was crash reports, which is
-    // why #1745's submitted tail had no app narrative in it at all).
-    //
     // The tail's job is to say what the app was doing before it died. Crash-report
     // text in it is pure duplicate — the same text ships as crashLog — so these
     // blocks are stripped. Fixtures below use CrashHandler's own marker constants
@@ -766,11 +761,11 @@ private slots:
             "\n"
             + startMarker() + "\n"
             "Signal: 6 (SIGABRT (Abort))\n"
-            "Backtrace (29 frames):\n"
+            "Backtrace (29 frames, module+offset):\n"
             "  #0: 0x6f925a7490\n"
             + endMarker() + "\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.contains(QStringLiteral("app line one")));
         QVERIFY(tail.contains(QStringLiteral("app line two")));
@@ -795,20 +790,20 @@ private slots:
             "[   0.300] WARN  " + endMarker() + "\n"              // main.cpp's standalone
             "[   0.400] INFO  app line after\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
+        // No writeCrashLog() block to anchor on, and the report must say so.
+        QVERIFY(tail.startsWith(QStringLiteral("(This crash's block is not in debug.log")));
         QVERIFY(tail.contains(QStringLiteral("app line one")));
         QVERIFY(tail.contains(QStringLiteral("app line after")));
         QVERIFY(!tail.contains(QStringLiteral("SIGSEGV")));
         QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
     }
 
-    // A block that never closes must not swallow the file. writeCrashLog()'s
-    // debug.log append can die mid-block — it demangles from a signal handler on
-    // the heap that may have caused the crash — and debug.log is append-mode, so
-    // latching to EOF would blank the tail for that run AND every later one. The
-    // empty QString that produced is also what "could not open the file" returns,
-    // so the failure would be unattributable at the far end.
+    // A block that never closes must not swallow the narrative before it, nor put
+    // its own text at the end of it. writeCrashLog()'s debug.log append can die
+    // mid-block — it demangles from a signal handler on the heap that may have
+    // caused the crash — and the narrative ends where that block begins.
     void debugLogTail_survivesAnUnterminatedBlock()
     {
         writeDebugLog(
@@ -817,10 +812,10 @@ private slots:
             "Signal: 6 (SIGABRT (Abort))\n"
             "  #0: 0x6f925a7490\n");   // died here — no end marker
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
-        QVERIFY(!tail.isEmpty());
         QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
     }
 
     // WebDebugLogger::trimLogFile() keeps the TAIL of the file, so a trim can cut
@@ -836,24 +831,23 @@ private slots:
     void debugLogTail_dropsABlockWhoseStartWasTrimmedAway()
     {
         writeDebugLog(
-            "Backtrace (29 frames):\n"          // orphaned body, start marker trimmed off
+            "Backtrace (29 frames, module+offset):\n"          // orphaned body, start marker trimmed off
             "  #0: 0x6f925a7490\n"
             "Signal: 6 (SIGABRT (Abort))\n"
             + endMarker() + "\n"
             "[   0.400] INFO  app line after\n");
 
-        const QString tail = CrashHandler::getDebugLogTail(50);
+        const QString tail = CrashHandler::getDebugLogTail();
 
         QVERIFY(tail.contains(QStringLiteral("app line after")));
         QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
         QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
     }
 
-    // The strip must run BEFORE the last-N slice, not after. Stripping after
-    // would spend the caller's line budget on crash text and hand back a nearly
-    // empty tail — which is #1745's symptom precisely, and which the small
-    // fixtures above cannot see because they never reach the budget at all.
-    void debugLogTail_spendsItsLineBudgetOnNarrativeNotCrashText()
+    // Crash-report text must be stripped before selection: left in, it takes the
+    // last-entry slots the narrative needs (#1745's symptom), which the small
+    // fixtures above never reach a budget to show.
+    void debugLogTail_spendsItsBudgetOnNarrativeNotCrashText()
     {
         QString content;
         for (int i = 0; i < 60; ++i)
@@ -865,11 +859,75 @@ private slots:
         content += endMarker() + "\n";
         writeDebugLog(content);
 
-        const QStringList tail = CrashHandler::getDebugLogTail(50).split('\n');
+        const QString tail = CrashHandler::getDebugLogTail(600);
 
-        QCOMPARE(tail.size(), 50);
-        QCOMPARE(tail.first(), QStringLiteral("[   0.010] INFO  narrative line 10"));
-        QCOMPARE(tail.last(), QStringLiteral("[   0.059] INFO  narrative line 59"));
+        QVERIFY(tail.size() <= 600);
+        QVERIFY(tail.contains(QStringLiteral("narrative line 59")));
+        QVERIFY(!tail.contains(QStringLiteral("0x6f925a7490")));
+    }
+
+    // The crashed run is the session holding writeCrashLog()'s own block, not the
+    // last session: a launch that showed the report and closed before the user
+    // answered leaves crash.log in place and adds a session that did not crash.
+    void debugLogTail_isTheRunThatCrashed()
+    {
+        writeDebugLog(
+            "========== SESSION START: 2026-09-13T08:00:00 ==========\n"
+            "[   1.000] WARN  [Scale][BLEManager] an older run's warning\n"
+            "\n"
+            "========== SESSION START: 2026-09-13T09:00:00 ==========\n"
+            "[   2.000] INFO  [Scale][BLEManager] the crashed run\n"
+            "\n\n"
+            + startMarker() + "\n"
+            "Signal: 11 (SIGSEGV (Segmentation fault))\n"
+            + endMarker() + "\n"
+            "\n"
+            "========== SESSION START: 2026-09-13T10:00:00 ==========\n"
+            "[   0.500] WARN  [App][main] " + startMarker() + "\n"
+            "[   0.500] WARN  [App][main] " + endMarker() + "\n"
+            "[   0.600] INFO  [App][main] the launch that showed the report\n");
+
+        const QString tail = CrashHandler::getDebugLogTail();
+
+        QVERIFY(tail.startsWith(QStringLiteral("========== SESSION START: 2026-09-13T09:00:00")));
+        QVERIFY(tail.contains(QStringLiteral("the crashed run")));
+        QVERIFY(!tail.contains(QStringLiteral("an older run's warning")));
+        QVERIFY(!tail.contains(QStringLiteral("the launch that showed the report")));
+    }
+
+    // Warnings early, 400 DEBUG lines after: the selection must keep the session
+    // marker, both ends and every level, count a merged run correctly, fold a
+    // repeated warning into one line, keep a long warning's source location, and
+    // mark where it cut.
+    void crashNarrative_keepsEarlierWarningsPastTrailingChatter()
+    {
+        const QString marker = QStringLiteral("========== SESSION START: 2026-09-13T09:00:00 ==========");
+        QStringList lines;
+        lines << marker;
+        lines << QStringLiteral("[   0.500] ERROR [DE1][BLE] link lost");
+        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] qrc:/qml/Page.qml:12: TypeError: %1 {source=qml/Page.qml:12}")
+                     .arg(QString(400, QLatin1Char('x')));
+        for (int i = 0; i < 3; ++i)
+            lines << QStringLiteral("[   1.1%1] WARN  [Scale][BLEManager] retrying").arg(i);
+        for (int i = 0; i < 5; ++i) {
+            lines << QStringLiteral("[   2.%1] WARN  [Bluetooth][GattQueue] no answer within 3000 ms").arg(i);
+            lines << QStringLiteral("[   2.%1] INFO  [Bluetooth][GattQueue] scale write failed").arg(i);
+        }
+        for (int i = 0; i < 400; ++i)
+            lines << QStringLiteral("[   3.%1] DEBUG [Shot][ShotDataModel] chatter %1").arg(i, 3, 10, QLatin1Char('0'));
+
+        const QString out = CrashHandler::selectCrashNarrative(lines, CrashHandler::kDebugLogTailBudget);
+
+        QVERIFY(out.size() <= CrashHandler::kDebugLogTailBudget);
+        QVERIFY(out.contains(marker));
+        QVERIFY(out.contains(QStringLiteral("link lost")));
+        QVERIFY(out.contains(QStringLiteral("TypeError: xxx")));
+        QVERIFY(out.contains(QStringLiteral(" … {source=qml/Page.qml:12}")));
+        QVERIFY(out.contains(QStringLiteral("retrying (x3)\n  … 8 lines omitted …")));
+        QVERIFY(out.contains(QStringLiteral("chatter 399")));
+        QVERIFY(out.contains(QStringLiteral("lines omitted")));
+        QCOMPARE(out.count(QStringLiteral("no answer within 3000 ms")), 1);
+        QVERIFY(out.contains(QStringLiteral("(+4 earlier)")));
     }
 };
 
