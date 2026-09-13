@@ -1219,6 +1219,8 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
                                               qint64 shotEpoch)
 {
     QJsonObject root;
+    if (!shotData->portalSamples().isEmpty())
+        root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData->portalSamplesVariant());
 
     // Get data from ShotDataModel
     const auto& pressureData = shotData->pressureData();
@@ -1746,6 +1748,8 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData)
 {
     QJsonObject root;
+    if (!shotData.portalSamples.isEmpty())
+        root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData.portalSamples);
     root["version"] = 2;
 
     // Use original timestamp from the shot

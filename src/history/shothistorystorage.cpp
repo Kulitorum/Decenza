@@ -2281,6 +2281,8 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     QJsonObject root;
 
     root["pressure"] = pointsToJsonObject(shotData->pressureData());
+    if (!shotData->portalSamples().isEmpty())
+        root["portalSamples"] = QJsonArray::fromVariantList(shotData->portalSamplesVariant());
     root["flow"] = pointsToJsonObject(shotData->flowData());
     root["temperature"] = pointsToJsonObject(shotData->temperatureData());
     root["pressureGoal"] = pointsToJsonObject(shotData->pressureGoalData());
@@ -2347,6 +2349,7 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     // rather than defaulting, so consumers can tell "no data" from "goal was 0".
     if (root.contains("temperatureMixGoal"))
         record->temperatureMixGoal = arrayToPoints(root["temperatureMixGoal"].toObject());
+    record->portalSamples = PortalSamples::fromVariant(root["portalSamples"].toArray().toVariantList());
     if (root.contains("temperatureMix"))
         record->temperatureMix = arrayToPoints(root["temperatureMix"].toObject());
     if (root.contains("resistance"))
@@ -5335,6 +5338,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     root["flow"] = pointsToJsonObject(record.flow);
     root["temperature"] = pointsToJsonObject(record.temperature);
     root["temperatureMix"] = pointsToJsonObject(record.temperatureMix);
+    if (!record.portalSamples.isEmpty())
+        root["portalSamples"] = QJsonArray::fromVariantList(PortalSamples::toVariant(record.portalSamples));
     root["resistance"] = pointsToJsonObject(record.resistance);
     root["waterDispensed"] = pointsToJsonObject(record.waterDispensed);
     root["pressureGoal"] = pointsToJsonObject(record.pressureGoal);

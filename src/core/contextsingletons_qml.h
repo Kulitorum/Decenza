@@ -105,6 +105,7 @@
 #include "../models/flowcalibrationmodel.h"
 #include "../ble/scaledeviceproxy.h"
 #include "../ble/refractometers/refractometerproxy.h"
+#include "../ble/belkaportaldevice.h"
 // iOS has no USB path at all: CMakeLists.txt builds none of src/usb/ there and does not
 // find_package or link Qt6::SerialPort, while usbmanager.h/usbscalemanager.h include <QSerialPort>
 // on every platform except Android. Including them here unguarded broke the iOS release build with
@@ -801,5 +802,19 @@ public:
     static RefractometerProxy* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "Refractometer");
+    }
+};
+
+struct BelkaPortalForeign
+{
+    Q_GADGET
+    QML_FOREIGN(BelkaPortalDevice)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(BelkaPortal)
+public:
+    inline static BelkaPortalDevice* s_singletonInstance = nullptr;
+    static BelkaPortalDevice* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "BelkaPortal");
     }
 };

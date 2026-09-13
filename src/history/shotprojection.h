@@ -127,6 +127,7 @@ class ShotProjection {
     Q_PROPERTY(bool skipFirstFrameDetected MEMBER skipFirstFrameDetected)
     Q_PROPERTY(bool pourTruncatedDetected MEMBER pourTruncatedDetected)
 
+    Q_PROPERTY(QVariantList portalSamples MEMBER portalSamples)
     Q_PROPERTY(QVariantList pressure MEMBER pressure)
     Q_PROPERTY(QVariantList flow MEMBER flow)
     Q_PROPERTY(QVariantList temperature MEMBER temperature)
@@ -230,6 +231,7 @@ public:
     bool skipFirstFrameDetected = false;
     bool pourTruncatedDetected = false;
 
+    QVariantList portalSamples;
     QVariantList pressure;
     QVariantList flow;
     QVariantList temperature;

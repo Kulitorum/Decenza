@@ -710,6 +710,7 @@ set(SOURCES
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
     src/ble/blegattqueue.cpp
+    src/ble/belkaportaldevice.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
@@ -952,11 +953,15 @@ set(HEADERS
     src/core/hdsfirmwarecatalog.h
     src/core/hdsfirmwareupdatecontroller.h
     src/ble/protocol/binarycodec.h
+    src/ble/protocol/belkaportalprotocol.h
+    src/models/portalsample.h
     src/ble/protocol/de1characteristics.h
     src/ble/protocol/decentscaleprotocol.h
     src/ble/blecapability.h
     src/ble/blecontrollererror.h
     src/ble/bleserviceerror.h
+    src/ble/belkaportaldevice.h
+    src/ble/belkaportaldiscovery.h
     src/ble/blemanager.h
     src/ble/de1transport.h
     src/ble/de1device.h
@@ -1329,6 +1334,9 @@ set(QML_FILES
     qml/AppShell.qml
     qml/Theme.qml
     qml/pages/IdlePage.qml
+    qml/components/PortalDevicePanel.qml
+    qml/components/PortalGraphOverlay.qml
+    qml/components/PortalReadout.qml
     qml/pages/EspressoPage.qml
     qml/pages/SteamPage.qml
     qml/pages/HotWaterPage.qml

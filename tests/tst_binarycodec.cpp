@@ -1,10 +1,12 @@
 #include <QtTest>
 
 #include "ble/protocol/binarycodec.h"
+#include "ble/protocol/belkaportalprotocol.h"
 #include "ble/protocol/de1characteristics.h"
 
 // Test BLE binary codec encode/decode round-trips and edge cases.
-// Expected values derived from de1app encode_* / decode_* procs.
+// DE1 expectations derive from de1app encode_* / decode_* procs;
+// PORTAL fixtures are synthetic except for the explicitly identified device capture.
 // BinaryCodec is pure math with no state — no mocks or friend access needed.
 
 class tst_BinaryCodec : public QObject {
@@ -12,6 +14,80 @@ class tst_BinaryCodec : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void portalCapturedPacketMatchesDisplayRounding() {
+        // Manually transcribed from the owner's PORTAL diagnostics screenshot,
+        // 2026-09-13 16:02:43, on Android with Decenza 2.0.5 + this integration.
+        // The same screen showed EC 0.754 and outlet temperature 35.8 C.
+        // This checks wire/display consistency, not calibrated accuracy or EC units.
+        const auto value = BelkaPortalProtocol::decodeMeasurement(
+            QByteArray::fromHex("a5ef403fd8580842230e0f425c"));
+        QVERIFY(value.has_value());
+        QCOMPARE(qRound(value->ecRaw * 1000), 754);
+        QCOMPARE(qRound(value->temperatureC * 10), 358);
+        QCOMPARE(value->statusRaw, quint8(0x5c));
+    }
+
+    void portalMeasurement_data() {
+        QTest::addColumn<QByteArray>("packet");
+        QTest::addColumn<float>("ec");
+        QTest::addColumn<float>("auxiliary");
+        QTest::addColumn<float>("temperature");
+        QTest::addColumn<int>("status");
+
+        // Synthetic IEEE 754 fixtures, NOT captured hardware measurements.
+        // Distinct fields detect offset/endianness swaps; 0xC8 must stay raw.
+        QTest::newRow("distinct fields")
+            << QByteArray::fromHex("0000c03f0000c8410000ae42c8")
+            << 1.5f << 25.0f << 87.0f << 200;
+        QTest::newRow("zero is a measurement")
+            << QByteArray(13, '\0') << 0.0f << 0.0f << 0.0f << 0;
+        QTest::newRow("signed raw values")
+            << QByteArray::fromHex("000000bf000020c000001040ff")
+            << -0.5f << -2.5f << 2.25f << 255;
+    }
+
+    void portalMeasurement() {
+        QFETCH(QByteArray, packet);
+        QFETCH(float, ec);
+        QFETCH(float, auxiliary);
+        QFETCH(float, temperature);
+        QFETCH(int, status);
+        // Decode a view starting inside another buffer to exercise unaligned input.
+        const QByteArray framed = QByteArray(1, char(0xAA)) + packet;
+        const auto reading = BelkaPortalProtocol::decodeMeasurement(
+            QByteArrayView(framed).sliced(1));
+        QVERIFY(reading.has_value());
+        QCOMPARE(reading->ecRaw, ec);
+        QCOMPARE(reading->auxiliaryTemperature, auxiliary);
+        QCOMPARE(reading->temperatureC, temperature);
+        QCOMPARE(int(reading->statusRaw), status);
+    }
+
+    void portalRejectsMalformed_data() {
+        QTest::addColumn<QByteArray>("packet");
+        for (qsizetype length = 0; length < 13; ++length) {
+            const auto name = QByteArray("truncated-") + QByteArray::number(static_cast<qlonglong>(length));
+            QTest::newRow(name.constData()) << QByteArray(length, '\0');
+        }
+        QTest::newRow("unknown extended format") << QByteArray(14, '\0');
+        QTest::newRow("two concatenated frames") << QByteArray(26, '\0');
+        for (const auto& word : {QByteArray::fromHex("0000807f"),
+                                 QByteArray::fromHex("000080ff"),
+                                 QByteArray::fromHex("0000c07f")}) {
+            for (qsizetype offset : {0, 4, 8}) {
+                QByteArray packet(13, '\0');
+                packet.replace(offset, 4, word);
+                const auto name = word.toHex() + "-at-" + QByteArray::number(static_cast<qlonglong>(offset));
+                QTest::newRow(name.constData()) << packet;
+            }
+        }
+    }
+
+    void portalRejectsMalformed() {
+        QFETCH(QByteArray, packet);
+        QVERIFY(!BelkaPortalProtocol::decodeMeasurement(QByteArrayView(packet)).has_value());
+    }
 
     // ===== U8P4: 4 fractional bits, range 0-15.9375 (de1app encode_U8P4) =====
 

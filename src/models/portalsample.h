@@ -1,0 +1,49 @@
+#pragma once
+
+#include <QVariantList>
+#include <QVariantMap>
+#include <QVector>
+#include <cmath>
+
+struct PortalSample {
+    double time;
+    double ecRaw;
+    double temperatureC;
+    bool breakBefore;
+};
+
+namespace PortalSamples {
+inline QVariantList toVariant(const QVector<PortalSample>& samples)
+{
+    QVariantList result;
+    result.reserve(samples.size());
+    for (const auto& sample : samples)
+        result.append(QVariantMap{{"time", sample.time}, {"ecRaw", sample.ecRaw},
+            {"temperatureC", sample.temperatureC}, {"breakBefore", sample.breakBefore}});
+    return result;
+}
+
+inline QVector<PortalSample> fromVariant(const QVariantList& values)
+{
+    QVector<PortalSample> result;
+    result.reserve(values.size());
+    bool gap = true;
+    for (const auto& value : values) {
+        const auto map = value.toMap();
+        bool timeOk = false, ecOk = false, tempOk = false;
+        PortalSample sample{map.value("time").toDouble(&timeOk),
+            map.value("ecRaw").toDouble(&ecOk), map.value("temperatureC").toDouble(&tempOk),
+            map.value("breakBefore").toBool()};
+        if (!timeOk || !ecOk || !tempOk || !std::isfinite(sample.time)
+            || !std::isfinite(sample.ecRaw) || !std::isfinite(sample.temperatureC)
+            || sample.time < 0 || (!result.isEmpty() && sample.time < result.last().time)) {
+            gap = true;
+            continue;
+        }
+        sample.breakBefore = sample.breakBefore || gap;
+        result.append(sample);
+        gap = false;
+    }
+    return result;
+}
+}

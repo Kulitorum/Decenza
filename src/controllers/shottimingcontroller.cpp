@@ -51,6 +51,14 @@ double ShotTimingController::shotTime() const
     return m_currentTime;
 }
 
+std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) const
+{
+    if (!m_extractionStarted || m_displayTimeBase <= 0 || (!m_shotActive && !m_sawSettling))
+        return std::nullopt;
+    const double time = (receivedAtMs - m_displayTimeBase) / 1000.0;
+    return time >= 0 ? std::optional<double>(time) : std::nullopt;
+}
+
 void ShotTimingController::setScale(ScaleDevice* scale)
 {
     // Signal connections to scale are managed externally in main.cpp
@@ -182,6 +190,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
         if (!m_extractionStarted) {
             m_extractionStarted = true;
             m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
+            emit extractionClockStarted();
             DIAG_DEBUG(SHOT, "shottimingcontroller") << "EXTRACTION STARTED at frame" << frameNumber;
         }
     }

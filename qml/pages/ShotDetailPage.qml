@@ -631,6 +631,7 @@ T.Page {
                     darcyResistanceData: shotDetailPage.shotData.darcyResistance || []
                     conductanceDerivativeData: shotDetailPage.shotData.conductanceDerivative || []
                     temperatureMixData: shotDetailPage.shotData.temperatureMix || []
+                    portalSamples: shotDetailPage.shotData.portalSamples || []
                     pressureGoalData: shotDetailPage.shotData.pressureGoal || []
                     flowGoalData: shotDetailPage.shotData.flowGoal || []
                     temperatureGoalData: shotDetailPage.shotData.temperatureGoal || []
@@ -724,6 +725,7 @@ T.Page {
             }
 
             GraphLegend {
+                portalAvailable: (shotDetailPage.shotData.portalSamples || []).length > 0
             }
 
             // Shot navigation buttons (list is newest-first, so lower index = newer)

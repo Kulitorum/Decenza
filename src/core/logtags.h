@@ -70,6 +70,7 @@
 #define DECENZA_LOG_MARKER_SCALE         "Scale"
 #define DECENZA_LOG_MARKER_DE1           "DE1"
 #define DECENZA_LOG_MARKER_REFRACTOMETER "Refractometer"
+#define DECENZA_LOG_MARKER_PORTAL "PORTAL"
 #define DECENZA_LOG_MARKER_BLUETOOTH     "Bluetooth"
 #define DECENZA_LOG_MARKER_SAW           "SAW"
 #define DECENZA_LOG_MARKER_FONT          "Font"
@@ -115,6 +116,7 @@
     X(DECENZA_LOG_MARKER_DE1,                                                  \
       "The espresso machine: its BLE and serial transports, USB discovery, "    \
       "permissions and connection lifecycle")                                  \
+    X(DECENZA_LOG_MARKER_PORTAL, "Belka PORTAL connection and raw measurement diagnostics") \
     X(DECENZA_LOG_MARKER_REFRACTOMETER,                                        \
       "DiFluid R1/R2 refractometers. Separate from Scale because these are a "  \
       "different instrument answering different questions, even though they "    \

@@ -10,6 +10,7 @@
 
 #include "ai/shotanalysis.h"
 #include "history/bagid.h"
+#include "models/portalsample.h"
 
 // Lightweight shot summary for list display
 struct HistoryShotSummary {
@@ -112,6 +113,8 @@ struct ShotRecord {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+
+    QVector<PortalSample> portalSamples;
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;

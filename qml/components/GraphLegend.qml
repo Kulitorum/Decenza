@@ -9,6 +9,7 @@ Item {
     id: legendRoot
 
     property bool advancedMode: Settings.graph.advancedMode
+    property bool portalAvailable: false
     property bool liveMode: false  // true = live shot graph (hides post-shot-only curves like dC/dt)
 
     Layout.fillWidth: true
@@ -23,7 +24,7 @@ Item {
         for (var i = 0; i < all.length; i++) {
             var m = all[i]
             var vis = (!m.advanced || legendRoot.advancedMode) && (!m.postShotOnly || !legendRoot.liveMode)
-            if (!vis)
+            if (!vis || (m.portal && !legendRoot.portalAvailable))
                 continue
             out.push({
                 key: m.key,
