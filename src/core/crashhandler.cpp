@@ -37,6 +37,13 @@
 #include <execinfo.h>
 #endif
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+#include <cxxabi.h>
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#endif
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <dbghelp.h>
@@ -50,6 +57,9 @@ static char s_lastDebugMessage[4096] = {0};
 // "<version> build <code>", precomputed in install(). The report title carries
 // only the version, and one version ships many builds.
 static char s_buildLine[64] = {0};
+// "<image> <UUID>" of the image holding this code, precomputed in install() on
+// Apple platforms: it names the one dSYM a report can be symbolicated against.
+static char s_imageUuid[128] = {0};
 
 #ifdef Q_OS_ANDROID
 // "--pid=<N>" argument for logcat, precomputed in install() so the signal
@@ -59,6 +69,18 @@ static char s_logcatPidArg[32] = {0};
 
 // Store recent debug messages for context
 static QtMessageHandler s_previousHandler = nullptr;
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+// The install path before a library name (~150 characters per frame on Android)
+// spends a budgeted report on nothing the version does not already identify.
+static const char* moduleBaseName(const char* path)
+{
+    if (!path || !*path)
+        return "(main)";
+    const char* slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+#endif
 
 static void crashMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
@@ -134,16 +156,6 @@ static int locateFrames(struct dl_phdr_info* info, size_t, void* data)
         }
     }
     return 0;
-}
-
-// The APK-internal path before the library name is ~150 characters per frame
-// of a budgeted report and identifies nothing the version does not.
-static const char* moduleBaseName(const char* path)
-{
-    if (!path || !*path)
-        return "(main)";
-    const char* slash = strrchr(path, '/');
-    return slash ? slash + 1 : path;
 }
 
 static void writeBacktraceToFile(FILE* f)
@@ -561,18 +573,92 @@ static void writeBacktraceToFile(FILE* f)
 #endif
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+// The loaded image whose mapped segments contain address, or -1. __PAGEZERO
+// (initprot 0) is skipped: it spans the low 4 GB and contains no code.
+static int32_t imageContaining(uintptr_t address)
+{
+    const uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto* header = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
+        if (!header || header->magic != MH_MAGIC_64)
+            continue;
+        const uintptr_t slide = static_cast<uintptr_t>(_dyld_get_image_vmaddr_slide(i));
+        auto* cmd = reinterpret_cast<const load_command*>(header + 1);
+        for (uint32_t c = 0; c < header->ncmds; ++c) {
+            if (cmd->cmd == LC_SEGMENT_64) {
+                const auto* segment = reinterpret_cast<const segment_command_64*>(cmd);
+                const uintptr_t start = static_cast<uintptr_t>(segment->vmaddr) + slide;
+                if (segment->initprot != 0 && address >= start && address - start < segment->vmsize)
+                    return static_cast<int32_t>(i);
+            }
+            cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
+        }
+    }
+    return -1;
+}
+
+int CrashHandler::describeCodeAddress(void* pc, char* out, size_t size)
+{
+    const uintptr_t address = reinterpret_cast<uintptr_t>(pc);
+    const int32_t image = imageContaining(address);
+    if (image < 0)
+        return snprintf(out, size, "%p (not in a loaded image)", pc);
+    const uintptr_t slide = static_cast<uintptr_t>(_dyld_get_image_vmaddr_slide(static_cast<uint32_t>(image)));
+    return snprintf(out, size, "%s 0x%lx",
+                    moduleBaseName(_dyld_get_image_name(static_cast<uint32_t>(image))),
+                    static_cast<unsigned long>(address - slide));
+}
+
+static void recordImageUuid()
+{
+    const int32_t image = imageContaining(reinterpret_cast<uintptr_t>(&recordImageUuid));
+    if (image < 0)
+        return;
+    const auto* header = reinterpret_cast<const mach_header_64*>(
+        _dyld_get_image_header(static_cast<uint32_t>(image)));
+    auto* cmd = reinterpret_cast<const load_command*>(header + 1);
+    for (uint32_t c = 0; c < header->ncmds; ++c) {
+        if (cmd->cmd == LC_UUID) {
+            const uint8_t* u = reinterpret_cast<const uuid_command*>(cmd)->uuid;
+            snprintf(s_imageUuid, sizeof(s_imageUuid),
+                     "%s %02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+                     moduleBaseName(_dyld_get_image_name(static_cast<uint32_t>(image))),
+                     u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
+                     u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
+            return;
+        }
+        cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
+    }
+}
+
 static void writeBacktraceToFile(FILE* f)
 {
     void* buffer[64];
     int count = backtrace(buffer, 64);
-    char** symbols = backtrace_symbols(buffer, count);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    // dladdr answers with the nearest EXPORTED symbol however far away it is, which
+    // in a stripped iOS binary is noise: #1777 printed "QBluetoothPermission…
+    // metaObjectFunction + 1076920". Past any plausible function size it is dropped.
+    constexpr ptrdiff_t kPlausibleFunctionSize = 0x10000;
+
+    fprintf(f, "\nBacktrace (%d frames, image and address in the image file):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (int i = 0; i < count; ++i) {
-        fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
-    }
+        char where[256];
+        CrashHandler::describeCodeAddress(buffer[i], where, sizeof(where));
+        fprintf(f, "  #%d: %s", i, where); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
-    if (symbols) free(symbols);
+        Dl_info info;
+        if (dladdr(buffer[i], &info) && info.dli_sname) {
+            const ptrdiff_t offset = static_cast<char*>(buffer[i]) - static_cast<char*>(info.dli_saddr);
+            if (offset >= 0 && offset < kPlausibleFunctionSize) {
+                int status = 0;
+                char* demangled = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status);
+                fprintf(f, " %s + %td", (status == 0 && demangled) ? demangled : info.dli_sname, offset); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+                free(demangled);
+            }
+        }
+        fputc('\n', f);
+    }
 }
 #endif
 
@@ -587,6 +673,8 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     fprintf(f, "Signal: %d (%s)\n", signal, signalName); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     if (s_buildLine[0] != '\0')
         fprintf(f, "Build: %s\n", s_buildLine); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    if (s_imageUuid[0] != '\0')
+        fprintf(f, "Image: %s\n", s_imageUuid); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Get current time (basic, signal-safe-ish)
     time_t now = time(nullptr);
@@ -718,6 +806,9 @@ void CrashHandler::install()
     strncpy(s_debugLogPath, debugPathBytes.constData(), sizeof(s_debugLogPath) - 1);
 
     snprintf(s_buildLine, sizeof(s_buildLine), "%s build %d", VERSION_STRING, versionCode());
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    recordImageUuid();
+#endif
 
 #ifdef Q_OS_ANDROID
     snprintf(s_logcatPidArg, sizeof(s_logcatPidArg), "--pid=%d", getpid());

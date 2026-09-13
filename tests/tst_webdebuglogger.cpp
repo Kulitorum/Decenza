@@ -13,6 +13,13 @@
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 
+#ifdef Q_OS_MACOS
+#include <mach-o/ldsyms.h>
+
+// A function whose address lies in this test binary's own code.
+static int codeInThisBinary() { return 42; }
+#endif
+
 // Exercises WebDebugLogger::sessionIndex()'s cache: reused across repeated
 // calls when the persisted file hasn't changed, rebuilt when it has
 // (including trimLogFile()'s truncate-and-rewrite path, which changes both
@@ -929,6 +936,37 @@ private slots:
         QCOMPARE(out.count(QStringLiteral("no answer within 3000 ms")), 1);
         QVERIFY(out.contains(QStringLiteral("(+4 earlier)")));
     }
+
+#ifdef Q_OS_MACOS
+    // A backtrace frame must name its image and give the address as the image's
+    // FILE has it, since atos and llvm-symbolizer read the dSYM, not the running
+    // process. Printing the runtime address (no slide removed) lands outside
+    // __TEXT under ASLR; naming the wrong image points at the wrong dSYM.
+    void crashBacktrace_addressIsInTheImageFile()
+    {
+        char out[256];
+        CrashHandler::describeCodeAddress(reinterpret_cast<void*>(&codeInThisBinary), out, sizeof(out));
+        const QStringList parts = QString::fromLatin1(out).split(QLatin1Char(' '));
+
+        QCOMPARE(parts.size(), 2);
+        QCOMPARE(parts[0], QFileInfo(QCoreApplication::applicationFilePath()).fileName());
+        bool ok = false;
+        const quint64 fileAddress = parts[1].toULongLong(&ok, 16);
+        QVERIFY(ok);
+        // __TEXT as this executable's own header records it (unslid).
+        const segment_command_64* text = nullptr;
+        auto* cmd = reinterpret_cast<const load_command*>(&_mh_execute_header + 1);
+        for (uint32_t c = 0; c < _mh_execute_header.ncmds && !text; ++c) {
+            if (cmd->cmd == LC_SEGMENT_64
+                && qstrcmp(reinterpret_cast<const segment_command_64*>(cmd)->segname, "__TEXT") == 0)
+                text = reinterpret_cast<const segment_command_64*>(cmd);
+            cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
+        }
+        QVERIFY(text);
+        QVERIFY(fileAddress >= text->vmaddr);
+        QVERIFY(fileAddress < text->vmaddr + text->vmsize);
+    }
+#endif
 };
 
 QTEST_GUILESS_MAIN(tst_WebDebugLogger)
