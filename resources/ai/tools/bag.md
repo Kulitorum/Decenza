@@ -22,7 +22,7 @@ state.
 ## The yield anchor
 
 A bag holds ONE yield anchor. `yieldG` is an absolute gram target; `yieldRatio` is a multiple of
-the dose (2.0 = 1:2, clamped 0.5-6.0) so the gram target follows the dose actually weighed.
+the dose (2.0 = 1:2, clamped 0.5-100) so the gram target follows the dose actually weighed.
 Writing either replaces the other — no separate clear is needed — and sending both keys in one
 call is rejected. `0` clears the yield entirely.
 

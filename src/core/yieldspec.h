@@ -65,13 +65,12 @@ inline double clampValue(const QString& mode, double value) {
 // Resolve a spec to grams against a dose. `fallbackG` answers for mode
 // "none" (the next ladder rung, typically the profile's target_weight).
 // A ratio with no usable dose resolves to the fallback too — a 0 g stop
-// target must never reach the machine. A ratio's grams obey the absolute bound, so
-// a tea-sized ratio on an espresso dose cannot ask for 1800 g.
+// target must never reach the machine.
 inline double resolveGrams(const QString& mode, double value, double doseG, double fallbackG) {
     if (mode == modeAbsolute() && value > 0)
         return value;
     if (mode == modeRatio() && value > 0 && doseG > 0)
-        return clampAbsolute(value * doseG);
+        return value * doseG;
     return fallbackG;
 }
 

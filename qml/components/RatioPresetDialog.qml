@@ -46,6 +46,8 @@ DecenzaDialog {
     property bool editMode: false
 
     // Clamp + round to one decimal, then write the preset for this card's index.
+    // The +/- buttons step by 1 above 1:10 (filter, tea) and by 0.1 below; + tests
+    // >= 10 and - tests > 10, so 1:10 is reachable from both sides.
     function setPresetRatio(idx, r) {
         var v = Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, Math.round(r * 10) / 10))
         if (idx === 1) Settings.brew.ratioPreset1 = v
@@ -276,7 +278,6 @@ DecenzaDialog {
                                 Text { anchors.centerIn: parent; text: "+"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: plusMa; anchors.fill: parent
-                                    // Whole steps from 1:10, where filter and tea ratios live.
                                     onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio + (card.modelData.ratio >= 10 ? 1 : 0.1)) }
                             }
                         }
