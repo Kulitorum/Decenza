@@ -355,7 +355,6 @@ public:
     // hasKnowledgeBase (bool), espressoTemperatureC, targetWeightG.
     Q_INVOKABLE QVariantMap profileCatalogInfoForTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
-    Q_INVOKABLE bool isProfileInSelectedList(const QString& filename) const;
     Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
 
@@ -429,7 +428,7 @@ public:
     // === Shared picker (profile-picker) ===================================
     //
     // ONE predicate, one facet counter, over the in-memory catalogue — see
-    // design D3. `chips` is a plain map: selected (bool), favorites (bool),
+    // design D3. `chips` is a plain map: favorites (bool),
     // sources (QStringList of "builtin"|"downloaded"|"mine"), beverages
     // (QStringList of "espresso"|"filter"|"tea"|"cleaning"). Groups combine
     // with OR internally and AND against each other and the search text;
@@ -440,7 +439,7 @@ public:
     Q_INVOKABLE QVariantList filterProfiles(const QVariantMap& chips, const QString& search,
                                             const QStringList& allowedBeverageTypes = {}) const;
 
-    // Faceted count per chip id ("selected", "favorites", "builtin",
+    // Faceted count per chip id ("favorites", "builtin",
     // "downloaded", "mine", "espresso", "filter", "tea", "cleaning"): how many
     // profiles would match if THAT chip were also on, given the chips already
     // on and the search text (profile-picker "Faceted chip counts").
@@ -661,13 +660,13 @@ signals:
     void shotAbortedProfileUploadRetrying();
 
     // Emitted when loadAutoLoadProfileIfNeeded() finds the configured filename
-    // no longer resolves to a Selected-list profile. The setting is cleared as
-    // part of the same call; QML listens to surface a toast.
+    // no longer resolves to a favorite. The setting is cleared as part of the
+    // same call; QML listens to surface a toast.
     //
-    // Not emitted on eager-clear paths (Settings::addHiddenProfile /
-    // removeSelectedBuiltInProfile / ProfileManager::deleteProfile) — those
-    // clear the filename directly while the user is already on a UI that
-    // makes the change obvious, so no toast is warranted.
+    // Not emitted on eager-clear paths (SettingsApp::removeFavoriteProfile /
+    // ProfileManager::deleteProfile) — those clear the filename directly while
+    // the user is already on a UI that makes the change obvious, so no toast
+    // is warranted.
     void autoLoadStaleCleared();
 
     // See Q_PROPERTY documentation above.
@@ -686,6 +685,15 @@ private:
     // alpha), custom is a no-op. Re-syncs selectedFavoriteProfile by FILENAME
     // afterward — the resort is positional, identity must survive it.
     void resortFavorites();
+
+    // One-time upgrade (rebuild-profile-picker): the removed Selected list —
+    // built-ins opted IN via the old selectedBuiltIns, downloaded/user
+    // profiles opted OUT via the old hiddenProfiles — folded into favorites,
+    // appended alphabetically by title after the existing favorites. Gated by
+    // SettingsApp::selectedMergedIntoFavorites(); called once from the
+    // constructor, after refreshProfiles() has populated m_allProfiles and
+    // before persistFavoriteProfileOrderIfAbsent() resolves the order mode.
+    void mergeSelectedIntoFavoritesIfNeeded();
 
 
     // Catalog lookup by title for the four KB surfaces. Returns nullptr when

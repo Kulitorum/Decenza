@@ -124,28 +124,6 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("profile/favorites", QJsonDocument(defaultFavorites).toJson());
     }
 
-    // Initialize default selected built-in profiles if none exist
-    if (!m_settings.contains("profile/selectedBuiltIns")) {
-        QStringList defaultSelected;
-        defaultSelected << "adaptive_v2"
-                        << "blooming_espresso"
-                        << "best_overall_pressure_profile"
-                        << "flow_profile_for_straight_espresso"
-                        << "turbo_shot"
-                        << "gentle_and_sweet"
-                        << "extractamundo_dos"
-                        << "rao_allonge"
-                        << "default"
-                        << "flow_profile_for_milky_drinks"
-                        << "damian_s_lrv2"
-                        << "d_flow_default"
-                        << "d_flow_q"
-                        << "80_s_espresso"
-                        << "cremina_lever_machine"
-                        << "e61_espresso_machine";
-        m_settings.setValue("profile/selectedBuiltIns", defaultSelected);
-    }
-
     // Migrate flat shader/* keys to shader/crt/* (one-time, v1.5.x → v1.6)
     if (m_settings.contains("shader/scanlineIntensity") && !m_settings.contains("shader/migrated")) {
         static const QStringList crtParams = {

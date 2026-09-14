@@ -4201,7 +4201,7 @@ private slots:
         QFile::remove(f.profileManager.userProfilesPath() + "/filt_filter_9f2e.json");
     }
 
-    void filterProfilesFavoritesImpliesSelectedAndSearchIsTitleOnly() {
+    void filterProfilesSearchIsTitleOnly() {
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / Blossom_e41c");
         QVERIFY(f.profileManager.saveProfile("search_blossom_e41c"));
@@ -4217,20 +4217,12 @@ private slots:
         QVERIFY(byNames.contains("search_blossom_e41c"));
         QVERIFY(!byNames.contains("search_other_e41c"));
 
-        // Favorites chip lists our favorite...
+        // Favorites chip lists our favorite.
         QVariantMap favChips; favChips["favorites"] = true;
         QStringList favNames;
         for (const QVariant& v : f.profileManager.filterProfiles(favChips, QStringLiteral("e41c")))
             favNames << v.toMap()["name"].toString();
         QCOMPARE(favNames, QStringList{"search_blossom_e41c"});
-
-        // ...and it is ALSO in Selected: favoriting a profile also selects it,
-        // so Favorites is a subset of Selected.
-        QVariantMap selChips; selChips["selected"] = true;
-        QStringList selNames;
-        for (const QVariant& v : f.profileManager.filterProfiles(selChips, QStringLiteral("e41c")))
-            selNames << v.toMap()["name"].toString();
-        QVERIFY(selNames.contains("search_blossom_e41c"));
 
         removeFavoriteIfPresent(f, "search_blossom_e41c");
         QFile::remove(f.profileManager.userProfilesPath() + "/search_blossom_e41c.json");
@@ -4280,6 +4272,68 @@ private slots:
         QFile::remove(f.profileManager.userProfilesPath() + "/facet_tea_one_7c3d.json");
         QFile::remove(f.profileManager.userProfilesPath() + "/facet_tea_two_7c3d.json");
         QFile::remove(f.profileManager.userProfilesPath() + "/facet_espresso_7c3d.json");
+    }
+
+    // === One-time upgrade: the removed Selected list merges into favorites ===
+    // (profile-favorites-order "Upgrade merges Selected into favorites")
+
+    void selectedMergesIntoFavoritesOnceAtStartup() {
+        // No stray downloaded/user profiles in the catalogue, or hiddenProfiles
+        // being empty below would treat them as old-Selected too.
+        clearTestProfileStore();
+
+        const QString existingFavName = "Zzz Merge Test Pre-Existing";
+        const QString existingFavFile = "zzz_merge_test_preexisting_9d4e";
+
+        // Seed the legacy Selected state and force the one-time flag absent
+        // BEFORE any ProfileManager (whose constructor runs the merge) exists.
+        // adaptive_v2/blooming_espresso are real shipped built-ins (:/profiles,
+        // unaffected by profile/path), titled "Adaptive v2"/"Blooming Espresso"
+        // — alphabetical order below relies on that.
+        {
+            AppSettings raw;
+            raw.remove(QStringLiteral("profile/selectedMergedIntoFavorites"));
+            QJsonArray existingFavs;
+            QJsonObject fav;
+            fav["name"] = existingFavName;
+            fav["filename"] = existingFavFile;
+            existingFavs.append(fav);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(existingFavs).toJson());
+            raw.setValue(QStringLiteral("profile/selectedBuiltIns"),
+                         QStringList{QStringLiteral("blooming_espresso"), QStringLiteral("adaptive_v2")});
+            raw.setValue(QStringLiteral("profile/hiddenProfiles"), QStringList());
+            raw.sync();
+        }
+
+        qsizetype sizeAfterFirst = 0;
+        {
+            McpTestFixture f;
+            const QVariantList favorites = f.settings.app()->favoriteProfiles();
+
+            // The pre-existing favorite keeps its position; the two old-Selected
+            // built-ins are appended after it, alphabetically by TITLE
+            // ("Adaptive v2" < "Blooming Espresso") — relative order only, so a
+            // favorite some other test left behind cannot fail this assertion.
+            const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v2"),
+                                           QStringLiteral("blooming_espresso")};
+            QCOMPARE(favoriteFilenamesAmong(favorites, ofInterest),
+                     QStringList({existingFavFile, QStringLiteral("adaptive_v2"), QStringLiteral("blooming_espresso")}));
+            sizeAfterFirst = favorites.size();
+        }
+
+        {
+            AppSettings flagCheck;
+            QVERIFY(flagCheck.value(QStringLiteral("profile/selectedMergedIntoFavorites")).toBool());
+        }
+
+        // Idempotence: a second ProfileManager construction (flag already set,
+        // legacy keys still present) adds nothing further.
+        McpTestFixture f2;
+        QCOMPARE(f2.settings.app()->favoriteProfiles().size(), sizeAfterFirst);
+
+        removeFavoriteIfPresent(f2, existingFavFile);
+        removeFavoriteIfPresent(f2, QStringLiteral("adaptive_v2"));
+        removeFavoriteIfPresent(f2, QStringLiteral("blooming_espresso"));
     }
 
     // === ProfileSaveHelper::compareProfiles() — unified duplicate detection ===
@@ -5291,34 +5345,22 @@ private slots:
         QCOMPARE(loadSpy.count(), 0);
     }
 
-    void eagerClearOnAddHiddenProfile() {
-        // Hiding the pinned profile must clear the auto-load setting eagerly
-        // so the UI strip disappears immediately.
+    void eagerClearOnRemoveFavoriteProfile() {
+        // Un-favoriting the pinned profile must clear the auto-load setting
+        // eagerly so the UI strip disappears immediately (favorites are the
+        // only membership now — this replaces the removed Selected-list
+        // eager-clear tests, eagerClearOnAddHiddenProfile and
+        // eagerClearOnRemoveSelectedBuiltIn).
         McpTestFixture f;
-        const QString filename = "test-user-profile";
-        // McpTestFixture uses real QSettings; ensure the precondition (profile
-        // not yet hidden) so addHiddenProfile actually mutates state. Otherwise
-        // a stale entry from a previous run short-circuits the eager-clear.
-        f.settings.app()->removeHiddenProfile(filename);
+        const QString filename = "test-favorite-profile-eager-clear";
+        removeFavoriteIfPresent(f, filename);
+        f.settings.app()->addFavoriteProfile("Test Favorite Profile Eager Clear", filename);
         f.settings.app()->setAutoLoadProfileFilename(filename);
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), filename);
 
-        f.settings.app()->addHiddenProfile(filename);
-
-        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
-
-        // Cleanup so subsequent test runs start from a known state.
-        f.settings.app()->removeHiddenProfile(filename);
-    }
-
-    void eagerClearOnRemoveSelectedBuiltIn() {
-        McpTestFixture f;
-        const QString filename = "test-builtin-profile";
-        f.settings.app()->removeSelectedBuiltInProfile(filename);
-        f.settings.app()->addSelectedBuiltInProfile(filename);
-        f.settings.app()->setAutoLoadProfileFilename(filename);
-
-        f.settings.app()->removeSelectedBuiltInProfile(filename);
+        const int idx = f.settings.app()->findFavoriteIndexByFilename(filename);
+        QVERIFY(idx >= 0);
+        f.settings.app()->removeFavoriteProfile(idx);
 
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
     }

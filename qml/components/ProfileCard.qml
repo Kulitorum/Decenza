@@ -38,7 +38,6 @@ Rectangle {
                                          : Theme.sourceBadgeOrangeColor
     readonly property string sourceLetter: isBuiltIn ? "D" : (isDownloaded ? "V" : "U")
 
-    readonly property bool isSelected: entry ? ProfileManager.isProfileInSelectedList(entry.name) : false
     readonly property bool isFavorite: entry ? Settings.app.isFavoriteProfile(entry.name) : false
     readonly property bool isAutoLoad: entry && entry.name !== undefined
         && Settings.app.autoLoadProfileFilename !== ""
@@ -124,17 +123,6 @@ Rectangle {
                 font.bold: true
                 color: card.sourceColor
                 Accessible.ignored: true
-            }
-
-            Image {
-                visible: card.isSelected
-                source: "qrc:/icons/box-checked.svg"
-                sourceSize.width: Theme.scaled(13)
-                sourceSize.height: Theme.scaled(13)
-                Accessible.ignored: true
-                layer.enabled: true
-                layer.smooth: true
-                layer.effect: MultiEffect { colorization: 1.0; colorizationColor: Theme.textSecondaryColor }
             }
 
             Text {

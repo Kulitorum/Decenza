@@ -177,18 +177,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     profile["favorites"] = favorites;
     profile["favoriteOrder"] = settings->app()->favoriteProfileOrder();
-
-    QJsonArray selectedBuiltIns;
-    for (const QString& s : settings->app()->selectedBuiltInProfiles()) {
-        selectedBuiltIns.append(s);
-    }
-    profile["selectedBuiltIns"] = selectedBuiltIns;
-
-    QJsonArray hiddenProfiles;
-    for (const QString& s : settings->app()->hiddenProfiles()) {
-        hiddenProfiles.append(s);
-    }
-    profile["hiddenProfiles"] = hiddenProfiles;
     profile["autoLoadFilename"] = settings->app()->autoLoadProfileFilename();
     profile["autoLoadRevertMinutes"] = settings->app()->autoLoadRevertMinutes();
     root["profile"] = profile;
@@ -704,23 +692,11 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->app()->setFavoriteProfileOrder(profile["favoriteOrder"].toString());
         }
 
-        if (profile.contains("selectedBuiltIns")) {
-            QStringList builtIns;
-            QJsonArray arr = profile["selectedBuiltIns"].toArray();
-            for (const QJsonValue& v : arr) {
-                builtIns.append(v.toString());
-            }
-            settings->app()->setSelectedBuiltInProfiles(builtIns);
-        }
-
-        if (profile.contains("hiddenProfiles")) {
-            QStringList hidden;
-            QJsonArray arr = profile["hiddenProfiles"].toArray();
-            for (const QJsonValue& v : arr) {
-                hidden.append(v.toString());
-            }
-            settings->app()->setHiddenProfiles(hidden);
-        }
+        // selectedBuiltIns/hiddenProfiles: an old backup may still carry these
+        // (the removed Selected list) — deliberately ignored, not migrated.
+        // rebuild-profile-picker folds the live Selected list into favorites
+        // once at startup; a backup import has no such one-time hook and
+        // nothing reads these keys any more.
 
         if (profile.contains("autoLoadFilename")) {
             settings->app()->setAutoLoadProfileFilename(profile["autoLoadFilename"].toString());

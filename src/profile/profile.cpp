@@ -1464,8 +1464,9 @@ Profile Profile::loadFromTclString(const QString& content) {
     // de1app scalars Profile does not model, kept verbatim under de1app's own
     // spelling so a Decenza-written file still means the same thing to de1app.
     //   - profile_hide → hidden: de1app and Decaid read this to filter their
-    //     profile lists. Decenza's own list uses SettingsApp::isHiddenProfile(),
-    //     a separate per-user filename list, so this is inert locally.
+    //     profile lists. Decenza has no equivalent per-user hidden list
+    //     (favorites are the only membership, rebuild-profile-picker), so
+    //     this is inert locally.
     //   - flow_profile_preinfusion / _preinfusion_time: NOT aliases of
     //     preinfusion_flow_rate / preinfusion_time. They are de1app's flow-editor
     //     (settings_2b) values against the pressure-editor (settings_2a) ones,

@@ -8,9 +8,9 @@ pins are **mutually exclusive**: setting one clears the other. That is why they 
 
 ## set
 
-- `target=profile` takes `filename` — a profile filename without `.json` that exists AND is in
-  the Selected list. Errors, distinctly: `filename is required`, `Profile not found: <name>`,
-  `Profile is not in the Selected list`.
+- `target=profile` takes `filename` — a profile filename without `.json` that exists AND is a
+  favorite. Errors, distinctly: `filename is required`, `Profile not found: <name>`,
+  `Profile is not a favorite`.
 - `target=recipe` takes `recipeId` from `recipe_list`. Errors, distinctly: `recipeId is
   required`, `recipeId must be a positive integer`, `recipeId is out of range`, `Recipe not
   found: <id>`, `Recipe is archived`.

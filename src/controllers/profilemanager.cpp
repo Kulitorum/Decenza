@@ -397,14 +397,66 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             emit targetWeightChanged();
         });
 
-        // Update profile lists when selection/hidden state changes
-        connect(m_settings->app(), &SettingsApp::selectedBuiltInProfilesChanged, this, &ProfileManager::profilesChanged);
-        connect(m_settings->app(), &SettingsApp::hiddenProfilesChanged, this, &ProfileManager::profilesChanged);
+        // rebuild-profile-picker: fold the old Selected list into favorites
+        // once. m_allProfiles is already populated (refreshProfiles() above);
+        // this must run before favoriteProfileOrder's own absent-value
+        // resolution below reads the (possibly now larger) favorites list.
+        mergeSelectedIntoFavoritesIfNeeded();
 
         // profile-favorites-order: a mode switch re-sorts immediately.
         m_settings->app()->persistFavoriteProfileOrderIfAbsent();
         connect(m_settings->app(), &SettingsApp::favoriteProfileOrderChanged, this, &ProfileManager::resortFavorites);
     }
+}
+
+// One-time upgrade (rebuild-profile-picker) — see the header doc comment.
+void ProfileManager::mergeSelectedIntoFavoritesIfNeeded() {
+    if (!m_settings || m_settings->app()->selectedMergedIntoFavorites())
+        return;
+
+    const SettingsApp::LegacySelectedLists legacy = m_settings->app()->takeLegacySelectedLists();
+
+    // Old Selected set, reproduced one final time: built-ins opted IN via
+    // selectedBuiltIns, downloaded/user profiles opted OUT via hiddenProfiles
+    // (the removed SettingsApp::isSelectedBuiltInProfile/isHiddenProfile).
+    QList<const ProfileInfo*> toAdd;
+    for (const ProfileInfo& info : m_allProfiles) {
+        bool wasSelected = false;
+        switch (info.source) {
+        case ProfileSource::BuiltIn:
+            wasSelected = legacy.selectedBuiltIns.contains(info.filename);
+            break;
+        case ProfileSource::Downloaded:
+        case ProfileSource::UserCreated:
+            wasSelected = !legacy.hiddenProfiles.contains(info.filename);
+            break;
+        }
+        if (wasSelected && !m_settings->app()->isFavoriteProfile(info.filename))
+            toAdd.append(&info);
+    }
+
+    std::sort(toAdd.begin(), toAdd.end(), [](const ProfileInfo* a, const ProfileInfo* b) {
+        return QString::localeAwareCompare(a->title, b->title) < 0;
+    });
+
+    // Appended AFTER the existing favorites (SettingsApp::addFavoriteProfile
+    // always appends), so existing positions and selectedFavoriteProfile's
+    // index are untouched.
+    const qsizetype room = 50 - m_settings->app()->favoriteProfiles().size();
+    qsizetype added = 0;
+    for (const ProfileInfo* info : toAdd) {
+        if (added >= room)
+            break;
+        m_settings->app()->addFavoriteProfile(info->title, info->filename);
+        ++added;
+    }
+    if (added < toAdd.size()) {
+        DIAG_WARN(PROFILES, "ProfileManager") << "selected-into-favorites upgrade: left out"
+                   << (toAdd.size() - added) << "of" << toAdd.size()
+                   << "profile(s) — the 50-favorite cap was already reached";
+    }
+
+    m_settings->app()->setSelectedMergedIntoFavorites();
 }
 
 
@@ -900,10 +952,6 @@ bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVaria
         && !(m_settings && m_settings->app()->isFavoriteProfile(info.filename)))
         return false;
 
-    if (chips.value(QStringLiteral("selected")).toBool()
-        && !isProfileInSelectedList(info.filename))
-        return false;
-
     const QStringList sources = chips.value(QStringLiteral("sources")).toStringList();
     if (!sources.isEmpty()) {
         QString sourceKey;
@@ -940,7 +988,7 @@ QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString&
 {
     QVariantMap counts;
     const QString searchLower = search.trimmed().toLower();
-    // Nine passes per keystroke: count with the predicate alone, never build rows.
+    // Eight passes per keystroke: count with the predicate alone, never build rows.
     const auto countWith = [&](const QVariantMap& withChip) -> int {
         int n = 0;
         for (const ProfileInfo& info : m_allProfiles) {
@@ -949,10 +997,6 @@ QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString&
         }
         return n;
     };
-
-    QVariantMap withSelected = chips;
-    withSelected[QStringLiteral("selected")] = true;
-    counts[QStringLiteral("selected")] = countWith(withSelected);
 
     QVariantMap withFavorites = chips;
     withFavorites[QStringLiteral("favorites")] = true;
@@ -1274,40 +1318,15 @@ bool ProfileManager::profileExists(const QString& filename) const {
     return QFile::exists(path);
 }
 
-bool ProfileManager::isProfileInSelectedList(const QString& filename) const {
-    if (filename.isEmpty() || !m_settings) return false;
-
-    const QStringList selectedBuiltIns = m_settings->app()->selectedBuiltInProfiles();
-    const QStringList hiddenProfiles = m_settings->app()->hiddenProfiles();
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.filename != filename) continue;
-        switch (info.source) {
-        case ProfileSource::BuiltIn:
-            return selectedBuiltIns.contains(filename);
-        case ProfileSource::Downloaded:
-        case ProfileSource::UserCreated:
-            return !hiddenProfiles.contains(filename);
-        }
-        // Defensive: an unknown ProfileSource (added later without updating
-        // this switch) should default to "not selectable" so auto-load doesn't
-        // silently pin a profile whose eligibility rules haven't been defined.
-        DIAG_WARN(PROFILES, "profilemanager") << "isProfileInSelectedList: unhandled ProfileSource for"
-                   << filename << "— treating as not selected";
-        return false;
-    }
-    return false;
-}
-
 void ProfileManager::loadAutoLoadProfileIfNeeded() {
     if (!m_settings) return;
 
     const QString filename = m_settings->app()->autoLoadProfileFilename();
     if (filename.isEmpty()) return;
 
-    if (!isProfileInSelectedList(filename)) {
+    if (!m_settings->app()->isFavoriteProfile(filename)) {
         DIAG_DEBUG(PROFILES, "ProfileManager") << "auto-load filename" << filename
-                 << "no longer in Selected list — clearing";
+                 << "is no longer a favorite — clearing";
         m_settings->app()->setAutoLoadProfileFilename("");
         emit autoLoadStaleCleared();
         return;
@@ -2867,9 +2886,6 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
     }
 
     if (success) {
-        if (m_settings) {
-            m_settings->app()->addSelectedBuiltInProfile(newFilename);
-        }
         refreshProfiles();
     }
 

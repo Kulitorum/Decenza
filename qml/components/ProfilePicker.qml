@@ -25,8 +25,8 @@ Item {
     property string beanType: ""
     property string roastLevel: ""
     property string teaType: ""
-    // {selected: bool, favorites: bool} — read once at construction; chip
-    // state does not persist across opens otherwise (profile-picker spec).
+    // {favorites: bool} — read once at construction; chip state does not
+    // persist across opens otherwise (profile-picker spec).
     property var initialChips: ({})
     // Host beverage constraint (recipe-wizard's drink type). Empty = no
     // constraint (the selector). Hides the Beverage chip group (design D6).
@@ -44,13 +44,11 @@ Item {
     signal addRequested()
 
     Component.onCompleted: {
-        picker.chipSelected = picker.initialChips.selected === true
         picker.chipFavorites = picker.initialChips.favorites === true
         picker.requestBeanRanking()
     }
 
     // === Chip / search / sort state (never persisted) ======================
-    property bool chipSelected: false
     property bool chipFavorites: false
     property var chipSources: []
     property var chipBeverages: []
@@ -61,7 +59,6 @@ Item {
 
     function buildChips() {
         return {
-            selected: picker.chipSelected,
             favorites: picker.chipFavorites,
             sources: picker.chipSources,
             beverages: picker.chipBeverages
@@ -69,7 +66,6 @@ Item {
     }
 
     function clearFilters() {
-        picker.chipSelected = false
         picker.chipFavorites = false
         picker.chipSources = []
         picker.chipBeverages = []
@@ -97,15 +93,11 @@ Item {
     readonly property var filteredAll: {
         var _dep1 = ProfileManager.allProfilesList
         var _dep2 = Settings.app.favoriteProfiles
-        var _dep3 = Settings.app.selectedBuiltInProfiles
-        var _dep4 = Settings.app.hiddenProfiles
         return ProfileManager.filterProfiles(picker.buildChips(), picker.searchText, picker.allowedBeverageTypes)
     }
     readonly property var facets: {
         var _dep1 = ProfileManager.allProfilesList
         var _dep2 = Settings.app.favoriteProfiles
-        var _dep3 = Settings.app.selectedBuiltInProfiles
-        var _dep4 = Settings.app.hiddenProfiles
         return ProfileManager.facetCounts(picker.buildChips(), picker.searchText, picker.allowedBeverageTypes)
     }
 
@@ -253,7 +245,6 @@ Item {
         actionsDialog.profileFilename = entry.name
         actionsDialog.profileTitle = entry.title
         actionsDialog.profileIsBuiltIn = entry.source === 0
-        actionsDialog.profileIsSelected = ProfileManager.isProfileInSelectedList(entry.name)
         actionsDialog.profileIsFavorite = Settings.app.isFavoriteProfile(entry.name)
         actionsDialog.profileIsAutoLoad = entry.name !== "" && entry.name === Settings.app.autoLoadProfileFilename
         actionsDialog.open()
@@ -325,7 +316,7 @@ Item {
 
             visible: picker.showAutoLoadStrip
                      && Settings.app.autoLoadProfileFilename !== ""
-                     && ProfileManager.isProfileInSelectedList(Settings.app.autoLoadProfileFilename)
+                     && Settings.app.isFavoriteProfile(Settings.app.autoLoadProfileFilename)
 
             readonly property var autoLoadProfile: visible
                 ? ProfileManager.getProfileByFilename(Settings.app.autoLoadProfileFilename)
@@ -503,12 +494,6 @@ Item {
             spacing: Theme.scaled(8)
 
             FilterChip {
-                label: TranslationManager.translate("profileselector.filter.selected", "Selected")
-                count: picker.facets.selected || 0
-                active: picker.chipSelected
-                onToggled: picker.chipSelected = !picker.chipSelected
-            }
-            FilterChip {
                 label: TranslationManager.translate("profilepicker.chip.favorites", "Favorites")
                 count: picker.facets.favorites || 0
                 active: picker.chipFavorites
@@ -678,7 +663,6 @@ Item {
         property string profileFilename: ""
         property string profileTitle: ""
         property bool profileIsBuiltIn: false
-        property bool profileIsSelected: false
         property bool profileIsFavorite: false
         property bool profileIsAutoLoad: false
 
@@ -746,7 +730,7 @@ Item {
             }
 
             AccessibleButton {
-                visible: actionsDialog.profileIsSelected
+                visible: actionsDialog.profileIsFavorite
                 Layout.fillWidth: true
                 Layout.preferredHeight: visible ? Theme.scaled(40) : 0
                 text: actionsDialog.profileIsAutoLoad
@@ -763,36 +747,6 @@ Item {
                         Settings.app.autoLoadProfileFilename = actionsDialog.profileFilename
                         picker.showToast(TranslationManager.translate("profileselector.toast.auto_load_set", "Auto-load set to %1").arg(actionsDialog.profileTitle))
                     }
-                    actionsDialog.close()
-                }
-            }
-
-            // Selected toggle (design D8): one entry, label/action follow state.
-            AccessibleButton {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(40)
-                destructive: actionsDialog.profileIsSelected
-                text: actionsDialog.profileIsSelected
-                    ? TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
-                    : TranslationManager.translate("profilepicker.menu.add_to_selected", "Add to Selected")
-                accessibleName: actionsDialog.profileIsSelected
-                    ? TranslationManager.translate("profileselector.accessible.remove_from_list", "Remove from selected list")
-                    : TranslationManager.translate("profileselector.accessible.add_to_selected", "Add to selected")
-                onClicked: {
-                    var wasSelected = actionsDialog.profileIsSelected
-                    if (actionsDialog.profileIsBuiltIn) {
-                        if (wasSelected) Settings.app.removeSelectedBuiltInProfile(actionsDialog.profileFilename)
-                        else Settings.app.addSelectedBuiltInProfile(actionsDialog.profileFilename)
-                    } else {
-                        if (wasSelected) Settings.app.addHiddenProfile(actionsDialog.profileFilename)
-                        else Settings.app.removeHiddenProfile(actionsDialog.profileFilename)
-                    }
-                    AccessibilityManager.announce(wasSelected
-                        ? TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected")
-                        : TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
-                    picker.showToast(wasSelected
-                        ? TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected")
-                        : TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                     actionsDialog.close()
                 }
             }

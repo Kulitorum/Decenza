@@ -5,7 +5,7 @@ One shared surface for finding and choosing a profile, hosted by the Profiles pa
 ## ADDED Requirements
 
 ### Requirement: Shared picker hosted by two surfaces
-The Profiles page and the recipe wizard's profile step SHALL present the same profile picker: a search field, filter chips, a sort control, bean-ranked tiers, and a card grid. The host SHALL decide what a card tap does: on the Profiles page a tap loads the profile on the machine; in the wizard a tap chooses the profile for the recipe without loading it. The host SHALL decide the initial chip state: the Profiles page opens with Selected on and nothing else; the wizard opens with no chip on. Chip and search state SHALL NOT persist across opens.
+The Profiles page and the recipe wizard's profile step SHALL present the same profile picker: a search field, filter chips, a sort control, bean-ranked tiers, and a card grid. The host SHALL decide what a card tap does: on the Profiles page a tap loads the profile on the machine; in the wizard a tap chooses the profile for the recipe without loading it. The host SHALL decide the initial chip state: the Profiles page opens with Favorites on and nothing else; the wizard opens with no chip on. Chip and search state SHALL NOT persist across opens.
 
 #### Scenario: Selector tap loads
 - **WHEN** the user taps a card on the Profiles page
@@ -15,12 +15,12 @@ The Profiles page and the recipe wizard's profile step SHALL present the same pr
 - **WHEN** the user taps a card on the wizard's profile step
 - **THEN** the recipe's profile is set to that profile, the machine's current profile is unchanged, and the wizard advances as it does today
 
-#### Scenario: Selector opens on Selected
+#### Scenario: Selector opens on Favorites
 - **WHEN** the Profiles page opens
-- **THEN** the Selected chip is on, every other chip is off, and the search field is empty regardless of the previous visit
+- **THEN** the Favorites chip is on, every other chip is off, and the search field is empty regardless of the previous visit
 
 ### Requirement: Composable filters
-The picker SHALL offer these filter chips: Selected, Favorites, a Source group (Built-in, Downloaded, Mine), and a Beverage group (Espresso, Filter, Tea, Cleaning). Chips within a group SHALL combine with OR; a group with no chip on SHALL match every profile; Selected, Favorites, each group and the search text SHALL combine with AND. Beverage membership SHALL derive from the profile's `beverage_type`: `espresso` and empty/unknown → Espresso; `filter`, `pourover` → Filter; `tea`, `tea_portafilter` → Tea; `cleaning`, `descale`, `calibrate`, `manual` → Cleaning. Search SHALL match the title only, case-insensitively, as a substring, and SHALL apply in every filter state.
+The picker SHALL offer these filter chips: Favorites, a Source group (Built-in, Downloaded, Mine), and a Beverage group (Espresso, Filter, Tea, Cleaning). Chips within a group SHALL combine with OR; a group with no chip on SHALL match every profile; Favorites, each group and the search text SHALL combine with AND. Beverage membership SHALL derive from the profile's `beverage_type`: `espresso` and empty/unknown → Espresso; `filter`, `pourover` → Filter; `tea`, `tea_portafilter` → Tea; `cleaning`, `descale`, `calibrate`, `manual` → Cleaning. Search SHALL match the title only, case-insensitively, as a substring, and SHALL apply in every filter state.
 
 #### Scenario: Cross-group AND
 - **WHEN** Downloaded and Filter are on
@@ -29,10 +29,6 @@ The picker SHALL offer these filter chips: Selected, Favorites, a Source group (
 #### Scenario: Within-group OR
 - **WHEN** Tea and Filter are both on with no Source chip
 - **THEN** every tea and every filter profile from every source is listed
-
-#### Scenario: Favorites implies Selected
-- **WHEN** Favorites and Selected are both on
-- **THEN** the list equals the Favorites-only list, because favoriting a profile also selects it
 
 #### Scenario: Search applies under any chips
 - **WHEN** Built-in is on and the search text is "blo"
@@ -72,7 +68,7 @@ When a bean is known — the current bean on the Profiles page, the chosen bag i
 - **THEN** the row is hidden
 
 ### Requirement: Card contents
-Each card SHALL show: the source letter (D built-in, V downloaded, U user) in the source colour; a check badge when the profile is in Selected; the title, prefixed by the modified marker when it is the current profile and has unsaved changes; the profile's temperature and target yield; a usage line "N shots · X ago" (or "Never used"); a caption naming the profile its knowledge base derives from, when one exists; the auto-load pin when it is the auto-load profile; the knowledge sparkle when a knowledge base exists; an info button; a favorite star; and an overflow (⋮) button. All cards in a grid SHALL share one height. The current profile's card SHALL be visually highlighted.
+Each card SHALL show: the source letter (D built-in, V downloaded, U user) in the source colour; the title, prefixed by the modified marker when it is the current profile and has unsaved changes; the profile's temperature and target yield; a usage line "N shots · X ago" (or "Never used"); a caption naming the profile its knowledge base derives from, when one exists; the auto-load pin when it is the auto-load profile; the knowledge sparkle when a knowledge base exists; an info button; a favorite star; and an overflow (⋮) button. All cards in a grid SHALL share one height. The current profile's card SHALL be visually highlighted.
 
 #### Scenario: Usage line from history
 - **WHEN** a profile has 12 shots, the latest 3 days ago
@@ -87,11 +83,7 @@ Each card SHALL show: the source letter (D built-in, V downloaded, U user) in th
 - **THEN** the card shows the derivation caption and cards without one leave that line empty at the same height
 
 ### Requirement: Card actions
-The star SHALL toggle favorite membership, disabled for adding when 50 favorites exist. The sparkle SHALL open the knowledge dialog; the info button SHALL open the Profile Info page; neither SHALL choose or load the profile. A long-press on the card SHALL open the profile preview popup with its graph, without choosing or loading. The ⋮ button SHALL open the accessible profile-actions dialog offering Edit, Copy, Rename (user profiles), Set/Disable Auto-Load (Selected profiles), Add to Selected / Remove from Selected by current state, and Delete (non-built-in). The same dialog SHALL be offered in both hosts.
-
-#### Scenario: Selected toggle from the menu
-- **WHEN** the user opens ⋮ on a built-in profile that is not Selected and taps "Add to Selected"
-- **THEN** the profile joins the Selected list, a toast confirms it, and the card's check badge appears
+The star SHALL toggle favorite membership, disabled for adding when 50 favorites exist. The sparkle SHALL open the knowledge dialog; the info button SHALL open the Profile Info page; neither SHALL choose or load the profile. A long-press on the card SHALL open the profile preview popup with its graph, without choosing or loading. The ⋮ button SHALL open the accessible profile-actions dialog offering Edit, Copy, Rename (user profiles), Set/Disable Auto-Load (favorites), and Delete (non-built-in). The same dialog SHALL be offered in both hosts.
 
 #### Scenario: Long-press previews
 - **WHEN** the user long-presses a card

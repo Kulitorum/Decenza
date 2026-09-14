@@ -47,3 +47,18 @@ Switching from `custom` to `alpha` or `usage` SHALL re-sort immediately. Switchi
 #### Scenario: Round trip
 - **WHEN** the user switches custom → usage → custom
 - **THEN** the list stays in the usage order it had when the switch back happened
+
+### Requirement: Upgrade merges Selected into favorites
+The removed Selected list SHALL be folded into favorites once, at startup, before the favorites-order mode is resolved. The app SHALL compute the old Selected set from the two legacy keys — built-ins named in `selectedBuiltIns`, downloaded/user profiles NOT named in `hiddenProfiles` — and append every one that is not already a favorite, alphabetically by title, after the existing favorites, respecting the 50-favorite cap. The merge SHALL run at most once, gated by a persisted flag.
+
+#### Scenario: Selected-but-not-favorite appended alphabetically
+- **WHEN** the upgrade runs with two existing favorites and three old-Selected profiles not among them
+- **THEN** the three are appended after the two existing favorites, ordered alphabetically by title among themselves
+
+#### Scenario: Flag makes it run once
+- **WHEN** the app starts a second time after the merge has already run
+- **THEN** no favorite is added or reordered by the merge, and the favorites list is unchanged by it
+
+#### Scenario: Cap respected
+- **WHEN** the merge would push the favorites list past 50 entries
+- **THEN** only entries up to the cap are added, the rest are left out, and a log line names how many were left out

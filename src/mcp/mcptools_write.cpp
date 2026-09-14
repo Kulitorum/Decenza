@@ -1701,8 +1701,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Profile not found: " + filename}});
                 return;
             }
-            if (!profileManager->isProfileInSelectedList(filename)) {
-                respond(QJsonObject{{"error", "Profile is not in the Selected list"}});
+            if (!settings->app()->isFavoriteProfile(filename)) {
+                respond(QJsonObject{{"error", "Profile is not a favorite"}});
                 return;
             }
 
@@ -1925,7 +1925,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             {"properties", QJsonObject{
                 {"target", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"profile", "recipe"}},
                     {"description", "Which auto-load to act on. Required"}}},
-                {"filename", QJsonObject{{"type", "string"}, {"description", "set + target=profile: profile filename without .json, from the Selected list"}}},
+                {"filename", QJsonObject{{"type", "string"}, {"description", "set + target=profile: profile filename without .json, must be a favorite"}}},
                 {"recipeId", QJsonObject{{"type", "integer"}, {"description", "set + target=recipe: recipe id from recipe_list"}}},
                 {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "set: idle minutes before reverting, 0-60. Shared by both targets"}}},
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}

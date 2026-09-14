@@ -12,7 +12,7 @@ import Decenza
 
 // rebuild-profile-picker: this page is now a thin host around the shared
 // ProfilePicker component (profile-picker spec). It supplies the current DYE
-// bean for tiers, opens with the Selected chip on, and a card tap LOADS the
+// bean for tiers, opens with the Favorites chip on, and a card tap LOADS the
 // profile — the choice that makes this host the "selector" rather than the
 // wizard's "chooser". Everything the old six-way combo / favorites panel /
 // checkbox column did now lives in ProfilePicker or its dialogs.
@@ -51,8 +51,8 @@ T.Page {
                     beanType: Settings.dye.dyeBeanType
                     roastLevel: Settings.dye.dyeRoastLevel
 
-                    // Selector opens on Selected, nothing else (profile-picker spec).
-                    initialChips: ({ selected: true })
+                    // Selector opens on Favorites, nothing else (profile-picker spec).
+                    initialChips: ({ favorites: true })
                     showAutoLoadStrip: true
                     showAddButton: true
                     onAddRequested: addMenuDialog.open()

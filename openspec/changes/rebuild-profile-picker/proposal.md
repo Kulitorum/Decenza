@@ -5,16 +5,17 @@ The Profiles page is one of the oldest screens in the app: a six-way combo box t
 ## What Changes
 
 - **One shared profile picker** (`ProfilePicker` component) hosted by both `ProfileSelectorPage` and the recipe wizard's profile step. Cards in a virtualised grid, replacing the selector's rows and the wizard's inline tiles.
-- **Search + composable filters.** Search applies everywhere. Filter chips: Selected, ★ Favorites, Source (Built-in / Downloaded / Mine), Beverage (Espresso / Filter / Tea / Cleaning). AND across groups, OR within a group, empty group = all. Each chip shows a faceted count.
+- **Search + composable filters.** Search applies everywhere. Filter chips: ★ Favorites, Source (Built-in / Downloaded / Mine), Beverage (Espresso / Filter / Tea / Cleaning). AND across groups, OR within a group, empty group = all. Each chip shows a faceted count.
 - **Bean-ranked row on both surfaces.** One "Recommended for ‹bean›" row above the grid, exact-bean matches first, then suggestions with reasons, from the existing `requestRankedProfilesForBean` ranking. The selector uses the current DYE bean; the wizard uses its chosen bag.
 - **Sort control.** A–Z or Recently used for the grid; with ★ on, the same control edits the favorites order setting and offers Custom….
 - **Favorites order becomes a setting**: `custom | alpha | usage`. Existing users with favorites resolve to `custom` (their current order untouched); new users resolve to `usage`. Custom order is edited in a drag-and-drop dialog that replaces the old right-hand favorites panel.
 - **Profile usage from shot history**: one threaded `GROUP BY profile_name` query gives last-used and shot count. Feeds usage order, the grid's Recently-used sort, and a "N shots · X ago" line on every card.
-- **Cards** carry: source letter, Selected check badge, title with modified marker, temp → yield, usage line, knowledge derivation caption, auto-load pin, sparkle, info, star, ⋮. Current profile pinned first and highlighted. Long-press opens `ProfilePreviewPopup`.
-- **⋮ menu** keeps Edit / Copy / Rename / Auto-load / Delete and gains the Selected toggle (Add to / Remove from Selected). Present in both hosts.
+- **Cards** carry: source letter, title with modified marker, temp → yield, usage line, knowledge derivation caption, auto-load pin, sparkle, info, star, ⋮. Current profile pinned first and highlighted. Long-press opens `ProfilePreviewPopup`.
+- **⋮ menu** keeps Edit / Copy / Rename / Auto-load / Delete. Present in both hosts.
 - **Empty state** with a Clear filters action that turns every chip off and empties search.
 - **Import fills a missing `beverage_type`.** Visualizer, tablet and file imports infer the type from title keywords then step shape when the payload has none. An explicit tag is never overridden.
 - **Removed**: the right-hand favorites panel, the checkbox column, the built-in category grouping headers, the six-way view combo, search-only-under-All. Visualizer / Tablet-File / New fold under one `+` menu.
+- **Selected removed (maintainer decision, post-launch).** The Selected list (`selectedBuiltInProfiles`/`hiddenProfiles`, the card's check badge, the ⋮ Selected toggle) is deleted outright — favorites are the only membership. Auto-load eligibility and the MCP `auto_load` gate now check "is a favorite". A one-time startup merge folds whatever the old Selected list named into favorites, once, so no existing pin or auto-load silently breaks.
 - **BREAKING (UI only)**: the favorites reorder moves from an always-visible panel to a dialog reached via Sort → Custom…. No stored data changes shape.
 
 ## Capabilities
@@ -34,7 +35,7 @@ The Profiles page is one of the oldest screens in the app: a six-way combo box t
 - QML: new `qml/components/ProfilePicker.qml` (+ card, chip row, custom-order dialog), rewrite of `qml/pages/ProfileSelectorPage.qml`, profile step of `qml/pages/RecipeWizardPage.qml` replaced by the picker. `CMakeLists.txt` `qt_add_qml_module` list.
 - C++: `SettingsApp` gains `favoriteProfileOrder`; `ShotHistoryStorage` gains a threaded usage query; `ProfileManager` holds usage, rewrites favorites order in usage mode, exposes filter/facet helpers; `Profile::inferBeverageType()` used by `VisualizerImporter` and `ProfileImporter`.
 - Idle page pills (`IdlePage.qml`, `EspressoItem.qml`) read the same favorites list; order now follows the setting. `selectedFavoriteProfile` index semantics unchanged.
-- MCP: `auto_load` Selected-list gate unchanged. `profiles_list` unchanged. No web ShotServer page exists for profiles, nothing to sync.
-- Settings serializer: one new key. No migration.
+- MCP: `auto_load`'s `set` gate now checks `isFavoriteProfile` ("Profile is not a favorite"), not the removed Selected list. `profiles_list` unchanged. No web ShotServer page exists for profiles, nothing to sync.
+- Settings serializer: one new key (`favoriteOrder`); `selectedBuiltIns`/`hiddenProfiles` dropped from export, ignored on import. One-time in-place merge (no schema migration) folds the old Selected list into favorites at startup.
 - Tests: extend existing `tst_profile*` files for the filter predicate, facet counts, order resolution, usage sort and beverage inference.
 - Manual: Profiles page rewritten; one line under the idle page on favorites order.
