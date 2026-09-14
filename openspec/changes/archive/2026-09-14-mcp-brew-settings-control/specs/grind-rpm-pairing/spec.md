@@ -1,9 +1,4 @@
-# grind-rpm-pairing Specification
-
-## Purpose
-TBD - created by archiving change grind-widget-observed-step. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Grinder RPM SHALL travel with the grind setting across all shot surfaces
 

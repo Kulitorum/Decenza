@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the persistent per-brew overrides (temperature, dose, ratio, yield, grind) set via the BrewDialog: temperature is stored and applied as a delta relative to the profile's `espressoTemperature` anchor, identically across the live-brew upload and "Update Profile" save paths; overrides survive app restart, are shown in the shot plan display, and are recorded to and retrievable from shot history.
+
 ## Requirements
+
 ### Requirement: Persistent Brew Overrides
 
 Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature, defined as the profile scalar `espressoTemperature`. The delta is computed as `override - espressoTemperature` and added to each frame's individual temperature, preserving relative temperature differences between frames. The same anchor (`espressoTemperature`) SHALL be used by every path that applies a temperature override as a delta — both the live-brew upload path and the Brew Dialog "Update Profile" (save-to-profile) path — so that a given override value produces an identical result whether it is brewed or saved.
@@ -162,7 +164,7 @@ The system SHALL store temperature and yield overrides in QSettings for persiste
 
 Overrides SHALL be cleared — the flag set false, not just the value resynced to a new default — when a recipe is activated (before its own overrides apply), or when the user taps "Clear" in the BrewDialog.
 
-**On a profile switch the yield override SHALL be cleared only when its mode is `absolute`.** A gram target describes the profile it was set against and is meaningless on another; a ratio is profile-independent (1:2 is 1:2 on any profile) and SHALL survive the switch, re-deriving against the current dose. The temperature override SHALL continue to clear unconditionally on a profile switch.
+**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the new profile's beverage group differs from the previous profile's** (`yield-anchor`). A gram target describes the profile it was set against; a ratio fits one kind of drink, so it survives a switch within its group and re-derives against the current dose. A switch that leaves no yield override SHALL arm a saved yield as `yield-anchor` specifies; a maintenance profile clears nothing. The temperature override SHALL continue to clear on a profile switch, except that reloading the drink profile loaded before a maintenance run SHALL keep every override.
 
 Loading a shot or favorite that carries its own frozen override value SHALL only mark the flag active when that frozen value genuinely differs from the freshly-loaded profile's own default (the same threshold the Shot Plan display uses), so a frozen value that happens to already match the current profile never falsely reports as an active override.
 
@@ -173,18 +175,30 @@ Loading a shot or favorite that carries its own frozen override value SHALL only
 - **AND** the overrides remain active until explicitly cleared
 
 #### Scenario: An absolute yield override clears on a profile switch
-- **WHEN** the session anchor is `{40.0, absolute}` and the user switches to a different profile
+- **WHEN** the session anchor is `{40.0, absolute}`, neither an active recipe nor the active bag saves a yield, and the user switches to a different profile
 - **THEN** the yield override is cleared from QSettings and `hasBrewYieldOverride` becomes false
 - **AND** the IdlePage shot plan returns to the new profile's target weight with no highlight
 
 #### Scenario: A ratio yield override survives a profile switch
-- **WHEN** the session anchor is `{2.0, ratio}` and the user switches to a different profile
+- **WHEN** the session anchor is `{2.0, ratio}` and the user switches to a different espresso profile
 - **THEN** the anchor remains `{2.0, ratio}` and `hasBrewYieldOverride` stays true
 - **AND** the target re-derives against the current dose on the new profile
 
+#### Scenario: A ratio yield override clears when the beverage group changes
+- **WHEN** the session anchor is `{2.5, ratio}`, neither an active recipe nor the active bag saves a yield, and the user switches from an espresso profile to a tea profile
+- **THEN** `hasBrewYieldOverride` becomes false and the stop-at-weight target is the tea profile's own `target_weight`
+
+#### Scenario: The bean's saved yield applies after a switch
+- **WHEN** the active bag saves `{2.0, ratio}`, no recipe is active, and a profile switch leaves no yield override
+- **THEN** the anchor is `{2.0, ratio}` and `hasBrewYieldOverride` is true
+
 #### Scenario: Temperature still clears on a profile switch
 - **WHEN** a temperature override is active and the user switches profiles
-- **THEN** `hasTemperatureOverride` becomes false, unchanged from before this change
+- **THEN** `hasTemperatureOverride` becomes false
+
+#### Scenario: Returning from a cleaning run keeps the temperature override
+- **WHEN** a temperature override is active on a profile, and the user loads a cleaning profile and then that profile again
+- **THEN** the cleaning run brews at its own temperature, and the returning profile brews at the override
 
 #### Scenario: Overrides cleared via BrewDialog
 - **WHEN** the user taps "Clear" in the BrewDialog
@@ -247,4 +261,3 @@ Picking a ratio SHALL NOT write to any recipe or bag: like the Brew Settings rat
 #### Scenario: No yield is ever derived from lastUsedRatio
 - **WHEN** any dose capture, recipe activation, or bag selection occurs
 - **THEN** no code path SHALL compute a yield as `dose × lastUsedRatio`
-

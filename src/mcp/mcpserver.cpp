@@ -48,7 +48,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                ScreensaverVideoManager* screensaver,
                                TranslationManager* translation,
                                BatteryManager* battery,
-                               AIManager* aiManager);
+                               AIManager* aiManager,
+                               MainController* mainController);
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, Settings* settings);
@@ -64,7 +65,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         TranslationManager* translation,
                         BatteryManager* battery,
                         AIManager* aiManager,
-                        BeanBaseClient* beanbase);
+                        BeanBaseClient* beanbase,
+                        MainController* mainController);
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
 class MemoryMonitor;
@@ -229,7 +231,8 @@ void McpServer::registerAllTools()
                         m_mainController, m_settings);
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
                               m_screensaverManager, m_translationManager, m_batteryManager,
-                              m_mainController ? m_mainController->aiManager() : nullptr);
+                              m_mainController ? m_mainController->aiManager() : nullptr,
+                              m_mainController);
     registerDialingTools(m_toolRegistry, m_mainController, m_profileManager, m_shotHistory, m_settings);
     registerControlTools(m_toolRegistry, m_device, m_machineState, m_profileManager,
                          m_mainController, m_settings);
@@ -239,7 +242,8 @@ void McpServer::registerAllTools()
                        m_accessibilityManager, m_screensaverManager,
                        m_translationManager, m_batteryManager,
                        m_mainController ? m_mainController->aiManager() : nullptr,
-                       m_mainController ? m_mainController->beanbase() : nullptr);
+                       m_mainController ? m_mainController->beanbase() : nullptr,
+                       m_mainController);
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
@@ -1904,6 +1908,20 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     if (session && (category == "control" || category == "settings"))
         session->incrementControlCalls();
 
+    // Retired in surface 1.9.0. Refused before either confirmation, or the user
+    // would approve a start that then does not happen.
+    if (toolName == QLatin1String("machine_start")) {
+        for (const char* key : {"dose", "yield", "temperature", "grind", "rpm"}) {
+            if (arguments.contains(QLatin1String(key))) {
+                QJsonObject refused;
+                refused["error"] = QStringLiteral("machine_start no longer takes '%1'. Set dose, yield or ratio, "
+                                                  "temperature, grind and RPM with settings_set, then start.")
+                                       .arg(QLatin1String(key));
+                return buildToolCallResponse(refused, protocolVersion);
+            }
+        }
+    }
+
     // Chat-based confirmation: tool returns needs_confirmation, AI re-calls with confirmed:true
     if (needsChatConfirmation(toolName, arguments) && !arguments.contains("confirmed")) {
         QJsonObject confirmPayload;
@@ -2382,7 +2400,7 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
                         pending.requestId, pending.sessionId, pending.protocolVersion);
 }
 
-void McpServer::confirmationResolved(const QString& confirmationId, bool accepted)
+void McpServer::confirmationResolved(const QString& confirmationId, bool accepted, bool timedOut)
 {
     if (!m_pendingConfirmation.has_value()) {
         // Names the handle so a stale tap is traceable to the abandonment that
@@ -2407,15 +2425,23 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
     QObject::disconnect(pending.socketGone);
 
     if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation socket disconnected, dropping "
-                                                 "response for %1").arg(pending.toolName));
+        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation socket disconnected, dropping the %1 "
+                                                 "response for %2")
+                                      .arg(accepted ? QStringLiteral("confirmed")
+                                                    : timedOut ? QStringLiteral("timed-out")
+                                                               : QStringLiteral("denied"),
+                                           pending.toolName));
         return;
     }
 
     if (!accepted) {
-        MCP_INFO_TAGGED("Server", QStringLiteral("User denied %1").arg(pending.toolName));
+        const QString outcome = timedOut
+            ? QStringLiteral("%1 was not confirmed on the machine before the dialog timed out, so it did not run")
+                  .arg(pending.toolName)
+            : QStringLiteral("User denied confirmation for %1").arg(pending.toolName);
+        MCP_INFO_TAGGED("Server", outcome);
         QJsonObject deniedPayload;
-        deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
+        deniedPayload["error"] = outcome;
 
         // `isError` is set by buildToolCallResponse off the `error` key above.
         sendJsonRpcResponse(pending.socket,

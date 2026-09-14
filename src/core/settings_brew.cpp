@@ -1362,13 +1362,10 @@ void SettingsBrew::clearAllBrewOverrides() {
     }
 }
 
-void SettingsBrew::clearProfileScopedBrewOverrides() {
-    // A profile load clears what the outgoing profile owned: the temperature
-    // override (always) and an ABSOLUTE yield anchor (36 g was about THAT
-    // profile). A ratio anchor survives — a ratio is profile-independent, and
-    // this asymmetry is what delivers "persistent brew-by-ratio" with no
-    // setting (add-yield-ratio-anchor Decision 8).
-    if (m_brewYieldMode == YieldSpec::modeRatio()) {
+void SettingsBrew::clearProfileScopedBrewOverrides(bool keepRatioAnchor) {
+    // A kept ratio is what makes brew-by-ratio persist with no setting
+    // (add-yield-ratio-anchor Decision 8; within a beverage group since #1941).
+    if (keepRatioAnchor && m_brewYieldMode == YieldSpec::modeRatio()) {
         clearTemperatureOverride();
         return;
     }

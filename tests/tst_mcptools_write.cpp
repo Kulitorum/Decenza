@@ -15,6 +15,8 @@
 #include "history/recipestorage.h"
 #include "core/settings_app.h"
 #include "core/settings_dye.h"
+#include "core/settings_brew.h"
+#include "core/brewbaseline.h"
 #include "profile/recipeparams.h"
 #include "ai/aimanager.h"
 
@@ -38,6 +40,7 @@ class BeanBaseClient;
 class TranslationManager;
 class BatteryManager;
 class CoffeeBagStorage;
+class MainController;
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
@@ -47,10 +50,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         TranslationManager* translation,
                         BatteryManager* battery,
                         AIManager* aiManager,
-                        BeanBaseClient* beanbase);
+                        BeanBaseClient* beanbase,
+                        MainController* mainController);
 
 // Test MCP write tools (settings_set, profiles_set_active) against ProfileManager + MockTransport.
-// Critical regression: settings_set temperature/weight must trigger BLE upload.
+// settings_set brew keys arm overrides (never a profile edit); temperature must re-upload.
 
 class tst_McpToolsWrite : public QObject {
     Q_OBJECT
@@ -254,21 +258,24 @@ private:
     void registerTools(McpTestFixture& f)
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
-        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager).
+        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager,
+        // beanbase, mainController).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
     void init() { QTest::failOnWarning(); }
 
-    // ===== settings_set temperature triggers BLE upload =====
+    // ===== settings_set temperature: a brew override, re-uploaded =====
 
     void settingsSetTemperatureDFlowTriggersBleUpload()
     {
         McpTestFixture f;
         registerTools(f);
         loadDFlowProfile(f);
+        const double profileTemp = f.profileManager.profileTargetTemperature();
+        f.settings.brew()->setBrewRatioAnchor(2.0);
         f.transport.clearWrites();
 
         QJsonObject args;
@@ -282,6 +289,14 @@ private slots:
         auto frameWrites = f.writesTo(FRAME_WRITE);
         QVERIFY2(!headerWrites.isEmpty(), "settings_set temperature must write shot header to BLE");
         QVERIFY2(!frameWrites.isEmpty(), "settings_set temperature must write shot frames to BLE");
+
+        // Brew Settings semantics: an override, not a profile edit.
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.settings.brew()->temperatureOverride(), 95.0);
+        // An unsent yield keeps its live anchor rather than flattening to grams.
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.profileTargetTemperature(), profileTemp);
+        QVERIFY(!f.profileManager.isProfileModified());
     }
 
     void settingsSetTemperatureAdvancedTriggersBleUpload()
@@ -301,23 +316,145 @@ private slots:
         QVERIFY2(!headerWrites.isEmpty(), "settings_set temperature (advanced) must write to BLE");
     }
 
-    // ===== settings_set targetWeight triggers BLE upload =====
+    // ===== settings_set targetWeight: a stop-at override, not a profile edit =====
 
-    void settingsSetWeightTriggersBleUpload()
+    void settingsSetTargetWeightArmsYieldOverride()
     {
         McpTestFixture f;
         registerTools(f);
         loadDFlowProfile(f);
-        f.transport.clearWrites();
+        const double profileTarget = f.profileManager.profileTargetWeight();
+
+        QJsonObject args;
+        args["targetWeight"] = profileTarget + 4.0;
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("absolute"));
+        QCOMPARE(f.profileManager.targetWeight(), profileTarget + 4.0);
+        QCOMPARE(f.profileManager.profileTargetWeight(), profileTarget);
+        QVERIFY(!f.profileManager.isProfileModified());
+    }
+
+    // The ratio Brew Settings dials. A dose in the same call must land before
+    // the ratio resolves against it.
+    void settingsSetYieldRatioResolvesAgainstSameCallDose()
+    {
+        McpTestFixture f;
+        registerTools(f);
+        loadDFlowProfile(f);
+        f.settings.dye()->setDyeBeanWeight(18.0);
+
+        QJsonObject args;
+        args["dyeBeanWeight"] = 20.0;
+        args["yieldRatio"] = 2.5;
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.settings.brew()->brewYieldOverride(), 2.5);
+        QCOMPARE(f.profileManager.targetWeight(), 50.0);
+        QVERIFY(!f.profileManager.isProfileModified());
+        // The reply reports what took effect, read after the setters ran.
+        QCOMPARE(result["brew"].toObject()["targetWeightG"].toDouble(), 50.0);
+
+        // 0 clears; it must not clamp up to the minimum ratio.
+        QJsonObject clear;
+        clear["yieldRatio"] = 0.0;
+        f.callAsyncTool("settings_set", clear);
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("none"));
+    }
+
+    void settingsSetRejectsBothYieldKeys()
+    {
+        McpTestFixture f;
+        registerTools(f);
+        loadDFlowProfile(f);
+        f.settings.brew()->setBrewYieldOverride(0);  // stored settings outlive a fixture
+        f.settings.brew()->clearTemperatureOverride();
 
         QJsonObject args;
         args["targetWeight"] = 40.0;
+        args["yieldRatio"] = 2.0;
         QJsonObject result = f.callAsyncTool("settings_set", args);
 
-        QVERIFY(result.contains("updated"));
+        QVERIFY(result.contains("error"));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("none"));
 
-        auto headerWrites = f.writesTo(HEADER_WRITE);
-        QVERIFY2(!headerWrites.isEmpty(), "settings_set targetWeight must write to BLE");
+        // A value toDouble() would read as 0 ("clear") is refused, not coerced.
+        QJsonObject notNumber;
+        notNumber["targetWeight"] = "heavy";
+        QVERIFY(f.callAsyncTool("settings_set", notNumber).contains("error"));
+
+        // 0 clears a yield, but a 0 °C temperature override is refused.
+        QJsonObject coldTemp;
+        coldTemp["espressoTemperature"] = 0.0;
+        QVERIFY(f.callAsyncTool("settings_set", coldTemp).contains("error"));
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+    }
+
+    // Clear goes back to the store that designs the yield, mode included, and
+    // to the baseline temperature.
+    void settingsSetClearBrewOverridesRestoresBeanRatio()
+    {
+        McpTestFixture f;
+        registerTools(f);
+        loadDFlowProfile(f);
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.dye()->persistYieldSpecToBag(2.0, QStringLiteral("ratio"));
+        f.settings.brew()->setBrewYieldOverride(40.0);
+        f.settings.brew()->setTemperatureOverride(90.0);
+
+        QJsonObject args;
+        args["clearBrewOverrides"] = true;
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+
+        // Stored settings outlive the fixture; don't leave a ratio for later tests.
+        f.settings.brew()->clearAllBrewOverrides();
+        f.settings.dye()->persistYieldSpecToBag(0, QStringLiteral("none"));
+    }
+
+    // The ladder Brew Settings, MainController and settings_set share. The
+    // recipe rung is only reachable here: these tool tests run without
+    // MainController.
+    void brewBaselineLadderPicksOneRung()
+    {
+        const QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.2}, {"tempOffsetC", -3.0}};
+        BrewBaseline::Yield y = BrewBaseline::resolveYield(recipe, QStringLiteral("absolute"), 40.0, 36.0);
+        QCOMPARE(y.source, BrewBaseline::sourceRecipe());
+        QCOMPARE(y.mode, QStringLiteral("ratio"));
+        QCOMPARE(y.value, 2.2);
+        QCOMPARE(BrewBaseline::temperatureC(recipe, 93.0), 90.0);
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceRecipe());
+        QCOMPARE(BrewBaseline::anchorToRestore(y, 36.0).value, 2.2);
+
+        // A mode with no value does not claim the rung: the shown and the
+        // written store stay the bag.
+        const QVariantMap unset{{"yieldMode", "ratio"}, {"yieldValue", 0.0}};
+        y = BrewBaseline::resolveYield(unset, QStringLiteral("absolute"), 40.0, 36.0);
+        QCOMPARE(y.source, BrewBaseline::sourceBag());
+        QCOMPARE(y.value, 40.0);
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceBag());
+
+        y = BrewBaseline::resolveYield(QVariantMap(), QStringLiteral("none"), 0.0, 36.0);
+        QCOMPARE(y.source, BrewBaseline::sourceProfile());
+        QCOMPARE(y.mode, QStringLiteral("absolute"));
+        QCOMPARE(y.value, 36.0);
+        QVERIFY(!y.isStoreAnchor());
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceBag());
+        QCOMPARE(BrewBaseline::persistTarget(y, true, false), BrewBaseline::sourceRecipe());
+        QCOMPARE(BrewBaseline::persistTarget(y, false, false), QString());
+        QVERIFY(!YieldSpec::isSet(BrewBaseline::anchorToRestore(y, 36.0).mode));
+
+        // A recipe gram yield equal to the profile's own target is not restored.
+        const QVariantMap sameGrams{{"yieldMode", "absolute"}, {"yieldValue", 36.0}};
+        y = BrewBaseline::resolveYield(sameGrams, QStringLiteral("none"), 0.0, 36.0);
+        QVERIFY(!YieldSpec::isSet(BrewBaseline::anchorToRestore(y, 36.0).mode));
     }
 
     // ===== settings_set non-profile settings don't require profile =====
@@ -416,7 +553,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed", [&](QSqlDatabase& db) {
@@ -494,7 +631,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("equpd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 packageId = -1;
         withTempDb(storage.databasePath(), "equpd_seed", [&](QSqlDatabase& db) {
@@ -542,7 +679,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("eqmerge.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 source = -1, target = -1, movedShot = -1;
         withTempDb(storage.databasePath(), "eqmerge_seed", [&](QSqlDatabase& db) {
@@ -617,7 +754,7 @@ private slots:
         CoffeeBagStorage bagStorage;
         bagStorage.initialize(storage.databasePath());
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // Tea bag with brewing data: kind + tea vocabulary round-trip.
         QJsonObject tea;
@@ -671,7 +808,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagkind.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 coffeeId = -1, teaId = -1;
         withTempDb(storage.databasePath(), "bagkind_seed", [&](QSqlDatabase& db) {
@@ -715,7 +852,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd_linked.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed3", [&](QSqlDatabase& db) {
@@ -820,7 +957,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_get.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Morning Latte");
         QVERIFY(recipeId > 0);
@@ -840,7 +977,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_get_stale.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // A stale reference (the recipe row no longer exists) is a snapshot,
         // not an error — the next auto-load trigger discovers and clears it.
@@ -876,7 +1013,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Afternoon Cortado");
         QVERIFY(recipeId > 0);
@@ -944,7 +1081,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_notfound.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         // Settings::testQSettingsPath() is a single PID-scoped store shared by
         // every McpTestFixture in this process, so a prior test's write can
         // still be sitting there — capture the baseline rather than assume -1.
@@ -964,7 +1101,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_archived.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         const int before = f.settings.dye()->autoLoadRecipeId();  // see note above
 
         const qint64 recipeId = seedRecipe(storage, "Retired Recipe", /*archived=*/true);
@@ -987,7 +1124,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_overwrite.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 first = seedRecipe(storage, "First Pin");
         const qint64 second = seedRecipe(storage, "Second Pin");
@@ -1014,7 +1151,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_revert.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Evening Decaf");
         QVERIFY(recipeId > 0);
@@ -1103,7 +1240,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("del.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // The storage layer logs the failed delete; that is the point, not a fault.
         ScopedWarningFilter deleteFilter("Failed to async delete shot");
@@ -1126,7 +1263,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("del2.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 shotId = insertMinimalShot(storage);
         QVERIFY(shotId > 0);
@@ -1151,7 +1288,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("upd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         ScopedWarningFilter updateFilter("No shot with id");
 
@@ -1173,7 +1310,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("upd2.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 shotId = insertMinimalShot(storage);
         QVERIFY(shotId > 0);
@@ -1198,6 +1335,40 @@ private slots:
     // warn at construction, and init()'s failOnWarning converts that to a
     // failure of the whole file. What is NOT covered by a test either way is the
     // one line in the tool that consults the return value.
+
+    // equipment create shares the Switch Equipment dialog's storage rule: the
+    // same gear is the same package, and a taken name is refused.
+    void equipmentCreateAddsOnceAndRefusesTakenName()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("eqcreate.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        QJsonObject args;
+        args["grinderBrand"] = "Niche";
+        args["grinderModel"] = "Zero";
+        args["name"] = "Bench";
+        const QJsonObject first = f.callAsyncTool("equipment", withAction("create", args));
+        QVERIFY2(first["success"].toBool(), qPrintable(QJsonDocument(first).toJson()));
+        const qint64 id = first["package"].toObject()["id"].toInteger();
+        QVERIFY(id > 0);
+        QVERIFY(first["created"].toBool());
+
+        const QJsonObject again = f.callAsyncTool("equipment", withAction("create", args));
+        QCOMPARE(again["package"].toObject()["id"].toInteger(), id);
+        QVERIFY(!again["created"].toBool());
+
+        QJsonObject clash;
+        clash["grinderBrand"] = "DF64";
+        clash["grinderModel"] = "Gen 2";
+        clash["name"] = "Bench";
+        const QJsonObject refused = f.callAsyncTool("equipment", withAction("create", clash));
+        QVERIFY(refused.contains("error"));
+
+        drainDbWorkAndClose(storage);
+    }
 };
 
 QTEST_MAIN(tst_McpToolsWrite)

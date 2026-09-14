@@ -129,6 +129,7 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
     Q_PROPERTY(QString currentProfileBeverageType READ currentProfileBeverageType NOTIFY currentProfileChanged)
     Q_PROPERTY(bool currentProfileIsMaintenance READ currentProfileIsMaintenance NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString currentProfileBeverageGroup READ currentProfileBeverageGroup NOTIFY currentProfileChanged)
     // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
     // have failed with retryable reasons. qml/main.qml watches this property
     // via a Connections handler (onDe1CommunicationFailureChanged) and calls
@@ -191,6 +192,7 @@ public:
         const QString t = m_currentProfile.beverageType().trimmed().toLower();
         return t.isEmpty() ? QStringLiteral("espresso") : t;
     }
+    QString currentProfileBeverageGroup() const { return Profile::beverageGroup(m_currentProfile.beverageType()); }
     // QML-visible view of Profile::isMaintenanceBeverageType (the shared tier used
     // by maincontroller / visualizeruploader / mcptools_write) for the current profile.
     bool currentProfileIsMaintenance() const {
@@ -220,14 +222,24 @@ public:
     // True iff the session anchor's mode is "ratio" — read from the stored
     // mode, never inferred by comparing grams against the profile target.
     bool brewByRatioActive() const;
+    // Bumped by every runtime profile load's override reset, so a
+    // currentProfileChanged listener can tell a load from an edit.
+    quint64 brewLoadGeneration() const { return m_brewLoadGeneration; }
     // The canonical effective dose for ratio math and display: the latched
     // dose during a shot, else the live dyeBeanWeight. 0 = no dose known
     // (callers render a bare ratio and resolution falls back to the profile).
     double brewByRatioDose() const;
     double brewByRatio() const;
+    // The Brew Settings temperature range; MCP writes are held to it too.
+    static constexpr double kMinBrewTemperatureC = 70.0;
+    static constexpr double kMaxBrewTemperatureC = 100.0;
+    static bool isBrewTemperatureInRange(double c) { return c >= kMinBrewTemperatureC && c <= kMaxBrewTemperatureC; }
+    // What the next shot brews at: the temperature override, except on a
+    // cleaning/descale/calibrate profile, which never uses brew overrides.
+    double getGroupTemperature() const;
     // Arm the session overrides from Brew Settings OK. The yield arrives as a
     // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
-    // form (MCP machine_start_espresso) anchors an absolute.
+    // form (tests) anchors an absolute.
     // `rpm` < 0 leaves the live RPM untouched (the common case); >= 0 sets it
     // (variable-RPM grinders). RPM is independent of the grind setting.
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yieldValue,
@@ -265,6 +277,7 @@ public:
     bool hasShotSnapshot() const { return m_shotSnapshotValid; }
     double latchedTargetG() const { return m_latchedTargetG; }
     QString latchedYieldMode() const { return m_latchedYieldMode; }
+    bool isShotLatched() const { return m_shotLatched; }
     double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
     // The effective flow calibration multiplier the shot was PULLED at, or 0.0
     // if this shot never latched one.
@@ -519,9 +532,10 @@ public slots:
 
     // Bake a new brew temperature into the current profile: every frame is shifted
     // by the delta from the profile's reference temperature (espressoTemperature),
-    // the scalar is updated, and the profile is uploaded and saved. Same anchor as
-    // the live-brew override path (uploadCurrentProfile) so save and brew agree.
-    Q_INVOKABLE void applyTemperatureToProfile(double newTemperature);
+    // the scalar is updated, the profile is uploaded, and saved when it has a file.
+    // Same anchor as the live-brew override path (uploadCurrentProfile). Returns
+    // whether it reached disk.
+    Q_INVOKABLE bool applyTemperatureToProfile(double newTemperature);
 
     // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
     // anchorTemp is the reference the delta tag is measured from (the profile's
@@ -681,12 +695,10 @@ private:
                                const QString& filePath,
                                const Profile& loaded);
 
-    // Reset brew overrides for a freshly loaded profile. After startup this is
-    // a genuine clear (flags go false — an override is relative to the profile
-    // it was dialed against). During startup, persisted overrides survive
-    // (brew-overrides spec) unless they match the incoming profile's own
-    // defaults: pre-fix sessions latched a same-as-default "override" on every
-    // load, so a matching persisted value is noise, not intent.
+    // Reset brew overrides for a freshly loaded profile. After startup: clears the
+    // temperature and an absolute yield, and a ratio when the beverage group
+    // changes; a maintenance profile clears nothing. During startup, persisted
+    // overrides survive unless they equal the incoming profile's own defaults.
     void resetBrewOverridesForLoadedProfile();
     // Apply the loaded profile's recommended dose to the live dose — but only
     // when the dose ladder names the profile as the owner, i.e. no active
@@ -725,7 +737,9 @@ private:
     QString profilesPath() const;
     QString userProfilesPath() const;
     QString downloadedProfilesPath() const;
-    double getGroupTemperature() const;
+    // False on a cleaning/descale/calibrate profile: it keeps the brew overrides
+    // for the next drink but never brews with them.
+    bool brewOverridesApply() const { return !Profile::isMaintenanceBeverageType(m_currentProfile.beverageType()); }
 
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
@@ -758,6 +772,10 @@ private:
     // hasShotSnapshot(). m_shotSnapshotValid is set on the first latch and
     // never cleared; m_shotLatched is the freeze flag and clears at shot end.
     bool m_shotSnapshotValid = false;
+    quint64 m_brewLoadGeneration = 0;
+    QString m_brewBeverageGroup;  // Profile::beverageGroup of the last loaded drink profile
+    QString m_brewProfileTitle;   // title of the last loaded drink profile
+    bool m_maintenanceSinceBrewLoad = false;  // the last load was cleaning/descale/calibrate
     QString m_latchedYieldMode = QStringLiteral("none");
     double m_latchedYieldAnchorValue = 0.0;
     // See latchedFlowCalibration(). 0.0 = not recorded, never "1.0".

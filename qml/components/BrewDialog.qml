@@ -66,20 +66,10 @@ DecenzaDialog {
     // place. activeRecipeId is a NOTIFYing property, so this re-evaluates live
     // (e.g. deactivation from another surface while the dialog is open).
     readonly property bool recipeActive: Settings.dye.activeRecipeId >= 0
-    // Baselines for the two override fields (Temp Delta, Stop-at). A recipe's
-    // yield/temp ARE the recipe's design — its baseline — not deviations from
-    // the profile, so when a recipe is active the highlight, the Temp Delta
-    // zero-point, and Clear all measure against the recipe's own values, not the
-    // profile default. A recipe that never pinned a yield (stored 0 = unset)
-    // falls back to the profile; for temperature, offset 0 explicitly MEANS
-    // the profile's own temperature — the same fallback either way. NOTIFY-reactive
-    // via recipeActive (activeRecipeId) + MainController.activeRecipe.
-    // The temperature baseline is OFFSET-derived (recipe-relative-temp-offset):
-    // profile temp + the recipe's stored delta, so a profile temperature edit
-    // moves the recipe's baseline with it. Offset 0 = the profile itself.
-    readonly property double recipeTempBaseline: (recipeActive && profileTemperature > 0
-            && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
-        ? profileTemperature + MainController.activeRecipe.tempOffsetC : profileTemperature
+    // Baselines for Temp Delta and Stop-at: the active recipe, else bag, else profile
+    // (MainController / core/brewbaseline.h). The highlight, the Temp Delta zero-point
+    // and Clear measure against them.
+    readonly property double recipeTempBaseline: MainController.activeBaselineTemperatureC
     // Yield baseline as a TYPE-AWARE ANCHOR PAIR (add-yield-ratio-anchor):
     // the active store's own {value, mode} resolved through the ladder
     // (recipe -> bag -> profile; MainController folds that), with the OTHER
@@ -93,10 +83,7 @@ DecenzaDialog {
     // True when a recipe or bag actually designs a yield; false = the ladder
     // bottomed out at the profile (baselineYieldMode reads "absolute" there,
     // but Clear must restore anchor mode "none", not arm an absolute).
-    readonly property bool baselineIsStoreAnchor:
-        (recipeActive && (MainController.activeRecipe.yieldMode || "none") !== "none"
-                      && (MainController.activeRecipe.yieldValue || 0) > 0)
-        || (Settings.dye.activeBagYieldMode !== "none" && Settings.dye.activeBagYieldValue > 0)
+    readonly property bool baselineIsStoreAnchor: MainController.activeBaselineYieldSource !== "profile"
     readonly property double baselineStopAt: baselineYieldMode === "ratio"
         ? (doseValue > 0 ? baselineYieldValue * doseValue : 0)
         : baselineYieldValue
@@ -163,20 +150,7 @@ DecenzaDialog {
     // profile is never a destination: target_weight is absolute and profiles
     // are shared/exported ("Update Profile" for yield lives in the profile
     // editors now).
-    readonly property string yieldPersistTarget: {
-        if (recipeActive) {
-            if ((MainController.activeRecipe.yieldMode || "none") !== "none")
-                return "recipe"
-            // The recipe designs no yield: the ladder fell through to the
-            // bag, so the store being shown — and edited — is the bag.
-            if (Settings.dye.activeBagId >= 0)
-                return "bag"
-            return "recipe"  // bean-less recipe: nothing below it to edit
-        }
-        if (Settings.dye.activeBagId >= 0)
-            return "bag"
-        return ""
-    }
+    readonly property string yieldPersistTarget: MainController.yieldPersistTarget
     readonly property string yieldPersistLabel: yieldPersistTarget === "recipe"
         ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
         : TranslationManager.translate("brewDialog.updateBag", "Update Bag")
@@ -235,11 +209,12 @@ DecenzaDialog {
         selectedProfileTitle = ProfileManager.currentProfileName
         selectedRecipeName = (recipeActive && MainController.activeRecipe.name) ? MainController.activeRecipe.name : ""
 
-        // Yield: seed the anchor from the persisted session spec — the one
-        // line where the stored mode enters the dialog. A ratio-anchored
-        // session opens ratio-first (its identity used to be invisible:
-        // activation wrote grams for any recipe, so the dialog always opened
-        // yield-first). Mode "none" shows the profile's target, unanchored.
+        seedYieldFromSession()
+    }
+
+    // The one place the stored anchor mode enters the dialog: a ratio-anchored
+    // session opens ratio-first; "none" shows the profile's target, unanchored.
+    function seedYieldFromSession() {
         anchorMode = Settings.brew.brewYieldMode
         if (anchorMode === "ratio") {
             ratio = Settings.brew.brewYieldOverride
@@ -265,24 +240,17 @@ DecenzaDialog {
     function loadProfileByTitle(title) {
         var filename = ProfileManager.findProfileByTitle(title)
         if (filename.length > 0) {
-            ProfileManager.loadProfile(filename)
+            const groupBefore = ProfileManager.currentProfileBeverageGroup
+            if (!ProfileManager.loadProfile(filename))
+                return  // the load reports its own failure; keep the dialog's values
             root.profileTemperature = ProfileManager.profileTargetTemperature
             root.temperatureValue = root.profileTemperature
             root.profileTargetWeight = ProfileManager.profileTargetWeight
-            // Mode asymmetry (add-yield-ratio-anchor): a ratio anchor
-            // survives the profile switch (1:2 is 1:2 on any profile — the
-            // target keeps deriving from the dose); an absolute or
-            // unanchored yield follows the new profile's target.
-            if (root.anchorMode === "none")
-                root.targetValue = root.profileTargetWeight
-            else if (root.anchorMode === "absolute") {
-                // The C++ reset cleared the absolute session anchor on the
-                // switch; mirror it locally so OK doesn't re-arm a stale one.
-                root.anchorMode = "none"
-                root.targetValue = root.profileTargetWeight
-                root.ratio = root.doseValue > 0 && root.targetValue > 0
-                    ? root.targetValue / root.doseValue : root.ratio
-            }
+            // A dialed ratio (maybe not yet OK'd) survives a switch within its
+            // beverage group. Anything else follows what the load left in the
+            // session — cleared, or the recipe's/bean's yield — so OK can't undo it.
+            if (!(root.anchorMode === "ratio" && ProfileManager.currentProfileBeverageGroup === groupBefore))
+                root.seedYieldFromSession()
         }
     }
 

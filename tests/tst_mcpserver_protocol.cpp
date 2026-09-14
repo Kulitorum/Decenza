@@ -51,10 +51,10 @@ void registerProfileTools(McpToolRegistry*, ProfileManager*) {}
 void registerPresetsTools(McpToolRegistry*, Settings*, MainController*) {}
 class RecipeStorage;
 void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
-void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*) {}
+void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, MainController*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}
 void registerControlTools(McpToolRegistry*, DE1Device*, MachineState*, ProfileManager*, MainController*, Settings*) {}
-void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, VisualizerUploader*, CoffeeBagStorage*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, BeanBaseClient*) {}
+void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, VisualizerUploader*, CoffeeBagStorage*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, BeanBaseClient*, MainController*) {}
 void registerScaleTools(McpToolRegistry*, MachineState*) {}
 void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}
@@ -2617,6 +2617,24 @@ private slots:
         // could not previously complete.
         server.confirmationResolved(spy.at(0).at(2).toString(), true);
         QVERIFY2(*ran, "a confirmed modern call must actually dispatch");
+
+        // An unanswered dialog must not run the tool.
+        *ran = false;
+        HeldConnection timedOutConn;
+        QVERIFY(timedOutConn.open());
+        params["arguments"] = QJsonObject{{"action", "flush"}};
+        timedOutConn.send(server, modernBody("tools/call", params, 94));
+        QCOMPARE(spy.count(), 2);
+        server.confirmationResolved(spy.at(1).at(2).toString(), false, true);
+        QVERIFY2(!*ran, "a timed-out confirmation must not dispatch");
+
+        // A retired brew argument is refused before any dialog is raised.
+        HeldConnection retiredConn;
+        QVERIFY(retiredConn.open());
+        params["arguments"] = QJsonObject{{"action", "espresso"}, {"yield", 36}};
+        retiredConn.send(server, modernBody("tools/call", params, 95));
+        QCOMPARE(spy.count(), 2);
+        QVERIFY(!*ran);
     }
 
     // A confirmation whose requester has gone cannot be meaningfully answered.

@@ -105,10 +105,13 @@ struct PendingConfirmation {
 // RESPONSE-shape changes, and the budget script hashes registrations. A response
 // change is on the author to notice.
 // 1.8.0: expanded diagnostic owner catalog and current/legacy log guidance.
-inline constexpr const char* McpSurfaceVersion = "1.8.0";
+// 1.9.0: Brew Settings parity — settings_set brew overrides (no profile edit), settings_get
+// brew state, profiles_edit_params espressoTemperature, equipment create; machine_start drops
+// brew arguments.
+inline constexpr const char* McpSurfaceVersion = "1.9.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
-inline constexpr const char* McpSurfaceFingerprint = "c9127bcb5730";
+inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";
 
 class McpServer : public QObject {
     Q_OBJECT
@@ -219,7 +222,8 @@ signals:
     void confirmationCancelled(const QString& confirmationId, const QString& reason);
 
 public slots:
-    void confirmationResolved(const QString& confirmationId, bool accepted);
+    // timedOut: the on-machine dialog closed unanswered, reported apart from a Deny tap.
+    void confirmationResolved(const QString& confirmationId, bool accepted, bool timedOut = false);
 
 private:
     // Whether this POST body is a MODERN-era request.

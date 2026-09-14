@@ -2782,8 +2782,8 @@ T.ApplicationWindow {
         onConfirmed: function(confirmationId) {
             McpServer.confirmationResolved(confirmationId, true)
         }
-        onDenied: function(confirmationId) {
-            McpServer.confirmationResolved(confirmationId, false)
+        onDenied: function(confirmationId, timedOut) {
+            McpServer.confirmationResolved(confirmationId, false, timedOut)
         }
     }
 

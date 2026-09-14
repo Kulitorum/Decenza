@@ -18,17 +18,22 @@ DecenzaDialog {
     // hold a confirmation too.
     property string confirmationId: ""
     property bool userResponded: false
+    property bool timedOut: false
     property int countdown: 15
 
     signal confirmed(string confirmationId)
-    signal denied(string confirmationId)
+    // timedOut: nobody answered before the auto-dismiss, as opposed to a Deny tap.
+    signal denied(string confirmationId, bool timedOut)
 
     // 15-second auto-dismiss timer (legitimate UI auto-dismiss per CLAUDE.md)
     Timer {
         id: autoDismissTimer
         interval: 15000
         running: root.visible
-        onTriggered: root.close()
+        onTriggered: {
+            root.timedOut = true
+            root.close()
+        }
     }
 
     // Countdown for display
@@ -42,13 +47,15 @@ DecenzaDialog {
     // Dialog closure drives the callback — not the raw timer
     onClosed: {
         if (!root.userResponded)
-            root.denied(root.confirmationId)
+            root.denied(root.confirmationId, root.timedOut)
         root.userResponded = false
+        root.timedOut = false
         root.countdown = 15
     }
 
     onOpened: {
         root.userResponded = false
+        root.timedOut = false
         root.countdown = 15
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(
@@ -157,7 +164,7 @@ DecenzaDialog {
                 accessibleName: TranslationManager.translate("mcp.confirm.denyAccessible", "Deny AI action")
                 onClicked: {
                     root.userResponded = true
-                    root.denied(root.confirmationId)
+                    root.denied(root.confirmationId, false)
                     root.close()
                 }
                 background: Rectangle {

@@ -129,55 +129,12 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
 
     const QVector<McpToolAction> startActions{
         McpRegistryHelpers::syncAction("espresso", "control",
-        [device, profileManager, settings, startGuard](const QJsonObject& args) -> QJsonObject {
+        [device, startGuard](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!startGuard(result)) return result;
-
-            // Apply brew overrides if provided — same as QML BrewDialog.
-            // Absent arguments default to the CURRENT effective values, never
-            // to 0: the old code passed a missing dose as 0 straight into
-            // activateBrewWithOverrides, wiping the live dose — merely a
-            // mislabeled shot record before, but a 0 g stop target under a
-            // ratio anchor (add-yield-ratio-anchor). Same for a missing
-            // temperature, which armed a 0 °C override.
-            bool hasOverrides = args.contains("dose") || args.contains("yield") ||
-                                args.contains("temperature") || args.contains("grind") ||
-                                args.contains("rpm");
-            if (hasOverrides && profileManager && settings) {
-                const double dose = args.contains("dose") ? args["dose"].toDouble()
-                                                          : profileManager->brewByRatioDose();
-                double yieldValue;
-                QString yieldMode;
-                if (args.contains("yield")) {
-                    yieldValue = args["yield"].toDouble();
-                    yieldMode = QStringLiteral("absolute");
-                } else if (profileManager->brewByRatioActive()) {
-                    // Preserve an armed ratio anchor rather than flattening
-                    // it to the grams it happens to derive right now.
-                    yieldValue = profileManager->brewByRatio();
-                    yieldMode = QStringLiteral("ratio");
-                } else {
-                    yieldValue = profileManager->targetWeight();
-                    yieldMode = QStringLiteral("absolute");
-                }
-                const double temperature = args.contains("temperature")
-                    ? args["temperature"].toDouble()
-                    : (settings->brew()->hasTemperatureOverride()
-                           ? settings->brew()->temperatureOverride()
-                           : profileManager->profileTargetTemperature());
-                const QString grind = args.contains("grind")
-                    ? args["grind"].toString()
-                    : settings->dye()->dyeGrinderSetting();
-                // RPM override: -1 leaves the live RPM untouched (the common case);
-                // only a supplied rpm changes it. Independent of the grind override.
-                const int rpm = args.contains("rpm") ? args["rpm"].toInt() : -1;
-                profileManager->activateBrewWithOverrides(dose, yieldValue, yieldMode,
-                                                          temperature, grind, rpm);
-            }
-
             device->startEspresso();
             result["success"] = true;
-            result["message"] = hasOverrides ? "Espresso started with brew overrides" : "Espresso started";
+            result["message"] = "Espresso started";
             return result;
         }, QStringLiteral("Start pulling an espresso shot")),
         McpRegistryHelpers::syncAction("steam", "control",
@@ -214,15 +171,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "Start an operation on the machine: espresso, steam, hot_water or flush. The machine must "
         "be in Ready state. Only works on DE1 v1.0 headless machines — most machines have a GHC "
         "and require a physical button press. Do not offer this unless the user explicitly asks. "
-        "action=espresso takes optional brew overrides that apply to this shot only and clear when "
-        "it ends, matching the QML BrewDialog.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"dose", QJsonObject{{"type", "number"}, {"description", "espresso: override dose weight for this shot (grams)"}}},
-            {"yield", QJsonObject{{"type", "number"}, {"description", "espresso: override target yield for this shot (grams)"}}},
-            {"temperature", QJsonObject{{"type", "number"}, {"description", "espresso: override temperature for this shot (Celsius)"}}},
-            {"grind", QJsonObject{{"type", "string"}, {"description", "espresso: override grind setting for this shot"}}},
-            {"rpm", QJsonObject{{"type", "integer"}, {"description", "espresso: override grinder motor RPM for this shot (variable-RPM grinders), paired with grind"}}}
-        }}},
+        "To brew with a different dose, yield, ratio, temperature or grind, set them with "
+        "settings_set first; they persist until changed or cleared.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         startActions,
         McpTierCore,
         QStringLiteral("Which operation to start"));

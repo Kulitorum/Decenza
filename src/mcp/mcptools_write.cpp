@@ -32,6 +32,8 @@ int scaledSettingValue(double realWorldValue, double scale)
 #include "../network/beanbaseclient.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
+#include "../controllers/maincontroller.h"
+#include "../core/brewbaseline.h"
 #include "../ai/aimanager.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -66,6 +68,40 @@ int scaledSettingValue(double realWorldValue, double scale)
 
 #include "../core/dbutils.h"
 
+namespace {
+// What a settings_set brew change resolved to, read back after the setters ran:
+// a clamp, a gram target equal to the profile's own, or a ratio with no dose
+// each leave a result different from the one requested.
+QJsonObject brewStateAfterSet(ProfileManager* profileManager, Settings* settings, const QJsonObject& args)
+{
+    const SettingsBrew* brew = settings->brew();
+    QJsonObject state{
+        {"targetWeightG", profileManager->targetWeight()},
+        {"brewYieldMode", brew->brewYieldMode()},
+        {"brewYieldValue", brew->brewYieldOverride()},
+        {"espressoTemperatureC", profileManager->getGroupTemperature()},
+        {"hasTemperatureOverride", brew->hasTemperatureOverride()}};
+    QStringList notes;
+    const double ratio = args.value("yieldRatio").toDouble();
+    if (ratio > 0 && qAbs(ratio - YieldSpec::clampRatio(ratio)) > 1e-9)
+        notes << QStringLiteral("yieldRatio %1 was clamped to %2.").arg(ratio).arg(YieldSpec::clampRatio(ratio));
+    const double grams = args.value("targetWeight").toDouble();
+    if (grams > 0 && qAbs(grams - YieldSpec::clampAbsolute(grams)) > 1e-9)
+        notes << QStringLiteral("targetWeight %1 g was clamped to %2 g.").arg(grams).arg(YieldSpec::clampAbsolute(grams));
+    else if (grams > 0 && brew->brewYieldMode() == YieldSpec::modeNone())
+        notes << QStringLiteral("targetWeight equals the profile's own target, so no override is needed.");
+    if (brew->brewYieldMode() == YieldSpec::modeRatio() && settings->dye()->dyeBeanWeight() <= 0)
+        notes << QStringLiteral("No dose is set, so the shot stops at the profile's target until one is.");
+    if (args.contains("espressoTemperature") && !brew->hasTemperatureOverride())
+        notes << QStringLiteral("espressoTemperature equals the profile's own temperature, so no override is needed.");
+    if (profileManager->isShotLatched())
+        notes << QStringLiteral("A shot is in progress and keeps its target; the change applies to the next shot.");
+    if (!notes.isEmpty())
+        state["note"] = notes.join(QLatin1Char(' '));
+    return state;
+}
+}  // namespace
+
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
@@ -75,7 +111,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         TranslationManager* translation,
                         BatteryManager* battery,
                         AIManager* aiManager,
-                        BeanBaseClient* beanbase)
+                        BeanBaseClient* beanbase,
+                        MainController* mainController)
 {
     // shots_update — replaces shots_set_feedback with full metadata editing (same as QML)
     registry->registerAsyncTool(
@@ -561,9 +598,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     QJsonObject settingsSetSchema = QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                // Espresso / profile
-                {"espressoTemperature", QJsonObject{{"type", "number"}, {"description", "Brew temperature in Celsius"}}},
-                {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Target shot weight in grams"}}},
+                // Brew Settings: brew overrides, applied like its OK button (never a profile edit)
+                {"espressoTemperature", QJsonObject{{"type", "number"}, {"description", "Brew temperature override (Celsius); the profile's own temperature clears it"}}},
+                {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop-at weight override (grams); excludes yieldRatio; 0 clears the yield override"}}},
+                {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "Yield as a multiple of the dose (2.5 = 1:2.5); excludes targetWeight; 0 clears"}}},
+                {"clearBrewOverrides", QJsonObject{{"type", "boolean"}, {"description", "true: Brew Settings Clear. Yield back to the recipe's, else bean's; temperature to the recipe's, else profile's"}}},
+                {"ratioPreset1", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 1 (multiple of the dose)"}}},
+                {"ratioPreset2", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 2 (multiple of the dose)"}}},
+                {"ratioPreset3", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 3 (multiple of the dose)"}}},
+                {"doseCupTareWeight", QJsonObject{{"type", "number"}, {"description", "Dose cup weight (grams), subtracted from scale dose captures"}}},
+                {"doseCaptureSoundEnabled", QJsonObject{{"type", "boolean"}, {"description", "Play a sound when a dose is captured from the scale"}}},
                 // Steam
                 {"steamTemperature", QJsonObject{{"type", "number"}, {"description", "Steam temperature in Celsius"}}},
                 {"steamTimeout", QJsonObject{{"type", "integer"}, {"description", "Steam timeout in seconds"}}},
@@ -718,14 +762,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     }
     registry->registerAsyncTool(
         "settings_set",
-        "Update any app setting on the device — grind size (dyeGrinderSetting), dose (dyeBeanWeight), "
-        "yield (targetWeight), brew temperature (espressoTemperature) and every other setting "
-        "across all settings tabs. API keys and passwords are excluded. Temperature and weight "
-        "changes to the active profile are applied to the profile automatically. Only call this "
-        "when the user explicitly asks to change something; for advice, answer in chat. Coverage "
-        "list: get_agent_file topic \"settings_set\".",
+        "Update any app setting on the device, across all settings tabs. Brew Settings fields apply "
+        "like its OK button, without starting a shot and without editing the profile: dose "
+        "(dyeBeanWeight), grind (dyeGrinderSetting, dyeGrinderRpm), stop-at (targetWeight) or ratio "
+        "(yieldRatio), temperature (espressoTemperature), clearBrewOverrides. API keys and passwords "
+        "are excluded. Only call this when the user explicitly asks to change something. Details: "
+        "get_agent_file topic \"settings_set\".",
         settingsSetSchema,
-        [profileManager, settings, accessibility, screensaver, translation, battery, aiManager, validSettingsKeys](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [profileManager, settings, accessibility, screensaver, translation, battery, aiManager, validSettingsKeys, mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -793,49 +837,57 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QVector<std::function<void()>> setters;
             auto addSetter = [&setters](std::function<void()> fn) { setters.append(std::move(fn)); };
 
-            // === Espresso temperature / target weight (profile-aware) ===
-            bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
-            if (needsProfileUpdate && profileManager) {
-                QString editorType = profileManager->currentEditorType();
-                if (editorType == "advanced") {
-                    QVariantMap profileData = profileManager->getCurrentProfile();
-                    if (args.contains("espressoTemperature")) {
-                        profileData["espresso_temperature"] = args["espressoTemperature"].toDouble();
-                        updated << "espressoTemperature";
-                    }
-                    if (args.contains("targetWeight")) {
-                        profileData["target_weight"] = args["targetWeight"].toDouble();
-                        updated << "targetWeight";
-                    }
-                    profileManager->uploadProfile(profileData);
-                } else {
-                    QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
-                    if (args.contains("espressoTemperature")) {
-                        double v = args["espressoTemperature"].toDouble();
-                        currentParams["fillTemperature"] = v;
-                        currentParams["pourTemperature"] = v;
-                        currentParams["tempStart"] = v;
-                        currentParams["tempPreinfuse"] = v;
-                        currentParams["tempHold"] = v;
-                        currentParams["tempDecline"] = v;
-                        updated << "espressoTemperature";
-                    }
-                    if (args.contains("targetWeight")) {
-                        currentParams["targetWeight"] = args["targetWeight"].toDouble();
-                        updated << "targetWeight";
-                    }
-                    profileManager->uploadRecipeProfile(currentParams);
-                }
-                profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
-
-                // Sync QSettings so settings_get reads back the updated values.
-                // uploadRecipeProfile/uploadProfile update the profile object but
-                // don't write to QSettings (issue #527).
-                if (args.contains("espressoTemperature") && settings)
-                    settings->brew()->setEspressoTemperature(args["espressoTemperature"].toDouble());
-                if (args.contains("targetWeight") && settings)
-                    settings->brew()->setTargetWeight(args["targetWeight"].toDouble());
+            // === Brew Settings: yield and temperature overrides ===
+            // Brew overrides like Brew Settings OK, never a profile edit (that is
+            // profiles_edit_params). Applied by the LAST setter below, so a dose in
+            // the same call lands before a ratio resolves against it.
+            const bool setYieldG = args.contains("targetWeight");
+            const bool setYieldRatio = args.contains("yieldRatio");
+            const bool setBrewTemp = args.contains("espressoTemperature");
+            const bool clearBrew = args.value("clearBrewOverrides").toBool();
+            if (setYieldG && setYieldRatio) {
+                respond(QJsonObject{{"error", "targetWeight and yieldRatio are mutually exclusive: the brew holds one yield anchor, a gram target or a ratio of the dose. Send exactly one."}});
+                return;
             }
+            if (clearBrew && (setYieldG || setYieldRatio || setBrewTemp)) {
+                respond(QJsonObject{{"error", "clearBrewOverrides restores the baseline; send it without targetWeight, yieldRatio or espressoTemperature."}});
+                return;
+            }
+            // toDouble() answers 0 for "heavy", null or an object, and 0 means
+            // "clear" here (or a 0 °C override): refuse instead of coercing.
+            for (const char* key : {"targetWeight", "yieldRatio", "espressoTemperature", "ratioPreset1",
+                                    "ratioPreset2", "ratioPreset3", "doseCupTareWeight"}) {
+                const QString k = QLatin1String(key);
+                if (args.contains(k) && (!args.value(k).isDouble() || args.value(k).toDouble() < 0)) {
+                    respond(QJsonObject{{"error", QStringLiteral("'%1' must be a non-negative number.").arg(k)}});
+                    return;
+                }
+            }
+            if (args.contains("clearBrewOverrides") && !args.value("clearBrewOverrides").isBool()) {
+                respond(QJsonObject{{"error", "'clearBrewOverrides' must be true or false."}});
+                return;
+            }
+            if (setBrewTemp && !ProfileManager::isBrewTemperatureInRange(args.value("espressoTemperature").toDouble())) {
+                respond(QJsonObject{{"error", QStringLiteral("'espressoTemperature' must be between %1 and %2 °C, the Brew Settings range.")
+                                                  .arg(ProfileManager::kMinBrewTemperatureC).arg(ProfileManager::kMaxBrewTemperatureC)}});
+                return;
+            }
+            // Clear restores the recipe's yield; before its row loads (startup
+            // restore) there is no recipe to restore from.
+            if (clearBrew && settings->dye()->activeRecipeId() >= 0
+                && (!mainController || mainController->activeRecipe().isEmpty())) {
+                respond(QJsonObject{{"error", "The active recipe is still loading; retry clearBrewOverrides in a moment."}});
+                return;
+            }
+            const bool applyBrew = setYieldG || setYieldRatio || setBrewTemp || clearBrew;
+            if (applyBrew && !profileManager) {
+                respond(QJsonObject{{"error", "Profile manager not available"}});
+                return;
+            }
+            if (setYieldG) updated << "targetWeight";
+            if (setYieldRatio) updated << "yieldRatio";
+            if (setBrewTemp) updated << "espressoTemperature";
+            if (clearBrew) updated << "clearBrewOverrides";
 
             // === Steam ===
             if (args.contains("steamTemperature")) {
@@ -1506,6 +1558,66 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "autoFavoritesHideUnrated";
             }
 
+            const std::pair<const char*, void (SettingsBrew::*)(double)> brewNumberSetters[] = {
+                {"ratioPreset1", &SettingsBrew::setRatioPreset1},
+                {"ratioPreset2", &SettingsBrew::setRatioPreset2},
+                {"ratioPreset3", &SettingsBrew::setRatioPreset3},
+                {"doseCupTareWeight", &SettingsBrew::setDoseCupTareWeight}};
+            for (const auto& entry : brewNumberSetters) {
+                const char* key = entry.first;
+                const auto setter = entry.second;  // C++17 lambdas cannot capture a structured binding
+                if (!args.contains(key))
+                    continue;
+                const double v = args[key].toDouble();
+                addSetter([settings, setter, v]() { (settings->brew()->*setter)(v); });
+                updated << key;
+            }
+            if (args.contains("doseCaptureSoundEnabled")) {
+                bool v = args["doseCaptureSoundEnabled"].toBool();
+                addSetter([settings, v]() { settings->brew()->setDoseCaptureSoundEnabled(v); });
+                updated << "doseCaptureSoundEnabled";
+            }
+
+            // Keep this the last setter (see the Brew Settings block above).
+            if (applyBrew) {
+                const double yieldG = args["targetWeight"].toDouble();
+                const double yieldRatio = args["yieldRatio"].toDouble();
+                const double brewTempC = args["espressoTemperature"].toDouble();
+                addSetter([profileManager, settings, mainController, setYieldG, setYieldRatio,
+                           setBrewTemp, clearBrew, yieldG, yieldRatio, brewTempC]() {
+                    SettingsBrew* brew = settings->brew();
+                    SettingsDye* dye = settings->dye();
+                    // Unsent fields keep the live session values, as the dialog seeds from them.
+                    QString mode = brew->brewYieldMode();
+                    double value = brew->brewYieldOverride();
+                    double tempC = brew->hasTemperatureOverride() ? brew->temperatureOverride()
+                                                                  : profileManager->profileTargetTemperature();
+                    if (clearBrew) {
+                        const QVariantMap recipe = mainController ? mainController->activeRecipe() : QVariantMap();
+                        const BrewBaseline::Yield baseline = BrewBaseline::resolveYield(
+                            recipe, dye->activeBagYieldMode(), dye->activeBagYieldValue(),
+                            profileManager->profileTargetWeight());
+                        mode = baseline.isStoreAnchor() ? baseline.mode : YieldSpec::modeNone();
+                        value = baseline.isStoreAnchor() ? baseline.value : 0.0;
+                        tempC = BrewBaseline::temperatureC(recipe, profileManager->profileTargetTemperature());
+                    }
+                    if (setYieldG) {
+                        mode = yieldG > 0 ? YieldSpec::modeAbsolute() : YieldSpec::modeNone();
+                        value = yieldG > 0 ? YieldSpec::clampAbsolute(yieldG) : 0.0;
+                    }
+                    if (setYieldRatio) {
+                        mode = yieldRatio > 0 ? YieldSpec::modeRatio() : YieldSpec::modeNone();
+                        value = yieldRatio > 0 ? YieldSpec::clampRatio(yieldRatio) : 0.0;
+                        if (yieldRatio > 0)
+                            brew->setLastUsedRatio(value);
+                    }
+                    if (setBrewTemp)
+                        tempC = brewTempC;
+                    profileManager->activateBrewWithOverrides(dye->dyeBeanWeight(), value, mode, tempC,
+                                                              dye->dyeGrinderSetting(), -1);
+                });
+            }
+
             if (updated.isEmpty()) {
                 respond(QJsonObject{{"error", "No valid settings provided"}});
                 return;
@@ -1516,7 +1628,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             result["updated"] = QJsonArray::fromStringList(updated);
 
             if (setters.isEmpty()) {
-                // All changes were synchronous (e.g., profile temperature/weight)
                 respond(result);
             } else {
                 // Execute all setters on the main thread, then respond. Steam
@@ -1524,8 +1635,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // SettingsBrew signals and re-sends the resolved target itself,
                 // so every writer — QML, MCP, web, a backup import — reaches the
                 // machine without each one remembering to.
-                QMetaObject::invokeMethod(qApp, [setters, respond, result]() {
+                QMetaObject::invokeMethod(qApp, [setters, respond, result, applyBrew, profileManager,
+                                                 settings, args]() mutable {
                     for (const auto& setter : setters) setter();
+                    if (applyBrew) {
+                        const QJsonObject brewState = brewStateAfterSet(profileManager, settings, args);
+                        result["brew"] = brewState;
+                        MCP_INFO_TAGGED("settings_set", QStringLiteral("brew now %1 %2 -> stop at %3 g, %4 C")
+                            .arg(brewState["brewYieldMode"].toString())
+                            .arg(brewState["brewYieldValue"].toDouble())
+                            .arg(brewState["targetWeightG"].toDouble(), 0, 'f', 1)
+                            .arg(brewState["espressoTemperatureC"].toDouble(), 0, 'f', 1));
+                    }
                     respond(result);
                 }, Qt::QueuedConnection);
             }
@@ -2578,6 +2699,77 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         }),
+        McpRegistryHelpers::asyncAction("create", "settings",
+[shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            QVariantMap packageMap;
+            for (const char* key : {"name", "grinderBrand", "grinderModel", "grinderBurrs",
+                                    "basketBrand", "basketModel"}) {
+                const QString k = QLatin1String(key);
+                if (args.contains(k))
+                    packageMap.insert(k, args[k].toString().trimmed());
+            }
+            const bool hasIdentity = !packageMap.value("grinderBrand").toString().isEmpty()
+                || !packageMap.value("grinderModel").toString().isEmpty()
+                || !packageMap.value("basketBrand").toString().isEmpty()
+                || !packageMap.value("basketModel").toString().isEmpty();
+            if (!hasIdentity) {
+                respond(QJsonObject{{"error", "A grinder or basket identity is required (grinderBrand/grinderModel or basketBrand/basketModel)"}});
+                return;
+            }
+            const QJsonObject pp = args["puckPrep"].toObject();
+            for (const QString& k : PuckPrep::flagKeys())
+                if (pp.contains(k))
+                    packageMap.insert(QStringLiteral("puckPrep_") + k, pp.value(k).toBool());
+            const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
+            const QString dbPath = shotHistory->databasePath();
+            const QString requestedName = packageMap.value("name").toString();
+            QThread* thread = QThread::create([=]() {
+                qint64 newId = -1;
+                QString failReason;
+                bool reused = false;
+                EquipmentPackageView view;
+                const bool opened = withTempDb(dbPath, "mcp_equip_create", [&](QSqlDatabase& db) {
+                    newId = EquipmentStorage::createPackageStatic(db, packageMap, &view, &failReason, &reused);
+                    // An identical package returns the existing one, which may have shots.
+                    if (newId > 0)
+                        fillShotCount(db, newId, view);
+                });
+                QMetaObject::invokeMethod(qApp, [opened, newId, failReason, reused, view, activeId, settings,
+                                                 packageToJson, requestedName, respond]() {
+                    if (!opened) { respond(QJsonObject{{"error", "Could not open shot database"}}); return; }
+                    if (failReason == QLatin1String("nameInUse")) {
+                        respond(QJsonObject{{"error", "That name is already in use by another equipment "
+                                                      "package — choose a different name"}});
+                        return;
+                    }
+                    if (newId <= 0) {
+                        respond(QJsonObject{{"error", "Could not create the equipment package: the database insert failed"}});
+                        return;
+                    }
+                    // Written on this tool's own connection: tell the app its inventory changed.
+                    if (!reused && settings && settings->dye()->equipmentStorage())
+                        settings->dye()->equipmentStorage()->notifyPackagesChangedExternally();
+                    if (!view.package.isValid()) {
+                        respond(QJsonObject{{"error", QStringLiteral("Package %1 was created but could not be read back").arg(newId)}});
+                        return;
+                    }
+                    QJsonObject reply{{"success", true}, {"created", !reused},
+                                      {"package", packageToJson(view, activeId)}};
+                    if (reused)
+                        reply["note"] = requestedName.isEmpty() || requestedName == view.package.name
+                            ? QStringLiteral("Identical gear already exists; returned that package.")
+                            : QStringLiteral("Identical gear already exists as '%1'; returned it and ignored the name '%2'.")
+                                  .arg(view.package.name, requestedName);
+                    respond(reply);
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        }),
         McpRegistryHelpers::asyncAction("update", "settings",
 [shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
@@ -2762,22 +2954,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "equipment",
         "Equipment packages — a grinder identity plus an optional basket, shared by every bag and "
         "shot that references it. list returns the inventory with each package's last grind/rpm; "
-        "select sets the active bag's package and applies that package's last dial; update edits one "
-        "(and forks a new identity when a component changes); merge folds a wrongly forked package "
-        "into another and deletes it. Edits "
-        "apply to every referencing bag and shot: get_agent_file topic \"equipment\".",
+        "create adds one (an identical package is returned, not duplicated); select sets the active "
+        "bag's package and applies its last dial; update edits one (forking a new identity when a "
+        "component changes); merge folds a wrongly forked package into another and deletes it. "
+        "Details: get_agent_file topic \"equipment\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package id from action=list (select, update)"}}},
-                {"name", QJsonObject{{"type", "string"}, {"description", "update only: display name"}}},
-                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
-                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "update only; a change re-derives rpmAdjustable"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "update only"}}},
-                {"basketBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
-                {"basketModel", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"name", QJsonObject{{"type", "string"}, {"description", "create/update: display name"}}},
+                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "create/update"}}},
+                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "create/update; a change re-derives rpmAdjustable"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "create/update"}}},
+                {"basketBrand", QJsonObject{{"type", "string"}, {"description", "create/update"}}},
+                {"basketModel", QJsonObject{{"type", "string"}, {"description", "create/update"}}},
                 {"puckPrep", QJsonObject{{"type", "object"},
-                    {"description", "update only: puck-prep flags; provided flags override, others keep their value"},
+                    {"description", "create/update: puck-prep flags; on update, omitted flags keep their value"},
                     {"properties", QJsonObject{
                         {"wdt", QJsonObject{{"type", "boolean"}}},
                         {"shaker", QJsonObject{{"type", "boolean"}}},

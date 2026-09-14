@@ -840,6 +840,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_settings->dye(), &SettingsDye::activeBagYieldSpecChanged, this,
             &MainController::brewBaselineChanged);
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, &MainController::brewBaselineChanged);
+    // yieldPersistTarget reads the id; a restored recipe dropped before its row
+    // loads changes the id without activeRecipeChanged.
+    connect(m_settings->dye(), &SettingsDye::activeRecipeIdChanged, this, &MainController::brewBaselineChanged);
 
     // Auto-connect MQTT if enabled
     if (m_settings && m_settings->mqtt()->mqttEnabled() && !m_settings->mqtt()->mqttBrokerHost().isEmpty()) {
@@ -1153,6 +1156,10 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             // Use the actual yield so the user gets a meaningful weight target.
             m_settings->brew()->setBrewYieldOverride(shotRecord.summary.finalWeight);
             hasOverrides = true;
+        } else {
+            // The shot had no yield override: clear what the profile load re-armed
+            // from the recipe or bean, so the replay brews what it was pulled with.
+            m_settings->brew()->setBrewYieldOverride(0);
         }
 
         DIAG_DEBUG(STORAGE, "maincontroller") << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
@@ -1458,6 +1465,8 @@ void MainController::setupRecipeConnections() {
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
+        if (m_yieldRestorePending)
+            restoreYieldAnchorAfterProfileLoad();
         // Claim the dose rung from the row we just read (dose-source-precedence).
         // This is the ONLY path that arms it on the startup restore, and the only
         // one that re-arms it after an external edit (composer / MCP / web) —
@@ -1592,11 +1601,19 @@ void MainController::setupRecipeConnections() {
             deactivateRecipe();
     });
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
-        if (m_applyingRecipe || m_activeRecipe.isEmpty())
-            return;
-        if (Recipe::profileDiverged(m_activeRecipe.value("profileTitle").toString(),
-                                    m_profileManager->currentProfile().title()))
+        // Consume the load generation before any early return, or a load seen
+        // during recipe activation would be mistaken for a later one.
+        const quint64 loadGeneration = m_profileManager->brewLoadGeneration();
+        const bool loaded = loadGeneration != m_seenBrewLoadGeneration;
+        m_seenBrewLoadGeneration = loadGeneration;
+        if (m_applyingRecipe)
+            return;  // activation seeds the brew itself
+        if (!m_activeRecipe.isEmpty()
+            && Recipe::profileDiverged(m_activeRecipe.value("profileTitle").toString(),
+                                       m_profileManager->currentProfile().title()))
             deactivateRecipe();
+        if (loaded)
+            restoreYieldAnchorAfterProfileLoad();
     });
     // Deleting a profile is the one lifecycle event that changes what a title
     // resolves to without changing what is loaded, so currentProfileChanged
@@ -2197,7 +2214,7 @@ bool MainController::applyRecipeBrewOverrides(const QVariantMap& recipe,
     // Activation reflects ONLY this recipe's own overrides: clear
     // whatever session anchor was armed before, unconditionally.
     // This cannot be left to the loadProfile reset — a profile load
-    // deliberately KEEPS a ratio anchor now (Decision 8), and the
+    // keeps a ratio anchor within a beverage group, and the
     // bag-switch clear doesn't fire when the recipe's bag is already
     // active — so without this explicit clear a stale session ratio
     // from the previous setup would leak into a yield-less recipe.
@@ -2282,50 +2299,19 @@ bool MainController::applyRecipeBrewOverrides(const QVariantMap& recipe,
     return hasOverrides;
 }
 
-// Recipe-aware brew baseline (recipe-baseline-not-override, #1485). A recipe's
-// own yield/temp ARE the baseline when it's active — so a widget must measure
-// "is this a real override?" against the recipe, not the profile. These four
-// fold that choice into one source of truth. The recipe map keys ("tempOffsetC"
-// / "yieldG") match applyActivatedRecipe's read-back; 0 = the recipe pins none,
-// so fall back to the profile (which also covers the no-recipe case since
-// m_activeRecipe is cleared on deactivation). The temperature baseline is
-// OFFSET-derived — profile temp + the recipe's stored delta — never a stored
-// absolute (recipe-relative-temp-offset).
+// Recipe-aware brew baseline (#1485): a recipe's own yield/temp are the
+// baseline, not overrides. The ladders live in core/brewbaseline.h.
 double MainController::activeBaselineTemperatureC() const {
-    const double profileTemp =
-        m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0;
-    if (!m_activeRecipe.isEmpty()) {
-        const double offset = m_activeRecipe.value(QStringLiteral("tempOffsetC")).toDouble();
-        if (qAbs(offset) > 0.05 && profileTemp > 0)
-            return profileTemp + offset;
-    }
-    return profileTemp;
+    return BrewBaseline::temperatureC(
+        m_activeRecipe, m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0);
 }
 
-// The yield baseline is a SPEC resolved through the ladder
-// (add-yield-ratio-anchor): the active recipe's own {value, mode} when it
-// designs a yield, else the active bag's, else the profile's target_weight
-// as an absolute. A ratio-anchored recipe has NO absolute yield — falling
-// back to the profile here is exactly the `yieldG > 0 ? yieldG :
-// profileYield` fallthrough that reintroduces #1485's spurious override
-// arrow, so the mode is consulted first.
-MainController::BaselineYield MainController::resolveBaselineYield() const {
-    // The ladder, walked ONCE: recipe -> bag -> profile. Both public getters
-    // are views onto this result, so the value and the mode can never come
-    // from different rungs (see BaselineYield in the header).
-    if (!m_activeRecipe.isEmpty()) {
-        const QString mode = YieldSpec::normalizedMode(
-            m_activeRecipe.value(QStringLiteral("yieldMode")).toString());
-        const double value = m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
-        if (YieldSpec::isSet(mode) && value > 0.0)
-            return {value, mode};
-    }
-    if (m_settings && YieldSpec::isSet(m_settings->dye()->activeBagYieldMode())
-        && m_settings->dye()->activeBagYieldValue() > 0.0)
-        return {m_settings->dye()->activeBagYieldValue(), m_settings->dye()->activeBagYieldMode()};
-    // The profile rung: its target_weight is always plain grams.
-    return {m_profileManager ? m_profileManager->profileTargetWeight() : 0.0,
-            YieldSpec::modeAbsolute()};
+BrewBaseline::Yield MainController::resolveBaselineYield() const {
+    const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
+    if (!m_settings)
+        return BrewBaseline::resolveYield(m_activeRecipe, YieldSpec::modeNone(), 0.0, profileTarget);
+    return BrewBaseline::resolveYield(m_activeRecipe, m_settings->dye()->activeBagYieldMode(),
+                                      m_settings->dye()->activeBagYieldValue(), profileTarget);
 }
 
 double MainController::activeBaselineYieldValue() const {
@@ -2336,8 +2322,44 @@ QString MainController::activeBaselineYieldMode() const {
     return resolveBaselineYield().mode;
 }
 
+QString MainController::activeBaselineYieldSource() const {
+    return resolveBaselineYield().source;
+}
+
+QString MainController::yieldPersistTarget() const {
+    if (!m_settings)
+        return QString();
+    return BrewBaseline::persistTarget(resolveBaselineYield(), m_settings->dye()->activeRecipeId() >= 0,
+                                       bagIdIsSet(m_settings->dye()->activeBagId()));
+}
+
+void MainController::restoreYieldAnchorAfterProfileLoad() {
+    if (!m_settings || !m_profileManager || m_settings->brew()->hasBrewYieldOverride())
+        return;
+    m_yieldRestorePending = false;
+    if (m_settings->dye()->activeRecipeId() >= 0 && m_activeRecipe.isEmpty()) {
+        // Startup restore: the recipe row hasn't arrived, so the ladder has no top
+        // rung yet. recipeReady runs this again when it lands.
+        m_yieldRestorePending = true;
+        DIAG_INFO(PROFILES, "maincontroller") << "yield restore deferred until recipe"
+                                               << m_settings->dye()->activeRecipeId() << "loads";
+        return;
+    }
+    const Profile& profile = m_profileManager->currentProfile();
+    if (Profile::isMaintenanceBeverageType(profile.beverageType()))
+        return;  // a cleaning run has no weight stop to seed
+    const BrewBaseline::Yield anchor =
+        BrewBaseline::anchorToRestore(resolveBaselineYield(), profile.targetWeight());
+    if (!YieldSpec::isSet(anchor.mode))
+        return;
+    m_settings->brew()->setBrewYieldAnchor(anchor.value, anchor.mode);
+    DIAG_INFO(PROFILES, "maincontroller").noquote()
+        << QString("restored the %1's %2 yield %3 after loading '%4'")
+               .arg(anchor.source, anchor.mode, QString::number(anchor.value, 'f', 1), profile.title());
+}
+
 double MainController::activeBaselineYieldG() const {
-    const BaselineYield baseline = resolveBaselineYield();
+    const BrewBaseline::Yield baseline = resolveBaselineYield();
     const double dose = m_profileManager ? m_profileManager->brewByRatioDose() : 0.0;
     const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
     return YieldSpec::resolveGrams(baseline.mode, baseline.value, dose, profileTarget);
@@ -3746,12 +3768,7 @@ void MainController::applyHeaterTweaks() {
 }
 
 double MainController::getGroupTemperature() const {
-    if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
-        double temp = m_settings->brew()->temperatureOverride();
-        DIAG_DEBUG(DE1, "maincontroller") << "getGroupTemperature: using override" << temp << "°C";
-        return temp;
-    }
-    return m_profileManager->currentProfile().espressoTemperature();
+    return m_profileManager->getGroupTemperature();
 }
 
 bool MainController::pushShotSettings(double steamTempC, const QString& reason) {

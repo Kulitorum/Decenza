@@ -75,12 +75,13 @@ private:
     // opt-in; any test that reads recipe PARAMETERS needs it.
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test",
                                  double targetWeight = 36.0, double temp = 93.0,
-                                 bool withInfuse = false) {
+                                 bool withInfuse = false,
+                                 const QString& beverageType = QStringLiteral("espresso")) {
         QJsonObject json;
         json["title"] = title;
         json["author"] = "test";
         json["notes"] = "";
-        json["beverage_type"] = "espresso";
+        json["beverage_type"] = beverageType;
         json["version"] = "2";
         json["legacy_profile_type"] = "settings_2c";
         json["target_weight"] = targetWeight;
@@ -863,6 +864,12 @@ private slots:
 
         QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("cleaning"));
         QVERIFY(f.profileManager.currentProfileIsMaintenance());
+
+        // The ratio-carry groups share the normalization.
+        QCOMPARE(Profile::beverageGroup(QStringLiteral(" Tea_Portafilter ")), QStringLiteral("tea"));
+        QCOMPARE(Profile::beverageGroup(QStringLiteral("pourover")), QStringLiteral("filter"));
+        QCOMPARE(Profile::beverageGroup(QString()), QStringLiteral("espresso"));
+        QCOMPARE(Profile::beverageGroup(QStringLiteral("descale")), QStringLiteral("maintenance"));
     }
 
     void currentProfileIsMaintenanceCoversWholeTier() {
@@ -2559,10 +2566,21 @@ private slots:
     }
 
     // Profile-load mode asymmetry (Decision 8): a runtime profile switch
-    // clears an ABSOLUTE session anchor but keeps a RATIO one.
+    // clears an ABSOLUTE session anchor but keeps a RATIO one — within a
+    // beverage group (#1941).
     void profileSwitchKeepsRatioClearsAbsolute() {
         McpTestFixture f;
+        // The startup load records its group but is not a load for the restore.
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+        const quint64 generation = f.profileManager.brewLoadGeneration();
+        f.profileManager.m_startupLoadDone = false;
+        loadDFlowProfile(f, "Startup Tea", 0.0, 93.0, false, QStringLiteral("tea"));
+        f.profileManager.m_startupLoadDone = true;
+        QCOMPARE(f.profileManager.brewLoadGeneration(), generation);
         loadDFlowProfile(f, "TestA", 36.0);
+        QCOMPARE(f.profileManager.brewLoadGeneration(), generation + 1);
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());  // tea -> espresso
 
         f.settings.brew()->setBrewYieldOverride(40.0);
         loadDFlowProfile(f, "TestB", 42.0);
@@ -2575,6 +2593,39 @@ private slots:
         QVERIFY(f.settings.brew()->hasBrewYieldOverride());
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.targetWeight(), 36.0);  // still 2 x 18
+
+        // Espresso to tea changes group: the tea brews to its own target...
+        loadDFlowProfile(f, "Tea", 0.0, 93.0, false, QStringLiteral("tea_portafilter"));
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 0.0);
+
+        // ...and a ratio dialed on tea carries to another tea profile.
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        loadDFlowProfile(f, "Tea 2", 0.0, 93.0, false, QStringLiteral("tea"));
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // A filter ratio is a different ratio: tea to pourover clears it.
+        loadDFlowProfile(f, "Filter", 250.0, 93.0, false, QStringLiteral("pourover"));
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 250.0);
+
+        // A cleaning run neither uses nor clears the ratio, and is not a group change.
+        f.settings.brew()->setBrewRatioAnchor(3.0);
+        f.settings.brew()->setTemperatureOverride(90.0);
+        loadDFlowProfile(f, "Clean", 0.0, 93.0, false, QStringLiteral("cleaning"));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.targetWeight(), 0.0);
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
+        // Back to the profile from before the run: every override returns.
+        loadDFlowProfile(f, "Filter", 250.0, 93.0, false, QStringLiteral("pourover"));
+        QCOMPARE(f.profileManager.getGroupTemperature(), 90.0);
+        QCOMPARE(f.profileManager.targetWeight(), 54.0);  // 3 x 18
+        // A different profile after a run is a normal switch.
+        loadDFlowProfile(f, "Clean", 0.0, 93.0, false, QStringLiteral("cleaning"));
+        loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 54.0);
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

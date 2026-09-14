@@ -143,6 +143,20 @@ public:
             || t == QLatin1String("calibrate");
     }
 
+    // A dialed ratio carries only between profiles of one group: an espresso 1:2
+    // cut a tea steep short (#1941) and means nothing for filter. Unknown and empty
+    // types are espresso, the profile JSON default.
+    static QString beverageGroup(const QString& beverageType) {
+        const QString t = beverageType.trimmed().toLower();
+        if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
+            return QStringLiteral("tea");
+        if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
+            return QStringLiteral("filter");
+        if (isMaintenanceBeverageType(t))
+            return QStringLiteral("maintenance");
+        return QStringLiteral("espresso");
+    }
+
     // Profile type for compatibility with de1app settings
     // "settings_2a" = simple pressure, "settings_2b" = simple flow,
     // "settings_2c" = advanced (our default), "settings_2c2" = advanced with limiter
