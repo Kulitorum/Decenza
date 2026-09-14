@@ -189,8 +189,12 @@ Item {
     }
 
     // === Sort: the "All" section ============================================
+    // "All" = everything the recommended row does not already show (the
+    // wizard's old tier ③ "all remaining"); a profile never appears twice.
     readonly property var sortedAllList: {
-        var list = picker.filteredAll.slice()
+        var shown = {}
+        for (var r = 0; r < picker.recommendedList.length; ++r) shown[picker.recommendedList[r].name] = true
+        var list = picker.filteredAll.filter(function(e) { return !shown[e.name] })
 
         if (picker.sortMode === "alpha") {
             list.sort(function(a, b) { return a.title.localeCompare(b.title) })

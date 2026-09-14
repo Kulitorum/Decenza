@@ -1083,6 +1083,11 @@ endif()
 
 # Resources
 qt_add_resources(RESOURCES resources/resources.qrc)
+# The one list of bundled profiles, shared with the test targets. resources.qrc
+# used to carry a second copy and the two drifted: nine profiles added since
+# July 2026 (Adaptive v3 among them) reached the tests and never the app.
+# scripts/check_profile_resources.py keeps profiles.qrc complete and unique.
+qt_add_resources(RESOURCES resources/profiles.qrc)
 qt_add_resources(RESOURCES resources/emoji.qrc)
 qt_add_resources(RESOURCES resources/ai.qrc)
 
