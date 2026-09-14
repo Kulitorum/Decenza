@@ -4282,16 +4282,19 @@ private slots:
         // being empty below would treat them as old-Selected too.
         clearTestProfileStore();
 
-        const QString existingFavName = "Zzz Merge Test Pre-Existing";
-        const QString existingFavFile = "zzz_merge_test_preexisting_9d4e";
+        // A REAL built-in: startup prunes favorites whose profile does not
+        // exist. "Turbo Shot" sorts after both merged titles, so its staying
+        // first proves the existing order is kept rather than re-sorted.
+        const QString existingFavName = "Turbo Shot";
+        const QString existingFavFile = "turbo_shot";
 
         // Seed the legacy Selected state and force the one-time flag absent
         // BEFORE any ProfileManager (whose constructor runs the merge) exists.
-        // adaptive_v2/blooming_espresso are real shipped built-ins (:/profiles,
-        // unaffected by profile/path), titled "Adaptive v2"/"Blooming Espresso"
-        // — alphabetical order below relies on that.
+        // adaptive_v2/blooming_espresso are shipped built-ins (:/profiles),
+        // titled "Adaptive v2"/"Blooming Espresso"; the merge appends them in
+        // that title order.
         {
-            AppSettings raw;
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
             raw.remove(QStringLiteral("profile/selectedMergedIntoFavorites"));
             QJsonArray existingFavs;
             QJsonObject fav;
@@ -4322,7 +4325,7 @@ private slots:
         }
 
         {
-            AppSettings flagCheck;
+            QSettings flagCheck(Settings::testQSettingsPath(), QSettings::IniFormat);
             QVERIFY(flagCheck.value(QStringLiteral("profile/selectedMergedIntoFavorites")).toBool());
         }
 
@@ -5407,7 +5410,7 @@ private slots:
         QString builtInTitle;
         for (const QVariant& v : all) {
             const QVariantMap m = v.toMap();
-            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
+            if (f.profileManager.isBuiltInFilename(m.value("name").toString())) {
                 builtInTitle = m.value("title").toString();
                 break;
             }
@@ -5447,8 +5450,8 @@ private slots:
         QString builtInFilename;
         for (const QVariant& v : all) {
             const QVariantMap m = v.toMap();
-            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
-                builtInFilename = m.value("filename").toString();
+            if (f.profileManager.isBuiltInFilename(m.value("name").toString())) {
+                builtInFilename = m.value("name").toString();
                 break;
             }
         }

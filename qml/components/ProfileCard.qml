@@ -38,7 +38,10 @@ Rectangle {
                                          : Theme.sourceBadgeOrangeColor
     readonly property string sourceLetter: isBuiltIn ? "D" : (isDownloaded ? "V" : "U")
 
-    readonly property bool isFavorite: entry ? Settings.app.isFavoriteProfile(entry.name) : false
+    readonly property bool isFavorite: {
+        var _dep = Settings.app.favoriteProfiles  // Q_INVOKABLE reads record no dependency
+        return entry ? Settings.app.isFavoriteProfile(entry.name) : false
+    }
     readonly property bool isAutoLoad: entry && entry.name !== undefined
         && Settings.app.autoLoadProfileFilename !== ""
         && entry.name === Settings.app.autoLoadProfileFilename

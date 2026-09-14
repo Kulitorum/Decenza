@@ -546,6 +546,15 @@ Item {
             cellHeight: Theme.scaled(100)
 
             model: picker.sortedAllList
+            // Always open at the top. The wizard keeps this picker alive across
+            // steps, so contentY would otherwise survive to the next visit, and
+            // a narrowed filter would keep an offset into a list that no longer
+            // reaches it.
+            Connections {
+                target: picker
+                function onVisibleChanged() { if (picker.visible) allGrid.positionViewAtBeginning() }
+                function onFilteredAllChanged() { allGrid.positionViewAtBeginning() }
+            }
             // Tiers and the "All" heading scroll WITH the grid as its header, so
             // the page is one Flickable and the grid keeps its virtualisation.
             // Pinned above the grid they ate the grid's height on a tablet and
