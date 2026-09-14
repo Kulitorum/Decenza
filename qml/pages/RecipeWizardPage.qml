@@ -268,7 +268,6 @@ T.Page {
     property string fEquipmentGrinderBrand: ""
     property string fEquipmentGrinderModel: ""
     // RPM capability: one function, the RECIPE's package as arguments — not the
-    // stored pkg.rpmCapable flag (which can drift from the catalog) and not the
     // argument-less active-grinder resolution (which would ignore the package
     // the equipment window just made the user choose).
     readonly property bool fEquipmentRpmCapable:

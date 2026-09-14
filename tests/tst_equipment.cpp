@@ -83,6 +83,35 @@ private slots:
         QVERIFY(!EquipmentStorage::deriveRpmCapable("Niche", "Zero"));
         // Custom grinder not in the registry -> shown (true).
         QVERIFY(EquipmentStorage::deriveRpmCapable("Acme", "Imaginary 9000"));
+        // Varia VS6 shipped with the flag unset because its `true` was
+        // burrSwappable, not variableRpm; a user reported no RPM field.
+        QVERIFY(EquipmentStorage::deriveRpmCapable("Varia", "VS6"));
+        // Hand grinder / grind-by-weight ("W") models are fixed-speed.
+        QVERIFY(!EquipmentStorage::deriveRpmCapable("Weber Workshops", "HG-2"));
+        QVERIFY(!EquipmentStorage::deriveRpmCapable("Mahlkonig", "E65S GbW"));
+    }
+
+    // rpmCapable is a registry fact, re-derived on read: a stale value in an
+    // older row's attrs blob must not win over a corrected catalog flag.
+    void rpmCapableIgnoresStoredAttr() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_rpm_stale", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage pkg;
+            const qint64 id = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Varia", "VS6", "58mm Supernova flat");
+            QVERIFY(id > 0);
+            QSqlQuery q(db);
+            q.prepare("UPDATE equipment_items SET attrs = ? WHERE package_id = ? AND kind = 'grinder'");
+            q.addBindValue(QString("{\"burrs\":\"58mm Supernova flat\",\"rpmCapable\":false}"));
+            q.addBindValue(id);
+            QVERIFY(q.exec());
+
+            const EquipmentItem g = EquipmentStorage::loadGrinderItemStatic(db, id);
+            QVERIFY(g.isValid());
+            QCOMPARE(g.burrs, QString("58mm Supernova flat"));
+            QVERIFY(g.rpmCapable);
+        });
     }
 
     // --- package create + load ---
