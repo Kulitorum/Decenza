@@ -135,6 +135,9 @@ EquipmentItem grinderItemFromQueryRow(const QSqlQuery& query) {
     item.brand = query.value(3).toString();
     item.model = query.value(4).toString();
     item.setAttrsFromJson(query.value(5).toString());
+    // Older rows carry a stored "rpmCapable" in attrs; it is ignored on purpose.
+    if (item.kind == QStringLiteral("grinder"))
+        item.rpmCapable = EquipmentStorage::deriveRpmCapable(item.brand, item.model);
     return item;
 }
 
@@ -147,14 +150,16 @@ const char* kItemColumns = "id, package_id, kind, brand, model, attrs";
 // ---------------------------------------------------------------------------
 QString EquipmentItem::attrsJson() const
 {
-    // Only the grinder kind carries attrs (burrs + rpmCapable). A basket's specs
-    // are derived from BasketAliases at read time, so it persists an empty blob.
+    // Only the grinder kind carries attrs (burrs). rpmCapable is NOT persisted:
+    // it is a catalog fact re-derived on every read, like a basket's specs — a
+    // stored copy went stale the moment a registry flag was corrected (Varia VS6
+    // shipped with variableRpm unset, and every package created meanwhile kept
+    // "false" until its grinder was edited).
     if (kind != QStringLiteral("grinder"))
         return QStringLiteral("{}");
     QJsonObject obj;
     if (!burrs.isEmpty())
         obj.insert(QStringLiteral("burrs"), burrs);
-    obj.insert(QStringLiteral("rpmCapable"), rpmCapable);
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
@@ -162,7 +167,6 @@ void EquipmentItem::setAttrsFromJson(const QString& json)
 {
     const QJsonObject obj = QJsonDocument::fromJson(json.toUtf8()).object();
     burrs = obj.value(QStringLiteral("burrs")).toString();
-    rpmCapable = obj.value(QStringLiteral("rpmCapable")).toBool();
 }
 
 // ---------------------------------------------------------------------------
@@ -743,7 +747,6 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         grinder.brand = brand;
         grinder.model = model;
         grinder.burrs = burrs;
-        grinder.rpmCapable = deriveRpmCapable(brand, model);
         if (insertItemStatic(db, grinder) <= 0) {
             // A package that ASKED for a grinder but lost the item resolves to a
             // blank grinder everywhere; don't leave that orphan behind — drop the
@@ -1050,7 +1053,6 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
     item.brand = b;
     item.model = m;
     item.burrs = bu;
-    item.rpmCapable = deriveRpmCapable(b, m);
 
     if (cur.isValid()) {
         QSqlQuery query(db);

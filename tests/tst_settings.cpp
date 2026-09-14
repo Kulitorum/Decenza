@@ -3155,7 +3155,7 @@ private slots:
         // An RPM-capable grinder with no recorded RPM seeds from the neutral
         // anchor, and never offers a non-positive speed (0 is the unset
         // sentinel, so it must not appear as a pickable row).
-        in.brand = "Eureka"; in.model = "Mignon Turbo";
+        in.brand = "Varia"; in.model = "VS6";
         const QJsonArray rpm = GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray();
         QVERIFY(!rpm.isEmpty());
         QVERIFY(rpm.contains(QJsonValue(double(GrindCandidates::kRpmDefaultAnchor))));

@@ -36,8 +36,9 @@ struct GrinderEntry {
     QString mountPattern;    // Compatible mount group (e.g. "mazzer64", "mazzer83", "ek98")
     SettingNotation notation = SettingNotation::NumericWithSuffix;
     int positionsPerRev = 0; // Compound only; ignored for NumericWithSuffix
-    // True when the motor RPM is user-adjustable (V/W/WS suffix models,
-    // Mignon Turbo, single-dose Lagom/Weber/Kafatek, etc.). Users
+    // True when the motor RPM is user-adjustable (Turin V models, Varia VS4/VS6,
+    // Sculptor S, single-dose Lagom/Weber/Kafatek, etc.). Mahlkonig "W"/"GbW" is
+    // grind-by-weight, NOT variable speed; Eureka Turbo/Single Dose are fixed. Users
     // commonly annotate the grinder_setting with the RPM (`24 1400rpm`
     // on a DF83V); parseGrinderSetting tolerates that suffix so the
     // shot is not silently discarded. The calibration block today does
@@ -75,20 +76,24 @@ inline const QVector<GrinderEntry>& allGrinders()
         {"Turin", "DF54", {"df54"}, {"54mm flat steel"}, true, 54, ""},
         // --- Weber Workshops (proprietary magnetic mount) ---
         {"Weber Workshops", "EG-1", {"eg-1", "eg1", "weber eg-1", "weber eg1", "weber workshops eg-1"}, {"80mm CORE (DB-1) flat", "80mm ULTRA (DB-2) flat", "80mm BASE (DB-3) flat"}, true, 80, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
-        {"Weber Workshops", "HG-2", {"hg-2", "hg2", "weber hg-2", "weber hg2"}, {"83mm Mazzer conical"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
+        {"Weber Workshops", "HG-2", {"hg-2", "hg2", "weber hg-2", "weber hg2"}, {"83mm Mazzer conical"}, false, 0, ""},
         {"Weber Workshops", "KEY", {"weber key", "key grinder"}, {"83mm conical"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
         // --- Eureka ---
         {"Eureka", "Mignon Specialita", {"specialita", "eureka specialita", "mignon specialita", "eureka mignon specialita"}, {"55mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon Notte", {"notte", "eureka notte", "mignon notte", "eureka mignon notte"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon Manuale", {"manuale", "eureka manuale", "mignon manuale"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon XL", {"mignon xl", "eureka xl", "eureka mignon xl"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
-        {"Eureka", "Mignon Turbo", {"turbo", "eureka turbo", "mignon turbo", "eureka mignon turbo"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, true},
-        {"Eureka", "Mignon Single Dose", {"mignon single dose", "eureka single dose", "eureka sd", "mignon sd"}, {"65mm Diamond Inside flat"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, true},
+        {"Eureka", "Mignon Turbo", {"turbo", "eureka turbo", "mignon turbo", "eureka mignon turbo"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Mignon Single Dose", {"mignon single dose", "eureka single dose", "eureka sd", "mignon sd", "oro single dose"}, {"65mm Diamond Inside flat"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Mignon Silenzio", {"silenzio", "eureka silenzio", "mignon silenzio"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Mignon Facile", {"facile", "eureka facile", "mignon facile"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Mignon Zero", {"mignon zero", "eureka zero", "eureka mignon zero", "zero 65"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon Libra", {"libra", "eureka libra", "mignon libra"}, {"55mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon Perfetto", {"perfetto", "eureka perfetto", "mignon perfetto"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Mignon Crono", {"crono", "eureka crono", "mignon crono"}, {"50mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
-        {"Eureka", "Atom 65", {"atom 65", "eureka atom 65", "atom65"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
-        {"Eureka", "Atom 75", {"atom 75", "eureka atom 75", "atom75"}, {"75mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Atom 65", {"atom 65", "eureka atom 65", "atom65", "atom w 65"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Atom 75", {"atom 75", "eureka atom 75", "atom75", "atom w 75", "lucca atom"}, {"75mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"Eureka", "Zenith 65 Neo", {"zenith", "zenith 65", "eureka zenith", "zenith 65 neo"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"Eureka", "Helios 80", {"helios 80", "eureka helios 80", "helios80"}, {"80mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         // --- Option-O (P64 accepts Mazzer 64mm pattern; P100/01 accept EK43 98mm) ---
         {"Option-O", "Lagom P64", {"p64", "lagom p64", "option-o p64"}, {"64mm Mizen 64OM flat", "64mm Mizen 64ES flat", "64mm SSP High Uniformity flat", "64mm SSP Unimodal Espresso flat"}, true, 64, "mazzer64", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
@@ -120,15 +125,16 @@ inline const QVector<GrinderEntry>& allGrinders()
         {"La Marzocco", "Lux D", {"lux d", "la marzocco lux", "lux grinder"}, {"61mm flat steel"}, false, 0, ""},
         // --- Mahlkonig (EK43 = ek98 pattern; X64/E64 = mazzer64) ---
         {"Mahlkonig", "EK43", {"ek43", "ek-43", "mahlkonig ek43"}, {"98mm flat steel"}, true, 98, "ek98"},
-        {"Mahlkonig", "E65W", {"e65w", "mahlkonig e65", "e65"}, {"65mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
-        {"Mahlkonig", "E80W", {"e80w", "e80s", "mahlkonig e80"}, {"80mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
-        {"Mahlkonig", "X54", {"x54", "mahlkonig x54"}, {"54mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
-        {"Mahlkonig", "X64 SD", {"x64", "mahlkonig x64", "x64 sd"}, {"64mm flat steel"}, false, 0, "mazzer64", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
-        {"Mahlkonig", "E64 WS", {"e64", "mahlkonig e64", "e64 ws"}, {"64mm flat steel"}, false, 0, "mazzer64", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
+        {"Mahlkonig", "E65S GbW", {"e65w", "e65s", "e65s gbw", "mahlkonig e65", "e65"}, {"65mm flat steel"}, false, 0, ""},
+        {"Mahlkonig", "E80S GbW", {"e80w", "e80s", "e80s gbw", "mahlkonig e80"}, {"80mm flat steel"}, false, 0, ""},
+        {"Mahlkonig", "X54", {"x54", "mahlkonig x54"}, {"54mm flat steel"}, false, 0, ""},
+        {"Mahlkonig", "X64 SD", {"x64", "mahlkonig x64", "x64 sd"}, {"64mm flat steel"}, false, 0, "mazzer64"},
+        {"Mahlkonig", "E64 WS", {"e64", "mahlkonig e64", "e64 ws"}, {"64mm flat steel"}, false, 0, "mazzer64"},
         // --- Fiorenzato (Mazzer 64mm pattern) ---
         {"Fiorenzato", "AllGround", {"allground", "fiorenzato allground", "fiorenzato"}, {"64mm Dark-T titanium coated flat"}, false, 0, "mazzer64"},
         {"Varia", "VS3", {"vs3", "varia vs3"}, {"48mm conical stainless"}, false, 0, ""},
-        {"Varia", "VS6", {"vs6", "varia vs6"}, {"58mm Supernova flat"}, true, 58, ""},
+        {"Varia", "VS4", {"vs4", "varia vs4"}, {"53mm Supernova conical"}, true, 53, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
+        {"Varia", "VS6", {"vs6", "varia vs6"}, {"58mm Supernova flat", "63mm conical"}, true, 58, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
         {"WPM", "ZP-1", {"zp-1", "zp1", "wpm zp-1"}, {"64mm flat steel"}, false, 0, "mazzer64"},
         {"Baratza", "Sette 270", {"sette 270", "sette", "baratza sette", "sette 270wi"}, {"40mm conical steel"}, false, 0, ""},
         {"Baratza", "Encore ESP", {"encore", "encore esp", "baratza encore"}, {"40mm conical steel"}, false, 0, ""},
@@ -141,22 +147,30 @@ inline const QVector<GrinderEntry>& allGrinders()
         {"Wilfa", "Uniform", {"uniform", "wilfa uniform", "wilfa svart"}, {"58mm flat steel"}, false, 0, ""},
         {"Compak", "E5", {"compak e5"}, {"58mm flat steel"}, false, 0, ""},
         {"Compak", "E8", {"compak e8"}, {"83mm flat steel"}, true, 83, "mazzer83"},
+        {"Compak", "PK100", {"pk100", "pk-100", "compak pk100"}, {"98mm blind flat"}, false, 0, ""},
         {"Compak", "E10", {"compak e10"}, {"68mm conical steel"}, false, 0, ""},
         // --- Ceado (E37S/SD = mazzer83, E37J = mazzer64) ---
+        {"Lelit", "William PL72", {"william", "lelit william", "pl72", "pl71"}, {"64mm flat steel"}, false, 0, "mazzer64"},
         {"Ceado", "E37S", {"e37s", "ceado e37s", "ceado e37"}, {"83mm titanium flat"}, false, 0, "mazzer83"},
         {"Ceado", "E37SD", {"e37sd", "ceado e37sd", "ceado sd"}, {"83mm OpalGlide flat"}, false, 0, "mazzer83"},
+        {"Ceado", "E37Z Hero", {"e37z", "e37z hero", "z hero", "z-hero", "ceado hero"}, {"83mm DLC flat"}, false, 0, "mazzer83", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
+        {"Ceado", "E5SD", {"e5sd", "ceado e5sd", "ceado e5"}, {"64mm flat steel"}, false, 0, "mazzer64"},
         {"Ceado", "E37J", {"e37j", "ceado e37j"}, {"64mm flat steel"}, false, 0, "mazzer64"},
+        {"Anfim", "Luna", {"anfim luna", "luna"}, {"75mm flat steel"}, false, 0, ""},
         {"Anfim", "SP II", {"anfim sp", "anfim spii", "sp ii", "sp2"}, {"75mm titanium coated flat"}, false, 0, ""},
         // --- Timemore (Sculptor 064 = mazzer64) ---
-        {"Timemore", "Sculptor 064S", {"sculptor 064", "timemore sculptor", "sculptor 064s"}, {"64mm flat steel"}, false, 0, "mazzer64"},
-        {"Timemore", "Sculptor 078S", {"sculptor 078", "sculptor 078s"}, {"78mm flat steel"}, false, 0, ""},
+        {"Timemore", "Sculptor 064S", {"sculptor 064", "timemore sculptor", "sculptor 064s"}, {"64mm flat steel"}, false, 0, "mazzer64", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
+        {"Timemore", "Sculptor 078S", {"sculptor 078", "sculptor 078s"}, {"78mm flat steel"}, false, 0, "", GrinderAliases::SettingNotation::NumericWithSuffix, 0, true},
         {"Craig Lyn", "HG-1 Prime", {"hg-1", "hg1", "craig lyn", "hg-1 prime"}, {"83mm Mazzer conical"}, false, 0, ""},
         {"Comandante", "C40 MK4", {"comandante", "c40", "comandante c40", "c40 mk4", "c40 mk3"}, {"39mm Nitro Blade conical"}, false, 0, ""},
         {"1Zpresso", "JX-Pro", {"jx-pro", "jx pro", "1zpresso jx", "jx"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 40, false},
         {"1Zpresso", "J-Max", {"j-max", "jmax", "1zpresso j-max", "1zpresso jmax"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 30, false},
         {"1Zpresso", "K-Max", {"k-max", "kmax", "1zpresso k-max", "1zpresso kmax"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 90, false},
         {"1Zpresso", "K-Plus", {"k-plus", "kplus", "1zpresso k-plus", "k plus"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 90, false},
+        {"1Zpresso", "K-Ultra", {"k-ultra", "kultra", "1zpresso k-ultra", "k ultra"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
+        {"1Zpresso", "J-Ultra", {"j-ultra", "jultra", "1zpresso j-ultra", "j ultra"}, {"48mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 100, false},
         {"1Zpresso", "Q2", {"q2", "1zpresso q2"}, {"38mm conical steel"}, false, 0, "", GrinderAliases::SettingNotation::Compound, 30, false},
+        {"Kinu", "M47", {"kinu", "kinu m47", "m47", "m47 classic", "m47 phoenix", "m47 simplicity"}, {"47mm conical steel"}, false, 0, ""},
         {"KINGrinder", "K6", {"k6", "kingrinder k6", "king grinder k6"}, {"48mm heptagonal conical stainless"}, false, 0, ""},
         {"KINGrinder", "K4", {"k4", "kingrinder k4", "king grinder k4"}, {"48mm titanium coated conical"}, false, 0, ""},
         {"Timemore", "C3 ESP PRO", {"c3 esp", "c3 esp pro", "timemore c3", "chestnut c3"}, {"38mm S2C conical stainless"}, false, 0, ""},
@@ -358,7 +372,7 @@ inline QStringList modelsForBrand(const QString& brand)
 // Memoized on the last (brand, model), for ONE caller: SettingsDye::
 // grinderIsClickIndexed(), which GrindRowSource.stepGrind() reaches per row on
 // the custom-grinder JS fallback. A grinder outside the registry misses, so each
-// call walks all 93 entries — the worst case, not the cheapest, which is why
+// call walks every entry — the worst case, not the cheapest, which is why
 // NEGATIVE results are cached too. A window of ±400 steps around a small value
 // puts several hundred of those in front of the picker painting.
 //

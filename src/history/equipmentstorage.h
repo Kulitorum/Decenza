@@ -21,9 +21,11 @@ class SerialDbWorker;
 // a different `kind` and their own `attrs` payload — no schema migration (openspec
 // change add-equipment-packages). Shared fields every kind has (kind/brand/model)
 // are real columns; kind-specific fields live in the `attrs` JSON blob. For a
-// grinder, attrs = { "burrs": "...", "rpmCapable": true }. The `burrs` and
-// `rpmCapable` members below are convenience views of that blob, (de)serialized on
-// load/save — they are not their own columns. A basket has NO kind-specific attrs:
+// grinder, attrs = { "burrs": "..." }; `burrs` below is a convenience view of that
+// blob, (de)serialized on load/save, not its own column. `rpmCapable` is never
+// stored — it is re-derived from the grinder registry on every read (see
+// grinderItemFromQueryRow), so a registry correction reaches existing packages
+// without a migration. A basket has NO kind-specific attrs:
 // its identity is brand+model and every spec is derived from BasketAliases at read
 // time. A puckprep item stores its canonical flag string (PuckPrep::canonical) in
 // the `model` column and an empty attrs blob; its flags + derived `distribution`
@@ -35,8 +37,8 @@ struct EquipmentItem {
     QString brand;
     QString model;
 
-    // Grinder-kind attrs (mirrored into/out of the `attrs` JSON column). Only
-    // written/read when kind == "grinder"; a basket item leaves these unset.
+    // Grinder-kind attrs. `burrs` is mirrored into/out of the `attrs` JSON column;
+    // `rpmCapable` is derived from the registry on read. A basket leaves both unset.
     QString burrs;
     bool rpmCapable = false;
 
@@ -353,7 +355,7 @@ public:
 
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm
-    // field). Shared by create/update/migration so the rule lives in one place.
+    // field). Applied on every grinder-item read so the rule lives in one place.
     static bool deriveRpmCapable(const QString& brand, const QString& model);
 
     // Best-effort, marker-gated split of a combined grind+rpm string. A trailing
