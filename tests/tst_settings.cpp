@@ -635,6 +635,70 @@ private slots:
     }
 
     // ==========================================
+    // Favorites order (profile-favorites-order)
+    // ==========================================
+    //
+    // Raw QSettings seeding, not addFavoriteProfile()/removeFavoriteProfile() —
+    // those have side effects (un-hide, select) on OTHER keys that would need
+    // their own cleanup. Direct writes to "profile/favorites" isolate the
+    // resolve-when-absent rule to the one key it actually reads.
+
+    void favoriteProfileOrderResolvesToCustomWhenFavoritesExist() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        QJsonArray arr;
+        QJsonObject f; f["name"] = "Test Fav"; f["filename"] = "test-fav.json";
+        arr.append(f);
+        raw.setValue("profile/favorites", QJsonDocument(arr).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("custom"));
+        // The read must not have written the key — resolving is not switching.
+        QVERIFY(!QSettings(Settings::testQSettingsPath(), QSettings::IniFormat)
+                     .contains("profile/favoriteOrder"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
+    void favoriteProfileOrderResolvesToUsageWhenNoFavorites() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        raw.setValue("profile/favorites", QJsonDocument(QJsonArray()).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("usage"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
+    void favoriteProfileOrderRoundTripsThroughSerializer() {
+        const QString orig = m_settings.app()->favoriteProfileOrder();
+        m_settings.app()->setFavoriteProfileOrder("alpha");
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QCOMPARE(bundle.value("profile").toObject().value("favoriteOrder").toString(), QString("alpha"));
+
+        m_settings.app()->setFavoriteProfileOrder("usage");
+        // importFromJson always warns when it replaces the favorites array, even 0 -> 0.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("alpha"));
+
+        m_settings.app()->setFavoriteProfileOrder(orig);
+    }
+
+    // ==========================================
     // Auto-load recipe settings (recipe-auto-load) + mutual exclusion
     // ==========================================
 

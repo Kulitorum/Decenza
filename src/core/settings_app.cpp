@@ -2,6 +2,7 @@
 #include "settings_app.h"
 #include "settings.h"
 
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -241,6 +242,29 @@ bool SettingsApp::updateFavoriteProfile(const QString& oldFilename, const QStrin
     return false;
 }
 
+void SettingsApp::setFavoritesOrder(const QStringList& filenamesInOrder) {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QHash<QString, QJsonObject> byFilename;
+    byFilename.reserve(arr.size());
+    for (const QJsonValue& v : arr) {
+        const QJsonObject obj = v.toObject();
+        byFilename.insert(obj["filename"].toString(), obj);
+    }
+
+    QJsonArray reordered;
+    for (const QString& filename : filenamesInOrder) {
+        auto it = byFilename.find(filename);
+        if (it != byFilename.end())
+            reordered.append(it.value());
+    }
+
+    m_settings.setValue("profile/favorites", QJsonDocument(reordered).toJson());
+    emit favoriteProfilesChanged();
+}
+
 // Selected built-in profiles
 QStringList SettingsApp::selectedBuiltInProfiles() const {
     return m_settings.value("profile/selectedBuiltIns").toStringList();
@@ -364,6 +388,30 @@ void SettingsApp::removeHiddenProfile(const QString& filename) {
 
 bool SettingsApp::isHiddenProfile(const QString& filename) const {
     return hiddenProfiles().contains(filename);
+}
+
+// Favorites order (profile-favorites-order). Resolve-when-absent: an
+// upgraded install with favorites keeps ITS order (custom); a fresh one
+// with none starts in usage order. This read never persists the resolved
+// value — only setFavoriteProfileOrder (a real switch, from the picker's
+// sort control or the reorder dialog) writes the key.
+QString SettingsApp::favoriteProfileOrder() const {
+    const QVariant stored = m_settings.value("profile/favoriteOrder");
+    if (stored.isValid()) {
+        const QString mode = stored.toString();
+        if (mode == QLatin1String("custom") || mode == QLatin1String("alpha")
+            || mode == QLatin1String("usage"))
+            return mode;
+    }
+    return favoriteProfiles().isEmpty() ? QStringLiteral("usage") : QStringLiteral("custom");
+}
+
+void SettingsApp::setFavoriteProfileOrder(const QString& mode) {
+    if (favoriteProfileOrder() != mode) {
+        DIAG_DEBUG(APP, "SettingsApp") << "setFavoriteProfileOrder:" << favoriteProfileOrder() << "->" << mode;
+        m_settings.setValue("profile/favoriteOrder", mode);
+        emit favoriteProfileOrderChanged();
+    }
 }
 
 // Current profile

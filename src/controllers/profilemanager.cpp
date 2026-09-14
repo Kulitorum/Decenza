@@ -976,6 +976,110 @@ QVariantList ProfileManager::allProfilesList() const {
     return result;
 }
 
+// === Shared picker (profile-picker, design D3) ==============================
+
+bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
+                                           const QString& searchLower,
+                                           const QStringList& allowedBeverageTypes) const
+{
+    // Host beverage CONSTRAINT (e.g. the wizard's drink type) — independent of
+    // the Beverage chip GROUP below and applied even when that group is
+    // hidden (recipe-wizard spec). Mirrors currentProfileBeverageType()'s
+    // empty->espresso rule so an untagged community profile lands in Espresso.
+    if (!allowedBeverageTypes.isEmpty()) {
+        const QString t = info.beverageType.trimmed().toLower();
+        const QString effective = t.isEmpty() ? QStringLiteral("espresso") : t;
+        if (!allowedBeverageTypes.contains(effective))
+            return false;
+    }
+
+    if (!searchLower.isEmpty() && !info.title.toLower().contains(searchLower))
+        return false;
+
+    if (chips.value(QStringLiteral("favorites")).toBool()
+        && !(m_settings && m_settings->app()->isFavoriteProfile(info.filename)))
+        return false;
+
+    if (chips.value(QStringLiteral("selected")).toBool()
+        && !isProfileInSelectedList(info.filename))
+        return false;
+
+    const QStringList sources = chips.value(QStringLiteral("sources")).toStringList();
+    if (!sources.isEmpty()) {
+        QString sourceKey;
+        switch (info.source) {
+        case ProfileSource::BuiltIn:    sourceKey = QStringLiteral("builtin");    break;
+        case ProfileSource::Downloaded: sourceKey = QStringLiteral("downloaded"); break;
+        case ProfileSource::UserCreated:sourceKey = QStringLiteral("mine");       break;
+        }
+        if (!sources.contains(sourceKey))
+            return false;
+    }
+
+    const QStringList beverages = chips.value(QStringLiteral("beverages")).toStringList();
+    if (!beverages.isEmpty() && !beverages.contains(Profile::beverageBucket(info.beverageType)))
+        return false;
+
+    return true;
+}
+
+QVariantList ProfileManager::filterProfiles(const QVariantMap& chips, const QString& search,
+                                            const QStringList& allowedBeverageTypes) const
+{
+    QVariantList result;
+    const QString searchLower = search.trimmed().toLower();
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (profileMatchesFilters(info, chips, searchLower, allowedBeverageTypes))
+            result.append(profileInfoToVariantMap(info));
+    }
+    return result;
+}
+
+QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString& search,
+                                        const QStringList& allowedBeverageTypes) const
+{
+    QVariantMap counts;
+    const auto countWith = [&](const QVariantMap& withChip) -> int {
+        return static_cast<int>(filterProfiles(withChip, search, allowedBeverageTypes).size());
+    };
+
+    QVariantMap withSelected = chips;
+    withSelected[QStringLiteral("selected")] = true;
+    counts[QStringLiteral("selected")] = countWith(withSelected);
+
+    QVariantMap withFavorites = chips;
+    withFavorites[QStringLiteral("favorites")] = true;
+    counts[QStringLiteral("favorites")] = countWith(withFavorites);
+
+    static const QStringList kSourceIds = {
+        QStringLiteral("builtin"), QStringLiteral("downloaded"), QStringLiteral("mine")
+    };
+    const QStringList existingSources = chips.value(QStringLiteral("sources")).toStringList();
+    for (const QString& id : kSourceIds) {
+        QVariantMap withChip = chips;
+        QStringList sources = existingSources;
+        if (!sources.contains(id)) sources << id;
+        withChip[QStringLiteral("sources")] = sources;
+        counts[id] = countWith(withChip);
+    }
+
+    // Computed even under a host beverage constraint (where the chip GROUP is
+    // hidden, D6) — a caller that ignores the constraint still gets coherent
+    // numbers rather than a gap in the map.
+    static const QStringList kBeverageIds = {
+        QStringLiteral("espresso"), QStringLiteral("filter"), QStringLiteral("tea"), QStringLiteral("cleaning")
+    };
+    const QStringList existingBeverages = chips.value(QStringLiteral("beverages")).toStringList();
+    for (const QString& id : kBeverageIds) {
+        QVariantMap withChip = chips;
+        QStringList beverages = existingBeverages;
+        if (!beverages.contains(id)) beverages << id;
+        withChip[QStringLiteral("beverages")] = beverages;
+        counts[id] = countWith(withChip);
+    }
+
+    return counts;
+}
 
 // === Profile CRUD ===
 
@@ -2941,6 +3045,9 @@ bool ProfileManager::renameProfile(const QString& filename, const QString& newTi
         if (!m_settings->app()->updateFavoriteProfile(filename, filename, trimmedTitle)) {
             DIAG_WARN(PROFILES, "ProfileManager") << "renameProfile: favorite title sync failed for" << filename;
         }
+        // profile-favorites-order: alpha mode re-sorts on rename (the title it
+        // sorts by just changed); a no-op under usage/custom.
+        resortFavorites();
     }
 
     // If the renamed profile is the one currently loaded, update the live copy so
@@ -2954,6 +3061,97 @@ bool ProfileManager::renameProfile(const QString& filename, const QString& newTi
     return true;
 }
 
+// === Favorites: usage, order, toggle (profile-favorites-order, profile-usage-history) ==
+
+void ProfileManager::setProfileUsage(const QVariantMap& usage) {
+    m_profileUsage = usage;
+    emit profileUsageChanged();
+    // usage mode: the picker's Recently-used sort re-derives from m_profileUsage
+    // on every read (no stored order to fix up); the FAVORITES order is the
+    // only stored list this refresh needs to rewrite.
+    resortFavorites();
+}
+
+bool ProfileManager::toggleFavoriteProfile(const QString& filename) {
+    if (!m_settings)
+        return false;
+
+    if (m_settings->app()->isFavoriteProfile(filename)) {
+        const int idx = m_settings->app()->findFavoriteIndexByFilename(filename);
+        if (idx >= 0)
+            m_settings->app()->removeFavoriteProfile(idx);
+        return false;
+    }
+
+    QString title = filename;
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.filename == filename) { title = info.title; break; }
+    }
+    m_settings->app()->addFavoriteProfile(title, filename);
+    // profile-favorites-order: alpha mode re-sorts on add; a no-op under usage/custom.
+    resortFavorites();
+    return true;
+}
+
+void ProfileManager::resortFavorites() {
+    if (!m_settings)
+        return;
+
+    const QString mode = m_settings->app()->favoriteProfileOrder();
+    if (mode == QLatin1String("custom"))
+        return;
+
+    QVariantList favorites = m_settings->app()->favoriteProfiles();
+    if (favorites.size() < 2)
+        return;  // nothing a re-sort could move
+
+    // The stored index is POSITIONAL; remember which profile it names so the
+    // selection can follow it through the reorder (profile-favorites-order:
+    // "The selected-favorite index SHALL keep pointing at the same profile").
+    const int selectedIndex = m_settings->app()->selectedFavoriteProfile();
+    const QString selectedFilename =
+        (selectedIndex >= 0 && selectedIndex < favorites.size())
+            ? favorites.at(selectedIndex).toMap().value(QStringLiteral("filename")).toString()
+            : QString();
+
+    if (mode == QLatin1String("alpha")) {
+        std::sort(favorites.begin(), favorites.end(), [](const QVariant& a, const QVariant& b) {
+            return QString::localeAwareCompare(
+                       a.toMap().value(QStringLiteral("name")).toString(),
+                       b.toMap().value(QStringLiteral("name")).toString()) < 0;
+        });
+    } else {  // "usage"
+        std::sort(favorites.begin(), favorites.end(), [this](const QVariant& a, const QVariant& b) {
+            const QString titleA = a.toMap().value(QStringLiteral("name")).toString();
+            const QString titleB = b.toMap().value(QStringLiteral("name")).toString();
+            const QVariantMap usageA = m_profileUsage.value(titleA).toMap();
+            const QVariantMap usageB = m_profileUsage.value(titleB).toMap();
+            const bool usedA = m_profileUsage.contains(titleA);
+            const bool usedB = m_profileUsage.contains(titleB);
+            if (usedA != usedB)
+                return usedA;  // used favorites rank before never-used ones
+            if (usedA && usedB) {
+                const qint64 tsA = usageA.value(QStringLiteral("lastTimestamp")).toLongLong();
+                const qint64 tsB = usageB.value(QStringLiteral("lastTimestamp")).toLongLong();
+                if (tsA != tsB)
+                    return tsA > tsB;  // most recent first
+            }
+            return QString::localeAwareCompare(titleA, titleB) < 0;  // tie-break / never-used order
+        });
+    }
+
+    QStringList orderedFilenames;
+    orderedFilenames.reserve(favorites.size());
+    for (const QVariant& fav : favorites)
+        orderedFilenames << fav.toMap().value(QStringLiteral("filename")).toString();
+    m_settings->app()->setFavoritesOrder(orderedFilenames);
+
+    if (!selectedFilename.isEmpty()) {
+        const int newIndex = m_settings->app()->findFavoriteIndexByFilename(selectedFilename);
+        if (newIndex >= 0 && newIndex != selectedIndex)
+            m_settings->app()->setSelectedFavoriteProfile(newIndex);
+    }
+}
 
 // === Profile editing (recipe/frame) ===
 

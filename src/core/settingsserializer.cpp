@@ -176,6 +176,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         favorites.append(f);
     }
     profile["favorites"] = favorites;
+    profile["favoriteOrder"] = settings->app()->favoriteProfileOrder();
 
     QJsonArray selectedBuiltIns;
     for (const QString& s : settings->app()->selectedBuiltInProfiles()) {
@@ -697,6 +698,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 QJsonObject f = v.toObject();
                 settings->app()->addFavoriteProfile(f["name"].toString(), f["filename"].toString());
             }
+        }
+
+        if (profile.contains("favoriteOrder")) {
+            settings->app()->setFavoriteProfileOrder(profile["favoriteOrder"].toString());
         }
 
         if (profile.contains("selectedBuiltIns")) {

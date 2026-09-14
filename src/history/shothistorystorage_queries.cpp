@@ -905,6 +905,55 @@ QVariantMap ShotHistoryStorage::loadRankedProfilesForBeanStatic(QSqlDatabase& db
     return result;
 }
 
+void ShotHistoryStorage::requestProfileUsage()
+{
+    if (!m_ready) {
+        emit profileUsageReady(QVariantMap());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, destroyed]() {
+        QVariantMap result;
+        withTempDb(dbPath, "shs_profusage", [&](QSqlDatabase& db) {
+            result = loadProfileUsageStatic(db);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, result = std::move(result), destroyed]() {
+            if (*destroyed) return;
+            emit profileUsageReady(result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+QVariantMap ShotHistoryStorage::loadProfileUsageStatic(QSqlDatabase& db)
+{
+    // Keyed by profile TITLE — shots.profile_name stores the title, not a
+    // filename, so a rename drops a profile to never-used until its next shot
+    // (profile-usage-history spec, accepted). Cost: task 1.6 measures this on a
+    // realistic DB before an index is considered — MAX(timestamp) reads row
+    // pages that carry the sample blobs, so cost tracks table BYTES, not row
+    // count (per CLAUDE.md's Settings/DB-threading rule).
+    QVariantMap result;
+    QSqlQuery query(db);
+    if (!query.exec(QStringLiteral(
+            "SELECT profile_name, MAX(timestamp) AS last_used, COUNT(*) AS shot_count "
+            "FROM shots WHERE COALESCE(profile_name,'') != '' GROUP BY profile_name"))) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "loadProfileUsageStatic: query failed:"
+                   << query.lastError().text();
+        return result;
+    }
+    while (query.next()) {
+        QVariantMap usage;
+        usage["lastTimestamp"] = query.value(1).toLongLong();
+        usage["count"] = query.value(2).toInt();
+        result[query.value(0).toString()] = usage;
+    }
+    return result;
+}
+
 void ShotHistoryStorage::requestLatestShotForBeanProfile(const QString& beanBrand,
                                                          const QString& beanType,
                                                          const QString& profileName)

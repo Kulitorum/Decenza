@@ -14,6 +14,7 @@
 #include <QDebug>
 #include <QHash>
 #include <QSet>
+#include <algorithm>
 #include <cmath>
 
 // Convert a JSON value that may be string or number to double (de1app encodes
@@ -2048,6 +2049,51 @@ QString Profile::frameDiffReport(const Profile& a, const Profile& b)
         report += prefix + d.kind + ": A=" + va + " B=" + vb + "\n";
     }
     return report;
+}
+
+QString Profile::inferBeverageType(const QString& title, const QList<ProfileFrame>& steps)
+{
+    const QString t = title.toLower();
+
+    // 1. Title keywords, first match wins. Order matters: "tea" is checked
+    // before the pourover keywords so "Cold Brew Tea" lands in tea_portafilter
+    // rather than pourover (profile-import-beverage-inference scenario).
+    if (t.contains(QLatin1String("clean")) || t.contains(QLatin1String("flush"))
+        || t.contains(QLatin1String("backflush")) || t.contains(QLatin1String("descale")))
+        return QStringLiteral("cleaning");
+    if (t.contains(QLatin1String("calibrat")))
+        return QStringLiteral("calibrate");
+    if (t.contains(QLatin1String("tea")) || t.contains(QLatin1String("steep"))
+        || t.contains(QLatin1String("chai")) || t.contains(QLatin1String("matcha")))
+        return QStringLiteral("tea_portafilter");
+    static const QStringList kPourKeywords = {
+        QStringLiteral("pour over"), QStringLiteral("pourover"), QStringLiteral("filter"),
+        QStringLiteral("v60"), QStringLiteral("aeropress"), QStringLiteral("chemex"),
+        QStringLiteral("cold brew"), QStringLiteral("drip"), QStringLiteral("immersion"),
+    };
+    for (const QString& kw : kPourKeywords) {
+        if (t.contains(kw))
+            return QStringLiteral("pourover");
+    }
+
+    // 2. Shape: highest pressure across steps (setpoint for a pressure step,
+    // limiter for a flow step) under 3 bar, or any step at/below 40C, reads as
+    // pourover regardless of title. Frameless profiles skip this — no shape to read.
+    if (!steps.isEmpty()) {
+        double maxPressure = 0.0;
+        bool coldStep = false;
+        for (const ProfileFrame& f : steps) {
+            const double p = (f.pump == QLatin1String("flow")) ? f.maxFlowOrPressure : f.pressure;
+            maxPressure = std::max(maxPressure, p);
+            if (f.temperature > 0.0 && f.temperature <= 40.0)
+                coldStep = true;
+        }
+        if (maxPressure < 3.0 || coldStep)
+            return QStringLiteral("pourover");
+    }
+
+    // 3. Otherwise espresso.
+    return QStringLiteral("espresso");
 }
 
 QString Profile::titleToFilename(const QString& title)

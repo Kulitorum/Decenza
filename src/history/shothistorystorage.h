@@ -182,6 +182,15 @@ public:
                                                        const QString& roastLevel,
                                                        const QString& teaType = QString());
 
+    // Async: per-profile usage for the picker (profile-usage-history). One
+    // GROUP BY profile_name query, keyed by title (what shots.profile_name
+    // stores). Emits profileUsageReady() with title -> {lastTimestamp
+    // (epoch seconds), count}; a title with no shots is simply absent.
+    Q_INVOKABLE void requestProfileUsage();
+
+    // Static version for background-thread use — caller provides the connection.
+    static QVariantMap loadProfileUsageStatic(QSqlDatabase& db);
+
     // Async: the most recent shot with this exact bean+profile pair — the
     // wizard's details-step prefill source (dose/yield/temp/grind that
     // actually worked, beating profile defaults). Emits
@@ -590,6 +599,7 @@ signals:
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
     void rankedProfilesForBeanReady(const QVariantMap& result);
+    void profileUsageReady(const QVariantMap& usage);
     void latestShotForBeanProfileReady(const QVariantMap& shot);
     void latestGrindForBeanReady(const QVariantMap& grind);
     void importDatabaseFinished(bool success);
