@@ -2626,6 +2626,10 @@ private slots:
         loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
         QVERIFY(!f.settings.brew()->hasTemperatureOverride());
         QCOMPARE(f.profileManager.targetWeight(), 54.0);
+
+        // A tea-sized ratio on an 18 g dose stops at the 500 g absolute bound.
+        f.settings.brew()->setBrewRatioAnchor(100.0);
+        QCOMPARE(f.profileManager.targetWeight(), 500.0);
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

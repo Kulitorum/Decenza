@@ -37,8 +37,11 @@ inline bool isSet(const QString& mode) {
 
 // The single ratio bound, enforced in C++ at every write boundary (design.md
 // Open Question 5 — previously three inconsistent bounds, none in C++).
+// 1:100 covers filter (~1:16) and tea as well as espresso (#1941).
+inline constexpr double kMinRatio = 0.5;
+inline constexpr double kMaxRatio = 100.0;
 inline double clampRatio(double r) {
-    return qBound(0.5, r, 6.0);
+    return qBound(kMinRatio, r, kMaxRatio);
 }
 
 // The absolute (grams) bound. It lives HERE, beside clampRatio, because the
@@ -62,13 +65,13 @@ inline double clampValue(const QString& mode, double value) {
 // Resolve a spec to grams against a dose. `fallbackG` answers for mode
 // "none" (the next ladder rung, typically the profile's target_weight).
 // A ratio with no usable dose resolves to the fallback too — a 0 g stop
-// target must never reach the machine (see mcptools_control's dose-less
-// machine_start action=espresso).
+// target must never reach the machine. A ratio's grams obey the absolute bound, so
+// a tea-sized ratio on an espresso dose cannot ask for 1800 g.
 inline double resolveGrams(const QString& mode, double value, double doseG, double fallbackG) {
     if (mode == modeAbsolute() && value > 0)
         return value;
     if (mode == modeRatio() && value > 0 && doseG > 0)
-        return value * doseG;
+        return clampAbsolute(value * doseG);
     return fallbackG;
 }
 

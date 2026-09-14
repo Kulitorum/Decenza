@@ -867,7 +867,7 @@ DecenzaDialog {
             // Yield spec: only the anchor is stored (one value + a mode).
             "yieldValue": fYieldAnchor === "ratio"
                 ? ((parseFloat(fYieldRatio) || 0) > 0
-                   ? Math.max(0.5, Math.min(6.0, parseFloat(fYieldRatio))) : 0)
+                   ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(fYieldRatio))) : 0)
                 : parseWeight(fYield),
             "yieldMode": (fYieldAnchor === "ratio" && (parseFloat(fYieldRatio) || 0) > 0) ? "ratio"
                        : (fYieldAnchor === "absolute" && parseWeight(fYield) > 0) ? "absolute"

@@ -25,6 +25,9 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed FINAL)
     Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed FINAL)
     Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed FINAL)
+    // YieldSpec::kMinRatio / kMaxRatio, so QML clamps to the C++ bound.
+    Q_PROPERTY(double minRatio READ minRatio CONSTANT FINAL)
+    Q_PROPERTY(double maxRatio READ maxRatio CONSTANT FINAL)
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged FINAL)
@@ -392,9 +395,11 @@ public:
     // anchor entirely (mode -> "none"). Grams clamp to [1, 500].
     void setBrewYieldOverride(double yield);
     // Anchor a ratio (mode -> "ratio"); <= 0 clears. Clamped to the single
-    // C++ ratio bound (YieldSpec::clampRatio, 0.5–6.0) that every ratio
-    // write boundary shares.
+    // C++ ratio bound (YieldSpec::clampRatio) that every ratio write
+    // boundary shares.
     Q_INVOKABLE void setBrewRatioAnchor(double ratio);
+    double minRatio() const;
+    double maxRatio() const;
     // Restore a stored spec verbatim (recipe/bag activation): mode is
     // normalized, values clamped per mode; mode "none" clears.
     void setBrewYieldAnchor(double value, const QString& mode);

@@ -366,7 +366,7 @@ T.Page {
         doseG: parseFloat(doseField.text) || 0,
         yieldValue: fYieldMode === "ratio"
             ? ((parseFloat(ratioField.text) || 0) > 0
-               ? Math.max(0.5, Math.min(6.0, parseFloat(ratioField.text))) : 0)
+               ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(ratioField.text))) : 0)
             : (parseFloat(yieldField.text) || 0),
         yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
                  : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"
@@ -858,12 +858,11 @@ T.Page {
             doseG: parseFloat(doseField.text) || 0,
             // Yield spec: only the ANCHOR is stored (one value + a mode);
             // the derived field is display-only and never persisted.
-            // Ratio clamps to the single C++ bound (YieldSpec::clampRatio,
-            // 0.5-6.0) so the stored spec can never disagree with what
-            // activation arms.
+            // Ratio clamps to the C++ bound (Settings.brew.minRatio/maxRatio)
+            // so the stored spec can never disagree with what activation arms.
             yieldValue: fYieldMode === "ratio"
                 ? ((parseFloat(ratioField.text) || 0) > 0
-                   ? Math.max(0.5, Math.min(6.0, parseFloat(ratioField.text))) : 0)
+                   ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(ratioField.text))) : 0)
                 : (parseFloat(yieldField.text) || 0),
             yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
                      : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"

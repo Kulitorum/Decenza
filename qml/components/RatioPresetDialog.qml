@@ -46,9 +46,8 @@ DecenzaDialog {
     property bool editMode: false
 
     // Clamp + round to one decimal, then write the preset for this card's index.
-    // Bounds match SettingsBrew::setRatioPreset1/2/3's qBound(0.5, r, 6.0).
     function setPresetRatio(idx, r) {
-        var v = Math.max(0.5, Math.min(6.0, Math.round(r * 10) / 10))
+        var v = Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, Math.round(r * 10) / 10))
         if (idx === 1) Settings.brew.ratioPreset1 = v
         else if (idx === 2) Settings.brew.ratioPreset2 = v
         else Settings.brew.ratioPreset3 = v
@@ -255,7 +254,7 @@ DecenzaDialog {
                                 Text { anchors.centerIn: parent; text: "—"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: minusMa; anchors.fill: parent
-                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio - 0.1) }
+                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio - (card.modelData.ratio > 10 ? 1 : 0.1)) }
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -277,7 +276,8 @@ DecenzaDialog {
                                 Text { anchors.centerIn: parent; text: "+"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: plusMa; anchors.fill: parent
-                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio + 0.1) }
+                                    // Whole steps from 1:10, where filter and tea ratios live.
+                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio + (card.modelData.ratio >= 10 ? 1 : 0.1)) }
                             }
                         }
                     }

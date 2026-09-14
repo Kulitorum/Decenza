@@ -2543,7 +2543,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder RPM, paired with grinderSetting"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}, {"description", "Dose in grams"}}},
                 {"yieldG", QJsonObject{{"type", "number"}, {"description", "update only: absolute yield target in grams. Excludes yieldRatio; 0 clears"}}},
-                {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "update only: yield as a multiple of dose (0.5-6.0). Excludes yieldG; 0 clears"}}},
+                {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "update only: yield as a multiple of dose (0.5-100). Excludes yieldG; 0 clears"}}},
                 {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "update only: false marks the bag empty"}}},
                 {"notes", QJsonObject{{"type", "string"}, {"description", "Free-text notes"}}},
                 {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},

@@ -898,7 +898,7 @@ void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
     // Writing a spec whose mode is "none" clears the bag's anchor.
     m_activeBagYieldMode = YieldSpec::normalizedMode(mode);
     // Normalize to the range the session resolves within (YieldSpec::clampValue
-    // — 0.5–6.0 for a ratio, 1–500 g for an absolute). This holds the invariant
+    // — 0.5–100 for a ratio, 1–500 g for an absolute). This holds the invariant
     // at the point of STORAGE: a bag must never hold a value the session cannot
     // resolve to, or its stored design and the brewed shot disagree permanently
     // and silently — the bag reads 900 g everywhere while the shot pulls 500.
