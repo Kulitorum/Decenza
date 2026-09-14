@@ -30,12 +30,16 @@ Every consumer of the favorites list — the idle-page profile pills in both ren
 - **WHEN** the mode is `custom` and a shot completes
 - **THEN** the favorites order is unchanged
 
-### Requirement: Reorder dialog
-Choosing Custom… from the picker's sort control (Favorites on) SHALL open a dialog listing the favorites with drag handles for reordering and a remove control per row, styled with the app theme. Confirming SHALL write the new order and set the mode to `custom`. Choosing Custom… while the mode is already `custom` SHALL reopen the dialog.
+### Requirement: Favorites order dialog
+The picker's Favorites… button SHALL open a dialog that states it sets the order of the idle-screen profile pills and offers A–Z, Recently used and Custom. Under Custom the favorites list SHALL be drag-reorderable with a remove control per row; under A–Z and Recently used the list SHALL show, read-only, the order the app will keep. Done SHALL write the chosen mode and, under Custom, the dragged order; Cancel SHALL write nothing.
 
 #### Scenario: Drag to reorder
-- **WHEN** the user drags a favorite from fifth to first and confirms
+- **WHEN** the user picks Custom, drags a favorite from fifth to first and taps Done
 - **THEN** the stored list places it first, the mode is `custom`, and the idle pills show it first
+
+#### Scenario: Pick a derived order
+- **WHEN** the user picks Recently used and taps Done
+- **THEN** the mode is `usage` and the favorites list is re-sorted immediately
 
 ### Requirement: Mode switch semantics
 Switching from `custom` to `alpha` or `usage` SHALL re-sort immediately. Switching back to `custom` SHALL keep whatever order is current at that moment; the earlier hand order is not restored.

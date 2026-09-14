@@ -55,7 +55,8 @@ Item {
     property var chipSources: []
     property var chipBeverages: []
     property string searchText: ""
-    // Local sort when Favorites is off. Favorites on: Settings.app.favoriteProfileOrder governs.
+    // Grid sort, this visit only. The favorites ORDER (idle pills) is a
+    // setting edited in ProfileFavoritesOrderDialog, never by this control.
     property string sortMode: "usage"
 
     function buildChips() {
@@ -199,23 +200,7 @@ Item {
     readonly property var sortedAllList: {
         var list = picker.filteredAll.slice()
 
-        // Favorites on + custom: the STORED order is the display order
-        // (profile-favorites-order D1) — never re-derived here.
-        if (picker.chipFavorites && Settings.app.favoriteProfileOrder === "custom") {
-            var favs = Settings.app.favoriteProfiles
-            var byFilename = {}
-            for (var i = 0; i < list.length; ++i) byFilename[list[i].name] = list[i]
-            var ordered = []
-            for (i = 0; i < favs.length; ++i) {
-                var e = byFilename[favs[i].filename]
-                if (e) { ordered.push(e); delete byFilename[favs[i].filename] }
-            }
-            for (var k in byFilename) ordered.push(byFilename[k])
-            return ordered
-        }
-
-        var mode = picker.chipFavorites ? Settings.app.favoriteProfileOrder : picker.sortMode
-        if (mode === "alpha") {
+        if (picker.sortMode === "alpha") {
             list.sort(function(a, b) { return a.title.localeCompare(b.title) })
             return list
         }
@@ -449,26 +434,10 @@ Item {
                 id: sortCombo
                 Layout.preferredWidth: Theme.scaled(190)
                 Layout.preferredHeight: Theme.scaled(44)
-                model: picker.chipFavorites
-                    ? [TranslationManager.translate("profilepicker.sort.alpha", "A–Z"),
-                       TranslationManager.translate("profilepicker.sort.recent", "Recently used"),
-                       TranslationManager.translate("profilepicker.sort.custom", "Custom…")]
-                    : [TranslationManager.translate("profilepicker.sort.alpha", "A–Z"),
-                       TranslationManager.translate("profilepicker.sort.recent", "Recently used")]
-                currentIndex: {
-                    var mode = picker.chipFavorites ? Settings.app.favoriteProfileOrder : picker.sortMode
-                    if (mode === "alpha") return 0
-                    if (mode === "custom") return 2
-                    return 1
-                }
-                onActivated: function(index) {
-                    if (picker.chipFavorites) {
-                        if (index === 2) { favoritesOrderDialog.open(); return }
-                        Settings.app.favoriteProfileOrder = (index === 0 ? "alpha" : "usage")
-                    } else {
-                        picker.sortMode = index === 0 ? "alpha" : "usage"
-                    }
-                }
+                model: [TranslationManager.translate("profilepicker.sort.alpha", "A–Z"),
+                        TranslationManager.translate("profilepicker.sort.recent", "Recently used")]
+                currentIndex: picker.sortMode === "alpha" ? 0 : 1
+                onActivated: function(index) { picker.sortMode = index === 0 ? "alpha" : "usage" }
                 background: Rectangle {
                     radius: Theme.scaled(6)
                     color: Theme.surfaceColor
@@ -494,6 +463,15 @@ Item {
                     Accessible.ignored: true
                 }
                 accessibleLabel: TranslationManager.translate("profilepicker.sort.label", "Sort")
+            }
+
+            // Favorites ORDER is a setting (idle pill order), not a view sort,
+            // so it has its own door rather than hiding behind the Favorites chip.
+            AccessibleButton {
+                text: TranslationManager.translate("profilepicker.favoritesOrder.button", "Favorites…")
+                accessibleName: TranslationManager.translate("profilepicker.favoritesOrder.accessible", "Favorites order")
+                Layout.preferredHeight: Theme.scaled(44)
+                onClicked: favoritesOrderDialog.open()
             }
 
             AccessibleButton {

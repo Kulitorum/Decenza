@@ -50,15 +50,15 @@ Every chip SHALL display the number of profiles that would be listed if that chi
 - **THEN** it shows the size of the current result set as constrained by itself and the other active chips
 
 ### Requirement: Sort control
-The picker SHALL offer a sort control with A–Z and Recently used, defaulting to Recently used on every open, applied to the "All" section. With Recently used, the current profile SHALL be listed first, remaining profiles ordered by last shot descending, and profiles with no shots last in A–Z order. With Favorites on, the sort control SHALL instead read and write the favorites order setting (see `profile-favorites-order`) and SHALL additionally offer Custom….
+The picker SHALL offer a sort control with A–Z and Recently used, defaulting to Recently used on every open, applied to the "All" section regardless of which chips are on. With Recently used, the current profile SHALL be listed first, remaining profiles ordered by last shot descending, and profiles with no shots last in A–Z order. The sort control SHALL NOT change the favorites order setting; a separate, always-visible Favorites… button SHALL open the favorites order dialog (see `profile-favorites-order`).
 
 #### Scenario: Default order
 - **WHEN** the picker opens with no Favorites chip
 - **THEN** the current profile is first, then profiles by most recent shot, then never-used profiles alphabetically
 
-#### Scenario: Favorites sort binds the setting
-- **WHEN** Favorites is on and the user picks A–Z
-- **THEN** the favorites order setting becomes `alpha` and the idle-page profile pills reorder to match
+#### Scenario: Favorites order has its own door
+- **WHEN** the user taps Favorites… with no chip on
+- **THEN** the favorites order dialog opens, and the grid's sort is unchanged
 
 ### Requirement: Bean-ranked row above the grid
 When a bean is known — the current bean on the Profiles page, the chosen bag in the wizard — the picker SHALL show one row headed "Recommended for ‹bean name›" (the bag's coffee name, else its roaster) above the "All" section. The row SHALL list profiles used with that exact bean first, most recent first, each carrying the reason "used with ‹bean name›", followed by the existing knowledge-driven and similar-bean recommendations with their reasons. Active chips and search SHALL filter the row the same way they filter the grid. An empty row SHALL be hidden. With no bean known, no row SHALL be shown.

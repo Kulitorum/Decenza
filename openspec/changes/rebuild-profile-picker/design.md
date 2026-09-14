@@ -39,8 +39,8 @@ One threaded query: `SELECT profile_name, MAX(timestamp), COUNT(*) FROM shots GR
 **D4. Layout: one recommended row in the `GridView` header.**
 `GridView` has no section headers, but it has a `header` delegate that scrolls with the content. The bean row (exact-bean matches first, then recommendations) is short, so it is a horizontal row of cards in the grid header; the grid virtualises the "All" section. Card height fixed (three rows: title with actions, meta + usage, reason or derivation) so a grid row never staggers.
 
-**D5. Sort control dual role.**
-Favorites off: a component-local `sortMode` (`usage` default, `alpha`) applied to the "All" section, current profile pinned first. Favorites on: the control binds to `Settings.app.favoriteProfileOrder` and shows Custom…, which opens the reorder dialog; selecting Custom… while already custom reopens it. Chosen over two controls to keep one toolbar row.
+**D5. Sort control is grid-only; favorites order has its own button.**
+The first cut bound the Sort dropdown to the favorites order setting whenever the Favorites chip was on. Live check: nobody would guess the chip unlocks a setting. Now the dropdown holds a component-local `sortMode` (`usage` default, `alpha`) and a Favorites… button beside it opens `ProfileFavoritesOrderDialog`, which carries the A–Z / Recently used / Custom choice and the drag list. One door, always visible, labelled for what it changes.
 
 **D6. Wizard beverage constraint hides the Beverage chip group.**
 The drink type already fixed the beverage; showing chips that can only narrow inside it is noise. The constraint is a host property (`allowedBeverageTypes`), empty on the selector. The recipe-wizard spec's tea temperature-proximity order is dropped in favour of the shared sort control.
