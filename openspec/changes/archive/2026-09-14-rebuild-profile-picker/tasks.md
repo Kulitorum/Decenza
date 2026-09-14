@@ -33,7 +33,7 @@
 
 ## 5. Docs
 
-- [ ] 5.1 (drafted in a local wiki clone, push pending the maintainer's yes) Rewrite the wiki manual "Profiles" section (short: search, chips, sort, star, ⋮) and add one line under the idle page on favorites order; verify by reading it at half its first-draft length
+- [x] 5.1 (wiki commit d3d961a) Rewrite the wiki manual "Profiles" section (short: search, chips, sort, star, ⋮) and add one line under the idle page on favorites order; verify by reading it at half its first-draft length
 - [x] 5.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` pointers for the shared picker and the import inference; verify the file references only functions that exist
 - [ ] 5.3 Archive the change with `openspec archive rebuild-profile-picker --yes` as the branch's final commit
 
