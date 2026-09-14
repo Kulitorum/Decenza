@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-recipe-wizard-tea. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Drink-type-first step sequence
 The system SHALL provide a recipe wizard as the single surface for recipe creation and editing. Creation SHALL walk: drink type → bean → profile → **equipment → dose/yield/temp/grind → steam and/or water (only the blocks the drink carries)** → summary. The drink types SHALL be espresso, filter, americano, long black, latte/cappuccino, latte + water, and tea. Picker steps (drink type, bean, profile) SHALL auto-advance on selection with no Next button; the post-profile windows SHALL be forms with an explicit Continue (the last one reads "Review" and leads to the summary). The **equipment window SHALL come first among the post-profile windows**, so the grinder — whose RPM capability gates the rpm field — is chosen before the dose/yield/temp/grind window. The post-profile windows SHALL be the SAME screens used when editing: creation walks them in order, while edit/clone/promote open on the summary and jump straight to a window from the tapped card, returning to the summary. Breadcrumb chips showing the drink/bean/profile selections so far SHALL provide back-navigation; the bottom-bar back arrow SHALL step back through the windows in reverse.
 
@@ -54,15 +56,15 @@ The bean step SHALL list open bags whose kind matches the drink type (tea → te
 - **THEN** the wizard advances to the profile step and the saved recipe has no bag link
 
 ### Requirement: Profile step filters by drink type and ranks by history
-The profile step SHALL show only profiles whose `beverage_type` matches the drink type's filter set: espresso, americano, long black, and latte/cappuccino → `espresso` (a missing or empty `beverage_type` SHALL be treated as espresso); filter → `filter` and `pourover`; tea → `tea_portafilter`. Maintenance beverage types SHALL never appear. Profiles SHALL be presented in ranked tiers with visible headers: ① profiles used with this bean (exact bean identity match in shot history, most recent first), ② knowledge-driven recommendations and similar beans — coffee: profiles whose knowledge-base entry states an affinity for the bag's roast level (KB `roastAffinity`, authored only from each profile's own dial-in documentation, shown with a "suits <roast> roasts" reason label) rank first, then profiles used with same-roast-level beans; tea: type-matches between the bag's tea type and stock tea profile names rank first with a reason label, then same-tea-type history. The recommended tier SHALL be capped to a handful (5); candidates beyond the cap fall through to the final tier — ③ all remaining profiles in the filter set (coffee: alphabetical; tea: ordered by proximity of profile temperature to the bag's stated brew temperature when available, else alphabetical). ALL tiers SHALL render as tiles in the wizard's shared tile-grid language, each carrying real profile metadata (at minimum temperature and target yield, sourced from the profile catalog cache — no per-tile file reads); tiers ① and ② additionally carry the recommendation reason as a chip on the tile — never as detached right-aligned text. Each tile SHALL offer the same two info affordances as the profile selector page: the knowledge-base popup (sparkle icon, shown when the profile has a KB entry) and the Profile Info page (the (i) button) — both usable without selecting the profile. A search field SHALL always be available and SHALL filter within the drink type's set.
+The profile step SHALL be the shared profile picker (see `profile-picker`), constrained by the drink type: the wizard SHALL pass the drink type's beverage filter set and the picker SHALL list only profiles whose `beverage_type` is in it: espresso, americano, long black, and latte/cappuccino → `espresso` (a missing or empty `beverage_type` SHALL be treated as espresso); filter → `filter` and `pourover`; tea → `tea_portafilter`. Maintenance beverage types SHALL never appear. While constrained, the picker SHALL NOT show its Beverage chip group; Selected, Favorites, Source chips, search and the sort control SHALL remain available. Profiles SHALL be presented as one "Recommended for ‹bean›" row above the grid (see `profile-picker`): ① profiles used with this bean first (exact bean identity match in shot history, most recent first, reason "used with ‹bean›"), then ② knowledge-driven recommendations and similar beans — coffee: profiles whose knowledge-base entry states an affinity for the bag's roast level (KB `roastAffinity`, authored only from each profile's own dial-in documentation, shown with a "suits <roast> roasts" reason label) rank first, then profiles used with same-roast-level beans; tea: type-matches between the bag's tea type and stock tea profile names rank first with a reason label, then same-tea-type history. The recommended tier SHALL be capped to a handful (5); candidates beyond the cap fall through to the final tier — ③ all remaining profiles in the filter set, ordered by the picker's sort control (default Recently used; tea additionally offers no temperature-proximity order — the sort control replaces it). ALL tiers SHALL render as the picker's cards, each carrying real profile metadata (at minimum temperature and target yield, sourced from the profile catalog cache — no per-tile file reads); tiers ① and ② additionally carry the recommendation reason as a chip on the card — never as detached right-aligned text. Each card SHALL offer the same affordances as the Profiles page card: the knowledge-base popup (sparkle icon, shown when the profile has a KB entry), the Profile Info page (the (i) button), the favorite star and the ⋮ actions dialog — all usable without selecting the profile. A search field SHALL always be available and SHALL filter within the drink type's set.
 
 #### Scenario: Recently used profile ranks first
 - **WHEN** the user picks a bean they have pulled shots with
-- **THEN** the profile used most recently with that bean appears at the top under a "Used with this bean" header
+- **THEN** the profile used most recently with that bean appears first in the "Recommended for ‹bean›" row, labelled "used with ‹bean›"
 
 #### Scenario: Reason rides its tile
 - **WHEN** a KB-recommended profile appears in the recommended tier
-- **THEN** its "suits <roast> roasts" reason renders as a chip on that profile's tile
+- **THEN** its "suits <roast> roasts" reason renders as a chip on that profile's card
 
 #### Scenario: Tea type match recommended cold
 - **WHEN** the user picks a tea bag whose extracted teaType is "black" and has no shot history with it
@@ -72,12 +74,20 @@ The profile step SHALL show only profiles whose `beverage_type` matches the drin
 - **WHEN** a community profile has no beverage_type
 - **THEN** it appears in the espresso-family profile lists and not in filter or tea lists
 
+#### Scenario: Beverage chips hidden under a drink type
+- **WHEN** the wizard's profile step opens for a tea drink
+- **THEN** no Beverage chip group is shown and only tea profiles are listed, filterable by Selected, Favorites, Source and search
+
 ### Requirement: Tea profile step offers "Just hot water"
-For the tea drink type, the profile step SHALL include a fixed "Just hot water" row (below the ranked profiles, visible regardless of search text). Selecting it SHALL produce a profile-less recipe whose drink type is hot-water tea, and the details step SHALL show only vessel, volume, temperature, and optional leaf dose.
+For the tea drink type, the profile step SHALL include a fixed "Just hot water" card (below the ranked profiles and the grid, visible regardless of search text or chips). Selecting it SHALL produce a profile-less recipe whose drink type is hot-water tea, and the details step SHALL show only vessel, volume, temperature, and optional leaf dose.
 
 #### Scenario: Hot-water tea recipe
 - **WHEN** the user picks Tea, a tea bag, then "Just hot water"
 - **THEN** the details step shows vessel/volume/temperature/leaf dose and saving succeeds with no profile
+
+#### Scenario: Visible under filters
+- **WHEN** the user has Favorites on and a search text that matches nothing
+- **THEN** the "Just hot water" card is still shown
 
 ### Requirement: Details step prefills from history, then bag data, then profile defaults
 The details step SHALL seed its fields in priority order: (1) the most recent shot with the chosen bean+profile pair (dose, yield, temperature, grind); (2) for tea, the bag's structured brewing data — temperature from `brewTempC`, dose computed from `leafGramsPer100Ml` and the target volume; (3) the profile's recommended dose, target weight, and temperature. For coffee drinks the grind section SHALL additionally show a grind hint: the latest grind dialed for this bean regardless of profile (falling back to same-roast-level beans), naming the profile it was dialed for, plus — when that profile differs from the picked one and both have known UGS positions — the relative direction ("finer"/"coarser") per the knowledge base's UGS ordering. The hint SHALL never present a computed grinder number for a different profile (the KB's own cross-profile rule: only direction translates). When no matching shot history exists for the chosen bean+profile pair, the grind/rpm fields SHALL fall back to the linked bag's current `grinderSetting`/`rpm` as a one-time editable default (recipe-model's "New-recipe grind defaults from the bag, once") — offered, not silently applied; the user may accept or change it before saving. With no linked bag and no history, the fields start empty. For portafilter tea, the bag's `brewTempC` SHALL seed a temperature override only when the chosen profile is not type-matched to the bag's tea type; hot-water tea SHALL use the bag's brewing numbers verbatim. Prefilled values SHALL never overwrite a value the user has already edited in this wizard session.
@@ -362,4 +372,3 @@ Choosing it SHALL store the off marker on the recipe's steam block rather than a
 #### Scenario: A recipe carrying the marker displays it
 - **WHEN** a recipe carrying the off marker is opened in the wizard
 - **THEN** the steam card names the "Heater off" entry as the selection, not a blank pitcher
-

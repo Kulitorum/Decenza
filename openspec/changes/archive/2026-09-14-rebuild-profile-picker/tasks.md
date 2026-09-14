@@ -28,12 +28,12 @@
 
 - [x] 4.1 Full suite green through `mcp__qtcreator__run_tests` scope `all`
 - [x] 4.2 `text-invariants` checks locally: `scripts/check_log_markers.py`, `scripts/check_test_source_duplication.py`, `qmllint_check` target
-- [ ] 4.3 Live check on desktop: open Profiles, toggle every chip, search, sort, star, ⋮ actions, long-press preview, reorder dialog, idle pills follow order; open wizard for espresso, filter, tea
-- [ ] 4.4 Import an untagged profile JSON via file import and confirm the inferred `beverage_type` and its INFO log line
+- [ ] 4.3 (partial — maintainer exercised the Profiles page: chips, search, star, tiers, scroll, Favorites… button; wizard step, reorder dialog modes and idle pills after the merge still to be confirmed) Live check on desktop: open Profiles, toggle every chip, search, sort, star, ⋮ actions, long-press preview, reorder dialog, idle pills follow order; open wizard for espresso, filter, tea
+- [ ] 4.4 (not run — needs a hand-made untagged JSON on the desktop) Import an untagged profile JSON via file import and confirm the inferred `beverage_type` and its INFO log line
 
 ## 5. Docs
 
-- [ ] 5.1 Rewrite the wiki manual "Profiles" section (short: search, chips, sort, star, ⋮) and add one line under the idle page on favorites order; verify by reading it at half its first-draft length
+- [ ] 5.1 (drafted in a local wiki clone, push pending the maintainer's yes) Rewrite the wiki manual "Profiles" section (short: search, chips, sort, star, ⋮) and add one line under the idle page on favorites order; verify by reading it at half its first-draft length
 - [x] 5.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` pointers for the shared picker and the import inference; verify the file references only functions that exist
 - [ ] 5.3 Archive the change with `openspec archive rebuild-profile-picker --yes` as the branch's final commit
 

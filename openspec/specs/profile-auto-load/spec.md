@@ -103,30 +103,30 @@ The system SHALL invoke the auto-load entry point after `autoLoadRevertMinutes` 
 
 ### Requirement: ProfileSelector overflow action
 
-The overflow action surface on `ProfileSelectorPage` rows SHALL expose a contextual auto-load action delivered through an accessible modal Dialog (not a popup Menu).
+The overflow action surface on profile picker cards — on `ProfileSelectorPage` and on the recipe wizard's profile step — SHALL expose a contextual auto-load action delivered through an accessible modal Dialog (not a popup Menu).
 
 #### Scenario: Action available for Selected-list profiles
-- **WHEN** the user opens the overflow dialog for a row whose profile is in the Selected list
+- **WHEN** the user opens the overflow dialog for a card whose profile is a favorite
 - **THEN** the dialog shows a Set / Disable Auto-Load button
 
 #### Scenario: Label and action reflect current state
-- **WHEN** the row's profile is the current auto-load
+- **WHEN** the card's profile is the current auto-load
 - **THEN** the button is labelled "Disable Auto-Load" AND activating it clears `autoLoadProfileFilename`
 
 #### Scenario: Setting on a different row replaces the prior auto-load
-- **WHEN** the user activates "Set Auto-Load" on a row whose profile is not the current auto-load
-- **THEN** `autoLoadProfileFilename` is set to that row's filename AND any prior auto-load is no longer marked
+- **WHEN** the user activates "Set Auto-Load" on a card whose profile is not the current auto-load
+- **THEN** `autoLoadProfileFilename` is set to that card's filename AND any prior auto-load is no longer marked
 
 #### Scenario: Action hidden for non-Selected profiles
-- **WHEN** the user opens the overflow dialog for a row whose profile is not in the Selected list (e.g. browsing Built-In or User views without selection)
+- **WHEN** the user opens the overflow dialog for a card whose profile is not a favorite
 - **THEN** the dialog does not show an auto-load button
 
 ### Requirement: Auto-load row marker
 
-The selector row representing the current auto-load profile SHALL show a visible marker so the user can identify it at a glance.
+The picker card representing the current auto-load profile SHALL show a visible marker so the user can identify it at a glance, in both hosts.
 
 #### Scenario: Pin icon visible on the auto-load row
-- **WHEN** the row's profile filename equals `autoLoadProfileFilename`
+- **WHEN** the card's profile filename equals `autoLoadProfileFilename`
 - **THEN** the `pin.svg` icon is visible beside the profile title, colored `Theme.primaryColor`
 
 #### Scenario: Pin icon has an accessible name
@@ -134,20 +134,20 @@ The selector row representing the current auto-load profile SHALL show a visible
 - **THEN** the reader announces "Auto-load profile"
 
 #### Scenario: Marker hidden for non-auto-load rows
-- **WHEN** the row's filename does not equal `autoLoadProfileFilename`
+- **WHEN** the card's filename does not equal `autoLoadProfileFilename`
 - **THEN** the pin icon is not rendered
 
 ### Requirement: ProfileSelector status strip
 
-A strip at the top of `ProfileSelectorPage` SHALL surface the configured auto-load and allow tuning the revert minutes, visible only when an auto-load is configured and resolves to a Selected-list profile. The strip's text SHALL be sized via `Theme.captionFont` so it respects the user's `customFontSizes.captionSize` accessibility override.
+A strip at the top of `ProfileSelectorPage`, above the picker, SHALL surface the configured auto-load and allow tuning the revert minutes, visible only when an auto-load is configured and resolves to a favorite. The strip SHALL NOT appear in the recipe wizard host. The strip's text SHALL be sized via `Theme.captionFont` so it respects the user's `customFontSizes.captionSize` accessibility override.
 
 #### Scenario: Strip visible when configured
-- **WHEN** `autoLoadProfileFilename` is non-empty AND resolves to a Selected-list profile
-- **THEN** the strip appears above the view-filter row showing: pin icon, "Auto-load:" label, profile title, "revert after" label, a numeric input for minutes, and a clear button
+- **WHEN** `autoLoadProfileFilename` is non-empty AND resolves to a favorite
+- **THEN** the strip appears above the picker's search and chip rows showing: pin icon, "Auto-load:" label, profile title, "revert after" label, a numeric input for minutes, and a clear button
 
 #### Scenario: Strip hidden when no auto-load is set
 - **WHEN** `autoLoadProfileFilename` is `""`
-- **THEN** the strip is not rendered AND the page layout matches the pre-feature appearance
+- **THEN** the strip is not rendered
 
 #### Scenario: Editing revert minutes from the strip
 - **WHEN** the user changes the value in the strip's numeric input
@@ -161,16 +161,20 @@ A strip at the top of `ProfileSelectorPage` SHALL surface the configured auto-lo
 - **WHEN** the user activates the strip's clear button
 - **THEN** `autoLoadProfileFilename` is cleared AND a toast confirms "Auto-load disabled" AND the strip disappears
 
+#### Scenario: Strip absent in the wizard
+- **WHEN** the recipe wizard's profile step opens while an auto-load is configured
+- **THEN** no auto-load strip is shown
+
 ### Requirement: Eligibility limited to Selected-list profiles
 
-The system SHALL enforce that only profiles in the Selected list can be assigned as auto-load, and SHALL gracefully recover when a previously-pinned profile leaves the Selected list.
+The system SHALL enforce that only favorites can be assigned as auto-load, and SHALL gracefully recover when a previously-pinned profile is no longer a favorite. (The Selected list this requirement's name refers to is removed — rebuild-profile-picker folded it into favorites; eligibility is "is a favorite".)
 
 #### Scenario: Auto-load is cleared when its profile is hidden
-- **WHEN** `SettingsApp::addHiddenProfile` is called with the current auto-load filename
+- **WHEN** `SettingsApp::removeFavoriteProfile` un-favorites the current auto-load's downloaded or user-created profile
 - **THEN** `autoLoadProfileFilename` is cleared so the strip disappears immediately
 
 #### Scenario: Auto-load is cleared when its built-in profile is de-selected
-- **WHEN** `SettingsApp::removeSelectedBuiltInProfile` is called with the current auto-load filename
+- **WHEN** `SettingsApp::removeFavoriteProfile` un-favorites the current auto-load's built-in profile
 - **THEN** `autoLoadProfileFilename` is cleared
 
 #### Scenario: Auto-load is cleared when its profile is deleted
@@ -178,7 +182,7 @@ The system SHALL enforce that only profiles in the Selected list can be assigned
 - **THEN** `autoLoadProfileFilename` is cleared
 
 #### Scenario: Toast on stale clear at trigger time
-- **WHEN** a trigger fires AND the auto-load filename no longer resolves to a Selected-list profile
+- **WHEN** a trigger fires AND the auto-load filename no longer resolves to a favorite
 - **THEN** the user sees a toast "Auto-load profile is no longer available" AND the setting is cleared
 
 ### Requirement: MCP — get auto-load
@@ -198,7 +202,7 @@ The MCP server SHALL expose an `auto_load` tool with `action: "get"` and `target
 The MCP server SHALL expose an `auto_load` tool with `action: "set"` and `target: "profile"`, at a settings access level, that pins a profile as the auto-load and optionally updates the revert minutes.
 
 #### Scenario: Successful set
-- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "profile"` and a `filename` that exists and is in the Selected list
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "profile"` and a `filename` that exists and is a favorite
 - **THEN** the response is `{ success: true, filename, title, revertMinutes }` AND the setting is persisted on the GUI thread
 
 #### Scenario: Filename missing
@@ -210,8 +214,8 @@ The MCP server SHALL expose an `auto_load` tool with `action: "set"` and `target
 - **THEN** the response is `{ error: "Profile not found: <filename>" }` AND no state changes
 
 #### Scenario: Filename not in Selected list
-- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "profile"` and a `filename` that exists but is not in the Selected list
-- **THEN** the response is `{ error: "Profile is not in the Selected list" }` AND no state changes
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "profile"` and a `filename` that exists but is not a favorite
+- **THEN** the response is `{ error: "Profile is not a favorite" }` AND no state changes
 
 #### Scenario: Optional revert minutes updates both keys
 - **WHEN** the client supplies `revertMinutes` alongside `filename`
