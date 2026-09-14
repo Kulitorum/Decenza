@@ -181,6 +181,36 @@ T.Page {
                     }
                 }
 
+                // [barista-fork] Beverage-category filter (Coffee / Tea & Water / Maintenance).
+                // Filters the list by profile beverage_type, AND-combined with the ownership
+                // filter (viewFilter) below. Resets to Coffee on open, matching viewFilter's
+                // reset-to-Selected; persisting "last used" for both is a possible follow-up.
+                TabBar {
+                    id: categoryTabs
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    Layout.bottomMargin: Theme.scaled(6)
+                    // index → category token read by allProfilesList.categoryFilter
+                    readonly property var tokens: ["coffee", "tea_water", "maintenance", "all"]
+                    currentIndex: 0
+                    StyledTabButton {
+                        text: TranslationManager.translate("profileselector.beverage.coffee", "Coffee")
+                        tabLabel: text
+                    }
+                    StyledTabButton {
+                        text: TranslationManager.translate("profileselector.beverage.teawater", "Tea & Water")
+                        tabLabel: text
+                    }
+                    StyledTabButton {
+                        text: TranslationManager.translate("profileselector.beverage.maintenance", "Maintenance")
+                        tabLabel: text
+                    }
+                    StyledTabButton {
+                        text: TranslationManager.translate("profileselector.beverage.all", "All")
+                        tabLabel: text
+                    }
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
@@ -309,28 +339,24 @@ T.Page {
                     clip: true
 
                     property string searchFilter: ""
+                    // [barista-fork] Beverage-category token from the tab bar above (coffee /
+                    // tea_water / maintenance / all), AND-combined with the ownership filter.
+                    property string categoryFilter: categoryTabs.tokens[categoryTabs.currentIndex]
 
                     model: {
-                        var filter = searchFilter  // Create binding dependency
+                        var filter = searchFilter      // binding dependency
+                        var cat = categoryFilter       // binding dependency
+                        var base
                         switch (viewFilter.currentIndex) {
-                            case 0: return ProfileManager.selectedProfiles      // "Selected"
-                            case 1: return ProfileManager.cleaningProfiles      // "Cleaning/Descale"
-                            case 2: return ProfileManager.allBuiltInProfiles    // "Decent Built-in"
-                            case 3: return ProfileManager.downloadedProfiles    // "Downloaded"
-                            case 4: return ProfileManager.userCreatedProfiles   // "User Created"
-                            case 5: {
-                                var all = ProfileManager.allProfilesList
-                                if (filter === "") return all
-                                var result = []
-                                for (var i = 0; i < all.length; i++) {
-                                    if (all[i].title.toLowerCase().indexOf(filter) >= 0) {
-                                        result.push(all[i])
-                                    }
-                                }
-                                return result
-                            }
-                            default: return ProfileManager.selectedProfiles
+                            case 0: base = ProfileManager.selectedProfiles; break     // "Selected"
+                            case 1: base = ProfileManager.cleaningProfiles; break     // "Cleaning/Descale"
+                            case 2: base = ProfileManager.allBuiltInProfiles; break   // "Decent Built-in"
+                            case 3: base = ProfileManager.downloadedProfiles; break   // "Downloaded"
+                            case 4: base = ProfileManager.userCreatedProfiles; break  // "User Created"
+                            case 5: base = ProfileManager.allProfilesList; break      // "All Profiles"
+                            default: base = ProfileManager.selectedProfiles
                         }
+                        return allProfilesList.applyProfileFilters(base, filter, cat)
                     }
                     spacing: Theme.scaled(4)
 
@@ -350,6 +376,38 @@ T.Page {
                             case "manual": return TranslationManager.translate("profileselector.category.utility", "Utility")
                             default: return TranslationManager.translate("profileselector.category.other", "Other")
                         }
+                    }
+
+                    // [barista-fork] Map a profile's beverage_type to the 3 top-level filter
+                    // categories used by the tab bar. Espresso / pourover / filter / manual and
+                    // any unknown or empty type fall under Coffee (empty defaults to espresso
+                    // upstream); tea and water steeps under Tea & Water; cleaning / descale /
+                    // calibrate under Maintenance (same set as Profile::isMaintenanceBeverageType).
+                    function beverageCategoryOf(bt) {
+                        switch ((bt || "").toString().toLowerCase()) {
+                            case "tea":
+                            case "tea_portafilter":
+                            case "water": return "tea_water"
+                            case "cleaning":
+                            case "descale":
+                            case "calibrate": return "maintenance"
+                            default: return "coffee"
+                        }
+                    }
+
+                    // Apply the beverage-category tab AND the search box to a base list. Search
+                    // now applies in every ownership view (it previously only worked under "All").
+                    function applyProfileFilters(list, searchText, cat) {
+                        var out = []
+                        for (var i = 0; i < list.length; i++) {
+                            var it = list[i]
+                            if (cat !== "all" && beverageCategoryOf(it.beverageType) !== cat)
+                                continue
+                            if (searchText !== "" && it.title.toLowerCase().indexOf(searchText) < 0)
+                                continue
+                            out.push(it)
+                        }
+                        return out
                     }
 
                     delegate: Rectangle {
