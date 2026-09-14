@@ -521,7 +521,8 @@ public slots:
     // by the delta from the profile's reference temperature (espressoTemperature),
     // the scalar is updated, and the profile is uploaded and saved. Same anchor as
     // the live-brew override path (uploadCurrentProfile) so save and brew agree.
-    Q_INVOKABLE void applyTemperatureToProfile(double newTemperature);
+    // Returns whether the profile reached disk (false for an unsaved profile).
+    Q_INVOKABLE bool applyTemperatureToProfile(double newTemperature);
 
     // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
     // anchorTemp is the reference the delta tag is measured from (the profile's

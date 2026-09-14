@@ -686,9 +686,18 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
     if (m_startupLoadDone) {
         // Every normal runtime profile load takes this branch. Clear what
         // the outgoing profile owned — temperature and an ABSOLUTE yield
-        // anchor — but keep a ratio anchor: 1:2 is 1:2 on any profile
-        // (add-yield-ratio-anchor Decision 8).
-        brew->clearProfileScopedBrewOverrides();
+        // anchor. A ratio anchor carries only onto an espresso profile: a
+        // tea steep inherited 2.5 x an espresso dose and was cut short (#1941).
+        const bool espresso = Profile::isEspressoBeverageType(m_currentProfile.beverageType());
+        brew->clearProfileScopedBrewOverrides(espresso);
+        // Arriving at espresso with no anchor, re-arm the bean's saved ratio:
+        // nothing else re-applies the bag rung on a profile change, so a round
+        // trip through tea would otherwise lose it.
+        const SettingsDye* dye = m_settings->dye();
+        if (espresso && !brew->hasBrewYieldOverride()
+            && dye->activeBagYieldMode() == YieldSpec::modeRatio()
+            && dye->activeBagYieldValue() > 0)
+            brew->setBrewRatioAnchor(dye->activeBagYieldValue());
         return;
     }
     // Startup only: persisted overrides survive the launch load, except a
@@ -3677,7 +3686,7 @@ QList<ProfileFrame> ProfileManager::framesShiftedToTemperature(double targetTemp
     return steps;
 }
 
-void ProfileManager::applyTemperatureToProfile(double newTemperature) {
+bool ProfileManager::applyTemperatureToProfile(double newTemperature) {
     // Bake the brew temperature into the profile using the SAME anchor as the
     // live-brew override path (espressoTemperature), so saving and brewing agree.
     m_currentProfile.setSteps(framesShiftedToTemperature(newTemperature));
@@ -3691,8 +3700,7 @@ void ProfileManager::applyTemperatureToProfile(double newTemperature) {
         m_settings->brew()->clearTemperatureOverride();
     }
     uploadCurrentProfile();
-    if (!m_baseProfileName.isEmpty())
-        saveProfile(m_baseProfileName);
+    return !m_baseProfileName.isEmpty() && saveProfile(m_baseProfileName);
 }
 
 QString ProfileManager::temperatureDisplay(double anchorTemp, bool hasOverride,

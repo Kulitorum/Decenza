@@ -2292,14 +2292,8 @@ bool MainController::applyRecipeBrewOverrides(const QVariantMap& recipe,
 // OFFSET-derived — profile temp + the recipe's stored delta — never a stored
 // absolute (recipe-relative-temp-offset).
 double MainController::activeBaselineTemperatureC() const {
-    const double profileTemp =
-        m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0;
-    if (!m_activeRecipe.isEmpty()) {
-        const double offset = m_activeRecipe.value(QStringLiteral("tempOffsetC")).toDouble();
-        if (qAbs(offset) > 0.05 && profileTemp > 0)
-            return profileTemp + offset;
-    }
-    return profileTemp;
+    return BrewBaseline::temperatureC(
+        m_activeRecipe, m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0);
 }
 
 // The yield baseline is a SPEC resolved through the ladder
@@ -2309,23 +2303,12 @@ double MainController::activeBaselineTemperatureC() const {
 // back to the profile here is exactly the `yieldG > 0 ? yieldG :
 // profileYield` fallthrough that reintroduces #1485's spurious override
 // arrow, so the mode is consulted first.
-MainController::BaselineYield MainController::resolveBaselineYield() const {
-    // The ladder, walked ONCE: recipe -> bag -> profile. Both public getters
-    // are views onto this result, so the value and the mode can never come
-    // from different rungs (see BaselineYield in the header).
-    if (!m_activeRecipe.isEmpty()) {
-        const QString mode = YieldSpec::normalizedMode(
-            m_activeRecipe.value(QStringLiteral("yieldMode")).toString());
-        const double value = m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
-        if (YieldSpec::isSet(mode) && value > 0.0)
-            return {value, mode};
-    }
-    if (m_settings && YieldSpec::isSet(m_settings->dye()->activeBagYieldMode())
-        && m_settings->dye()->activeBagYieldValue() > 0.0)
-        return {m_settings->dye()->activeBagYieldValue(), m_settings->dye()->activeBagYieldMode()};
-    // The profile rung: its target_weight is always plain grams.
-    return {m_profileManager ? m_profileManager->profileTargetWeight() : 0.0,
-            YieldSpec::modeAbsolute()};
+BrewBaseline::Yield MainController::resolveBaselineYield() const {
+    const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
+    if (!m_settings)
+        return BrewBaseline::resolveYield(m_activeRecipe, YieldSpec::modeNone(), 0.0, profileTarget);
+    return BrewBaseline::resolveYield(m_activeRecipe, m_settings->dye()->activeBagYieldMode(),
+                                      m_settings->dye()->activeBagYieldValue(), profileTarget);
 }
 
 double MainController::activeBaselineYieldValue() const {
@@ -2336,8 +2319,19 @@ QString MainController::activeBaselineYieldMode() const {
     return resolveBaselineYield().mode;
 }
 
+QString MainController::activeBaselineYieldSource() const {
+    return resolveBaselineYield().source;
+}
+
+QString MainController::yieldPersistTarget() const {
+    if (!m_settings)
+        return QString();
+    return BrewBaseline::persistTarget(m_activeRecipe, m_settings->dye()->activeRecipeId() >= 0,
+                                       bagIdIsSet(m_settings->dye()->activeBagId()));
+}
+
 double MainController::activeBaselineYieldG() const {
-    const BaselineYield baseline = resolveBaselineYield();
+    const BrewBaseline::Yield baseline = resolveBaselineYield();
     const double dose = m_profileManager ? m_profileManager->brewByRatioDose() : 0.0;
     const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
     return YieldSpec::resolveGrams(baseline.mode, baseline.value, dose, profileTarget);

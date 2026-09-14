@@ -72,14 +72,11 @@ DecenzaDialog {
     // zero-point, and Clear all measure against the recipe's own values, not the
     // profile default. A recipe that never pinned a yield (stored 0 = unset)
     // falls back to the profile; for temperature, offset 0 explicitly MEANS
-    // the profile's own temperature — the same fallback either way. NOTIFY-reactive
-    // via recipeActive (activeRecipeId) + MainController.activeRecipe.
+    // the profile's own temperature — the same fallback either way.
     // The temperature baseline is OFFSET-derived (recipe-relative-temp-offset):
     // profile temp + the recipe's stored delta, so a profile temperature edit
     // moves the recipe's baseline with it. Offset 0 = the profile itself.
-    readonly property double recipeTempBaseline: (recipeActive && profileTemperature > 0
-            && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
-        ? profileTemperature + MainController.activeRecipe.tempOffsetC : profileTemperature
+    readonly property double recipeTempBaseline: MainController.activeBaselineTemperatureC
     // Yield baseline as a TYPE-AWARE ANCHOR PAIR (add-yield-ratio-anchor):
     // the active store's own {value, mode} resolved through the ladder
     // (recipe -> bag -> profile; MainController folds that), with the OTHER
@@ -93,10 +90,7 @@ DecenzaDialog {
     // True when a recipe or bag actually designs a yield; false = the ladder
     // bottomed out at the profile (baselineYieldMode reads "absolute" there,
     // but Clear must restore anchor mode "none", not arm an absolute).
-    readonly property bool baselineIsStoreAnchor:
-        (recipeActive && (MainController.activeRecipe.yieldMode || "none") !== "none"
-                      && (MainController.activeRecipe.yieldValue || 0) > 0)
-        || (Settings.dye.activeBagYieldMode !== "none" && Settings.dye.activeBagYieldValue > 0)
+    readonly property bool baselineIsStoreAnchor: MainController.activeBaselineYieldSource !== "profile"
     readonly property double baselineStopAt: baselineYieldMode === "ratio"
         ? (doseValue > 0 ? baselineYieldValue * doseValue : 0)
         : baselineYieldValue
@@ -163,20 +157,7 @@ DecenzaDialog {
     // profile is never a destination: target_weight is absolute and profiles
     // are shared/exported ("Update Profile" for yield lives in the profile
     // editors now).
-    readonly property string yieldPersistTarget: {
-        if (recipeActive) {
-            if ((MainController.activeRecipe.yieldMode || "none") !== "none")
-                return "recipe"
-            // The recipe designs no yield: the ladder fell through to the
-            // bag, so the store being shown — and edited — is the bag.
-            if (Settings.dye.activeBagId >= 0)
-                return "bag"
-            return "recipe"  // bean-less recipe: nothing below it to edit
-        }
-        if (Settings.dye.activeBagId >= 0)
-            return "bag"
-        return ""
-    }
+    readonly property string yieldPersistTarget: MainController.yieldPersistTarget
     readonly property string yieldPersistLabel: yieldPersistTarget === "recipe"
         ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
         : TranslationManager.translate("brewDialog.updateBag", "Update Bag")

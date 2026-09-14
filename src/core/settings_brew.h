@@ -402,10 +402,12 @@ public:
     Q_INVOKABLE void clearAllBrewOverrides();
     // The profile-load reset (add-yield-ratio-anchor): clears the temperature
     // override unconditionally and an ABSOLUTE yield anchor (a gram target
-    // describes the profile it was set against), but KEEPS a ratio anchor —
-    // 1:2 is 1:2 on any profile. Callers that must drop everything (explicit
-    // user Clear, profile edit, new profile) use clearAllBrewOverrides().
-    Q_INVOKABLE void clearProfileScopedBrewOverrides();
+    // describes the profile it was set against). A ratio anchor is kept only
+    // when `keepRatioAnchor` is true — the incoming profile is espresso. Tea,
+    // filter and the rest stop on their own target unless the user dials a
+    // ratio on them (#1941). Callers that must drop everything (explicit user
+    // Clear, profile edit, new profile) use clearAllBrewOverrides().
+    void clearProfileScopedBrewOverrides(bool keepRatioAnchor);
 
     // Stop-at-volume gating
     bool ignoreVolumeWithScale() const;

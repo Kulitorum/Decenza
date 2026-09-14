@@ -192,6 +192,12 @@ public:
                                                  const QString& basketModel = QString(),
                                                  const QString& puckPrep = QString());
 
+    // The create rule every surface shares: an in-inventory package with the same
+    // full identity is returned instead of duplicated, and a name another active
+    // package holds is refused (*error = "nameInUse"). Returns the package id, -1
+    // on refusal or failure; *view is filled on success.
+    static qint64 createPackageStatic(QSqlDatabase& db, const QVariantMap& packageMap,
+                                      EquipmentPackageView* view, QString* error);
     static EquipmentPackage loadPackageStatic(QSqlDatabase& db, qint64 packageId);
     static EquipmentItem loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId);
     // The package's basket item, or an invalid item (id == 0) when none.

@@ -382,6 +382,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             {"properties", QJsonObject{
                 // Recipe params (dflow/aflow/pressure/flow)
                 {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop at weight (grams)"}}},
+                {"espressoTemperature", QJsonObject{{"type", "number"}, {"description", "Any editor: save this brew temperature (Celsius) to the profile, shifting every frame"}}},
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
                 {"dose", QJsonObject{{"type", "number"}, {"description", "Recommended dose, grams 0-100; 0 clears it. Must be a number — a string is rejected"}}},
                 {"fillTemperature", QJsonObject{{"type", "number"}, {"description", "Fill water temperature (Celsius)"}}},
@@ -516,6 +517,21 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 doseApplied = true;
             }
 
+            // Brew Settings' Update Profile: shift every frame to the temperature,
+            // clear the override, upload, and save a profile that has a file.
+            bool temperatureApplied = false;
+            bool temperatureSaved = false;
+            if (remaining.contains(QStringLiteral("espressoTemperature"))) {
+                const QJsonValue raw = remaining.take(QStringLiteral("espressoTemperature"));
+                if (!raw.isDouble()) {
+                    result["success"] = false;
+                    result["error"] = QStringLiteral("'espressoTemperature' must be a number in Celsius.");
+                    return result;
+                }
+                temperatureSaved = profileManager->applyTemperatureToProfile(raw.toDouble());
+                temperatureApplied = true;
+            }
+
             // Nothing left to apply — every key in the call was a retired
             // spelling. Falling through would still run uploadProfile(), which
             // sets m_profileModified and rewrites _current.json: a fully
@@ -526,7 +542,16 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             for (auto it = remaining.begin(); it != remaining.end(); ++it)
                 if (it.key() != QLatin1String("confirmed"))
                     actionableKeys++;
-            if (!doseApplied && actionableKeys == 0 && !retiredKeys.isEmpty()) {
+            if (temperatureApplied && actionableKeys == 0) {
+                result["success"] = true;
+                result["saved"] = temperatureSaved;
+                result["editorType"] = editorType;
+                result["message"] = temperatureSaved
+                    ? QStringLiteral("Profile temperature saved and uploaded to machine.")
+                    : QStringLiteral("Profile temperature uploaded to machine. Call profiles_save to persist.");
+                return result;
+            }
+            if (!doseApplied && !temperatureApplied && actionableKeys == 0 && !retiredKeys.isEmpty()) {
                 result["success"] = false;
                 result["retiredFields"] = QJsonArray::fromStringList(retiredKeys);
                 result["error"] =

@@ -7,6 +7,7 @@
 #include "mocks/McpTestFixture.h"
 #include "ble/protocol/de1characteristics.h"
 #include "profile/recipeparams.h"
+#include "core/settings_brew.h"
 
 using namespace DE1::Characteristic;
 
@@ -545,6 +546,27 @@ private slots:
         QVERIFY2(r.contains("error"),
                  qPrintable(tool + " returned no error with a null ProfileManager: "
                             + QString::fromUtf8(QJsonDocument(r).toJson(QJsonDocument::Compact))));
+    }
+
+    // Brew Settings' Update Profile over MCP. The frame shift itself is asserted
+    // in tst_profilemanager (applyTemperatureUsesEspressoTemperatureAnchor); this
+    // pins the routing and that `saved` reports the save, not the attempt.
+    void editParamsEspressoTemperatureSavesAndClearsOverride()
+    {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager);
+        loadDFlowProfile(f, "Mcp Temperature Save");  // a title that is a valid filename
+        f.settings.brew()->setTemperatureOverride(90.0);
+        const double profileTemp = f.profileManager.profileTargetTemperature();
+
+        QJsonObject args;
+        args["espressoTemperature"] = profileTemp - 1.0;
+        const QJsonObject result = f.callTool("profiles_edit_params", args);
+
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QVERIFY(result["saved"].toBool());
+        QCOMPARE(f.profileManager.profileTargetTemperature(), profileTemp - 1.0);
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
     }
 };
 

@@ -75,12 +75,13 @@ private:
     // opt-in; any test that reads recipe PARAMETERS needs it.
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test",
                                  double targetWeight = 36.0, double temp = 93.0,
-                                 bool withInfuse = false) {
+                                 bool withInfuse = false,
+                                 const QString& beverageType = QStringLiteral("espresso")) {
         QJsonObject json;
         json["title"] = title;
         json["author"] = "test";
         json["notes"] = "";
-        json["beverage_type"] = "espresso";
+        json["beverage_type"] = beverageType;
         json["version"] = "2";
         json["legacy_profile_type"] = "settings_2c";
         json["target_weight"] = targetWeight;
@@ -2559,7 +2560,8 @@ private slots:
     }
 
     // Profile-load mode asymmetry (Decision 8): a runtime profile switch
-    // clears an ABSOLUTE session anchor but keeps a RATIO one.
+    // clears an ABSOLUTE session anchor but keeps a RATIO one — onto an
+    // espresso profile only (#1941).
     void profileSwitchKeepsRatioClearsAbsolute() {
         McpTestFixture f;
         loadDFlowProfile(f, "TestA", 36.0);
@@ -2575,6 +2577,23 @@ private slots:
         QVERIFY(f.settings.brew()->hasBrewYieldOverride());
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.targetWeight(), 36.0);  // still 2 x 18
+
+        // A tea profile stops on its own target (0 = no weight stop)...
+        loadDFlowProfile(f, "Tea", 0.0, 93.0, false, QStringLiteral("tea_portafilter"));
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 0.0);
+
+        // ...unless the user dials a ratio on it.
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // Back to espresso through tea, the bean's saved ratio is re-armed.
+        f.settings.dye()->persistYieldSpecToBag(2.0, QStringLiteral("ratio"));
+        loadDFlowProfile(f, "Tea", 0.0, 93.0, false, QStringLiteral("tea_portafilter"));
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        loadDFlowProfile(f, "TestD", 48.0);
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);  // 2 x 18
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

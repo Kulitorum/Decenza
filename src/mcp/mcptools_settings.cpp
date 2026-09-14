@@ -18,6 +18,8 @@
 #include "../core/batterymanager.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../ai/aimanager.h"
+#include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -28,7 +30,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                ScreensaverVideoManager* screensaver,
                                TranslationManager* translation,
                                BatteryManager* battery,
-                               AIManager* aiManager)
+                               AIManager* aiManager,
+                               MainController* mainController)
 {
     // settings_get
     registry->registerTool(
@@ -51,7 +54,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 }}
             }}
         },
-        [settings, accessibility, screensaver, translation, battery, aiManager](const QJsonObject& args) -> QJsonObject {
+        [settings, accessibility, screensaver, translation, battery, aiManager, mainController](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
                 // Not a bare `{}`: with no `error` key this ships as a SUCCESSFUL
@@ -215,10 +218,36 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("discussShotCustomUrl", "ai")) result["discussShotCustomUrl"] = settings->network()->discussShotCustomUrl();
             // API keys excluded — sensitive
 
-            // === Espresso ===
-            if (include("espressoTemperature", "espresso", "espressoTemperatureC")) result["espressoTemperatureC"] = settings->brew()->espressoTemperature();
-            if (include("targetWeight", "espresso", "targetWeightG")) result["targetWeightG"] = settings->brew()->targetWeight();
-            if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->brew()->lastUsedRatio();
+            // === Espresso (Brew Settings) ===
+            // What the next shot brews with; the profile's own values are on profiles_get_active.
+            const SettingsBrew* brew = settings->brew();
+            const ProfileManager* pm = mainController ? mainController->profileManager() : nullptr;
+            if (include("espressoTemperature", "espresso", "espressoTemperatureC"))
+                result["espressoTemperatureC"] = brew->hasTemperatureOverride() ? brew->temperatureOverride()
+                    : (pm ? pm->profileTargetTemperature() : brew->espressoTemperature());
+            if (include("targetWeight", "espresso", "targetWeightG"))
+                result["targetWeightG"] = pm ? pm->targetWeight() : brew->targetWeight();
+            if (include("brewYieldMode", "espresso")) result["brewYieldMode"] = brew->brewYieldMode();
+            if (include("brewYieldValue", "espresso")) result["brewYieldValue"] = brew->brewYieldOverride();
+            if (pm && include("yieldRatio", "espresso")) result["yieldRatio"] = pm->brewByRatio();
+            if (include("hasTemperatureOverride", "espresso")) result["hasTemperatureOverride"] = brew->hasTemperatureOverride();
+            if (brew->hasTemperatureOverride() && include("temperatureOverride", "espresso", "temperatureOverrideC"))
+                result["temperatureOverrideC"] = brew->temperatureOverride();
+            if (mainController) {
+                if (include("baselineYieldMode", "espresso")) result["baselineYieldMode"] = mainController->activeBaselineYieldMode();
+                if (include("baselineYieldValue", "espresso")) result["baselineYieldValue"] = mainController->activeBaselineYieldValue();
+                if (include("baselineYieldSource", "espresso")) result["baselineYieldSource"] = mainController->activeBaselineYieldSource();
+                if (include("baselineTemperature", "espresso", "baselineTemperatureC")) result["baselineTemperatureC"] = mainController->activeBaselineTemperatureC();
+                if (include("yieldIsRealOverride", "espresso")) result["yieldIsRealOverride"] = mainController->yieldIsRealOverride();
+                if (include("temperatureIsRealOverride", "espresso")) result["temperatureIsRealOverride"] = mainController->temperatureIsRealOverride();
+                if (include("yieldPersistTarget", "espresso")) result["yieldPersistTarget"] = mainController->yieldPersistTarget();
+            }
+            if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = brew->lastUsedRatio();
+            if (include("ratioPreset1", "espresso")) result["ratioPreset1"] = brew->ratioPreset1();
+            if (include("ratioPreset2", "espresso")) result["ratioPreset2"] = brew->ratioPreset2();
+            if (include("ratioPreset3", "espresso")) result["ratioPreset3"] = brew->ratioPreset3();
+            if (include("doseCupTareWeight", "espresso", "doseCupTareWeightG")) result["doseCupTareWeightG"] = brew->doseCupTareWeight();
+            if (include("doseCaptureSoundEnabled", "espresso")) result["doseCaptureSoundEnabled"] = brew->doseCaptureSoundEnabled();
             if (include("currentProfile", "espresso")) result["currentProfile"] = settings->app()->currentProfile();
 
             // === Steam ===

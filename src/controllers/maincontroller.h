@@ -9,6 +9,7 @@
 #include "recipeselectionmodel.h"
 #include "core/logcollapse.h"
 #include "core/yieldspec.h"
+#include "core/brewbaseline.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -145,9 +146,8 @@ class MainController : public QObject {
     // live readout. These fold the recipe-vs-profile choice into one source of
     // truth a read-only widget can ask instead of re-deriving it inline and
     // drifting — currently the temperature readout (TemperatureItem) and custom
-    // brew widgets (CustomItem). (Brew Settings and the Shot Plan have their own
-    // richer, per-instance baselines — a seeded/mutable dialog and injected
-    // recipeBaseline* props — so they intentionally do not read these.)
+    // brew widgets (CustomItem), Brew Settings and the MCP settings tools. (The
+    // Shot Plan takes injected recipeBaseline* props instead.)
     // The baselines fall back to the profile when no recipe is active (or the
     // recipe pins no value for that field); the *IsRealOverride flags are true
     // only for a per-brew deviation FROM that baseline. All four re-evaluate on
@@ -164,6 +164,10 @@ class MainController : public QObject {
     Q_PROPERTY(QString activeBaselineYieldMode READ activeBaselineYieldMode NOTIFY brewBaselineChanged)
     Q_PROPERTY(bool temperatureIsRealOverride READ temperatureIsRealOverride NOTIFY brewBaselineChanged)
     Q_PROPERTY(bool yieldIsRealOverride READ yieldIsRealOverride NOTIFY brewBaselineChanged)
+    // The rung the yield baseline came from ("recipe" | "bag" | "profile"), and
+    // the store Update Recipe / Update Bag writes ("recipe" | "bag" | "").
+    Q_PROPERTY(QString activeBaselineYieldSource READ activeBaselineYieldSource NOTIFY brewBaselineChanged)
+    Q_PROPERTY(QString yieldPersistTarget READ yieldPersistTarget NOTIFY brewBaselineChanged)
     // The recipe the user has SELECTED in a pill row — set synchronously the
     // instant activateRecipe() is called, so the two-tap "select then start"
     // gesture (tap once to select, tap the selected pill again to pull the
@@ -270,16 +274,8 @@ public:
     double activeBaselineYieldG() const;
     double activeBaselineYieldValue() const;
     QString activeBaselineYieldMode() const;
-    // One rung of the baseline ladder (recipe -> bag -> profile). The value
-    // and the mode MUST come from the SAME rung: activeBaselineYieldG()
-    // resolves one against the other, so pairing a recipe's "ratio" with a
-    // bag's 40 g would target 40 x the dose — 720 g. The public getters
-    // above are views onto a single walk (resolveBaselineYield) rather than
-    // two hand-duplicated walks that merely happen to agree today.
-    struct BaselineYield {
-        double value = 0.0;
-        QString mode = YieldSpec::modeNone();
-    };
+    QString activeBaselineYieldSource() const;
+    QString yieldPersistTarget() const;
     bool temperatureIsRealOverride() const;
     bool yieldIsRealOverride() const;
     qint64 selectedRecipeId() const { return m_recipeSelection.selected(); }
@@ -848,7 +844,7 @@ private:
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);
     // The single walk of the baseline ladder — see BaselineYield.
-    BaselineYield resolveBaselineYield() const;
+    BrewBaseline::Yield resolveBaselineYield() const;
     // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
     // replacing whatever is armed. Shared by activation and the
     // active-recipe edit refresh (an edit re-seeds the brew exactly as

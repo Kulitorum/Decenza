@@ -143,6 +143,12 @@ public:
             || t == QLatin1String("calibrate");
     }
 
+    // An empty beverage_type is espresso (the profile JSON default).
+    static bool isEspressoBeverageType(const QString& beverageType) {
+        const QString t = beverageType.trimmed().toLower();
+        return t.isEmpty() || t == QLatin1String("espresso");
+    }
+
     // Profile type for compatibility with de1app settings
     // "settings_2a" = simple pressure, "settings_2b" = simple flow,
     // "settings_2c" = advanced (our default), "settings_2c2" = advanced with limiter
