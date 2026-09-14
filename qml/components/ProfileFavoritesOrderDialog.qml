@@ -13,9 +13,12 @@ import Decenza
 // to Settings.app's favorites store and sets the mode to `custom` on confirm.
 DecenzaDialog {
     id: root
+    // Sized to the WINDOW, not the picker it is declared in: a drag list needs
+    // rows on screen, and the picker's card area left it one and a half.
+    parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(parent ? parent.width * 0.9 : Theme.scaled(400), Theme.scaled(420))
-    height: Math.min(parent ? parent.height * 0.8 : Theme.scaled(500), Theme.scaled(560))
+    width: Math.min(parent ? parent.width * 0.9 : Theme.scaled(560), Theme.scaled(640))
+    height: parent ? parent.height * 0.9 : Theme.scaled(700)
     padding: 0
     modal: true
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside

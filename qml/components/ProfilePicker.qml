@@ -40,6 +40,11 @@ Item {
     // For a host's KeyboardAwareContainer.textFields.
     property alias searchInput: searchField
 
+    // The card drawn as "current" and pinned first under Recently used. The
+    // selector marks what the machine has loaded; the wizard sets this to the
+    // recipe's own profile, which is the answer to its "Which profile?".
+    property string highlightedFilename: ProfileManager.baseProfileName
+
     signal profileChosen(string filename, string title)
     signal addRequested()
 
@@ -203,10 +208,10 @@ Item {
         // "usage": current profile first, then most recent shot descending,
         // never-used last in alpha order.
         var usage = ProfileManager.profileUsage
-        var currentTitle = ProfileManager.currentProfileTitle
+        var pinned = picker.highlightedFilename
         list.sort(function(a, b) {
-            if (a.title === currentTitle && b.title !== currentTitle) return -1
-            if (b.title === currentTitle && a.title !== currentTitle) return 1
+            if (a.name === pinned && b.name !== pinned) return -1
+            if (b.name === pinned && a.name !== pinned) return 1
             var ua = usage[a.title], ub = usage[b.title]
             var ta = ua ? ua.lastTimestamp : 0
             var tb = ub ? ub.lastTimestamp : 0
@@ -234,7 +239,7 @@ Item {
     readonly property bool isEmpty: picker.sortedAllList.length === 0
                                      && picker.recommendedList.length === 0
 
-    function cardIsCurrent(entry) { return entry.name === ProfileManager.baseProfileName }
+    function cardIsCurrent(entry) { return entry.name === picker.highlightedFilename }
 
     // === Card action routing (shared across tiers + grid) ===================
     function openPreview(filename, title) {
@@ -554,10 +559,24 @@ Item {
             // steps, so contentY would otherwise survive to the next visit, and
             // a narrowed filter would keep an offset into a list that no longer
             // reaches it.
+            //
+            // positionViewAtBeginning() subtracts the header's height AS OF THAT
+            // CALL (qquickitemview.cpp, positionViewAtIndex: `pos -= headerSize()`
+            // when index < 0). The bean ranking lands later and grows the header
+            // by a whole row, which then sits above the fold. So the view stays
+            // pinned to the top through header growth until the user scrolls.
+            property bool pinTop: true
+            function scrollToTop() { allGrid.pinTop = true; allGrid.positionViewAtBeginning() }
+            onMovementStarted: allGrid.pinTop = false
             Connections {
                 target: picker
-                function onVisibleChanged() { if (picker.visible) allGrid.positionViewAtBeginning() }
-                function onFilteredAllChanged() { allGrid.positionViewAtBeginning() }
+                function onVisibleChanged() { if (picker.visible) allGrid.scrollToTop() }
+                function onFilteredAllChanged() { allGrid.scrollToTop() }
+            }
+            Connections {
+                target: allGrid.headerItem
+                ignoreUnknownSignals: true
+                function onHeightChanged() { if (allGrid.pinTop) allGrid.positionViewAtBeginning() }
             }
             // Tiers and the "All" heading scroll WITH the grid as its header, so
             // the page is one Flickable and the grid keeps its virtualisation.
