@@ -16,7 +16,6 @@
 #ifdef Q_OS_MACOS
 #include <mach-o/ldsyms.h>
 
-// A function whose address lies in this test binary's own code.
 static int codeInThisBinary() { return 42; }
 #endif
 
@@ -938,22 +937,21 @@ private slots:
     }
 
 #ifdef Q_OS_MACOS
-    // A backtrace frame must name its image and give the address as the image's
-    // FILE has it, since atos and llvm-symbolizer read the dSYM, not the running
-    // process. Printing the runtime address (no slide removed) lands outside
-    // __TEXT under ASLR; naming the wrong image points at the wrong dSYM.
+    // A frame must name its image and give the unslid address, since atos and
+    // llvm-symbolizer read the dSYM, not the process. Expected from the header's
+    // own __TEXT, which starts at the header; it cannot catch a missing slide when
+    // the slide is 0 (lldb disables ASLR by default).
     void crashBacktrace_addressIsInTheImageFile()
     {
         char out[256];
         CrashHandler::describeCodeAddress(reinterpret_cast<void*>(&codeInThisBinary), out, sizeof(out));
-        const QStringList parts = QString::fromLatin1(out).split(QLatin1Char(' '));
+        const QString described = QString::fromLatin1(out);
+        const qsizetype space = described.lastIndexOf(QLatin1Char(' '));
 
-        QCOMPARE(parts.size(), 2);
-        QCOMPARE(parts[0], QFileInfo(QCoreApplication::applicationFilePath()).fileName());
+        QCOMPARE(described.left(space), QFileInfo(QCoreApplication::applicationFilePath()).fileName());
         bool ok = false;
-        const quint64 fileAddress = parts[1].toULongLong(&ok, 16);
+        const quint64 fileAddress = described.mid(space + 1).toULongLong(&ok, 16);
         QVERIFY(ok);
-        // __TEXT as this executable's own header records it (unslid).
         const segment_command_64* text = nullptr;
         auto* cmd = reinterpret_cast<const load_command*>(&_mh_execute_header + 1);
         for (uint32_t c = 0; c < _mh_execute_header.ncmds && !text; ++c) {
@@ -963,8 +961,12 @@ private slots:
             cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
         }
         QVERIFY(text);
-        QVERIFY(fileAddress >= text->vmaddr);
-        QVERIFY(fileAddress < text->vmaddr + text->vmsize);
+        QCOMPARE(fileAddress, text->vmaddr + (quintptr(&codeInThisBinary) - quintptr(&_mh_execute_header)));
+
+        // Just below the header is the executable's __PAGEZERO, which maps nothing.
+        CrashHandler::describeCodeAddress(
+            reinterpret_cast<void*>(quintptr(&_mh_execute_header) - 0x1000), out, sizeof(out));
+        QVERIFY(QByteArray(out).contains("(not in a loaded image)"));
     }
 #endif
 };

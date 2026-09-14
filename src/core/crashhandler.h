@@ -4,6 +4,10 @@
 #include <QString>
 #include <QStringList>
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+#include <signal.h>
+#endif
+
 /**
  * @brief Installs signal handlers to catch crashes and log debug info before dying.
  *
@@ -67,16 +71,23 @@ public:
     static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
-    /// "<image> 0x<address>" for a code address, the address being where it lies in
-    /// the image's own file (runtime minus ASLR slide): what `atos -o <dSYM>` looks
-    /// up with no -l or -s, "at their default locations" (man atos). Returns
-    /// snprintf's result.
+    /// "<image> 0x<address>" for a code address, the address unslid (runtime minus
+    /// the image's dyld slide): what `atos -o <dSYM>` looks up with no -l or -s, "at
+    /// their default locations" (man atos). For a shared-cache system library it is
+    /// the unslid cache address. Returns snprintf's result.
     static int describeCodeAddress(void* pc, char* out, size_t size);
 #endif
 
 private:
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    // SA_SIGINFO, for the interrupted pc: backtrace() inside a handler starts from
+    // saved return addresses and never includes the faulting frame.
+    static void signalActionHandler(int signal, siginfo_t* info, void* context);
+#else
     static void signalHandler(int signal);
-    static void writeCrashLog(int signal, const char* signalName);
+#endif
+    static void handleSignal(int signal, void* faultPc);
+    static void writeCrashLog(int signal, const char* signalName, void* faultPc);
 };
 
 #endif // CRASHHANDLER_H
