@@ -559,10 +559,24 @@ Item {
             // steps, so contentY would otherwise survive to the next visit, and
             // a narrowed filter would keep an offset into a list that no longer
             // reaches it.
+            //
+            // positionViewAtBeginning() subtracts the header's height AS OF THAT
+            // CALL (qquickitemview.cpp, positionViewAtIndex: `pos -= headerSize()`
+            // when index < 0). The bean ranking lands later and grows the header
+            // by a whole row, which then sits above the fold. So the view stays
+            // pinned to the top through header growth until the user scrolls.
+            property bool pinTop: true
+            function scrollToTop() { allGrid.pinTop = true; allGrid.positionViewAtBeginning() }
+            onMovementStarted: allGrid.pinTop = false
             Connections {
                 target: picker
-                function onVisibleChanged() { if (picker.visible) allGrid.positionViewAtBeginning() }
-                function onFilteredAllChanged() { allGrid.positionViewAtBeginning() }
+                function onVisibleChanged() { if (picker.visible) allGrid.scrollToTop() }
+                function onFilteredAllChanged() { allGrid.scrollToTop() }
+            }
+            Connections {
+                target: allGrid.headerItem
+                ignoreUnknownSignals: true
+                function onHeightChanged() { if (allGrid.pinTop) allGrid.positionViewAtBeginning() }
             }
             // Tiers and the "All" heading scroll WITH the grid as its header, so
             // the page is one Flickable and the grid keeps its virtualisation.
