@@ -469,9 +469,7 @@ double ProfileManager::targetWeight() const {
     if (m_shotLatched)
         return m_latchedTargetG;
 
-    // A cleaning/descale/calibrate run keeps the brew overrides for the next drink
-    // but never uses them: no ratio or gram target may stop it on weight.
-    if (Profile::isMaintenanceBeverageType(m_currentProfile.beverageType()))
+    if (!brewOverridesApply())
         return m_currentProfile.targetWeight();
 
     // The ladder's single evaluation point: resolve the session anchor
@@ -2443,8 +2441,7 @@ void ProfileManager::uploadCurrentProfile() {
         double groupTemp;
 
         // Apply temperature override as delta offset (preserves per-frame differences)
-        if (m_settings && m_settings->brew()->hasTemperatureOverride()
-            && !Profile::isMaintenanceBeverageType(m_currentProfile.beverageType())) {
+        if (m_settings && m_settings->brew()->hasTemperatureOverride() && brewOverridesApply()) {
             Profile modifiedProfile = m_currentProfile;
             double overrideTemp = m_settings->brew()->temperatureOverride();
             modifiedProfile.setSteps(framesShiftedToTemperature(overrideTemp));
@@ -3685,7 +3682,7 @@ QString ProfileManager::downloadedProfilesPath() const {
 }
 
 double ProfileManager::getGroupTemperature() const {
-    if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
+    if (m_settings && m_settings->brew()->hasTemperatureOverride() && brewOverridesApply()) {
         double temp = m_settings->brew()->temperatureOverride();
         DIAG_DEBUG(PROFILES, "profilemanager") << "getGroupTemperature: using override" << temp << "C";
         return temp;

@@ -2611,9 +2611,12 @@ private slots:
 
         // A cleaning run neither uses nor clears the ratio, and is not a group change.
         f.settings.brew()->setBrewRatioAnchor(3.0);
+        f.settings.brew()->setTemperatureOverride(90.0);
         loadDFlowProfile(f, "Clean", 0.0, 93.0, false, QStringLiteral("cleaning"));
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.targetWeight(), 0.0);
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
         loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
         QCOMPARE(f.profileManager.targetWeight(), 54.0);  // 3 x 18
     }

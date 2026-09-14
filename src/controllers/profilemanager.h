@@ -233,6 +233,10 @@ public:
     // The Brew Settings temperature range; MCP writes are held to it too.
     static constexpr double kMinBrewTemperatureC = 70.0;
     static constexpr double kMaxBrewTemperatureC = 100.0;
+    static bool isBrewTemperatureInRange(double c) { return c >= kMinBrewTemperatureC && c <= kMaxBrewTemperatureC; }
+    // What the next shot brews at: the temperature override, except on a
+    // cleaning/descale/calibrate profile, which never uses brew overrides.
+    double getGroupTemperature() const;
     // Arm the session overrides from Brew Settings OK. The yield arrives as a
     // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
     // form (tests) anchors an absolute.
@@ -733,7 +737,9 @@ private:
     QString profilesPath() const;
     QString userProfilesPath() const;
     QString downloadedProfilesPath() const;
-    double getGroupTemperature() const;
+    // False on a cleaning/descale/calibrate profile: it keeps the brew overrides
+    // for the next drink but never brews with them.
+    bool brewOverridesApply() const { return !Profile::isMaintenanceBeverageType(m_currentProfile.beverageType()); }
 
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;

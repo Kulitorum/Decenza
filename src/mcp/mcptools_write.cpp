@@ -79,8 +79,7 @@ QJsonObject brewStateAfterSet(ProfileManager* profileManager, Settings* settings
         {"targetWeightG", profileManager->targetWeight()},
         {"brewYieldMode", brew->brewYieldMode()},
         {"brewYieldValue", brew->brewYieldOverride()},
-        {"espressoTemperatureC", brew->hasTemperatureOverride() ? brew->temperatureOverride()
-                                                                : profileManager->profileTargetTemperature()},
+        {"espressoTemperatureC", profileManager->getGroupTemperature()},
         {"hasTemperatureOverride", brew->hasTemperatureOverride()}};
     QStringList notes;
     const double ratio = args.value("yieldRatio").toDouble();
@@ -868,8 +867,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "'clearBrewOverrides' must be true or false."}});
                 return;
             }
-            if (setBrewTemp && (args.value("espressoTemperature").toDouble() < ProfileManager::kMinBrewTemperatureC
-                                || args.value("espressoTemperature").toDouble() > ProfileManager::kMaxBrewTemperatureC)) {
+            if (setBrewTemp && !ProfileManager::isBrewTemperatureInRange(args.value("espressoTemperature").toDouble())) {
                 respond(QJsonObject{{"error", QStringLiteral("'espressoTemperature' must be between %1 and %2 °C, the Brew Settings range.")
                                                   .arg(ProfileManager::kMinBrewTemperatureC).arg(ProfileManager::kMaxBrewTemperatureC)}});
                 return;
@@ -1560,25 +1558,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "autoFavoritesHideUnrated";
             }
 
-            if (args.contains("ratioPreset1")) {
-                double v = args["ratioPreset1"].toDouble();
-                addSetter([settings, v]() { settings->brew()->setRatioPreset1(v); });
-                updated << "ratioPreset1";
-            }
-            if (args.contains("ratioPreset2")) {
-                double v = args["ratioPreset2"].toDouble();
-                addSetter([settings, v]() { settings->brew()->setRatioPreset2(v); });
-                updated << "ratioPreset2";
-            }
-            if (args.contains("ratioPreset3")) {
-                double v = args["ratioPreset3"].toDouble();
-                addSetter([settings, v]() { settings->brew()->setRatioPreset3(v); });
-                updated << "ratioPreset3";
-            }
-            if (args.contains("doseCupTareWeight")) {
-                double v = args["doseCupTareWeight"].toDouble();
-                addSetter([settings, v]() { settings->brew()->setDoseCupTareWeight(v); });
-                updated << "doseCupTareWeight";
+            const std::pair<const char*, void (SettingsBrew::*)(double)> brewNumberSetters[] = {
+                {"ratioPreset1", &SettingsBrew::setRatioPreset1},
+                {"ratioPreset2", &SettingsBrew::setRatioPreset2},
+                {"ratioPreset3", &SettingsBrew::setRatioPreset3},
+                {"doseCupTareWeight", &SettingsBrew::setDoseCupTareWeight}};
+            for (const auto& entry : brewNumberSetters) {
+                const char* key = entry.first;
+                const auto setter = entry.second;  // C++17 lambdas cannot capture a structured binding
+                if (!args.contains(key))
+                    continue;
+                const double v = args[key].toDouble();
+                addSetter([settings, setter, v]() { (settings->brew()->*setter)(v); });
+                updated << key;
             }
             if (args.contains("doseCaptureSoundEnabled")) {
                 bool v = args["doseCaptureSoundEnabled"].toBool();

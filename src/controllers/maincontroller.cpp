@@ -3768,12 +3768,7 @@ void MainController::applyHeaterTweaks() {
 }
 
 double MainController::getGroupTemperature() const {
-    if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
-        double temp = m_settings->brew()->temperatureOverride();
-        DIAG_DEBUG(DE1, "maincontroller") << "getGroupTemperature: using override" << temp << "°C";
-        return temp;
-    }
-    return m_profileManager->currentProfile().espressoTemperature();
+    return m_profileManager->getGroupTemperature();
 }
 
 bool MainController::pushShotSettings(double steamTempC, const QString& reason) {

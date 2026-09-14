@@ -223,8 +223,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             const SettingsBrew* brew = settings->brew();
             const ProfileManager* pm = mainController ? mainController->profileManager() : nullptr;
             if (pm && include("espressoTemperature", "espresso", "espressoTemperatureC"))
-                result["espressoTemperatureC"] = brew->hasTemperatureOverride() ? brew->temperatureOverride()
-                                                                               : pm->profileTargetTemperature();
+                result["espressoTemperatureC"] = pm->getGroupTemperature();
             if (pm && include("targetWeight", "espresso", "targetWeightG"))
                 result["targetWeightG"] = pm->targetWeight();
             if (include("brewYieldMode", "espresso")) result["brewYieldMode"] = brew->brewYieldMode();
