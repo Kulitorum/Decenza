@@ -222,7 +222,8 @@ signals:
     void confirmationCancelled(const QString& confirmationId, const QString& reason);
 
 public slots:
-    void confirmationResolved(const QString& confirmationId, bool accepted);
+    // timedOut: the on-machine dialog closed unanswered, reported apart from a Deny tap.
+    void confirmationResolved(const QString& confirmationId, bool accepted, bool timedOut = false);
 
 private:
     // Whether this POST body is a MODERN-era request.

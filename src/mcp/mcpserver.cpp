@@ -2386,7 +2386,7 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
                         pending.requestId, pending.sessionId, pending.protocolVersion);
 }
 
-void McpServer::confirmationResolved(const QString& confirmationId, bool accepted)
+void McpServer::confirmationResolved(const QString& confirmationId, bool accepted, bool timedOut)
 {
     if (!m_pendingConfirmation.has_value()) {
         // Names the handle so a stale tap is traceable to the abandonment that
@@ -2417,9 +2417,13 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
     }
 
     if (!accepted) {
-        MCP_INFO_TAGGED("Server", QStringLiteral("User denied %1").arg(pending.toolName));
+        const QString outcome = timedOut
+            ? QStringLiteral("%1 was not confirmed on the machine before the dialog timed out, so it did not run")
+                  .arg(pending.toolName)
+            : QStringLiteral("User denied confirmation for %1").arg(pending.toolName);
+        MCP_INFO_TAGGED("Server", outcome);
         QJsonObject deniedPayload;
-        deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
+        deniedPayload["error"] = outcome;
 
         // `isError` is set by buildToolCallResponse off the `error` key above.
         sendJsonRpcResponse(pending.socket,
