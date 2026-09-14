@@ -605,27 +605,30 @@ Item {
                             Accessible.role: Accessible.Heading
                             Accessible.name: text
                         }
-                        ListView {
+                        // Wraps like the grid below, same columns, so nothing
+                        // hides off the right edge. Bounded: exact-bean matches
+                        // plus a capped handful of recommendations.
+                        Grid {
                             width: parent ? parent.width : 0
-                            height: Theme.scaled(100)
-                            orientation: ListView.Horizontal
-                            spacing: Theme.scaled(8)
-                            clip: true
-                            boundsBehavior: Flickable.StopAtBounds
-                            model: picker.recommendedList
-                            delegate: ProfileCard {
-                                id: tier2Card
-                                required property var modelData
-                                width: Theme.scaled(300)
-                                height: Theme.scaled(92)
-                                entry: tier2Card.modelData
-                                current: picker.cardIsCurrent(tier2Card.modelData)
-                                reason: tier2Card.modelData.reason || ""
-                                onChosen: picker.profileChosen(tier2Card.modelData.name)
-                                onLongPressed: picker.openPreview(tier2Card.modelData.name, tier2Card.modelData.title)
-                                onSparkleRequested: picker.openKnowledge(tier2Card.modelData.title)
-                                onInfoRequested: AppShell.profileInfoRequested(tier2Card.modelData.name, tier2Card.modelData.title)
-                                onOverflowRequested: picker.openActions(tier2Card.modelData)
+                            columns: allGrid.columns
+                            columnSpacing: 0
+                            rowSpacing: Theme.scaled(8)
+                            Repeater {
+                                model: picker.recommendedList
+                                delegate: ProfileCard {
+                                    id: tier2Card
+                                    required property var modelData
+                                    width: allGrid.cellWidth - Theme.scaled(8)
+                                    height: Theme.scaled(92)
+                                    entry: tier2Card.modelData
+                                    current: picker.cardIsCurrent(tier2Card.modelData)
+                                    reason: tier2Card.modelData.reason || ""
+                                    onChosen: picker.profileChosen(tier2Card.modelData.name)
+                                    onLongPressed: picker.openPreview(tier2Card.modelData.name, tier2Card.modelData.title)
+                                    onSparkleRequested: picker.openKnowledge(tier2Card.modelData.title)
+                                    onInfoRequested: AppShell.profileInfoRequested(tier2Card.modelData.name, tier2Card.modelData.title)
+                                    onOverflowRequested: picker.openActions(tier2Card.modelData)
+                                }
                             }
                         }
                     }
