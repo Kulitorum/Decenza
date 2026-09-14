@@ -11,18 +11,18 @@
 
 ## 2. Shared picker component
 
-- [ ] 2.1 Create `qml/components/ProfilePicker.qml` (search, chip rows with counts, sort control, tier rows, `GridView`, empty state) with host properties `beanBrand/beanType/roastLevel/teaType`, `initialChips`, `allowedBeverageTypes`, `showAutoLoadStrip`, and signal `profileChosen(filename)`; add to `CMakeLists.txt`; verify qmllint via the `qmllint_check` target stays at zero
-- [ ] 2.2 Create `qml/components/ProfileCard.qml` per the card-contents requirement (fixed height, source letter, check badge, modified marker, temp → yield, usage line, derivation caption, pin, sparkle, info, star, ⋮, long-press → `ProfilePreviewPopup`); every interactive element has `Accessible.role/name/focusable/onPressAction`; verify by opening the screen with VoiceOver/TalkBack order sane
-- [ ] 2.3 Move the profile-actions dialog into the component (Edit / Copy / Rename / Auto-load / Add-Remove Selected / Delete) with the existing toasts and announcements; verify each action from both hosts
-- [ ] 2.4 Create the favorites reorder dialog (`ProfileFavoritesOrderDialog.qml`) from the old right-hand panel: drag handles, remove, themed; confirm writes order and sets mode `custom`; verify drag from fifth to first reorders idle pills
-- [ ] 2.5 Wire the dual-role sort control: local `usage|alpha` when Favorites off, bound to `Settings.app.favoriteProfileOrder` plus Custom… when on; verify switching modes reorders the grid and the idle pills
+- [x] 2.1 Create `qml/components/ProfilePicker.qml` (search, chip rows with counts, sort control, tier rows, `GridView`, empty state) with host properties `beanBrand/beanType/roastLevel/teaType`, `initialChips`, `allowedBeverageTypes`, `showAutoLoadStrip`, and signal `profileChosen(filename)`; add to `CMakeLists.txt`; verify qmllint via the `qmllint_check` target stays at zero
+- [x] 2.2 Create `qml/components/ProfileCard.qml` per the card-contents requirement (fixed height, source letter, check badge, modified marker, temp → yield, usage line, derivation caption, pin, sparkle, info, star, ⋮, long-press → `ProfilePreviewPopup`); every interactive element has `Accessible.role/name/focusable/onPressAction`; verify by opening the screen with VoiceOver/TalkBack order sane
+- [x] 2.3 Move the profile-actions dialog into the component (Edit / Copy / Rename / Auto-load / Add-Remove Selected / Delete) with the existing toasts and announcements; verify each action from both hosts
+- [x] 2.4 Create the favorites reorder dialog (`ProfileFavoritesOrderDialog.qml`) from the old right-hand panel: drag handles, remove, themed; confirm writes order and sets mode `custom`; verify drag from fifth to first reorders idle pills
+- [x] 2.5 Wire the dual-role sort control: local `usage|alpha` when Favorites off, bound to `Settings.app.favoriteProfileOrder` plus Custom… when on; verify switching modes reorders the grid and the idle pills
 
 ## 3. Hosts
 
-- [ ] 3.1 Rewrite `qml/pages/ProfileSelectorPage.qml`: auto-load strip, `+` menu (Visualizer / Tablet-Files / New), picker with Selected on initially, tap → `ProfileManager.loadProfile`; delete the favorites panel, checkbox column, view combo, category grouping; verify page opens, filters compose, current card highlighted
-- [ ] 3.2 Replace the wizard profile step (`RecipeWizardPage.qml` model + tiles) with the picker: pass bag identity, `allowedBeverageTypes` from the drink template, no chips initially, keep "Just hot water" as a fixed card below the grid, tap → `selectProfile`; verify tea/filter/espresso drink types list only their sets and Beverage chips are hidden
-- [ ] 3.3 Bean tiers in the selector from `Settings.dye` bean + current bag roast; verify tiers appear with a bean set and vanish without
-- [ ] 3.4 Expose `beverage_type` in the profile editor metadata so an inferred tag can be corrected; verify changing it and saving updates the picker's bucket
+- [x] 3.1 Rewrite `qml/pages/ProfileSelectorPage.qml`: auto-load strip, `+` menu (Visualizer / Tablet-Files / New), picker with Selected on initially, tap → `ProfileManager.loadProfile`; delete the favorites panel, checkbox column, view combo, category grouping; verify page opens, filters compose, current card highlighted
+- [x] 3.2 Replace the wizard profile step (`RecipeWizardPage.qml` model + tiles) with the picker: pass bag identity, `allowedBeverageTypes` from the drink template, no chips initially, keep "Just hot water" as a fixed card below the grid, tap → `selectProfile`; verify tea/filter/espresso drink types list only their sets and Beverage chips are hidden
+- [x] 3.3 Bean tiers in the selector from `Settings.dye` bean + current bag roast; verify tiers appear with a bean set and vanish without
+- [x] 3.4 Expose `beverage_type` in the profile editor metadata so an inferred tag can be corrected; verify changing it and saving updates the picker's bucket
 
 ## 4. Verification
 
@@ -34,5 +34,5 @@
 ## 5. Docs
 
 - [ ] 5.1 Rewrite the wiki manual "Profiles" section (short: search, chips, sort, star, ⋮) and add one line under the idle page on favorites order; verify by reading it at half its first-draft length
-- [ ] 5.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` pointers for the shared picker and the import inference; verify the file references only functions that exist
+- [x] 5.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` pointers for the shared picker and the import inference; verify the file references only functions that exist
 - [ ] 5.3 Archive the change with `openspec archive rebuild-profile-picker --yes` as the branch's final commit

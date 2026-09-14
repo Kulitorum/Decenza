@@ -483,6 +483,47 @@ T.Page {
 
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
+            // Beverage type (rebuild-profile-picker task 3.4): lets a user
+            // correct an inferred tag (profile-import-beverage-inference) or
+            // set one on a profile that started with none. Values match the
+            // canonical profile JSON vocabulary (RECIPE_PROFILES.md — eight
+            // bare-written values across the de1app corpus).
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(2)
+                Text { text: TranslationManager.translate("profileEditor.beverageType", "Beverage type"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                StyledComboBox {
+                    id: beverageTypeCombo
+                    Layout.fillWidth: true
+                    readonly property var values: ["espresso", "filter", "pourover", "tea_portafilter", "cleaning", "descale", "calibrate", "manual"]
+                    model: [
+                        TranslationManager.translate("profileEditor.beverageType.espresso", "Espresso"),
+                        TranslationManager.translate("profileEditor.beverageType.filter", "Filter"),
+                        TranslationManager.translate("profileEditor.beverageType.pourover", "Pour Over"),
+                        TranslationManager.translate("profileEditor.beverageType.tea", "Tea"),
+                        TranslationManager.translate("profileEditor.beverageType.cleaning", "Cleaning"),
+                        TranslationManager.translate("profileEditor.beverageType.descale", "Descale"),
+                        TranslationManager.translate("profileEditor.beverageType.calibrate", "Calibrate"),
+                        TranslationManager.translate("profileEditor.beverageType.manual", "Manual")
+                    ]
+                    currentIndex: {
+                        var t = String((profileEditorPage.profile && profileEditorPage.profile.beverage_type) || "espresso").trim().toLowerCase()
+                        var idx = beverageTypeCombo.values.indexOf(t)
+                        return idx >= 0 ? idx : 0
+                    }
+                    onActivated: function(index) {
+                        var newType = beverageTypeCombo.values[index]
+                        if (profileEditorPage.profile && profileEditorPage.profile.beverage_type !== newType) {
+                            profileEditorPage.profile.beverage_type = newType
+                            profileEditorPage.uploadProfile()
+                        }
+                    }
+                    accessibleLabel: TranslationManager.translate("profileEditor.beverageType", "Beverage type")
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
+
             // Global temperature (applies to all frames)
             ColumnLayout {
                 Layout.fillWidth: true
@@ -1698,6 +1739,7 @@ T.Page {
             // Fallback to empty profile
             profile = {
                 title: ProfileManager.currentProfileName || "New Profile",
+                beverage_type: "espresso",
                 steps: [],
                 target_weight: ProfileManager.targetWeight || 36,
                 target_volume: 0,

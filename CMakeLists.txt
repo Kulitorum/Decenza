@@ -1385,6 +1385,9 @@ set(QML_FILES
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileDialInDiffBlock.qml
     qml/components/ProfileInfoButton.qml
+    qml/components/ProfileCard.qml
+    qml/components/ProfilePicker.qml
+    qml/components/ProfileFavoritesOrderDialog.qml
     qml/components/BottomBar.qml
     qml/components/BottomBarSubtitle.qml
     qml/components/ThemedIcon.qml

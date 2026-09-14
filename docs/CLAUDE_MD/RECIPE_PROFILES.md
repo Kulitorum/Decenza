@@ -977,12 +977,20 @@ State lives on two `SettingsApp` properties:
 
 **Eligibility**: only profiles currently in the Selected list (`selectedBuiltInProfiles` ∪ user profiles not in `hiddenProfiles`) can be the auto-load. If the pinned profile is deleted, hidden, or de-selected, the setting is cleared eagerly (in `SettingsApp::addHiddenProfile` / `removeSelectedBuiltInProfile` / `ProfileManager::deleteProfile`) and at trigger time (`ProfileManager::loadAutoLoadProfileIfNeeded()`), with `autoLoadStaleCleared` emitted so the UI can toast.
 
-**UI** lives entirely on `ProfileSelectorPage`:
-- A pin icon on the auto-load row (next to the title, beside the AI-knowledge sparkle).
-- A contextual overflow MenuItem labelled `Set Auto-Load` / `Disable Auto-Load`, visible only when the row is in the Selected list.
-- A compact status strip above the view filter showing the pinned title, the revert-minutes `ValueInput` (0..60, where `0` renders as "off"), and a clear button. The strip is the only place `autoLoadRevertMinutes` can be tuned.
+**UI** lives in the shared `ProfilePicker` component (`qml/components/ProfilePicker.qml`), hosted by both `ProfileSelectorPage` and the recipe wizard's profile step — see "The shared profile picker" below:
+- A pin icon on the profile card (next to the title, beside the AI-knowledge sparkle), in both hosts.
+- A `Set Auto-Load` / `Disable Auto-Load` entry in the card's ⋮ actions dialog, visible only when the card's profile is in the Selected list.
+- A compact status strip above the picker's search/chip rows showing the pinned title, the revert-minutes `ValueInput` (0..60, where `0` renders as "off"), and a clear button. `ProfileSelectorPage` is the only host that shows it (`ProfilePicker.showAutoLoadStrip`) — it is the only place `autoLoadRevertMinutes` can be tuned.
 
 **MCP**: three tools — `profiles_get_auto_load` (read), `profiles_set_auto_load` (settings), `profiles_clear_auto_load` (settings). See `docs/CLAUDE_MD/MCP_SERVER.md`.
+
+## The shared profile picker
+
+`ProfileSelectorPage` and the recipe wizard's profile step both host `qml/components/ProfilePicker.qml`: search, filter chips (Selected, Favorites, Source, Beverage), a sort control, bean-ranked tiers, and a virtualised `GridView` of `qml/components/ProfileCard.qml`. The host supplies bean identity and a beverage constraint (`allowedBeverageTypes` — the wizard's drink type; empty on the selector) and gets one `profileChosen(filename)` signal back; the host decides whether that loads the profile (selector) or only picks it for a recipe (wizard). `ProfileManager::filterProfiles()`/`facetCounts()` are the one predicate/facet-counter both hosts and the picker share — see `Profile::beverageBucket()` beside `beverageGroup()` for the four-way chip mapping (distinct from `beverageGroup()`, which folds maintenance types together for the ratio rule).
+
+Favorites order is a `SettingsApp::favoriteProfileOrder` setting (`custom|alpha|usage`, resolve-when-absent: existing favorites keep their hand-built order, a fresh install starts in usage order). The picker's sort control edits it directly when the Favorites chip is on, offering `Custom…` to open `ProfileFavoritesOrderDialog.qml`, a drag-to-reorder dialog built on the shared `FavoritesListView`. `ProfileManager::resortFavorites()` re-sorts the stored list under `alpha`/`usage` and re-syncs `selectedFavoriteProfile` by filename, never by position. Per-profile usage (last shot, shot count) comes from `ShotHistoryStorage::requestProfileUsage()`, a threaded `GROUP BY profile_name` query keyed by title, refreshed at startup and after every shot save.
+
+Import (Visualizer, tablet, file) fills a missing `beverage_type` via `Profile::inferBeverageType(title, steps)` — title keywords first, then shape (low pressure or a cold step reads as pourover), else espresso. Only when the raw source payload carried no tag; an explicit one, even `espresso`, is never revisited. `Profile::fromJson()` still defaults a bare-absent key to `espresso` on every OTHER read path, untouched.
 
 ## References
 

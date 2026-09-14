@@ -96,11 +96,6 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double defaultPressureFlowLimit READ defaultPressureFlowLimit CONSTANT)
     Q_PROPERTY(double maxSettableFlow READ maxSettableFlow CONSTANT)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList selectedProfiles READ selectedProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList allBuiltInProfiles READ allBuiltInProfiles NOTIFY allBuiltInProfileListChanged)
-    Q_PROPERTY(QVariantList cleaningProfiles READ cleaningProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList downloadedProfiles READ downloadedProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList userCreatedProfiles READ userCreatedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allProfilesList READ allProfilesList NOTIFY profilesChanged)
 
     // Every installed profile TITLE, for QML to test whether a recipe's stored
@@ -327,12 +322,12 @@ public:
     }
 
     // === Profile catalog ===
+    // selectedProfiles()/allBuiltInProfiles()/cleaningProfiles()/
+    // downloadedProfiles()/userCreatedProfiles() (the old six-way view combo's
+    // per-view lists) were removed with rebuild-profile-picker: the shared
+    // ProfilePicker filters the one catalog (allProfilesList) with
+    // filterProfiles()/facetCounts() instead of ProfileManager pre-splitting it.
     QVariantList availableProfiles() const;
-    QVariantList selectedProfiles() const;
-    QVariantList allBuiltInProfiles() const;
-    QVariantList cleaningProfiles() const;
-    QVariantList downloadedProfiles() const;
-    QVariantList userCreatedProfiles() const;
     QVariantList allProfilesList() const;
 
     // Exact titles as stored in the catalog — the same strings
@@ -617,7 +612,6 @@ signals:
     void profileModifiedChanged();
     void targetWeightChanged();
     void profilesChanged();
-    void allBuiltInProfileListChanged();
 
     // Emitted when uploadCurrentProfile() is blocked during active phase.
     // Connect to ShotDebugLogger for diagnostics.

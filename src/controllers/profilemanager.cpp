@@ -851,114 +851,10 @@ QVariantList ProfileManager::availableProfiles() const {
     return result;
 }
 
-QVariantList ProfileManager::selectedProfiles() const {
-    QVariantList result;
-
-    // Get selected built-in profile names from settings
-    QStringList selectedBuiltIns = m_settings ? m_settings->app()->selectedBuiltInProfiles() : QStringList();
-    QStringList hiddenProfiles = m_settings ? m_settings->app()->hiddenProfiles() : QStringList();
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        bool include = false;
-
-        switch (info.source) {
-        case ProfileSource::BuiltIn:
-            // Only include if selected
-            include = selectedBuiltIns.contains(info.filename);
-            break;
-        case ProfileSource::Downloaded:
-        case ProfileSource::UserCreated:
-            // Include unless explicitly hidden
-            include = !hiddenProfiles.contains(info.filename);
-            break;
-        }
-
-        if (include) {
-            result.append(profileInfoToVariantMap(info));
-        }
-    }
-
-    // Sort by title alphabetically (case-insensitive)
-    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
-        return a.toMap()["title"].toString().compare(
-            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
-    });
-
-    return result;
-}
-
-QVariantList ProfileManager::allBuiltInProfiles() const {
-    QVariantList result;
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.source == ProfileSource::BuiltIn) {
-            result.append(profileInfoToVariantMap(info));
-        }
-    }
-
-    // Sort by title alphabetically (case-insensitive)
-    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
-        return a.toMap()["title"].toString().compare(
-            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
-    });
-
-    return result;
-}
-
-QVariantList ProfileManager::cleaningProfiles() const {
-    QVariantList result;
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        // Include both cleaning and descale profiles in this category
-        if (info.beverageType == "cleaning" || info.beverageType == "descale") {
-            result.append(profileInfoToVariantMap(info));
-        }
-    }
-
-    // Sort by title alphabetically (case-insensitive)
-    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
-        return a.toMap()["title"].toString().compare(
-            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
-    });
-
-    return result;
-}
-
-QVariantList ProfileManager::downloadedProfiles() const {
-    QVariantList result;
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.source == ProfileSource::Downloaded) {
-            result.append(profileInfoToVariantMap(info));
-        }
-    }
-
-    // Sort by title alphabetically (case-insensitive)
-    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
-        return a.toMap()["title"].toString().compare(
-            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
-    });
-
-    return result;
-}
-
-QVariantList ProfileManager::userCreatedProfiles() const {
-    QVariantList result;
-
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.source == ProfileSource::UserCreated) {
-            result.append(profileInfoToVariantMap(info));
-        }
-    }
-
-    // Sort by title alphabetically (case-insensitive)
-    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
-        return a.toMap()["title"].toString().compare(
-            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
-    });
-
-    return result;
-}
+// selectedProfiles()/allBuiltInProfiles()/cleaningProfiles()/downloadedProfiles()/
+// userCreatedProfiles() (the old six-way view combo's per-view lists) were
+// removed with rebuild-profile-picker — see the header comment above
+// allProfilesList()'s declaration.
 
 QVariantList ProfileManager::allProfilesList() const {
     QVariantList result;
@@ -1087,6 +983,9 @@ QVariantMap ProfileManager::getCurrentProfile() const {
     QVariantMap profile;
     profile["title"] = m_currentProfile.title();
     profile["author"] = m_currentProfile.author();
+    // rebuild-profile-picker task 3.4: exposed so the editor can show and
+    // correct an inferred beverage_type (profile-import-beverage-inference).
+    profile["beverage_type"] = m_currentProfile.beverageType();
     profile["profile_notes"] = m_currentProfile.profileNotes();
     profile["target_weight"] = m_currentProfile.targetWeight();
     profile["target_volume"] = m_currentProfile.targetVolume();
@@ -2428,7 +2327,6 @@ void ProfileManager::refreshProfiles() {
     }
 
     emit profilesChanged();
-    emit allBuiltInProfileListChanged();
 }
 
 
@@ -2602,6 +2500,11 @@ void ProfileManager::uploadProfile(const QVariantMap& profileData) {
     // Update current profile from QML data
     if (profileData.contains("title")) {
         m_currentProfile.setTitle(profileData["title"].toString());
+    }
+    // rebuild-profile-picker task 3.4: lets a user correct an inferred
+    // beverage_type (profile-import-beverage-inference) from the editor.
+    if (profileData.contains("beverage_type")) {
+        m_currentProfile.setBeverageType(profileData["beverage_type"].toString());
     }
     if (profileData.contains("author")) {
         m_currentProfile.setAuthor(profileData["author"].toString());
@@ -3488,7 +3391,6 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
     emit profileModifiedChanged();
     emit targetWeightChanged();
     emit profilesChanged();
-    emit allBuiltInProfileListChanged();
 
     uploadCurrentProfile();
     DIAG_DEBUG(PROFILES, "profilemanager") << "Created new" << editorTypeToString(type) << "profile:" << title;
