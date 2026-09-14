@@ -53,4 +53,4 @@
 - [x] 7.3 `settings_set`: type checks for presets, tare and `clearBrewOverrides`; Clear refused while the recipe loads; notes for a temperature equal to the profile's and for a shot in progress.
 - [x] 7.4 Socket-gone confirmation log names the outcome; comment and spec fixes.
 - [x] 7.5 Tests: timed-out confirmation does not dispatch, retired argument raises no dialog, 0 °C refused, `persistTarget` with a bag, startup group + load generation, cleaning run keeps the ratio.
-- [ ] 7.6 Full suite, each new assertion proven red, live recheck.
+- [x] 7.6 Full suite, each new assertion proven red, live recheck.

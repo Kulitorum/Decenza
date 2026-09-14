@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change grind-widget-observed-step. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Grinder RPM SHALL travel with the grind setting across all shot surfaces
 
 For variable-RPM grinders the dial-in is two values — the burr grind setting and the motor RPM. Wherever the app serializes, projects, reads, accepts, or displays a shot's grind setting, it SHALL carry the sibling RPM when one is recorded (`rpm > 0`), emitted/shown sparsely so non-RPM shots are unchanged. Storage structs and DB columns already pair the two; this requirement closes the read/projection/display/input gaps.
@@ -27,8 +29,8 @@ For variable-RPM grinders the dial-in is two values — the burr grind setting a
 
 #### Scenario: Start-a-shot accepts an independent RPM override
 
-- **WHEN** `machine_start` with `action: "espresso"` (and `ProfileManager::activateBrewWithOverrides`) accepts a grind override
-- **THEN** it SHALL also accept an optional RPM override, applied independently of grind and left untouched when absent
+- **WHEN** `settings_set` (`dyeGrinderRpm`) or Brew Settings OK (`ProfileManager::activateBrewWithOverrides`) sets the brew's grind or RPM
+- **THEN** `dyeGrinderRpm` SHALL apply independently of `dyeGrinderSetting`, and the RPM SHALL be left untouched when absent
 
 #### Scenario: ShotServer edit forms accept RPM
 
