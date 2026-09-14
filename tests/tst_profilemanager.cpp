@@ -2626,6 +2626,10 @@ private slots:
         loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
         QVERIFY(!f.settings.brew()->hasTemperatureOverride());
         QCOMPARE(f.profileManager.targetWeight(), 54.0);
+
+        // A filter ratio is armed as dialed, not clamped to an espresso bound.
+        f.settings.brew()->setBrewRatioAnchor(16.0);
+        QCOMPARE(f.profileManager.targetWeight(), 288.0);  // 16 x 18
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

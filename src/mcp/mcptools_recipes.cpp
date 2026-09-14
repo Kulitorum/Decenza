@@ -438,7 +438,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"yieldG", QJsonObject{{"type", "number"},
                     {"description", "Absolute yield in grams. Replaces any stored yieldRatio; sending both is rejected; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"},
-                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-6.0). Replaces any stored yieldG; 0 clears"}}},
+                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-100). Replaces any stored yieldG; 0 clears"}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0/omitted = brew at the profile's own temperature)"}}},
@@ -551,7 +551,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"yieldG", QJsonObject{{"type", "number"},
                     {"description", "Absolute yield in grams. Replaces any stored yieldRatio — the anchor is one field; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"},
-                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-6.0). Replaces any stored yieldG; 0 clears"}}},
+                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-100). Replaces any stored yieldG; 0 clears"}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0 clears it)"}}},

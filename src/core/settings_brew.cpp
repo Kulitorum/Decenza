@@ -256,6 +256,9 @@ void SettingsBrew::setRatioPreset3(double r) {
     }
 }
 
+double SettingsBrew::minRatio() const { return YieldSpec::kMinRatio; }
+double SettingsBrew::maxRatio() const { return YieldSpec::kMaxRatio; }
+
 double SettingsBrew::doseCupTareWeight() const {
     return m_settings.value("espresso/doseCupTareWeight", 0.0).toDouble();
 }
