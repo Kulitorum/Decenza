@@ -216,11 +216,12 @@ DecenzaDialog {
         selectedProfileTitle = ProfileManager.currentProfileName
         selectedRecipeName = (recipeActive && MainController.activeRecipe.name) ? MainController.activeRecipe.name : ""
 
-        // Yield: seed the anchor from the persisted session spec — the one
-        // line where the stored mode enters the dialog. A ratio-anchored
-        // session opens ratio-first (its identity used to be invisible:
-        // activation wrote grams for any recipe, so the dialog always opened
-        // yield-first). Mode "none" shows the profile's target, unanchored.
+        seedYieldFromSession()
+    }
+
+    // The one place the stored anchor mode enters the dialog: a ratio-anchored
+    // session opens ratio-first; "none" shows the profile's target, unanchored.
+    function seedYieldFromSession() {
         anchorMode = Settings.brew.brewYieldMode
         if (anchorMode === "ratio") {
             ratio = Settings.brew.brewYieldOverride
@@ -246,24 +247,16 @@ DecenzaDialog {
     function loadProfileByTitle(title) {
         var filename = ProfileManager.findProfileByTitle(title)
         if (filename.length > 0) {
+            const groupBefore = ProfileManager.currentProfileBeverageGroup
             ProfileManager.loadProfile(filename)
             root.profileTemperature = ProfileManager.profileTargetTemperature
             root.temperatureValue = root.profileTemperature
             root.profileTargetWeight = ProfileManager.profileTargetWeight
-            // Mode asymmetry (add-yield-ratio-anchor): a ratio anchor
-            // survives the profile switch (1:2 is 1:2 on any profile — the
-            // target keeps deriving from the dose); an absolute or
-            // unanchored yield follows the new profile's target.
-            if (root.anchorMode === "none")
-                root.targetValue = root.profileTargetWeight
-            else if (root.anchorMode === "absolute") {
-                // The C++ reset cleared the absolute session anchor on the
-                // switch; mirror it locally so OK doesn't re-arm a stale one.
-                root.anchorMode = "none"
-                root.targetValue = root.profileTargetWeight
-                root.ratio = root.doseValue > 0 && root.targetValue > 0
-                    ? root.targetValue / root.doseValue : root.ratio
-            }
+            // A dialed ratio (maybe not yet OK'd) survives a switch within its
+            // beverage group. Anything else follows what the load left in the
+            // session — cleared, or the recipe's/bean's yield — so OK can't undo it.
+            if (!(root.anchorMode === "ratio" && ProfileManager.currentProfileBeverageGroup === groupBefore))
+                root.seedYieldFromSession()
         }
     }
 

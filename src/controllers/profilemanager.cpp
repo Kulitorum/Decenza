@@ -683,21 +683,22 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
     if (!m_settings)
         return;
     SettingsBrew* brew = m_settings->brew();
+    const QString previousGroup = m_brewBeverageGroup;
+    m_brewBeverageGroup = Profile::beverageGroup(m_currentProfile.beverageType());
     if (m_startupLoadDone) {
         // Every normal runtime profile load takes this branch. Clear what
         // the outgoing profile owned — temperature and an ABSOLUTE yield
-        // anchor. A ratio anchor carries only onto an espresso profile: a
-        // tea steep inherited 2.5 x an espresso dose and was cut short (#1941).
-        const bool espresso = Profile::isEspressoBeverageType(m_currentProfile.beverageType());
-        brew->clearProfileScopedBrewOverrides(espresso);
-        // Arriving at espresso with no anchor, re-arm the bean's saved ratio:
-        // nothing else re-applies the bag rung on a profile change, so a round
-        // trip through tea would otherwise lose it.
-        const SettingsDye* dye = m_settings->dye();
-        if (espresso && !brew->hasBrewYieldOverride()
-            && dye->activeBagYieldMode() == YieldSpec::modeRatio()
-            && dye->activeBagYieldValue() > 0)
-            brew->setBrewRatioAnchor(dye->activeBagYieldValue());
+        // anchor. A ratio carries only within a beverage group (see
+        // Profile::beverageGroup). MainController then re-seeds what the
+        // recipe or bean designs (brewLoadGeneration).
+        const bool sameGroup = m_brewBeverageGroup == previousGroup;
+        if (!sameGroup && brew->brewYieldMode() == YieldSpec::modeRatio())
+            DIAG_INFO(PROFILES, "ProfileManager").noquote()
+                << QString("ratio 1:%1 cleared: '%2' is in the %3 group, the previous profile was %4")
+                       .arg(brew->brewYieldOverride(), 0, 'f', 1)
+                       .arg(m_currentProfile.title(), m_brewBeverageGroup, previousGroup);
+        brew->clearProfileScopedBrewOverrides(sameGroup);
+        ++m_brewLoadGeneration;
         return;
     }
     // Startup only: persisted overrides survive the launch load, except a

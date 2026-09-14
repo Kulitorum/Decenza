@@ -7,7 +7,7 @@ The system SHALL store temperature and yield overrides in QSettings for persiste
 
 Overrides SHALL be cleared — the flag set false, not just the value resynced to a new default — when a recipe is activated (before its own overrides apply), or when the user taps "Clear" in the BrewDialog.
 
-**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the incoming profile's `beverage_type` is not espresso.** A gram target describes the profile it was set against and is meaningless on another; a ratio is profile-independent across espresso profiles (1:2 is 1:2 on any espresso profile) and SHALL survive a switch to one, re-deriving against the current dose. A dose ratio means nothing to tea, filter or the other non-espresso types, so those profiles SHALL start from their own target; a ratio the user sets after loading one SHALL apply. Loading an espresso profile with no yield override left SHALL re-arm the active bag's saved ratio, if it has one. The temperature override SHALL continue to clear unconditionally on a profile switch.
+**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the new profile's beverage group differs from the previous profile's** (`yield-anchor`). A gram target describes the profile it was set against; a ratio fits one kind of drink, so it survives a switch within its group and re-derives against the current dose. A switch that leaves no yield override SHALL arm the active recipe's saved yield, else the active bag's. The temperature override SHALL continue to clear unconditionally on a profile switch.
 
 Loading a shot or favorite that carries its own frozen override value SHALL only mark the flag active when that frozen value genuinely differs from the freshly-loaded profile's own default (the same threshold the Shot Plan display uses), so a frozen value that happens to already match the current profile never falsely reports as an active override.
 
@@ -18,7 +18,7 @@ Loading a shot or favorite that carries its own frozen override value SHALL only
 - **AND** the overrides remain active until explicitly cleared
 
 #### Scenario: An absolute yield override clears on a profile switch
-- **WHEN** the session anchor is `{40.0, absolute}`, the active bag saves no ratio, and the user switches to a different profile
+- **WHEN** the session anchor is `{40.0, absolute}`, neither an active recipe nor the active bag saves a yield, and the user switches to a different profile
 - **THEN** the yield override is cleared from QSettings and `hasBrewYieldOverride` becomes false
 - **AND** the IdlePage shot plan returns to the new profile's target weight with no highlight
 
@@ -27,17 +27,17 @@ Loading a shot or favorite that carries its own frozen override value SHALL only
 - **THEN** the anchor remains `{2.0, ratio}` and `hasBrewYieldOverride` stays true
 - **AND** the target re-derives against the current dose on the new profile
 
-#### Scenario: A ratio yield override clears on a switch to a non-espresso profile
-- **WHEN** the session anchor is `{2.5, ratio}` and the user switches to a tea profile
+#### Scenario: A ratio yield override clears when the beverage group changes
+- **WHEN** the session anchor is `{2.5, ratio}`, neither an active recipe nor the active bag saves a yield, and the user switches from an espresso profile to a tea profile
 - **THEN** `hasBrewYieldOverride` becomes false and the stop-at-weight target is the tea profile's own `target_weight`
 
-#### Scenario: A bean's saved ratio is re-armed when returning to espresso
-- **WHEN** the active bag saves `{2.0, ratio}` and the user switches from a tea profile to an espresso profile
+#### Scenario: The bean's saved yield applies after a switch
+- **WHEN** the active bag saves `{2.0, ratio}`, no recipe is active, and a profile switch leaves no yield override
 - **THEN** the anchor is `{2.0, ratio}` and `hasBrewYieldOverride` is true
 
 #### Scenario: Temperature still clears on a profile switch
 - **WHEN** a temperature override is active and the user switches profiles
-- **THEN** `hasTemperatureOverride` becomes false, unchanged from before this change
+- **THEN** `hasTemperatureOverride` becomes false
 
 #### Scenario: Overrides cleared via BrewDialog
 - **WHEN** the user taps "Clear" in the BrewDialog

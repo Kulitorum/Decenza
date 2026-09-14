@@ -144,15 +144,10 @@ class MainController : public QObject {
     // recipe is active, ITS own yield/temp are the baseline, not overrides of the
     // profile — so a recipe's designed values must not read as overrides on any
     // live readout. These fold the recipe-vs-profile choice into one source of
-    // truth a read-only widget can ask instead of re-deriving it inline and
-    // drifting — currently the temperature readout (TemperatureItem) and custom
-    // brew widgets (CustomItem), Brew Settings and the MCP settings tools. (The
-    // Shot Plan takes injected recipeBaseline* props instead.)
-    // The baselines fall back to the profile when no recipe is active (or the
-    // recipe pins no value for that field); the *IsRealOverride flags are true
-    // only for a per-brew deviation FROM that baseline. All four re-evaluate on
-    // brewBaselineChanged (recipe activation/edit, brew-override edits, profile
-    // switch, or a target-weight sync).
+    // truth instead of re-deriving it inline, consumed by TemperatureItem,
+    // CustomItem, ShotPlanItem, Brew Settings and the MCP settings tools. The
+    // ladders live in core/brewbaseline.h. The *IsRealOverride flags are true only
+    // for a deviation FROM that baseline. All re-evaluate on brewBaselineChanged.
     Q_PROPERTY(double activeBaselineTemperatureC READ activeBaselineTemperatureC NOTIFY brewBaselineChanged)
     Q_PROPERTY(double activeBaselineYieldG READ activeBaselineYieldG NOTIFY brewBaselineChanged)
     // The yield baseline as a SPEC (add-yield-ratio-anchor): the active
@@ -843,8 +838,12 @@ private:
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);
-    // The single walk of the baseline ladder — see BaselineYield.
+    // The single walk of the baseline ladder (BrewBaseline::resolveYield).
     BrewBaseline::Yield resolveBaselineYield() const;
+    // After a runtime profile load left no yield anchor, arm the one the recipe
+    // or bean designs (not on a cleaning/descale/calibrate profile).
+    void restoreYieldAnchorAfterProfileLoad();
+    quint64 m_seenBrewLoadGeneration = 0;
     // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
     // replacing whatever is armed. Shared by activation and the
     // active-recipe edit refresh (an edit re-seeds the brew exactly as

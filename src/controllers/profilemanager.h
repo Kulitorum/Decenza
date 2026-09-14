@@ -129,6 +129,7 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
     Q_PROPERTY(QString currentProfileBeverageType READ currentProfileBeverageType NOTIFY currentProfileChanged)
     Q_PROPERTY(bool currentProfileIsMaintenance READ currentProfileIsMaintenance NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString currentProfileBeverageGroup READ currentProfileBeverageGroup NOTIFY currentProfileChanged)
     // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
     // have failed with retryable reasons. qml/main.qml watches this property
     // via a Connections handler (onDe1CommunicationFailureChanged) and calls
@@ -193,6 +194,7 @@ public:
     }
     // QML-visible view of Profile::isMaintenanceBeverageType (the shared tier used
     // by maincontroller / visualizeruploader / mcptools_write) for the current profile.
+    QString currentProfileBeverageGroup() const { return Profile::beverageGroup(m_currentProfile.beverageType()); }
     bool currentProfileIsMaintenance() const {
         return Profile::isMaintenanceBeverageType(m_currentProfile.beverageType());
     }
@@ -220,6 +222,9 @@ public:
     // True iff the session anchor's mode is "ratio" — read from the stored
     // mode, never inferred by comparing grams against the profile target.
     bool brewByRatioActive() const;
+    // Bumped by every runtime profile load's override reset, so a
+    // currentProfileChanged listener can tell a load from an edit.
+    quint64 brewLoadGeneration() const { return m_brewLoadGeneration; }
     // The canonical effective dose for ratio math and display: the latched
     // dose during a shot, else the live dyeBeanWeight. 0 = no dose known
     // (callers render a bare ratio and resolution falls back to the profile).
@@ -519,9 +524,9 @@ public slots:
 
     // Bake a new brew temperature into the current profile: every frame is shifted
     // by the delta from the profile's reference temperature (espressoTemperature),
-    // the scalar is updated, and the profile is uploaded and saved. Same anchor as
-    // the live-brew override path (uploadCurrentProfile) so save and brew agree.
-    // Returns whether the profile reached disk (false for an unsaved profile).
+    // the scalar is updated, the profile is uploaded, and saved when it has a file.
+    // Same anchor as the live-brew override path (uploadCurrentProfile). Returns
+    // whether it reached disk.
     Q_INVOKABLE bool applyTemperatureToProfile(double newTemperature);
 
     // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
@@ -759,6 +764,8 @@ private:
     // hasShotSnapshot(). m_shotSnapshotValid is set on the first latch and
     // never cleared; m_shotLatched is the freeze flag and clears at shot end.
     bool m_shotSnapshotValid = false;
+    quint64 m_brewLoadGeneration = 0;
+    QString m_brewBeverageGroup;  // Profile::beverageGroup of the last loaded profile
     QString m_latchedYieldMode = QStringLiteral("none");
     double m_latchedYieldAnchorValue = 0.0;
     // See latchedFlowCalibration(). 0.0 = not recorded, never "1.0".

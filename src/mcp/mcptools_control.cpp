@@ -129,8 +129,18 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
 
     const QVector<McpToolAction> startActions{
         McpRegistryHelpers::syncAction("espresso", "control",
-        [device, startGuard](const QJsonObject&) -> QJsonObject {
+        [device, startGuard](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
+            // Retired in 1.9.0. Unknown keys reach the handler, so a stale client's
+            // yield would otherwise be dropped while the shot starts.
+            for (const char* key : {"dose", "yield", "temperature", "grind", "rpm"}) {
+                if (args.contains(QLatin1String(key))) {
+                    result["error"] = QStringLiteral("machine_start no longer takes '%1'. Set dose, yield or "
+                                                     "ratio, temperature and grind with settings_set, then start.")
+                                          .arg(QLatin1String(key));
+                    return result;
+                }
+            }
             if (!startGuard(result)) return result;
             device->startEspresso();
             result["success"] = true;

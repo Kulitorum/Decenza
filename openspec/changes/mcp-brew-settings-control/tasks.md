@@ -32,3 +32,16 @@
 - [x] 5.4 Register-function stubs updated in `tst_mcpserver_session`, `tst_mcpserver_protocol`, `tst_mcpremoteaccess`.
 - [x] 5.5 Break each new path and watch its test go red; full suite green via Qt Creator; qmllint clean for `BrewDialog.qml`.
 - [x] 5.6 Live check over the `decenza` MCP: ratio, temperature override, both-keys refusal, Clear back to the recipe baseline, `settings_get` readback, equipment create dedup. It found create reporting `shotCount: 0` for an existing package; fixed by filling the count as update and merge do.
+
+## 6. Review fixes (PR #1945)
+
+- [x] 6.1 `settings_set` refuses non-numeric or negative brew values and temperatures outside 70-100 °C; the reply carries the effective `brew` state with notes.
+- [x] 6.2 `machine_start` refuses the retired brew arguments instead of dropping them.
+- [x] 6.3 `profiles_edit_params espressoTemperature` must be sent alone; `saved` and the message give the reason when not saved.
+- [x] 6.4 `equipment create` reports `created:false` for a reused package and names insert failures.
+- [x] 6.5 `settings_get` omits the effective target/temperature without a ProfileManager instead of reading legacy keys.
+- [x] 6.6 `BrewBaseline` source accessors, `isStoreAnchor`, `persistTarget` derived from the resolved rung.
+- [x] 6.7 `grind-rpm-pairing` delta: the independent RPM override moves to `settings_set`.
+- [x] 6.8 Tests: temperature-only call keeps the ratio, `yieldRatio: 0` clears, the reply's `brew` state, non-numeric refusal, `created` flag, mixed `espressoTemperature` refusal; each proven red.
+- [x] 6.9 Full suite green after the fixes (117/117).
+- [x] 6.10 Live recheck on the final build: effective `brew` reply, non-numeric refusal, espresso → filter clear, bean ratio restore. `machine_start` refusal not exercised live (the in-app confirmation was declined before the handler ran).

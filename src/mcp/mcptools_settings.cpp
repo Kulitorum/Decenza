@@ -222,11 +222,11 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // What the next shot brews with; the profile's own values are on profiles_get_active.
             const SettingsBrew* brew = settings->brew();
             const ProfileManager* pm = mainController ? mainController->profileManager() : nullptr;
-            if (include("espressoTemperature", "espresso", "espressoTemperatureC"))
+            if (pm && include("espressoTemperature", "espresso", "espressoTemperatureC"))
                 result["espressoTemperatureC"] = brew->hasTemperatureOverride() ? brew->temperatureOverride()
-                    : (pm ? pm->profileTargetTemperature() : brew->espressoTemperature());
-            if (include("targetWeight", "espresso", "targetWeightG"))
-                result["targetWeightG"] = pm ? pm->targetWeight() : brew->targetWeight();
+                                                                               : pm->profileTargetTemperature();
+            if (pm && include("targetWeight", "espresso", "targetWeightG"))
+                result["targetWeightG"] = pm->targetWeight();
             if (include("brewYieldMode", "espresso")) result["brewYieldMode"] = brew->brewYieldMode();
             if (include("brewYieldValue", "espresso")) result["brewYieldValue"] = brew->brewYieldOverride();
             if (pm && include("yieldRatio", "espresso")) result["yieldRatio"] = pm->brewByRatio();

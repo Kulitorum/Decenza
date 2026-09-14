@@ -12,10 +12,17 @@
 // can use it without linking MainController.
 namespace BrewBaseline {
 
+inline QString sourceRecipe()  { return QStringLiteral("recipe"); }
+inline QString sourceBag()     { return QStringLiteral("bag"); }
+inline QString sourceProfile() { return QStringLiteral("profile"); }
+
 struct Yield {
     double value = 0.0;
     QString mode = YieldSpec::modeNone();
-    QString source;  // "recipe" | "bag" | "profile"
+    QString source;  // sourceRecipe() | sourceBag() | sourceProfile()
+
+    // A recipe or bag designs this yield (the profile rung is not an anchor).
+    bool isStoreAnchor() const { return source == sourceRecipe() || source == sourceBag(); }
 };
 
 // Value and mode come from ONE rung: pairing a recipe's "ratio" with a bag's
@@ -28,11 +35,11 @@ inline Yield resolveYield(const QVariantMap& activeRecipe, const QString& bagMod
             activeRecipe.value(QStringLiteral("yieldMode")).toString());
         const double value = activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
         if (YieldSpec::isSet(mode) && value > 0.0)
-            return {value, mode, QStringLiteral("recipe")};
+            return {value, mode, sourceRecipe()};
     }
     if (YieldSpec::isSet(bagMode) && bagValue > 0.0)
-        return {bagValue, bagMode, QStringLiteral("bag")};
-    return {profileTargetG, YieldSpec::modeAbsolute(), QStringLiteral("profile")};
+        return {bagValue, bagMode, sourceBag()};
+    return {profileTargetG, YieldSpec::modeAbsolute(), sourceProfile()};
 }
 
 // The recipe stores a signed offset against its profile's temperature.
@@ -44,18 +51,28 @@ inline double temperatureC(const QVariantMap& activeRecipe, double profileTempC)
     return profileTempC;
 }
 
-// Where Update Recipe / Update Bag writes a yield: the store being shown. A
-// recipe that designs no yield has fallen through to its bag; a bean-less one
-// has nothing beneath it. Empty = no store (the override still applies).
-inline QString persistTarget(const QVariantMap& activeRecipe, bool recipeActive, bool bagActive)
+// Where Update Recipe / Update Bag writes: the store `shown` came from. When the
+// profile answers, the bag if one is active, else an active (bean-less) recipe.
+inline QString persistTarget(const Yield& shown, bool recipeActive, bool bagActive)
 {
-    if (recipeActive) {
-        if (YieldSpec::isSet(YieldSpec::normalizedMode(
-                activeRecipe.value(QStringLiteral("yieldMode")).toString())))
-            return QStringLiteral("recipe");
-        return bagActive ? QStringLiteral("bag") : QStringLiteral("recipe");
-    }
-    return bagActive ? QStringLiteral("bag") : QString();
+    if (shown.isStoreAnchor())
+        return shown.source;
+    if (bagActive)
+        return sourceBag();
+    return recipeActive ? sourceRecipe() : QString();
+}
+
+// The anchor to arm after a profile load left none: whatever the recipe or bag
+// designs, except a recipe's gram yield equal to the profile's own target,
+// which is not an override (the activation rule).
+inline Yield anchorToRestore(const Yield& baseline, double profileTargetG)
+{
+    if (!baseline.isStoreAnchor())
+        return {};
+    if (baseline.source == sourceRecipe() && baseline.mode == YieldSpec::modeAbsolute()
+        && qAbs(baseline.value - profileTargetG) <= 0.1)
+        return {};
+    return baseline;
 }
 
 }  // namespace BrewBaseline

@@ -470,6 +470,46 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 }
             }
 
+            // espressoTemperature is Brew Settings' Update Profile and must come alone:
+            // with other keys the recipe path below rebuilds Pressure/Flow frames from
+            // temperature params the shift never touched, undoing it.
+            if (remaining.contains(QStringLiteral("espressoTemperature"))) {
+                const QJsonValue raw = remaining.value(QStringLiteral("espressoTemperature"));
+                int otherKeys = 0;
+                for (auto it = remaining.begin(); it != remaining.end(); ++it)
+                    if (it.key() != QLatin1String("confirmed") && it.key() != QLatin1String("espressoTemperature"))
+                        otherKeys++;
+                if (otherKeys > 0 || !retiredKeys.isEmpty()) {
+                    result["success"] = false;
+                    result["error"] = QStringLiteral("Send 'espressoTemperature' on its own; nothing was changed.");
+                    return result;
+                }
+                if (!raw.isDouble()) {
+                    result["success"] = false;
+                    result["error"] = QStringLiteral("'espressoTemperature' must be a number in Celsius.");
+                    return result;
+                }
+                const bool readOnly = profileManager->isCurrentProfileReadOnly();
+                const bool hasFile = !profileManager->baseProfileName().isEmpty();
+                const bool saved = profileManager->applyTemperatureToProfile(raw.toDouble());
+                result["editorType"] = editorType;
+                result["saved"] = saved;
+                if (saved || readOnly || !hasFile) {
+                    result["success"] = true;
+                    result["message"] = saved
+                        ? QStringLiteral("Profile temperature saved and uploaded to machine.")
+                        : readOnly
+                            ? QStringLiteral("Uploaded to machine. Built-in profiles are read-only: save a copy "
+                                             "with profiles_save (filename + title) to keep it.")
+                            : QStringLiteral("Uploaded to machine. Call profiles_save to persist.");
+                } else {
+                    result["success"] = false;
+                    result["error"] = QStringLiteral("The temperature was uploaded to the machine, but saving the "
+                                                     "profile failed.");
+                }
+                return result;
+            }
+
             // `dose` is handled here for BOTH paths, before anything else looks at
             // the incoming keys.
             //
@@ -517,21 +557,6 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 doseApplied = true;
             }
 
-            // Brew Settings' Update Profile: shift every frame to the temperature,
-            // clear the override, upload, and save a profile that has a file.
-            bool temperatureApplied = false;
-            bool temperatureSaved = false;
-            if (remaining.contains(QStringLiteral("espressoTemperature"))) {
-                const QJsonValue raw = remaining.take(QStringLiteral("espressoTemperature"));
-                if (!raw.isDouble()) {
-                    result["success"] = false;
-                    result["error"] = QStringLiteral("'espressoTemperature' must be a number in Celsius.");
-                    return result;
-                }
-                temperatureSaved = profileManager->applyTemperatureToProfile(raw.toDouble());
-                temperatureApplied = true;
-            }
-
             // Nothing left to apply — every key in the call was a retired
             // spelling. Falling through would still run uploadProfile(), which
             // sets m_profileModified and rewrites _current.json: a fully
@@ -542,16 +567,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             for (auto it = remaining.begin(); it != remaining.end(); ++it)
                 if (it.key() != QLatin1String("confirmed"))
                     actionableKeys++;
-            if (temperatureApplied && actionableKeys == 0) {
-                result["success"] = true;
-                result["saved"] = temperatureSaved;
-                result["editorType"] = editorType;
-                result["message"] = temperatureSaved
-                    ? QStringLiteral("Profile temperature saved and uploaded to machine.")
-                    : QStringLiteral("Profile temperature uploaded to machine. Call profiles_save to persist.");
-                return result;
-            }
-            if (!doseApplied && !temperatureApplied && actionableKeys == 0 && !retiredKeys.isEmpty()) {
+            if (!doseApplied && actionableKeys == 0 && !retiredKeys.isEmpty()) {
                 result["success"] = false;
                 result["retiredFields"] = QJsonArray::fromStringList(retiredKeys);
                 result["error"] =

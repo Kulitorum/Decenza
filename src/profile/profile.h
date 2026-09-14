@@ -143,10 +143,18 @@ public:
             || t == QLatin1String("calibrate");
     }
 
-    // An empty beverage_type is espresso (the profile JSON default).
-    static bool isEspressoBeverageType(const QString& beverageType) {
+    // A dialed ratio carries only between profiles of one group: an espresso 1:2
+    // cut a tea steep short (#1941) and means nothing for filter. Unknown and empty
+    // types are espresso, the profile JSON default.
+    static QString beverageGroup(const QString& beverageType) {
         const QString t = beverageType.trimmed().toLower();
-        return t.isEmpty() || t == QLatin1String("espresso");
+        if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
+            return QStringLiteral("tea");
+        if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
+            return QStringLiteral("filter");
+        if (isMaintenanceBeverageType(t))
+            return QStringLiteral("maintenance");
+        return QStringLiteral("espresso");
     }
 
     // Profile type for compatibility with de1app settings

@@ -54,7 +54,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         MainController* mainController);
 
 // Test MCP write tools (settings_set, profiles_set_active) against ProfileManager + MockTransport.
-// Critical regression: settings_set temperature/weight must trigger BLE upload.
+// settings_set brew keys arm overrides (never a profile edit); temperature must re-upload.
 
 class tst_McpToolsWrite : public QObject {
     Q_OBJECT
@@ -258,7 +258,8 @@ private:
     void registerTools(McpTestFixture& f)
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
-        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager).
+        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager,
+        // beanbase, mainController).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
@@ -274,6 +275,7 @@ private slots:
         registerTools(f);
         loadDFlowProfile(f);
         const double profileTemp = f.profileManager.profileTargetTemperature();
+        f.settings.brew()->setBrewRatioAnchor(2.0);
         f.transport.clearWrites();
 
         QJsonObject args;
@@ -291,6 +293,8 @@ private slots:
         // Brew Settings semantics: an override, not a profile edit.
         QVERIFY(f.settings.brew()->hasTemperatureOverride());
         QCOMPARE(f.settings.brew()->temperatureOverride(), 95.0);
+        // An unsent yield keeps its live anchor rather than flattening to grams.
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.profileTargetTemperature(), profileTemp);
         QVERIFY(!f.profileManager.isProfileModified());
     }
@@ -351,6 +355,14 @@ private slots:
         QCOMPARE(f.settings.brew()->brewYieldOverride(), 2.5);
         QCOMPARE(f.profileManager.targetWeight(), 50.0);
         QVERIFY(!f.profileManager.isProfileModified());
+        // The reply reports what took effect, read after the setters ran.
+        QCOMPARE(result["brew"].toObject()["targetWeightG"].toDouble(), 50.0);
+
+        // 0 clears; it must not clamp up to the minimum ratio.
+        QJsonObject clear;
+        clear["yieldRatio"] = 0.0;
+        f.callAsyncTool("settings_set", clear);
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("none"));
     }
 
     void settingsSetRejectsBothYieldKeys()
@@ -367,6 +379,11 @@ private slots:
 
         QVERIFY(result.contains("error"));
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("none"));
+
+        // A value toDouble() would read as 0 ("clear") is refused, not coerced.
+        QJsonObject notNumber;
+        notNumber["targetWeight"] = "heavy";
+        QVERIFY(f.callAsyncTool("settings_set", notNumber).contains("error"));
     }
 
     // Clear goes back to the store that designs the yield, mode included, and
@@ -389,6 +406,10 @@ private slots:
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.targetWeight(), 36.0);
         QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+
+        // Stored settings outlive the fixture; don't leave a ratio for later tests.
+        f.settings.brew()->clearAllBrewOverrides();
+        f.settings.dye()->persistYieldSpecToBag(0, QStringLiteral("none"));
     }
 
     // The ladder Brew Settings, MainController and settings_set share. The
@@ -398,24 +419,34 @@ private slots:
     {
         const QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.2}, {"tempOffsetC", -3.0}};
         BrewBaseline::Yield y = BrewBaseline::resolveYield(recipe, QStringLiteral("absolute"), 40.0, 36.0);
-        QCOMPARE(y.source, QStringLiteral("recipe"));
+        QCOMPARE(y.source, BrewBaseline::sourceRecipe());
         QCOMPARE(y.mode, QStringLiteral("ratio"));
         QCOMPARE(y.value, 2.2);
         QCOMPARE(BrewBaseline::temperatureC(recipe, 93.0), 90.0);
-        QCOMPARE(BrewBaseline::persistTarget(recipe, true, true), QStringLiteral("recipe"));
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceRecipe());
+        QCOMPARE(BrewBaseline::anchorToRestore(y, 36.0).value, 2.2);
 
-        const QVariantMap noYield{{"yieldMode", "none"}};
-        y = BrewBaseline::resolveYield(noYield, QStringLiteral("absolute"), 40.0, 36.0);
-        QCOMPARE(y.source, QStringLiteral("bag"));
+        // A mode with no value does not claim the rung: the shown and the
+        // written store stay the bag.
+        const QVariantMap unset{{"yieldMode", "ratio"}, {"yieldValue", 0.0}};
+        y = BrewBaseline::resolveYield(unset, QStringLiteral("absolute"), 40.0, 36.0);
+        QCOMPARE(y.source, BrewBaseline::sourceBag());
         QCOMPARE(y.value, 40.0);
-        QCOMPARE(BrewBaseline::persistTarget(noYield, true, true), QStringLiteral("bag"));
-        QCOMPARE(BrewBaseline::persistTarget(noYield, true, false), QStringLiteral("recipe"));
-        QCOMPARE(BrewBaseline::persistTarget(QVariantMap(), false, false), QString());
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceBag());
 
         y = BrewBaseline::resolveYield(QVariantMap(), QStringLiteral("none"), 0.0, 36.0);
-        QCOMPARE(y.source, QStringLiteral("profile"));
+        QCOMPARE(y.source, BrewBaseline::sourceProfile());
         QCOMPARE(y.mode, QStringLiteral("absolute"));
         QCOMPARE(y.value, 36.0);
+        QVERIFY(!y.isStoreAnchor());
+        QCOMPARE(BrewBaseline::persistTarget(y, true, false), BrewBaseline::sourceRecipe());
+        QCOMPARE(BrewBaseline::persistTarget(y, false, false), QString());
+        QVERIFY(!YieldSpec::isSet(BrewBaseline::anchorToRestore(y, 36.0).mode));
+
+        // A recipe gram yield equal to the profile's own target is not restored.
+        const QVariantMap sameGrams{{"yieldMode", "absolute"}, {"yieldValue", 36.0}};
+        y = BrewBaseline::resolveYield(sameGrams, QStringLiteral("none"), 0.0, 36.0);
+        QVERIFY(!YieldSpec::isSet(BrewBaseline::anchorToRestore(y, 36.0).mode));
     }
 
     // ===== settings_set non-profile settings don't require profile =====
@@ -1315,9 +1346,11 @@ private slots:
         QVERIFY2(first["success"].toBool(), qPrintable(QJsonDocument(first).toJson()));
         const qint64 id = first["package"].toObject()["id"].toInteger();
         QVERIFY(id > 0);
+        QVERIFY(first["created"].toBool());
 
         const QJsonObject again = f.callAsyncTool("equipment", withAction("create", args));
         QCOMPARE(again["package"].toObject()["id"].toInteger(), id);
+        QVERIFY(!again["created"].toBool());
 
         QJsonObject clash;
         clash["grinderBrand"] = "DF64";

@@ -105,9 +105,8 @@ struct PendingConfirmation {
 // RESPONSE-shape changes, and the budget script hashes registrations. A response
 // change is on the author to notice.
 // 1.8.0: expanded diagnostic owner catalog and current/legacy log guidance.
-// 1.9.0: Brew Settings parity — settings_set brew overrides (targetWeight/espressoTemperature
-// no longer edit the profile; yieldRatio, clearBrewOverrides, presets), settings_get brew
-// state, profiles_edit_params espressoTemperature, equipment create, machine_start without
+// 1.9.0: Brew Settings parity — settings_set brew overrides (no profile edit), settings_get
+// brew state, profiles_edit_params espressoTemperature, equipment create; machine_start drops
 // brew arguments.
 inline constexpr const char* McpSurfaceVersion = "1.9.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in

@@ -1363,8 +1363,8 @@ void SettingsBrew::clearAllBrewOverrides() {
 }
 
 void SettingsBrew::clearProfileScopedBrewOverrides(bool keepRatioAnchor) {
-    // Keeping a ratio across espresso profiles is what delivers "persistent
-    // brew-by-ratio" with no setting (add-yield-ratio-anchor Decision 8).
+    // A kept ratio is what makes brew-by-ratio persist with no setting
+    // (add-yield-ratio-anchor Decision 8; within a beverage group since #1941).
     if (keepRatioAnchor && m_brewYieldMode == YieldSpec::modeRatio()) {
         clearTemperatureOverride();
         return;

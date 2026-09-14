@@ -559,6 +559,13 @@ private slots:
         f.settings.brew()->setTemperatureOverride(90.0);
         const double profileTemp = f.profileManager.profileTargetTemperature();
 
+        // With other keys the recipe rebuild would undo the shift: refused whole.
+        QJsonObject mixed;
+        mixed["espressoTemperature"] = profileTemp - 1.0;
+        mixed["pourFlow"] = 2.5;
+        QVERIFY(f.callTool("profiles_edit_params", mixed).contains("error"));
+        QCOMPARE(f.profileManager.profileTargetTemperature(), profileTemp);
+
         QJsonObject args;
         args["espressoTemperature"] = profileTemp - 1.0;
         const QJsonObject result = f.callTool("profiles_edit_params", args);

@@ -864,6 +864,12 @@ private slots:
 
         QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("cleaning"));
         QVERIFY(f.profileManager.currentProfileIsMaintenance());
+
+        // The ratio-carry groups share the normalization.
+        QCOMPARE(Profile::beverageGroup(QStringLiteral(" Tea_Portafilter ")), QStringLiteral("tea"));
+        QCOMPARE(Profile::beverageGroup(QStringLiteral("pourover")), QStringLiteral("filter"));
+        QCOMPARE(Profile::beverageGroup(QString()), QStringLiteral("espresso"));
+        QCOMPARE(Profile::beverageGroup(QStringLiteral("descale")), QStringLiteral("maintenance"));
     }
 
     void currentProfileIsMaintenanceCoversWholeTier() {
@@ -2560,8 +2566,8 @@ private slots:
     }
 
     // Profile-load mode asymmetry (Decision 8): a runtime profile switch
-    // clears an ABSOLUTE session anchor but keeps a RATIO one — onto an
-    // espresso profile only (#1941).
+    // clears an ABSOLUTE session anchor but keeps a RATIO one — within a
+    // beverage group (#1941).
     void profileSwitchKeepsRatioClearsAbsolute() {
         McpTestFixture f;
         loadDFlowProfile(f, "TestA", 36.0);
@@ -2578,22 +2584,20 @@ private slots:
         QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
         QCOMPARE(f.profileManager.targetWeight(), 36.0);  // still 2 x 18
 
-        // A tea profile stops on its own target (0 = no weight stop)...
+        // Espresso to tea changes group: the tea brews to its own target...
         loadDFlowProfile(f, "Tea", 0.0, 93.0, false, QStringLiteral("tea_portafilter"));
         QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
         QCOMPARE(f.profileManager.targetWeight(), 0.0);
 
-        // ...unless the user dials a ratio on it.
+        // ...and a ratio dialed on tea carries to another tea profile.
         f.settings.brew()->setBrewRatioAnchor(2.5);
+        loadDFlowProfile(f, "Tea 2", 0.0, 93.0, false, QStringLiteral("tea"));
         QCOMPARE(f.profileManager.targetWeight(), 45.0);
 
-        // Back to espresso through tea, the bean's saved ratio is re-armed.
-        f.settings.dye()->persistYieldSpecToBag(2.0, QStringLiteral("ratio"));
-        loadDFlowProfile(f, "Tea", 0.0, 93.0, false, QStringLiteral("tea_portafilter"));
+        // A filter ratio is a different ratio: tea to pourover clears it.
+        loadDFlowProfile(f, "Filter", 250.0, 93.0, false, QStringLiteral("pourover"));
         QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
-        loadDFlowProfile(f, "TestD", 48.0);
-        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
-        QCOMPARE(f.profileManager.targetWeight(), 36.0);  // 2 x 18
+        QCOMPARE(f.profileManager.targetWeight(), 250.0);
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

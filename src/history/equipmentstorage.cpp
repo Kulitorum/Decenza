@@ -308,7 +308,8 @@ void EquipmentStorage::requestPackage(qint64 packageId)
 }
 
 qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap& packageMap,
-                                            EquipmentPackageView* view, QString* error)
+                                            EquipmentPackageView* view, QString* failReason,
+                                            bool* reused)
 {
     EquipmentPackage pkg = EquipmentPackage::fromVariantMap(packageMap);
     pkg.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
@@ -320,16 +321,20 @@ qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap
     const QString puckPrep = PuckPrep::canonicalMerged(QString(), packageMap);
     qint64 id = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
                                                    basketBrand, basketModel, puckPrep);
+    if (reused)
+        *reused = id > 0;
     if (id <= 0) {
         // block-duplicate-active-names: the dialog shows the cause, ShotServer's
         // POST /api/equipment answers 409, MCP names it.
         if (findPackageByNameStatic(db, pkg.name, 0) > 0) {
-            if (error)
-                *error = QStringLiteral("nameInUse");
+            if (failReason)
+                *failReason = QStringLiteral("nameInUse");
             return -1;
         }
         id = createPackageWithGrinderStatic(db, pkg, brand, model, burrs,
                                             basketBrand, basketModel, puckPrep);
+        if (id <= 0 && failReason)
+            *failReason = QStringLiteral("insertFailed");
     }
     if (id > 0 && view) {
         view->package = loadPackageStatic(db, id);
@@ -347,12 +352,12 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
     runAsync("equip_create",
         [packageMap, newId, created](QSqlDatabase& db) {
             EquipmentPackageView view;
-            QString error;
-            *newId = createPackageStatic(db, packageMap, &view, &error);
+            QString failReason;
+            *newId = createPackageStatic(db, packageMap, &view, &failReason);
             if (*newId > 0)
                 *created = view.toVariantMap();
-            else if (!error.isEmpty())
-                (*created)[QStringLiteral("error")] = error;
+            else if (!failReason.isEmpty())
+                (*created)[QStringLiteral("error")] = failReason;
         },
         // Write: emit regardless — *newId is -1 on failure, a terminal status.
         [this, newId, created](bool) {
