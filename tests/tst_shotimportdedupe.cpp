@@ -18,7 +18,9 @@
 #include <QSqlQuery>
 #include <QSqlDatabase>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QRegularExpression>
+#include <QSignalSpy>
 
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
@@ -624,6 +626,40 @@ private slots:
         ShotHistoryStorage notReady;
         const auto unanswerable = notReady.existingShotIds({a, c});
         QVERIFY(!unanswerable.has_value());
+    }
+
+    // ShotHistoryStorage::requestProfileUsage (profile-usage-history): three
+    // shots across two titles must group by profile_name, report the max
+    // timestamp and the count per title, and never mention a title with no shots.
+    void profile_usage_groups_by_title_with_count_and_max_timestamp()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("profile_usage.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+
+        const qint64 t0 = 1770000000;
+        QVERIFY(storage.importShotRecord(makeShot("pu-1", t0,       "Blooming Espresso", QString()), false) > 0);
+        QVERIFY(storage.importShotRecord(makeShot("pu-2", t0 + 600, "Blooming Espresso", QString()), false) > 0);
+        QVERIFY(storage.importShotRecord(makeShot("pu-3", t0 + 300, "Other Profile", QString()), false) > 0);
+
+        QSignalSpy spy(&storage, &ShotHistoryStorage::profileUsageReady);
+        storage.requestProfileUsage();
+        QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 15000);
+
+        const QVariantMap usage = spy.at(0).at(0).toMap();
+        QCOMPARE(usage.size(), 2);
+        const QVariantMap blooming = usage.value(QStringLiteral("Blooming Espresso")).toMap();
+        QCOMPARE(blooming.value(QStringLiteral("count")).toInt(), 2);
+        QCOMPARE(blooming.value(QStringLiteral("lastTimestamp")).toLongLong(), t0 + 600);
+        const QVariantMap other = usage.value(QStringLiteral("Other Profile")).toMap();
+        QCOMPARE(other.value(QStringLiteral("count")).toInt(), 1);
+        QCOMPARE(other.value(QStringLiteral("lastTimestamp")).toLongLong(), t0 + 300);
+        QVERIFY2(!usage.contains(QStringLiteral("Never Used Profile")),
+                 "a title with no shots must be absent, not zero");
+
+        storage.close();
+        drain();
     }
 };
 

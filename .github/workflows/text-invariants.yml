@@ -105,6 +105,8 @@ on:
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
+      - 'resources/profiles/**'
+      - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   push:
     branches: [main]
@@ -116,6 +118,8 @@ on:
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
+      - 'resources/profiles/**'
+      - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
 
@@ -162,6 +166,12 @@ jobs:
       # build-free rule this job is built on.
       - name: No production source compiled into two test targets
         run: python3 scripts/check_test_source_duplication.py
+
+      # Blocking: a profile added to the tests' list and not the app's shipped in no
+      # release for two months (#1833's Adaptive v3, plus eight more). The list is
+      # now generated from the directory; this refuses a hand-written one coming back.
+      - name: No hand-written list of bundled profiles
+        run: python3 scripts/check_profile_resources.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

@@ -635,6 +635,165 @@ private slots:
     }
 
     // ==========================================
+    // Favorites order (profile-favorites-order)
+    // ==========================================
+    //
+    // Raw QSettings seeding, not addFavoriteProfile()/removeFavoriteProfile() —
+    // those have side effects (un-hide, select) on OTHER keys that would need
+    // their own cleanup. Direct writes to "profile/favorites" isolate the
+    // resolve-when-absent rule to the one key it actually reads.
+
+    void favoriteProfileOrderResolvesToCustomWhenFavoritesExist() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        QJsonArray arr;
+        QJsonObject f; f["name"] = "Test Fav"; f["filename"] = "test-fav.json";
+        arr.append(f);
+        raw.setValue("profile/favorites", QJsonDocument(arr).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("custom"));
+        // The read must not have written the key — resolving is not switching.
+        QVERIFY(!QSettings(Settings::testQSettingsPath(), QSettings::IniFormat)
+                     .contains("profile/favoriteOrder"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
+    void favoriteProfileOrderResolvesToUsageWhenNoFavorites() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        raw.setValue("profile/favorites", QJsonDocument(QJsonArray()).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("usage"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
+    // Stamping at startup is what keeps a NEW user in usage mode after their
+    // first star: the resolve rule alone would flip them to custom.
+    void favoriteProfileOrderStampSurvivesFirstFavorite() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        raw.setValue("profile/favorites", QJsonDocument(QJsonArray()).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        m_settings.app()->persistFavoriteProfileOrderIfAbsent();
+        QCOMPARE(raw.value("profile/favoriteOrder").toString(), QString("usage"));
+
+        QJsonArray arr;
+        QJsonObject f; f["name"] = "First Fav"; f["filename"] = "first-fav.json";
+        arr.append(f);
+        raw.setValue("profile/favorites", QJsonDocument(arr).toJson());
+        raw.sync();
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("usage"));
+
+        // A second stamp never overwrites a value already present.
+        raw.setValue("profile/favoriteOrder", "alpha");
+        raw.sync();
+        m_settings.app()->persistFavoriteProfileOrderIfAbsent();
+        QCOMPARE(raw.value("profile/favoriteOrder").toString(), QString("alpha"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
+    // Removing a favorite BEFORE the selected one used to leave the positional
+    // index on the neighbour; the selection must follow the profile.
+    void removingAnEarlierFavoriteKeepsTheSelectionOnTheSameProfile() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const int origSelected = m_settings.app()->selectedFavoriteProfile();
+
+        QJsonArray arr;
+        for (const char* fn : {"fav_a", "fav_b", "fav_c", "fav_d"}) {
+            QJsonObject f; f["name"] = fn; f["filename"] = fn; arr.append(f);
+        }
+        raw.setValue("profile/favorites", QJsonDocument(arr).toJson());
+        raw.sync();
+        m_settings.app()->setSelectedFavoriteProfile(2);  // fav_c
+
+        m_settings.app()->removeFavoriteProfile(0);       // fav_a
+        QCOMPARE(m_settings.app()->selectedFavoriteProfile(), 1);
+        QCOMPARE(m_settings.app()->favoriteProfiles().at(1).toMap().value("filename").toString(), QString("fav_c"));
+
+        m_settings.app()->removeFavoriteProfile(1);       // fav_c itself
+        QCOMPARE(m_settings.app()->selectedFavoriteProfile(), -1);
+
+        raw.setValue("profile/favorites", origFavorites);
+        raw.sync();
+        m_settings.app()->setSelectedFavoriteProfile(origSelected);
+    }
+
+    // A backup restore rebuilds the favorites list by remove-then-add; the
+    // selected index must land on the rebuilt list, and the auto-load pin must
+    // survive when the payload does not carry one.
+    void importRestoresSelectedFavoriteAndKeepsAutoLoad() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const int origSelected = m_settings.app()->selectedFavoriteProfile();
+        const QString origAutoLoad = m_settings.app()->autoLoadProfileFilename();
+
+        QJsonArray existing;
+        QJsonObject e; e["name"] = "Old Fav"; e["filename"] = "old_fav"; existing.append(e);
+        raw.setValue("profile/favorites", QJsonDocument(existing).toJson());
+        raw.sync();
+        m_settings.app()->setAutoLoadProfileFilename("old_fav");
+
+        QJsonArray imported;
+        for (const char* fn : {"imp_a", "imp_b"}) {
+            QJsonObject f; f["name"] = fn; f["filename"] = fn; imported.append(f);
+        }
+        QJsonObject profile;
+        profile["favorites"] = imported;
+        profile["selectedFavorite"] = 1;
+        QJsonObject bundle; bundle["profile"] = profile;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        QCOMPARE(m_settings.app()->selectedFavoriteProfile(), 1);
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("old_fav"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        raw.sync();
+        m_settings.app()->setSelectedFavoriteProfile(origSelected);
+        m_settings.app()->setAutoLoadProfileFilename(origAutoLoad);
+    }
+
+    void favoriteProfileOrderRoundTripsThroughSerializer() {
+        const QString orig = m_settings.app()->favoriteProfileOrder();
+        m_settings.app()->setFavoriteProfileOrder("alpha");
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QCOMPARE(bundle.value("profile").toObject().value("favoriteOrder").toString(), QString("alpha"));
+
+        m_settings.app()->setFavoriteProfileOrder("usage");
+        // importFromJson always warns when it replaces the favorites array, even 0 -> 0.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("alpha"));
+
+        m_settings.app()->setFavoriteProfileOrder(orig);
+    }
+
+    // ==========================================
     // Auto-load recipe settings (recipe-auto-load) + mutual exclusion
     // ==========================================
 

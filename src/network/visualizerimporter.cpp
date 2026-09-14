@@ -640,6 +640,17 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.setTitle(json["title"].toString("Imported Profile"));
     }
 
+    // profile-import-beverage-inference: fromJson() already defaulted a missing
+    // beverage_type to "espresso" (profile.cpp), which loses whether the RAW
+    // payload actually carried one — so check the raw payload here, never
+    // profile.beverageType(). An explicit tag, even "espresso", is never revisited.
+    if (json.value(QStringLiteral("beverage_type")).toString().trimmed().isEmpty()) {
+        const QString inferred = Profile::inferBeverageType(profile.title(), profile.steps());
+        profile.setBeverageType(inferred);
+        DIAG_INFO(VISUALIZER, "VisualizerImporter") << "Inferred beverage_type" << inferred
+                   << "for imported profile" << profile.title() << "(source carried none)";
+    }
+
     // There is deliberately NO frame-generation safety net here for a payload that
     // arrives with no steps.
     //

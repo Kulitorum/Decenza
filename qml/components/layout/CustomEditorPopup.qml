@@ -154,7 +154,7 @@ DecenzaDialog {
         result = result.replace(/%SHOT_TIME%/g, "28.5")
         result = result.replace(/%VOLUME%/g, "42")
         result = result.replace(/%TARGET_WEIGHT%/g, "36.0")
-        result = result.replace(/%PROFILE%/g, "Adaptive v2")
+        result = result.replace(/%PROFILE%/g, "Adaptive v3")
         result = result.replace(/%TARGET_TEMP%/g, "93.0")
         result = result.replace(/%RATIO%/g, "2.0")
         result = result.replace(/%DOSE%/g, "18.0")

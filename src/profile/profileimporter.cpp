@@ -4,11 +4,15 @@
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
+#include "de1apptclfields.h"
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
+#include <QTextStream>
 #include <QTimer>
 #include <QRegularExpression>
 #include <QDebug>
@@ -37,6 +41,54 @@ QString refusalMessage(const Profile& profile, const QString& sourcePath)
     if (reasons.isEmpty())
         return QStringLiteral("Failed to load profile from %1").arg(name);
     return QStringLiteral("%1: %2").arg(name, reasons.join(QStringLiteral(" ")));
+}
+
+// Loads a profile from disk (.tcl or .json) and, per
+// profile-import-beverage-inference, fills a missing beverage_type by reading
+// the RAW source. Profile::loadFromTclString/fromJson already default an
+// absent beverage_type to "espresso" (profile.cpp) — that default loses
+// whether the source actually carried one, so the raw text/JSON is checked
+// here rather than the parsed Profile. Centralizes what would otherwise be a
+// fifth copy of "isTcl ? tcl-path : json-path" load logic (import, force
+// import, import-with-name and the batch importer already had four).
+Profile loadProfileWithBeverageInference(const QString& sourcePath)
+{
+    const bool isTcl = sourcePath.endsWith(QStringLiteral(".tcl"), Qt::CaseInsensitive);
+    Profile profile;
+    QString rawBeverageType;
+
+    if (isTcl) {
+        QFile file(sourcePath);
+        QString content;
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            content = QTextStream(&file).readAll();
+        }
+        profile = Profile::loadFromTclString(content);
+        rawBeverageType = De1AppTcl::extractValue(content, QStringLiteral("beverage_type"));
+    } else {
+        QFile file(sourcePath);
+        QByteArray data;
+        if (file.open(QIODevice::ReadOnly)) {
+            data = file.readAll();
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isNull()) {
+            profile = Profile::fromJson(doc);
+            rawBeverageType = doc.object().value(QStringLiteral("beverage_type")).toString();
+        }
+        // A parse failure leaves `profile` default-constructed (invalid), same
+        // as Profile::loadFromFile()'s own failure path — the caller's existing
+        // isValid()/title checks refuse it identically either way.
+    }
+
+    if (rawBeverageType.trimmed().isEmpty() && profile.isValid()) {
+        const QString inferred = Profile::inferBeverageType(profile.title(), profile.steps());
+        profile.setBeverageType(inferred);
+        DIAG_INFO(PROFILES, "ProfileImporter") << "Inferred beverage_type" << inferred
+                   << "for imported profile" << profile.title() << "(source carried none)";
+    }
+
+    return profile;
 }
 
 }  // namespace
@@ -321,13 +373,7 @@ void ProfileImporter::importProfile(const QString& sourcePath)
     emit isImportingChanged();
 
     // Load the profile
-    bool isTcl = sourcePath.endsWith(".tcl", Qt::CaseInsensitive);
-    Profile profile;
-    if (isTcl) {
-        profile = Profile::loadFromTclFile(sourcePath);
-    } else {
-        profile = Profile::loadFromFile(sourcePath);
-    }
+    Profile profile = loadProfileWithBeverageInference(sourcePath);
 
     if (!profile.isValid() || profile.title().isEmpty()) {
         const QString message = refusalMessage(profile, sourcePath);
@@ -409,13 +455,7 @@ void ProfileImporter::forceImportProfile(const QString& sourcePath)
     emit isImportingChanged();
 
     // Load the profile
-    bool isTcl = sourcePath.endsWith(".tcl", Qt::CaseInsensitive);
-    Profile profile;
-    if (isTcl) {
-        profile = Profile::loadFromTclFile(sourcePath);
-    } else {
-        profile = Profile::loadFromFile(sourcePath);
-    }
+    Profile profile = loadProfileWithBeverageInference(sourcePath);
 
     if (!profile.isValid() || profile.title().isEmpty()) {
         const QString message = refusalMessage(profile, sourcePath);
@@ -456,13 +496,7 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
     emit isImportingChanged();
 
     // Load the profile
-    bool isTcl = sourcePath.endsWith(".tcl", Qt::CaseInsensitive);
-    Profile profile;
-    if (isTcl) {
-        profile = Profile::loadFromTclFile(sourcePath);
-    } else {
-        profile = Profile::loadFromFile(sourcePath);
-    }
+    Profile profile = loadProfileWithBeverageInference(sourcePath);
 
     if (!profile.isValid()) {
         const QString message = refusalMessage(profile, sourcePath);
@@ -649,13 +683,7 @@ void ProfileImporter::onProcessNextImport()
     emit progressChanged();
 
     // Load the profile
-    bool isTcl = sourcePath.endsWith(".tcl", Qt::CaseInsensitive);
-    Profile profile;
-    if (isTcl) {
-        profile = Profile::loadFromTclFile(sourcePath);
-    } else {
-        profile = Profile::loadFromFile(sourcePath);
-    }
+    Profile profile = loadProfileWithBeverageInference(sourcePath);
 
     if (!profile.isValid() || profile.title().isEmpty()) {
         m_batchFailed++;

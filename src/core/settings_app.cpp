@@ -2,6 +2,7 @@
 #include "settings_app.h"
 #include "settings.h"
 
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -117,10 +118,6 @@ void SettingsApp::addFavoriteProfile(const QString& name, const QString& filenam
         }
     }
 
-    // Ensure consistency: un-hide and select the profile when favoriting it
-    removeHiddenProfile(filename);
-    addSelectedBuiltInProfile(filename);
-
     QJsonObject favorite;
     favorite["name"] = name;
     favorite["filename"] = filename;
@@ -147,15 +144,27 @@ void SettingsApp::removeFavoriteProfile(int index) {
         arr.removeAt(index);
         m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
 
-        // Adjust selected if needed
-        int selected = selectedFavoriteProfile();
-        if (selected >= arr.size() && arr.size() > 0) {
-            setSelectedFavoriteProfile(static_cast<int>(arr.size()) - 1);
-        } else if (arr.size() == 0) {
+        // The stored index is positional: removing a slot BEFORE the selected
+        // one used to leave it pointing at the neighbour, so the idle page
+        // highlighted a pill the machine had not loaded. The selection follows
+        // the profile: the removed one deselects, any other keeps its profile.
+        const int selected = selectedFavoriteProfile();
+        if (selected == index) {
             setSelectedFavoriteProfile(-1);
+        } else if (selected > index) {
+            setSelectedFavoriteProfile(selected - 1);
+        } else if (selected >= arr.size()) {
+            setSelectedFavoriteProfile(arr.isEmpty() ? -1 : static_cast<int>(arr.size()) - 1);
         }
 
         emit favoriteProfilesChanged();
+
+        // Eager-clear: un-favoriting the auto-load profile makes it ineligible
+        // (favorites are the only membership now — moved here from the removed
+        // addHiddenProfile/removeSelectedBuiltInProfile eager-clears).
+        if (autoLoadProfileFilename() == filename) {
+            setAutoLoadProfileFilename("");
+        }
     }
 }
 
@@ -241,134 +250,89 @@ bool SettingsApp::updateFavoriteProfile(const QString& oldFilename, const QStrin
     return false;
 }
 
-// Selected built-in profiles
-QStringList SettingsApp::selectedBuiltInProfiles() const {
-    return m_settings.value("profile/selectedBuiltIns").toStringList();
-}
+void SettingsApp::setFavoritesOrder(const QStringList& filenamesInOrder) {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
 
-void SettingsApp::setSelectedBuiltInProfiles(const QStringList& profiles) {
-    if (selectedBuiltInProfiles() != profiles) {
-        m_settings.setValue("profile/selectedBuiltIns", profiles);
-        emit selectedBuiltInProfilesChanged();
+    QHash<QString, QJsonObject> byFilename;
+    byFilename.reserve(arr.size());
+    for (const QJsonValue& v : arr) {
+        const QJsonObject obj = v.toObject();
+        byFilename.insert(obj["filename"].toString(), obj);
     }
-}
 
-void SettingsApp::addSelectedBuiltInProfile(const QString& filename) {
-    QStringList current = selectedBuiltInProfiles();
-    if (!current.contains(filename)) {
-        current.append(filename);
-        m_settings.setValue("profile/selectedBuiltIns", current);
-        emit selectedBuiltInProfilesChanged();
+    QJsonArray reordered;
+    for (const QString& filename : filenamesInOrder) {
+        auto it = byFilename.find(filename);
+        if (it != byFilename.end())
+            reordered.append(it.value());
     }
+
+    // Usage-mode resorts run after every shot save; most change nothing, and
+    // a spurious favoriteProfilesChanged() makes every idle pill row relayout.
+    if (reordered == arr)
+        return;
+
+    m_settings.setValue("profile/favorites", QJsonDocument(reordered).toJson());
+    emit favoriteProfilesChanged();
 }
 
-void SettingsApp::removeSelectedBuiltInProfile(const QString& filename) {
-    QStringList current = selectedBuiltInProfiles();
-    if (current.removeAll(filename) > 0) {
-        m_settings.setValue("profile/selectedBuiltIns", current);
-        emit selectedBuiltInProfilesChanged();
+// rebuild-profile-picker: raw reads of the two keys behind the removed
+// Selected list, for ProfileManager::mergeSelectedIntoFavoritesIfNeeded() —
+// the only remaining reader. Not persisted through here; the merge is what
+// consumes them, once, via setSelectedMergedIntoFavorites() below.
+SettingsApp::LegacySelectedLists SettingsApp::takeLegacySelectedLists() const {
+    LegacySelectedLists legacy;
+    legacy.selectedBuiltIns = m_settings.value("profile/selectedBuiltIns").toStringList();
+    legacy.hiddenProfiles = m_settings.value("profile/hiddenProfiles").toStringList();
+    return legacy;
+}
 
-        // Eager-clear: deselecting the auto-load profile makes it ineligible
-        if (autoLoadProfileFilename() == filename) {
-            setAutoLoadProfileFilename("");
-        }
+bool SettingsApp::selectedMergedIntoFavorites() const {
+    return m_settings.value("profile/selectedMergedIntoFavorites", false).toBool();
+}
 
-        // Also remove from favorites if it was a favorite
-        if (isFavoriteProfile(filename)) {
-            QByteArray data = m_settings.value("profile/favorites").toByteArray();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            QJsonArray arr = doc.array();
+void SettingsApp::setSelectedMergedIntoFavorites() {
+    m_settings.setValue("profile/selectedMergedIntoFavorites", true);
+}
 
-            for (qsizetype i = arr.size() - 1; i >= 0; --i) {
-                if (arr[i].toObject()["filename"].toString() == filename) {
-                    arr.removeAt(i);
-                    break;
-                }
-            }
-
-            m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
-
-            // Adjust selected favorite if needed
-            int selected = selectedFavoriteProfile();
-            if (selected >= arr.size() && arr.size() > 0) {
-                setSelectedFavoriteProfile(static_cast<int>(arr.size()) - 1);
-            }
-
-            emit favoriteProfilesChanged();
-        }
+// Favorites order (profile-favorites-order). Resolve-when-absent: an
+// upgraded install with favorites keeps ITS order (custom). A fresh install
+// is stamped "usage" where its default favorites are seeded (settings.cpp),
+// so the empty branch below is only reached by a hand-emptied store. This
+// read never persists — only ProfileFavoritesOrderDialog and a backup
+// import write the key.
+QString SettingsApp::favoriteProfileOrder() const {
+    const QVariant stored = m_settings.value("profile/favoriteOrder");
+    if (stored.isValid()) {
+        const QString mode = stored.toString();
+        if (mode == QLatin1String("custom") || mode == QLatin1String("alpha")
+            || mode == QLatin1String("usage"))
+            return mode;
     }
+    return favoriteProfiles().isEmpty() ? QStringLiteral("usage") : QStringLiteral("custom");
 }
 
-bool SettingsApp::isSelectedBuiltInProfile(const QString& filename) const {
-    return selectedBuiltInProfiles().contains(filename);
+// Stamps the resolved mode once, at startup. Without this a new user's mode
+// would flip from usage to custom the moment they star their first profile,
+// because the resolve rule keys on whether favorites exist.
+void SettingsApp::persistFavoriteProfileOrderIfAbsent() {
+    if (!m_settings.value("profile/favoriteOrder").isValid())
+        m_settings.setValue("profile/favoriteOrder", favoriteProfileOrder());
 }
 
-// Hidden profiles
-QStringList SettingsApp::hiddenProfiles() const {
-    return m_settings.value("profile/hiddenProfiles").toStringList();
-}
-
-void SettingsApp::setHiddenProfiles(const QStringList& profiles) {
-    if (hiddenProfiles() != profiles) {
-        m_settings.setValue("profile/hiddenProfiles", profiles);
-        emit hiddenProfilesChanged();
+void SettingsApp::setFavoriteProfileOrder(const QString& mode) {
+    if (favoriteProfileOrder() != mode) {
+        DIAG_DEBUG(APP, "SettingsApp") << "setFavoriteProfileOrder:" << favoriteProfileOrder() << "->" << mode;
+        m_settings.setValue("profile/favoriteOrder", mode);
+        emit favoriteProfileOrderChanged();
     }
-}
-
-void SettingsApp::addHiddenProfile(const QString& filename) {
-    QStringList current = hiddenProfiles();
-    if (!current.contains(filename)) {
-        current.append(filename);
-        m_settings.setValue("profile/hiddenProfiles", current);
-        emit hiddenProfilesChanged();
-
-        // Eager-clear: hiding the auto-load profile makes it ineligible
-        if (autoLoadProfileFilename() == filename) {
-            setAutoLoadProfileFilename("");
-        }
-
-        // Also remove from favorites if it was a favorite
-        if (isFavoriteProfile(filename)) {
-            QByteArray data = m_settings.value("profile/favorites").toByteArray();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            QJsonArray arr = doc.array();
-
-            for (qsizetype i = arr.size() - 1; i >= 0; --i) {
-                if (arr[i].toObject()["filename"].toString() == filename) {
-                    arr.removeAt(i);
-                    break;
-                }
-            }
-
-            m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
-
-            int selected = selectedFavoriteProfile();
-            if (arr.isEmpty()) {
-                setSelectedFavoriteProfile(-1);
-            } else if (selected >= arr.size()) {
-                setSelectedFavoriteProfile(static_cast<int>(arr.size()) - 1);
-            }
-
-            emit favoriteProfilesChanged();
-        }
-    }
-}
-
-void SettingsApp::removeHiddenProfile(const QString& filename) {
-    QStringList current = hiddenProfiles();
-    if (current.removeAll(filename) > 0) {
-        m_settings.setValue("profile/hiddenProfiles", current);
-        emit hiddenProfilesChanged();
-    }
-}
-
-bool SettingsApp::isHiddenProfile(const QString& filename) const {
-    return hiddenProfiles().contains(filename);
 }
 
 // Current profile
 QString SettingsApp::currentProfile() const {
-    return m_settings.value("profile/current", "Adaptive v2").toString();
+    return m_settings.value("profile/current", "Adaptive v3").toString();
 }
 
 void SettingsApp::setCurrentProfile(const QString& profile) {

@@ -4616,7 +4616,7 @@ QString ShotServer::generateLayoutPage() const
             .replace(/%WATER%/g,"78").replace(/%WATER_ML%/g,"850")
             .replace(/%STATE%/g,"Idle").replace(/%WEIGHT%/g,"36.2")
             .replace(/%SHOT_TIME%/g,"28.5").replace(/%VOLUME%/g,"42")
-            .replace(/%TARGET_WEIGHT%/g,"36.0").replace(/%PROFILE%/g,"Adaptive v2")
+            .replace(/%TARGET_WEIGHT%/g,"36.0").replace(/%PROFILE%/g,"Adaptive v3")
             .replace(/%TARGET_TEMP%/g,"93.0").replace(/%RATIO%/g,"2.0")
             .replace(/%DOSE%/g,"18.0").replace(/%SCALE%/g,"Lunar")
             .replace(/%MACHINE_READY%/g,"Ready").replace(/%MACHINE_READY_COLOR%/g,"#18c37e")

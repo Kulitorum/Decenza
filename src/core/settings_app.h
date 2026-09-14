@@ -8,8 +8,8 @@
 #include <QVariantMap>
 
 // App-level settings: auto-update channel, backup schedule, developer/platform
-// flags, water level/refill, profile management bookkeeping (favorites, hidden,
-// selected built-ins, current profile), device identity, Pocket pairing.
+// flags, water level/refill, profile management bookkeeping (favorites,
+// current profile), device identity, Pocket pairing.
 //
 // Split from Settings to keep settings.h's transitive-include footprint small.
 class SettingsApp : public QObject {
@@ -27,8 +27,10 @@ class SettingsApp : public QObject {
     // Profile management
     Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged FINAL)
     Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged FINAL)
-    Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged FINAL)
-    Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged FINAL)
+    // custom|alpha|usage — see profile-favorites-order. The READ resolves an
+    // absent setting (custom if favorites exist, usage otherwise) WITHOUT
+    // writing it back; only an explicit set persists a mode. See settings_app.cpp.
+    Q_PROPERTY(QString favoriteProfileOrder READ favoriteProfileOrder WRITE setFavoriteProfileOrder NOTIFY favoriteProfileOrderChanged FINAL)
     Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged FINAL)
     Q_PROPERTY(QString autoLoadProfileFilename READ autoLoadProfileFilename WRITE setAutoLoadProfileFilename NOTIFY autoLoadProfileFilenameChanged FINAL)
     Q_PROPERTY(int autoLoadRevertMinutes READ autoLoadRevertMinutes WRITE setAutoLoadRevertMinutes NOTIFY autoLoadRevertMinutesChanged FINAL)
@@ -115,19 +117,34 @@ public:
     Q_INVOKABLE bool updateFavoriteProfile(const QString& oldFilename, const QString& newFilename, const QString& newTitle);
     Q_INVOKABLE int findFavoriteIndexByFilename(const QString& filename) const;
 
-    // Selected built-in profiles
-    QStringList selectedBuiltInProfiles() const;
-    void setSelectedBuiltInProfiles(const QStringList& profiles);
-    Q_INVOKABLE void addSelectedBuiltInProfile(const QString& filename);
-    Q_INVOKABLE void removeSelectedBuiltInProfile(const QString& filename);
-    Q_INVOKABLE bool isSelectedBuiltInProfile(const QString& filename) const;
+    // Bulk rewrite of display order, for ProfileManager::resortFavorites()
+    // (profile-favorites-order alpha/usage modes) — reordering ~50 entries one
+    // moveFavoriteProfile() at a time is both slower and, mid-sequence, would
+    // fire favoriteProfilesChanged() with a partially-reordered list. Any
+    // filename in `filenamesInOrder` not currently a favorite is ignored; any
+    // current favorite missing from it is dropped — callers always pass a
+    // permutation of the CURRENT list (favoriteProfiles() itself), never a
+    // hand-built one.
+    Q_INVOKABLE void setFavoritesOrder(const QStringList& filenamesInOrder);
 
-    // Hidden profiles
-    QStringList hiddenProfiles() const;
-    void setHiddenProfiles(const QStringList& profiles);
-    Q_INVOKABLE void addHiddenProfile(const QString& filename);
-    Q_INVOKABLE void removeHiddenProfile(const QString& filename);
-    Q_INVOKABLE bool isHiddenProfile(const QString& filename) const;
+    // One-time upgrade (rebuild-profile-picker): the removed Selected list was
+    // two keys, profile/selectedBuiltIns (opt-in) and profile/hiddenProfiles
+    // (opt-out) — see ProfileManager::mergeSelectedIntoFavoritesIfNeeded(),
+    // the only remaining reader. Raw, because their own accessors (add/remove/
+    // is-SelectedBuiltIn, add/remove/is-Hidden) are gone with the feature.
+    struct LegacySelectedLists {
+        QStringList selectedBuiltIns;
+        QStringList hiddenProfiles;
+    };
+    LegacySelectedLists takeLegacySelectedLists() const;
+    // Whether the merge above has already run.
+    bool selectedMergedIntoFavorites() const;
+    void setSelectedMergedIntoFavorites();
+
+    // Favorites order mode: custom|alpha|usage. See profile-favorites-order.
+    QString favoriteProfileOrder() const;
+    void setFavoriteProfileOrder(const QString& mode);
+    void persistFavoriteProfileOrderIfAbsent();
 
     // Current profile
     QString currentProfile() const;
@@ -208,8 +225,7 @@ signals:
     void launcherModeChanged();
     void favoriteProfilesChanged();
     void selectedFavoriteProfileChanged();
-    void selectedBuiltInProfilesChanged();
-    void hiddenProfilesChanged();
+    void favoriteProfileOrderChanged();
     void currentProfileChanged();
     void autoLoadProfileFilenameChanged();
     void autoLoadRevertMinutesChanged();

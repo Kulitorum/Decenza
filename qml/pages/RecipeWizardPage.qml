@@ -1,9 +1,11 @@
-// Seven Repeater delegates and several `Component`/`sourceComponent` blocks here read
-// this file's ids (`wizardPage`, `bagGridFlick`, `profileGrid`, `wizardBeansDialog`,
+// Several Repeater delegates and `Component`/`sourceComponent` blocks here read
+// this file's ids (`wizardPage`, `bagGridFlick`, `wizardBeansDialog`,
 // `wizardKnowledgeDialog`); Bound makes them statically resolvable. Every one of those
 // delegates declares its injected role, `modelData`, required in the same edit --
 // without that, Bound stops role injection and every tile in the wizard (drink type,
-// bag, profile, equipment, pitcher, vessel) renders blank at RUNTIME, silently.
+// bag, equipment, pitcher, vessel) renders blank at RUNTIME, silently. The profile
+// step's own tiles moved into the shared ProfilePicker component, which carries the
+// same discipline for its own delegates.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -145,8 +147,10 @@ T.Page {
         currentStep = step
         if (step === "bean")
             MainController.bagStorage.requestInventory()
-        else if (step === "profile")
-            requestProfileRanking()
+        // The "profile" step's ranking request now lives in ProfilePicker
+        // itself, reactive to its beanBrand/beanType/roastLevel/teaType
+        // properties — those already change when the bean step sets fRoaster
+        // etc., regardless of which step is visible when it happens.
     }
 
     // The bottom-bar back arrow steps BACK through the wizard; it exits only
@@ -1600,159 +1604,37 @@ T.Page {
         suggestName()
     }
 
-    // --- profile ranking ----------------------------------------------------
+    // --- profile step (ProfilePicker host properties) -----------------------
+    //
+    // The ranking/model-building that used to live here (profileModel,
+    // _ranked, rebuildProfileModel, requestProfileRanking) is now inside
+    // ProfilePicker itself (design D3 centralization; the wizard's KB-affinity
+    // reasons and 5-cap are reused there verbatim, not reimplemented). This
+    // host only supplies the bean identity and the beverage constraint.
 
-    // Assembled model for the profile step: [{header}] and [{profile row}]
-    // entries. Tiers: ① used with this bean, ② similar (type-matched tea
-    // profiles first), ③ the rest of the filter set.
-    property var profileModel: []
-    property var _ranked: ({})
-    property string profileFilter: ""
-
-    function requestProfileRanking() {
-        _ranked = ({})
-        var teaType = ""
-        if (isTeaDrink && fBagBlob !== "") {
-            try { teaType = String(JSON.parse(fBagBlob).teaType || "") } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
-        }
-        var roastLevel = ""  // the bag list carries roastLevel per bag
-        if (!isTeaDrink && _selectedBagRoastLevel !== "")
-            roastLevel = _selectedBagRoastLevel
-        rebuildProfileModel()
-        if (hasBean)
-            MainController.shotHistory.requestRankedProfilesForBean(fRoaster, fCoffee, roastLevel, teaType)
-    }
     property string _selectedBagRoastLevel: ""
     // The linked bag's roast date, kept alongside the roast level so the
     // summary Bean card can render "<date> · <age>d" (the same line the bean
     // step's tiles show). Resolved from inventory / direct selection.
     property string _selectedBagRoastDate: ""
 
-    function rebuildProfileModel() {
-        var filter = profileFilter.trim().toLowerCase()
-        var beverages = activeTemplate.beverages
-        var all = ProfileManager.allProfilesList
-        var inSet = []
-        for (var i = 0; i < all.length; ++i) {
-            var bev = String(all[i].beverageType || "").trim().toLowerCase()
-            if (beverages.indexOf(bev) < 0)
-                continue
-            if (filter !== "" && String(all[i].title).toLowerCase().indexOf(filter) < 0)
-                continue
-            inSet.push(all[i])
-        }
-        var byTitle = {}
-        for (i = 0; i < inSet.length; ++i)
-            byTitle[String(inSet[i].title).toLowerCase()] = inSet[i]
-
-        var model = []
-        var used = {}
-        var withBean = (_ranked.withBean || [])
-        var similar = (_ranked.similar || [])
-        var tier1 = []
-        for (i = 0; i < withBean.length; ++i) {
-            var p = byTitle[String(withBean[i].profileName).toLowerCase()]
-            if (p) { tier1.push({ isHeader: false, tier: 1, title: p.title, name: p.name, reason: "",
-                                  tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0,
-                                  hasKb: p.hasKnowledgeBase === true }); used[p.title] = true }
-        }
-        if (tier1.length > 0) {
-            model.push({ isHeader: true, title: TranslationManager.translate(
-                "recipes.wizard.profiles.withBean", "Used with this bean") })
-            model = model.concat(tier1)
-        }
-        // Tier ②: knowledge-driven recommendations (no history needed) first,
-        // then similar-bean history. Tea: profiles whose stock title matches
-        // the bag's tea type. Coffee: profiles the knowledge base states
-        // shine with the bag's roast level (KB roastAffinity — authored from
-        // each profile's own dial-in docs).
-        var tier2 = []
-        var teaType = ""
-        if (isTeaDrink && _teaBrewingTypeForRanking() !== "")
-            teaType = _teaBrewingTypeForRanking()
-        if (teaType !== "") {
-            for (i = 0; i < inSet.length; ++i) {
-                if (used[inSet[i].title]) continue
-                if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType))
-                    tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
-                                 tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
-                                 hasKb: inSet[i].hasKnowledgeBase === true,
-                                 reason: TranslationManager.translate(
-                                     "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
-            }
-        }
-        if (!isTeaDrink && _selectedBagRoastLevel !== "") {
-            for (i = 0; i < inSet.length; ++i) {
-                if (used[inSet[i].title]) continue
-                if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel))
-                    tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
-                                 tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
-                                 hasKb: inSet[i].hasKnowledgeBase === true,
-                                 reason: TranslationManager.translate(
-                                     "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
-                                     .arg(_selectedBagRoastLevel.toLowerCase()) })
-            }
-        }
-        for (i = 0; i < similar.length; ++i) {
-            p = byTitle[String(similar[i].profileName).toLowerCase()]
-            if (p && !used[p.title]) {
-                var already = false
-                for (var t = 0; t < tier2.length; ++t) {
-                    if (tier2[t].title === p.title) { already = true; break }
-                }
-                if (!already)
-                    tier2.push({ isHeader: false, tier: 2, title: p.title, name: p.name,
-                                 tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0,
-                                 hasKb: p.hasKnowledgeBase === true,
-                                 reason: TranslationManager.translate(
-                                     "recipes.wizard.profiles.similarBeans", "used with similar beans") })
-            }
-        }
-        // A HANDFUL of the best, not the whole matching set — candidates
-        // beyond the cap fall through to "All profiles" (only the kept rows
-        // are marked used).
-        tier2 = tier2.slice(0, 5)
-        for (i = 0; i < tier2.length; ++i)
-            used[tier2[i].title] = true
-        if (tier2.length > 0) {
-            model.push({ isHeader: true, title: TranslationManager.translate(
-                "recipes.wizard.profiles.recommended", "Recommended") })
-            model = model.concat(tier2)
-        }
-        // Tier ③: the rest. Tea with a stated brew temp orders by proximity;
-        // otherwise the list keeps allProfilesList's alphabetical order.
-        var rest = []
-        for (i = 0; i < inSet.length; ++i) {
-            if (!used[inSet[i].title])
-                rest.push(inSet[i])
-        }
-        var statedTemp = 0
-        if (isTeaDrink && fBagBlob !== "") {
-            try { statedTemp = parseFloat(JSON.parse(fBagBlob).brewTempC) || 0 } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
-        }
-        if (statedTemp > 0) {
-            var withTemp = rest.map(function(p) {
-                var t = p.espressoTemperature || 0
-                return { p: p, key: t > 0 ? Math.abs(t - statedTemp) : 999 }
-            })
-            withTemp.sort(function(a, b) { return a.key - b.key })
-            rest = withTemp.map(function(e) { return e.p })
-        }
-        if (rest.length > 0) {
-            if (model.length > 0)
-                model.push({ isHeader: true, title: TranslationManager.translate(
-                    "recipes.wizard.profiles.all", "All profiles") })
-            for (i = 0; i < rest.length; ++i)
-                model.push({ isHeader: false, tier: 3, title: rest[i].title, name: rest[i].name, reason: "",
-                             tempC: rest[i].espressoTemperature || 0, yieldG: rest[i].targetWeight || 0,
-                             hasKb: rest[i].hasKnowledgeBase === true })
-        }
-        profileModel = model
+    // Tea type extracted from the bag blob, for ProfilePicker's teaType prop
+    // (drives its tier-② tea-type-match reason). "" outside a tea drink.
+    readonly property string _wizardTeaType: {
+        if (!isTeaDrink || fBagBlob === "") return ""
+        try { return String(JSON.parse(fBagBlob).teaType || "") }
+        catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")); return "" }
     }
 
-    function _teaBrewingTypeForRanking() {
-        if (fBagBlob === "") return ""
-        try { return String(JSON.parse(fBagBlob).teaType || "") } catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")); return "" }
+    // activeTemplate.beverages minus the "" placeholder (empty/unknown already
+    // normalizes to espresso inside ProfileManager::filterProfiles).
+    readonly property var _wizardAllowedBeverages: {
+        var out = []
+        var bevs = activeTemplate.beverages || []
+        for (var i = 0; i < bevs.length; ++i) {
+            if (bevs[i] !== "") out.push(bevs[i])
+        }
+        return out
     }
 
     // --- connections --------------------------------------------------------
@@ -1767,15 +1649,9 @@ T.Page {
     }
     Connections {
         target: MainController.shotHistory
-        function onRankedProfilesForBeanReady(result) {
-            // Stale-reply guard: ignore a ranking that answers a bean the user
-            // has since switched away from (the query echoes its bean).
-            if (String(result.queryBrand || "") !== wizardPage.fRoaster
-                || String(result.queryType || "") !== wizardPage.fCoffee)
-                return
-            wizardPage._ranked = result
-            wizardPage.rebuildProfileModel()
-        }
+        // rankedProfilesForBeanReady is handled by ProfilePicker itself now
+        // (profile-picker's shared bean-ranked tiers) — no wizard-level
+        // handler needed.
         function onLatestGrindForBeanReady(grind) {
             if (!wizardPage.activeTemplate.grind) return
             // Stale-reply guard: the query echoes the bean+roast it answered.
@@ -2360,8 +2236,9 @@ T.Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        textFields: [nameField, doseField.input, yieldField.input,
-                     profileSearchField]
+        // profileSearchField used to be listed here; it now lives inside
+        // ProfilePicker, which is not a text-field host itself.
+        textFields: [nameField, doseField.input, yieldField.input, wizardProfilePicker.searchInput]
 
         ColumnLayout {
             anchors.fill: parent
@@ -2713,7 +2590,8 @@ T.Page {
                     }
                 }
 
-                // ===== Step 3: profile (filtered + ranked) =====
+                // ===== Step 3: profile (shared ProfilePicker — profile-picker /
+                // recipe-wizard specs) =====
                 ColumnLayout {
                     spacing: Theme.spacingSmall
                     Label {
@@ -2724,177 +2602,31 @@ T.Page {
                         Accessible.role: Accessible.Heading
                         Accessible.name: text
                     }
-                    StyledTextField {
-                        id: profileSearchField
-                        Layout.fillWidth: true
-                        placeholder: TranslationManager.translate("profileselector.search", "Search profiles…")
-                        Accessible.name: placeholderText
-                        onTextChanged: {
-                            wizardPage.profileFilter = text
-                            wizardPage.rebuildProfileModel()
-                        }
-                    }
-                    // Profile tile GRID (same visual language as the drink
-                    // and bag steps): every profile is a tile with its real
-                    // temperature and target yield; the ranked tiers carry
-                    // the recommendation reason as an on-tile chip. Headers
-                    // span the full row. Metadata comes from the catalog
-                    // cache (ProfileInfo) — no per-tile file reads.
-                    Flickable {
-                        id: profileGridFlick
+                    ProfilePicker {
+                        id: wizardProfilePicker
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        contentHeight: profileGrid.implicitHeight + Theme.scaled(16)
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
 
-                        Flow {
-                            id: profileGrid
-                            width: profileGridFlick.width
-                            spacing: Theme.spacingSmall
+                        beanBrand: wizardPage.fRoaster
+                        beanType: wizardPage.fCoffee
+                        // Coffee only — matches the old requestProfileRanking's
+                        // "!isTeaDrink" guard; a tea bag's roast level isn't a
+                        // coffee roast affinity signal.
+                        roastLevel: wizardPage.isTeaDrink ? "" : wizardPage._selectedBagRoastLevel
+                        teaType: wizardPage._wizardTeaType
+                        allowedBeverageTypes: wizardPage._wizardAllowedBeverages
+                        // No chip on initially (recipe-wizard spec); the
+                        // Beverage chip group is hidden automatically because
+                        // allowedBeverageTypes is non-empty (design D6).
+                        initialChips: ({})
 
-                            readonly property real tileWidth: {
-                                var min = Theme.scaled(230)
-                                var columns = Math.max(1, Math.floor(width / min))
-                                return (width - (columns - 1) * spacing) / columns
-                            }
-
-                            Repeater {
-                                model: wizardPage.profileModel
-                                delegate: Loader {
-                                    id: profileLoader
-                                    required property var modelData
-
-                                    sourceComponent: profileLoader.modelData.isHeader ? profileHeader : profileTile
-                                    property var row: profileLoader.modelData
-                                    Component {
-                                        id: profileHeader
-                                        Label {
-                                            width: profileGrid.width
-                                            text: profileLoader.row.title
-                                            font: Theme.captionFont
-                                            color: Theme.textSecondaryColor
-                                            topPadding: Theme.spacingMedium
-                                            bottomPadding: Theme.scaled(2)
-                                            Accessible.role: Accessible.Heading
-                                            Accessible.name: text
-                                        }
-                                    }
-                                    Component {
-                                        id: profileTile
-                                        Rectangle {
-                                            id: tileRect
-                                            width: profileGrid.tileWidth
-                                            height: Theme.scaled(124)
-                                            radius: Theme.cardRadius
-                                            color: Theme.cardBackgroundColor
-                                            border.color: wizardPage.fProfileTitle === profileLoader.row.title
-                                                ? Theme.primaryColor : Theme.borderColor
-                                            border.width: wizardPage.fProfileTitle === profileLoader.row.title ? 2 : 1
-                                            readonly property string metaLine: {
-                                                var parts = []
-                                                if ((profileLoader.row.tempC || 0) > 0)
-                                                    parts.push(Theme.formatTemperature(profileLoader.row.tempC, 0))
-                                                if ((profileLoader.row.yieldG || 0) > 0)
-                                                    parts.push("→ " + Number(profileLoader.row.yieldG).toFixed(0) + "g")
-                                                return parts.join(" · ")
-                                            }
-                                            ColumnLayout {
-                                                anchors.fill: parent
-                                                anchors.margins: Theme.spacingSmall
-                                                spacing: Theme.scaled(4)
-                                                Label {
-                                                    Layout.fillWidth: true
-                                                    text: profileLoader.row.title
-                                                    font: Theme.bodyFont
-                                                    color: Theme.textColor
-                                                    wrapMode: Text.WordWrap
-                                                    maximumLineCount: 2
-                                                    elide: Text.ElideRight
-                                                    Accessible.ignored: true
-                                                }
-                                                Label {
-                                                    visible: tileRect.metaLine !== ""
-                                                    text: tileRect.metaLine
-                                                    font: Theme.captionFont
-                                                    color: Theme.textSecondaryColor
-                                                    Accessible.ignored: true
-                                                }
-                                                Item { Layout.fillHeight: true }
-                                                RowLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: Theme.spacingSmall
-                                                    // The recommendation reason rides its
-                                                    // tile as a chip — never detached text.
-                                                    Rectangle {
-                                                        visible: profileLoader.row.reason !== ""
-                                                        radius: height / 2
-                                                        color: Qt.alpha(Theme.primaryColor, 0.15)
-                                                        implicitHeight: reasonChip.implicitHeight + Theme.scaled(6)
-                                                        implicitWidth: Math.min(
-                                                            reasonChip.implicitWidth + Theme.scaled(14),
-                                                            tileRect.width - Theme.scaled(90))
-                                                        Label {
-                                                            id: reasonChip
-                                                            anchors.centerIn: parent
-                                                            width: Math.min(implicitWidth,
-                                                                parent.width - Theme.scaled(10))
-                                                            text: profileLoader.row.reason
-                                                            font: Theme.captionFont
-                                                            color: Theme.primaryColor
-                                                            elide: Text.ElideRight
-                                                            Accessible.ignored: true
-                                                        }
-                                                    }
-                                                    Item { Layout.fillWidth: true }
-                                                    // The same two info affordances the
-                                                    // profile page offers: the sparkle KB
-                                                    // popup and the Profile Info page.
-                                                    ColoredIcon {
-                                                        visible: profileLoader.row.hasKb === true
-                                                        source: "qrc:/icons/sparkle.svg"
-                                                        iconWidth: Theme.scaled(16)
-                                                        iconHeight: Theme.scaled(16)
-                                                        iconColor: Theme.textSecondaryColor
-                                                        Accessible.ignored: true
-                                                        AccessibleMouseArea {
-                                                            anchors.fill: parent
-                                                            anchors.margins: Theme.scaled(-6)
-                                                            accessibleName: TranslationManager.translate(
-                                                                "profileselector.accessible.view_knowledge",
-                                                                "View AI knowledge base")
-                                                            accessibleItem: parent
-                                                            onAccessibleClicked:
-                                                                wizardKnowledgeDialog.openFor(profileLoader.row.title)
-                                                        }
-                                                    }
-                                                    ProfileInfoButton {
-                                                        Layout.preferredWidth: Theme.scaled(26)
-                                                        Layout.preferredHeight: Theme.scaled(26)
-                                                        buttonSize: Theme.scaled(26)
-                                                        profileFilename: profileLoader.row.name
-                                                        profileName: profileLoader.row.title
-                                                        onClicked: AppShell.profileInfoRequested(profileLoader.row.name, profileLoader.row.title)
-                                                    }
-                                                }
-                                            }
-                                            // The tile-wide select target sits under the
-                                            // info buttons so their own tap areas win —
-                                            // same pattern as the recipe cards.
-                                            CardTapArea {
-                                                accessibleName: profileLoader.row.title
-                                                    + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
-                                                    + (profileLoader.row.reason !== "" ? ", " + profileLoader.row.reason : "")
-                                                accessibleItem: tileRect
-                                                onAccessibleClicked: wizardPage.selectProfile(profileLoader.row)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        onProfileChosen: function(filename, title) {
+                            wizardPage.selectProfile({ title: title, name: filename })
                         }
                     }
-                    // Fixed row (tea only): a profile-less hot-water recipe.
+                    // Fixed card (tea only): a profile-less hot-water recipe.
+                    // Below the picker, visible regardless of its search/chips
+                    // (recipe-wizard spec).
                     ItemDelegate {
                         visible: wizardPage.isTeaDrink
                         Layout.fillWidth: true

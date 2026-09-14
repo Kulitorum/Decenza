@@ -1083,6 +1083,24 @@ endif()
 
 # Resources
 qt_add_resources(RESOURCES resources/resources.qrc)
+
+# Bundled profiles: the directory is the list. Two hand-kept .qrc copies
+# (resources.qrc for the app, profiles.qrc for the tests) drifted for two months
+# and nine profiles shipped in no release. CONFIGURE_DEPENDS re-globs on every
+# build, so a new .json ships without a reconfigure. tests/CMakeLists.txt links
+# the same generated file; scripts/check_profile_resources.py refuses a
+# hand-written list anywhere in the repo.
+file(GLOB DECENZA_PROFILE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/resources/profiles/*.json")
+list(SORT DECENZA_PROFILE_FILES)
+set(DECENZA_PROFILES_QRC "${CMAKE_BINARY_DIR}/generated/profiles.qrc")
+set(_profiles_qrc_body "<RCC>\n    <qresource prefix=\"/\">\n")
+foreach(_profile IN LISTS DECENZA_PROFILE_FILES)
+    get_filename_component(_name "${_profile}" NAME)
+    string(APPEND _profiles_qrc_body "        <file alias=\"profiles/${_name}\">${_profile}</file>\n")
+endforeach()
+string(APPEND _profiles_qrc_body "    </qresource>\n</RCC>\n")
+file(CONFIGURE OUTPUT "${DECENZA_PROFILES_QRC}" CONTENT "${_profiles_qrc_body}" @ONLY)
+qt_add_resources(RESOURCES "${DECENZA_PROFILES_QRC}")
 qt_add_resources(RESOURCES resources/emoji.qrc)
 qt_add_resources(RESOURCES resources/ai.qrc)
 
@@ -1385,6 +1403,9 @@ set(QML_FILES
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileDialInDiffBlock.qml
     qml/components/ProfileInfoButton.qml
+    qml/components/ProfileCard.qml
+    qml/components/ProfilePicker.qml
+    qml/components/ProfileFavoritesOrderDialog.qml
     qml/components/BottomBar.qml
     qml/components/BottomBarSubtitle.qml
     qml/components/ThemedIcon.qml

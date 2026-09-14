@@ -338,6 +338,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_lastSavedShotId = m_shotHistory->lastSavedShotId();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
+    // profile-usage-history: ProfileManager owns the usage data (profileUsage,
+    // fed to the picker and usage-mode favorites resort); ShotHistoryStorage
+    // owns the threaded query. Refreshed at startup (here) and after every
+    // shot save, per the spec.
+    connect(m_shotHistory, &ShotHistoryStorage::profileUsageReady,
+            m_profileManager, &ProfileManager::setProfileUsage);
+    connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this](qint64) {
+        m_shotHistory->requestProfileUsage();
+    });
+    m_shotHistory->requestProfileUsage();
+
     // Coffee bag storage shares the shot history database (coffee_bags
     // table, created by migration 19 inside initialize() above).
     m_bagStorage = new CoffeeBagStorage(this);

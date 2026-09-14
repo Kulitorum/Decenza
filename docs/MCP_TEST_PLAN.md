@@ -190,7 +190,7 @@ Expect absent: preinfusionTime, espressoPressure, steps
 
 ### 3.8 profiles_get_params — advanced
 ```
-Call: profiles_set_active (filename: "adaptive_v2", confirmed: true)
+Call: profiles_set_active (filename: "adaptive_v3", confirmed: true)
 Call: profiles_get_params
 Expect: editorType="advanced"
 Expect present: steps (array with 7 elements), espresso_temperature, profile_notes, preinfuse_frame_count
@@ -234,7 +234,7 @@ Call: settings_set (espressoTemperature: ORIGINAL_TEMP, confirmed: true)
 
 ### 4.5 profiles_edit_params — advanced profile (frame preservation)
 ```
-Call: profiles_set_active (filename: "adaptive_v2", confirmed: true)
+Call: profiles_set_active (filename: "adaptive_v3", confirmed: true)
 Call: profiles_get_params
 Save: note steps array length as FRAME_COUNT, espresso_temperature as ADV_TEMP
 Call: profiles_edit_params (espresso_temperature: ADV_TEMP+2, confirmed: true)

@@ -1960,7 +1960,7 @@ private slots:
     // tree via DECENZA_SOURCE_DIR (defined for every test target — see
     // add_decenza_test in tests/CMakeLists.txt).
     //
-    // This binary now links profiles.qrc too — ProfileShapeIndex reads
+    // This binary now links the bundled-profile resource too — ProfileShapeIndex reads
     // `:/profiles`, so the 494 KB an earlier comment here argued against is
     // already compiled in. The slots below still read the source tree anyway:
     // they assert against the files a maintainer edits, so a profile renamed on
@@ -2021,7 +2021,7 @@ private slots:
     // shipped profile set: these slots need the KB resource (:/ai) to resolve
     // ids, and this is the binary that links ai.qrc. Putting them there meant
     // "Failed to load profile knowledge resource" and four vacuous zeros.
-    // (This binary links profiles.qrc as well, since ProfileShapeIndex reads
+    // (This binary links the bundled-profile resource as well, since ProfileShapeIndex reads
     // `:/profiles`; the slots below still read the FILES from the source tree
     // so they assert against what a maintainer edits.)
     //
@@ -2099,18 +2099,12 @@ private slots:
     // widening the shape key; it disappeared because the KB stopped saying
     // one thing twice.
     //
-    // {adaptive-v2, adaptive-v3} is the third, added when the de1app sync
-    // brought in Adaptive v3 (best_practice.tcl, KB entry `adaptive-v3`).
-    // Unlike LRv2/Londonium this is a real two-profile collision, not a
-    // duplicate: adaptive_v2.json and adaptive_v3.json share the identical
-    // 7-frame skeleton (Prefill/Fill/Compressing/Dripping/Pressurize/
-    // Extraction start/Extraction, same pump mode and duration per frame) —
-    // best-practice-light-roast's own prose says it "subsequently evolved
-    // into the Adaptive profile", and v2/v3 are two points on that lineage —
-    // but differ in setpoints (temperature, pressure/flow targets) and in
-    // KB facts (v3 has no expertBand; v3 carries channeling_expected for its
-    // near-zero-pressure Dripping step, v2 does not). Kept as a real bucket.
-    void shippedShapeCollisionsAreExactlyTheKnownThree()
+    // {adaptive-v2, adaptive-v3} WAS the third while both files shipped: the
+    // same 7-frame skeleton with different setpoints. de1app replaced v2 with
+    // v3 in place (best_practice.tcl, 2026-08-17) and Decenza retired
+    // adaptive_v2.json to match, so only v3 ships and the bucket is gone. The
+    // `adaptive-v2` KB entry stays for the shots pulled under that title.
+    void shippedShapeCollisionsAreExactlyTheKnownTwo()
     {
         const QMap<QString, QSet<QString>> buckets = shippedShapeBuckets();
 
@@ -2127,7 +2121,6 @@ private slots:
                   });
 
         QList<QStringList> expected{
-            {QStringLiteral("adaptive-v2"), QStringLiteral("adaptive-v3")},
             {QStringLiteral("d-flow"), QStringLiteral("d-flow-la-pavoni-variant")},
             {QStringLiteral("gentle-flat-long-preinfusion-family"),
              QStringLiteral("preinfuse-then-45ml-of-water")},
@@ -2198,26 +2191,23 @@ private slots:
             if (bandSets.size() > 1) ++bandDisagreements;
         }
 
-        QCOMPARE(bucketsSeen, 3);
-        // Measured: two buckets disagree on flags (flow_trend_ok, the safe
-        // direction the union rule handles); two disagree on the band, which
+        QCOMPARE(bucketsSeen, 2);
+        // Measured: one bucket disagrees on flags (flow_trend_ok, the safe
+        // direction the union rule handles); one disagrees on the band, which
         // is why the band requires unanimity and is withheld otherwise.
         //
-        // Was 2 buckets / 1 flag / 1 band disagreement before the de1app sync
-        // added {adaptive-v2, adaptive-v3} (see
-        // shippedShapeCollisionsAreExactlyTheKnownThree) — that bucket
-        // disagrees on both: v3 carries channeling_expected and v2 does not,
-        // and v2 has an expertBand while v3 (no citation strong enough to
-        // pin one) does not.
+        // Was 3 / 2 / 2 while adaptive_v2.json and adaptive_v3.json both
+        // shipped (see shippedShapeCollisionsAreExactlyTheKnownTwo); retiring
+        // v2 removed that bucket, which disagreed on both.
         //
-        // Before that, was 3 buckets / 2 band disagreements. The extra one,
+        // Earlier still, 3 buckets / 2 band disagreements: the extra one,
         // {damians-lr-v2-v3, londinium}, was never two profiles — it was one
         // profile with two KB entries, and its "band disagreement" was the KB
         // describing the same extraction twice with different completeness.
         // Merging the entries removed a disagreement rather than resolving
         // one.
-        QCOMPARE(flagDisagreements, 2);
-        QCOMPARE(bandDisagreements, 2);
+        QCOMPARE(flagDisagreements, 1);
+        QCOMPARE(bandDisagreements, 1);
     }
 
     // === ProfileShapeIndex (change: resolve-profile-kb-by-shape, group 3) ===
@@ -2679,7 +2669,7 @@ private slots:
     // skips loadShotRecordStatic exercises the branch that was never broken.
     //
     // It lives in this file rather than beside the other DB round-trips in
-    // tst_dbmigration because it needs BOTH profiles.qrc (for the shape index
+    // tst_dbmigration because it needs BOTH the bundled profiles (for the shape index
     // to have anything to match against) and ai.qrc (for the entry's canonical
     // name). This binary already links both; tst_dbmigration links neither,
     // and adding them there costs two resource compiles for one test.
@@ -2738,7 +2728,7 @@ private slots:
     // differ per fact rather than being one policy.
     //
     // The buckets used as fixtures are the real shipped ones, pinned by
-    // shippedShapeCollisionsAreExactlyTheKnownThree above.
+    // shippedShapeCollisionsAreExactlyTheKnownTwo above.
 
     // flow_trend_ok is carried by preinfuse-then-45ml-of-water and NOT by
     // gentle-flat-long-preinfusion-family — a real disagreement in a real
@@ -2940,7 +2930,7 @@ private slots:
         //
         // This fixture used to be londonium.json. That stopped being ambiguous
         // when LRv2 and Londonium were recognised as one profile and their KB
-        // entries merged — see shippedShapeCollisionsAreExactlyTheKnownThree.
+        // entries merged — see shippedShapeCollisionsAreExactlyTheKnownTwo.
         Profile p = loadShipped(QStringLiteral("d_flow_default.json"));
         p.setTitle(QStringLiteral("Zzz Unrelated Name"));
         const KbResolution r = resolveProfileKb(p);

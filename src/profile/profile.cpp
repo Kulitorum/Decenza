@@ -14,6 +14,7 @@
 #include <QDebug>
 #include <QHash>
 #include <QSet>
+#include <algorithm>
 #include <cmath>
 
 // Convert a JSON value that may be string or number to double (de1app encodes
@@ -1463,8 +1464,9 @@ Profile Profile::loadFromTclString(const QString& content) {
     // de1app scalars Profile does not model, kept verbatim under de1app's own
     // spelling so a Decenza-written file still means the same thing to de1app.
     //   - profile_hide → hidden: de1app and Decaid read this to filter their
-    //     profile lists. Decenza's own list uses SettingsApp::isHiddenProfile(),
-    //     a separate per-user filename list, so this is inert locally.
+    //     profile lists. Decenza has no equivalent per-user hidden list
+    //     (favorites are the only membership, rebuild-profile-picker), so
+    //     this is inert locally.
     //   - flow_profile_preinfusion / _preinfusion_time: NOT aliases of
     //     preinfusion_flow_rate / preinfusion_time. They are de1app's flow-editor
     //     (settings_2b) values against the pressure-editor (settings_2a) ones,
@@ -2048,6 +2050,64 @@ QString Profile::frameDiffReport(const Profile& a, const Profile& b)
         report += prefix + d.kind + ": A=" + va + " B=" + vb + "\n";
     }
     return report;
+}
+
+QString Profile::inferBeverageType(const QString& title, const QList<ProfileFrame>& steps)
+{
+    const QString t = title.toLower();
+
+    // 1. Title keywords, first match wins. Order matters: "tea" is checked
+    // before the pourover keywords so "Cold Brew Tea" lands in tea_portafilter
+    // rather than pourover (profile-import-beverage-inference scenario).
+    if (t.contains(QLatin1String("clean")) || t.contains(QLatin1String("flush"))
+        || t.contains(QLatin1String("backflush")) || t.contains(QLatin1String("descale")))
+        return QStringLiteral("cleaning");
+    if (t.contains(QLatin1String("calibrat")))
+        return QStringLiteral("calibrate");
+    // "tea" and "chai" need word boundaries: "Steam", "Steady" and "chain"
+    // all contain them as substrings.
+    static const QRegularExpression kTeaWord(QStringLiteral("\\b(tea|chai)\\b"));
+    if (kTeaWord.match(t).hasMatch() || t.contains(QLatin1String("steep"))
+        || t.contains(QLatin1String("matcha")))
+        return QStringLiteral("tea_portafilter");
+    static const QStringList kPourKeywords = {
+        QStringLiteral("pour over"), QStringLiteral("pourover"), QStringLiteral("filter"),
+        QStringLiteral("v60"), QStringLiteral("aeropress"), QStringLiteral("chemex"),
+        QStringLiteral("cold brew"), QStringLiteral("drip"), QStringLiteral("immersion"),
+    };
+    for (const QString& kw : kPourKeywords) {
+        if (t.contains(kw))
+            return QStringLiteral("pourover");
+    }
+
+    // 2. Shape: highest pressure across steps (setpoint for a pressure step,
+    // limiter for a flow step) under 3 bar, or any step at/below 40C, reads as
+    // pourover regardless of title. A flow step whose limiter is 0 has the
+    // IgnoreLimit flag set (profileframe.h:83) — unlimited pressure, not 0 bar —
+    // so it contributes no pressure evidence. Frameless profiles skip this.
+    if (!steps.isEmpty()) {
+        double maxPressure = 0.0;
+        bool pressureEvidence = false;
+        bool coldStep = false;
+        for (const ProfileFrame& f : steps) {
+            if (f.pump == QLatin1String("flow")) {
+                if (f.maxFlowOrPressure > 0.0) {
+                    maxPressure = std::max(maxPressure, f.maxFlowOrPressure);
+                    pressureEvidence = true;
+                }
+            } else {
+                maxPressure = std::max(maxPressure, f.pressure);
+                pressureEvidence = true;
+            }
+            if (f.temperature > 0.0 && f.temperature <= 40.0)
+                coldStep = true;
+        }
+        if ((pressureEvidence && maxPressure < 3.0) || coldStep)
+            return QStringLiteral("pourover");
+    }
+
+    // 3. Otherwise espresso.
+    return QStringLiteral("espresso");
 }
 
 QString Profile::titleToFilename(const QString& title)

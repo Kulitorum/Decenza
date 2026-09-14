@@ -96,11 +96,6 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double defaultPressureFlowLimit READ defaultPressureFlowLimit CONSTANT)
     Q_PROPERTY(double maxSettableFlow READ maxSettableFlow CONSTANT)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList selectedProfiles READ selectedProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList allBuiltInProfiles READ allBuiltInProfiles NOTIFY allBuiltInProfileListChanged)
-    Q_PROPERTY(QVariantList cleaningProfiles READ cleaningProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList downloadedProfiles READ downloadedProfiles NOTIFY profilesChanged)
-    Q_PROPERTY(QVariantList userCreatedProfiles READ userCreatedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allProfilesList READ allProfilesList NOTIFY profilesChanged)
 
     // Every installed profile TITLE, for QML to test whether a recipe's stored
@@ -147,6 +142,12 @@ class ProfileManager : public QObject {
     Q_PROPERTY(bool profileHasRecommendedDose READ profileHasRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileRecommendedDose READ profileRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
+
+    // Per-profile usage from shot history (profile-usage-history): title ->
+    // {lastTimestamp, count}. Fed by MainController connecting
+    // ShotHistoryStorage::profileUsageReady to setProfileUsage() — ProfileManager
+    // itself has no ShotHistoryStorage dependency (see the class comment).
+    Q_PROPERTY(QVariantMap profileUsage READ profileUsage NOTIFY profileUsageChanged)
 
 public:
     // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
@@ -321,12 +322,12 @@ public:
     }
 
     // === Profile catalog ===
+    // selectedProfiles()/allBuiltInProfiles()/cleaningProfiles()/
+    // downloadedProfiles()/userCreatedProfiles() (the old six-way view combo's
+    // per-view lists) were removed with rebuild-profile-picker: the shared
+    // ProfilePicker filters the one catalog (allProfilesList) with
+    // filterProfiles()/facetCounts() instead of ProfileManager pre-splitting it.
     QVariantList availableProfiles() const;
-    QVariantList selectedProfiles() const;
-    QVariantList allBuiltInProfiles() const;
-    QVariantList cleaningProfiles() const;
-    QVariantList downloadedProfiles() const;
-    QVariantList userCreatedProfiles() const;
     QVariantList allProfilesList() const;
 
     // Exact titles as stored in the catalog — the same strings
@@ -354,7 +355,6 @@ public:
     // hasKnowledgeBase (bool), espressoTemperatureC, targetWeightG.
     Q_INVOKABLE QVariantMap profileCatalogInfoForTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
-    Q_INVOKABLE bool isProfileInSelectedList(const QString& filename) const;
     Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
 
@@ -424,6 +424,35 @@ public:
     Q_INVOKABLE QVariantMap profileDialInDiffForJson(const QString& profileJson) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
+
+    // === Shared picker (profile-picker) ===================================
+    //
+    // ONE predicate, one facet counter, over the in-memory catalogue — see
+    // design D3. `chips` is a plain map: favorites (bool),
+    // sources (QStringList of "builtin"|"downloaded"|"mine"), beverages
+    // (QStringList of "espresso"|"filter"|"tea"|"maintenance"). Groups combine
+    // with OR internally and AND against each other and the search text;
+    // an empty group matches everything. `allowedBeverageTypes` is the HOST
+    // constraint (e.g. the wizard's drink type), separate from the beverages
+    // chip group and applied even when that group is hidden. Entries are
+    // shaped like allProfilesList()'s rows (profileInfoToVariantMap).
+    Q_INVOKABLE QVariantList filterProfiles(const QVariantMap& chips, const QString& search,
+                                            const QStringList& allowedBeverageTypes = {}) const;
+
+    // Faceted count per chip id ("favorites", "builtin",
+    // "downloaded", "mine", "espresso", "filter", "tea", "maintenance"): how many
+    // profiles would match if THAT chip were also on, given the chips already
+    // on and the search text (profile-picker "Faceted chip counts").
+    Q_INVOKABLE QVariantMap facetCounts(const QVariantMap& chips, const QString& search,
+                                        const QStringList& allowedBeverageTypes = {}) const;
+
+    // Centralizes the star action (design D8/D3 "centralize anything produced
+    // at more than one site") so both hosts' cards and the picker component
+    // share one favorite-toggle path instead of each calling SettingsApp
+    // directly. Adding also re-sorts under `alpha` mode (profile-favorites-order:
+    // "re-sorts by title... whenever a favorite is added"); removing does not
+    // move anything. Returns the new favorite state.
+    Q_INVOKABLE bool toggleFavoriteProfile(const QString& filename);
 
     // Recipe-wizard tea helpers (add-recipe-wizard-tea): QML-visible views of
     // the DrinkTypes header (src/core/drinktypes.h — the single source for
@@ -557,6 +586,13 @@ public slots:
                                                    double anchorTemp, bool hasOverride,
                                                    double overrideTemp,
                                                    double baselineShiftC = 0.0) const;
+    // profile-usage-history. MainController connects
+    // ShotHistoryStorage::profileUsageReady here (startup + every shot save).
+    // Re-sorts favorites under `usage` mode (profile-favorites-order) with the
+    // fresh data — a no-op under `alpha`/`custom`.
+    QVariantMap profileUsage() const { return m_profileUsage; }
+    Q_INVOKABLE void setProfileUsage(const QVariantMap& usage);
+
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
     // Rename in place: changes only the profile's display title, keeping the same
     // filename (so favorites/auto-load/selected references stay valid). Built-in
@@ -575,7 +611,6 @@ signals:
     void profileModifiedChanged();
     void targetWeightChanged();
     void profilesChanged();
-    void allBuiltInProfileListChanged();
 
     // Emitted when uploadCurrentProfile() is blocked during active phase.
     // Connect to ShotDebugLogger for diagnostics.
@@ -625,16 +660,46 @@ signals:
     void shotAbortedProfileUploadRetrying();
 
     // Emitted when loadAutoLoadProfileIfNeeded() finds the configured filename
-    // no longer resolves to a Selected-list profile. The setting is cleared as
-    // part of the same call; QML listens to surface a toast.
+    // no longer resolves to a favorite. The setting is cleared as part of the
+    // same call; QML listens to surface a toast.
     //
-    // Not emitted on eager-clear paths (Settings::addHiddenProfile /
-    // removeSelectedBuiltInProfile / ProfileManager::deleteProfile) — those
-    // clear the filename directly while the user is already on a UI that
-    // makes the change obvious, so no toast is warranted.
+    // Not emitted on eager-clear paths (SettingsApp::removeFavoriteProfile /
+    // ProfileManager::deleteProfile) — those clear the filename directly while
+    // the user is already on a UI that makes the change obvious, so no toast
+    // is warranted.
     void autoLoadStaleCleared();
 
+    // See Q_PROPERTY documentation above.
+    void profileUsageChanged();
+
 private:
+    // One predicate behind filterProfiles()/facetCounts() — see their
+    // Q_INVOKABLE doc comments for the chip map shape.
+    bool profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
+                               const QString& searchLower,
+                               const QStringList& allowedBeverageTypes,
+                               const QSet<QString>& favoriteFilenames) const;
+    // favoriteProfiles() parses a JSON blob on every call; the filter and
+    // facet passes read it once through this.
+    QSet<QString> favoriteFilenameSet() const;
+
+    // Re-sorts Settings.app.favoriteProfiles in place per the CURRENT
+    // favoriteProfileOrder mode (profile-favorites-order D1): alpha sorts by
+    // title, usage by m_profileUsage's lastTimestamp (never-used last, then
+    // alpha), custom is a no-op. Re-syncs selectedFavoriteProfile by FILENAME
+    // afterward — the resort is positional, identity must survive it.
+    void resortFavorites();
+
+    // One-time upgrade (rebuild-profile-picker): the removed Selected list —
+    // built-ins opted IN via the old selectedBuiltIns, downloaded/user
+    // profiles opted OUT via the old hiddenProfiles — folded into favorites,
+    // appended alphabetically by title after the existing favorites. Gated by
+    // SettingsApp::selectedMergedIntoFavorites(); called once from the
+    // constructor, after refreshProfiles() has populated m_allProfiles and
+    // before persistFavoriteProfileOrderIfAbsent() resolves the order mode.
+    void mergeSelectedIntoFavoritesIfNeeded();
+
+
     // Catalog lookup by title for the four KB surfaces. Returns nullptr when
     // no profile has that title, and also when two do and disagree about their
     // KB resolution — see the definition for why picking one is wrong.
@@ -752,6 +817,8 @@ private:
     QMap<QString, QString> m_profileTitles;      // filename -> display title
     QMap<QString, QString> m_profileJsonCache;   // populated by refreshProfiles, consumed by loadProfile
     QList<ProfileInfo> m_allProfiles;
+    // profile-usage-history: title -> {lastTimestamp, count}. See profileUsage().
+    QVariantMap m_profileUsage;
     QString m_baseProfileName;
     QString m_previousProfileName;
     bool m_profileModified = false;

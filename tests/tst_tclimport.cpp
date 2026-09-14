@@ -648,9 +648,10 @@ private slots:
     }
 
     void hiddenFlagSurvivesImport() {
-        // profile_hide drives de1app's and Decaid's profile lists. Decenza's
-        // own list filters through SettingsApp::isHiddenProfile() instead, so
-        // this is inert locally and still has to be right on the way out.
+        // profile_hide drives de1app's and Decaid's profile lists. Decenza has
+        // no equivalent per-user hidden list (favorites are the only
+        // membership, rebuild-profile-picker), so this is inert locally and
+        // still has to be right on the way out.
         const QString hiddenTcl = readFile(DE1APP_PROFILES_DIR + "/Flow profile for milky drinks.tcl");
         if (hiddenTcl.isEmpty()) QSKIP("fixture not found");
         QCOMPARE(Profile::loadFromTclString(hiddenTcl).toJson().object().value("hidden").toString(),

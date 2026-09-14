@@ -2490,6 +2490,108 @@ private slots:
         QCOMPARE(rows.first().unit, unit);
     }
 
+    // === beverageBucket (rebuild-profile-picker, profile-picker chip mapping) ====
+
+    void beverageBucket_data() {
+        QTest::addColumn<QString>("beverageType");
+        QTest::addColumn<QString>("expected");
+
+        QTest::newRow("espresso") << "espresso" << "espresso";
+        QTest::newRow("empty") << "" << "espresso";
+        QTest::newRow("unknown") << "some-future-type" << "espresso";
+        QTest::newRow("filter") << "filter" << "filter";
+        QTest::newRow("pourover") << "pourover" << "filter";
+        QTest::newRow("tea") << "tea" << "tea";
+        QTest::newRow("tea_portafilter") << "tea_portafilter" << "tea";
+        QTest::newRow("cleaning") << "cleaning" << "maintenance";
+        QTest::newRow("descale") << "descale" << "maintenance";
+        QTest::newRow("calibrate") << "calibrate" << "maintenance";
+        QTest::newRow("manual") << "manual" << "maintenance";
+        // Normalized: trimmed + lowercased, like beverageGroup()/isMaintenanceBeverageType().
+        QTest::newRow("mixedCaseAndSpace") << "  Pourover  " << "filter";
+    }
+
+    void beverageBucket() {
+        QFETCH(QString, beverageType);
+        QFETCH(QString, expected);
+        QCOMPARE(Profile::beverageBucket(beverageType), expected);
+    }
+
+    // === inferBeverageType (rebuild-profile-picker, profile-import-beverage-inference) ==
+    //
+    // ProfileFrame carries no Q_DECLARE_METATYPE, so a QList<ProfileFrame> data
+    // column is not an option — QTest::addColumn<T> needs a registered metatype.
+    // Title-only (keyword) cases use a _data() table; shape cases, which need
+    // real frames, are one plain test building its own local ProfileFrame lists.
+
+    static ProfileFrame makeFrame(const QString& pump, double pressure,
+                                   double maxFlowOrPressure, double temperature) {
+        ProfileFrame f;
+        f.pump = pump;
+        f.pressure = pressure;
+        f.maxFlowOrPressure = maxFlowOrPressure;
+        f.temperature = temperature;
+        return f;
+    }
+
+    void inferBeverageType_titleKeywords_data() {
+        QTest::addColumn<QString>("title");
+        QTest::addColumn<QString>("expected");
+
+        // Keyword wins over shape: checked with no frames at all, so an espresso
+        // shape default cannot be the reason the right answer comes back.
+        QTest::newRow("keywordWinsOverShape_tea") << "Cold Brew Tea" << "tea_portafilter";
+        QTest::newRow("cleanKeyword") << "Backflush Cycle" << "cleaning";
+        QTest::newRow("calibrateKeyword") << "Calibrate Scale" << "calibrate";
+        QTest::newRow("pourKeyword") << "V60 Recipe" << "pourover";
+        QTest::newRow("noKeywordNoFrames_defaultsEspresso") << "Mystery Profile" << "espresso";
+        // "tea" only as a whole word: "Steady" and "Steam" must not read as tea.
+        QTest::newRow("teaSubstringIsNotTea") << "Steady 9 bar" << "espresso";
+        QTest::newRow("teaWholeWord") << "Black Tea 85" << "tea_portafilter";
+    }
+
+    void inferBeverageType_titleKeywords() {
+        QFETCH(QString, title);
+        QFETCH(QString, expected);
+        QCOMPARE(Profile::inferBeverageType(title, {}), expected);
+    }
+
+    void inferBeverageType_shape() {
+        // Low pressure, no keyword: every step under 2 bar -> pourover.
+        const QList<ProfileFrame> lowPressure = {
+            makeFrame("pressure", 1.5, 0.0, 92.0),
+            makeFrame("pressure", 2.0, 0.0, 90.0),
+        };
+        QCOMPARE(Profile::inferBeverageType("Slow Long", lowPressure), QStringLiteral("pourover"));
+
+        // Flow-driven step: the LIMITER (maxFlowOrPressure), not the flow
+        // setpoint, is what counts as its pressure per the spec.
+        ProfileFrame flowStep;
+        flowStep.pump = "flow";
+        flowStep.flow = 8.0;
+        flowStep.maxFlowOrPressure = 1.0;
+        flowStep.temperature = 92.0;
+        QCOMPARE(Profile::inferBeverageType("Flow Thing", {flowStep}), QStringLiteral("pourover"));
+
+        // Limiter 0 on a flow step means IgnoreLimit (unlimited), not 0 bar:
+        // no pressure evidence, so a hot unlimited flow step stays espresso.
+        ProfileFrame unlimitedFlow;
+        unlimitedFlow.pump = "flow";
+        unlimitedFlow.flow = 2.0;
+        unlimitedFlow.maxFlowOrPressure = 0.0;
+        unlimitedFlow.temperature = 93.0;
+        QCOMPARE(Profile::inferBeverageType("Flow Thing", {unlimitedFlow}), QStringLiteral("espresso"));
+
+        // Cold step -> pourover regardless of pressure.
+        const QList<ProfileFrame> coldStep = { makeFrame("pressure", 9.0, 0.0, 22.0) };
+        QCOMPARE(Profile::inferBeverageType("Cold Something", coldStep), QStringLiteral("pourover"));
+
+        // No keyword, high pressure, no cold step -> espresso (the explicit-tag
+        // scenario in the spec checks the same shape stays espresso when tagged).
+        const QList<ProfileFrame> hotHighPressure = { makeFrame("pressure", 9.0, 0.0, 93.0) };
+        QCOMPARE(Profile::inferBeverageType("Community Blend", hotHighPressure), QStringLiteral("espresso"));
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Profile)

@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSet>
 
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -153,6 +154,29 @@ private:
         // MockTransport never ACKs writes, so tests that call uploadCurrentProfile()
         // after this helper would otherwise find the gate permanently blocked.
         emit f.device.profileUploaded(true, QString());
+    }
+
+    // The favorites store is process-wide (Settings::testQSettingsPath(), one
+    // file for the whole test binary run — see tst_settings.cpp's header
+    // comment), and existing tests (e.g. renameProfileSyncsFavoriteTitle) add
+    // favorites without removing them. So a favorites-order assertion must
+    // read the RELATIVE order of just the filenames it cares about, never
+    // assume the list holds only those — a full sort is still correct on any
+    // subset of a correctly-sorted list, so this stays a faithful check.
+    static QStringList favoriteFilenamesAmong(const QVariantList& favorites, const QSet<QString>& of) {
+        QStringList result;
+        for (const QVariant& v : favorites) {
+            const QString fn = v.toMap().value(QStringLiteral("filename")).toString();
+            if (of.contains(fn)) result << fn;
+        }
+        return result;
+    }
+
+    // Good-citizen cleanup for the favorites this test file's own new tests add,
+    // so they don't keep growing the shared store for every test that follows.
+    static void removeFavoriteIfPresent(McpTestFixture& f, const QString& filename) {
+        const int idx = f.settings.app()->findFavoriteIndexByFilename(filename);
+        if (idx >= 0) f.settings.app()->removeFavoriteProfile(idx);
     }
 
 private slots:
@@ -3997,6 +4021,378 @@ private slots:
         QVERIFY(!f.profileManager.renameProfile("default", "Hacked Title"));
     }
 
+    // === Favorites order + usage (rebuild-profile-picker: profile-favorites-order,
+    // profile-usage-history) ==================================================
+
+    void favoritesResortByUsageAfterSetProfileUsage() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / UsageA");
+        QVERIFY(f.profileManager.saveProfile("usage_fav_a"));
+        loadDFlowProfile(f, "D-Flow / UsageB");
+        QVERIFY(f.profileManager.saveProfile("usage_fav_b"));
+        loadDFlowProfile(f, "D-Flow / UsageC");
+        QVERIFY(f.profileManager.saveProfile("usage_fav_c"));
+
+        // Favorited A, B, C in that order.
+        f.settings.app()->addFavoriteProfile("D-Flow / UsageA", "usage_fav_a");
+        f.settings.app()->addFavoriteProfile("D-Flow / UsageB", "usage_fav_b");
+        f.settings.app()->addFavoriteProfile("D-Flow / UsageC", "usage_fav_c");
+        f.settings.app()->setFavoriteProfileOrder("usage");
+
+        QVariantMap usage;
+        QVariantMap usageC; usageC["lastTimestamp"] = qint64(2000); usageC["count"] = 1;
+        QVariantMap usageA; usageA["lastTimestamp"] = qint64(1000); usageA["count"] = 3;
+        usage["D-Flow / UsageC"] = usageC;
+        usage["D-Flow / UsageA"] = usageA;
+        // UsageB carries no entry at all — never used.
+        f.profileManager.setProfileUsage(usage);
+
+        const QSet<QString> ours = {"usage_fav_a", "usage_fav_b", "usage_fav_c"};
+        const QStringList order = favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ours);
+        QCOMPARE(order, (QStringList{"usage_fav_c", "usage_fav_a", "usage_fav_b"}));  // most recent first, never-used last
+
+        removeFavoriteIfPresent(f, "usage_fav_a");
+        removeFavoriteIfPresent(f, "usage_fav_b");
+        removeFavoriteIfPresent(f, "usage_fav_c");
+        QFile::remove(f.profileManager.userProfilesPath() + "/usage_fav_a.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/usage_fav_b.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/usage_fav_c.json");
+    }
+
+    void favoritesResortByAlphaOnRename() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Zeta");
+        QVERIFY(f.profileManager.saveProfile("alpha_fav_z"));
+        loadDFlowProfile(f, "D-Flow / Alpha");
+        QVERIFY(f.profileManager.saveProfile("alpha_fav_a"));
+
+        f.settings.app()->addFavoriteProfile("D-Flow / Zeta", "alpha_fav_z");
+        f.settings.app()->addFavoriteProfile("D-Flow / Alpha", "alpha_fav_a");
+        f.settings.app()->setFavoriteProfileOrder("alpha");
+
+        // Renaming Z to something alphabetically first must re-sort immediately —
+        // alpha mode resorts "whenever a favorite is added or renamed".
+        QVERIFY(f.profileManager.renameProfile("alpha_fav_z", "Aardvark"));
+
+        const QSet<QString> ours = {"alpha_fav_z", "alpha_fav_a"};
+        const QStringList order = favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ours);
+        QCOMPARE(order, (QStringList{"alpha_fav_z", "alpha_fav_a"}));  // "Aardvark" now sorts first
+
+        removeFavoriteIfPresent(f, "alpha_fav_z");
+        removeFavoriteIfPresent(f, "alpha_fav_a");
+        QFile::remove(f.profileManager.userProfilesPath() + "/alpha_fav_z.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/alpha_fav_a.json");
+    }
+
+    void favoritesCustomModeNeverRewritten() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / CustB");
+        QVERIFY(f.profileManager.saveProfile("custom_fav_b"));
+        loadDFlowProfile(f, "D-Flow / CustA");
+        QVERIFY(f.profileManager.saveProfile("custom_fav_a"));
+
+        f.settings.app()->addFavoriteProfile("D-Flow / CustB", "custom_fav_b");
+        f.settings.app()->addFavoriteProfile("D-Flow / CustA", "custom_fav_a");
+        f.settings.app()->setFavoriteProfileOrder("custom");
+
+        QVariantMap usage;
+        QVariantMap u; u["lastTimestamp"] = qint64(999); u["count"] = 1;
+        usage["D-Flow / CustA"] = u;
+        f.profileManager.setProfileUsage(usage);  // usage data changed; mode is custom
+
+        const QSet<QString> ours = {"custom_fav_b", "custom_fav_a"};
+        const QStringList order = favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ours);
+        QCOMPARE(order, (QStringList{"custom_fav_b", "custom_fav_a"}));  // insertion order held, untouched
+
+        removeFavoriteIfPresent(f, "custom_fav_b");
+        removeFavoriteIfPresent(f, "custom_fav_a");
+        QFile::remove(f.profileManager.userProfilesPath() + "/custom_fav_b.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/custom_fav_a.json");
+    }
+
+    void favoritesSelectionFollowsProfileAcrossResort() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / SelA");
+        QVERIFY(f.profileManager.saveProfile("sel_fav_a"));
+        loadDFlowProfile(f, "D-Flow / SelB");
+        QVERIFY(f.profileManager.saveProfile("sel_fav_b"));
+        loadDFlowProfile(f, "D-Flow / SelC");
+        QVERIFY(f.profileManager.saveProfile("sel_fav_c"));
+
+        f.settings.app()->addFavoriteProfile("D-Flow / SelA", "sel_fav_a");
+        f.settings.app()->addFavoriteProfile("D-Flow / SelB", "sel_fav_b");
+        f.settings.app()->addFavoriteProfile("D-Flow / SelC", "sel_fav_c");
+        f.settings.app()->setFavoriteProfileOrder("usage");
+
+        // Select "sel_fav_b" by its ACTUAL index — the shared favorites store
+        // may already hold entries from other tests, so a hardcoded position
+        // would be fragile (see favoriteFilenamesAmong's comment above).
+        const int bIndex = f.settings.app()->findFavoriteIndexByFilename("sel_fav_b");
+        QVERIFY(bIndex >= 0);
+        f.settings.app()->setSelectedFavoriteProfile(bIndex);
+
+        // Usage data promotes C ahead of B; the selected INDEX must follow B
+        // (the profile), wherever the resort moves it.
+        QVariantMap usage;
+        QVariantMap uc; uc["lastTimestamp"] = qint64(5000); uc["count"] = 1;
+        usage["D-Flow / SelC"] = uc;
+        f.profileManager.setProfileUsage(usage);
+
+        const int newIndex = f.settings.app()->selectedFavoriteProfile();
+        QCOMPARE(f.settings.app()->getFavoriteProfile(newIndex)["filename"].toString(), QString("sel_fav_b"));
+
+        removeFavoriteIfPresent(f, "sel_fav_a");
+        removeFavoriteIfPresent(f, "sel_fav_b");
+        removeFavoriteIfPresent(f, "sel_fav_c");
+        QFile::remove(f.profileManager.userProfilesPath() + "/sel_fav_a.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/sel_fav_b.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/sel_fav_c.json");
+    }
+
+    // === Shared picker filter/facet predicate (rebuild-profile-picker: profile-picker) ===
+    //
+    // Every profile title carries a unique tag so assertions are robust to
+    // whatever else the shared test-user-profiles folder holds — the picker's
+    // search combines with AND against every chip, so tagging AND searching by
+    // the tag isolates these three from the rest of the catalogue for free.
+
+    void filterProfilesCombinesGroupsWithAndWithinGroupOr() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Filt_Espresso_9f2e", 36.0, 93.0, false, "espresso");
+        QVERIFY(f.profileManager.saveProfile("filt_espresso_9f2e"));
+        loadDFlowProfile(f, "D-Flow / Filt_Tea_9f2e", 36.0, 93.0, false, "tea_portafilter");
+        QVERIFY(f.profileManager.saveProfile("filt_tea_9f2e"));
+        loadDFlowProfile(f, "D-Flow / Filt_Filter_9f2e", 36.0, 93.0, false, "filter");
+        QVERIFY(f.profileManager.saveProfile("filt_filter_9f2e"));
+
+        auto namesOf = [](const QVariantList& list) {
+            QStringList names;
+            for (const QVariant& v : list) names << v.toMap()["name"].toString();
+            return names;
+        };
+
+        // Within-group OR: Tea + Filter chips list both, never Espresso.
+        {
+            QVariantMap chips;
+            chips["beverages"] = QStringList{"tea", "filter"};
+            const QStringList names = namesOf(f.profileManager.filterProfiles(chips, QStringLiteral("9f2e")));
+            QVERIFY(names.contains("filt_tea_9f2e"));
+            QVERIFY(names.contains("filt_filter_9f2e"));
+            QVERIFY(!names.contains("filt_espresso_9f2e"));
+        }
+
+        // Cross-group AND: sources=[mine] (all three are) AND beverages=[tea].
+        {
+            QVariantMap chips;
+            chips["sources"] = QStringList{"mine"};
+            chips["beverages"] = QStringList{"tea"};
+            const QStringList names = namesOf(f.profileManager.filterProfiles(chips, QStringLiteral("9f2e")));
+            QCOMPARE(names, QStringList{"filt_tea_9f2e"});
+        }
+
+        // Empty group = all: no chips at all (just the isolating search) lists all three.
+        {
+            const QStringList names = namesOf(f.profileManager.filterProfiles(QVariantMap(), QStringLiteral("9f2e")));
+            QCOMPARE(names.size(), 3);
+        }
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/filt_espresso_9f2e.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/filt_tea_9f2e.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/filt_filter_9f2e.json");
+    }
+
+    void filterProfilesSearchIsTitleOnly() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Blossom_e41c");
+        QVERIFY(f.profileManager.saveProfile("search_blossom_e41c"));
+        loadDFlowProfile(f, "D-Flow / Other_e41c");
+        QVERIFY(f.profileManager.saveProfile("search_other_e41c"));
+
+        f.settings.app()->addFavoriteProfile("D-Flow / Blossom_e41c", "search_blossom_e41c");
+
+        // Search matches the TITLE, case-insensitively, substring.
+        QStringList byNames;
+        for (const QVariant& v : f.profileManager.filterProfiles(QVariantMap(), QStringLiteral("BLOSSOM")))
+            byNames << v.toMap()["name"].toString();
+        QVERIFY(byNames.contains("search_blossom_e41c"));
+        QVERIFY(!byNames.contains("search_other_e41c"));
+
+        // Favorites chip lists our favorite.
+        QVariantMap favChips; favChips["favorites"] = true;
+        QStringList favNames;
+        for (const QVariant& v : f.profileManager.filterProfiles(favChips, QStringLiteral("e41c")))
+            favNames << v.toMap()["name"].toString();
+        QCOMPARE(favNames, QStringList{"search_blossom_e41c"});
+
+        removeFavoriteIfPresent(f, "search_blossom_e41c");
+        QFile::remove(f.profileManager.userProfilesPath() + "/search_blossom_e41c.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/search_other_e41c.json");
+    }
+
+    void filterProfilesAppliesHostBeverageConstraintEvenWithoutChips() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Constraint_Espresso_b81a", 36.0, 93.0, false, "espresso");
+        QVERIFY(f.profileManager.saveProfile("constraint_espresso_b81a"));
+        loadDFlowProfile(f, "D-Flow / Constraint_Tea_b81a", 36.0, 93.0, false, "tea_portafilter");
+        QVERIFY(f.profileManager.saveProfile("constraint_tea_b81a"));
+
+        // No chips at all — the host constraint alone hides the espresso one,
+        // exactly as the wizard relies on for a tea drink type (D6).
+        const QVariantList result = f.profileManager.filterProfiles(
+            QVariantMap(), QStringLiteral("b81a"), {"tea_portafilter"});
+        QCOMPARE(result.size(), 1);
+        QCOMPARE(result.first().toMap()["name"].toString(), QString("constraint_tea_b81a"));
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/constraint_espresso_b81a.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/constraint_tea_b81a.json");
+    }
+
+    void facetCountsReflectOtherActiveChipsAndActiveChipItself() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Facet_TeaOne_7c3d", 36.0, 93.0, false, "tea_portafilter");
+        QVERIFY(f.profileManager.saveProfile("facet_tea_one_7c3d"));
+        loadDFlowProfile(f, "D-Flow / Facet_TeaTwo_7c3d", 36.0, 93.0, false, "tea_portafilter");
+        QVERIFY(f.profileManager.saveProfile("facet_tea_two_7c3d"));
+        loadDFlowProfile(f, "D-Flow / Facet_Espresso_7c3d", 36.0, 93.0, false, "espresso");
+        QVERIFY(f.profileManager.saveProfile("facet_espresso_7c3d"));
+
+        const QString search = QStringLiteral("7c3d");  // isolates from the shared catalogue
+
+        const QVariantMap counts = f.profileManager.facetCounts(QVariantMap(), search);
+        QCOMPARE(counts.value("tea").toInt(), 2);
+        QCOMPARE(counts.value("mine").toInt(), 3);
+
+        QVariantMap teaOn; teaOn["beverages"] = QStringList{"tea"};
+        const QVariantMap countsWithTea = f.profileManager.facetCounts(teaOn, search);
+        // The active chip's own count reflects the CURRENT result set (itself included).
+        QCOMPARE(countsWithTea.value("tea").toInt(), 2);
+        // Turning Espresso on too would UNION within the group, not replace Tea.
+        QCOMPARE(countsWithTea.value("espresso").toInt(), 3);
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/facet_tea_one_7c3d.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/facet_tea_two_7c3d.json");
+        QFile::remove(f.profileManager.userProfilesPath() + "/facet_espresso_7c3d.json");
+    }
+
+    // === One-time upgrade: the removed Selected list merges into favorites ===
+    // (profile-favorites-order "Upgrade merges Selected into favorites")
+
+    void selectedMergesIntoFavoritesOnceAtStartup() {
+        // No stray downloaded/user profiles in the catalogue, or hiddenProfiles
+        // being empty below would treat them as old-Selected too.
+        clearTestProfileStore();
+
+        // A REAL built-in: startup prunes favorites whose profile does not
+        // exist. "Turbo Shot" sorts after both merged titles, so its staying
+        // first proves the existing order is kept rather than re-sorted.
+        const QString existingFavName = "Turbo Shot";
+        const QString existingFavFile = "turbo_shot";
+
+        // Seed the legacy Selected state and force the one-time flag absent
+        // BEFORE any ProfileManager (whose constructor runs the merge) exists.
+        // adaptive_v3/blooming_espresso are shipped built-ins (:/profiles),
+        // titled "Adaptive v3"/"Blooming Espresso"; the merge appends them in
+        // that title order.
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove(QStringLiteral("profile/selectedMergedIntoFavorites"));
+            QJsonArray existingFavs;
+            QJsonObject fav;
+            fav["name"] = existingFavName;
+            fav["filename"] = existingFavFile;
+            existingFavs.append(fav);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(existingFavs).toJson());
+            raw.setValue(QStringLiteral("profile/selectedBuiltIns"),
+                         QStringList{QStringLiteral("blooming_espresso"), QStringLiteral("adaptive_v3")});
+            raw.setValue(QStringLiteral("profile/hiddenProfiles"), QStringList());
+            raw.sync();
+        }
+
+        qsizetype sizeAfterFirst = 0;
+        {
+            McpTestFixture f;
+            const QVariantList favorites = f.settings.app()->favoriteProfiles();
+
+            // The pre-existing favorite keeps its position; the two old-Selected
+            // built-ins are appended after it, alphabetically by TITLE
+            // ("Adaptive v3" < "Blooming Espresso") — relative order only, so a
+            // favorite some other test left behind cannot fail this assertion.
+            const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v3"),
+                                           QStringLiteral("blooming_espresso")};
+            QCOMPARE(favoriteFilenamesAmong(favorites, ofInterest),
+                     QStringList({existingFavFile, QStringLiteral("adaptive_v3"), QStringLiteral("blooming_espresso")}));
+            sizeAfterFirst = favorites.size();
+        }
+
+        {
+            QSettings flagCheck(Settings::testQSettingsPath(), QSettings::IniFormat);
+            QVERIFY(flagCheck.value(QStringLiteral("profile/selectedMergedIntoFavorites")).toBool());
+        }
+
+        // Idempotence: a second ProfileManager construction (flag already set,
+        // legacy keys still present) adds nothing further.
+        McpTestFixture f2;
+        QCOMPARE(f2.settings.app()->favoriteProfiles().size(), sizeAfterFirst);
+
+        removeFavoriteIfPresent(f2, existingFavFile);
+        removeFavoriteIfPresent(f2, QStringLiteral("adaptive_v3"));
+        removeFavoriteIfPresent(f2, QStringLiteral("blooming_espresso"));
+    }
+
+    // A retired built-in's favorite, current-profile and auto-load references
+    // follow its successor instead of being pruned as stale (adaptive_v2 ->
+    // adaptive_v3, the file de1app renamed in place).
+    void retiredBuiltInReferencesFollowSuccessor() {
+        clearTestProfileStore();
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
+            QJsonArray favs;
+            QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";
+            QJsonObject keep; keep["name"] = "Turbo Shot"; keep["filename"] = "turbo_shot";
+            favs.append(old); favs.append(keep);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(favs).toJson());
+            raw.setValue(QStringLiteral("profile/current"), QStringLiteral("adaptive_v2"));
+            raw.setValue(QStringLiteral("profile/autoLoadFilename"), QStringLiteral("adaptive_v2"));
+            raw.sync();
+        }
+        McpTestFixture f;
+        const QSet<QString> ofInterest{QStringLiteral("adaptive_v2"), QStringLiteral("adaptive_v3"), QStringLiteral("turbo_shot")};
+        // Same slot, new name and title; the stale prune did not get it first.
+        QCOMPARE(favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ofInterest),
+                 QStringList({QStringLiteral("adaptive_v3"), QStringLiteral("turbo_shot")}));
+        const int idx = f.settings.app()->findFavoriteIndexByFilename(QStringLiteral("adaptive_v3"));
+        QCOMPARE(f.settings.app()->favoriteProfiles().at(idx).toMap().value("name").toString(), QStringLiteral("Adaptive v3"));
+        QCOMPARE(f.settings.app()->currentProfile(), QStringLiteral("adaptive_v3"));
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QStringLiteral("adaptive_v3"));
+
+        removeFavoriteIfPresent(f, QStringLiteral("adaptive_v3"));
+        removeFavoriteIfPresent(f, QStringLiteral("turbo_shot"));
+        f.settings.app()->setAutoLoadProfileFilename(QString());
+    }
+
+    // Both names favorited: the old one is dropped, never duplicated.
+    void retiredBuiltInAlreadyFavoritedAsSuccessorIsDropped() {
+        clearTestProfileStore();
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
+            QJsonArray favs;
+            QJsonObject nw; nw["name"] = "Adaptive v3"; nw["filename"] = "adaptive_v3";
+            QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";
+            favs.append(nw); favs.append(old);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(favs).toJson());
+            raw.sync();
+        }
+        McpTestFixture f;
+        int count = 0;
+        for (const QVariant& v : f.settings.app()->favoriteProfiles())
+            if (v.toMap().value("filename").toString() == QStringLiteral("adaptive_v3")) ++count;
+        QCOMPARE(count, 1);
+        QVERIFY(!f.settings.app()->isFavoriteProfile(QStringLiteral("adaptive_v2")));
+        removeFavoriteIfPresent(f, QStringLiteral("adaptive_v3"));
+    }
+
     // === ProfileSaveHelper::compareProfiles() — unified duplicate detection ===
 
     void compareProfilesIdentical() {
@@ -5006,34 +5402,22 @@ private slots:
         QCOMPARE(loadSpy.count(), 0);
     }
 
-    void eagerClearOnAddHiddenProfile() {
-        // Hiding the pinned profile must clear the auto-load setting eagerly
-        // so the UI strip disappears immediately.
+    void eagerClearOnRemoveFavoriteProfile() {
+        // Un-favoriting the pinned profile must clear the auto-load setting
+        // eagerly so the UI strip disappears immediately (favorites are the
+        // only membership now — this replaces the removed Selected-list
+        // eager-clear tests, eagerClearOnAddHiddenProfile and
+        // eagerClearOnRemoveSelectedBuiltIn).
         McpTestFixture f;
-        const QString filename = "test-user-profile";
-        // McpTestFixture uses real QSettings; ensure the precondition (profile
-        // not yet hidden) so addHiddenProfile actually mutates state. Otherwise
-        // a stale entry from a previous run short-circuits the eager-clear.
-        f.settings.app()->removeHiddenProfile(filename);
+        const QString filename = "test-favorite-profile-eager-clear";
+        removeFavoriteIfPresent(f, filename);
+        f.settings.app()->addFavoriteProfile("Test Favorite Profile Eager Clear", filename);
         f.settings.app()->setAutoLoadProfileFilename(filename);
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), filename);
 
-        f.settings.app()->addHiddenProfile(filename);
-
-        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
-
-        // Cleanup so subsequent test runs start from a known state.
-        f.settings.app()->removeHiddenProfile(filename);
-    }
-
-    void eagerClearOnRemoveSelectedBuiltIn() {
-        McpTestFixture f;
-        const QString filename = "test-builtin-profile";
-        f.settings.app()->removeSelectedBuiltInProfile(filename);
-        f.settings.app()->addSelectedBuiltInProfile(filename);
-        f.settings.app()->setAutoLoadProfileFilename(filename);
-
-        f.settings.app()->removeSelectedBuiltInProfile(filename);
+        const int idx = f.settings.app()->findFavoriteIndexByFilename(filename);
+        QVERIFY(idx >= 0);
+        f.settings.app()->removeFavoriteProfile(idx);
 
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
     }
@@ -5080,7 +5464,7 @@ private slots:
         QString builtInTitle;
         for (const QVariant& v : all) {
             const QVariantMap m = v.toMap();
-            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
+            if (f.profileManager.isBuiltInFilename(m.value("name").toString())) {
                 builtInTitle = m.value("title").toString();
                 break;
             }
@@ -5120,8 +5504,8 @@ private slots:
         QString builtInFilename;
         for (const QVariant& v : all) {
             const QVariantMap m = v.toMap();
-            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
-                builtInFilename = m.value("filename").toString();
+            if (f.profileManager.isBuiltInFilename(m.value("name").toString())) {
+                builtInFilename = m.value("name").toString();
                 break;
             }
         }

@@ -176,18 +176,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         favorites.append(f);
     }
     profile["favorites"] = favorites;
-
-    QJsonArray selectedBuiltIns;
-    for (const QString& s : settings->app()->selectedBuiltInProfiles()) {
-        selectedBuiltIns.append(s);
-    }
-    profile["selectedBuiltIns"] = selectedBuiltIns;
-
-    QJsonArray hiddenProfiles;
-    for (const QString& s : settings->app()->hiddenProfiles()) {
-        hiddenProfiles.append(s);
-    }
-    profile["hiddenProfiles"] = hiddenProfiles;
+    profile["favoriteOrder"] = settings->app()->favoriteProfileOrder();
     profile["autoLoadFilename"] = settings->app()->autoLoadProfileFilename();
     profile["autoLoadRevertMinutes"] = settings->app()->autoLoadRevertMinutes();
     root["profile"] = profile;
@@ -682,12 +671,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     if (json.contains("profile") && !excludeKeys.contains("profile")) {
         QJsonObject profile = json["profile"].toObject();
         if (profile.contains("current")) settings->app()->setCurrentProfile(profile["current"].toString());
-        if (profile.contains("selectedFavorite")) settings->app()->setSelectedFavoriteProfile(profile["selectedFavorite"].toInt());
 
         if (profile.contains("favorites")) {
             QJsonArray favorites = profile["favorites"].toArray();
             DIAG_WARN(STORAGE, "SettingsSerializer") << "importFromJson replacing" << settings->app()->favoriteProfiles().size()
                        << "favorites with" << favorites.size() << "from import";
+            // removeFavoriteProfile() clears the auto-load when its profile is
+            // un-favorited; a wholesale replace is not that, so the pin is put
+            // back unless the payload carries its own value below.
+            const QString autoLoadBefore = settings->app()->autoLoadProfileFilename();
             // Remove existing favorites in reverse
             QVariantList existingFavs = settings->app()->favoriteProfiles();
             for (qsizetype i = existingFavs.size() - 1; i >= 0; --i) {
@@ -697,25 +689,21 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 QJsonObject f = v.toObject();
                 settings->app()->addFavoriteProfile(f["name"].toString(), f["filename"].toString());
             }
+            if (!profile.contains("autoLoadFilename"))
+                settings->app()->setAutoLoadProfileFilename(autoLoadBefore);
+        }
+        // Positional index into the list rebuilt above; written earlier, the
+        // remove loop would have clamped it to -1.
+        if (profile.contains("selectedFavorite")) settings->app()->setSelectedFavoriteProfile(profile["selectedFavorite"].toInt());
+
+        if (profile.contains("favoriteOrder")) {
+            settings->app()->setFavoriteProfileOrder(profile["favoriteOrder"].toString());
         }
 
-        if (profile.contains("selectedBuiltIns")) {
-            QStringList builtIns;
-            QJsonArray arr = profile["selectedBuiltIns"].toArray();
-            for (const QJsonValue& v : arr) {
-                builtIns.append(v.toString());
-            }
-            settings->app()->setSelectedBuiltInProfiles(builtIns);
-        }
-
-        if (profile.contains("hiddenProfiles")) {
-            QStringList hidden;
-            QJsonArray arr = profile["hiddenProfiles"].toArray();
-            for (const QJsonValue& v : arr) {
-                hidden.append(v.toString());
-            }
-            settings->app()->setHiddenProfiles(hidden);
-        }
+        // selectedBuiltIns/hiddenProfiles: an old backup may still carry these
+        // (the removed Selected list) — deliberately ignored, not migrated.
+        // The one-time startup merge (takeLegacySelectedLists) reads the live
+        // keys once; a backup import has no such hook.
 
         if (profile.contains("autoLoadFilename")) {
             settings->app()->setAutoLoadProfileFilename(profile["autoLoadFilename"].toString());
