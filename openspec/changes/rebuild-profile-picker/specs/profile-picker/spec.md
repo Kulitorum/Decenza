@@ -60,16 +60,16 @@ The picker SHALL offer a sort control with A–Z and Recently used, defaulting t
 - **WHEN** Favorites is on and the user picks A–Z
 - **THEN** the favorites order setting becomes `alpha` and the idle-page profile pills reorder to match
 
-### Requirement: Bean-ranked tiers above the grid
-When a bean is known — the current bean on the Profiles page, the chosen bag in the wizard — the picker SHALL show tier "Used with this bean" and tier "Recommended" above the "All" section, using the existing bean ranking, with the recommendation reason on each tier card. Active chips and search SHALL filter the tier cards the same way they filter the grid. A tier with no cards SHALL be hidden. With no bean known, no tier SHALL be shown.
+### Requirement: Bean-ranked row above the grid
+When a bean is known — the current bean on the Profiles page, the chosen bag in the wizard — the picker SHALL show one row headed "Recommended for ‹bean name›" (the bag's coffee name, else its roaster) above the "All" section. The row SHALL list profiles used with that exact bean first, most recent first, each carrying the reason "used with ‹bean name›", followed by the existing knowledge-driven and similar-bean recommendations with their reasons. Active chips and search SHALL filter the row the same way they filter the grid. An empty row SHALL be hidden. With no bean known, no row SHALL be shown.
 
-#### Scenario: Selector shows tiers for the current bean
+#### Scenario: Selector shows the row for the current bean
 - **WHEN** the Profiles page opens while a bean is set in the shot metadata and shots exist with it
-- **THEN** a "Used with this bean" tier lists those profiles, most recent first
+- **THEN** a row headed "Recommended for" plus the bean's name lists those profiles first, most recent first, each labelled "used with" plus the bean's name
 
-#### Scenario: Chips filter tiers
-- **WHEN** Tea is on and the "Used with this bean" tier contains only espresso profiles
-- **THEN** that tier is hidden
+#### Scenario: Chips filter the row
+- **WHEN** Tea is on and every recommended profile is espresso
+- **THEN** the row is hidden
 
 ### Requirement: Card contents
 Each card SHALL show: the source letter (D built-in, V downloaded, U user) in the source colour; a check badge when the profile is in Selected; the title, prefixed by the modified marker when it is the current profile and has unsaved changes; the profile's temperature and target yield; a usage line "N shots · X ago" (or "Never used"); a caption naming the profile its knowledge base derives from, when one exists; the auto-load pin when it is the auto-load profile; the knowledge sparkle when a knowledge base exists; an info button; a favorite star; and an overflow (⋮) button. All cards in a grid SHALL share one height. The current profile's card SHALL be visually highlighted.

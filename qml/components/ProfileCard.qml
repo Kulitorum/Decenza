@@ -80,7 +80,7 @@ Rectangle {
     }
 
     implicitWidth: Theme.scaled(230)
-    implicitHeight: Theme.scaled(168)
+    implicitHeight: Theme.scaled(92)
     radius: Theme.cardRadius
     color: Theme.cardBackgroundColor
     border.color: card.current ? Theme.primaryColor : Theme.borderColor
@@ -103,12 +103,17 @@ Rectangle {
         return bits.join(", ")
     }
 
+    // Two-and-a-half rows: title row with the actions on its right, one meta
+    // line, one optional line (recommendation reason or derivation caption).
+    // Anything taller showed four cards per screen on a tablet.
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.scaled(10)
-        spacing: Theme.scaled(4)
+        anchors.leftMargin: Theme.scaled(10)
+        anchors.rightMargin: Theme.scaled(4)
+        anchors.topMargin: Theme.scaled(4)
+        anchors.bottomMargin: Theme.scaled(6)
+        spacing: 0
 
-        // Row 1: source letter, selected check, title(+modified), pin, sparkle.
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(4)
@@ -163,87 +168,16 @@ Rectangle {
                 layer.effect: MultiEffect { colorization: 1.0; colorizationColor: Theme.primaryColor }
             }
 
-            Image {
-                id: sparkleIcon
+            // Same size and baseline as the info button beside it.
+            StyledIconButton {
                 visible: card.entry ? card.entry.hasKnowledgeBase === true : false
-                source: "qrc:/icons/sparkle.svg"
-                sourceSize.width: Theme.scaled(13)
-                sourceSize.height: Theme.scaled(13)
-                opacity: sparkleArea.containsMouse ? 1.0 : 0.6
-                Accessible.ignored: true
-                layer.enabled: true
-                layer.smooth: true
-                layer.effect: MultiEffect { colorization: 1.0; colorizationColor: Theme.textSecondaryColor }
-
-                AccessibleMouseArea {
-                    id: sparkleArea
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(-5)
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
-                    accessibleItem: sparkleIcon
-                    onAccessibleClicked: card.sparkleRequested()
-                }
+                Layout.preferredWidth: Theme.scaled(26)
+                Layout.preferredHeight: Theme.scaled(26)
+                icon.source: "qrc:/icons/sparkle.svg"
+                inactiveColor: Theme.textSecondaryColor
+                accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
+                onClicked: card.sparkleRequested()
             }
-        }
-
-        Text {
-            visible: card.metaLine !== ""
-            text: card.metaLine
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
-        }
-
-        // Reason chip (tier cards) OR the usage line — never both; a tier
-        // card's reason is more useful than "Never used" on the same profile.
-        Text {
-            visible: card.reason === ""
-            text: card.usageLine
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
-        }
-        Rectangle {
-            visible: card.reason !== ""
-            radius: height / 2
-            color: Qt.alpha(Theme.primaryColor, 0.15)
-            implicitHeight: reasonLabel.implicitHeight + Theme.scaled(6)
-            implicitWidth: Math.min(reasonLabel.implicitWidth + Theme.scaled(14), card.width - Theme.scaled(20))
-            Text {
-                id: reasonLabel
-                anchors.centerIn: parent
-                width: Math.min(implicitWidth, parent.width - Theme.scaled(10))
-                text: card.reason
-                font: Theme.captionFont
-                color: Theme.primaryColor
-                elide: Text.ElideRight
-                Accessible.ignored: true
-            }
-        }
-
-        // Derivation caption — a FIXED-height row so cards without one still
-        // reserve the same space (profile-picker "Derived caption" scenario).
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.captionFont.pixelSize * 1.3
-            KbDerivedFromLabel {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                derivedFrom: card.entry ? (card.entry.kbDerivedFrom || "") : ""
-            }
-        }
-
-        Item { Layout.fillHeight: true }
-
-        // Bottom action row: info, star, overflow.
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.scaled(2)
-
-            Item { Layout.fillWidth: true }
 
             ProfileInfoButton {
                 Layout.preferredWidth: Theme.scaled(26)
@@ -255,8 +189,8 @@ Rectangle {
             }
 
             StyledIconButton {
-                Layout.preferredWidth: Theme.scaled(32)
-                Layout.preferredHeight: Theme.scaled(32)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 enabled: card.isFavorite || Settings.app.favoriteProfiles.length < 50
                 icon.source: card.isFavorite ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                 active: card.isFavorite
@@ -267,13 +201,56 @@ Rectangle {
             }
 
             StyledIconButton {
-                Layout.preferredWidth: Theme.scaled(32)
-                Layout.preferredHeight: Theme.scaled(32)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 icon.source: "qrc:/icons/more-vertical.svg"
                 inactiveColor: Theme.textColor
                 accessibleName: TranslationManager.translate("profileselector.accessible.more_options", "More options for")
                     + " " + (card.entry ? card.entry.title : "")
                 onClicked: card.overflowRequested()
+            }
+        }
+
+        // Meta + usage on one line: "84°C · → 36g · 489 shots · 4 d ago".
+        Text {
+            Layout.fillWidth: true
+            text: card.metaLine !== "" ? card.metaLine + " · " + card.usageLine : card.usageLine
+            font: Theme.captionFont
+            color: Theme.textSecondaryColor
+            elide: Text.ElideRight
+            Accessible.ignored: true
+        }
+
+        // One optional line: the recommendation reason (tier cards) or the
+        // knowledge derivation caption. Fixed height so grid rows stay aligned.
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.captionFont.pixelSize * 1.5
+
+            Rectangle {
+                visible: card.reason !== ""
+                anchors.verticalCenter: parent.verticalCenter
+                radius: height / 2
+                color: Qt.alpha(Theme.primaryColor, 0.15)
+                implicitHeight: reasonLabel.implicitHeight + Theme.scaled(4)
+                implicitWidth: Math.min(reasonLabel.implicitWidth + Theme.scaled(14), parent.width)
+                Text {
+                    id: reasonLabel
+                    anchors.centerIn: parent
+                    width: Math.min(implicitWidth, parent.width - Theme.scaled(10))
+                    text: card.reason
+                    font: Theme.captionFont
+                    color: Theme.primaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+            }
+            KbDerivedFromLabel {
+                visible: card.reason === ""
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                derivedFrom: card.entry ? (card.entry.kbDerivedFrom || "") : ""
             }
         }
     }

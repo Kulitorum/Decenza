@@ -36,8 +36,8 @@ One threaded query: `SELECT profile_name, MAX(timestamp), COUNT(*) FROM shots GR
 **D3. Filtering in C++, one predicate, one facet counter.**
 `ProfileManager` exposes `filterProfiles(chips, search, beverageConstraint)` and `facetCounts(chips, search, beverageConstraint)` over the in-memory catalogue. Chips are a plain map `{selected, favorites, sources[], beverages[]}`. One definition of the beverage bucket mapping (`Profile::beverageBucket()` beside `beverageGroup()`), used by the predicate, the facet counter and the tests. Alternative: JS in the component, as PR #1944 did. Rejected: two hosts, tests, and the same mapping would be needed in the C++ facet counter anyway.
 
-**D4. Layout: tiers as rows above one `GridView`.**
-`GridView` has no section headers. Tiers ①/② are short, so each is a horizontal row of cards above the grid inside the same `Flickable`; the grid virtualises the "All" section. Card height fixed so the derivation caption line is reserved on every card.
+**D4. Layout: one recommended row in the `GridView` header.**
+`GridView` has no section headers, but it has a `header` delegate that scrolls with the content. The bean row (exact-bean matches first, then recommendations) is short, so it is a horizontal row of cards in the grid header; the grid virtualises the "All" section. Card height fixed (three rows: title with actions, meta + usage, reason or derivation) so a grid row never staggers.
 
 **D5. Sort control dual role.**
 Favorites off: a component-local `sortMode` (`usage` default, `alpha`) applied to the "All" section, current profile pinned first. Favorites on: the control binds to `Settings.app.favoriteProfileOrder` and shows Custom…, which opens the reorder dialog; selecting Custom… while already custom reopens it. Chosen over two controls to keep one toolbar row.

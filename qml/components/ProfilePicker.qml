@@ -236,9 +236,22 @@ Item {
         return list
     }
 
+    // One row: exact-bean matches first (reason "used with <bean>"), then the
+    // knowledge / similar-bean recommendations.
+    readonly property string beanLabel: picker.beanType !== "" ? picker.beanType : picker.beanBrand
+    readonly property var recommendedList: {
+        var out = []
+        var usedWith = TranslationManager.translate("profilepicker.reason.usedWith", "used with %1").arg(picker.beanLabel)
+        for (var i = 0; i < picker.tier1List.length; ++i) {
+            var copy = Object.assign({}, picker.tier1List[i])
+            copy.reason = usedWith
+            out.push(copy)
+        }
+        return out.concat(picker.tier2List)
+    }
+
     readonly property bool isEmpty: picker.sortedAllList.length === 0
-                                     && picker.tier1List.length === 0
-                                     && picker.tier2List.length === 0
+                                     && picker.recommendedList.length === 0
 
     function cardIsCurrent(entry) { return entry.name === ProfileManager.baseProfileName }
 
@@ -556,88 +569,6 @@ Item {
             }
         }
 
-        // ---- Tier ①: Used with this bean ----
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: picker.tier1List.length > 0
-            spacing: Theme.scaled(4)
-            Text {
-                text: TranslationManager.translate("recipes.wizard.profiles.withBean", "Used with this bean")
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                Accessible.role: Accessible.Heading
-                Accessible.name: text
-            }
-            ListView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(176)
-                orientation: ListView.Horizontal
-                spacing: Theme.scaled(8)
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                model: picker.tier1List
-                delegate: ProfileCard {
-                    id: tier1Card
-                    required property var modelData
-                    height: Theme.scaled(168)
-                    entry: tier1Card.modelData
-                    current: picker.cardIsCurrent(tier1Card.modelData)
-                    reason: tier1Card.modelData.reason || ""
-                    onChosen: picker.profileChosen(tier1Card.modelData.name)
-                    onLongPressed: picker.openPreview(tier1Card.modelData.name, tier1Card.modelData.title)
-                    onSparkleRequested: picker.openKnowledge(tier1Card.modelData.title)
-                    onInfoRequested: AppShell.profileInfoRequested(tier1Card.modelData.name, tier1Card.modelData.title)
-                    onOverflowRequested: picker.openActions(tier1Card.modelData)
-                }
-            }
-        }
-
-        // ---- Tier ②: Recommended ----
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: picker.tier2List.length > 0
-            spacing: Theme.scaled(4)
-            Text {
-                text: TranslationManager.translate("recipes.wizard.profiles.recommended", "Recommended")
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                Accessible.role: Accessible.Heading
-                Accessible.name: text
-            }
-            ListView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(176)
-                orientation: ListView.Horizontal
-                spacing: Theme.scaled(8)
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                model: picker.tier2List
-                delegate: ProfileCard {
-                    id: tier2Card
-                    required property var modelData
-                    height: Theme.scaled(168)
-                    entry: tier2Card.modelData
-                    current: picker.cardIsCurrent(tier2Card.modelData)
-                    reason: tier2Card.modelData.reason || ""
-                    onChosen: picker.profileChosen(tier2Card.modelData.name)
-                    onLongPressed: picker.openPreview(tier2Card.modelData.name, tier2Card.modelData.title)
-                    onSparkleRequested: picker.openKnowledge(tier2Card.modelData.title)
-                    onInfoRequested: AppShell.profileInfoRequested(tier2Card.modelData.name, tier2Card.modelData.title)
-                    onOverflowRequested: picker.openActions(tier2Card.modelData)
-                }
-            }
-        }
-
-        // ---- "All" section header, only shown alongside tiers ----
-        Text {
-            visible: picker.sortedAllList.length > 0 && (picker.tier1List.length > 0 || picker.tier2List.length > 0)
-            text: TranslationManager.translate("recipes.wizard.profiles.all", "All profiles")
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.role: Accessible.Heading
-            Accessible.name: text
-        }
-
         // ---- The virtualised "All" grid ----
         GridView {
             id: allGrid
@@ -647,11 +578,72 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
-            readonly property int columns: Math.max(1, Math.floor(width / Theme.scaled(240)))
+            readonly property int columns: Math.max(1, Math.floor(width / Theme.scaled(300)))
             cellWidth: width / Math.max(1, columns)
-            cellHeight: Theme.scaled(176)
+            cellHeight: Theme.scaled(100)
 
             model: picker.sortedAllList
+            // Tiers and the "All" heading scroll WITH the grid as its header, so
+            // the page is one Flickable and the grid keeps its virtualisation.
+            // Pinned above the grid they ate the grid's height on a tablet and
+            // left it nothing to scroll (design D4).
+            header: Component {
+                Column {
+                    width: allGrid.width
+                    spacing: Theme.scaled(10)
+                    // ---- Recommended for this bean ----
+                    Column {
+                        width: parent ? parent.width : 0
+                        visible: picker.recommendedList.length > 0
+                        spacing: Theme.scaled(4)
+                        Text {
+                            text: picker.beanLabel !== ""
+                                ? TranslationManager.translate("profilepicker.tier.recommendedFor", "Recommended for %1").arg(picker.beanLabel)
+                                : TranslationManager.translate("recipes.wizard.profiles.recommended", "Recommended")
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.role: Accessible.Heading
+                            Accessible.name: text
+                        }
+                        ListView {
+                            width: parent ? parent.width : 0
+                            height: Theme.scaled(100)
+                            orientation: ListView.Horizontal
+                            spacing: Theme.scaled(8)
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: picker.recommendedList
+                            delegate: ProfileCard {
+                                id: tier2Card
+                                required property var modelData
+                                width: Theme.scaled(300)
+                                height: Theme.scaled(92)
+                                entry: tier2Card.modelData
+                                current: picker.cardIsCurrent(tier2Card.modelData)
+                                reason: tier2Card.modelData.reason || ""
+                                onChosen: picker.profileChosen(tier2Card.modelData.name)
+                                onLongPressed: picker.openPreview(tier2Card.modelData.name, tier2Card.modelData.title)
+                                onSparkleRequested: picker.openKnowledge(tier2Card.modelData.title)
+                                onInfoRequested: AppShell.profileInfoRequested(tier2Card.modelData.name, tier2Card.modelData.title)
+                                onOverflowRequested: picker.openActions(tier2Card.modelData)
+                            }
+                        }
+                    }
+
+                    // ---- "All" section header, only shown alongside tiers ----
+                    Text {
+                        visible: picker.sortedAllList.length > 0 && picker.recommendedList.length > 0
+                        text: TranslationManager.translate("recipes.wizard.profiles.all", "All profiles")
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        Accessible.role: Accessible.Heading
+                        Accessible.name: text
+                    }
+
+                    // Breathing room between the header and the first grid row.
+                    Item { width: 1; height: Theme.scaled(4) }
+                }
+            }
             delegate: ProfileCard {
                 id: gridCard
                 required property var modelData

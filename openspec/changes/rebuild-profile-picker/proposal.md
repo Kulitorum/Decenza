@@ -6,7 +6,7 @@ The Profiles page is one of the oldest screens in the app: a six-way combo box t
 
 - **One shared profile picker** (`ProfilePicker` component) hosted by both `ProfileSelectorPage` and the recipe wizard's profile step. Cards in a virtualised grid, replacing the selector's rows and the wizard's inline tiles.
 - **Search + composable filters.** Search applies everywhere. Filter chips: Selected, ★ Favorites, Source (Built-in / Downloaded / Mine), Beverage (Espresso / Filter / Tea / Cleaning). AND across groups, OR within a group, empty group = all. Each chip shows a faceted count.
-- **Bean-ranked tiers on both surfaces.** "Used with this bean" and "Recommended" above the grid, from the existing `requestRankedProfilesForBean` ranking. The selector uses the current DYE bean; the wizard uses its chosen bag.
+- **Bean-ranked row on both surfaces.** One "Recommended for ‹bean›" row above the grid, exact-bean matches first, then suggestions with reasons, from the existing `requestRankedProfilesForBean` ranking. The selector uses the current DYE bean; the wizard uses its chosen bag.
 - **Sort control.** A–Z or Recently used for the grid; with ★ on, the same control edits the favorites order setting and offers Custom….
 - **Favorites order becomes a setting**: `custom | alpha | usage`. Existing users with favorites resolve to `custom` (their current order untouched); new users resolve to `usage`. Custom order is edited in a drag-and-drop dialog that replaces the old right-hand favorites panel.
 - **Profile usage from shot history**: one threaded `GROUP BY profile_name` query gives last-used and shot count. Feeds usage order, the grid's Recently-used sort, and a "N shots · X ago" line on every card.
