@@ -12,6 +12,7 @@ be that second copy again.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,11 +22,13 @@ ENTRY = re.compile(r"<file[^>]*>\s*[^<]*profiles/[^<]+\.json\s*</file>")
 
 def main() -> int:
     hits: list[str] = []
-    for qrc in sorted(ROOT.rglob("*.qrc")):
-        if "build" in qrc.parts:
-            continue
+    # Tracked files only: the generated .qrc lives in a build directory of any name.
+    tracked = subprocess.run(["git", "ls-files", "--", "*.qrc"], cwd=ROOT, check=True,
+                             capture_output=True, text=True).stdout.split()
+    for rel in sorted(tracked):
+        qrc = ROOT / rel
         for entry in ENTRY.findall(qrc.read_text(encoding="utf-8")):
-            hits.append(f"{qrc.relative_to(ROOT)}: {entry.strip()}")
+            hits.append(f"{rel}: {entry.strip()}")
     if hits:
         print("check_profile_resources: FAIL — bundled profiles are listed by CMake from the directory, never by hand")
         for h in hits:

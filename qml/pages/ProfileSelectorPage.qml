@@ -23,42 +23,47 @@ T.Page {
     objectName: "profileSelectorPage"
     background: ThemedPageBackground {}
 
-    ColumnLayout {
+    KeyboardAwareContainer {
         anchors.fill: parent
-        anchors.margins: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin
-        anchors.bottomMargin: Theme.pageTopMargin
-        spacing: Theme.scaled(10)
+        textFields: [picker.searchInput]
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.standardMargin
+            anchors.topMargin: Theme.pageTopMargin
+            anchors.bottomMargin: Theme.pageTopMargin
+            spacing: Theme.scaled(10)
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
 
-                ProfilePicker {
-                    id: picker
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(15)
 
-                    // Bean tiers from the current DYE bean + its roast level
-                    // (task 3.3) — vanish automatically with no bean set.
-                    beanBrand: Settings.dye.dyeBeanBrand
-                    beanType: Settings.dye.dyeBeanType
-                    roastLevel: Settings.dye.dyeRoastLevel
+                    ProfilePicker {
+                        id: picker
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
 
-                    // Selector opens on Favorites, nothing else (profile-picker spec).
-                    initialChips: ({ favorites: true })
-                    showAutoLoadStrip: true
-                    showAddButton: true
-                    onAddRequested: addMenuDialog.open()
+                        // Bean tiers from the current DYE bean + its roast level
+                        // (task 3.3) — vanish automatically with no bean set.
+                        beanBrand: Settings.dye.dyeBeanBrand
+                        beanType: Settings.dye.dyeBeanType
+                        roastLevel: Settings.dye.dyeRoastLevel
 
-                    onProfileChosen: function(filename) {
-                        ProfileManager.loadProfile(filename)
+                        // Selector opens on Favorites, nothing else (profile-picker spec).
+                        initialChips: ({ favorites: true })
+                        showAutoLoadStrip: true
+                        showAddButton: true
+                        onAddRequested: addMenuDialog.open()
+
+                        onProfileChosen: function(filename, title) {
+                            ProfileManager.loadProfile(filename)
+                        }
                     }
                 }
             }

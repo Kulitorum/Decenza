@@ -40,7 +40,7 @@ Item {
     // For a host's KeyboardAwareContainer.textFields.
     property alias searchInput: searchField
 
-    signal profileChosen(string filename)
+    signal profileChosen(string filename, string title)
     signal addRequested()
 
     Component.onCompleted: {
@@ -128,7 +128,7 @@ Item {
     }
 
     // Tier ①: exact profiles used with this bean, most recent first, filtered
-    // like the grid. No reason chip — the tier header already says why.
+    // like the grid. recommendedList stamps its "used with <bean>" reason.
     readonly property var tier1List: {
         var byTitle = {}
         for (var i = 0; i < picker.filteredAll.length; ++i) byTitle[picker.filteredAll[i].title] = picker.filteredAll[i]
@@ -599,7 +599,7 @@ Item {
                                     entry: tier2Card.modelData
                                     current: picker.cardIsCurrent(tier2Card.modelData)
                                     reason: tier2Card.modelData.reason || ""
-                                    onChosen: picker.profileChosen(tier2Card.modelData.name)
+                                    onChosen: picker.profileChosen(tier2Card.modelData.name, tier2Card.modelData.title)
                                     onLongPressed: picker.openPreview(tier2Card.modelData.name, tier2Card.modelData.title)
                                     onSparkleRequested: picker.openKnowledge(tier2Card.modelData.title)
                                     onInfoRequested: AppShell.profileInfoRequested(tier2Card.modelData.name, tier2Card.modelData.title)
@@ -630,7 +630,7 @@ Item {
                 height: allGrid.cellHeight - Theme.scaled(8)
                 entry: gridCard.modelData
                 current: picker.cardIsCurrent(gridCard.modelData)
-                onChosen: picker.profileChosen(gridCard.modelData.name)
+                onChosen: picker.profileChosen(gridCard.modelData.name, gridCard.modelData.title)
                 onLongPressed: picker.openPreview(gridCard.modelData.name, gridCard.modelData.title)
                 onSparkleRequested: picker.openKnowledge(gridCard.modelData.title)
                 onInfoRequested: AppShell.profileInfoRequested(gridCard.modelData.name, gridCard.modelData.title)

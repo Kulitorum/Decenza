@@ -2620,9 +2620,8 @@ T.Page {
                         // allowedBeverageTypes is non-empty (design D6).
                         initialChips: ({})
 
-                        onProfileChosen: function(filename) {
-                            var detail = ProfileManager.getProfileByFilename(filename)
-                            wizardPage.selectProfile({ title: detail.title || "", name: filename })
+                        onProfileChosen: function(filename, title) {
+                            wizardPage.selectProfile({ title: title, name: filename })
                         }
                     }
                     // Fixed card (tea only): a profile-less hot-water recipe.

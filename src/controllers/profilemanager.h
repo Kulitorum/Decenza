@@ -677,7 +677,11 @@ private:
     // Q_INVOKABLE doc comments for the chip map shape.
     bool profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
                                const QString& searchLower,
-                               const QStringList& allowedBeverageTypes) const;
+                               const QStringList& allowedBeverageTypes,
+                               const QSet<QString>& favoriteFilenames) const;
+    // favoriteProfiles() parses a JSON blob on every call; the filter and
+    // facet passes read it once through this.
+    QSet<QString> favoriteFilenameSet() const;
 
     // Re-sorts Settings.app.favoriteProfiles in place per the CURRENT
     // favoriteProfileOrder mode (profile-favorites-order D1): alpha sorts by

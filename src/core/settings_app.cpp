@@ -144,12 +144,17 @@ void SettingsApp::removeFavoriteProfile(int index) {
         arr.removeAt(index);
         m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
 
-        // Adjust selected if needed
-        int selected = selectedFavoriteProfile();
-        if (selected >= arr.size() && arr.size() > 0) {
-            setSelectedFavoriteProfile(static_cast<int>(arr.size()) - 1);
-        } else if (arr.size() == 0) {
+        // The stored index is positional: removing a slot BEFORE the selected
+        // one used to leave it pointing at the neighbour, so the idle page
+        // highlighted a pill the machine had not loaded. The selection follows
+        // the profile: the removed one deselects, any other keeps its profile.
+        const int selected = selectedFavoriteProfile();
+        if (selected == index) {
             setSelectedFavoriteProfile(-1);
+        } else if (selected > index) {
+            setSelectedFavoriteProfile(selected - 1);
+        } else if (selected >= arr.size()) {
+            setSelectedFavoriteProfile(arr.isEmpty() ? -1 : static_cast<int>(arr.size()) - 1);
         }
 
         emit favoriteProfilesChanged();
@@ -293,10 +298,11 @@ void SettingsApp::setSelectedMergedIntoFavorites() {
 }
 
 // Favorites order (profile-favorites-order). Resolve-when-absent: an
-// upgraded install with favorites keeps ITS order (custom); a fresh one
-// with none starts in usage order. This read never persists the resolved
-// value — only setFavoriteProfileOrder (a real switch, from the picker's
-// sort control or the reorder dialog) writes the key.
+// upgraded install with favorites keeps ITS order (custom). A fresh install
+// is stamped "usage" where its default favorites are seeded (settings.cpp),
+// so the empty branch below is only reached by a hand-emptied store. This
+// read never persists — only ProfileFavoritesOrderDialog and a backup
+// import write the key.
 QString SettingsApp::favoriteProfileOrder() const {
     const QVariant stored = m_settings.value("profile/favoriteOrder");
     if (stored.isValid()) {

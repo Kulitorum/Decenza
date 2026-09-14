@@ -1,3 +1,4 @@
+#include <QSet>
 #include "core/diagnosticlogging.h"
 #include <optional>
 #include "core/settings_app.h"
@@ -930,9 +931,20 @@ QVariantList ProfileManager::allProfilesList() const {
 
 // === Shared picker (profile-picker, design D3) ==============================
 
+QSet<QString> ProfileManager::favoriteFilenameSet() const
+{
+    QSet<QString> out;
+    if (!m_settings) return out;
+    const QVariantList favorites = m_settings->app()->favoriteProfiles();
+    for (const QVariant& fav : favorites)
+        out.insert(fav.toMap().value(QStringLiteral("filename")).toString());
+    return out;
+}
+
 bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
                                            const QString& searchLower,
-                                           const QStringList& allowedBeverageTypes) const
+                                           const QStringList& allowedBeverageTypes,
+                                           const QSet<QString>& favoriteFilenames) const
 {
     // Host beverage CONSTRAINT (e.g. the wizard's drink type) — independent of
     // the Beverage chip GROUP below and applied even when that group is
@@ -948,8 +960,7 @@ bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVaria
     if (!searchLower.isEmpty() && !info.title.toLower().contains(searchLower))
         return false;
 
-    if (chips.value(QStringLiteral("favorites")).toBool()
-        && !(m_settings && m_settings->app()->isFavoriteProfile(info.filename)))
+    if (chips.value(QStringLiteral("favorites")).toBool() && !favoriteFilenames.contains(info.filename))
         return false;
 
     const QStringList sources = chips.value(QStringLiteral("sources")).toStringList();
@@ -976,8 +987,9 @@ QVariantList ProfileManager::filterProfiles(const QVariantMap& chips, const QStr
 {
     QVariantList result;
     const QString searchLower = search.trimmed().toLower();
+    const QSet<QString> favorites = favoriteFilenameSet();
     for (const ProfileInfo& info : m_allProfiles) {
-        if (profileMatchesFilters(info, chips, searchLower, allowedBeverageTypes))
+        if (profileMatchesFilters(info, chips, searchLower, allowedBeverageTypes, favorites))
             result.append(profileInfoToVariantMap(info));
     }
     return result;
@@ -988,11 +1000,13 @@ QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString&
 {
     QVariantMap counts;
     const QString searchLower = search.trimmed().toLower();
-    // Eight passes per keystroke: count with the predicate alone, never build rows.
+    // Eight passes per keystroke: count with the predicate alone, never build
+    // rows, and read the favorites JSON once, not once per profile per pass.
+    const QSet<QString> favorites = favoriteFilenameSet();
     const auto countWith = [&](const QVariantMap& withChip) -> int {
         int n = 0;
         for (const ProfileInfo& info : m_allProfiles) {
-            if (profileMatchesFilters(info, withChip, searchLower, allowedBeverageTypes))
+            if (profileMatchesFilters(info, withChip, searchLower, allowedBeverageTypes, favorites))
                 ++n;
         }
         return n;

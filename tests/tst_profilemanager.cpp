@@ -4315,7 +4315,7 @@ private slots:
 
             // The pre-existing favorite keeps its position; the two old-Selected
             // built-ins are appended after it, alphabetically by TITLE
-            // ("Adaptive v2" < "Blooming Espresso") — relative order only, so a
+            // ("Adaptive v3" < "Blooming Espresso") — relative order only, so a
             // favorite some other test left behind cannot fail this assertion.
             const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v3"),
                                            QStringLiteral("blooming_espresso")};

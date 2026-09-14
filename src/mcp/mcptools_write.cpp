@@ -1654,7 +1654,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "settings", McpTierCore);
 
     // auto_load target=profile, action=set — pin a profile. Validated
-    // synchronously (filename non-empty, profile exists, profile is in the
+    // synchronously (filename non-empty, profile exists, profile is a favorite).
+    //
     // The recipe half of auto_load lives in THIS file rather than
     // mcptools_recipes.cpp: that file's recipe_activate/recipe_archive call real
     // MainController methods, so linking it at all — even for tools that do not need

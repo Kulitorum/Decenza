@@ -485,9 +485,9 @@ T.Page {
 
             // Beverage type (rebuild-profile-picker task 3.4): lets a user
             // correct an inferred tag (profile-import-beverage-inference) or
-            // set one on a profile that started with none. Values match the
-            // canonical profile JSON vocabulary (RECIPE_PROFILES.md — eight
-            // bare-written values across the de1app corpus).
+            // set one on a profile that started with none. Values are the
+            // types Profile::beverageBucket() knows (profile.h); "descale"
+            // is Decenza's, the de1app corpus writes bare "tea" instead.
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)

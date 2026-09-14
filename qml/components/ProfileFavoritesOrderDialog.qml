@@ -157,16 +157,29 @@ DecenzaDialog {
                     ? TranslationManager.translate("profilepicker.reorder.row_hint", "Drag the handle to reorder.")
                     : ""
 
+                // Row indices are positions in _preview, the list on screen;
+                // resolve them to _order by filename so a preview sort can
+                // never make a delete or a drag land on the wrong favorite.
+                function orderIndexOf(previewIndex) {
+                    var fn = root._preview[previewIndex] ? root._preview[previewIndex].filename : ""
+                    for (var i = 0; i < root._order.length; ++i)
+                        if (root._order[i].filename === fn) return i
+                    return -1
+                }
                 onRowMoved: function(from, to) {
                     var arr = root._order.slice()
-                    var item = arr[from]
-                    arr.splice(from, 1)
-                    arr.splice(to, 0, item)
+                    var src = orderIndexOf(from), dst = orderIndexOf(to)
+                    if (src < 0 || dst < 0) return
+                    var item = arr[src]
+                    arr.splice(src, 1)
+                    arr.splice(dst, 0, item)
                     root._order = arr
                 }
                 onRowDeleted: function(index) {
                     var arr = root._order.slice()
-                    arr.splice(index, 1)
+                    var src = orderIndexOf(index)
+                    if (src < 0) return
+                    arr.splice(src, 1)
                     root._order = arr
                 }
             }

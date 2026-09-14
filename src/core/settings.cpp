@@ -122,6 +122,10 @@ Settings::Settings(QObject* parent)
         defaultFavorites.append(dflowQ);
 
         m_settings.setValue("profile/favorites", QJsonDocument(defaultFavorites).toJson());
+        // A fresh install starts in usage order (profile-favorites-order).
+        // Stamped here, not at ProfileManager's resolve-when-absent, because
+        // by then these seeded favorites exist and would resolve to "custom".
+        m_settings.setValue("profile/favoriteOrder", QStringLiteral("usage"));
     }
 
     // Migrate flat shader/* keys to shader/crt/* (one-time, v1.5.x → v1.6)
