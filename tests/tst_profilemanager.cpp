@@ -2570,7 +2570,17 @@ private slots:
     // beverage group (#1941).
     void profileSwitchKeepsRatioClearsAbsolute() {
         McpTestFixture f;
+        // The startup load records its group but is not a load for the restore.
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+        const quint64 generation = f.profileManager.brewLoadGeneration();
+        f.profileManager.m_startupLoadDone = false;
+        loadDFlowProfile(f, "Startup Tea", 0.0, 93.0, false, QStringLiteral("tea"));
+        f.profileManager.m_startupLoadDone = true;
+        QCOMPARE(f.profileManager.brewLoadGeneration(), generation);
         loadDFlowProfile(f, "TestA", 36.0);
+        QCOMPARE(f.profileManager.brewLoadGeneration(), generation + 1);
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());  // tea -> espresso
 
         f.settings.brew()->setBrewYieldOverride(40.0);
         loadDFlowProfile(f, "TestB", 42.0);
@@ -2598,6 +2608,14 @@ private slots:
         loadDFlowProfile(f, "Filter", 250.0, 93.0, false, QStringLiteral("pourover"));
         QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
         QCOMPARE(f.profileManager.targetWeight(), 250.0);
+
+        // A cleaning run neither uses nor clears the ratio, and is not a group change.
+        f.settings.brew()->setBrewRatioAnchor(3.0);
+        loadDFlowProfile(f, "Clean", 0.0, 93.0, false, QStringLiteral("cleaning"));
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.targetWeight(), 0.0);
+        loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
+        QCOMPARE(f.profileManager.targetWeight(), 54.0);  // 3 x 18
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

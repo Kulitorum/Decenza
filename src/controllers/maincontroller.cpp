@@ -1156,6 +1156,10 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             // Use the actual yield so the user gets a meaningful weight target.
             m_settings->brew()->setBrewYieldOverride(shotRecord.summary.finalWeight);
             hasOverrides = true;
+        } else {
+            // The shot had no yield override: clear what the profile load re-armed
+            // from the recipe or bean, so the replay brews what it was pulled with.
+            m_settings->brew()->setBrewYieldOverride(0);
         }
 
         DIAG_DEBUG(STORAGE, "maincontroller") << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
@@ -1461,6 +1465,8 @@ void MainController::setupRecipeConnections() {
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
+        if (m_yieldRestorePending)
+            restoreYieldAnchorAfterProfileLoad();
         // Claim the dose rung from the row we just read (dose-source-precedence).
         // This is the ONLY path that arms it on the startup restore, and the only
         // one that re-arms it after an external edit (composer / MCP / web) —
@@ -2330,8 +2336,15 @@ QString MainController::yieldPersistTarget() const {
 void MainController::restoreYieldAnchorAfterProfileLoad() {
     if (!m_settings || !m_profileManager || m_settings->brew()->hasBrewYieldOverride())
         return;
-    if (m_settings->dye()->activeRecipeId() >= 0 && m_activeRecipe.isEmpty())
-        return;  // the recipe row hasn't arrived; its load path seeds the brew
+    m_yieldRestorePending = false;
+    if (m_settings->dye()->activeRecipeId() >= 0 && m_activeRecipe.isEmpty()) {
+        // Startup restore: the recipe row hasn't arrived, so the ladder has no top
+        // rung yet. recipeReady runs this again when it lands.
+        m_yieldRestorePending = true;
+        DIAG_INFO(PROFILES, "maincontroller") << "yield restore deferred until recipe"
+                                               << m_settings->dye()->activeRecipeId() << "loads";
+        return;
+    }
     const Profile& profile = m_profileManager->currentProfile();
     if (Profile::isMaintenanceBeverageType(profile.beverageType()))
         return;  // a cleaning run has no weight stop to seed

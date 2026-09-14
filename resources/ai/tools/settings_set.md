@@ -21,9 +21,10 @@ Values must be numbers; anything else is refused. The reply's `brew` object is w
 (`targetWeightG`, `brewYieldMode`, `brewYieldValue`, `espressoTemperatureC`), with a `note` when it
 differs from the request: a clamp, a gram target equal to the profile's, or a ratio with no dose.
 
-A profile switch clears the temperature override and a gram target. A ratio carries to another
-profile of the same kind (espresso, filter or tea) and is cleared when the kind changes; the
-recipe's, else the bean's, saved yield then applies.
+A profile switch clears the temperature override and a gram target; a ratio carries to another
+profile of the same kind (espresso, filter or tea) and is cleared when the kind changes. When a
+switch leaves no yield, the recipe's, else the bean's, saved yield applies. A cleaning, descale or
+calibrate profile neither uses nor clears any of these.
 
 `settings_get` category `espresso` reads the state back, including the baseline and
 `yieldPersistTarget`. To save a value instead: `recipe_update` (`yieldG`/`yieldRatio`,

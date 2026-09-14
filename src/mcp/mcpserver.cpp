@@ -1908,6 +1908,20 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     if (session && (category == "control" || category == "settings"))
         session->incrementControlCalls();
 
+    // Retired in surface 1.9.0. Refused before either confirmation, or the user
+    // would approve a start that then does not happen.
+    if (toolName == QLatin1String("machine_start")) {
+        for (const char* key : {"dose", "yield", "temperature", "grind", "rpm"}) {
+            if (arguments.contains(QLatin1String(key))) {
+                QJsonObject refused;
+                refused["error"] = QStringLiteral("machine_start no longer takes '%1'. Set dose, yield or ratio, "
+                                                  "temperature, grind and RPM with settings_set, then start.")
+                                       .arg(QLatin1String(key));
+                return buildToolCallResponse(refused, protocolVersion);
+            }
+        }
+    }
+
     // Chat-based confirmation: tool returns needs_confirmation, AI re-calls with confirmed:true
     if (needsChatConfirmation(toolName, arguments) && !arguments.contains("confirmed")) {
         QJsonObject confirmPayload;
@@ -2411,8 +2425,12 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
     QObject::disconnect(pending.socketGone);
 
     if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation socket disconnected, dropping "
-                                                 "response for %1").arg(pending.toolName));
+        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation socket disconnected, dropping the %1 "
+                                                 "response for %2")
+                                      .arg(accepted ? QStringLiteral("confirmed")
+                                                    : timedOut ? QStringLiteral("timed-out")
+                                                               : QStringLiteral("denied"),
+                                           pending.toolName));
         return;
     }
 

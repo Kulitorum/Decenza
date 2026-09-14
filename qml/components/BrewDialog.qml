@@ -66,16 +66,9 @@ DecenzaDialog {
     // place. activeRecipeId is a NOTIFYing property, so this re-evaluates live
     // (e.g. deactivation from another surface while the dialog is open).
     readonly property bool recipeActive: Settings.dye.activeRecipeId >= 0
-    // Baselines for the two override fields (Temp Delta, Stop-at). A recipe's
-    // yield/temp ARE the recipe's design — its baseline — not deviations from
-    // the profile, so when a recipe is active the highlight, the Temp Delta
-    // zero-point, and Clear all measure against the recipe's own values, not the
-    // profile default. A recipe that never pinned a yield (stored 0 = unset)
-    // falls back to the profile; for temperature, offset 0 explicitly MEANS
-    // the profile's own temperature — the same fallback either way.
-    // The temperature baseline is OFFSET-derived (recipe-relative-temp-offset):
-    // profile temp + the recipe's stored delta, so a profile temperature edit
-    // moves the recipe's baseline with it. Offset 0 = the profile itself.
+    // Baselines for Temp Delta and Stop-at: the active recipe, else bag, else profile
+    // (MainController / core/brewbaseline.h). The highlight, the Temp Delta zero-point
+    // and Clear measure against them.
     readonly property double recipeTempBaseline: MainController.activeBaselineTemperatureC
     // Yield baseline as a TYPE-AWARE ANCHOR PAIR (add-yield-ratio-anchor):
     // the active store's own {value, mode} resolved through the ladder
@@ -248,7 +241,8 @@ DecenzaDialog {
         var filename = ProfileManager.findProfileByTitle(title)
         if (filename.length > 0) {
             const groupBefore = ProfileManager.currentProfileBeverageGroup
-            ProfileManager.loadProfile(filename)
+            if (!ProfileManager.loadProfile(filename))
+                return  // the load reports its own failure; keep the dialog's values
             root.profileTemperature = ProfileManager.profileTargetTemperature
             root.temperatureValue = root.profileTemperature
             root.profileTargetWeight = ProfileManager.profileTargetWeight

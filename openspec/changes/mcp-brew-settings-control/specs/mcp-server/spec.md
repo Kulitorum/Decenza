@@ -9,7 +9,7 @@
 - A `targetWeight`, `yieldRatio` or `espressoTemperature` that is not a non-negative number SHALL be rejected, with nothing written.
 - `clearBrewOverrides: true` SHALL restore the baseline: the yield anchor of the active recipe or bag when one designs a yield (otherwise no yield override), and the recipe's temperature (profile temperature plus its offset) or the profile's.
 - `dyeBeanWeight`, `dyeGrinderSetting` and `dyeGrinderRpm` keep their meaning; a dose written in the same call SHALL apply before a ratio resolves.
-- `ratioPreset1`-`ratioPreset3`, `doseCupTareWeight` and `doseCaptureSoundEnabled` SHALL write those settings.
+- `ratioPreset1`-`ratioPreset3`, `doseCupTareWeight` and `doseCaptureSoundEnabled` SHALL write those settings. Non-numeric values and a non-boolean `clearBrewOverrides` SHALL be rejected; `clearBrewOverrides` SHALL be refused while the active recipe is still loading.
 - The reply SHALL carry a `brew` object read after the change applied — `targetWeightG`, `brewYieldMode`, `brewYieldValue`, `espressoTemperatureC` — with a `note` when the result differs from the request.
 
 #### Scenario: Dialing a ratio over MCP
@@ -42,7 +42,7 @@
 
 ### Requirement: profiles_edit_params saves a profile temperature like Update Profile
 
-`profiles_edit_params` SHALL accept `espressoTemperature` on every editor type, sent without other parameters, and apply it through the same path as Brew Settings' Update Profile: shift every frame to the new temperature, clear a temperature override, upload, and save the profile when it has a file. The reply SHALL report `saved` and say why a profile was not saved (read-only built-in, no file); a failed write SHALL be reported as an error.
+`profiles_edit_params` SHALL accept `espressoTemperature` (70-100 °C) on every editor type, sent without other parameters, and apply it through the same path as Brew Settings' Update Profile: shift every frame to the new temperature, clear a temperature override, upload, and save the profile when it has a file. The reply SHALL report `saved` and say why a profile was not saved (read-only built-in, no file); a failed write SHALL be reported as an error.
 
 #### Scenario: Saving a temperature to the profile
 - **WHEN** a client calls `profiles_edit_params` with only `espressoTemperature: 92` on a saved, writable 93 °C profile
@@ -66,8 +66,16 @@ The `equipment` tool SHALL accept `action=create` with a grinder and/or basket i
 
 ### Requirement: machine_start does not take brew overrides
 
-`machine_start action=espresso` SHALL NOT accept dose, yield, temperature, grind or RPM arguments; a call carrying any of them SHALL be refused without starting a shot. Its description SHALL direct clients to set brew values with `settings_set` first.
+`machine_start action=espresso` SHALL NOT accept dose, yield, temperature, grind or RPM arguments; a call carrying any of them SHALL be refused before any confirmation is requested, without starting a shot. Its description SHALL direct clients to set brew values with `settings_set` first.
 
 #### Scenario: A stale client sends a yield
 - **WHEN** a client calls `machine_start` with `action: espresso` and `yield: 40`
 - **THEN** the call returns an error naming `settings_set`, and no shot starts
+
+### Requirement: An unanswered machine confirmation is reported as a timeout
+
+When the on-machine confirmation dialog for `machine_start` closes without an answer, the reply and the log SHALL say the call was not confirmed before the dialog timed out, distinct from a Deny tap, and the tool SHALL NOT run.
+
+#### Scenario: Nobody answers the dialog
+- **WHEN** a client calls `machine_start` at a confirmation level that raises the dialog and nobody taps it
+- **THEN** after the dialog times out the reply's `error` says it was not confirmed before the dialog timed out, and nothing starts

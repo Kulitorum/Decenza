@@ -93,6 +93,10 @@ QJsonObject brewStateAfterSet(ProfileManager* profileManager, Settings* settings
         notes << QStringLiteral("targetWeight equals the profile's own target, so no override is needed.");
     if (brew->brewYieldMode() == YieldSpec::modeRatio() && settings->dye()->dyeBeanWeight() <= 0)
         notes << QStringLiteral("No dose is set, so the shot stops at the profile's target until one is.");
+    if (args.contains("espressoTemperature") && !brew->hasTemperatureOverride())
+        notes << QStringLiteral("espressoTemperature equals the profile's own temperature, so no override is needed.");
+    if (profileManager->isShotLatched())
+        notes << QStringLiteral("A shot is in progress and keeps its target; the change applies to the next shot.");
     if (!notes.isEmpty())
         state["note"] = notes.join(QLatin1Char(' '));
     return state;
@@ -599,7 +603,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"espressoTemperature", QJsonObject{{"type", "number"}, {"description", "Brew temperature override (Celsius); the profile's own temperature clears it"}}},
                 {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop-at weight override (grams); excludes yieldRatio; 0 clears the yield override"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "Yield as a multiple of the dose (2.5 = 1:2.5); excludes targetWeight; 0 clears"}}},
-                {"clearBrewOverrides", QJsonObject{{"type", "boolean"}, {"description", "true: Brew Settings Clear, back to the active recipe's or bean's yield and temperature"}}},
+                {"clearBrewOverrides", QJsonObject{{"type", "boolean"}, {"description", "true: Brew Settings Clear. Yield back to the recipe's, else bean's; temperature to the recipe's, else profile's"}}},
                 {"ratioPreset1", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 1 (multiple of the dose)"}}},
                 {"ratioPreset2", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 2 (multiple of the dose)"}}},
                 {"ratioPreset3", QJsonObject{{"type", "number"}, {"description", "Brew Settings ratio preset 3 (multiple of the dose)"}}},
@@ -852,16 +856,29 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             // toDouble() answers 0 for "heavy", null or an object, and 0 means
             // "clear" here (or a 0 °C override): refuse instead of coercing.
-            for (const char* key : {"targetWeight", "yieldRatio", "espressoTemperature"}) {
+            for (const char* key : {"targetWeight", "yieldRatio", "espressoTemperature", "ratioPreset1",
+                                    "ratioPreset2", "ratioPreset3", "doseCupTareWeight"}) {
                 const QString k = QLatin1String(key);
                 if (args.contains(k) && (!args.value(k).isDouble() || args.value(k).toDouble() < 0)) {
                     respond(QJsonObject{{"error", QStringLiteral("'%1' must be a non-negative number.").arg(k)}});
                     return;
                 }
             }
-            if (setBrewTemp && (args.value("espressoTemperature").toDouble() < 70.0
-                                || args.value("espressoTemperature").toDouble() > 100.0)) {
-                respond(QJsonObject{{"error", "'espressoTemperature' must be between 70 and 100 °C, the Brew Settings range."}});
+            if (args.contains("clearBrewOverrides") && !args.value("clearBrewOverrides").isBool()) {
+                respond(QJsonObject{{"error", "'clearBrewOverrides' must be true or false."}});
+                return;
+            }
+            if (setBrewTemp && (args.value("espressoTemperature").toDouble() < ProfileManager::kMinBrewTemperatureC
+                                || args.value("espressoTemperature").toDouble() > ProfileManager::kMaxBrewTemperatureC)) {
+                respond(QJsonObject{{"error", QStringLiteral("'espressoTemperature' must be between %1 and %2 °C, the Brew Settings range.")
+                                                  .arg(ProfileManager::kMinBrewTemperatureC).arg(ProfileManager::kMaxBrewTemperatureC)}});
+                return;
+            }
+            // Clear restores the recipe's yield; before its row loads (startup
+            // restore) there is no recipe to restore from.
+            if (clearBrew && settings->dye()->activeRecipeId() >= 0
+                && (!mainController || mainController->activeRecipe().isEmpty())) {
+                respond(QJsonObject{{"error", "The active recipe is still loading; retry clearBrewOverrides in a moment."}});
                 return;
             }
             const bool applyBrew = setYieldG || setYieldRatio || setBrewTemp || clearBrew;

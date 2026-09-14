@@ -484,9 +484,12 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     result["error"] = QStringLiteral("Send 'espressoTemperature' on its own; nothing was changed.");
                     return result;
                 }
-                if (!raw.isDouble()) {
+                if (!raw.isDouble() || raw.toDouble() < ProfileManager::kMinBrewTemperatureC
+                    || raw.toDouble() > ProfileManager::kMaxBrewTemperatureC) {
                     result["success"] = false;
-                    result["error"] = QStringLiteral("'espressoTemperature' must be a number in Celsius.");
+                    result["error"] = QStringLiteral("'espressoTemperature' must be a number between %1 and %2 °C.")
+                                          .arg(ProfileManager::kMinBrewTemperatureC)
+                                          .arg(ProfileManager::kMaxBrewTemperatureC);
                     return result;
                 }
                 const bool readOnly = profileManager->isCurrentProfileReadOnly();
@@ -499,7 +502,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     result["message"] = saved
                         ? QStringLiteral("Profile temperature saved and uploaded to machine.")
                         : readOnly
-                            ? QStringLiteral("Uploaded to machine. Built-in profiles are read-only: save a copy "
+                            ? QStringLiteral("Uploaded to machine. This profile is read-only: save a copy"
                                              "with profiles_save (filename + title) to keep it.")
                             : QStringLiteral("Uploaded to machine. Call profiles_save to persist.");
                 } else {

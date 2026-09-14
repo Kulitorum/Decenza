@@ -5,6 +5,9 @@
 - [x] 1.3 `ProfileManager::resetBrewOverridesForLoadedProfile` keeps a ratio only within the previous profile's group, logs the clear at INFO, and bumps `brewLoadGeneration`.
 - [x] 1.4 `MainController::restoreYieldAnchorAfterProfileLoad`: after a load that left no anchor, arm the recipe's, else the bean's, saved yield (`BrewBaseline::anchorToRestore`), not on maintenance profiles; skipped during recipe activation, which seeds the brew itself.
 - [x] 1.5 Brew Settings: picking a profile in the dialog keeps a dialed ratio within its group and otherwise re-seeds from the session.
+- [x] 1.6 Maintenance profiles clear nothing and keep the drink's group; `targetWeight()` and the upload ignore the overrides on them.
+- [x] 1.7 Shot replay clears the yield anchor when the shot had no override.
+- [x] 1.8 A restore skipped before the recipe row loads runs when `recipeReady` delivers it.
 
 ## 2. Tests
 

@@ -469,6 +469,11 @@ double ProfileManager::targetWeight() const {
     if (m_shotLatched)
         return m_latchedTargetG;
 
+    // A cleaning/descale/calibrate run keeps the brew overrides for the next drink
+    // but never uses them: no ratio or gram target may stop it on weight.
+    if (Profile::isMaintenanceBeverageType(m_currentProfile.beverageType()))
+        return m_currentProfile.targetWeight();
+
     // The ladder's single evaluation point: resolve the session anchor
     // {value, mode} to grams. A ratio multiplies the effective dose; a ratio
     // with no dose — and mode "none" — fall back to the profile's own
@@ -684,21 +689,29 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
         return;
     SettingsBrew* brew = m_settings->brew();
     const QString previousGroup = m_brewBeverageGroup;
-    m_brewBeverageGroup = Profile::beverageGroup(m_currentProfile.beverageType());
+    const QString group = Profile::beverageGroup(m_currentProfile.beverageType());
+    // A cleaning/descale/calibrate run uses none of the brew overrides
+    // (targetWeight() and the upload skip them), so it clears nothing and keeps
+    // the drink's group: espresso -> cleaning -> espresso still has its ratio.
+    const bool maintenance = group == QLatin1String("maintenance");
+    if (!maintenance)
+        m_brewBeverageGroup = group;
     if (m_startupLoadDone) {
+        ++m_brewLoadGeneration;
+        if (maintenance)
+            return;
         // Every normal runtime profile load takes this branch. Clear what
         // the outgoing profile owned — temperature and an ABSOLUTE yield
         // anchor. A ratio carries only within a beverage group (see
         // Profile::beverageGroup). MainController then re-seeds what the
         // recipe or bean designs (brewLoadGeneration).
-        const bool sameGroup = m_brewBeverageGroup == previousGroup;
+        const bool sameGroup = previousGroup.isEmpty() || group == previousGroup;
         if (!sameGroup && brew->brewYieldMode() == YieldSpec::modeRatio())
             DIAG_INFO(PROFILES, "ProfileManager").noquote()
                 << QString("ratio 1:%1 cleared: '%2' is in the %3 group, the previous profile was %4")
                        .arg(brew->brewYieldOverride(), 0, 'f', 1)
-                       .arg(m_currentProfile.title(), m_brewBeverageGroup, previousGroup);
+                       .arg(m_currentProfile.title(), group, previousGroup);
         brew->clearProfileScopedBrewOverrides(sameGroup);
-        ++m_brewLoadGeneration;
         return;
     }
     // Startup only: persisted overrides survive the launch load, except a
@@ -2430,7 +2443,8 @@ void ProfileManager::uploadCurrentProfile() {
         double groupTemp;
 
         // Apply temperature override as delta offset (preserves per-frame differences)
-        if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
+        if (m_settings && m_settings->brew()->hasTemperatureOverride()
+            && !Profile::isMaintenanceBeverageType(m_currentProfile.beverageType())) {
             Profile modifiedProfile = m_currentProfile;
             double overrideTemp = m_settings->brew()->temperatureOverride();
             modifiedProfile.setSteps(framesShiftedToTemperature(overrideTemp));
@@ -3701,7 +3715,13 @@ bool ProfileManager::applyTemperatureToProfile(double newTemperature) {
         m_settings->brew()->clearTemperatureOverride();
     }
     uploadCurrentProfile();
-    return !m_baseProfileName.isEmpty() && saveProfile(m_baseProfileName);
+    const bool saved = !m_baseProfileName.isEmpty() && saveProfile(m_baseProfileName);
+    if (!saved && !m_profileModified) {
+        // Unsaved, it must read as modified or the next load drops it silently.
+        m_profileModified = true;
+        emit profileModifiedChanged();
+    }
+    return saved;
 }
 
 QString ProfileManager::temperatureDisplay(double anchorTemp, bool hasOverride,

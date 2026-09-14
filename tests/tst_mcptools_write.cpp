@@ -371,6 +371,7 @@ private slots:
         registerTools(f);
         loadDFlowProfile(f);
         f.settings.brew()->setBrewYieldOverride(0);  // stored settings outlive a fixture
+        f.settings.brew()->clearTemperatureOverride();
 
         QJsonObject args;
         args["targetWeight"] = 40.0;
@@ -384,6 +385,12 @@ private slots:
         QJsonObject notNumber;
         notNumber["targetWeight"] = "heavy";
         QVERIFY(f.callAsyncTool("settings_set", notNumber).contains("error"));
+
+        // 0 clears a yield, but a 0 °C temperature override is refused.
+        QJsonObject coldTemp;
+        coldTemp["espressoTemperature"] = 0.0;
+        QVERIFY(f.callAsyncTool("settings_set", coldTemp).contains("error"));
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
     }
 
     // Clear goes back to the store that designs the yield, mode included, and
@@ -439,6 +446,7 @@ private slots:
         QCOMPARE(y.mode, QStringLiteral("absolute"));
         QCOMPARE(y.value, 36.0);
         QVERIFY(!y.isStoreAnchor());
+        QCOMPARE(BrewBaseline::persistTarget(y, true, true), BrewBaseline::sourceBag());
         QCOMPARE(BrewBaseline::persistTarget(y, true, false), BrewBaseline::sourceRecipe());
         QCOMPARE(BrewBaseline::persistTarget(y, false, false), QString());
         QVERIFY(!YieldSpec::isSet(BrewBaseline::anchorToRestore(y, 36.0).mode));

@@ -24,7 +24,7 @@ For variable-RPM grinders the dial-in is two values — the burr grind setting a
 
 #### Scenario: Start-a-shot accepts an independent RPM override
 
-- **WHEN** `settings_set` (and `ProfileManager::activateBrewWithOverrides`) sets the brew's grind or RPM
+- **WHEN** `settings_set` (`dyeGrinderRpm`) or Brew Settings OK (`ProfileManager::activateBrewWithOverrides`) sets the brew's grind or RPM
 - **THEN** `dyeGrinderRpm` SHALL apply independently of `dyeGrinderSetting`, and the RPM SHALL be left untouched when absent
 
 #### Scenario: ShotServer edit forms accept RPM

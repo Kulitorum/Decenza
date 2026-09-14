@@ -44,4 +44,13 @@
 - [x] 6.7 `grind-rpm-pairing` delta: the independent RPM override moves to `settings_set`.
 - [x] 6.8 Tests: temperature-only call keeps the ratio, `yieldRatio: 0` clears, the reply's `brew` state, non-numeric refusal, `created` flag, mixed `espressoTemperature` refusal; each proven red.
 - [x] 6.9 Full suite green after the fixes (117/117).
-- [x] 6.10 Live recheck on the final build: effective `brew` reply, non-numeric refusal, espresso → filter clear, bean ratio restore. `machine_start` refusal not exercised live (the in-app confirmation was declined before the handler ran).
+- [x] 6.10 Live recheck on the final build: effective `brew` reply, non-numeric refusal, espresso → filter clear, bean ratio restore, and `machine_start` with `yield` refused without starting a shot (confirmation level None). An unanswered confirmation dialog is now reported as a timeout rather than "User denied" (verified live at All Control: reply and INFO line after 15 s, no flush ran).
+
+## 7. Review round 2
+
+- [x] 7.1 `machine_start` refuses retired brew arguments before any confirmation (moved from the handler into `McpServer`).
+- [x] 7.2 `profiles_edit_params espressoTemperature` held to 70-100 °C (`ProfileManager::kMin/kMaxBrewTemperatureC`, shared with `settings_set`); an unsaved change marks the profile modified.
+- [x] 7.3 `settings_set`: type checks for presets, tare and `clearBrewOverrides`; Clear refused while the recipe loads; notes for a temperature equal to the profile's and for a shot in progress.
+- [x] 7.4 Socket-gone confirmation log names the outcome; comment and spec fixes.
+- [x] 7.5 Tests: timed-out confirmation does not dispatch, retired argument raises no dialog, 0 °C refused, `persistTarget` with a bag, startup group + load generation, cleaning run keeps the ratio.
+- [ ] 7.6 Full suite, each new assertion proven red, live recheck.

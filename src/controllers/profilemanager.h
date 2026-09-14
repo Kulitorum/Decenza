@@ -192,9 +192,9 @@ public:
         const QString t = m_currentProfile.beverageType().trimmed().toLower();
         return t.isEmpty() ? QStringLiteral("espresso") : t;
     }
+    QString currentProfileBeverageGroup() const { return Profile::beverageGroup(m_currentProfile.beverageType()); }
     // QML-visible view of Profile::isMaintenanceBeverageType (the shared tier used
     // by maincontroller / visualizeruploader / mcptools_write) for the current profile.
-    QString currentProfileBeverageGroup() const { return Profile::beverageGroup(m_currentProfile.beverageType()); }
     bool currentProfileIsMaintenance() const {
         return Profile::isMaintenanceBeverageType(m_currentProfile.beverageType());
     }
@@ -230,9 +230,12 @@ public:
     // (callers render a bare ratio and resolution falls back to the profile).
     double brewByRatioDose() const;
     double brewByRatio() const;
+    // The Brew Settings temperature range; MCP writes are held to it too.
+    static constexpr double kMinBrewTemperatureC = 70.0;
+    static constexpr double kMaxBrewTemperatureC = 100.0;
     // Arm the session overrides from Brew Settings OK. The yield arrives as a
     // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
-    // form (MCP machine_start_espresso) anchors an absolute.
+    // form (tests) anchors an absolute.
     // `rpm` < 0 leaves the live RPM untouched (the common case); >= 0 sets it
     // (variable-RPM grinders). RPM is independent of the grind setting.
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yieldValue,
@@ -270,6 +273,7 @@ public:
     bool hasShotSnapshot() const { return m_shotSnapshotValid; }
     double latchedTargetG() const { return m_latchedTargetG; }
     QString latchedYieldMode() const { return m_latchedYieldMode; }
+    bool isShotLatched() const { return m_shotLatched; }
     double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
     // The effective flow calibration multiplier the shot was PULLED at, or 0.0
     // if this shot never latched one.
@@ -687,12 +691,10 @@ private:
                                const QString& filePath,
                                const Profile& loaded);
 
-    // Reset brew overrides for a freshly loaded profile. After startup this is
-    // a genuine clear (flags go false — an override is relative to the profile
-    // it was dialed against). During startup, persisted overrides survive
-    // (brew-overrides spec) unless they match the incoming profile's own
-    // defaults: pre-fix sessions latched a same-as-default "override" on every
-    // load, so a matching persisted value is noise, not intent.
+    // Reset brew overrides for a freshly loaded profile. After startup: clears the
+    // temperature and an absolute yield, and a ratio when the beverage group
+    // changes; a maintenance profile clears nothing. During startup, persisted
+    // overrides survive unless they equal the incoming profile's own defaults.
     void resetBrewOverridesForLoadedProfile();
     // Apply the loaded profile's recommended dose to the live dose — but only
     // when the dose ladder names the profile as the owner, i.e. no active

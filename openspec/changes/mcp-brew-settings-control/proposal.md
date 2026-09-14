@@ -16,6 +16,7 @@ An MCP client cannot do what Brew Settings does. Testing #1941 over MCP showed i
 - **`machine_start` refuses brew arguments** (BREAKING); set values with `settings_set` first.
 - The recipe → bag → profile baseline, the recipe temperature baseline and the Update Recipe/Bag target move into header-only `src/core/brewbaseline.h`, read by `MainController` (and through it Brew Settings) and the MCP tools. Equipment creation becomes one static shared by the dialog path and MCP.
 - `McpSurfaceVersion` bumps to 1.9.0.
+- An unanswered on-machine confirmation is reported as a timeout, not "User denied".
 
 Dose from the scale stays a sequence (`scale_tare`, `scale_get_weight`, `settings_set dyeBeanWeight`): the dialog's virtual zero lives in QML (`StableWeightCapture.qml`) and has no C++ owner.
 
@@ -29,5 +30,6 @@ Dose from the scale stays a sequence (`scale_tare`, `scale_get_weight`, `setting
 
 - `src/mcp/mcptools_write.cpp` (`settings_set`, `equipment`), `src/mcp/mcptools_settings.cpp`, `src/mcp/mcptools_profiles.cpp`, `src/mcp/mcptools_control.cpp`, `src/mcp/mcpserver.{h,cpp}`.
 - `src/core/brewbaseline.h` (new), `src/controllers/maincontroller.{h,cpp}`, `src/controllers/profilemanager.{h,cpp}` (`applyTemperatureToProfile` returns whether it saved), `src/history/equipmentstorage.{h,cpp}`, `qml/components/BrewDialog.qml`.
+- `qml/components/McpConfirmDialog.qml`, `qml/main.qml` (confirmation timeout).
 - `resources/ai/tools/settings_set.md`, `equipment.md`; `docs/CLAUDE_MD/MCP_SERVER.md`, `RECIPES.md`.
 - Tests: `tst_mcptools_write` (including the `BrewBaseline` ladder), `tst_mcptools_profiles`, register stubs in `tst_mcpserver_session`/`tst_mcpserver_protocol`/`tst_mcpremoteaccess`.

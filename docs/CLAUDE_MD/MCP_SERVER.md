@@ -1223,7 +1223,6 @@ The following QML capabilities do not yet have MCP equivalents. Organized by pri
 
 15. **Shot management**: Replace `shots_set_feedback` with a broader `shots_update` that accepts any metadata field the QML shot editors can change (enjoyment, notes, dose, bean brand/type, roast level/date, grinder brand/model/burrs/setting, barista, TDS, EY). Add `shots_delete` for deleting individual shots. Category: settings.
 
-16. **Brew overrides**: done as `settings_set` applying Brew Settings without starting a shot; `machine_start` takes no brew arguments (surface 1.9.0).
 
 #### High Priority (needed for QML parity)
 

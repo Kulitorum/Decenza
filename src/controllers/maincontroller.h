@@ -844,6 +844,7 @@ private:
     // or bean designs (not on a cleaning/descale/calibrate profile).
     void restoreYieldAnchorAfterProfileLoad();
     quint64 m_seenBrewLoadGeneration = 0;
+    bool m_yieldRestorePending = false;  // a restore skipped before the recipe row arrived
     // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
     // replacing whatever is armed. Shared by activation and the
     // active-recipe edit refresh (an edit re-seeds the brew exactly as

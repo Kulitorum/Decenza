@@ -2,7 +2,7 @@
 
 ### Requirement: A ratio anchor survives a profile change; an absolute one does not
 
-When a profile is loaded, the system SHALL clear a session anchor whose mode is `absolute` (a gram target describes the profile it was set against). It SHALL preserve one whose mode is `ratio` when the new profile's beverage group matches the previous profile's, and SHALL clear it when the group changes. The groups are espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`), tea (`tea`, `tea_portafilter`) and maintenance (`cleaning`, `descale`, `calibrate`), compared trimmed and case-insensitively.
+When a profile is loaded, the system SHALL clear a session anchor whose mode is `absolute` (a gram target describes the profile it was set against). It SHALL preserve one whose mode is `ratio` when the new profile's beverage group matches the previous profile's, and SHALL clear it when the group changes. The groups are espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`) and tea (`tea`, `tea_portafilter`), compared trimmed and case-insensitively. A maintenance profile (`cleaning`, `descale`, `calibrate`) SHALL neither use nor clear any brew override and SHALL NOT count as a group change: its own target and temperatures apply, and the overrides return with the next drink profile.
 
 When the load leaves no anchor, the system SHALL arm the active recipe's saved yield, else the active bag's, except on a maintenance profile. A recipe's gram yield equal to the profile's own `target_weight` SHALL NOT be armed. A ratio the user sets after the load SHALL apply normally.
 
@@ -33,3 +33,11 @@ When the load leaves no anchor, the system SHALL arm the active recipe's saved y
 #### Scenario: A ratio dialed after the load applies
 - **WHEN** a tea profile is loaded, the dose is 18 g, and the user then sets the anchor `{2.5, ratio}`
 - **THEN** the target resolves to 45 g
+
+#### Scenario: A cleaning run neither uses nor clears the ratio
+- **WHEN** the session anchor is `{3.0, ratio}` on a filter profile and the user loads a cleaning profile, then a filter profile
+- **THEN** the cleaning run stops on its own `target_weight`, and the filter profile's target resolves from `{3.0, ratio}` again
+
+#### Scenario: Replaying a shot with no yield override
+- **WHEN** a shot pulled at its profile's own target is loaded from history while the active bag saves a ratio
+- **THEN** the session has no yield anchor and the profile's `target_weight` applies
