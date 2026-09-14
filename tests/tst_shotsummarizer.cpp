@@ -1960,7 +1960,7 @@ private slots:
     // tree via DECENZA_SOURCE_DIR (defined for every test target — see
     // add_decenza_test in tests/CMakeLists.txt).
     //
-    // This binary now links profiles.qrc too — ProfileShapeIndex reads
+    // This binary now links the bundled-profile resource too — ProfileShapeIndex reads
     // `:/profiles`, so the 494 KB an earlier comment here argued against is
     // already compiled in. The slots below still read the source tree anyway:
     // they assert against the files a maintainer edits, so a profile renamed on
@@ -2021,7 +2021,7 @@ private slots:
     // shipped profile set: these slots need the KB resource (:/ai) to resolve
     // ids, and this is the binary that links ai.qrc. Putting them there meant
     // "Failed to load profile knowledge resource" and four vacuous zeros.
-    // (This binary links profiles.qrc as well, since ProfileShapeIndex reads
+    // (This binary links the bundled-profile resource as well, since ProfileShapeIndex reads
     // `:/profiles`; the slots below still read the FILES from the source tree
     // so they assert against what a maintainer edits.)
     //
@@ -2669,7 +2669,7 @@ private slots:
     // skips loadShotRecordStatic exercises the branch that was never broken.
     //
     // It lives in this file rather than beside the other DB round-trips in
-    // tst_dbmigration because it needs BOTH profiles.qrc (for the shape index
+    // tst_dbmigration because it needs BOTH the bundled profiles (for the shape index
     // to have anything to match against) and ai.qrc (for the entry's canonical
     // name). This binary already links both; tst_dbmigration links neither,
     // and adding them there costs two resource compiles for one test.

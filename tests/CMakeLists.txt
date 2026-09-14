@@ -1557,8 +1557,10 @@ target_compile_definitions(tst_recipeeditorapppath PRIVATE
 
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
-# Add built-in profiles QRC so isBuiltInFilename() works in tests
-qt_add_resources(PROFILES_QRC ${CMAKE_SOURCE_DIR}/resources/profiles.qrc)
+# Add built-in profiles QRC so isBuiltInFilename() works in tests. The .qrc is
+# generated from resources/profiles/ by the top-level CMakeLists.txt ("Bundled
+# profiles"), the same file the app links.
+qt_add_resources(PROFILES_QRC "${DECENZA_PROFILES_QRC}")
 target_sources(tst_profilemanager PRIVATE ${PROFILES_QRC})
 # Also needed for compareWithBuiltin test (QFile::exists(":/profiles/..."))
 target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})

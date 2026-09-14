@@ -168,9 +168,9 @@ jobs:
         run: python3 scripts/check_test_source_duplication.py
 
       # Blocking: a profile added to the tests' list and not the app's shipped in no
-      # release for two months (#1833's Adaptive v3, plus eight more). One list now,
-      # and this keeps it complete.
-      - name: Every bundled profile is in profiles.qrc, and only there
+      # release for two months (#1833's Adaptive v3, plus eight more). The list is
+      # now generated from the directory; this refuses a hand-written one coming back.
+      - name: No hand-written list of bundled profiles
         run: python3 scripts/check_profile_resources.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph

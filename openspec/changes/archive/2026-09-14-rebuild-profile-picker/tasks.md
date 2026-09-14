@@ -53,7 +53,7 @@ Post-launch maintainer decision: fold "Selected" into favorites entirely rather 
 
 Found during the live check: the app bundled profiles from `resources.qrc` while the tests used `profiles.qrc`; nine profiles added since July 2026 (Adaptive v3 among them) shipped in no release. de1app had replaced Adaptive v2 with v3 in place.
 
-- [x] 7.1 The app links `resources/profiles.qrc`; the 92-entry copy in `resources.qrc` is deleted; `scripts/check_profile_resources.py` runs in `text-invariants.yml` (paths widened to `resources/profiles/**` and `resources/*.qrc`); verified: the rebuilt binary embeds all nine, the script passes
+- [x] 7.1 No hand-kept list at all: CMake globs `resources/profiles/*.json` (`CONFIGURE_DEPENDS`) into a generated `.qrc` linked by the app and the test targets; `profiles.qrc` and the 92-entry copy in `resources.qrc` are deleted; `scripts/check_profile_resources.py` runs in `text-invariants.yml` (paths widened to `resources/profiles/**` and `resources/*.qrc`) and refuses any hand-written profile entry; verified: the rebuilt binary embeds all nine, the script passes
 - [x] 7.2 Retire `adaptive_v2.json`; `ProfileManager::refreshProfiles` maps `adaptive_v2` → `adaptive_v3` for favorites (same slot, new title), current profile and auto-load before the stale prune; new-install defaults and the two sample-text placeholders read Adaptive v3; verified by `retiredBuiltInReferencesFollowSuccessor` and `retiredBuiltInAlreadyFavoritedAsSuccessorIsDropped`
 - [x] 7.3 Test corpus follows upstream: `tests/data/de1app_profiles/best_practice.tcl` refreshed to the current de1app copy (title Adaptive v3), its packed golden regenerated with `tools/de1app_pack_oracle.tcl`, shape-collision counts in `tst_shotsummarizer` reduced by the retired pair
 
