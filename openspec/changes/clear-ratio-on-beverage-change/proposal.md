@@ -4,7 +4,7 @@ A ratio yield anchor survived every profile switch (add-yield-ratio-anchor Decis
 
 ## What Changes
 
-- A runtime profile load keeps a dialed ratio only when the new profile is in the same beverage group as the previous one: espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`), tea (`tea`, `tea_portafilter`). Changing group clears it. A cleaning, descale or calibrate profile neither uses nor clears any override and is not a group change.
+- A runtime profile load keeps a dialed ratio only when the new profile is in the same beverage group as the previous one: espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`), tea (`tea`, `tea_portafilter`). Changing group clears it. A cleaning, descale or calibrate profile neither uses nor clears any override and is not a group change; reloading the profile from before it keeps every override, temperature included.
 - Replaying a shot that had no yield override clears the anchor the profile load re-armed. A restore skipped because the active recipe's row had not loaded yet runs when it arrives.
 - When the load leaves no yield anchor, the recipe's saved yield applies, else the bean's (`MainController::restoreYieldAnchorAfterProfileLoad`), except on a maintenance profile. A recipe's gram yield equal to the profile's own target is not re-armed.
 - A ratio dialed after the load applies normally. A gram target and the temperature override still clear on every switch.

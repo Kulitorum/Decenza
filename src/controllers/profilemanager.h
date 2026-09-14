@@ -773,7 +773,9 @@ private:
     // never cleared; m_shotLatched is the freeze flag and clears at shot end.
     bool m_shotSnapshotValid = false;
     quint64 m_brewLoadGeneration = 0;
-    QString m_brewBeverageGroup;  // Profile::beverageGroup of the last loaded profile
+    QString m_brewBeverageGroup;  // Profile::beverageGroup of the last loaded drink profile
+    QString m_brewProfileTitle;   // title of the last loaded drink profile
+    bool m_maintenanceSinceBrewLoad = false;  // the last load was cleaning/descale/calibrate
     QString m_latchedYieldMode = QStringLiteral("none");
     double m_latchedYieldAnchorValue = 0.0;
     // See latchedFlowCalibration(). 0.0 = not recorded, never "1.0".

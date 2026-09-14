@@ -689,14 +689,19 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
     const QString previousGroup = m_brewBeverageGroup;
     const QString group = Profile::beverageGroup(m_currentProfile.beverageType());
     // A cleaning/descale/calibrate run uses none of the brew overrides
-    // (targetWeight() and the upload skip them), so it clears nothing and keeps
-    // the drink's group: espresso -> cleaning -> espresso still has its ratio.
+    // (brewOverridesApply), so it clears nothing and keeps the drink's group, and
+    // reloading the drink profile from before it gets every override back.
     const bool maintenance = group == QLatin1String("maintenance");
-    if (!maintenance)
+    const bool returningFromMaintenance = !maintenance && m_maintenanceSinceBrewLoad
+        && m_currentProfile.title() == m_brewProfileTitle;
+    m_maintenanceSinceBrewLoad = maintenance;
+    if (!maintenance) {
         m_brewBeverageGroup = group;
+        m_brewProfileTitle = m_currentProfile.title();
+    }
     if (m_startupLoadDone) {
         ++m_brewLoadGeneration;
-        if (maintenance)
+        if (maintenance || returningFromMaintenance)
             return;
         // Every normal runtime profile load takes this branch. Clear what
         // the outgoing profile owned — temperature and an ABSOLUTE yield

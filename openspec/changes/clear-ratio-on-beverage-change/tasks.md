@@ -8,6 +8,7 @@
 - [x] 1.6 Maintenance profiles clear nothing and keep the drink's group; `targetWeight()` and the upload ignore the overrides on them.
 - [x] 1.7 Shot replay clears the yield anchor when the shot had no override.
 - [x] 1.8 A restore skipped before the recipe row loads runs when `recipeReady` delivers it.
+- [x] 1.9 Reloading the drink profile from before a maintenance run keeps every override, temperature included. Live: D-Flow/Q at 1:2.5 and 90 °C, Cleaning/Forward flush brewed at its own 85 °C and 36 g, back on D-Flow/Q at 90 °C and 45 g.
 
 ## 2. Tests
 

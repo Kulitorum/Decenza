@@ -2617,8 +2617,15 @@ private slots:
         QCOMPARE(f.profileManager.targetWeight(), 0.0);
         QVERIFY(f.settings.brew()->hasTemperatureOverride());
         QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
-        loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
+        // Back to the profile from before the run: every override returns.
+        loadDFlowProfile(f, "Filter", 250.0, 93.0, false, QStringLiteral("pourover"));
+        QCOMPARE(f.profileManager.getGroupTemperature(), 90.0);
         QCOMPARE(f.profileManager.targetWeight(), 54.0);  // 3 x 18
+        // A different profile after a run is a normal switch.
+        loadDFlowProfile(f, "Clean", 0.0, 93.0, false, QStringLiteral("cleaning"));
+        loadDFlowProfile(f, "Filter 2", 250.0, 93.0, false, QStringLiteral("filter"));
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 54.0);
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

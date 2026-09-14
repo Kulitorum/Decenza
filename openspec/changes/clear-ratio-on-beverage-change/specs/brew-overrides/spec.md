@@ -7,7 +7,7 @@ The system SHALL store temperature and yield overrides in QSettings for persiste
 
 Overrides SHALL be cleared — the flag set false, not just the value resynced to a new default — when a recipe is activated (before its own overrides apply), or when the user taps "Clear" in the BrewDialog.
 
-**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the new profile's beverage group differs from the previous profile's** (`yield-anchor`). A gram target describes the profile it was set against; a ratio fits one kind of drink, so it survives a switch within its group and re-derives against the current dose. A switch that leaves no yield override SHALL arm a saved yield as `yield-anchor` specifies; a maintenance profile clears nothing. The temperature override SHALL continue to clear unconditionally on a profile switch.
+**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the new profile's beverage group differs from the previous profile's** (`yield-anchor`). A gram target describes the profile it was set against; a ratio fits one kind of drink, so it survives a switch within its group and re-derives against the current dose. A switch that leaves no yield override SHALL arm a saved yield as `yield-anchor` specifies; a maintenance profile clears nothing. The temperature override SHALL continue to clear on a profile switch, except that reloading the drink profile loaded before a maintenance run SHALL keep every override.
 
 Loading a shot or favorite that carries its own frozen override value SHALL only mark the flag active when that frozen value genuinely differs from the freshly-loaded profile's own default (the same threshold the Shot Plan display uses), so a frozen value that happens to already match the current profile never falsely reports as an active override.
 
@@ -38,6 +38,10 @@ Loading a shot or favorite that carries its own frozen override value SHALL only
 #### Scenario: Temperature still clears on a profile switch
 - **WHEN** a temperature override is active and the user switches profiles
 - **THEN** `hasTemperatureOverride` becomes false
+
+#### Scenario: Returning from a cleaning run keeps the temperature override
+- **WHEN** a temperature override is active on a profile, and the user loads a cleaning profile and then that profile again
+- **THEN** the cleaning run brews at its own temperature, and the returning profile brews at the override
 
 #### Scenario: Overrides cleared via BrewDialog
 - **WHEN** the user taps "Clear" in the BrewDialog
