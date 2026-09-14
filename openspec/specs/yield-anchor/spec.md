@@ -102,7 +102,7 @@ A recipe's or bag's stored `doseG` SHALL be a seed, not a pin: it seeds the live
 - **WHEN** a dose capture lands
 - **THEN** no yield SHALL be computed from `Settings.brew.lastUsedRatio`; only the active anchor's own ratio can re-derive a target
 
-### Requirement: A ratio anchor survives a profile change; an absolute one does not
+### Requirement: A ratio anchor survives a profile change within its beverage group; an absolute one does not
 
 When a profile is loaded, the system SHALL clear a session anchor whose mode is `absolute` (a gram target describes the profile it was set against). It SHALL preserve one whose mode is `ratio` when the new profile's beverage group matches the previous profile's, and SHALL clear it when the group changes. The groups are espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`) and tea (`tea`, `tea_portafilter`), compared trimmed and case-insensitively. A maintenance profile (`cleaning`, `descale`, `calibrate`) SHALL neither use nor clear any brew override and SHALL NOT count as a group change: its own target and temperatures apply. Reloading the drink profile loaded before a maintenance run SHALL keep every brew override.
 
