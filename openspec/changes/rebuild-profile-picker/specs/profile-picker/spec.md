@@ -20,7 +20,7 @@ The Profiles page and the recipe wizard's profile step SHALL present the same pr
 - **THEN** the Favorites chip is on, every other chip is off, and the search field is empty regardless of the previous visit
 
 ### Requirement: Composable filters
-The picker SHALL offer these filter chips: Favorites, a Source group (Built-in, Downloaded, Mine), and a Beverage group (Espresso, Filter, Tea, Cleaning). Chips within a group SHALL combine with OR; a group with no chip on SHALL match every profile; Favorites, each group and the search text SHALL combine with AND. Beverage membership SHALL derive from the profile's `beverage_type`: `espresso` and empty/unknown → Espresso; `filter`, `pourover` → Filter; `tea`, `tea_portafilter` → Tea; `cleaning`, `descale`, `calibrate`, `manual` → Cleaning. Search SHALL match the title only, case-insensitively, as a substring, and SHALL apply in every filter state.
+The picker SHALL offer these filter chips: Favorites, a Source group (Built-in, Downloaded, Mine), and a Beverage group (Espresso, Filter, Tea, Maintenance). Chips within a group SHALL combine with OR; a group with no chip on SHALL match every profile; Favorites, each group and the search text SHALL combine with AND. Beverage membership SHALL derive from the profile's `beverage_type`: `espresso` and empty/unknown → Espresso; `filter`, `pourover` → Filter; `tea`, `tea_portafilter` → Tea; `cleaning`, `descale`, `calibrate`, `manual` → Maintenance. Search SHALL match the title only, case-insensitively, as a substring, and SHALL apply in every filter state.
 
 #### Scenario: Cross-group AND
 - **WHEN** Downloaded and Filter are on

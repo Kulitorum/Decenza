@@ -430,7 +430,7 @@ public:
     // ONE predicate, one facet counter, over the in-memory catalogue — see
     // design D3. `chips` is a plain map: favorites (bool),
     // sources (QStringList of "builtin"|"downloaded"|"mine"), beverages
-    // (QStringList of "espresso"|"filter"|"tea"|"cleaning"). Groups combine
+    // (QStringList of "espresso"|"filter"|"tea"|"maintenance"). Groups combine
     // with OR internally and AND against each other and the search text;
     // an empty group matches everything. `allowedBeverageTypes` is the HOST
     // constraint (e.g. the wizard's drink type), separate from the beverages
@@ -440,7 +440,7 @@ public:
                                             const QStringList& allowedBeverageTypes = {}) const;
 
     // Faceted count per chip id ("favorites", "builtin",
-    // "downloaded", "mine", "espresso", "filter", "tea", "cleaning"): how many
+    // "downloaded", "mine", "espresso", "filter", "tea", "maintenance"): how many
     // profiles would match if THAT chip were also on, given the chips already
     // on and the search text (profile-picker "Faceted chip counts").
     Q_INVOKABLE QVariantMap facetCounts(const QVariantMap& chips, const QString& search,

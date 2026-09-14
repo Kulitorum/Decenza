@@ -158,11 +158,11 @@ public:
     }
 
     // The picker's Beverage chip bucket (profile-picker spec): espresso (incl.
-    // empty/unknown), filter, tea, cleaning. NOT beverageGroup() above — that one
-    // folds "manual" and "descale" into "maintenance" or leaves them out for the
-    // ratio rule, while the picker needs a Cleaning chip that positively includes
-    // descale/calibrate/manual. One mapping, used by ProfileManager's C++
-    // predicate/facet-counter and by tests; QML must not carry a second copy.
+    // empty/unknown), filter, tea, maintenance. NOT beverageGroup() above — that
+    // one leaves "manual" as espresso for the ratio rule, while the picker's
+    // Maintenance chip must positively include cleaning/descale/calibrate/manual.
+    // One mapping, used by ProfileManager's C++ predicate/facet-counter and by
+    // tests; QML must not carry a second copy.
     static QString beverageBucket(const QString& beverageType) {
         const QString t = beverageType.trimmed().toLower();
         if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
@@ -171,7 +171,7 @@ public:
             return QStringLiteral("tea");
         if (t == QLatin1String("cleaning") || t == QLatin1String("descale")
             || t == QLatin1String("calibrate") || t == QLatin1String("manual"))
-            return QStringLiteral("cleaning");
+            return QStringLiteral("maintenance");
         return QStringLiteral("espresso");
     }
 

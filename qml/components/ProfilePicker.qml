@@ -519,7 +519,7 @@ Item {
                     { id: "espresso", label: TranslationManager.translate("profilepicker.beverage.espresso", "Espresso") },
                     { id: "filter", label: TranslationManager.translate("profilepicker.beverage.filter", "Filter") },
                     { id: "tea", label: TranslationManager.translate("profilepicker.beverage.tea", "Tea") },
-                    { id: "cleaning", label: TranslationManager.translate("profilepicker.beverage.cleaning", "Cleaning") }
+                    { id: "maintenance", label: TranslationManager.translate("profilepicker.beverage.maintenance", "Maintenance") }
                 ] : []
                 delegate: FilterChip {
                     id: beverageChipDelegate

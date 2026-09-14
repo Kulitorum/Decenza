@@ -1018,7 +1018,7 @@ QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString&
     // hidden, D6) — a caller that ignores the constraint still gets coherent
     // numbers rather than a gap in the map.
     static const QStringList kBeverageIds = {
-        QStringLiteral("espresso"), QStringLiteral("filter"), QStringLiteral("tea"), QStringLiteral("cleaning")
+        QStringLiteral("espresso"), QStringLiteral("filter"), QStringLiteral("tea"), QStringLiteral("maintenance")
     };
     const QStringList existingBeverages = chips.value(QStringLiteral("beverages")).toStringList();
     for (const QString& id : kBeverageIds) {

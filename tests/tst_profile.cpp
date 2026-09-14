@@ -2503,10 +2503,10 @@ private slots:
         QTest::newRow("pourover") << "pourover" << "filter";
         QTest::newRow("tea") << "tea" << "tea";
         QTest::newRow("tea_portafilter") << "tea_portafilter" << "tea";
-        QTest::newRow("cleaning") << "cleaning" << "cleaning";
-        QTest::newRow("descale") << "descale" << "cleaning";
-        QTest::newRow("calibrate") << "calibrate" << "cleaning";
-        QTest::newRow("manual") << "manual" << "cleaning";
+        QTest::newRow("cleaning") << "cleaning" << "maintenance";
+        QTest::newRow("descale") << "descale" << "maintenance";
+        QTest::newRow("calibrate") << "calibrate" << "maintenance";
+        QTest::newRow("manual") << "manual" << "maintenance";
         // Normalized: trimmed + lowercased, like beverageGroup()/isMaintenanceBeverageType().
         QTest::newRow("mixedCaseAndSpace") << "  Pourover  " << "filter";
     }
