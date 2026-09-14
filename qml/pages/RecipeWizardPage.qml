@@ -2615,6 +2615,10 @@ T.Page {
                         roastLevel: wizardPage.isTeaDrink ? "" : wizardPage._selectedBagRoastLevel
                         teaType: wizardPage._wizardTeaType
                         allowedBeverageTypes: wizardPage._wizardAllowedBeverages
+                        // The recipe's profile, not the machine's: on this
+                        // step "current" means what the recipe holds.
+                        highlightedFilename: wizardPage.fProfileTitle !== ""
+                            ? ProfileManager.findProfileByTitle(wizardPage.fProfileTitle) : ""
                         // No chip on initially (recipe-wizard spec); the
                         // Beverage chip group is hidden automatically because
                         // allowedBeverageTypes is non-empty (design D6).
