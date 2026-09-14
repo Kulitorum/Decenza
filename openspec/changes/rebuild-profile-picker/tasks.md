@@ -48,3 +48,12 @@ Post-launch maintainer decision: fold "Selected" into favorites entirely rather 
 - [x] 6.5 QML: delete the Selected chip, `chipSelected`, `initialChips.selected`, the `selected` key in `buildChips()`, the ⋮ Selected toggle and `profileIsSelected` in `ProfilePicker.qml`; delete `isSelected`/the check badge in `ProfileCard.qml`; `ProfileSelectorPage.qml` opens with `initialChips: ({ favorites: true })`; auto-load strip/⋮ visibility key on `isFavoriteProfile`
 - [x] 6.6 Fix stale comments referencing the removed list (`profile.cpp`'s `profile_hide` passthrough note, `profilemanager.h`'s `autoLoadStaleCleared` doc) and `docs/CLAUDE_MD/RECIPE_PROFILES.md`'s Auto-Load eligibility / shared-picker sections
 - [x] 6.7 Tests: replace `eagerClearOnAddHiddenProfile`/`eagerClearOnRemoveSelectedBuiltIn` with one favorites-removal eager-clear test; drop the Selected case from the filter test (renamed `filterProfilesSearchIsTitleOnly`); add `selectedMergesIntoFavoritesOnceAtStartup` (seeds the raw legacy keys, checks order + the one-time flag + idempotence on a second construction); fix `tst_tclimport.cpp`'s `isHiddenProfile` comment
+
+## 7. Bundled profile list and Adaptive v3
+
+Found during the live check: the app bundled profiles from `resources.qrc` while the tests used `profiles.qrc`; nine profiles added since July 2026 (Adaptive v3 among them) shipped in no release. de1app had replaced Adaptive v2 with v3 in place.
+
+- [x] 7.1 The app links `resources/profiles.qrc`; the 92-entry copy in `resources.qrc` is deleted; `scripts/check_profile_resources.py` runs in `text-invariants.yml` (paths widened to `resources/profiles/**` and `resources/*.qrc`); verified: the rebuilt binary embeds all nine, the script passes
+- [x] 7.2 Retire `adaptive_v2.json`; `ProfileManager::refreshProfiles` maps `adaptive_v2` → `adaptive_v3` for favorites (same slot, new title), current profile and auto-load before the stale prune; new-install defaults and the two sample-text placeholders read Adaptive v3; verified by `retiredBuiltInReferencesFollowSuccessor` and `retiredBuiltInAlreadyFavoritedAsSuccessorIsDropped`
+- [x] 7.3 Test corpus follows upstream: `tests/data/de1app_profiles/best_practice.tcl` refreshed to the current de1app copy (title Adaptive v3), its packed golden regenerated with `tools/de1app_pack_oracle.tcl`, shape-collision counts in `tst_shotsummarizer` reduced by the retired pair
+

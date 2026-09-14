@@ -107,8 +107,8 @@ Settings::Settings(QObject* parent)
         QJsonArray defaultFavorites;
 
         QJsonObject adaptive;
-        adaptive["name"] = "Adaptive v2";
-        adaptive["filename"] = "adaptive_v2";
+        adaptive["name"] = "Adaptive v3";
+        adaptive["filename"] = "adaptive_v3";
         defaultFavorites.append(adaptive);
 
         QJsonObject blooming;

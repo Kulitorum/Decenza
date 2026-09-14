@@ -326,7 +326,7 @@ void SettingsApp::setFavoriteProfileOrder(const QString& mode) {
 
 // Current profile
 QString SettingsApp::currentProfile() const {
-    return m_settings.value("profile/current", "Adaptive v2").toString();
+    return m_settings.value("profile/current", "Adaptive v3").toString();
 }
 
 void SettingsApp::setCurrentProfile(const QString& profile) {

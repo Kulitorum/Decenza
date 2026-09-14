@@ -2333,6 +2333,36 @@ void ProfileManager::refreshProfiles() {
     if (m_settings) {
         QSet<QString> known(m_availableProfiles.begin(), m_availableProfiles.end());
 
+        // Built-ins de1app replaced in place under a new title. de1app kept
+        // the file (best_practice.tcl, "Adaptive v2" -> "Adaptive v3",
+        // 2026-08-17); Decenza keys on filename, so the old name is retired
+        // and references follow it here, ahead of the stale prune below,
+        // which would otherwise drop them. A user copy under the old name is
+        // still in `known` and is left alone.
+        static const QHash<QString, QString> kSuccessor = {
+            {QStringLiteral("adaptive_v2"), QStringLiteral("adaptive_v3")},
+        };
+        for (auto it = kSuccessor.cbegin(); it != kSuccessor.cend(); ++it) {
+            const QString& oldName = it.key();
+            const QString& newName = it.value();
+            if (known.contains(oldName) || !known.contains(newName))
+                continue;
+            const QString newTitle = m_profileTitles.value(newName, newName);
+            if (m_settings->app()->isFavoriteProfile(oldName)) {
+                if (m_settings->app()->isFavoriteProfile(newName)) {
+                    m_settings->app()->removeFavoriteProfile(
+                        m_settings->app()->findFavoriteIndexByFilename(oldName));
+                } else {
+                    m_settings->app()->updateFavoriteProfile(oldName, newName, newTitle);
+                }
+                DIAG_INFO(PROFILES, "profilemanager") << "favorite" << oldName << "now" << newName;
+            }
+            if (m_settings->app()->currentProfile() == oldName)
+                m_settings->app()->setCurrentProfile(newName);
+            if (m_settings->app()->autoLoadProfileFilename() == oldName)
+                m_settings->app()->setAutoLoadProfileFilename(newName);
+        }
+
         QVariantList favorites = m_settings->app()->favoriteProfiles();
         for (qsizetype i = favorites.size() - 1; i >= 0; --i) {
             QString fn = favorites.at(i).toMap()[QStringLiteral("filename")].toString();

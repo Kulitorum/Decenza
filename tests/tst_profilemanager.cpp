@@ -4290,8 +4290,8 @@ private slots:
 
         // Seed the legacy Selected state and force the one-time flag absent
         // BEFORE any ProfileManager (whose constructor runs the merge) exists.
-        // adaptive_v2/blooming_espresso are shipped built-ins (:/profiles),
-        // titled "Adaptive v2"/"Blooming Espresso"; the merge appends them in
+        // adaptive_v3/blooming_espresso are shipped built-ins (:/profiles),
+        // titled "Adaptive v3"/"Blooming Espresso"; the merge appends them in
         // that title order.
         {
             QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
@@ -4303,7 +4303,7 @@ private slots:
             existingFavs.append(fav);
             raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(existingFavs).toJson());
             raw.setValue(QStringLiteral("profile/selectedBuiltIns"),
-                         QStringList{QStringLiteral("blooming_espresso"), QStringLiteral("adaptive_v2")});
+                         QStringList{QStringLiteral("blooming_espresso"), QStringLiteral("adaptive_v3")});
             raw.setValue(QStringLiteral("profile/hiddenProfiles"), QStringList());
             raw.sync();
         }
@@ -4317,10 +4317,10 @@ private slots:
             // built-ins are appended after it, alphabetically by TITLE
             // ("Adaptive v2" < "Blooming Espresso") — relative order only, so a
             // favorite some other test left behind cannot fail this assertion.
-            const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v2"),
+            const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v3"),
                                            QStringLiteral("blooming_espresso")};
             QCOMPARE(favoriteFilenamesAmong(favorites, ofInterest),
-                     QStringList({existingFavFile, QStringLiteral("adaptive_v2"), QStringLiteral("blooming_espresso")}));
+                     QStringList({existingFavFile, QStringLiteral("adaptive_v3"), QStringLiteral("blooming_espresso")}));
             sizeAfterFirst = favorites.size();
         }
 
@@ -4335,8 +4335,62 @@ private slots:
         QCOMPARE(f2.settings.app()->favoriteProfiles().size(), sizeAfterFirst);
 
         removeFavoriteIfPresent(f2, existingFavFile);
-        removeFavoriteIfPresent(f2, QStringLiteral("adaptive_v2"));
+        removeFavoriteIfPresent(f2, QStringLiteral("adaptive_v3"));
         removeFavoriteIfPresent(f2, QStringLiteral("blooming_espresso"));
+    }
+
+    // A retired built-in's favorite, current-profile and auto-load references
+    // follow its successor instead of being pruned as stale (adaptive_v2 ->
+    // adaptive_v3, the file de1app renamed in place).
+    void retiredBuiltInReferencesFollowSuccessor() {
+        clearTestProfileStore();
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
+            QJsonArray favs;
+            QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";
+            QJsonObject keep; keep["name"] = "Turbo Shot"; keep["filename"] = "turbo_shot";
+            favs.append(old); favs.append(keep);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(favs).toJson());
+            raw.setValue(QStringLiteral("profile/current"), QStringLiteral("adaptive_v2"));
+            raw.setValue(QStringLiteral("profile/autoLoadFilename"), QStringLiteral("adaptive_v2"));
+            raw.sync();
+        }
+        McpTestFixture f;
+        const QSet<QString> ofInterest{QStringLiteral("adaptive_v2"), QStringLiteral("adaptive_v3"), QStringLiteral("turbo_shot")};
+        // Same slot, new name and title; the stale prune did not get it first.
+        QCOMPARE(favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ofInterest),
+                 QStringList({QStringLiteral("adaptive_v3"), QStringLiteral("turbo_shot")}));
+        const int idx = f.settings.app()->findFavoriteIndexByFilename(QStringLiteral("adaptive_v3"));
+        QCOMPARE(f.settings.app()->favoriteProfiles().at(idx).toMap().value("name").toString(), QStringLiteral("Adaptive v3"));
+        QCOMPARE(f.settings.app()->currentProfile(), QStringLiteral("adaptive_v3"));
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QStringLiteral("adaptive_v3"));
+
+        removeFavoriteIfPresent(f, QStringLiteral("adaptive_v3"));
+        removeFavoriteIfPresent(f, QStringLiteral("turbo_shot"));
+        f.settings.app()->setAutoLoadProfileFilename(QString());
+    }
+
+    // Both names favorited: the old one is dropped, never duplicated.
+    void retiredBuiltInAlreadyFavoritedAsSuccessorIsDropped() {
+        clearTestProfileStore();
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
+            QJsonArray favs;
+            QJsonObject nw; nw["name"] = "Adaptive v3"; nw["filename"] = "adaptive_v3";
+            QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";
+            favs.append(nw); favs.append(old);
+            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(favs).toJson());
+            raw.sync();
+        }
+        McpTestFixture f;
+        int count = 0;
+        for (const QVariant& v : f.settings.app()->favoriteProfiles())
+            if (v.toMap().value("filename").toString() == QStringLiteral("adaptive_v3")) ++count;
+        QCOMPARE(count, 1);
+        QVERIFY(!f.settings.app()->isFavoriteProfile(QStringLiteral("adaptive_v2")));
+        removeFavoriteIfPresent(f, QStringLiteral("adaptive_v3"));
     }
 
     // === ProfileSaveHelper::compareProfiles() — unified duplicate detection ===
