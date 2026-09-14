@@ -98,6 +98,12 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
+          # install-qt-action >= 4.4.0 resolves the version first with
+          # `aqt list-qt <host> android --spec X --latest-version` (#335), and aqt
+          # lists Qt >= 6.8 Android packages only under all_os -- under `linux` the
+          # list stops at 6.7.3 and the step fails before the cache lookup. aqt's
+          # --autodesktop still installs the Linux host Qt alongside it.
+          host: 'all_os'
           version: ${{ env.QT_VERSION }}
           target: 'android'
           arch: 'android_arm64_v8a'
