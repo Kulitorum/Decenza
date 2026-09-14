@@ -105,6 +105,8 @@ on:
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
+      - 'resources/profiles/**'
+      - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   push:
     branches: [main]
@@ -116,6 +118,8 @@ on:
       - 'scripts/check_*.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
+      - 'resources/profiles/**'
+      - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
 
