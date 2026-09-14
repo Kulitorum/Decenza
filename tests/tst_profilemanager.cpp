@@ -2312,6 +2312,50 @@ private slots:
         QCOMPARE(f.profileManager.targetWeight(), 36.0);
     }
 
+    // A persisted RATIO anchor must not apply to a non-espresso profile. de1app
+    // stores stop-at-weight per profile (tea profiles ship final_desired_shot_weight
+    // 0 = no weight stop); Decenza's ratio anchor persists across profile loads
+    // ("1:2 is 1:2 on any profile"), which is right for espresso but cut a tea steep
+    // short at ratio×dose. A non-espresso profile must honour its OWN target_weight.
+    void ratioAnchorIgnoredForNonEspressoProfile() {
+        McpTestFixture f;
+        // Tests the resolution in ProfileManager::targetWeight() directly via
+        // setCurrentProfile, so the assertion turns on beverage_type + the ratio
+        // anchor alone — not on the profile-file round-trip (loadDFlowProfile writes
+        // D-Flow recipe profiles whose editor path can reset beverage_type, and whose
+        // 2-frame shape trips migrateReadOnlyProfiles + failOnWarning).
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.5);        // live 1:2.5 ratio anchor
+
+        Profile espresso;
+        espresso.setBeverageType(QStringLiteral("espresso"));
+        espresso.setTargetWeight(36.0);
+        f.profileManager.setCurrentProfile(espresso, QStringLiteral("test espresso"));
+        QVERIFY(f.profileManager.brewByRatioActive());
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);   // espresso: ratio applies (2.5 × 18)
+
+        // A tea profile with its own no-weight-stop target (0 g). The ratio anchor is
+        // still set (it persists), but must be IGNORED here — tea has no dose-ratio —
+        // so the profile's own 0 wins (matching de1app), NOT 2.5 × 18.
+        Profile tea;
+        tea.setBeverageType(QStringLiteral("tea_portafilter"));
+        tea.setTargetWeight(0.0);
+        f.profileManager.setCurrentProfile(tea, QStringLiteral("test tea"));
+        QVERIFY(f.profileManager.brewByRatioActive());     // anchor intact
+        QCOMPARE(f.profileManager.targetWeight(), 0.0);    // ratio bypassed for tea
+
+        // A tea profile with its OWN absolute stop honours that, still not the ratio.
+        Profile teaStop;
+        teaStop.setBeverageType(QStringLiteral("tea_portafilter"));
+        teaStop.setTargetWeight(250.0);
+        f.profileManager.setCurrentProfile(teaStop, QStringLiteral("test tea 250"));
+        QCOMPARE(f.profileManager.targetWeight(), 250.0);
+
+        // Back to espresso: the anchor is intact, so brew-by-ratio resumes (45 g).
+        f.profileManager.setCurrentProfile(espresso, QStringLiteral("test espresso 2"));
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+    }
+
     // The shot latch (add-yield-ratio-anchor Decision 9): NOTHING moves the
     // resolved target while a shot runs; releasing re-resolves so the next
     // shot picks the new state up.

@@ -143,6 +143,19 @@ public:
             || t == QLatin1String("calibrate");
     }
 
+    // A dose-ratio yield ("1:2") only has physical meaning for espresso: it
+    // multiplies the grind dose. Tea / non-espresso profiles carry their OWN
+    // target_weight instead — de1app stores final_desired_shot_weight per profile
+    // and ships tea profiles with 0 (no weight stop). The persistent brew-by-ratio
+    // anchor (add-yield-ratio-anchor Decision 8, "1:2 is 1:2 on any profile") must
+    // therefore resolve ONLY for espresso; see ProfileManager::targetWeight().
+    // Empty reads as espresso (the member default) so ratio behaviour is unchanged
+    // for every existing espresso profile. Normalizes (trim + lowercase) like above.
+    static bool isEspressoBeverageType(const QString& beverageType) {
+        const QString t = beverageType.trimmed().toLower();
+        return t.isEmpty() || t == QLatin1String("espresso");
+    }
+
     // Profile type for compatibility with de1app settings
     // "settings_2a" = simple pressure, "settings_2b" = simple flow,
     // "settings_2c" = advanced (our default), "settings_2c2" = advanced with limiter

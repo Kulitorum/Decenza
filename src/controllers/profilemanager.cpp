@@ -476,6 +476,21 @@ double ProfileManager::targetWeight() const {
     // MQTT, shots.yield_override) ever sees a ratio.
     if (m_settings) {
         SettingsBrew* brew = m_settings->brew();
+        // A ratio anchor persists across profile loads (add-yield-ratio-anchor
+        // Decision 8: "1:2 is 1:2 on any profile"), but a dose-ratio only means
+        // anything for espresso. A tea / non-espresso profile has no dose-ratio,
+        // and de1app loads such a profile's OWN stop weight (its tea profiles ship
+        // final_desired_shot_weight 0 = no weight stop). Applying a leftover
+        // espresso ratio to a tea steep resolves to ratio×dose and cuts it short
+        // (observed: a tea profile stopped at ~48 g inherited from a 1:2.5 espresso
+        // anchor). So for a non-espresso profile, ignore the ratio anchor and honour
+        // the profile's own target_weight (0 = no stop, matching de1app). Absolute
+        // anchors are already cleared on load (clearProfileScopedBrewOverrides), so
+        // only the surviving ratio case needs this guard; the anchor is left intact,
+        // so returning to an espresso profile restores brew-by-ratio.
+        if (brew->brewYieldMode() == YieldSpec::modeRatio()
+            && !Profile::isEspressoBeverageType(m_currentProfile.beverageType()))
+            return m_currentProfile.targetWeight();
         return YieldSpec::resolveGrams(brew->brewYieldMode(), brew->brewYieldOverride(),
                                        brewByRatioDose(), m_currentProfile.targetWeight());
     }
