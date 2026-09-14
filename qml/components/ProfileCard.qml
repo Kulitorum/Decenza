@@ -103,11 +103,6 @@ Rectangle {
         return bits.join(", ")
     }
 
-    Accessible.role: Accessible.Button
-    Accessible.name: card.accessibleSummary
-    Accessible.focusable: true
-    Accessible.onPressAction: card.chosen()
-
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.scaled(10)
@@ -283,11 +278,10 @@ Rectangle {
         }
     }
 
-    // The card-wide tap target: choose (short tap) or preview (long-press).
-    // z below the buttons above so they still win their own taps.
-    AccessibleMouseArea {
-        anchors.fill: parent
-        z: -1
+    // The card-wide tap target and the card's ONE accessible node (a second
+    // on the root would give screen readers two stops per card): choose on
+    // tap, preview on long-press.
+    CardTapArea {
         supportLongPress: true
         cursorShape: Qt.PointingHandCursor
         accessibleName: card.accessibleSummary

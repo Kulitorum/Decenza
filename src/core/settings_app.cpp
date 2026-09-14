@@ -261,6 +261,11 @@ void SettingsApp::setFavoritesOrder(const QStringList& filenamesInOrder) {
             reordered.append(it.value());
     }
 
+    // Usage-mode resorts run after every shot save; most change nothing, and
+    // a spurious favoriteProfilesChanged() makes every idle pill row relayout.
+    if (reordered == arr)
+        return;
+
     m_settings.setValue("profile/favorites", QJsonDocument(reordered).toJson());
     emit favoriteProfilesChanged();
 }
@@ -404,6 +409,14 @@ QString SettingsApp::favoriteProfileOrder() const {
             return mode;
     }
     return favoriteProfiles().isEmpty() ? QStringLiteral("usage") : QStringLiteral("custom");
+}
+
+// Stamps the resolved mode once, at startup. Without this a new user's mode
+// would flip from usage to custom the moment they star their first profile,
+// because the resolve rule keys on whether favorites exist.
+void SettingsApp::persistFavoriteProfileOrderIfAbsent() {
+    if (!m_settings.value("profile/favoriteOrder").isValid())
+        m_settings.setValue("profile/favoriteOrder", favoriteProfileOrder());
 }
 
 void SettingsApp::setFavoriteProfileOrder(const QString& mode) {

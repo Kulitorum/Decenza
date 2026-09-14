@@ -2238,7 +2238,7 @@ T.Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         // profileSearchField used to be listed here; it now lives inside
         // ProfilePicker, which is not a text-field host itself.
-        textFields: [nameField, doseField.input, yieldField.input]
+        textFields: [nameField, doseField.input, yieldField.input, wizardProfilePicker.searchInput]
 
         ColumnLayout {
             anchors.fill: parent

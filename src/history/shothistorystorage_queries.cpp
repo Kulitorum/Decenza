@@ -932,10 +932,12 @@ QVariantMap ShotHistoryStorage::loadProfileUsageStatic(QSqlDatabase& db)
 {
     // Keyed by profile TITLE — shots.profile_name stores the title, not a
     // filename, so a rename drops a profile to never-used until its next shot
-    // (profile-usage-history spec, accepted). Cost: task 1.6 measures this on a
-    // realistic DB before an index is considered — MAX(timestamp) reads row
-    // pages that carry the sample blobs, so cost tracks table BYTES, not row
-    // count (per CLAUDE.md's Settings/DB-threading rule).
+    // (profile-usage-history spec, accepted).
+    // Measured 2026-09-14, M2 MacBook Pro, sqlite3 CLI, plan = SCAN USING
+    // INDEX idx_shots_profile: 20 MB / 1188 shots / 27 titles: 37 ms cold,
+    // 1.1 ms warm; 31 MB / 2376 shots: 2.0 ms warm. A covering
+    // (profile_name, timestamp) index cut it to 0.4 ms — not worth a migration
+    // for a threaded query nothing waits on.
     QVariantMap result;
     QSqlQuery query(db);
     if (!query.exec(QStringLiteral(

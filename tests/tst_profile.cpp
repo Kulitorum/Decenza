@@ -2545,6 +2545,9 @@ private slots:
         QTest::newRow("calibrateKeyword") << "Calibrate Scale" << "calibrate";
         QTest::newRow("pourKeyword") << "V60 Recipe" << "pourover";
         QTest::newRow("noKeywordNoFrames_defaultsEspresso") << "Mystery Profile" << "espresso";
+        // "tea" only as a whole word: "Steady" and "Steam" must not read as tea.
+        QTest::newRow("teaSubstringIsNotTea") << "Steady 9 bar" << "espresso";
+        QTest::newRow("teaWholeWord") << "Black Tea 85" << "tea_portafilter";
     }
 
     void inferBeverageType_titleKeywords() {
@@ -2569,6 +2572,15 @@ private slots:
         flowStep.maxFlowOrPressure = 1.0;
         flowStep.temperature = 92.0;
         QCOMPARE(Profile::inferBeverageType("Flow Thing", {flowStep}), QStringLiteral("pourover"));
+
+        // Limiter 0 on a flow step means IgnoreLimit (unlimited), not 0 bar:
+        // no pressure evidence, so a hot unlimited flow step stays espresso.
+        ProfileFrame unlimitedFlow;
+        unlimitedFlow.pump = "flow";
+        unlimitedFlow.flow = 2.0;
+        unlimitedFlow.maxFlowOrPressure = 0.0;
+        unlimitedFlow.temperature = 93.0;
+        QCOMPARE(Profile::inferBeverageType("Flow Thing", {unlimitedFlow}), QStringLiteral("espresso"));
 
         // Cold step -> pourover regardless of pressure.
         const QList<ProfileFrame> coldStep = { makeFrame("pressure", 9.0, 0.0, 22.0) };

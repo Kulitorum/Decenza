@@ -400,6 +400,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         // Update profile lists when selection/hidden state changes
         connect(m_settings->app(), &SettingsApp::selectedBuiltInProfilesChanged, this, &ProfileManager::profilesChanged);
         connect(m_settings->app(), &SettingsApp::hiddenProfilesChanged, this, &ProfileManager::profilesChanged);
+
+        // profile-favorites-order: a mode switch re-sorts immediately.
+        m_settings->app()->persistFavoriteProfileOrderIfAbsent();
+        connect(m_settings->app(), &SettingsApp::favoriteProfileOrderChanged, this, &ProfileManager::resortFavorites);
     }
 }
 
@@ -935,8 +939,15 @@ QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString&
                                         const QStringList& allowedBeverageTypes) const
 {
     QVariantMap counts;
+    const QString searchLower = search.trimmed().toLower();
+    // Nine passes per keystroke: count with the predicate alone, never build rows.
     const auto countWith = [&](const QVariantMap& withChip) -> int {
-        return static_cast<int>(filterProfiles(withChip, search, allowedBeverageTypes).size());
+        int n = 0;
+        for (const ProfileInfo& info : m_allProfiles) {
+            if (profileMatchesFilters(info, withChip, searchLower, allowedBeverageTypes))
+                ++n;
+        }
+        return n;
     };
 
     QVariantMap withSelected = chips;

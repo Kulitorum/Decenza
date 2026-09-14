@@ -146,6 +146,7 @@ public:
     // Favorites order mode: custom|alpha|usage. See profile-favorites-order.
     QString favoriteProfileOrder() const;
     void setFavoriteProfileOrder(const QString& mode);
+    void persistFavoriteProfileOrderIfAbsent();
 
     // Current profile
     QString currentProfile() const;

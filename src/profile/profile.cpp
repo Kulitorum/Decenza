@@ -2063,8 +2063,11 @@ QString Profile::inferBeverageType(const QString& title, const QList<ProfileFram
         return QStringLiteral("cleaning");
     if (t.contains(QLatin1String("calibrat")))
         return QStringLiteral("calibrate");
-    if (t.contains(QLatin1String("tea")) || t.contains(QLatin1String("steep"))
-        || t.contains(QLatin1String("chai")) || t.contains(QLatin1String("matcha")))
+    // "tea" and "chai" need word boundaries: "Steam", "Steady" and "chain"
+    // all contain them as substrings.
+    static const QRegularExpression kTeaWord(QStringLiteral("\\b(tea|chai)\\b"));
+    if (kTeaWord.match(t).hasMatch() || t.contains(QLatin1String("steep"))
+        || t.contains(QLatin1String("matcha")))
         return QStringLiteral("tea_portafilter");
     static const QStringList kPourKeywords = {
         QStringLiteral("pour over"), QStringLiteral("pourover"), QStringLiteral("filter"),
@@ -2078,17 +2081,27 @@ QString Profile::inferBeverageType(const QString& title, const QList<ProfileFram
 
     // 2. Shape: highest pressure across steps (setpoint for a pressure step,
     // limiter for a flow step) under 3 bar, or any step at/below 40C, reads as
-    // pourover regardless of title. Frameless profiles skip this — no shape to read.
+    // pourover regardless of title. A flow step whose limiter is 0 has the
+    // IgnoreLimit flag set (profileframe.h:83) — unlimited pressure, not 0 bar —
+    // so it contributes no pressure evidence. Frameless profiles skip this.
     if (!steps.isEmpty()) {
         double maxPressure = 0.0;
+        bool pressureEvidence = false;
         bool coldStep = false;
         for (const ProfileFrame& f : steps) {
-            const double p = (f.pump == QLatin1String("flow")) ? f.maxFlowOrPressure : f.pressure;
-            maxPressure = std::max(maxPressure, p);
+            if (f.pump == QLatin1String("flow")) {
+                if (f.maxFlowOrPressure > 0.0) {
+                    maxPressure = std::max(maxPressure, f.maxFlowOrPressure);
+                    pressureEvidence = true;
+                }
+            } else {
+                maxPressure = std::max(maxPressure, f.pressure);
+                pressureEvidence = true;
+            }
             if (f.temperature > 0.0 && f.temperature <= 40.0)
                 coldStep = true;
         }
-        if (maxPressure < 3.0 || coldStep)
+        if ((pressureEvidence && maxPressure < 3.0) || coldStep)
             return QStringLiteral("pourover");
     }
 

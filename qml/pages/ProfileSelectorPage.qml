@@ -30,33 +30,6 @@ T.Page {
         anchors.bottomMargin: Theme.pageTopMargin
         spacing: Theme.scaled(10)
 
-        // ===== "+" menu (Visualizer / Tablet-Files / New) — selector chrome,
-        // outside the shared picker (profile-picker "Selector chrome") =====
-        RowLayout {
-            Layout.fillWidth: true
-            Item { Layout.fillWidth: true }
-            AccessibleButton {
-                text: "+"
-                accessibleName: TranslationManager.translate("profilepicker.addMenu.accessible", "Add a profile")
-                primary: true
-                Layout.preferredHeight: Theme.scaled(44)
-                Layout.preferredWidth: Theme.scaled(44)
-                leftPadding: Theme.scaled(4)
-                rightPadding: Theme.scaled(4)
-                contentItem: Text {
-                    text: "+"
-                    font.pixelSize: Theme.scaled(22)
-                    font.bold: true
-                    font.family: Theme.bodyFont.family
-                    color: Theme.primaryContrastColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    Accessible.ignored: true
-                }
-                onClicked: addMenuDialog.open()
-            }
-        }
-
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -81,6 +54,8 @@ T.Page {
                     // Selector opens on Selected, nothing else (profile-picker spec).
                     initialChips: ({ selected: true })
                     showAutoLoadStrip: true
+                    showAddButton: true
+                    onAddRequested: addMenuDialog.open()
 
                     onProfileChosen: function(filename) {
                         ProfileManager.loadProfile(filename)

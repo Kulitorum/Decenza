@@ -136,7 +136,7 @@ DecenzaDialog {
                     var filenames = []
                     for (i = 0; i < root._order.length; ++i) filenames.push(root._order[i].filename)
                     Settings.app.setFavoritesOrder(filenames)
-                    Settings.app.setFavoriteProfileOrder("custom")
+                    Settings.app.favoriteProfileOrder = "custom"
                     root.close()
                 }
             }

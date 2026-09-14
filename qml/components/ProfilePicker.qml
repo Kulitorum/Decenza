@@ -34,8 +34,14 @@ Item {
     // Selector-only auto-load status strip, rendered ABOVE the search/chip
     // rows when true (profile-auto-load spec).
     property bool showAutoLoadStrip: false
+    // Selector-only "+" (Visualizer / Tablet / New) at the end of the search
+    // row; the host owns the menu it opens.
+    property bool showAddButton: false
+    // For a host's KeyboardAwareContainer.textFields.
+    property alias searchInput: searchField
 
     signal profileChosen(string filename)
+    signal addRequested()
 
     Component.onCompleted: {
         picker.chipSelected = picker.initialChips.selected === true
@@ -445,7 +451,7 @@ Item {
                 onActivated: function(index) {
                     if (picker.chipFavorites) {
                         if (index === 2) { favoritesOrderDialog.open(); return }
-                        Settings.app.setFavoriteProfileOrder(index === 0 ? "alpha" : "usage")
+                        Settings.app.favoriteProfileOrder = (index === 0 ? "alpha" : "usage")
                     } else {
                         picker.sortMode = index === 0 ? "alpha" : "usage"
                     }
@@ -475,6 +481,28 @@ Item {
                     Accessible.ignored: true
                 }
                 accessibleLabel: TranslationManager.translate("profilepicker.sort.label", "Sort")
+            }
+
+            AccessibleButton {
+                visible: picker.showAddButton
+                text: "+"
+                accessibleName: TranslationManager.translate("profilepicker.addMenu.accessible", "Add a profile")
+                primary: true
+                Layout.preferredHeight: Theme.scaled(44)
+                Layout.preferredWidth: Theme.scaled(44)
+                leftPadding: Theme.scaled(4)
+                rightPadding: Theme.scaled(4)
+                contentItem: Text {
+                    text: "+"
+                    font.pixelSize: Theme.scaled(22)
+                    font.bold: true
+                    font.family: Theme.bodyFont.family
+                    color: Theme.primaryContrastColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    Accessible.ignored: true
+                }
+                onClicked: picker.addRequested()
             }
         }
 

@@ -681,6 +681,38 @@ private slots:
         else raw.remove("profile/favoriteOrder");
     }
 
+    // Stamping at startup is what keeps a NEW user in usage mode after their
+    // first star: the resolve rule alone would flip them to custom.
+    void favoriteProfileOrderStampSurvivesFirstFavorite() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray origFavorites = raw.value("profile/favorites").toByteArray();
+        const QVariant origOrder = raw.value("profile/favoriteOrder");
+
+        raw.setValue("profile/favorites", QJsonDocument(QJsonArray()).toJson());
+        raw.remove("profile/favoriteOrder");
+        raw.sync();
+
+        m_settings.app()->persistFavoriteProfileOrderIfAbsent();
+        QCOMPARE(raw.value("profile/favoriteOrder").toString(), QString("usage"));
+
+        QJsonArray arr;
+        QJsonObject f; f["name"] = "First Fav"; f["filename"] = "first-fav.json";
+        arr.append(f);
+        raw.setValue("profile/favorites", QJsonDocument(arr).toJson());
+        raw.sync();
+        QCOMPARE(m_settings.app()->favoriteProfileOrder(), QString("usage"));
+
+        // A second stamp never overwrites a value already present.
+        raw.setValue("profile/favoriteOrder", "alpha");
+        raw.sync();
+        m_settings.app()->persistFavoriteProfileOrderIfAbsent();
+        QCOMPARE(raw.value("profile/favoriteOrder").toString(), QString("alpha"));
+
+        raw.setValue("profile/favorites", origFavorites);
+        if (origOrder.isValid()) raw.setValue("profile/favoriteOrder", origOrder);
+        else raw.remove("profile/favoriteOrder");
+    }
+
     void favoriteProfileOrderRoundTripsThroughSerializer() {
         const QString orig = m_settings.app()->favoriteProfileOrder();
         m_settings.app()->setFavoriteProfileOrder("alpha");

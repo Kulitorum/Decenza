@@ -5,7 +5,7 @@
 - [x] 1.3 Call `inferBeverageType` from `VisualizerImporter::parseVisualizerProfile` and both `ProfileImporter` paths only when the raw payload's `beverage_type` is empty/absent, logging the deduction at INFO via the file's registered helper; verify `scripts/check_log_markers.py` passes and a test imports an untagged JSON and reads back the inferred type
 - [x] 1.4 Add `favoriteProfileOrder` (`custom|alpha|usage`) to `SettingsApp` with the resolve-when-absent rule, plus serializer export/import; verify tests: absent+favorites → custom, absent+empty → usage, round-trip through the serializer
 - [x] 1.5 Add `ShotHistoryStorage::requestProfileUsage()` (threaded `withTempDb`, `GROUP BY profile_name`, emits `profileUsageReady(QVariantMap)`); verify a test saves three shots across two titles and reads back counts and max timestamps
-- [ ] 1.6 Measure `requestProfileUsage` on a realistic database and a 2× copy; record median and worst case in a comment at the call site; decide on a `(profile_name, timestamp)` index from the numbers only
+- [x] 1.6 Measure `requestProfileUsage` on a realistic database and a 2× copy; record median and worst case in a comment at the call site; decide on a `(profile_name, timestamp)` index from the numbers only
 - [x] 1.7 `ProfileManager`: hold `profileUsage` property, refresh at startup and on shot save; in `usage`/`alpha` modes rewrite the favorites order and re-sync `selectedFavoriteProfile` by filename; verify tests: usage re-sort after a save, alpha re-sort after add/rename, custom never rewritten, selection index follows the profile
 - [x] 1.8 `ProfileManager::filterProfiles(chips, search, allowedBeverageTypes)` and `facetCounts(...)`; verify tests: cross-group AND, within-group OR, empty group = all, favorites ⊂ selected, faceted counts, title-only search, beverage constraint hides constrained types
 
@@ -26,8 +26,8 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Full suite green through `mcp__qtcreator__run_tests` scope `all`
-- [ ] 4.2 `text-invariants` checks locally: `scripts/check_log_markers.py`, `scripts/check_test_source_duplication.py`, `qmllint_check` target
+- [x] 4.1 Full suite green through `mcp__qtcreator__run_tests` scope `all`
+- [x] 4.2 `text-invariants` checks locally: `scripts/check_log_markers.py`, `scripts/check_test_source_duplication.py`, `qmllint_check` target
 - [ ] 4.3 Live check on desktop: open Profiles, toggle every chip, search, sort, star, ⋮ actions, long-press preview, reorder dialog, idle pills follow order; open wizard for espresso, filter, tea
 - [ ] 4.4 Import an untagged profile JSON via file import and confirm the inferred `beverage_type` and its INFO log line
 
