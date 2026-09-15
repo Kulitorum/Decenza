@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVector>
+#include "portalsample.h"
 
 class FastLineRenderer;
 
@@ -27,6 +28,10 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(double stopTime READ stopTime NOTIFY stopTimeChanged)
     Q_PROPERTY(double weightAtStop READ weightAtStop NOTIFY weightAtStopChanged)
     Q_PROPERTY(double finalWeight READ finalWeight NOTIFY finalWeightChanged)
+    Q_PROPERTY(QVariantList portalSamples READ portalSamplesVariant NOTIFY portalSamplesChanged)
+    Q_PROPERTY(qsizetype portalSampleCount READ portalSampleCount NOTIFY portalSamplesChanged)
+    Q_PROPERTY(double portalEcMin READ portalEcMin NOTIFY portalSamplesChanged)
+    Q_PROPERTY(double portalEcMax READ portalEcMax NOTIFY portalSamplesChanged)
     // Goal curves exposed as Qt.point()-compatible variant lists so DashedLineSeries
     // Repeaters can bind directly — replaces the QLineSeries handshake.
     Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
@@ -43,6 +48,12 @@ public:
     double stopTime() const { return m_stopTime; }
     double weightAtStop() const { return m_weightAtStop; }
     double finalWeight() const;
+    qsizetype portalSampleCount() const { return m_portalSamples.size(); }
+    double portalEcMin() const { return m_portalEcBounds.minimum; }
+    double portalEcMax() const { return m_portalEcBounds.maximum; }
+    Q_INVOKABLE QVariantList portalEcBounds(const QVariantList& samples) const;
+    QVariantList portalSamplesVariant() const { return PortalSamples::toVariant(m_portalSamples); }
+    const QVector<PortalSample>& portalSamples() const { return m_portalSamples; }
     QVariantList phaseMarkersVariant() const;
     QVariantList pressureGoalSegmentsVariant() const;
     QVariantList flowGoalSegmentsVariant() const;
@@ -83,6 +94,8 @@ public:
 public slots:
     void clear();
     void clearWeightData();  // Clear only weight samples (call when tare completes)
+    void addPortalSample(double time, double ecRaw, double temperatureC);
+    void markPortalGap() { m_portalGap = true; }
 
     // Data ingestion - vector append, chart update deferred to 33ms timer
     void addSample(double time, double pressure, double flow, double temperature,
@@ -108,6 +121,8 @@ public slots:
 
 signals:
     void cleared();
+    void portalSamplesChanged();
+    void portalSampleAdded(double time, double ecRaw, double temperatureC, bool breakBefore);
     void maxTimeChanged();
     void rawTimeChanged();
     void phaseMarkersChanged();
@@ -123,6 +138,10 @@ private slots:
 private:
     // Data storage - fast vector appends
     QVector<QPointF> m_pressurePoints;
+    QVector<PortalSample> m_portalSamples;
+    bool m_portalGap = true;
+    bool m_portalDirty = false;
+    PortalSamples::EcBounds m_portalEcBounds;
     QVector<QPointF> m_flowPoints;
     QVector<QPointF> m_temperaturePoints;
     QVector<QPointF> m_temperatureMixPoints;

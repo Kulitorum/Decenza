@@ -32,6 +32,8 @@ const COLOR_DEFS = [
         { name: "flowColor", display: "Flow" },
         { name: "flowGoalColor", display: "Flow Goal" },
         { name: "temperatureColor", display: "Temperature" },
+        { name: "portalEcColor", display: "PORTAL EC", portal: true },
+        { name: "portalTemperatureColor", display: "PORTAL Temperature", portal: true },
         { name: "temperatureGoalColor", display: "Temp Goal" },
         { name: "weightColor", display: "Weight" },
         { name: "weightFlowColor", display: "Weight Flow" },
@@ -157,6 +159,7 @@ function renderColors(colors, pageColors) {
         panel.appendChild(title);
 
         for (const c of cat.colors) {
+            if (c.portal && !(currentTheme && currentTheme.portalAvailable)) continue;
             const val = colors[c.name] || '#000000';
             const isOnPage = onPage.has(c.name);
             const row = document.createElement('div');

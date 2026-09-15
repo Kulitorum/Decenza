@@ -3,6 +3,8 @@
 namespace {
 // Storage keys keep the `graph/` prefix they had before this class existed. Renaming one
 // would silently discard every user's saved choice for that trace.
+constexpr QLatin1String kKeyShowPortalEc{"graph/showPortalEc"};
+constexpr QLatin1String kKeyShowPortalTemperature{"graph/showPortalTemperature"};
 constexpr QLatin1String kKeyShowPressure{"graph/showPressure"};
 constexpr QLatin1String kKeyShowFlow{"graph/showFlow"};
 constexpr QLatin1String kKeyShowTemperature{"graph/showTemperature"};
@@ -53,9 +55,9 @@ void SettingsGraph::writeBool(QLatin1String key, bool defaultValue, bool value,
         writeBool(Key, Default, show, &SettingsGraph::Signal);       \
     }
 
-// Eleven properties differing only in key, default and signal. Written out by hand this is
-// 88 lines in which a single mismatched key or default hides indefinitely — the defaults in
-// particular were already duplicated across five QML files before this class existed.
+// One definition for each graph visibility key, default and notification signal.
+DECENZA_GRAPH_BOOL(showPortalEc, setShowPortalEc, kKeyShowPortalEc, true, showPortalEcChanged)
+DECENZA_GRAPH_BOOL(showPortalTemperature, setShowPortalTemperature, kKeyShowPortalTemperature, true, showPortalTemperatureChanged)
 DECENZA_GRAPH_BOOL(showPressure, setShowPressure, kKeyShowPressure, true, showPressureChanged)
 DECENZA_GRAPH_BOOL(showFlow, setShowFlow, kKeyShowFlow, true, showFlowChanged)
 DECENZA_GRAPH_BOOL(showTemperature, setShowTemperature, kKeyShowTemperature, true, showTemperatureChanged)

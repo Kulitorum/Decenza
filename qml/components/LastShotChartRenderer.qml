@@ -215,6 +215,7 @@ Item {
         darcyResistanceData: LastShotChartSource.shotData.darcyResistance || []
         conductanceDerivativeData: LastShotChartSource.shotData.conductanceDerivative || []
         temperatureMixData: LastShotChartSource.shotData.temperatureMix || []
+        portalSamples: LastShotChartSource.shotData.portalSamples || []
         pressureGoalData: LastShotChartSource.shotData.pressureGoal || []
         flowGoalData: LastShotChartSource.shotData.flowGoal || []
         temperatureGoalData: LastShotChartSource.shotData.temperatureGoal || []

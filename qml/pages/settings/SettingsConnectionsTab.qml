@@ -1772,6 +1772,11 @@ Item {
                         }
                     }
 
+                    PortalDevicePanel {
+                        Layout.fillWidth: true
+                        visible: BelkaPortal.savedAddress.length > 0 || BelkaPortal.state !== "disconnected"
+                    }
+
                     Tr {
                         Layout.fillWidth: true
                         key: "settings.bluetooth.availableDevices"
@@ -1803,7 +1808,7 @@ Item {
                         Layout.preferredHeight: Math.max(Theme.scaled(80),
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
-                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
+                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected || BelkaPortal.devices.length > 0
                         readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
                             && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
@@ -1844,6 +1849,12 @@ Item {
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
+                            var portals = BelkaPortal.devices
+                            for (var p = 0; p < portals.length; p++) {
+                                if (portals[p].identifier === BelkaPortal.savedAddress) continue
+                                items.push({ deviceName: portals[p].label, address: portals[p].identifier,
+                                             deviceType: "PORTAL", deviceClass: "portal" })
+                            }
                             WebDebugLogger.debug("Scale", "SettingsConnectionsTab", ["discoveredDevicesList combinedModel rebuilt:",
                                         "scales=" + scales.length + "(-" + skippedScales + " known)",
                                         "refractometers=" + refractometers.length + "(-" + skippedRefs + " known)",
@@ -1872,6 +1883,18 @@ Item {
                             }
                         }
 
+                        Connections {
+                            target: BelkaPortal
+                            function onDevicesChanged() {
+                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
+                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
+                            }
+                            function onSavedDeviceChanged() {
+                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
+                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
+                            }
+                        }
+
                         // Rebuild when the Known Devices set changes — a scale
                         // moving from discovered → known should disappear from
                         // this list since it's now managed above.
@@ -1887,6 +1910,8 @@ Item {
                         delegate: ItemDelegate {
                             id: delegate2
                             required property var modelData
+                            enabled: modelData.deviceClass !== "portal"
+                                || (!BelkaPortal.active && BelkaPortal.state !== "disconnecting" && !BelkaPortal.machineBusy)
 
                             width: ListView.view.width
 
@@ -1931,7 +1956,9 @@ Item {
                                 radius: Theme.scaled(4)
                             }
                             onClicked: {
-                                if (modelData.deviceClass === "refractometer")
+                                if (modelData.deviceClass === "portal")
+                                    BelkaPortal.connectDevice(modelData.address)
+                                else if (modelData.deviceClass === "refractometer")
                                     BLEManager.connectToRefractometer(modelData.address)
                                 else
                                     BLEManager.connectToScale(modelData.address)

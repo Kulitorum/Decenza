@@ -231,6 +231,8 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
                                                                 qint64 clockEpoch)
 {
     ParseResult result;
+    result.record.portalSamples = PortalSamples::fromVariant(
+        shotJson["decenza_portal_samples"].toArray().toVariantList());
 
     // The download response's `clock` is null and `start_time` is an ISO
     // string, so the authoritative start time comes from the shot-list

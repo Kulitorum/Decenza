@@ -1840,7 +1840,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             bool found = dbOpened && record.summary.id != 0;
             if (found) {
                 ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
-                payload = VisualizerUploader::buildHistoryShotJson(shotData);
+                payload = VisualizerUploader::buildHistoryShotJson(shotData, true);
             }
 
             if (*destroyed) return;

@@ -144,6 +144,8 @@ extern "C" const char* __ubsan_default_options()
 #include "network/crashreporter.h"
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
+#include "ble/belkaportaldiscovery.h"
+#include "controllers/portalcontroller.h"
 // For the [DE1][Simulator] attach line below — main.cpp owns the simulator's
 // lifetime, so it is the only place that can report it.
 #include "ble/de1logging.h"
@@ -2246,6 +2248,15 @@ int main(int argc, char *argv[])
     // re-point the `ScaleDevice` context property now call setTarget() on this.
     ScaleDeviceProxy scaleProxy;
     RefractometerProxy refractometerProxy;
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    BelkaPortalDevice belkaPortal([] { return new CoreBluetoothScaleBleTransport(); });
+#else
+    BelkaPortalDevice belkaPortal([] { return new QtScaleBleTransport(); });
+#endif
+    BelkaPortalForeign::s_singletonInstance = &belkaPortal;
+    connectPortalDiscovery(&bleManager, &belkaPortal);
+    PortalController portalController(&belkaPortal, settings.hardware(), &machineState,
+                                     &timingController, &shotDataModel);
     mainController.setScaleDeviceProxy(&scaleProxy);
 
     // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —

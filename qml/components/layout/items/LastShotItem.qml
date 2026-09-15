@@ -90,6 +90,7 @@ LayoutWidgetItem {
                 flowGoalData: root.shotData.flowGoal || []
                 temperatureGoalData: root.shotData.temperatureGoal || []
                 temperatureMixData: root.shotData.temperatureMix || []
+                portalSamples: root.shotData.portalSamples || []
                 temperatureMixGoalData: root.shotData.temperatureMixGoal || []
                 phaseMarkers: root.shotData.phases || []
                 maxTime: root.shotData.durationSec || 60
@@ -148,6 +149,7 @@ LayoutWidgetItem {
                     flowGoalData: root.shotData.flowGoal || []
                     temperatureGoalData: root.shotData.temperatureGoal || []
                     temperatureMixData: root.shotData.temperatureMix || []
+                    portalSamples: root.shotData.portalSamples || []
                     temperatureMixGoalData: root.shotData.temperatureMixGoal || []
                     phaseMarkers: root.shotData.phases || []
                     maxTime: root.shotData.durationSec || 60

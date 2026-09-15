@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QSet>
+#include <optional>
 #include "../profile/profile.h"
 
 class DE1Device;
@@ -45,6 +46,8 @@ public:
 
     // Properties
     double shotTime() const;
+    // Receive-time mapping shared by asynchronous sensors, including SAW settling.
+    std::optional<double> sensorTime(qint64 receivedAtMs) const;
     double extractionDuration() const { return m_extractionEndTime; }
     bool isTareComplete() const { return m_tareState == TareState::Complete; }
     double currentWeight() const { return m_weight; }
@@ -93,6 +96,7 @@ public:
     void tare();
 
 signals:
+    void extractionClockStarted();
     void shotTimeChanged();
     void tareCompleteChanged();
     void weightChanged();
