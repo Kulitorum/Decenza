@@ -881,11 +881,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Ride the app-update checker's existing hourly timer (and its 30s
     // post-startup kick, both gated on Settings.app().autoCheckUpdates and
-    // Qt::ApplicationActive) to also refresh the HDS firmware catalog, rather
-    // than HDS inventing a second, unwatched cadence of its own. Previously
-    // HdsFirmwareUpdateController only ever re-fetched at construction and on
-    // app resume-from-suspend, so a release published while the app stayed
-    // open in the foreground was never noticed short of a restart.
+    // Qt::ApplicationActive, and both compiled out entirely on iOS — see
+    // UpdateChecker::periodicCheckTriggered()) to also refresh the HDS
+    // firmware catalog, rather than HDS inventing a second, unwatched cadence
+    // of its own. Previously HdsFirmwareUpdateController only ever re-fetched
+    // at construction and on app resume-from-suspend, so a release published
+    // while the app stayed open in the foreground was never noticed short of
+    // a restart. On iOS, resume-from-suspend remains HDS's only refresh
+    // trigger beyond construction, same as before this change.
     connect(m_updateChecker, &UpdateChecker::periodicCheckTriggered,
             m_hdsFirmwareUpdate, &HdsFirmwareUpdateController::checkForUpdates);
 
@@ -1013,8 +1016,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     });
 }
 
-void MainController::checkForSoftwareUpdates() {
-    m_updateChecker->checkForUpdates();
+void MainController::checkForSoftwareUpdates(bool userInitiated) {
+    if (userInitiated) {
+        m_updateChecker->checkForUpdates();
+    }
+#if !defined(Q_OS_IOS)
+    else if (m_settings->app()->autoCheckUpdates()) {
+        m_updateChecker->checkForUpdates();
+    }
+#endif
     m_hdsFirmwareUpdate->checkForUpdates();
 }
 

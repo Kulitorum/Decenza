@@ -123,9 +123,13 @@ signals:
     void errorMessageChanged();
     void updatePromptRequested();  // Emitted when auto-check finds update
 
-    // Emitted from onPeriodicCheck(), right after it decides to actually
-    // check (app active, not already mid-check), on both the 30s post-startup
-    // kick and every hourly tick thereafter. MainController connects this to
+    // Emitted from onPeriodicCheck() whenever the app is active, on both the
+    // 30s post-startup kick and every hourly tick thereafter — independent of
+    // whether THIS checker itself is currently busy (m_checking/m_downloading
+    // gate what happens next in onPeriodicCheck(), not this emit). Not raised
+    // on iOS at all: the timer and the startup kick that drive it are compiled
+    // out there (App Store handles updates), so iOS continues to rely solely
+    // on resume-from-suspend for HDS refresh. MainController connects this to
     // HdsFirmwareUpdateController::checkForUpdates so the HDS scale-firmware
     // catalog rides the same clock instead of needing one of its own.
     void periodicCheckTriggered();

@@ -12,8 +12,7 @@ private slots:
     void ignoresCurrentAndOlderRelease();
     void rejectsDifferentModel();
     void rejectsReleaseBlockedByMinFrom();
-    void rejectsReleaseBlockedByPcbMismatch();
-    void unknownScalePcbDoesNotBlockAPcbGatedRelease();
+    void offersEqualNumberedStableToAPreviewOrRcInstall();
     void rejectsNonStableVersion();
     void rejectsMalformedOrEmptyCatalog();
     void storesEveryVersionAsAWireReadyTarget();
@@ -65,29 +64,34 @@ void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByMinFrom()
     QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.0.9")));
 }
 
-// Mirrors include/pull_ota.h's own gate exactly: a release naming a PCB
-// revision is refused for a scale that reports a different one.
-void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByPcbMismatch()
+// Mirrors pull_ota.h's pullOtaBuildSelectableReleases(): a scale running a
+// preview/rc build is offered the equal-numbered stable release too (it's
+// numerically "not newer" but is a real, firmware-accepted move off a
+// prerelease) — never a strictly older one, and never for an arbitrary
+// non-preview/rc suffix. #1952 was reported from exactly this scenario: a
+// WiFi HDS on 3.1.14-preview.1 was told there was nothing to install once
+// 3.1.14 stable shipped.
+void tst_HdsFirmwareCatalog::offersEqualNumberedStableToAPreviewOrRcInstall()
 {
     const auto catalog = HdsFirmwareCatalog::fromJson(
-        R"({"model":"hds","version":"3.1.13","pcb":"2.0"})");
+        R"({"model":"hds","version":"3.1.14"})");
     QVERIFY(catalog);
-    QCOMPARE(catalog->releases().first().pcb, QStringLiteral("2.0"));
-    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.10"), QStringLiteral("hds"),
-                                            QStringLiteral("1.3")));
-    QVERIFY(catalog->newestEligibleRelease(QStringLiteral("3.1.10"), QStringLiteral("hds"),
-                                           QStringLiteral("2.0")));
-}
 
-// Decenza has no way to read a connected scale's own PCB revision yet, so an
-// omitted scalePcb (the default) must never exclude a release — the firmware
-// is the final authority and will itself refuse an install this let through.
-void tst_HdsFirmwareCatalog::unknownScalePcbDoesNotBlockAPcbGatedRelease()
-{
-    const auto catalog = HdsFirmwareCatalog::fromJson(
-        R"({"model":"hds","version":"3.1.13","pcb":"2.0"})");
-    QVERIFY(catalog);
-    QVERIFY(catalog->newestEligibleRelease(QStringLiteral("3.1.10")));
+    const auto preview = catalog->newestEligibleRelease(QStringLiteral("3.1.14-preview.1"));
+    QVERIFY(preview);
+    QCOMPARE(preview->version, QStringLiteral("3.1.14"));
+
+    const auto rc = catalog->newestEligibleRelease(QStringLiteral("3.1.14-rc.2"));
+    QVERIFY(rc);
+    QCOMPARE(rc->version, QStringLiteral("3.1.14"));
+
+    // An arbitrary suffix isn't a recognized preview/rc build, so it gets no
+    // exception — same as a stable install already at the newest version.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.14-dev")));
+
+    // The exception is "equal", never "older": a preview build ahead of the
+    // catalog's newest stable release must not be offered a downgrade.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.15-preview.1")));
 }
 
 void tst_HdsFirmwareCatalog::rejectsNonStableVersion()
@@ -106,10 +110,11 @@ void tst_HdsFirmwareCatalog::rejectsNonStableVersion()
 void tst_HdsFirmwareCatalog::storesEveryVersionAsAWireReadyTarget()
 {
     const auto catalog = HdsFirmwareCatalog::fromJson(
-        R"({"model":"hds","version":"v3.1.14","min_from":"v3.0.0"})");
+        R"({"model":"hds","version":"v3.1.14","min_from":"v3.0.0","pcb":"1.3"})");
     QVERIFY(catalog);
     QCOMPARE(catalog->releases().first().version, QStringLiteral("3.1.14"));
     QCOMPARE(catalog->releases().first().minFromVersion, QStringLiteral("3.0.0"));
+    QCOMPARE(catalog->releases().first().pcb, QStringLiteral("1.3"));
 
     // Still eligible against an installed version reported the other way.
     const auto release = catalog->newestEligibleRelease(QStringLiteral("3.1.13"));

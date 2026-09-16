@@ -418,7 +418,7 @@ Item {
                         // kinds the app tracks. This page's own status UI only
                         // reflects the app-update half; the scale-firmware
                         // half surfaces on the Connections tab.
-                        onClicked: MainController.checkForSoftwareUpdates()
+                        onClicked: MainController.checkForSoftwareUpdates(true)
                     }
 
                     AccessibleButton {

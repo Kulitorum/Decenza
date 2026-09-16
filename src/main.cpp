@@ -4446,7 +4446,10 @@ int main(int argc, char *argv[])
             // checker and the HDS scale-firmware catalog. UpdateChecker's own
             // hourly timer doesn't fire a check specifically on resume, so
             // this is the only resume-triggered check either of them gets.
-            mainController.checkForSoftwareUpdates();
+            // Not user-initiated: honors the auto-check-updates setting (and
+            // is a no-op for the app side on iOS) rather than forcing a check
+            // the user may have turned off — see checkForSoftwareUpdates().
+            mainController.checkForSoftwareUpdates(false);
 
 #ifdef Q_OS_ANDROID
             // Re-enable accessibility bridge now that the EGL surface is valid again

@@ -272,11 +272,12 @@ FetchContent_MakeAvailable(paho_mqtt_c)
 if(NOT IOS)
     # SOURCE_SUBDIR points at a directory that doesn't exist so that
     # FetchContent_MakeAvailable() populates the source without also calling
-    # add_subdirectory() on it: mjansson/mdns ships its own top-level
-    # CMakeLists.txt (example/test executables, install rules) that we don't
-    # want pulled into this build — only mdns.h/.c via the include directory
-    # below. Documented replacement for the deprecated single-arg
-    # FetchContent_Populate(<name>) form (FetchContent.cmake:333-349).
+    # add_subdirectory() on it (FetchContent.cmake:333-349): mjansson/mdns
+    # ships its own top-level CMakeLists.txt (example/test executables,
+    # install rules) that we don't want pulled into this build — only
+    # mdns.h/.c via the include directory below. FetchContent_MakeAvailable()
+    # itself is the documented replacement for the single-arg
+    # FetchContent_Populate(<name>) form CMake 3.30 deprecated.
     FetchContent_Declare(
         mdns_lib
         GIT_REPOSITORY https://github.com/mjansson/mdns.git

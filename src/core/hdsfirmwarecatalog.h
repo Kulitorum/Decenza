@@ -12,12 +12,13 @@ struct HdsFirmwareRelease {
     QString minFromVersion;
     QString model;
     QString releaseNotesUrl;
-    // Hardware-revision gate. Empty means the release applies to every PCB
-    // revision (openscale's generator only emits the field at all when a
-    // build's config sets one — see manifest["pcb"] in
-    // tools/generate_release_manifest.py). Compared to the scale's own
-    // compiled PCB_VER by exact, case-sensitive string equality — not a
-    // version — matching include/pull_ota.h's own gate exactly.
+    // Hardware-revision gate: manifest["pcb"], auto-detected from the active
+    // board's PCB_VER on every real release build today
+    // (tools/generate_release_manifest.py's detect_pcb_version()), so empty
+    // is realistically a compatibility case for catalog entries published
+    // before this field existed rather than an ongoing per-release choice.
+    // Captured but not yet filtered on — nothing in Decenza reads a
+    // connected scale's own PCB revision to compare it against.
     QString pcb;
 };
 
@@ -28,14 +29,8 @@ class HdsFirmwareCatalog {
 public:
     static std::optional<HdsFirmwareCatalog> fromJson(const QByteArray& data, QString* error = nullptr);
 
-    // scalePcb is the connected scale's own compiled PCB_VER. Left empty —
-    // its default — a release's pcb gate is never checked, which is exactly
-    // today's behavior: nothing in Decenza reads a scale's PCB revision yet,
-    // so there's nothing honest to compare against. Wire a real value
-    // through here once that plumbing exists rather than guessing at one.
     std::optional<HdsFirmwareRelease> newestEligibleRelease(const QString& installedVersion,
-                                                             const QString& model = QStringLiteral("hds"),
-                                                             const QString& scalePcb = QString()) const;
+                                                             const QString& model = QStringLiteral("hds")) const;
     const QList<HdsFirmwareRelease>& releases() const { return m_releases; }
 
     static int compareVersions(const QString& left, const QString& right);

@@ -16,6 +16,11 @@ namespace {
 // The _STDERR variant because this controller has no logMessage signal — the
 // emitting form is for the scale drivers, which do.
 #define HDS_UPDATE_WARN(msg) SCALE_WARN_STDERR_TAGGED("HDS Update", msg)
+// Same reasoning, INFO tier: a check's OUTCOME is the user's story (did we
+// find an update, and to what) the same way "connected"/"dropped" is for a
+// transport — see scalelogging.h's audience rule. Without this, a check that
+// succeeds leaves no trace at all: only failure had a line.
+#define HDS_UPDATE_INFO(msg) SCALE_INFO_STDERR_TAGGED("HDS Update", msg)
 
 constexpr auto kManifestUrl = "https://github.com/decentespresso/openscale/releases/latest/download/manifest.json";
 constexpr auto kOpenScaleRepository = "decentespresso/openscale";
@@ -95,6 +100,14 @@ void HdsFirmwareUpdateController::checkForUpdates()
         }
         m_catalog = catalog;
         reevaluateAvailability();
+        if (!m_scale || !m_scale->isConnected()) {
+            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: no scale connected to evaluate against"));
+        } else if (m_updateAvailable) {
+            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: update available, %1 -> %2")
+                             .arg(installedVersion(), availableVersion()));
+        } else {
+            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: up to date at %1").arg(installedVersion()));
+        }
     });
 }
 
