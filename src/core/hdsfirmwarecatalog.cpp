@@ -3,31 +3,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
 
 namespace {
-
-// True for exactly "-preview.<digits>" or "-rc.<digits>" — the two suffixes
-// pull_ota_version.h's pullOtaVersionIsRelease() recognizes as a release build
-// short of stable (an arbitrary suffix like "-dev" does not count, matching
-// it exactly). Used to mirror pullOtaBuildSelectableReleases()
-// (pull_ota.h:500-511): when the INSTALLED version is itself a preview/rc
-// build, the firmware's own selectable-release list also includes an
-// equal-numbered stable release, specifically so a preview tester can move
-// onto the shipped stable once it exists. newestEligibleRelease() below
-// grants that same one exception; an ordinary stable-to-stable comparison is
-// unaffected and still requires a strictly newer release.
-bool isPreviewOrRcVersion(const QString& version)
-{
-    QString text = version.trimmed();
-    if (text.startsWith(QLatin1Char('v')) || text.startsWith(QLatin1Char('V')))
-        text = text.mid(1);
-    const qsizetype dashIndex = text.indexOf(QLatin1Char('-'));
-    if (dashIndex < 0)
-        return false;
-    static const QRegularExpression re(QStringLiteral(R"(^-(?:preview|rc)\.\d+$)"));
-    return re.match(text.mid(dashIndex)).hasMatch();
-}
 
 // A release the app may OFFER, which is stricter than a version it can compare.
 // parseVersion ignores a prerelease suffix so an installed "3.1.14-preview.1"
@@ -111,15 +88,10 @@ std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
     if (!HdsFirmwareCatalog::parseVersion(installedVersion))
         return std::nullopt;
 
-    // See isPreviewOrRcVersion()'s doc comment: a preview/rc install may take
-    // an equal-numbered stable release too, never a strictly older one.
-    const bool allowEqual = isPreviewOrRcVersion(installedVersion);
-
     std::optional<HdsFirmwareRelease> newest;
     for (const HdsFirmwareRelease& release : m_releases) {
-        const int cmp = compareVersions(release.version, installedVersion);
         if (release.model.compare(model, Qt::CaseInsensitive) != 0
-            || cmp < 0 || (cmp == 0 && !allowEqual)) {
+            || compareVersions(release.version, installedVersion) <= 0) {
             continue;
         }
         if (!release.minFromVersion.isEmpty()
