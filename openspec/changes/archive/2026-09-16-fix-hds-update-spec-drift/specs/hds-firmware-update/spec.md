@@ -1,9 +1,4 @@
-# hds-firmware-update Specification
-
-## Purpose
-Lets Decenza identify and present signed, compatible Half Decent Scale firmware releases and install a chosen release on the selected scale over Bluetooth, USB, or WiFi, without the owner touching the scale and without adding noise to normal Connections use.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: HDS release availability is lifecycle-driven
 

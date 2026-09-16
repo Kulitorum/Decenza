@@ -88,6 +88,19 @@ void tst_HdsFirmwareCatalog::offersEqualNumberedStableToAPreviewOrRcInstall()
     // The exception is "equal", never "older": a preview build ahead of the
     // catalog's newest stable release must not be offered a downgrade.
     QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.15-preview.1")));
+
+    // A strictly-newer release in the SAME catalog must still win over the
+    // merely-equal one — the equal-numbered match is a floor, not a ceiling
+    // the newest-release loop could get stuck on.
+    const auto catalogWithNewer = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.14","releases":[
+            {"model":"hds","version":"3.1.14"},
+            {"model":"hds","version":"3.1.15"}
+        ]})");
+    QVERIFY(catalogWithNewer);
+    const auto newest = catalogWithNewer->newestEligibleRelease(QStringLiteral("3.1.14-preview.4"));
+    QVERIFY(newest);
+    QCOMPARE(newest->version, QStringLiteral("3.1.15"));
 }
 
 void tst_HdsFirmwareCatalog::rejectsNonStableVersion()

@@ -28,11 +28,26 @@ Item {
         padding: Theme.scaled(20)
         onOpened: MainController.hdsFirmwareUpdate.loadReleaseNotes()
 
+        // Single definition so the visible Text and the dialog's accessible
+        // name (below) can never drift onto two different wordings of the
+        // same refusal.
+        readonly property string rejectionText: MainController.hdsFirmwareUpdate.updateError !== ""
+            ? TranslationManager.translate("connections.hdsUpdateRejected",
+                                           "The scale refused this update: %1")
+                  .arg(MainController.hdsFirmwareUpdate.updateError)
+            : ""
+
         contentItem: ColumnLayout {
             spacing: Theme.scaled(12)
             // DecenzaDialog is a Popup, so attach the dialog semantics to its Item content.
+            // Every Text below is Accessible.ignored, relying on this name to
+            // summarise the dialog per ACCESSIBILITY.md — so the one piece of
+            // dynamic, actionable content this dialog produces (a refusal) has
+            // to be folded in here too, not just painted in Theme.errorColor.
             Accessible.role: Accessible.Dialog
-            Accessible.name: hdsFirmwareUpdateDialog.title
+            Accessible.name: hdsFirmwareUpdateDialog.rejectionText !== ""
+                ? hdsFirmwareUpdateDialog.title + ". " + hdsFirmwareUpdateDialog.rejectionText
+                : hdsFirmwareUpdateDialog.title
 
             Text {
                 Layout.fillWidth: true
@@ -51,10 +66,8 @@ Item {
                 // protocol replies to a command in-band (see
                 // ScaleDevice::firmwareUpdateRejected). Bluetooth and USB give
                 // no such signal, so this stays empty there even on refusal.
-                visible: MainController.hdsFirmwareUpdate.updateError !== ""
-                text: TranslationManager.translate("connections.hdsUpdateRejected",
-                                                   "The scale refused this update: %1")
-                    .arg(MainController.hdsFirmwareUpdate.updateError)
+                visible: hdsFirmwareUpdateDialog.rejectionText !== ""
+                text: hdsFirmwareUpdateDialog.rejectionText
                 color: Theme.errorColor
                 wrapMode: Text.Wrap
                 Accessible.ignored: true

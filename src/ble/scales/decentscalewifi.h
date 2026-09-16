@@ -317,16 +317,20 @@ private:
     // is visible — notably whether it ever sends a status frame carrying
     // firmware_version. Cleared on disconnect.
     QSet<QString> m_loggedFrameShapes;
-    // Set right after sending a wifi_update command; consumed (cleared) by the
-    // next "error" frame, which is emitted as firmwareUpdateRejected() — the
-    // scale's command handler replies to a refused command synchronously and
-    // in-band (sendWebsocketError inside handleWebsocketControlCommand,
-    // openscale include/websocket.h). Left set across any other frame type
-    // rather than consumed by "the next frame" generally: status/snapshot
-    // frames stream continuously and could race ahead of the command's own
-    // reply, and clearing on one of those would risk missing a genuine
-    // refusal that arrives just after. Reset on disconnect (this connection's
-    // context is gone either way) rather than a timer, per house style.
+    // Set right after sending a wifi_update command (only if the send itself
+    // succeeded — see startFirmwareUpdate()); consumed by the next TYPED frame
+    // received, in onTextMessageReceived(). Untyped weight-snapshot frames
+    // stream continuously but are handled and return before reaching that
+    // point, so they can never steal it — every typed frame (status, button,
+    // power, rate, error) IS a direct, synchronous reply to whatever command
+    // was just sent (sendWebsocketStatus/sendWebsocketError inside
+    // handleWebsocketControlCommand, openscale include/websocket.h). Only if
+    // that reply is specifically an "error" frame does it mean the update
+    // request was refused — emitted as firmwareUpdateRejected(). Clearing
+    // unconditionally on the next frame (not just on a matching error) bounds
+    // the window a stray later frame could be misattributed to a request that
+    // already succeeded or timed out. Also reset on disconnect, since that
+    // connection's context is gone either way.
     bool m_awaitingFirmwareUpdateAck = false;
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;

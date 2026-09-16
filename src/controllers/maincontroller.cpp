@@ -1023,6 +1023,12 @@ void MainController::checkForSoftwareUpdates(bool userInitiated) {
 #if !defined(Q_OS_IOS)
     else if (m_settings->app()->autoCheckUpdates()) {
         m_updateChecker->checkForUpdates();
+    } else {
+        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: autoCheckUpdates is off";
+    }
+#else
+    else {
+        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: iOS updates come from the App Store";
     }
 #endif
     m_hdsFirmwareUpdate->checkForUpdates();

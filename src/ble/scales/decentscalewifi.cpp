@@ -674,6 +674,15 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
         return;
     }
 
+    // Consumed by the very next TYPED frame — see m_awaitingFirmwareUpdateAck's
+    // doc comment for why "the next frame" is safe here even though snapshot
+    // streaming would make it unsafe elsewhere: untyped weight snapshots
+    // already returned above, before reaching this point, so they can never
+    // steal it. Every frame type below IS a direct, synchronous reply to
+    // whatever command Decenza most recently sent.
+    const bool awaitingFirmwareUpdateAck = m_awaitingFirmwareUpdateAck;
+    m_awaitingFirmwareUpdateAck = false;
+
     // Diagnostic: log one sample of each distinct typed frame per connect, so
     // the firmware's actual WS surface is visible (frame types and, for status,
     // its fields incl. firmware_version).
@@ -706,8 +715,7 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
         const QString errorCode = obj.value(QStringLiteral("code")).toString();
         const QString errorMessage = obj.value(QStringLiteral("message")).toString();
         WIFI_WARN(QString("Scale reported error '%1': %2").arg(errorCode, errorMessage));
-        if (m_awaitingFirmwareUpdateAck) {
-            m_awaitingFirmwareUpdateAck = false;
+        if (awaitingFirmwareUpdateAck) {
             emit firmwareUpdateRejected(errorMessage.isEmpty() ? errorCode : errorMessage);
         }
     }
@@ -1105,8 +1113,15 @@ void DecentScaleWifi::startFirmwareUpdate(const QString& targetVersion) {
         return;
     }
     WIFI_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
-    if (send(QStringLiteral("wifi_update %1").arg(HdsFirmwareCatalog::canonicalVersion(*components))))
+    if (send(QStringLiteral("wifi_update %1").arg(HdsFirmwareCatalog::canonicalVersion(*components)))) {
         m_awaitingFirmwareUpdateAck = true;
+    } else {
+        // send() already WARN-logged the drop; without this, the controller
+        // would still flip to "update requested" (it has no other way to know
+        // the write never left this process) — the exact false-success shape
+        // firmwareUpdateRejected exists to prevent.
+        emit firmwareUpdateRejected(QStringLiteral("not connected — nothing was sent"));
+    }
 }
 
 void DecentScaleWifi::wake() {
