@@ -23,6 +23,7 @@ class HdsFirmwareUpdateController : public QObject {
     Q_PROPERTY(QString releaseNotes READ releaseNotes NOTIFY releaseNotesChanged)
     Q_PROPERTY(bool releaseNotesLoading READ releaseNotesLoading NOTIFY releaseNotesLoadingChanged)
     Q_PROPERTY(bool updateStarted READ updateStarted NOTIFY updateStartedChanged)
+    Q_PROPERTY(QString updateError READ updateError NOTIFY updateErrorChanged)
 
 public:
     explicit HdsFirmwareUpdateController(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
@@ -37,6 +38,12 @@ public:
     // request as QUEUED, never as installed, and no transport carries a
     // progress stream, so this must never be read as a completed update.
     bool updateStarted() const { return m_updateStarted; }
+    // Non-empty when the scale explicitly, synchronously refused the request
+    // (see ScaleDevice::firmwareUpdateRejected) — currently only reachable
+    // over WiFi. Empty otherwise, including while a request is genuinely in
+    // flight or accepted: silence is not evidence of success on any
+    // transport, only an explicit refusal is evidence of failure.
+    QString updateError() const { return m_updateError; }
 
     void setScaleDevice(ScaleDevice* scale);
 
@@ -52,7 +59,11 @@ signals:
     void releaseNotesChanged();
     void releaseNotesLoadingChanged();
     void updateStartedChanged();
+    void updateErrorChanged();
     void activeScaleChanged();
+
+private slots:
+    void onFirmwareUpdateRejected(const QString& reason);
 
 private:
     void cancelReleaseNotesRequest();
@@ -70,4 +81,5 @@ private:
     bool m_releaseNotesLoading = false;
     bool m_updateStarted = false;
     QString m_releaseNotes;
+    QString m_updateError;
 };

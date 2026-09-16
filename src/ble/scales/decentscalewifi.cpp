@@ -635,6 +635,7 @@ void DecentScaleWifi::onDisconnected() {
     }
     m_loggedProtoVersion = -1;
     m_loggedFrameShapes.clear();
+    m_awaitingFirmwareUpdateAck = false;
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
     m_userInitiatedShutdown = false;
@@ -702,9 +703,13 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     // otherwise consume the slot and leave a refused firmware update recorded
     // nowhere at all.
     else if (type == QStringLiteral("error")) {
-        WIFI_WARN(QString("Scale reported error '%1': %2")
-                  .arg(obj.value(QStringLiteral("code")).toString(),
-                       obj.value(QStringLiteral("message")).toString()));
+        const QString errorCode = obj.value(QStringLiteral("code")).toString();
+        const QString errorMessage = obj.value(QStringLiteral("message")).toString();
+        WIFI_WARN(QString("Scale reported error '%1': %2").arg(errorCode, errorMessage));
+        if (m_awaitingFirmwareUpdateAck) {
+            m_awaitingFirmwareUpdateAck = false;
+            emit firmwareUpdateRejected(errorMessage.isEmpty() ? errorCode : errorMessage);
+        }
     }
     // Any other unknown type is captured by the diagnostic log above; no
     // further action.
@@ -1100,7 +1105,8 @@ void DecentScaleWifi::startFirmwareUpdate(const QString& targetVersion) {
         return;
     }
     WIFI_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
-    send(QStringLiteral("wifi_update %1").arg(HdsFirmwareCatalog::canonicalVersion(*components)));
+    if (send(QStringLiteral("wifi_update %1").arg(HdsFirmwareCatalog::canonicalVersion(*components))))
+        m_awaitingFirmwareUpdateAck = true;
 }
 
 void DecentScaleWifi::wake() {

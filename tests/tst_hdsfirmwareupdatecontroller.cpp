@@ -127,6 +127,7 @@ public:
         requestedVersions.append(targetVersion);
     }
     void setTestConnected(bool connected) { setConnected(connected); }
+    void simulateFirmwareUpdateRejected(const QString& reason) { emit firmwareUpdateRejected(reason); }
 
     // WiFi reports its version on a status frame that arrives AFTER the scale is
     // selected, so the controller only ever learns it from the notification.
@@ -157,6 +158,8 @@ private slots:
     void failedRefreshRetainsTheLastKnownCatalog();
     void startUpdateNamesTheResolvedRelease();
     void aVersionArrivingLateMakesTheScaleEligible();
+    void scaleRejectionClearsUpdateStartedAndSetsError();
+    void rejectionOutsideAnInFlightRequestIsIgnored();
 };
 
 void tst_HdsFirmwareUpdateController::launchCheckCachesManifestAndFollowsActiveScale()
@@ -239,6 +242,57 @@ void tst_HdsFirmwareUpdateController::aVersionArrivingLateMakesTheScaleEligible(
     // And it goes away again when the scale stops reporting one.
     scale.setTestVersion({});
     QVERIFY(!controller.updateAvailable());
+}
+
+// The one channel that lets Decenza tell the user "this specific request
+// failed" rather than leaving a scale rejection a silent no-op — see
+// ScaleDevice::firmwareUpdateRejected.
+void tst_HdsFirmwareUpdateController::scaleRejectionClearsUpdateStartedAndSetsError()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    controller.startUpdate();
+    QVERIFY(controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
+
+    scale.simulateFirmwareUpdateRejected(QStringLiteral("unrecognized or malformed command"));
+    QVERIFY(!controller.updateStarted());
+    QCOMPARE(controller.updateError(), QStringLiteral("unrecognized or malformed command"));
+
+    // Retrying clears the stale error rather than leaving last attempt's
+    // message showing next to a fresh, unresolved request.
+    controller.startUpdate();
+    QVERIFY(controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
+}
+
+// A rejection has to belong to a request Decenza actually made. Nothing here
+// simulates that stray signal directly (there is none to simulate — this
+// documents the guard's precondition instead): before startUpdate(),
+// updateStarted() is already false, so onFirmwareUpdateRejected()'s early
+// return is exercised by construction whenever a rejection arrives outside
+// a request window.
+void tst_HdsFirmwareUpdateController::rejectionOutsideAnInFlightRequestIsIgnored()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    QVERIFY(!controller.updateStarted());
+
+    scale.simulateFirmwareUpdateRejected(QStringLiteral("stray"));
+    QVERIFY(!controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
 }
 
 void tst_HdsFirmwareUpdateController::manifestRequestUsesSharedGithubPolicy()

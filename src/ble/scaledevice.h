@@ -112,6 +112,14 @@ signals:
     void batteryLevelChanged(int level);
     void chargingChanged(bool charging);
     void firmwareVersionChanged();
+    // Emitted when the scale synchronously, explicitly refuses a just-sent
+    // startFirmwareUpdate() request — currently WiFi only, the only transport
+    // whose protocol replies to a command in-band. Never fires for a LATER,
+    // async refusal the firmware discovers after accepting the request (e.g.
+    // catalog/signature checks); those reach only the scale's own display —
+    // see HdsFirmwareUpdateController's class doc. Base class default: never
+    // emitted; a transport with no such reply channel simply never raises it.
+    void firmwareUpdateRejected(const QString& reason);
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();

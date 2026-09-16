@@ -12,6 +12,7 @@ private slots:
     void ignoresCurrentAndOlderRelease();
     void rejectsDifferentModel();
     void rejectsReleaseBlockedByMinFrom();
+    void offersEqualNumberedStableToAPreviewOrRcInstall();
     void rejectsNonStableVersion();
     void rejectsMalformedOrEmptyCatalog();
     void storesEveryVersionAsAWireReadyTarget();
@@ -61,6 +62,32 @@ void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByMinFrom()
         R"({"model":"hds","version":"3.1.13","min_from":"3.1.0"})");
     QVERIFY(catalog);
     QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.0.9")));
+}
+
+// Mirrors pull_ota.h's pullOtaBuildSelectableReleases(): a scale running a
+// preview/rc build is offered the equal-numbered stable release too — never a
+// strictly older one, and never for an arbitrary non-preview/rc suffix.
+void tst_HdsFirmwareCatalog::offersEqualNumberedStableToAPreviewOrRcInstall()
+{
+    const auto catalog = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.14"})");
+    QVERIFY(catalog);
+
+    const auto preview = catalog->newestEligibleRelease(QStringLiteral("3.1.14-preview.4"));
+    QVERIFY(preview);
+    QCOMPARE(preview->version, QStringLiteral("3.1.14"));
+
+    const auto rc = catalog->newestEligibleRelease(QStringLiteral("3.1.14-rc.2"));
+    QVERIFY(rc);
+    QCOMPARE(rc->version, QStringLiteral("3.1.14"));
+
+    // An arbitrary suffix isn't a recognized preview/rc build, so it gets no
+    // exception — same as a stable install already at the newest version.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.14-dev")));
+
+    // The exception is "equal", never "older": a preview build ahead of the
+    // catalog's newest stable release must not be offered a downgrade.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.15-preview.1")));
 }
 
 void tst_HdsFirmwareCatalog::rejectsNonStableVersion()

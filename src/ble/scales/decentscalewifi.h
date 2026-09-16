@@ -317,6 +317,17 @@ private:
     // is visible — notably whether it ever sends a status frame carrying
     // firmware_version. Cleared on disconnect.
     QSet<QString> m_loggedFrameShapes;
+    // Set right after sending a wifi_update command; consumed (cleared) by the
+    // next "error" frame, which is emitted as firmwareUpdateRejected() — the
+    // scale's command handler replies to a refused command synchronously and
+    // in-band (sendWebsocketError inside handleWebsocketControlCommand,
+    // openscale include/websocket.h). Left set across any other frame type
+    // rather than consumed by "the next frame" generally: status/snapshot
+    // frames stream continuously and could race ahead of the command's own
+    // reply, and clearing on one of those would risk missing a genuine
+    // refusal that arrives just after. Reset on disconnect (this connection's
+    // context is gone either way) rather than a timer, per house style.
+    bool m_awaitingFirmwareUpdateAck = false;
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as

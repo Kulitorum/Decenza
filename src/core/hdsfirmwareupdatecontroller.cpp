@@ -61,6 +61,7 @@ void HdsFirmwareUpdateController::setScaleDevice(ScaleDevice* scale)
     if (m_scale) {
         connect(m_scale, &ScaleDevice::connectedChanged, this, &HdsFirmwareUpdateController::reevaluateAvailability);
         connect(m_scale, &ScaleDevice::firmwareVersionChanged, this, &HdsFirmwareUpdateController::reevaluateAvailability);
+        connect(m_scale, &ScaleDevice::firmwareUpdateRejected, this, &HdsFirmwareUpdateController::onFirmwareUpdateRejected);
     }
     reevaluateAvailability();
     emit activeScaleChanged();
@@ -152,12 +153,29 @@ void HdsFirmwareUpdateController::startUpdate()
     reevaluateAvailability();
     if (!m_updateAvailable || !m_scale || m_updateStarted)
         return;
+    if (!m_updateError.isEmpty()) {
+        m_updateError.clear();
+        emit updateErrorChanged();
+    }
     // Name the release. The scale then installs it without showing its own
     // picker or asking for a hold-to-confirm, and re-resolves the version
     // against its own signed catalog before writing anything.
     m_scale->startFirmwareUpdate(m_availableRelease->version);
     m_updateStarted = true;
     emit updateStartedChanged();
+}
+
+void HdsFirmwareUpdateController::onFirmwareUpdateRejected(const QString& reason)
+{
+    // Only meaningful while we're actually waiting on a request we made —
+    // ignore a rejection signal reaching us outside that window (e.g. a
+    // stale/duplicate emission) rather than overwriting a since-cleared state.
+    if (!m_updateStarted)
+        return;
+    m_updateStarted = false;
+    m_updateError = reason;
+    emit updateStartedChanged();
+    emit updateErrorChanged();
 }
 
 void HdsFirmwareUpdateController::cancelReleaseNotesRequest()
@@ -185,8 +203,10 @@ void HdsFirmwareUpdateController::reevaluateAvailability()
         cancelReleaseNotesRequest();
         m_releaseNotes.clear();
         m_updateStarted = false;
+        m_updateError.clear();
         emit releaseNotesChanged();
         emit updateStartedChanged();
+        emit updateErrorChanged();
         emit availabilityChanged();
     }
 }

@@ -47,6 +47,21 @@ Item {
 
             Text {
                 Layout.fillWidth: true
+                // Only WiFi can ever populate this — the one transport whose
+                // protocol replies to a command in-band (see
+                // ScaleDevice::firmwareUpdateRejected). Bluetooth and USB give
+                // no such signal, so this stays empty there even on refusal.
+                visible: MainController.hdsFirmwareUpdate.updateError !== ""
+                text: TranslationManager.translate("connections.hdsUpdateRejected",
+                                                   "The scale refused this update: %1")
+                    .arg(MainController.hdsFirmwareUpdate.updateError)
+                color: Theme.errorColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+            }
+
+            Text {
+                Layout.fillWidth: true
                 visible: !MainController.hdsFirmwareUpdate.updateStarted
                 text: TranslationManager.translate("connections.hdsUpdateExplain",
                                                    "The scale will install this version on its own. Keep it powered and within WiFi range until it restarts.")
