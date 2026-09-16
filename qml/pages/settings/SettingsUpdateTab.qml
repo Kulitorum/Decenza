@@ -410,10 +410,15 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.update.checknow", "Check Now")
-                        accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app updates")
+                        accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app and scale firmware updates")
                         visible: parent.idleState
                         enabled: !MainController.updateChecker.checking
-                        onClicked: MainController.updateChecker.checkForUpdates()
+                        // Also refreshes the HDS scale-firmware catalog — this
+                        // is the one manual "check now" for both software
+                        // kinds the app tracks. This page's own status UI only
+                        // reflects the app-update half; the scale-firmware
+                        // half surfaces on the Connections tab.
+                        onClicked: MainController.checkForSoftwareUpdates()
                     }
 
                     AccessibleButton {

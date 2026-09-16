@@ -122,6 +122,13 @@ signals:
     void releaseNotesChanged();
     void errorMessageChanged();
     void updatePromptRequested();  // Emitted when auto-check finds update
+
+    // Emitted from onPeriodicCheck(), right after it decides to actually
+    // check (app active, not already mid-check), on both the 30s post-startup
+    // kick and every hourly tick thereafter. MainController connects this to
+    // HdsFirmwareUpdateController::checkForUpdates so the HDS scale-firmware
+    // catalog rides the same clock instead of needing one of its own.
+    void periodicCheckTriggered();
     void installingChanged();
     void latestIsBetaChanged();
     void downloadReadyChanged();

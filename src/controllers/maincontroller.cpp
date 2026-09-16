@@ -879,6 +879,16 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_updateChecker = new UpdateChecker(m_networkManager, m_settings, this);
     m_hdsFirmwareUpdate = new HdsFirmwareUpdateController(m_networkManager, this);
 
+    // Ride the app-update checker's existing hourly timer (and its 30s
+    // post-startup kick, both gated on Settings.app().autoCheckUpdates and
+    // Qt::ApplicationActive) to also refresh the HDS firmware catalog, rather
+    // than HDS inventing a second, unwatched cadence of its own. Previously
+    // HdsFirmwareUpdateController only ever re-fetched at construction and on
+    // app resume-from-suspend, so a release published while the app stayed
+    // open in the foreground was never noticed short of a restart.
+    connect(m_updateChecker, &UpdateChecker::periodicCheckTriggered,
+            m_hdsFirmwareUpdate, &HdsFirmwareUpdateController::checkForUpdates);
+
     // Initialize DE1 firmware update pipeline. FirmwareAssetCache shares
     // the MainController's QNetworkAccessManager (so proxy/TLS settings
     // apply uniformly). FirmwareUpdater is wired to DE1Device for BLE
@@ -1001,6 +1011,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->refreshProfiles();
         requestRecipeTempOffsetConversion();
     });
+}
+
+void MainController::checkForSoftwareUpdates() {
+    m_updateChecker->checkForUpdates();
+    m_hdsFirmwareUpdate->checkForUpdates();
 }
 
 void MainController::requestRecipeTempOffsetConversion() {

@@ -283,6 +283,12 @@ public:
     MqttClient* mqttClient() const { return m_mqttClient; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
     HdsFirmwareUpdateController* hdsFirmwareUpdate() const { return m_hdsFirmwareUpdate; }
+    // Single "check for updates now" entry point covering both software kinds
+    // this app tracks — the Decenza app release and the HDS scale firmware —
+    // so a caller (manual button, app resume) triggers both instead of
+    // picking one. The ongoing periodic cadence is unified too: see
+    // UpdateChecker::periodicCheckTriggered().
+    Q_INVOKABLE void checkForSoftwareUpdates();
     void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
     FirmwareUpdater* firmwareUpdater() const { return m_firmwareUpdater; }
     ShotReporter* shotReporter() const { return m_shotReporter; }

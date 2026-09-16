@@ -1009,6 +1009,8 @@ void UpdateChecker::onPeriodicCheck()
     // thread and the render thread on Android (see issue #178)
     if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
 
+    emit periodicCheckTriggered();
+
     m_checking = true;
     emit checkingChanged();
 

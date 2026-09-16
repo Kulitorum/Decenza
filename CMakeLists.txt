@@ -270,12 +270,20 @@ FetchContent_MakeAvailable(paho_mqtt_c)
 # is selectable at runtime (MdnsResolver::setBrowseBackend), so a macOS build
 # can A/B the two against the same LAN and confirm they agree.
 if(NOT IOS)
+    # SOURCE_SUBDIR points at a directory that doesn't exist so that
+    # FetchContent_MakeAvailable() populates the source without also calling
+    # add_subdirectory() on it: mjansson/mdns ships its own top-level
+    # CMakeLists.txt (example/test executables, install rules) that we don't
+    # want pulled into this build — only mdns.h/.c via the include directory
+    # below. Documented replacement for the deprecated single-arg
+    # FetchContent_Populate(<name>) form (FetchContent.cmake:333-349).
     FetchContent_Declare(
         mdns_lib
         GIT_REPOSITORY https://github.com/mjansson/mdns.git
         GIT_TAG        1.4.3
+        SOURCE_SUBDIR  do-not-add-as-subdirectory
     )
-    FetchContent_Populate(mdns_lib)
+    FetchContent_MakeAvailable(mdns_lib)
 endif()
 
 # Address Sanitizer - auto-enabled for single-config Debug builds (Makefiles, Ninja),

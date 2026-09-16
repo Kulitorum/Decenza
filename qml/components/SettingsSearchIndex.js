@@ -1,3 +1,4 @@
+.pragma library
 // Settings search index — maps setting cards to tabs for search navigation.
 // Each entry: { tabId, cardId, title, description, keywords }
 //   tabId    matches an id in SettingsTabs.qml (e.g. "connections", "machine", "about")

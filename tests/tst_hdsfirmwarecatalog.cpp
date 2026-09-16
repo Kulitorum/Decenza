@@ -12,6 +12,8 @@ private slots:
     void ignoresCurrentAndOlderRelease();
     void rejectsDifferentModel();
     void rejectsReleaseBlockedByMinFrom();
+    void rejectsReleaseBlockedByPcbMismatch();
+    void unknownScalePcbDoesNotBlockAPcbGatedRelease();
     void rejectsNonStableVersion();
     void rejectsMalformedOrEmptyCatalog();
     void storesEveryVersionAsAWireReadyTarget();
@@ -61,6 +63,31 @@ void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByMinFrom()
         R"({"model":"hds","version":"3.1.13","min_from":"3.1.0"})");
     QVERIFY(catalog);
     QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.0.9")));
+}
+
+// Mirrors include/pull_ota.h's own gate exactly: a release naming a PCB
+// revision is refused for a scale that reports a different one.
+void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByPcbMismatch()
+{
+    const auto catalog = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.13","pcb":"2.0"})");
+    QVERIFY(catalog);
+    QCOMPARE(catalog->releases().first().pcb, QStringLiteral("2.0"));
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.10"), QStringLiteral("hds"),
+                                            QStringLiteral("1.3")));
+    QVERIFY(catalog->newestEligibleRelease(QStringLiteral("3.1.10"), QStringLiteral("hds"),
+                                           QStringLiteral("2.0")));
+}
+
+// Decenza has no way to read a connected scale's own PCB revision yet, so an
+// omitted scalePcb (the default) must never exclude a release — the firmware
+// is the final authority and will itself refuse an install this let through.
+void tst_HdsFirmwareCatalog::unknownScalePcbDoesNotBlockAPcbGatedRelease()
+{
+    const auto catalog = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.13","pcb":"2.0"})");
+    QVERIFY(catalog);
+    QVERIFY(catalog->newestEligibleRelease(QStringLiteral("3.1.10")));
 }
 
 void tst_HdsFirmwareCatalog::rejectsNonStableVersion()

@@ -31,6 +31,7 @@ HdsFirmwareRelease releaseFromObject(const QJsonObject& object)
     release.minFromVersion = stableCanonicalVersion(object.value(QStringLiteral("min_from")).toString());
     release.model = object.value(QStringLiteral("model")).toString();
     release.releaseNotesUrl = object.value(QStringLiteral("release_notes_url")).toString();
+    release.pcb = object.value(QStringLiteral("pcb")).toString();
     return release;
 }
 
@@ -82,7 +83,7 @@ std::optional<HdsFirmwareCatalog> HdsFirmwareCatalog::fromJson(const QByteArray&
 }
 
 std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
-    const QString& installedVersion, const QString& model) const
+    const QString& installedVersion, const QString& model, const QString& scalePcb) const
 {
     if (!HdsFirmwareCatalog::parseVersion(installedVersion))
         return std::nullopt;
@@ -91,6 +92,14 @@ std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
     for (const HdsFirmwareRelease& release : m_releases) {
         if (release.model.compare(model, Qt::CaseInsensitive) != 0
             || compareVersions(release.version, installedVersion) <= 0) {
+            continue;
+        }
+        // Exact, case-sensitive match — mirrors include/pull_ota.h's own gate
+        // (`String(pcb) != String(PCB_VER)`) precisely, including that an
+        // unknown scalePcb (empty) never excludes a release: the firmware
+        // remains the final authority and will itself refuse an install this
+        // skipped comparison let through.
+        if (!release.pcb.isEmpty() && !scalePcb.isEmpty() && release.pcb != scalePcb) {
             continue;
         }
         if (!release.minFromVersion.isEmpty()
