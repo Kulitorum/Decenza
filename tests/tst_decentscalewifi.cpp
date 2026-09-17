@@ -561,6 +561,88 @@ private slots:
         QVERIFY(server.received().isEmpty());
     }
 
+    // The refusal that motivated firmwareUpdateRejected in the first place:
+    // an old firmware's command parser doesn't recognize "wifi_update" at
+    // all and replies with a generic error frame (real wire shape confirmed
+    // against a 3.1.13 scale this session — see #1952).
+    void firmwareUpdateRejectedOnErrorFrameReply() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy rejectedSpy(&driver, &ScaleDevice::firmwareUpdateRejected);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.13" }});
+        QTRY_VERIFY(driver.supportsFirmwareUpdate());
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*Starting firmware update.*"));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        QTRY_VERIFY(server.received().contains(QStringLiteral("wifi_update 3.1.14")));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*unknown_command.*"));
+        server.sendJson({{ "type", "error" }, { "code", "unknown_command" },
+                          { "message", "unrecognized or malformed command" }});
+        QTRY_COMPARE(rejectedSpy.count(), 1);
+        QCOMPARE(rejectedSpy.takeFirst().at(0).toString(),
+                 QStringLiteral("unrecognized or malformed command"));
+    }
+
+    // The accepted path never sends an "error" frame at all — a real ack is a
+    // "status" frame shaped exactly like a periodic one (openscale's
+    // sendWebsocketStatus). Nothing about that should ever look like a
+    // refusal.
+    void firmwareUpdateAcceptedReplyIsNotMistakenForARejection() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy rejectedSpy(&driver, &ScaleDevice::firmwareUpdateRejected);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.13" }});
+        QTRY_VERIFY(driver.supportsFirmwareUpdate());
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*Starting firmware update.*"));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        QTRY_VERIFY(server.received().contains(QStringLiteral("wifi_update 3.1.14")));
+
+        server.sendJson({{ "type", "status" }, { "status", "ok" },
+                          { "firmware_version", "FW: 3.1.13" }});
+        QTest::qWait(50);
+        QCOMPARE(rejectedSpy.count(), 0);
+    }
+
+    // m_awaitingFirmwareUpdateAck must not survive a reconnect: otherwise an
+    // error frame on a LATER, unrelated connection could be misattributed to
+    // a request from a connection that's already gone.
+    void firmwareUpdateAckDoesNotSurviveDisconnect() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy rejectedSpy(&driver, &ScaleDevice::firmwareUpdateRejected);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.13" }});
+        QTRY_VERIFY(driver.supportsFirmwareUpdate());
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*Starting firmware update.*"));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        QTRY_VERIFY(server.received().contains(QStringLiteral("wifi_update 3.1.14")));
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*WebSocket disconnected.*"));
+        server.closeFromServer();
+        QTRY_VERIFY(!driver.supportsFirmwareUpdate());
+
+        QSignalSpy connectedSpy(&server, &FakeHdsServer::clientConnected);
+        driver.connectToHost(server.host());
+        QVERIFY(connectedSpy.wait(2000));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*frame_too_large.*"));
+        server.sendJson({{ "type", "error" }, { "code", "frame_too_large" },
+                          { "message", "unrelated to any update request" }});
+        QTest::qWait(50);
+        QCOMPARE(rejectedSpy.count(), 0);
+    }
+
     // Regression: the real firmware's status frame ALSO carries a `grams` field
     // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
     // so a status-with-grams must still reach the status handler — keying on the

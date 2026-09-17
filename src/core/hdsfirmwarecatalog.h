@@ -12,6 +12,14 @@ struct HdsFirmwareRelease {
     QString minFromVersion;
     QString model;
     QString releaseNotesUrl;
+    // Hardware-revision gate: manifest["pcb"], auto-detected from the active
+    // board's PCB_VER on every real release build today
+    // (tools/generate_release_manifest.py's detect_pcb_version()), so empty
+    // is realistically a compatibility case for catalog entries published
+    // before this field existed rather than an ongoing per-release choice.
+    // Captured but not yet filtered on — nothing in Decenza reads a
+    // connected scale's own PCB revision to compare it against.
+    QString pcb;
 };
 
 // An advisory view of the public catalog the HDS itself later downloads and

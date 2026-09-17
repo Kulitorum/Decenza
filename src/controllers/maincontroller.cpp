@@ -879,6 +879,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_updateChecker = new UpdateChecker(m_networkManager, m_settings, this);
     m_hdsFirmwareUpdate = new HdsFirmwareUpdateController(m_networkManager, this);
 
+    // Ride the app-update checker's existing hourly timer (and its 30s
+    // post-startup kick, both gated on Settings.app().autoCheckUpdates and
+    // Qt::ApplicationActive, and both compiled out entirely on iOS — see
+    // UpdateChecker::periodicCheckTriggered()) to also refresh the HDS
+    // firmware catalog, rather than HDS inventing a second, unwatched cadence
+    // of its own. Previously HdsFirmwareUpdateController only ever re-fetched
+    // at construction and on app resume-from-suspend, so a release published
+    // while the app stayed open in the foreground was never noticed short of
+    // a restart. On iOS, resume-from-suspend remains HDS's only refresh
+    // trigger beyond construction, same as before this change.
+    connect(m_updateChecker, &UpdateChecker::periodicCheckTriggered,
+            m_hdsFirmwareUpdate, &HdsFirmwareUpdateController::checkForUpdates);
+
     // Initialize DE1 firmware update pipeline. FirmwareAssetCache shares
     // the MainController's QNetworkAccessManager (so proxy/TLS settings
     // apply uniformly). FirmwareUpdater is wired to DE1Device for BLE
@@ -1001,6 +1014,24 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->refreshProfiles();
         requestRecipeTempOffsetConversion();
     });
+}
+
+void MainController::checkForSoftwareUpdates(bool userInitiated) {
+    if (userInitiated) {
+        m_updateChecker->checkForUpdates();
+    }
+#if !defined(Q_OS_IOS)
+    else if (m_settings->app()->autoCheckUpdates()) {
+        m_updateChecker->checkForUpdates();
+    } else {
+        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: autoCheckUpdates is off";
+    }
+#else
+    else {
+        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: iOS updates come from the App Store";
+    }
+#endif
+    m_hdsFirmwareUpdate->checkForUpdates();
 }
 
 void MainController::requestRecipeTempOffsetConversion() {

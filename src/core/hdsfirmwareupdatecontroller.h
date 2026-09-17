@@ -10,6 +10,15 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class ScaleDevice;
 
+// Once a start request is dispatched, the scale may refuse it two different
+// ways: synchronously and in-band (only WiFi has this reply channel — see
+// ScaleDevice::firmwareUpdateRejected / updateError below), or asynchronously
+// after already accepting the request, once it has checked its own signed
+// catalog and closed its transport clients (openscale's pullOtaFail — reaches
+// only the scale's own display, never any transport this controller reads).
+// The second kind is a silent no-op here by construction, not an oversight;
+// see HdsFirmwareCatalog::isPreviewOrRcVersion's comment for the concrete
+// case that puts a user in front of it.
 class HdsFirmwareUpdateController : public QObject {
     Q_OBJECT
 
@@ -23,6 +32,7 @@ class HdsFirmwareUpdateController : public QObject {
     Q_PROPERTY(QString releaseNotes READ releaseNotes NOTIFY releaseNotesChanged)
     Q_PROPERTY(bool releaseNotesLoading READ releaseNotesLoading NOTIFY releaseNotesLoadingChanged)
     Q_PROPERTY(bool updateStarted READ updateStarted NOTIFY updateStartedChanged)
+    Q_PROPERTY(QString updateError READ updateError NOTIFY updateErrorChanged)
 
 public:
     explicit HdsFirmwareUpdateController(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
@@ -33,10 +43,19 @@ public:
     QString availableVersion() const;
     QString releaseNotes() const { return m_releaseNotes; }
     bool releaseNotesLoading() const { return m_releaseNotesLoading; }
-    // True once the scale has accepted a start request. The scale reports a
-    // request as QUEUED, never as installed, and no transport carries a
-    // progress stream, so this must never be read as a completed update.
+    // True once a start request has been DISPATCHED — not once the scale has
+    // accepted it; only a synchronous refusal (see updateError below) is ever
+    // knowable, so this flips back to false on that and stays true otherwise.
+    // The scale reports genuine acceptance as QUEUED, never as installed, and
+    // no transport carries a progress stream, so even while true this must
+    // never be read as a completed, or even a confirmed-accepted, update.
     bool updateStarted() const { return m_updateStarted; }
+    // Non-empty when the scale explicitly, synchronously refused the request
+    // (see ScaleDevice::firmwareUpdateRejected) — currently only reachable
+    // over WiFi. Empty otherwise, including while a request is genuinely in
+    // flight or accepted: silence is not evidence of success on any
+    // transport, only an explicit refusal is evidence of failure.
+    QString updateError() const { return m_updateError; }
 
     void setScaleDevice(ScaleDevice* scale);
 
@@ -52,7 +71,11 @@ signals:
     void releaseNotesChanged();
     void releaseNotesLoadingChanged();
     void updateStartedChanged();
+    void updateErrorChanged();
     void activeScaleChanged();
+
+private slots:
+    void onFirmwareUpdateRejected(const QString& reason);
 
 private:
     void cancelReleaseNotesRequest();
@@ -70,4 +93,5 @@ private:
     bool m_releaseNotesLoading = false;
     bool m_updateStarted = false;
     QString m_releaseNotes;
+    QString m_updateError;
 };

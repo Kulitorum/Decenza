@@ -125,8 +125,16 @@ public:
     void startFirmwareUpdate(const QString& targetVersion) override {
         ++updateRequests;
         requestedVersions.append(targetVersion);
+        // DecentScaleWifi's real send()-failure path emits firmwareUpdateRejected
+        // synchronously, from inside startFirmwareUpdate() itself, rather than
+        // later via a websocket reply — see rejectSynchronously below.
+        if (rejectSynchronously)
+            emit firmwareUpdateRejected(QStringLiteral("not connected — nothing was sent"));
     }
     void setTestConnected(bool connected) { setConnected(connected); }
+    void simulateFirmwareUpdateRejected(const QString& reason) { emit firmwareUpdateRejected(reason); }
+
+    bool rejectSynchronously = false;
 
     // WiFi reports its version on a status frame that arrives AFTER the scale is
     // selected, so the controller only ever learns it from the notification.
@@ -157,6 +165,10 @@ private slots:
     void failedRefreshRetainsTheLastKnownCatalog();
     void startUpdateNamesTheResolvedRelease();
     void aVersionArrivingLateMakesTheScaleEligible();
+    void scaleRejectionClearsUpdateStartedAndSetsError();
+    void rejectionOutsideAnInFlightRequestIsIgnored();
+    void synchronousRejectionDuringDispatchIsNotDropped();
+    void swappingScaleClearsStaleStartedAndError();
 };
 
 void tst_HdsFirmwareUpdateController::launchCheckCachesManifestAndFollowsActiveScale()
@@ -239,6 +251,106 @@ void tst_HdsFirmwareUpdateController::aVersionArrivingLateMakesTheScaleEligible(
     // And it goes away again when the scale stops reporting one.
     scale.setTestVersion({});
     QVERIFY(!controller.updateAvailable());
+}
+
+// The one channel that lets Decenza tell the user "this specific request
+// failed" rather than leaving a scale rejection a silent no-op — see
+// ScaleDevice::firmwareUpdateRejected.
+void tst_HdsFirmwareUpdateController::scaleRejectionClearsUpdateStartedAndSetsError()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    controller.startUpdate();
+    QVERIFY(controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
+
+    scale.simulateFirmwareUpdateRejected(QStringLiteral("unrecognized or malformed command"));
+    QVERIFY(!controller.updateStarted());
+    QCOMPARE(controller.updateError(), QStringLiteral("unrecognized or malformed command"));
+
+    // Retrying clears the stale error rather than leaving last attempt's
+    // message showing next to a fresh, unresolved request.
+    controller.startUpdate();
+    QVERIFY(controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
+}
+
+// A rejection has to belong to a request Decenza actually made: one arriving
+// with no request in flight leaves updateStarted/updateError untouched rather
+// than being treated as a refusal of something never sent.
+void tst_HdsFirmwareUpdateController::rejectionOutsideAnInFlightRequestIsIgnored()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    QVERIFY(!controller.updateStarted());
+
+    scale.simulateFirmwareUpdateRejected(QStringLiteral("stray"));
+    QVERIFY(!controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
+}
+
+// Regression: startUpdate() used to set m_updateStarted AFTER dispatching to
+// the scale. DecentScaleWifi's real send()-failure path emits
+// firmwareUpdateRejected synchronously, from inside startFirmwareUpdate()
+// itself — so with the old ordering, onFirmwareUpdateRejected() would see
+// m_updateStarted still false, its own guard would drop the signal, and
+// updateStarted() would be left permanently (and wrongly) true with no error
+// ever shown. FakeHdsScale's rejectSynchronously reproduces that call shape.
+void tst_HdsFirmwareUpdateController::synchronousRejectionDuringDispatchIsNotDropped()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    scale.rejectSynchronously = true;
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    controller.startUpdate();
+
+    QCOMPARE(scale.updateRequests, 1);
+    QVERIFY(!controller.updateStarted());
+    QCOMPARE(controller.updateError(), QStringLiteral("not connected — nothing was sent"));
+}
+
+// A rejection or error belongs to the scale that was actually asked, not
+// whichever scale happens to be selected when it's read later.
+void tst_HdsFirmwareUpdateController::swappingScaleClearsStaleStartedAndError()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scaleA(QStringLiteral("3.1.13"));
+    scaleA.setTestConnected(true);
+    controller.setScaleDevice(&scaleA);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    controller.startUpdate();
+    scaleA.simulateFirmwareUpdateRejected(QStringLiteral("refused by scale A"));
+    QVERIFY(!controller.updateStarted());
+    QCOMPARE(controller.updateError(), QStringLiteral("refused by scale A"));
+
+    // Scale B reports the exact same eligibility as A, so
+    // reevaluateAvailability()'s own change-triggered reset would not fire on
+    // its own — setScaleDevice() must clear the stale state unconditionally.
+    FakeHdsScale scaleB(QStringLiteral("3.1.13"));
+    scaleB.setTestConnected(true);
+    controller.setScaleDevice(&scaleB);
+    QVERIFY(!controller.updateStarted());
+    QVERIFY(controller.updateError().isEmpty());
 }
 
 void tst_HdsFirmwareUpdateController::manifestRequestUsesSharedGithubPolicy()

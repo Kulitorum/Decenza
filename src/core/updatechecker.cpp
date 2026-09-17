@@ -1002,12 +1002,18 @@ void UpdateChecker::dismissUpdate()
 
 void UpdateChecker::onPeriodicCheck()
 {
-    if (m_checking || m_downloading) return;
-
     // Don't check while app is suspended — attempting to show a popup while
     // the EGL surface is destroyed causes a deadlock between the accessibility
     // thread and the render thread on Android (see issue #178)
     if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
+
+    // Ahead of the busy-guard below on purpose: HdsFirmwareUpdateController's
+    // refresh has nothing to do with whether THIS checker is mid-download, so
+    // an hourly tick landing during a download must not also drop HDS's tick
+    // for the rest of that hour.
+    emit periodicCheckTriggered();
+
+    if (m_checking || m_downloading) return;
 
     m_checking = true;
     emit checkingChanged();

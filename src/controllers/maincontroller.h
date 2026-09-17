@@ -283,6 +283,23 @@ public:
     MqttClient* mqttClient() const { return m_mqttClient; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
     HdsFirmwareUpdateController* hdsFirmwareUpdate() const { return m_hdsFirmwareUpdate; }
+    // Single "check for updates now" entry point covering both software kinds
+    // this app tracks — the Decenza app release and the HDS scale firmware —
+    // so a caller (manual button, app resume) triggers both instead of
+    // picking one. The ongoing periodic cadence is unified too: see
+    // UpdateChecker::periodicCheckTriggered() (non-iOS only — see there).
+    //
+    // userInitiated=true (the "Check Now" button) always checks the app side,
+    // matching its pre-existing unconditional behavior. userInitiated=false
+    // (app resume) instead honors Settings.app().autoCheckUpdates() and is a
+    // no-op for the app side on iOS, exactly like the periodic timer/startup
+    // kick — an automatic resume check must not do what the user's own
+    // "auto-check" toggle just told it not to, and iOS's UpdateChecker
+    // treats ANY check as an immediate App-Store error message, harmless from
+    // an explicit button click but not something a background resume should
+    // ever manufacture on its own. HDS's own check is unconditional either
+    // way — it has no such setting yet and no iOS-specific behavior.
+    Q_INVOKABLE void checkForSoftwareUpdates(bool userInitiated = false);
     void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
     FirmwareUpdater* firmwareUpdater() const { return m_firmwareUpdater; }
     ShotReporter* shotReporter() const { return m_shotReporter; }

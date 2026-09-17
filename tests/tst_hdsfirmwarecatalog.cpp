@@ -12,6 +12,7 @@ private slots:
     void ignoresCurrentAndOlderRelease();
     void rejectsDifferentModel();
     void rejectsReleaseBlockedByMinFrom();
+    void offersEqualNumberedStableToAPreviewOrRcInstall();
     void rejectsNonStableVersion();
     void rejectsMalformedOrEmptyCatalog();
     void storesEveryVersionAsAWireReadyTarget();
@@ -63,6 +64,45 @@ void tst_HdsFirmwareCatalog::rejectsReleaseBlockedByMinFrom()
     QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.0.9")));
 }
 
+// Mirrors pull_ota.h's pullOtaBuildSelectableReleases(): a scale running a
+// preview/rc build is offered the equal-numbered stable release too — never a
+// strictly older one, and never for an arbitrary non-preview/rc suffix.
+void tst_HdsFirmwareCatalog::offersEqualNumberedStableToAPreviewOrRcInstall()
+{
+    const auto catalog = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.14"})");
+    QVERIFY(catalog);
+
+    const auto preview = catalog->newestEligibleRelease(QStringLiteral("3.1.14-preview.4"));
+    QVERIFY(preview);
+    QCOMPARE(preview->version, QStringLiteral("3.1.14"));
+
+    const auto rc = catalog->newestEligibleRelease(QStringLiteral("3.1.14-rc.2"));
+    QVERIFY(rc);
+    QCOMPARE(rc->version, QStringLiteral("3.1.14"));
+
+    // An arbitrary suffix isn't a recognized preview/rc build, so it gets no
+    // exception — same as a stable install already at the newest version.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.14-dev")));
+
+    // The exception is "equal", never "older": a preview build ahead of the
+    // catalog's newest stable release must not be offered a downgrade.
+    QVERIFY(!catalog->newestEligibleRelease(QStringLiteral("3.1.15-preview.1")));
+
+    // A strictly-newer release in the SAME catalog must still win over the
+    // merely-equal one — the equal-numbered match is a floor, not a ceiling
+    // the newest-release loop could get stuck on.
+    const auto catalogWithNewer = HdsFirmwareCatalog::fromJson(
+        R"({"model":"hds","version":"3.1.14","releases":[
+            {"model":"hds","version":"3.1.14"},
+            {"model":"hds","version":"3.1.15"}
+        ]})");
+    QVERIFY(catalogWithNewer);
+    const auto newest = catalogWithNewer->newestEligibleRelease(QStringLiteral("3.1.14-preview.4"));
+    QVERIFY(newest);
+    QCOMPARE(newest->version, QStringLiteral("3.1.15"));
+}
+
 void tst_HdsFirmwareCatalog::rejectsNonStableVersion()
 {
     QVERIFY(!HdsFirmwareCatalog::fromJson(
@@ -79,10 +119,11 @@ void tst_HdsFirmwareCatalog::rejectsNonStableVersion()
 void tst_HdsFirmwareCatalog::storesEveryVersionAsAWireReadyTarget()
 {
     const auto catalog = HdsFirmwareCatalog::fromJson(
-        R"({"model":"hds","version":"v3.1.14","min_from":"v3.0.0"})");
+        R"({"model":"hds","version":"v3.1.14","min_from":"v3.0.0","pcb":"1.3"})");
     QVERIFY(catalog);
     QCOMPARE(catalog->releases().first().version, QStringLiteral("3.1.14"));
     QCOMPARE(catalog->releases().first().minFromVersion, QStringLiteral("3.0.0"));
+    QCOMPARE(catalog->releases().first().pcb, QStringLiteral("1.3"));
 
     // Still eligible against an installed version reported the other way.
     const auto release = catalog->newestEligibleRelease(QStringLiteral("3.1.13"));
