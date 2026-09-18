@@ -149,7 +149,7 @@ The inspect readout SHALL show raw EC and outlet temperature in the selected tem
 
 ### Requirement: Saved PORTAL reconnect is available from the status bar
 
-A saved PORTAL SHALL show a funnel icon and connection state immediately after the status-bar scale slot. Users without a saved PORTAL SHALL retain their existing bar and saved layout. Reconnect SHALL use the existing peripheral reconnect path and SHALL be blocked during machine operations and pending connections.
+A saved PORTAL SHALL show a droplet icon with an EC curve and connection state immediately after the status-bar scale slot. Users without a saved PORTAL SHALL retain their existing bar and saved layout. Reconnect SHALL use the existing peripheral reconnect path and SHALL be blocked during machine operations and pending connections.
 
 #### Scenario: Tap an offline PORTAL while idle
 

@@ -71,7 +71,7 @@
 ## History inspection and status-bar reconnect
 
 - [x] Add PORTAL EC (raw) and outlet-temperature readouts to the history/review cursor, respecting visibility, gaps and temperature units.
-- [x] Add an owner-only funnel/status beside the status-bar scale, reusing the idle reconnect path without changing saved layouts or the widget palette.
+- [x] Add an owner-only droplet/status beside the status-bar scale, reusing the idle reconnect path without changing saved layouts or the widget palette.
 - [x] Extend the wiki manual draft; publication remains with the maintainer.
 - [x] Validate cursor boundaries, gaps and their deliberate mutation; 118/118 native tests, 245/245 QML files, all text gates, strict OpenSpec, 14 local offscreen QtTest results and the private Android arm64 APK.
 - [ ] Verify finger scrubbing and status-bar reconnection on the physical tablet.
