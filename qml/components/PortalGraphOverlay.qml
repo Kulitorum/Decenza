@@ -9,8 +9,12 @@ Item {
     property var samples: []
     property bool showLabels: true
     property bool live: false
+    // PORTAL curves are advanced-only; the host chart says whether it is in advanced mode.
+    property bool advancedMode: false
+    readonly property bool ecVisible: advancedMode && Settings.graph.showPortalEc
+    readonly property bool temperatureVisible: advancedMode && Settings.graph.showPortalTemperature
     readonly property bool hasData: live ? ShotDataModel.portalSampleCount > 0 : samples.length > 0
-    readonly property bool hasVisibleData: hasData && (Settings.graph.showPortalEc || Settings.graph.showPortalTemperature)
+    readonly property bool hasVisibleData: hasData && (ecVisible || temperatureVisible)
     readonly property real labelWidth: hasVisibleData && showLabels ? Theme.scaled(125) : 0
     readonly property real lastTime: live ? ShotDataModel.rawTime : (hasData ? samples[samples.length - 1].time : 0)
 
@@ -33,7 +37,7 @@ Item {
     readonly property var ecRange: {
         var bounds = live ? [ShotDataModel.portalEcMin, ShotDataModel.portalEcMax]
                           : ShotDataModel.portalEcBounds(samples)
-        return [bounds[0] * 1.1, bounds[1] * 1.1]
+        return [bounds[0] * ShotDataModel.portalEcAxisPadding, bounds[1] * ShotDataModel.portalEcAxisPadding]
     }
     QtObject {
         id: ecAxis
@@ -56,7 +60,7 @@ Item {
             dashed: false
             strokeColor: Theme.portalEcColor
             strokeWidth: Theme.graphLineWidth
-            visible: Settings.graph.showPortalEc && points.length >= 2
+            visible: portalGraph.ecVisible && points.length >= 2
         }
     }
     Repeater {
@@ -70,7 +74,7 @@ Item {
             dashed: false
             strokeColor: Theme.portalTemperatureColor
             strokeWidth: Theme.graphLineWidth
-            visible: Settings.graph.showPortalTemperature && points.length >= 2
+            visible: portalGraph.temperatureVisible && points.length >= 2
         }
     }
     // Live capture appends directly to persistent native renderers. Only page entry
@@ -125,7 +129,7 @@ Item {
                 maxY: ecAxis.max
                 color: Theme.portalEcColor
                 lineWidth: Theme.graphLineWidth
-                visible: Settings.graph.showPortalEc
+                visible: portalGraph.ecVisible
             }
             FastLineRenderer {
                 id: liveTemperature
@@ -136,7 +140,7 @@ Item {
                 maxY: outletAxis.max
                 color: Theme.portalTemperatureColor
                 lineWidth: Theme.graphLineWidth
-                visible: Settings.graph.showPortalTemperature
+                visible: portalGraph.temperatureVisible
             }
         }
     }
@@ -159,7 +163,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     color: Theme.portalEcColor
                     font.pixelSize: Theme.scaled(11)
-                    visible: Settings.graph.showPortalEc
+                    visible: portalGraph.ecVisible
                     text: (ecAxis.max - tickRow.index * (ecAxis.max - ecAxis.min) / 2).toFixed(ecAxis.max < 1 ? 3 : 2)
                 }
                 Text {
@@ -168,8 +172,8 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     color: Theme.portalTemperatureColor
                     font.pixelSize: Theme.scaled(11)
-                    visible: Settings.graph.showPortalTemperature
-                    text: Theme.cToDisplay(100 - tickRow.index * 50).toFixed(0)
+                    visible: portalGraph.temperatureVisible
+                    text: Theme.cToDisplay(outletAxis.max - tickRow.index * (outletAxis.max - outletAxis.min) / 2).toFixed(0)
                 }
             }
         }
@@ -180,7 +184,7 @@ Item {
             text: TranslationManager.translate("portal.ecRaw", "EC (raw)")
             color: Theme.portalEcColor
             font.pixelSize: Theme.scaled(10)
-            visible: Settings.graph.showPortalEc
+            visible: portalGraph.ecVisible
         }
         Text {
             x: Theme.scaled(60)
@@ -190,7 +194,7 @@ Item {
             text: "PORTAL " + Theme.tempUnitSuffix()
             color: Theme.portalTemperatureColor
             font.pixelSize: Theme.scaled(10)
-            visible: Settings.graph.showPortalTemperature
+            visible: portalGraph.temperatureVisible
         }
     }
 }

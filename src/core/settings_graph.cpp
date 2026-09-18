@@ -55,7 +55,9 @@ void SettingsGraph::writeBool(QLatin1String key, bool defaultValue, bool value,
         writeBool(Key, Default, show, &SettingsGraph::Signal);       \
     }
 
-// One definition for each graph visibility key, default and notification signal.
+// Thirteen properties differing only in key, default and signal. Written out by hand a
+// single mismatched key or default hides indefinitely — the defaults in particular were
+// already duplicated across five QML files before this class existed.
 DECENZA_GRAPH_BOOL(showPortalEc, setShowPortalEc, kKeyShowPortalEc, true, showPortalEcChanged)
 DECENZA_GRAPH_BOOL(showPortalTemperature, setShowPortalTemperature, kKeyShowPortalTemperature, true, showPortalTemperatureChanged)
 DECENZA_GRAPH_BOOL(showPressure, setShowPressure, kKeyShowPressure, true, showPressureChanged)

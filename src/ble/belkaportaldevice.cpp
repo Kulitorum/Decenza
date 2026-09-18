@@ -136,7 +136,11 @@ QVariantList BelkaPortalDevice::devices() const
     return result;
 }
 
-void BelkaPortalDevice::clearDevices() { m_devices.clear(); emit devicesChanged(); }
+void BelkaPortalDevice::clearDevices() {
+    if (m_devices.isEmpty()) return;
+    m_devices.clear();
+    emit devicesChanged();
+}
 
 void BelkaPortalDevice::setMachineBusy(bool busy)
 {
@@ -152,7 +156,8 @@ void BelkaPortalDevice::setMachineBusy(bool busy)
 
 void BelkaPortalDevice::connectDevice(const QString& identifier)
 {
-    if (m_machineBusy || m_extractionActive || active()
+    if (refuseWhileBusy(QStringLiteral("Connect"))) return;
+    if (active()
         || (m_transport && (m_transport->isConnected() || m_transport->isConnecting()
                            || m_transport->isDisconnecting()))) return;
     for (const auto& device : m_devices) {
@@ -165,7 +170,7 @@ void BelkaPortalDevice::connectDevice(const QString& identifier)
         m_displayWrites.clear();
         m_reconnectEnabled = true;
         m_reconnectAttempted = true;
-        m_error.clear();
+        setError({});
         m_lastPacket.clear();
         m_packetCount = 0;
         m_loggedPacketShape = false;
@@ -184,7 +189,7 @@ void BelkaPortalDevice::connectDevice(const QString& identifier)
 
 void BelkaPortalDevice::disconnectDevice()
 {
-    if (m_machineBusy || m_extractionActive) return;
+    if (refuseWhileBusy(QStringLiteral("Disconnect"))) return;
     stopConnection(true);
 }
 
@@ -192,7 +197,7 @@ void BelkaPortalDevice::stopConnection(bool manual)
 {
     if (manual) flushLogs();
     m_reconnectEnabled = false;
-    m_error.clear();
+    setError({});
     m_name.clear();
     setState(State::Disconnecting);
     clearConnectionData();
@@ -218,7 +223,7 @@ void BelkaPortalDevice::finishDisconnect()
     const bool unexpected = active();
     if (unexpected) {
         flushLogs();
-        m_error = QStringLiteral("PORTAL disconnected; reconnect when the machine is idle");
+        setError(QStringLiteral("PORTAL disconnected; reconnect when the machine is idle"));
         PORTAL_WARN(m_error);
     }
     if (m_state != State::Error) setState(unexpected ? State::Error : State::Disconnected);
@@ -255,11 +260,27 @@ void BelkaPortalDevice::setState(State value)
     emit stateChanged();
 }
 
+void BelkaPortalDevice::setError(const QString& error)
+{
+    if (m_error == error) return;
+    m_error = error;
+    emit errorMessageChanged();
+}
+
+bool BelkaPortalDevice::refuseWhileBusy(const QString& action)
+{
+    if (!m_machineBusy && !m_extractionActive) return false;
+    logEvent(QStringLiteral("refused"), QStringLiteral("%1 ignored: %2").arg(action,
+        m_extractionActive ? QStringLiteral("shot in progress") : QStringLiteral("machine busy")));
+    return true;
+}
+
 void BelkaPortalDevice::fail(const QString& error)
 {
     if (!active()) return;
+    Q_ASSERT(m_transport);
     flushLogs();
-    m_error = error;
+    setError(error);
     setState(State::Error);
     clearConnectionData();
     PORTAL_WARN(error);
@@ -297,15 +318,20 @@ void BelkaPortalDevice::receive(const QBluetoothUuid& chr, const QByteArray& pac
     const auto value = BelkaPortalProtocol::decodeMeasurement(QByteArrayView(packet));
     if (!value) {
         emit readingInterrupted();
-        m_error = QStringLiteral("Unknown PORTAL measurement format; raw packet retained");
-        logEvent(QStringLiteral("malformed"), QStringLiteral("%1: length=%2")
+        setError(QStringLiteral("Unknown PORTAL measurement format; raw packet retained"));
+        // Keyed by length so repeats of one wrong-length shape collapse while a new
+        // length surfaces at once (lengths are bounded by the ATT MTU).
+        logEvent(QStringLiteral("malformed-len%1").arg(packet.size()), QStringLiteral("%1: length=%2")
             .arg(m_error).arg(packet.size()), QtWarningMsg,
             QStringLiteral(", hex=%1").arg(m_lastPacket));
-        if (m_state != State::Waiting) setState(State::Stale);
+        if (m_state != State::Waiting) {
+            setState(State::Stale);
+            m_healthTimer.stop();
+        }
     } else if (notification) {
         m_ec = value->ecRaw;
         m_temperature = value->temperatureC;
-        m_error.clear();
+        setError({});
         m_lastMeasurement.start();
         m_healthTimer.start();
         if (m_state != State::Streaming) {
@@ -329,6 +355,8 @@ void BelkaPortalDevice::expireReading(qint64 ageMs)
     } else if (hasReading() && ageMs > PortalSamples::StaleAfterMs) {
         emit readingInterrupted();
         setState(State::Stale);
+        // Nothing left to expire; the next valid notification restarts it.
+        m_healthTimer.stop();
         emit readingChanged();
         logEvent(QStringLiteral("stale"), QStringLiteral("No measurement for more than %1 seconds")
             .arg(PortalSamples::StaleAfterSeconds));
@@ -337,7 +365,7 @@ void BelkaPortalDevice::expireReading(qint64 ageMs)
 
 bool BelkaPortalDevice::canControlDisplay() const
 {
-    return (m_state == State::Streaming || m_state == State::Stale) && m_transport->isConnected() && (m_commandProperties & QLowEnergyCharacteristic::Write);
+    return (m_state == State::Streaming || m_state == State::Stale) && m_transport && m_transport->isConnected() && (m_commandProperties & QLowEnergyCharacteristic::Write);
 }
 
 void BelkaPortalDevice::restoreSavedDevice(const QString& address, const QString& name)
@@ -378,7 +406,7 @@ void BelkaPortalDevice::tryReconnect()
 
 void BelkaPortalDevice::reconnect()
 {
-    if (m_machineBusy || m_extractionActive || active()) return;
+    if (refuseWhileBusy(QStringLiteral("Reconnect")) || active()) return;
     m_reconnectEnabled = true;
     m_reconnectAttempted = false;
     tryReconnect();
@@ -387,8 +415,12 @@ void BelkaPortalDevice::reconnect()
 
 void BelkaPortalDevice::forgetDevice()
 {
-    if (m_machineBusy || m_extractionActive) return;
+    if (refuseWhileBusy(QStringLiteral("Forget"))) return;
     disconnectDevice();
+    // Forgetting means a later Bluetooth power-cycle must not silently
+    // reconnect to this device — unlike a routine disconnect, which leaves
+    // the transport's target in place for exactly that reconnect.
+    if (m_transport) m_transport->forgetTarget();
     m_savedAddress.clear();
     m_savedName.clear();
     emit savedDeviceChanged();
@@ -403,7 +435,7 @@ void BelkaPortalDevice::setSyncDisplay(bool enabled)
 
 void BelkaPortalDevice::setGraphView(bool show)
 {
-    if (m_machineBusy || m_extractionActive) return;
+    if (refuseWhileBusy(QStringLiteral("Display graph command"))) return;
     writeGraphView(show);
 }
 

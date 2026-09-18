@@ -4,7 +4,8 @@
 #include "appsettings.h"
 
 // Hardware selection and calibration settings for the DE1 and connected peripherals:
-// heater tweaks, hot-water flow rate, steam two-tap stop.
+// heater tweaks, hot-water flow rate, steam two-tap stop, and the saved Belka PORTAL
+// pairing and display-sync preference.
 class SettingsHardware : public QObject {
     Q_OBJECT
 

@@ -20,11 +20,12 @@ QtObject {
 
     // `advanced` entries appear only in advanced mode; `postShotOnly` entries are hidden on
     // the live graph, where the curve cannot be computed until the shot is complete.
-    // `portal` entries require a saved PORTAL or recorded PORTAL samples.
+    // `portal` entries require a saved PORTAL or recorded PORTAL samples, and are also
+    // `advanced`: PORTAL curves appear only in advanced mode, on every graph.
     readonly property var entries: [
-        { label: TranslationManager.translate("portal.legendEc", "PORTAL EC"), sColor: Theme.portalEcColor, key: "showPortalEc", dataKey: "portalEc", shortLabel: "EC", portal: true,
+        { label: TranslationManager.translate("portal.legendEc", "PORTAL EC"), sColor: Theme.portalEcColor, key: "showPortalEc", dataKey: "portalEc", shortLabel: "EC", advanced: true, portal: true,
           tip: TranslationManager.translate("portal.ecTip", "Electrical conductivity, raw value. Units are unverified; this is not TDS.") },
-        { label: TranslationManager.translate("portal.legendTemp", "PORTAL temp"), sColor: Theme.portalTemperatureColor, key: "showPortalTemperature", dataKey: "portalTemp", shortLabel: "Tp", portal: true,
+        { label: TranslationManager.translate("portal.legendTemp", "PORTAL temp"), sColor: Theme.portalTemperatureColor, key: "showPortalTemperature", dataKey: "portalTemp", shortLabel: "Tp", advanced: true, portal: true,
           tip: TranslationManager.translate("portal.tempTip", "Outlet temperature measured by PORTAL, on its own temperature axis.") },
         { label: TranslationManager.translate("graph.pressure", "Pressure"), sColor: Theme.pressureColor, key: "showPressure", dataKey: "pressure", shortLabel: "P",
           tip: TranslationManager.translate("graph.tip.pressure", "Pump pressure in bar. Shows the machine's intent — what it's trying to do.") },

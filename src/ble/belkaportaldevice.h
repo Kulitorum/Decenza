@@ -18,8 +18,9 @@ class BelkaPortalDevice : public QObject {
     Q_PROPERTY(double temperatureC READ temperatureC NOTIFY readingChanged)
     Q_PROPERTY(QString lastPacket READ lastPacket NOTIFY readingChanged)
     Q_PROPERTY(int packetCount READ packetCount NOTIFY readingChanged)
-    Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged)
+    Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY devicesChanged)
+    Q_PROPERTY(bool owned READ owned NOTIFY savedDeviceChanged)
     Q_PROPERTY(QString savedAddress READ savedAddress NOTIFY savedDeviceChanged)
     Q_PROPERTY(QString savedName READ savedName NOTIFY savedDeviceChanged)
     Q_PROPERTY(bool syncDisplay READ syncDisplay WRITE setSyncDisplay NOTIFY syncDisplayChanged)
@@ -44,6 +45,8 @@ public:
     int packetCount() const { return m_packetCount; }
     QString errorMessage() const { return m_error; }
     QVariantList devices() const;
+    // The one definition of "this user has a PORTAL"; every UI gate reads it.
+    bool owned() const { return !m_savedAddress.isEmpty(); }
     QString savedAddress() const { return m_savedAddress; }
     QString savedName() const { return m_savedName; }
     bool syncDisplay() const { return m_syncDisplay; }
@@ -69,6 +72,7 @@ public:
 
 signals:
     void stateChanged();
+    void errorMessageChanged();
     void readingChanged();
     void devicesChanged();
     void machineBusyChanged();
@@ -82,6 +86,8 @@ signals:
 private:
     void ensureTransport();
     void setState(State state);
+    void setError(const QString& error);
+    bool refuseWhileBusy(const QString& action);
     void finishDisconnect();
     void clearConnectionData();
     void finishDisplayWrite(bool succeeded);

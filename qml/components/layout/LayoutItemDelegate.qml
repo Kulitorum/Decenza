@@ -185,7 +185,7 @@ Item {
     Loader {
         id: portalStatusLoader
         active: root.zoneName === "statusBar" && root.itemType === "scaleWeight"
-            && BelkaPortal.savedAddress.length > 0
+            && BelkaPortal.owned
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         sourceComponent: Component { PortalStatusIndicator {} }

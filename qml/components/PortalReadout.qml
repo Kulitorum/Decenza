@@ -26,7 +26,7 @@ Rectangle {
         wrapMode: Text.Wrap
         horizontalAlignment: Text.AlignHCenter
         color: Theme.textColor
-        font.pixelSize: Theme.scaled(16)
+        font: Theme.bodyFont
         text: BelkaPortal.hasReading
             ? "PORTAL · " + TranslationManager.translate("portal.ecRaw", "EC (raw)") + ": "
               + BelkaPortal.ecRaw.toFixed(3) + " · " + Theme.cToDisplay(BelkaPortal.temperatureC).toFixed(1) + " " + Theme.tempUnitSuffix()

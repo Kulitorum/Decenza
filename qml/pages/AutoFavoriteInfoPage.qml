@@ -304,7 +304,10 @@ T.Page {
             }
 
             // Graph legend
-            GraphLegend { visible: autoFavoriteInfoPage.shotId > 0 }
+            GraphLegend {
+                visible: autoFavoriteInfoPage.shotId > 0
+                portalAvailable: (autoFavoriteInfoPage.shotData.portalSamples || []).length > 0
+            }
 
             // Metrics row: Avg Duration, Avg Dose, Avg Yield, Avg Rating, Last Grind
             RowLayout {

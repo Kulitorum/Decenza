@@ -2349,7 +2349,12 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     // rather than defaulting, so consumers can tell "no data" from "goal was 0".
     if (root.contains("temperatureMixGoal"))
         record->temperatureMixGoal = arrayToPoints(root["temperatureMixGoal"].toObject());
-    record->portalSamples = PortalSamples::fromVariant(root["portalSamples"].toArray().toVariantList());
+    int droppedPortalSamples = 0;
+    record->portalSamples = PortalSamples::fromVariant(root["portalSamples"].toArray().toVariantList(),
+                                                       &droppedPortalSamples);
+    if (droppedPortalSamples > 0)
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Dropped" << droppedPortalSamples
+            << "malformed PORTAL samples while loading a shot; its chart will show a gap";
     if (root.contains("temperatureMix"))
         record->temperatureMix = arrayToPoints(root["temperatureMix"].toObject());
     if (root.contains("resistance"))

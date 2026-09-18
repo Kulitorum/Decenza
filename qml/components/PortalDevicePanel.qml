@@ -10,8 +10,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: "Belka PORTAL" + (BelkaPortal.savedName.length ? " · " + BelkaPortal.savedName : "")
         color: Theme.textColor
-        font.pixelSize: Theme.scaled(16)
-        font.bold: true
+        font: Theme.subtitleFont
         wrapMode: Text.Wrap
     }
     PortalReadout { Layout.fillWidth: true }
@@ -23,21 +22,21 @@ ColumnLayout {
                 : TranslationManager.translate("portal.connect", "Connect")
             accessibleName: text + " PORTAL"
             enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
-                && (BelkaPortal.active || BelkaPortal.savedAddress.length > 0)
+                && (BelkaPortal.active || BelkaPortal.owned)
             onClicked: BelkaPortal.active ? BelkaPortal.disconnectDevice() : BelkaPortal.reconnect()
         }
         AccessibleButton {
             text: TranslationManager.translate("portal.forget", "Forget")
             accessibleName: text + " PORTAL"
             enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
-                && (BelkaPortal.active || BelkaPortal.savedAddress.length > 0)
+                && (BelkaPortal.active || BelkaPortal.owned)
             onClicked: BelkaPortal.forgetDevice()
         }
         Item { Layout.fillWidth: true }
     }
     Text {
         Layout.fillWidth: true
-        visible: BelkaPortal.savedAddress.length === 0
+        visible: !BelkaPortal.owned
         text: TranslationManager.translate("portal.commonScan", "Use Scan for Devices to select PORTAL.")
         color: Theme.textSecondaryColor
         wrapMode: Text.Wrap
@@ -86,7 +85,9 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             visible: BelkaPortal.errorMessage.length > 0
-            text: BelkaPortal.errorMessage
+            // The raw message is diagnostic text from the transport, not a
+            // translated string, so it is labelled rather than presented as the UI's own.
+            text: TranslationManager.translate("portal.lastError", "Last error") + ": " + BelkaPortal.errorMessage
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
         }
@@ -126,7 +127,7 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(12)
+            font: Theme.captionFont
             wrapMode: Text.WrapAnywhere
             text: TranslationManager.translate("portal.packets", "Received packets") + ": "
                 + BelkaPortal.packetCount + "\n" + BelkaPortal.lastPacket

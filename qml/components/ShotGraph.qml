@@ -147,6 +147,7 @@ Item {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
         live: true
+        advancedMode: chart.advancedMode
     }
 
     // === HIDDEN RIGHT-AXIS HOLDERS ===

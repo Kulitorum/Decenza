@@ -794,15 +794,15 @@ private slots:
                  qPrintable(QString("only found %1 curve settings in HistoryShotGraph — the "
                                     "pattern that finds them has probably gone stale")
                                 .arg(drawn.size())));
-        // PORTAL curves live in the shared overlay. Include its settings only
-        // after checking that the history chart actually instantiates it.
+        // PORTAL curves live in the shared overlay, which the history chart must
+        // instantiate; a rename that stops matching must fail here, not skip.
         const auto overlays = graphKeysIn("qml/components/HistoryShotGraph.qml",
             QRegularExpression(R"RX((PortalGraphOverlay)\s*\{)RX"));
-        if (overlays.contains(QStringLiteral("PortalGraphOverlay"))) {
-            drawn.append(graphKeysIn("qml/components/PortalGraphOverlay.qml",
-                QRegularExpression(R"RX(Settings\.graph\.(show[A-Za-z]+))RX")));
-            drawn.removeDuplicates();
-        }
+        QVERIFY2(overlays.contains(QStringLiteral("PortalGraphOverlay")),
+                 "HistoryShotGraph no longer instantiates PortalGraphOverlay");
+        drawn.append(graphKeysIn("qml/components/PortalGraphOverlay.qml",
+            QRegularExpression(R"RX(Settings\.graph\.(show[A-Za-z]+))RX")));
+        drawn.removeDuplicates();
 
         // ...must appear in the one definition the legend and the cache key derive from.
         const QStringList keyed = graphKeysIn(

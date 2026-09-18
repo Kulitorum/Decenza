@@ -428,8 +428,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
 {
     if (json.contains("portal") && !excludeKeys.contains("portal")) {
         const auto portal = json.value("portal").toObject();
-        settings->hardware()->setPortalSyncDisplay(portal.value("syncDisplay").toBool(true));
-        settings->hardware()->setPortalDevice(portal.value("address").toString(), portal.value("name").toString());
+        // Per-field like every sibling block: a partial object must leave the
+        // fields it omits alone, not overwrite the saved device with "" (which
+        // would also tear down a live connection via portalDeviceChanged).
+        if (portal.contains("syncDisplay"))
+            settings->hardware()->setPortalSyncDisplay(portal.value("syncDisplay").toBool(true));
+        if (portal.contains("address") || portal.contains("name"))
+            settings->hardware()->setPortalDevice(
+                portal.value("address").toString(settings->hardware()->portalAddress()),
+                portal.value("name").toString(settings->hardware()->portalName()));
     }
     // Set false by any step that could not apply what the backup asked for.
     // The single `return true` this function used to end on made every failure

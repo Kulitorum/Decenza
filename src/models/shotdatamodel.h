@@ -49,6 +49,8 @@ public:
     double weightAtStop() const { return m_weightAtStop; }
     double finalWeight() const;
     qsizetype portalSampleCount() const { return m_portalSamples.size(); }
+    Q_PROPERTY(double portalEcAxisPadding READ portalEcAxisPadding CONSTANT)
+    double portalEcAxisPadding() const { return PortalSamples::EcAxisPadding; }
     double portalEcMin() const { return m_portalEcBounds.minimum; }
     double portalEcMax() const { return m_portalEcBounds.maximum; }
     Q_INVOKABLE QVariantList portalEcBounds(const QVariantList& samples) const;

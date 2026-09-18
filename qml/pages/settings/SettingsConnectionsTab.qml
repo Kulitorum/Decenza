@@ -17,6 +17,14 @@ Item {
     // USB is not supported on iOS (no USB host mode)
     readonly property bool usbAvailable: Qt.platform.os !== "ios"
 
+    // PORTAL discovery runs continuously in the background (for a saved
+    // device's own reconnect), independent of this tab's "Scan for Devices"
+    // button. An ambient, unpaired PORTAL merely broadcasting nearby must not
+    // change this screen for a user who never pressed that button, so the
+    // discovered-devices list only reacts to BelkaPortal.devices once THIS
+    // tab has actually triggered a scan.
+    property bool portalScanTriggered: false
+
     DecenzaDialog {
         id: hdsFirmwareUpdateDialog
         parent: Overlay.overlay
@@ -1112,7 +1120,10 @@ Item {
                                 ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
                                 : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
                             enabled: !BLEManager.scanning
-                            onClicked: BLEManager.scanForDevices()
+                            onClicked: {
+                                connectionsTab.portalScanTriggered = true
+                                BLEManager.scanForDevices()
+                            }
                         }
                     }
 
@@ -1800,9 +1811,17 @@ Item {
                         }
                     }
 
-                    PortalDevicePanel {
+                    Loader {
+                        id: portalDevicePanelLoader
                         Layout.fillWidth: true
-                        visible: BelkaPortal.savedAddress.length > 0 || BelkaPortal.state !== "disconnected"
+                        // Not just visible: false — a user who never discovers
+                        // a PORTAL must not pay for constructing this panel's
+                        // ~15 items and ~18 translated bindings either.
+                        active: BelkaPortal.owned || BelkaPortal.state !== "disconnected"
+                        visible: active
+                        sourceComponent: PortalDevicePanel {
+                            width: portalDevicePanelLoader.width
+                        }
                     }
 
                     Tr {
@@ -1836,7 +1855,8 @@ Item {
                         Layout.preferredHeight: Math.max(Theme.scaled(80),
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
-                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected || BelkaPortal.devices.length > 0
+                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
+                            || (connectionsTab.portalScanTriggered && BelkaPortal.devices.length > 0)
                         readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
                             && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
@@ -2040,10 +2060,14 @@ Item {
                     // [Bluetooth] joins them for the same reason it appears on the
                     // machine panel: the adapter is beneath every device paired here,
                     // and "the scale never appeared" with no radio line is a dead end.
+                    //
+                    // [PORTAL] is here because the panel above sends its user to this
+                    // log; a marker that is not listed never reaches the view. A user
+                    // without a PORTAL emits no such line, so nothing changes for them.
                     SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(150)
-                        markers: ["[Scale]", "[Refractometer]", "[Bluetooth]"]
+                        markers: ["[Scale]", "[Refractometer]", "[Bluetooth]", "[PORTAL]"]
                         showShare: true
                         accessibleName: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
                         onShareRequested: shareLogDialog.open()

@@ -53,7 +53,7 @@ KeyboardAwareContainer {
             { name: "weightFlowColor", display: "Weight Flow" },
             { name: "resistanceColor", display: "Resistance" },
             { name: "waterLevelColor", display: "Water Level" }
-        ].concat(Settings.hardware.portalAddress.length ? [
+        ].concat(BelkaPortal.owned ? [
             { name: "portalEcColor", display: "PORTAL EC" },
             { name: "portalTemperatureColor", display: TranslationManager.translate("portal.outletTemperature", "PORTAL temperature") }
         ] : [])}

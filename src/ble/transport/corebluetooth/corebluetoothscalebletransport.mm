@@ -785,8 +785,10 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
         [m_impl->mgr stopScan];
     }
 
-    m_impl->targetName.clear();
-    m_impl->targetUuidString.clear();
+    // targetName/targetUuidString are deliberately left set: they are what
+    // lets centralManagerDidUpdateState's PoweredOn branch reconnect a saved
+    // device after Bluetooth toggles off and on. A caller that wants to stop
+    // tracking this target (Forget) must call forgetTarget() as well.
     if (m_impl->periph) {
         if (m_impl->connected || m_impl->pendingConnect
             || m_impl->periph.state != CBPeripheralStateDisconnected)
@@ -804,6 +806,14 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
     // operations, so nothing is issued against a released CBPeripheral and no
     // other device waits on work that will never run.
     releaseGattQueue();
+#endif
+}
+
+void CoreBluetoothScaleBleTransport::forgetTarget() {
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    if (!m_impl) return;
+    m_impl->targetName.clear();
+    m_impl->targetUuidString.clear();
 #endif
 }
 

@@ -5,7 +5,7 @@ Belka PORTAL measures coffee conductivity and outlet temperature, but Decenza cu
 ## What Changes
 
 - Discover and connect PORTAL through the existing Scales / Sensors panel, independently of the machine, scale and refractometer.
-- Show raw EC and outlet temperature during extraction and in shot history, with independent axes, legend toggles and explicit gaps when measurements stop.
+- Show raw EC and outlet temperature during extraction and in shot history, with independent axes, advanced-mode legend toggles and explicit gaps when measurements stop.
 - Preserve paired samples in the existing optional shot blob and local export/record-import paths.
 - Optionally synchronize PORTAL's display graph with extraction. Acknowledged commands do not claim device-side session persistence.
 

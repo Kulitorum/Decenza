@@ -13,6 +13,8 @@
 #include "models/shotdatamodel.h"
 #include <QScopeGuard>
 #include <QJSEngine>
+#include <QDirIterator>
+#include <QFile>
 
 class PortalDiscoveryReplay : public QObject {
     Q_OBJECT
@@ -48,6 +50,8 @@ public:
         // Qt tears down synchronously without emitting disconnected().
     }
     bool isDisconnecting() const override { return disconnectPending; }
+    int forgets = 0;
+    void forgetTarget() override { ++forgets; }
     void completeDisconnect() { disconnectPending = false; emit disconnected(); }
     void discoverServices() override { operations << "services"; }
     void discoverCharacteristics(const QBluetoothUuid&) override { operations << "characteristics"; }
@@ -666,6 +670,170 @@ private slots:
         QCOMPARE(transport->operations, before);
         QVERIFY(portal.hasReading());
         QVERIFY(!transport->operations.contains("write"));
+    }
+
+    void partialBackupLeavesSavedDeviceAlone() {
+        Settings settings;
+        auto* hardware = settings.hardware();
+        const auto oldAddress = hardware->portalAddress(), oldName = hardware->portalName();
+        const bool oldSync = hardware->portalSyncDisplay();
+        const auto restore = qScopeGuard([&] {
+            hardware->setPortalDevice(oldAddress, oldName);
+            hardware->setPortalSyncDisplay(oldSync);
+        });
+        hardware->setPortalDevice("11:22:33:44:55:66", "PORTAL");
+        hardware->setPortalSyncDisplay(true);
+        QVERIFY(SettingsSerializer::importFromJson(&settings,
+            QJsonObject{{"portal", QJsonObject{{"syncDisplay", false}}}}));
+        QVERIFY(!hardware->portalSyncDisplay());
+        QCOMPARE(hardware->portalAddress(), QString("11:22:33:44:55:66"));
+        QCOMPARE(hardware->portalName(), QString("PORTAL"));
+        QVERIFY(SettingsSerializer::importFromJson(&settings,
+            QJsonObject{{"portal", QJsonObject{{"name", "Renamed"}}}}));
+        QCOMPARE(hardware->portalAddress(), QString("11:22:33:44:55:66"));
+        QCOMPARE(hardware->portalName(), QString("Renamed"));
+    }
+
+    void errorMessageNotifiesEvenWhenStateDoesNot() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        QCOMPARE(portal.state(), QString("waiting"));
+        QSignalSpy errors(&portal, &BelkaPortalDevice::errorMessageChanged);
+        QSignalSpy states(&portal, &BelkaPortalDevice::stateChanged);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("\\[PORTAL\\]\\[BLE\\] Unknown PORTAL measurement format.*"));
+        transport->notify(QByteArray(12, '\0'));
+        QCOMPARE(portal.state(), QString("waiting")); // no state transition...
+        QCOMPARE(states.count(), 0);
+        QCOMPARE(errors.count(), 1);                  // ...but the message still notifies
+        QVERIFY(!portal.errorMessage().isEmpty());
+        transport->notify(sample);
+        QCOMPARE(errors.count(), 2);
+        QVERIFY(portal.errorMessage().isEmpty());
+    }
+
+    void malformedShapesCollapsePerLength() {
+        PortalLogCapture logs;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("\\[PORTAL\\]\\[BLE\\] .*length=7.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("\\[PORTAL\\]\\[BLE\\] .*length=9.*"));
+        for (int i = 0; i < 20; ++i) {
+            transport->notify(QByteArray(7, '\0'));
+            transport->notify(QByteArray(9, '\0')); // alternating shapes must not defeat collapsing
+        }
+        // The first-packet shape line also names a length, so match the malformed line itself.
+        QCOMPARE(logs.lines.filter("retained: length=7").size(), 1);
+        QCOMPARE(logs.lines.filter("retained: length=9").size(), 1);
+    }
+
+    void staleReadingStopsTheHealthTimerUntilDataReturns() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        transport->notify(sample);
+        QVERIFY(portal.m_healthTimer.isActive());
+        portal.expireReading(PortalSamples::StaleAfterMs + 1);
+        QCOMPARE(portal.state(), QString("stale"));
+        QVERIFY(!portal.m_healthTimer.isActive());
+        transport->notify(sample);
+        QVERIFY(portal.m_healthTimer.isActive());
+    }
+
+    void refusedActionsWhileBusyAreLogged() {
+        PortalLogCapture logs;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        portal.restoreSavedDevice("11:22:33:44:55:66", "PORTAL");
+        portal.setMachineBusy(true);
+        portal.reconnect();
+        portal.forgetDevice();
+        QCOMPARE(logs.lines.filter("Reconnect ignored: machine busy").size(), 1);
+        QCOMPARE(logs.lines.filter("Forget ignored: machine busy").size(), 1);
+        QVERIFY(portal.owned()); // refusal must not have acted
+        portal.setMachineBusy(false);
+        portal.setExtractionActive(true);
+        portal.disconnectDevice();
+        QCOMPARE(logs.lines.filter("Disconnect ignored: shot in progress").size(), 1);
+    }
+
+    void ownedFollowsSavedDeviceAndOnlyForgetDropsTheTransportTarget() {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        QSignalSpy owned(&portal, &BelkaPortalDevice::savedDeviceChanged);
+        QVERIFY(!portal.owned());
+        portal.restoreSavedDevice("11:22:33:44:55:66", "PORTAL");
+        QVERIFY(portal.owned());
+        QCOMPARE(owned.count(), 1);
+        portal.disconnectDevice();
+        QCOMPARE(transport->forgets, 0); // a routine disconnect keeps the reconnect target
+        portal.forgetDevice();
+        QCOMPARE(transport->forgets, 1);
+        QVERIFY(!portal.owned());
+    }
+
+    void clearingAnEmptyDeviceListDoesNotNotify() {
+        BelkaPortalDevice portal(new PortalTransport);
+        QSignalSpy changed(&portal, &BelkaPortalDevice::devicesChanged);
+        portal.beginScan();
+        QCOMPARE(changed.count(), 0); // a non-owner's every scan must be invisible
+        portal.observeDevice(device);
+        QCOMPARE(changed.count(), 1);
+        portal.beginScan();
+        QCOMPARE(changed.count(), 2);
+    }
+
+    void sampleLoadReportsWhatItDropped() {
+        const QVariantList values{
+            QVariantMap{{"time", 0.0}, {"ecRaw", 1.0}, {"temperatureC", 90.0}, {"breakBefore", false}},
+            QVariantMap{{"time", "bad"}, {"ecRaw", 1.0}, {"temperatureC", 90.0}},
+            QVariantMap{{"time", 0.2}, {"ecRaw", 1.1}, {"temperatureC", 90.5}, {"breakBefore", false}}};
+        int dropped = -1;
+        const auto samples = PortalSamples::fromVariant(values, &dropped);
+        QCOMPARE(dropped, 1);
+        QCOMPARE(samples.size(), 2);
+        QVERIFY(samples.at(1).breakBefore); // the dropped entry leaves a gap, not a bridge
+    }
+
+    void nonOwnerUiIsGatedOnOneDefinitionAndNeverOnAmbientDiscovery() {
+        const auto source = [](const QString& relative) {
+            QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/") + relative);
+            return file.open(QIODevice::ReadOnly | QIODevice::Text)
+                ? QString::fromUtf8(file.readAll()) : QString();
+        };
+        // "Owns a PORTAL" has one definition; spelling it per site is how the gates drifted apart.
+        QStringList drifted;
+        QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR "/qml"), {"*.qml"}, QDir::Files, QDirIterator::Subdirectories);
+        int scanned = 0;
+        while (it.hasNext()) {
+            const auto path = it.next();
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+            ++scanned;
+            if (QString::fromUtf8(file.readAll()).contains(QRegularExpression(R"(BelkaPortal\.savedAddress\.length)")))
+                drifted << path;
+        }
+        QVERIFY2(scanned > 100, "the QML tree was not found; this scan would pass vacuously");
+        QVERIFY2(drifted.isEmpty(), qPrintable("use BelkaPortal.owned in: " + drifted.join(", ")));
+
+        // An unpaired PORTAL broadcasting nearby must not reshape the Connections tab, and the
+        // panel must not even be constructed for someone who has none.
+        const auto tab = source("qml/pages/settings/SettingsConnectionsTab.qml");
+        QVERIFY(!tab.isEmpty());
+        QVERIFY2(!tab.contains(QRegularExpression(R"(\|\|\s*BelkaPortal\.devices\.length)")),
+                 "discovered PORTALs must only affect the list after this tab triggered a scan");
+        QVERIFY(tab.contains("connectionsTab.portalScanTriggered && BelkaPortal.devices.length"));
+        QVERIFY(tab.contains("sourceComponent: PortalDevicePanel"));
+
+        // PORTAL curves are advanced-only everywhere: the legend entries carry the flag, and the
+        // overlay reads the visibility settings once, behind the host chart's advanced mode.
+        const auto series = source("qml/components/GraphSeries.qml");
+        QCOMPARE(series.count(QRegularExpression(R"(advanced: true, portal: true)")), 2);
+        const auto overlay = source("qml/components/PortalGraphOverlay.qml");
+        QCOMPARE(overlay.count("Settings.graph.showPortal"), 2);
+        QVERIFY(overlay.contains("advancedMode && Settings.graph.showPortalEc"));
+        QVERIFY(overlay.contains("advancedMode && Settings.graph.showPortalTemperature"));
     }
 
     void machineStartCancelsPendingDiscovery() {

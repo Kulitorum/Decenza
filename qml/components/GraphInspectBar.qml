@@ -41,8 +41,8 @@ Flow {
             // Order matches the legend: temperature pair, scale pair, resistance
             // pair, conductance pair.
             var entries = [
-                { key: "portalEc",        show: Settings.graph.showPortalEc },
-                { key: "portalTemperature", show: Settings.graph.showPortalTemperature },
+                { key: "portalEc",        show: Settings.graph.showPortalEc && advanced },
+                { key: "portalTemperature", show: Settings.graph.showPortalTemperature && advanced },
                 { key: "pressure",        show: Settings.graph.showPressure },
                 { key: "flow",            show: Settings.graph.showFlow },
                 { key: "temperature",     show: Settings.graph.showTemperature },

@@ -367,7 +367,7 @@ T.Page {
         anchors.right: viewModeButton.left
         anchors.rightMargin: Theme.spacingSmall
         height: Math.max(implicitHeight, viewModeButton.height)
-        visible: BelkaPortal.savedAddress.length > 0
+        visible: BelkaPortal.owned
     }
 
     // Extraction view switcher (Loader swaps between ShotGraph and CupFill)
@@ -682,7 +682,7 @@ T.Page {
     GraphLegend {
         id: graphLegend
         liveMode: true
-        portalAvailable: ShotDataModel.portalSampleCount > 0 || BelkaPortal.savedAddress.length > 0
+        portalAvailable: ShotDataModel.portalSampleCount > 0 || BelkaPortal.owned
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top

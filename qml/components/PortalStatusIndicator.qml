@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import Decenza
@@ -8,7 +9,7 @@ Item {
     readonly property bool pending: BelkaPortal.state === "connecting" || BelkaPortal.state === "discovering"
         || BelkaPortal.state === "waiting" || BelkaPortal.state === "disconnecting"
     readonly property bool stale: BelkaPortal.state === "stale"
-    readonly property bool canReconnect: BelkaPortal.savedAddress.length > 0
+    readonly property bool canReconnect: BelkaPortal.owned
         && !BelkaPortal.active && !pending && !BelkaPortal.machineBusy
     readonly property string ecText: "EC " + BelkaPortal.ecRaw.toFixed(3)
     readonly property string statusText: connected ? ecText
@@ -24,16 +25,11 @@ Item {
           ? TranslationManager.translate("portal.statusBusy", "PORTAL offline. Reconnect when the machine is idle.")
           : TranslationManager.translate("portal.statusReconnect", "PORTAL offline. Tap to reconnect.")
     readonly property color statusColor: connected ? Theme.successColor
-        : pending ? Theme.textSecondaryColor : stale ? Theme.warningColor : Theme.primaryContrastColor
+        : pending ? Theme.textSecondaryColor : stale ? Theme.warningColor : Theme.errorColor
 
     implicitWidth: content.implicitWidth + Theme.spacingMedium
     implicitHeight: Theme.touchTargetMin
 
-    Rectangle {
-        anchors.fill: parent
-        radius: Theme.scaled(4)
-        color: !root.connected && !root.pending && !root.stale ? Theme.errorColor : "transparent"
-    }
     Row {
         id: content
         anchors.centerIn: parent
@@ -61,6 +57,6 @@ Item {
         onAccessibleClicked: { if (root.canReconnect) BelkaPortal.reconnect() }
     }
     ToolTip.visible: tapArea.containsMouse
-    ToolTip.text: statusDescription
+    ToolTip.text: root.statusDescription
     ToolTip.delay: 500
 }

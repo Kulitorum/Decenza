@@ -13,7 +13,9 @@ struct PortalSample {
 };
 
 namespace PortalSamples {
-// About 10 Hz observed; one conservative silence policy for readout and chart gaps.
+// One conservative silence policy for readout and chart gaps. Two Android
+// extractions stored ~98 ms median notification spacing (openspec add-belka-portal/design.md);
+// not validated for other firmware.
 inline constexpr qint64 StaleAfterMs = 5000;
 inline constexpr double StaleAfterSeconds = StaleAfterMs / 1000.0;
 inline bool valid(double time, double ecRaw, double temperatureC, double previousTime = -1)
@@ -21,6 +23,9 @@ inline bool valid(double time, double ecRaw, double temperatureC, double previou
     return std::isfinite(time) && std::isfinite(ecRaw) && std::isfinite(temperatureC)
         && time >= 0 && time >= previousTime;
 }
+
+// Headroom the EC axis adds beyond the observed extremes.
+inline constexpr double EcAxisPadding = 1.1;
 
 struct EcBounds {
     double minimum = 0;
@@ -38,8 +43,10 @@ inline QVariantList toVariant(const QVector<PortalSample>& samples)
     return result;
 }
 
-inline QVector<PortalSample> fromVariant(const QVariantList& values)
+// `dropped`, when given, receives how many entries failed to parse or validate.
+inline QVector<PortalSample> fromVariant(const QVariantList& values, int* dropped = nullptr)
 {
+    if (dropped) *dropped = 0;
     QVector<PortalSample> result;
     result.reserve(values.size());
     bool gap = true;
@@ -52,6 +59,7 @@ inline QVector<PortalSample> fromVariant(const QVariantList& values)
         if (!timeOk || !ecOk || !tempOk || !valid(sample.time, sample.ecRaw, sample.temperatureC,
                 result.isEmpty() ? -1 : result.last().time)) {
             gap = true;
+            if (dropped) ++*dropped;
             continue;
         }
         sample.breakBefore = sample.breakBefore || gap;

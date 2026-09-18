@@ -293,9 +293,9 @@ Item {
 
         var portal = portalValuesAtTime(time)
         if (portal) {
-            if (Settings.graph.showPortalEc)
+            if (Settings.graph.showPortalEc && chart.advancedMode)
                 parts.push(portal.ec.label + " " + portal.ec.value.toFixed(portal.ec.decimals))
-            if (Settings.graph.showPortalTemperature)
+            if (Settings.graph.showPortalTemperature && chart.advancedMode)
                 parts.push(portal.temperature.label + " " + portal.temperature.value.toFixed(1) + " " + portal.temperature.unit)
         }
         if (parts.length === 0) return
@@ -428,6 +428,7 @@ Item {
         axisX: timeAxis
         samples: chart.portalSamples
         showLabels: chart.showLabels
+        advancedMode: chart.advancedMode
     }
     onPortalSamplesChanged: Qt.callLater(chart.doReload)
 

@@ -65,6 +65,18 @@ public:
     virtual bool isDisconnecting() const { return false; }
 
     /**
+     * Stop tracking whatever device disconnectFromDevice() last targeted, so a
+     * later adapter power-cycle does not silently reconnect to it. Callers
+     * that only want a routine disconnect (retry ladders, timeouts) must NOT
+     * call this — the target staying live across a plain disconnect is what
+     * lets a saved device reconnect after Bluetooth toggles off and on. Only a
+     * caller that means "forget this device" should call it. Default is a
+     * no-op: only transports that track a reconnect target need to override
+     * it (CoreBluetoothScaleBleTransport).
+     */
+    virtual void forgetTarget() {}
+
+    /**
      * Start service discovery.
      * Emits serviceDiscovered() for each service found.
      * Emits servicesDiscoveryFinished() when complete.
