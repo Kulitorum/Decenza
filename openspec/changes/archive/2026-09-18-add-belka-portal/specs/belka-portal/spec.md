@@ -181,3 +181,47 @@ The PORTAL status slot SHALL show live EC to three decimal places when a valid, 
 - **THEN** the status-bar value SHALL update without navigation or a manual refresh
 - **WHEN** the stream is stale, disconnected or still connecting
 - **THEN** the status SHALL show the appropriate unavailable/progress indication instead of the last value
+
+### Requirement: PORTAL curves are advanced-mode series
+
+Both PORTAL curves SHALL be advanced-mode series on every graph. Their legend entries, plotted curves, axis labels, history cursor values and inspect-bar values SHALL appear only while the graph is in advanced mode, in addition to the existing requirement that the user has a saved PORTAL or a shot with recorded PORTAL samples. The graph's plot area and margins SHALL be identical to a graph without PORTAL data whenever advanced mode is off.
+
+#### Scenario: Advanced mode is off
+
+- **WHEN** a user with a saved PORTAL views the live, review, history or last-shot graph in basic mode
+- **THEN** no PORTAL legend entry, curve, axis label or cursor value SHALL be shown
+- **AND** the graph layout SHALL be unchanged
+
+#### Scenario: Advanced mode is turned on
+
+- **WHEN** advanced mode is enabled and a PORTAL curve's visibility setting is on
+- **THEN** its legend entry, curve and axis SHALL appear, and its value SHALL appear in the inspect readout
+
+### Requirement: A nearby unpaired PORTAL does not change the connections screen
+
+Background discovery MAY observe a PORTAL that the user has never selected. Such a discovery SHALL NOT change the Connections screen or the shared discovered-devices list until that screen has started a scan. Whether the user owns a PORTAL SHALL have one definition, exposed as `BelkaPortal.owned`, that every PORTAL-specific QML control reads; the web theme editor derives the same fact from the saved pairing. Forgetting a PORTAL SHALL also stop the transport from reconnecting to it after a Bluetooth power-cycle, and no other device's reconnect target SHALL be affected by PORTAL.
+
+#### Scenario: A PORTAL is nearby but the user never scans
+
+- **WHEN** an unpaired PORTAL advertises while the user has a scale and refractometer connected
+- **THEN** the discovered-devices list SHALL remain in the state it would have without PORTAL
+
+#### Scenario: The user scans
+
+- **WHEN** the user starts a scan from the Connections screen and a PORTAL is discovered
+- **THEN** it SHALL be listed for selection alongside other discovered devices
+
+#### Scenario: A scale disconnects routinely
+
+- **WHEN** a scale's transport is disconnected by a timeout or retry
+- **THEN** its reconnect target SHALL be retained so it can reconnect after a Bluetooth power-cycle
+
+### Requirement: Restoring a partial backup preserves omitted PORTAL fields
+
+Settings import SHALL apply only the PORTAL fields present in the backup. Omitting the address or name SHALL leave the saved pairing unchanged and SHALL NOT disconnect a live PORTAL.
+
+#### Scenario: Backup carries only the display preference
+
+- **WHEN** a backup whose `portal` object contains only `syncDisplay` is restored
+- **THEN** the saved PORTAL address and name SHALL be unchanged
+- **AND** a connected PORTAL SHALL stay connected

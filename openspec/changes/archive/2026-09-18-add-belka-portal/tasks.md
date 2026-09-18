@@ -40,7 +40,7 @@
 - [ ] Publish the manual through the maintainer's wiki workflow (the wiki is a separate repository).
 - [x] Prepare representative live-shot and saved-history screenshots on the contributor fork, without private backups or settings.
 - [x] Open draft PR [#1938](https://github.com/Kulitorum/Decenza/pull/1938) with completed validation and remaining hardware checks clearly distinguished.
-- [ ] Before any requested merge, reconcile acceptance, archive this OpenSpec change and read checks on that final revision.
+- [x] Reconcile acceptance and archive this OpenSpec change as the final commit. Checks on that revision are read by the maintainer before merge; remaining hardware acceptance is recorded under "Held at merge" below and is deliberately not marked passed.
 
 ## PR #1938 Review
 
@@ -83,3 +83,20 @@
 - [x] Show current raw EC in the status bar and omit stale/disconnected values.
 - [x] Validate both controller/discovery replay paths and their failing Refill mutation, live QML EC and its failing-label mutation, 118/118 native tests, 245/245 QML files, all text gates, strict OpenSpec, 15 local offscreen QtTest results and the Android arm64 test build.
 - [ ] Verify reconnection during Refill and changing status-bar EC on the physical tablet.
+
+## Maintainer review fixes (2026-09-18)
+
+- [x] Keep users without a PORTAL unchanged: DE1 classification runs before the loose PORTAL name match, and the name match yields to scale/refractometer classification.
+- [x] Stop clearing every Apple scale transport's reconnect target on disconnect; add `ScaleBleTransport::forgetTarget()` (no-op by default) and call it only from PORTAL's Forget.
+- [x] Connections tab: a nearby unpaired PORTAL affects the discovered list only after that tab started a scan; construct the PORTAL panel through a `Loader`; do not notify on clearing an empty device list.
+- [x] One definition of ownership (`BelkaPortal.owned`) replaces six per-site spellings; add `[PORTAL]` to the Connections log view.
+- [x] Make both PORTAL curves advanced-mode series across legend, chart, cursor and inspect bar.
+- [x] Apply only present PORTAL fields on settings import.
+- [x] Give `errorMessage` its own change signal, stop the health timer once stale, log refused actions while busy, collapse malformed packets per length, and count/log PORTAL samples dropped on history load.
+- [x] Show the PORTAL legend on the auto-favorite info page, share the EC axis padding constant, derive temperature ticks from the axis, and label raw transport errors.
+- [x] Add regression tests for the above, including a committed source guard for the non-owner gating; make the overlay-instantiation check fail instead of skipping. One deliberate mutation (empty-list notification) was confirmed to fail; the others were not mutation-checked.
+- [x] Validate: builds on the rebased branch; 118/118 native tests with ASan/UBSan; 248/248 QML files; strict OpenSpec. The maintainer ran the app without a PORTAL on macOS: no `[PORTAL]` log lines, no QML errors, and a Bluetooth HDS scale discovered and streaming. Rendered Settings, graph and legend pages were not inspected by the assistant.
+
+## Held at merge
+
+The hardware items left unchecked above are held by the maintainer's decision to merge into the rolling 2.0 beta without them. They affect only owners of a PORTAL; users without one never reach these paths. They are not marked passed. Follow-up: the contributor confirms them on the tablet in the beta and reports results on PR #1938 or a new issue if a defect is found. The wiki manual entry is likewise held until the maintainer publishes it. Apple CoreBluetooth changes shared with every scale are compiled on macOS and exercised only through a successful scale connect; disconnect, timeout and Bluetooth power-cycle paths are untested on hardware.
