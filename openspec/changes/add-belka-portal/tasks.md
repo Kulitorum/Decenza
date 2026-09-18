@@ -75,3 +75,11 @@
 - [x] Extend the wiki manual draft; publication remains with the maintainer.
 - [x] Validate cursor boundaries, gaps and their deliberate mutation; 118/118 native tests, 245/245 QML files, all text gates, strict OpenSpec, 14 local offscreen QtTest results and the private Android arm64 APK.
 - [ ] Verify finger scrubbing and status-bar reconnection on the physical tablet.
+
+## Refill reconnect and live status EC
+
+- [x] Reproduce the tablet failure from the persisted log: startup connection, DE1 Idle-to-Refill transition, PORTAL link loss, scans without another connection attempt.
+- [x] Allow PORTAL connection during Refill while retaining extraction/active-operation guards.
+- [x] Show current raw EC in the status bar and omit stale/disconnected values.
+- [x] Validate both controller/discovery replay paths and their failing Refill mutation, live QML EC and its failing-label mutation, 118/118 native tests, 245/245 QML files, all text gates, strict OpenSpec, 15 local offscreen QtTest results and the Android arm64 test build.
+- [ ] Verify reconnection during Refill and changing status-bar EC on the physical tablet.

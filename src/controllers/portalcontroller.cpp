@@ -50,8 +50,12 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
             device->setExtractionActive(false);
             model->markPortalGap();
         }
+        // Refill can remain latched while the user tops up the tank. It is not
+        // an extraction: treating it as busy stranded PORTAL after link loss,
+        // although the same device connected during the preceding startup.
         device->setMachineBusy(phase != Phase::Disconnected && phase != Phase::Sleep
-            && phase != Phase::Idle && phase != Phase::Heating && phase != Phase::Ready);
+            && phase != Phase::Idle && phase != Phase::Heating && phase != Phase::Ready
+            && phase != Phase::Refill);
     };
     connect(machine, &MachineState::phaseChanged, this, updateMachine);
     updateMachine();

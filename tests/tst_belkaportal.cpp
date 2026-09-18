@@ -248,9 +248,9 @@ private slots:
         BelkaPortalDevice portal(new PortalTransport);
         PortalController controller(&portal, settings.hardware(), &machine, &timing, &model);
         using Phase = MachineState::Phase;
-        const QList<Phase> available{Phase::Disconnected, Phase::Sleep, Phase::Idle, Phase::Heating, Phase::Ready};
+        const QList<Phase> available{Phase::Disconnected, Phase::Sleep, Phase::Idle, Phase::Heating, Phase::Ready, Phase::Refill};
         const QList<Phase> busy{Phase::EspressoPreheating, Phase::Preinfusion, Phase::Pouring,
-            Phase::Ending, Phase::Steaming, Phase::HotWater, Phase::Flushing, Phase::Refill,
+            Phase::Ending, Phase::Steaming, Phase::HotWater, Phase::Flushing,
             Phase::Descaling, Phase::Cleaning, Phase::Transport};
         for (const auto phase : busy) {
             machine.m_phase = phase;
@@ -262,6 +262,57 @@ private slots:
             emit machine.phaseChanged();
             QVERIFY(!portal.machineBusy());
         }
+    }
+
+    void refillDoesNotStrandPortalAfterStartup_data() {
+        QTest::addColumn<bool>("freshScan");
+        QTest::newRow("cached-device") << false;
+        QTest::newRow("fresh-discovery") << true;
+    }
+
+    void refillDoesNotStrandPortalAfterStartup() {
+        QFETCH(bool, freshScan);
+        Settings settings;
+        auto* hardware = settings.hardware();
+        const auto oldAddress = hardware->portalAddress(), oldName = hardware->portalName();
+        const auto restore = qScopeGuard([&] { hardware->setPortalDevice(oldAddress, oldName); });
+        hardware->setPortalDevice({}, {});
+        DE1Device de1;
+        MachineState machine(&de1);
+        ShotTimingController timing(&de1);
+        ShotDataModel model;
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        PortalController controller(&portal, hardware, &machine, &timing, &model);
+        PortalDiscoveryReplay discovery;
+        connectPortalDiscovery(&discovery, &portal);
+        QSignalSpy scan(&portal, &BelkaPortalDevice::scanRequested);
+        start(portal, transport);
+        transport->notify(sample);
+        machine.m_phase = MachineState::Phase::Refill;
+        emit machine.phaseChanged();
+        QVERIFY(portal.hasReading());
+        QTest::ignoreMessage(QtWarningMsg, "[PORTAL][BLE] PORTAL disconnected; reconnect when the machine is idle");
+        transport->linked = false;
+        transport->completeDisconnect();
+        if (freshScan) portal.clearDevices();
+        portal.reconnect(); // Same entry point as the status bar and Settings.
+        QCOMPARE(scan.count(), freshScan ? 1 : 0);
+        if (freshScan) emit discovery.portalDiscovered(device);
+        QTRY_COMPARE(transport->operations.count("connect"), 2);
+        transport->announceService();
+        transport->notify(sample);
+        QVERIFY(portal.hasReading());
+        QCOMPARE(portal.ecRaw(), 1.5);
+        portal.disconnectDevice();
+        QCOMPARE(portal.state(), "disconnected");
+        portal.connectDevice("11:22:33:44:55:66"); // Settings scan-result selection also works.
+        QCOMPARE(transport->operations.count("connect"), 3);
+        machine.m_phase = MachineState::Phase::Pouring;
+        emit machine.phaseChanged();
+        portal.reconnect();
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(transport->operations.count("connect"), 3);
     }
 
     void liveBackupRestoreReplacesConnectionAndDisplayPreference() {

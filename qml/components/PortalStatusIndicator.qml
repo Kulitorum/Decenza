@@ -10,12 +10,14 @@ Item {
     readonly property bool stale: BelkaPortal.state === "stale"
     readonly property bool canReconnect: BelkaPortal.savedAddress.length > 0
         && !BelkaPortal.active && !pending && !BelkaPortal.machineBusy
-    readonly property string statusText: connected ? "PORTAL"
+    readonly property string ecText: "EC " + BelkaPortal.ecRaw.toFixed(3)
+    readonly property string statusText: connected ? ecText
         : pending ? "PORTAL…"
         : stale ? TranslationManager.translate("portal.statusStale", "PORTAL stale")
         : TranslationManager.translate("portal.statusOffline", "PORTAL offline")
     readonly property string statusDescription: connected
         ? TranslationManager.translate("portal.statusConnected", "PORTAL connected")
+          + " · " + TranslationManager.translate("portal.ecRaw", "EC (raw)") + ": " + BelkaPortal.ecRaw.toFixed(3)
         : pending ? TranslationManager.translate("portal.statusPending", "PORTAL connection in progress")
         : stale ? TranslationManager.translate("portal.statusNoData", "PORTAL connected, no recent measurements")
         : BelkaPortal.machineBusy

@@ -160,3 +160,24 @@ A saved PORTAL SHALL show a droplet icon with an EC curve and connection state i
 
 - **WHEN** the machine is busy or PORTAL is already connected or connecting
 - **THEN** the status SHALL NOT disconnect or restart the peripheral
+
+### Requirement: Refill does not prevent PORTAL recovery
+
+A DE1 in Refill SHALL allow PORTAL discovery, selection and reconnection. Extraction and other active operation guards SHALL remain effective, including the extraction-finalization guard.
+
+#### Scenario: Startup connection drops while waiting for tank refill
+
+- **WHEN** PORTAL connects at startup, the DE1 enters Refill, and the PORTAL link is lost
+- **THEN** the user SHALL be able to reconnect from the status bar or Connections without restarting Decenza
+- **AND** the reconnect SHALL work with a cached device or after fresh shared discovery
+
+### Requirement: Status bar shows current raw EC
+
+The PORTAL status slot SHALL show live EC to three decimal places when a valid, fresh notification is available. Its accessible description and tooltip SHALL identify the value as raw EC.
+
+#### Scenario: Measurements change or become unavailable
+
+- **WHEN** a fresh EC value arrives, including zero
+- **THEN** the status-bar value SHALL update without navigation or a manual refresh
+- **WHEN** the stream is stale, disconnected or still connecting
+- **THEN** the status SHALL show the appropriate unavailable/progress indication instead of the last value
