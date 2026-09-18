@@ -41,6 +41,8 @@ Flow {
             // Order matches the legend: temperature pair, scale pair, resistance
             // pair, conductance pair.
             var entries = [
+                { key: "portalEc",        show: Settings.graph.showPortalEc && advanced },
+                { key: "portalTemperature", show: Settings.graph.showPortalTemperature && advanced },
                 { key: "pressure",        show: Settings.graph.showPressure },
                 { key: "flow",            show: Settings.graph.showFlow },
                 { key: "temperature",     show: Settings.graph.showTemperature },
@@ -69,6 +71,7 @@ Flow {
                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                 anchors.verticalCenter: parent.verticalCenter
                 color: {
+                    if (inspectEntry.modelData.color !== undefined) return inspectEntry.modelData.color
                     switch (inspectEntry.modelData.name) {
                         case "Pressure": return Theme.pressureColor
                         case "Flow": return Theme.flowColor
@@ -86,9 +89,9 @@ Flow {
                 }
             }
             Text {
-                text: inspectEntry.modelData.unit.length > 0
-                    ? inspectEntry.modelData.value.toFixed(1) + " " + inspectEntry.modelData.unit
-                    : inspectEntry.modelData.value.toFixed(1)
+                text: (inspectEntry.modelData.label ? inspectEntry.modelData.label + " " : "")
+                    + inspectEntry.modelData.value.toFixed(inspectEntry.modelData.decimals ?? 1)
+                    + (inspectEntry.modelData.unit.length > 0 ? " " + inspectEntry.modelData.unit : "")
                 font: Theme.captionFont
                 color: Theme.textColor
                 Accessible.ignored: true

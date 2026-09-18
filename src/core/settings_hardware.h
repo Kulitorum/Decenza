@@ -3,8 +3,9 @@
 #include <QObject>
 #include "appsettings.h"
 
-// Hardware calibration settings sent to the DE1 firmware:
-// heater tweaks, hot-water flow rate, steam two-tap stop.
+// Hardware selection and calibration settings for the DE1 and connected peripherals:
+// heater tweaks, hot-water flow rate, steam two-tap stop, and the saved Belka PORTAL
+// pairing and display-sync preference.
 class SettingsHardware : public QObject {
     Q_OBJECT
 
@@ -16,7 +17,16 @@ class SettingsHardware : public QObject {
     Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop WRITE setSteamTwoTapStop NOTIFY steamTwoTapStopChanged FINAL)
     Q_PROPERTY(int fanThreshold READ fanThreshold WRITE setFanThreshold NOTIFY fanThresholdChanged FINAL)
 
+    Q_PROPERTY(QString portalAddress READ portalAddress NOTIFY portalDeviceChanged FINAL)
+    Q_PROPERTY(QString portalName READ portalName NOTIFY portalDeviceChanged FINAL)
+    Q_PROPERTY(bool portalSyncDisplay READ portalSyncDisplay WRITE setPortalSyncDisplay NOTIFY portalSyncDisplayChanged FINAL)
+
 public:
+    QString portalAddress() const;
+    QString portalName() const;
+    void setPortalDevice(const QString& address, const QString& name);
+    bool portalSyncDisplay() const;
+    void setPortalSyncDisplay(bool enabled);
     explicit SettingsHardware(QObject* parent = nullptr);
 
     int heaterIdleTemp() const;
@@ -71,6 +81,8 @@ public:
     void setCpMode(const QString& mode);
 
 signals:
+    void portalDeviceChanged();
+    void portalSyncDisplayChanged();
     void heaterIdleTempChanged();
     void heaterWarmupFlowChanged();
     void heaterTestFlowChanged();

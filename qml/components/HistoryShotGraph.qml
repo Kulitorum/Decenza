@@ -58,6 +58,7 @@ Item {
     property var inspectValues: ({})
 
     // Data to display (set from parent)
+    property var portalSamples: []
     property var pressureData: []
     property var flowData: []
     property var temperatureData: []
@@ -129,7 +130,7 @@ Item {
         for (var m = 0; m < phaseMarkers.length; m++) {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
         }
-        var axisEnd = Math.max(maxTime, markerMaxTime)
+        var axisEnd = Math.max(maxTime, markerMaxTime, portalOverlay.lastTime)
         timeAxis.max = Math.max(5, GraphUtils.paddedAxisEnd(axisEnd, graphsView.plotArea.width, Theme.scaled(5)))
     }
 
@@ -219,6 +220,11 @@ Item {
             }
         }
 
+        var portal = portalValuesAtTime(time)
+        if (portal) {
+            vals.portalEc = portal.ec
+            vals.portalTemperature = portal.temperature
+        }
         inspectValues = vals
         inspecting = true
         announceAtPosition(pixelX, pixelY)
@@ -226,6 +232,17 @@ Item {
 
     function dismissInspect() {
         inspecting = false
+    }
+
+    function portalValuesAtTime(time) {
+        var reading = GraphUtils.portalReadingAtTime(portalSamples, time)
+        if (!reading) return null
+        return {
+            ec: { label: "PORTAL " + TranslationManager.translate("portal.ecRaw", "EC (raw)"),
+                  value: reading.ecRaw, unit: "", decimals: 3, color: Theme.portalEcColor },
+            temperature: { label: "PORTAL", value: Theme.cToDisplay(reading.temperatureC),
+                           unit: Theme.tempUnitSuffix(), decimals: 1, color: Theme.portalTemperatureColor }
+        }
     }
 
     // Return the phase label active at the given time, or empty string if none.
@@ -274,6 +291,13 @@ Item {
             }
         }
 
+        var portal = portalValuesAtTime(time)
+        if (portal) {
+            if (Settings.graph.showPortalEc && chart.advancedMode)
+                parts.push(portal.ec.label + " " + portal.ec.value.toFixed(portal.ec.decimals))
+            if (Settings.graph.showPortalTemperature && chart.advancedMode)
+                parts.push(portal.temperature.label + " " + portal.temperature.value.toFixed(1) + " " + portal.temperature.unit)
+        }
         if (parts.length === 0) return
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
             var phase = getPhaseAtTime(time)
@@ -396,10 +420,22 @@ Item {
         }
     }
 
+    PortalGraphOverlay {
+        id: portalOverlay
+        anchors.fill: parent
+        z: 2
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        samples: chart.portalSamples
+        showLabels: chart.showLabels
+        advancedMode: chart.advancedMode
+    }
+    onPortalSamplesChanged: Qt.callLater(chart.doReload)
+
     GraphsView {
         id: graphsView
         anchors.fill: parent
-        anchors.rightMargin: chart.showLabels ? Theme.scaled(35) : 0
+        anchors.rightMargin: portalOverlay.labelWidth + (chart.showLabels ? Theme.scaled(portalOverlay.hasVisibleData ? 55 : 35) : 0)
         theme: DecenzaGraphsTheme {}
 
         axisX: timeAxis

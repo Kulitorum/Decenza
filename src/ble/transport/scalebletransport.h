@@ -58,9 +58,23 @@ public:
 
     /**
      * Disconnect from the current device.
-     * Emits disconnected() when complete.
+     * Qt tears down synchronously without emitting disconnected(). Native
+     * transports may finish later; isDisconnecting() covers that interval.
      */
     virtual void disconnectFromDevice() = 0;
+    virtual bool isDisconnecting() const { return false; }
+
+    /**
+     * Stop tracking whatever device disconnectFromDevice() last targeted, so a
+     * later adapter power-cycle does not silently reconnect to it. Callers
+     * that only want a routine disconnect (retry ladders, timeouts) must NOT
+     * call this — the target staying live across a plain disconnect is what
+     * lets a saved device reconnect after Bluetooth toggles off and on. Only a
+     * caller that means "forget this device" should call it. Default is a
+     * no-op: only transports that track a reconnect target need to override
+     * it (CoreBluetoothScaleBleTransport).
+     */
+    virtual void forgetTarget() {}
 
     /**
      * Start service discovery.
@@ -226,6 +240,9 @@ signals:
      * Emitted when a write operation completes successfully.
      */
     void characteristicWritten(const QBluetoothUuid& characteristicUuid);
+
+    // Terminal failure (including the shared operation timeout), after releasing the slot.
+    void gattOperationFailed(const QBluetoothUuid& key);
 
     /**
      * Emitted when notifications are successfully enabled.

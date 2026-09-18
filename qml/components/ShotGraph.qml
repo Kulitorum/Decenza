@@ -91,7 +91,7 @@ Item {
         // Reserve room on the right for the manual temperature/weight labels and
         // on top for the legend. Qt Graphs doesn't carve out a right margin the
         // way Qt Charts' margins.right did.
-        anchors.rightMargin: Theme.scaled(55)
+        anchors.rightMargin: Theme.scaled(55) + portalOverlay.labelWidth
         anchors.topMargin: Theme.scaled(10)
         theme: DecenzaGraphsTheme {}
 
@@ -139,6 +139,15 @@ Item {
             // how graphs arrive in bug reports.
             titleText: chart.flowMultiplier === 1 ? "bar / mL·g/s" : "bar"
         }
+    }
+
+    PortalGraphOverlay {
+        id: portalOverlay
+        anchors.fill: parent
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        live: true
+        advancedMode: chart.advancedMode
     }
 
     // === HIDDEN RIGHT-AXIS HOLDERS ===

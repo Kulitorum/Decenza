@@ -1099,7 +1099,10 @@ DecenzaDialog {
                             { color: Theme.flowColor, label: TranslationManager.translate("customEditor.colorFlow", "Flow") },
                             { color: Theme.weightColor, label: TranslationManager.translate("customEditor.colorWeight", "Weight") },
                             { color: Theme.textSecondaryColor, label: TranslationManager.translate("customEditor.colorSecondary", "Secondary") }
-                        ]
+                        ].concat(BelkaPortal.owned ? [
+                            { color: Theme.portalEcColor, label: TranslationManager.translate("portal.legendEc", "PORTAL EC") },
+                            { color: Theme.portalTemperatureColor, label: TranslationManager.translate("portal.legendTemp", "PORTAL temp") }
+                        ] : [])
                         Rectangle {
                             id: colorSwatch
                             required property var modelData

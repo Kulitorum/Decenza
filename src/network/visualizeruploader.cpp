@@ -203,7 +203,7 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
-    QByteArray jsonData = buildHistoryShotJson(shotData);
+    QByteArray jsonData = buildHistoryShotJson(shotData, false);
     sendUpload(jsonData);
 }
 
@@ -1743,9 +1743,11 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 }
 
 // static
-QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData)
+QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData, bool includePortal)
 {
     QJsonObject root;
+    if (includePortal && !shotData.portalSamples.isEmpty())
+        root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData.portalSamples);
     root["version"] = 2;
 
     // Use original timestamp from the shot

@@ -1,5 +1,6 @@
 #include "core/applogging.h"
 #include "blemanager.h"
+#include "belkaportaldevice.h"
 #include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
@@ -1439,7 +1440,8 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
     // BLE is actually delivering devices → permission is healthy.
     m_anyBleSuccessThisSession = true;
 
-    // Check if it's a DE1
+    // DE1 classification is exact (name prefix or service UUID) and must
+    // never be shadowed by a broader heuristic, so it always runs first.
     if (isDE1Device(device)) {
         // Avoid duplicates
         for (const auto& existing : m_de1Devices) {
@@ -1452,6 +1454,22 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         de1Info(QStringLiteral("Found DE1: %1 (%2)")
                     .arg(device.name(), getDeviceIdentifier(device)));
         emit de1Discovered(device);
+        return;
+    }
+
+    // PORTAL's service-UUID match is exact; the name-substring fallback in
+    // isPortal() is not, so it only wins once the refractometer/scale name
+    // heuristics have ruled the device out — otherwise a scale or
+    // refractometer whose advertised name happens to contain "portal" would
+    // never reach classification below. Ruling those out costs nothing here
+    // (no side effects) whether or not a scan is user-initiated, so PORTAL
+    // discovery still runs unconditionally of m_scanningForScales.
+    const bool isPortalByUuid = device.serviceUuids().contains(QBluetoothUuid(BelkaPortalProtocol::ServiceUuid));
+    const bool couldBeOtherSensor = DiFluidR2::isR2Device(device.name())
+        || DiFluidR1::isR1Device(device.name())
+        || !getScaleType(device).isEmpty();
+    if (isPortalByUuid || (BelkaPortalDevice::isPortal(device) && !couldBeOtherSensor)) {
+        emit portalDiscovered(device);
         return;
     }
 

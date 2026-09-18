@@ -17,6 +17,14 @@ Item {
     // USB is not supported on iOS (no USB host mode)
     readonly property bool usbAvailable: Qt.platform.os !== "ios"
 
+    // PORTAL discovery runs continuously in the background (for a saved
+    // device's own reconnect), independent of this tab's "Scan for Devices"
+    // button. An ambient, unpaired PORTAL merely broadcasting nearby must not
+    // change this screen for a user who never pressed that button, so the
+    // discovered-devices list only reacts to BelkaPortal.devices once THIS
+    // tab has actually triggered a scan.
+    property bool portalScanTriggered: false
+
     DecenzaDialog {
         id: hdsFirmwareUpdateDialog
         parent: Overlay.overlay
@@ -1112,7 +1120,10 @@ Item {
                                 ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
                                 : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
                             enabled: !BLEManager.scanning
-                            onClicked: BLEManager.scanForDevices()
+                            onClicked: {
+                                connectionsTab.portalScanTriggered = true
+                                BLEManager.scanForDevices()
+                            }
                         }
                     }
 
@@ -1800,6 +1811,19 @@ Item {
                         }
                     }
 
+                    Loader {
+                        id: portalDevicePanelLoader
+                        Layout.fillWidth: true
+                        // Not just visible: false — a user who never discovers
+                        // a PORTAL must not pay for constructing this panel's
+                        // ~15 items and ~18 translated bindings either.
+                        active: BelkaPortal.owned || BelkaPortal.state !== "disconnected"
+                        visible: active
+                        sourceComponent: PortalDevicePanel {
+                            width: portalDevicePanelLoader.width
+                        }
+                    }
+
                     Tr {
                         Layout.fillWidth: true
                         key: "settings.bluetooth.availableDevices"
@@ -1832,6 +1856,7 @@ Item {
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
                         visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
+                            || (connectionsTab.portalScanTriggered && BelkaPortal.devices.length > 0)
                         readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
                             && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
@@ -1872,6 +1897,12 @@ Item {
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
+                            var portals = BelkaPortal.devices
+                            for (var p = 0; p < portals.length; p++) {
+                                if (portals[p].identifier === BelkaPortal.savedAddress) continue
+                                items.push({ deviceName: portals[p].label, address: portals[p].identifier,
+                                             deviceType: "PORTAL", deviceClass: "portal" })
+                            }
                             WebDebugLogger.debug("Scale", "SettingsConnectionsTab", ["discoveredDevicesList combinedModel rebuilt:",
                                         "scales=" + scales.length + "(-" + skippedScales + " known)",
                                         "refractometers=" + refractometers.length + "(-" + skippedRefs + " known)",
@@ -1900,6 +1931,18 @@ Item {
                             }
                         }
 
+                        Connections {
+                            target: BelkaPortal
+                            function onDevicesChanged() {
+                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
+                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
+                            }
+                            function onSavedDeviceChanged() {
+                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
+                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
+                            }
+                        }
+
                         // Rebuild when the Known Devices set changes — a scale
                         // moving from discovered → known should disappear from
                         // this list since it's now managed above.
@@ -1915,6 +1958,8 @@ Item {
                         delegate: ItemDelegate {
                             id: delegate2
                             required property var modelData
+                            enabled: modelData.deviceClass !== "portal"
+                                || (!BelkaPortal.active && BelkaPortal.state !== "disconnecting" && !BelkaPortal.machineBusy)
 
                             width: ListView.view.width
 
@@ -1959,7 +2004,9 @@ Item {
                                 radius: Theme.scaled(4)
                             }
                             onClicked: {
-                                if (modelData.deviceClass === "refractometer")
+                                if (modelData.deviceClass === "portal")
+                                    BelkaPortal.connectDevice(modelData.address)
+                                else if (modelData.deviceClass === "refractometer")
                                     BLEManager.connectToRefractometer(modelData.address)
                                 else
                                     BLEManager.connectToScale(modelData.address)
@@ -2013,10 +2060,14 @@ Item {
                     // [Bluetooth] joins them for the same reason it appears on the
                     // machine panel: the adapter is beneath every device paired here,
                     // and "the scale never appeared" with no radio line is a dead end.
+                    //
+                    // [PORTAL] is here because the panel above sends its user to this
+                    // log; a marker that is not listed never reaches the view. A user
+                    // without a PORTAL emits no such line, so nothing changes for them.
                     SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(150)
-                        markers: ["[Scale]", "[Refractometer]", "[Bluetooth]"]
+                        markers: ["[Scale]", "[Refractometer]", "[Bluetooth]", "[PORTAL]"]
                         showShare: true
                         accessibleName: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
                         onShareRequested: shareLogDialog.open()

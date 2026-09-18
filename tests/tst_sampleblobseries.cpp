@@ -10,6 +10,8 @@
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
 #include "history/shotprojection.h"
+#include "history/shotfileparser.h"
+#include <limits>
 #include "models/shotdatamodel.h"
 #include "network/visualizeruploader.h"
 
@@ -49,6 +51,119 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void portalLiveAppendIsIncrementalAndRangeResets() {
+        ShotDataModel model;
+        QSignalSpy points(&model, &ShotDataModel::portalSampleAdded);
+        for (int i = 0; i < 6000; ++i) model.addPortalSample(i * 0.1, i * 0.001 - 1.0, 75.0);
+        QCOMPARE(points.count(), 6000);
+        QCOMPARE(model.portalSampleCount(), 6000);
+        QCOMPARE(model.portalEcMin(), -1.0);
+        QCOMPARE(model.portalEcBounds(model.portalSamplesVariant()),
+                 QVariantList({model.portalEcMin(), model.portalEcMax()}));
+        QVERIFY(model.portalEcMax() > 4.9);
+        QCOMPARE(points.last()[0].toDouble(), 599.9);
+        QVERIFY(points.first()[3].toBool());
+        QVERIFY(!points.last()[3].toBool());
+        model.addPortalSample(599.8, 99.0, 75.0); // invalid ordering must not reach renderer or range
+        QCOMPARE(points.count(), 6000);
+        QVERIFY(model.portalEcMax() < 5.0);
+        model.clear();
+        QCOMPARE(model.portalSampleCount(), 0);
+        QCOMPARE(model.portalEcMin(), 0.0);
+        QCOMPARE(model.portalEcMax(), 0.1);
+        model.addPortalSample(0, 0.5, 25.0);
+        QVERIFY(points.last()[3].toBool());
+    }
+
+    void portalSamplesKeepTimestampsAndGaps() {
+        ShotDataModel model;
+        QSignalSpy changed(&model, &ShotDataModel::portalSamplesChanged);
+        model.addPortalSample(0.15, 0.073, 23.0);
+        model.addPortalSample(0.42, 0.8, 75.0);
+        model.markPortalGap();
+        model.addPortalSample(0.9, 1.2, 82.0);
+        model.addPortalSample(0.8, 5.0, 85.0); // out of order, not a new point
+        model.addPortalSample(1.0, std::numeric_limits<double>::quiet_NaN(), 85.0);
+        model.addPortalSample(1.2, 1.1, 83.0);
+        model.addPortalSample(7.0, 0.1, 40.0); // silent gap also breaks the line
+        QCOMPARE(model.portalSamples().size(), 5);
+        QCOMPARE(model.portalSamples()[1].time, 0.42);
+        QCOMPARE(model.portalSamples()[1].temperatureC, 75.0);
+        QVERIFY(!model.portalSamples()[1].breakBefore);
+        QVERIFY(model.portalSamples()[2].breakBefore);
+        QVERIFY(model.portalSamples()[3].breakBefore);
+        QVERIFY(model.portalSamples()[4].breakBefore);
+        QTRY_VERIFY(changed.count() > 0);
+        const auto samples = model.portalSamplesVariant();
+        QCOMPARE(PortalSamples::toVariant(PortalSamples::fromVariant(samples)), samples);
+        model.clear();
+        QVERIFY(model.portalSamples().isEmpty());
+    }
+
+    void portalSurvivesBlobProjectionExportAndRecordImport() {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("portal_roundtrip.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+        ShotDataModel model;
+        populate(model);
+        model.addPortalSample(0.15, 0.073, 23.0);
+        model.addPortalSample(0.42, 0.8, 75.0);
+        model.markPortalGap();
+        model.addPortalSample(1.2, 1.1, 83.0);
+        ShotRecord record;
+        giveIdentity(record);
+        record.summary.timestamp = 1755000000;
+        record.summary.uuid = "portal-roundtrip-uuid";
+        ShotHistoryStorage::decompressSampleData(storage.compressSampleData(&model), &record);
+        QCOMPARE(PortalSamples::toVariant(record.portalSamples), model.portalSamplesVariant());
+        const auto projection = ShotHistoryStorage::convertShotRecord(record);
+        QCOMPARE(projection.portalSamples, model.portalSamplesVariant());
+        QCOMPARE(ShotProjection::fromVariantMap(projection.toVariantMap()).portalSamples, model.portalSamplesVariant());
+        const QJsonObject exported = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection, true)).object();
+        const auto upload = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection)).object();
+        QVERIFY(!upload.contains("decenza_portal_samples"));
+        QVERIFY(exported.contains("decenza_portal_samples"));
+        // Visualizer's download schema differs from Decenza's v2 file export.
+        // Exercise optional PORTAL decoding with a valid download-shaped fixture;
+        // this does not assert that the remote service retains the extension.
+        const QJsonObject download{{"timeframe", exported["elapsed"]},
+            {"data", QJsonObject{{"espresso_pressure", exported["pressure"].toObject()["pressure"]}}},
+            {"decenza_portal_samples", exported["decenza_portal_samples"]}};
+        auto parsed = ShotFileParser::parseVisualizerShot(download, "", "", record.summary.timestamp);
+        QVERIFY2(parsed.success, qPrintable(parsed.errorMessage));
+        QCOMPARE(PortalSamples::toVariant(parsed.record.portalSamples), model.portalSamplesVariant());
+        const qint64 id = storage.importShotRecord(parsed.record, false);
+        QVERIFY(id > 0);
+        withTempDb(path, "portal_reload", [&](QSqlDatabase& db) {
+            const auto loaded = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(PortalSamples::toVariant(loaded.portalSamples), model.portalSamplesVariant());
+        });
+        storage.close();
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
+    void legacyAndMalformedPortalDataDoNotCreateZeroCurves() {
+        ShotDataModel model;
+        populate(model);
+        ShotHistoryStorage storage;
+        ShotRecord record;
+        giveIdentity(record);
+        ShotHistoryStorage::decompressSampleData(storage.compressSampleData(&model), &record);
+        QVERIFY(record.portalSamples.isEmpty());
+        const auto projection = ShotHistoryStorage::convertShotRecord(record);
+        QVERIFY(!projection.toVariantMap().contains("portalSamples"));
+        QVERIFY(!QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(projection)).object().contains("decenza_portal_samples"));
+        QVariantList invalid{QVariantMap{{"time", 0.0}, {"ecRaw", 0.1}},
+            QVariantMap{{"time", -1.0}, {"ecRaw", 0.1}, {"temperatureC", 23.0}}};
+        QVERIFY(PortalSamples::fromVariant(invalid).isEmpty());
+        invalid.append(QVariantMap{{"time", 0.5}, {"ecRaw", 0.073}, {"temperatureC", 23.0}});
+        const auto valid = PortalSamples::fromVariant(invalid);
+        QCOMPARE(valid.size(), 1);
+        QVERIFY(valid.first().breakBefore);
+        QCOMPARE(valid.first().ecRaw, 0.073);
+    }
 
     void mixGoalRoundTripsThroughBlob() {
         ShotHistoryStorage storage;

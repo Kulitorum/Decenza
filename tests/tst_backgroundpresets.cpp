@@ -787,13 +787,22 @@ private slots:
 
     void theShotBackgroundKeyCoversEveryCurveTheChartDraws() {
         // Every series-visibility property the chart reads...
-        const QStringList drawn = graphKeysIn(
+        QStringList drawn = graphKeysIn(
             "qml/components/HistoryShotGraph.qml",
             QRegularExpression(R"RX(Settings\.graph\.(show[A-Za-z]+))RX"));
         QVERIFY2(drawn.size() >= 10,
                  qPrintable(QString("only found %1 curve settings in HistoryShotGraph — the "
                                     "pattern that finds them has probably gone stale")
                                 .arg(drawn.size())));
+        // PORTAL curves live in the shared overlay, which the history chart must
+        // instantiate; a rename that stops matching must fail here, not skip.
+        const auto overlays = graphKeysIn("qml/components/HistoryShotGraph.qml",
+            QRegularExpression(R"RX((PortalGraphOverlay)\s*\{)RX"));
+        QVERIFY2(overlays.contains(QStringLiteral("PortalGraphOverlay")),
+                 "HistoryShotGraph no longer instantiates PortalGraphOverlay");
+        drawn.append(graphKeysIn("qml/components/PortalGraphOverlay.qml",
+            QRegularExpression(R"RX(Settings\.graph\.(show[A-Za-z]+))RX")));
+        drawn.removeDuplicates();
 
         // ...must appear in the one definition the legend and the cache key derive from.
         const QStringList keyed = graphKeysIn(

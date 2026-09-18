@@ -53,7 +53,10 @@ KeyboardAwareContainer {
             { name: "weightFlowColor", display: "Weight Flow" },
             { name: "resistanceColor", display: "Resistance" },
             { name: "waterLevelColor", display: "Water Level" }
-        ]}
+        ].concat(BelkaPortal.owned ? [
+            { name: "portalEcColor", display: "PORTAL EC" },
+            { name: "portalTemperatureColor", display: TranslationManager.translate("portal.outletTemperature", "PORTAL temperature") }
+        ] : [])}
     ]
 
     // Bumped when editing palette changes, to force swatch re-evaluation

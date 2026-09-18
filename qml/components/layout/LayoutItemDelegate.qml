@@ -174,12 +174,27 @@ Item {
     // LayoutWidgetItem, so the cast is what makes these reads checkable rather than assumed.
     readonly property LayoutWidgetItem widget: loader.item as LayoutWidgetItem
 
-    implicitWidth: root.widget ? root.widget.implicitWidth : 0
-    implicitHeight: root.widget ? root.widget.implicitHeight : 0
+    // PORTAL accompanies the status-bar scale slot without rewriting the user's
+    // saved layout or adding an unused widget to the palette for non-owners.
+    readonly property PortalStatusIndicator portalStatus: portalStatusLoader.item as PortalStatusIndicator
+    readonly property real portalStatusWidth: portalStatus ? portalStatus.implicitWidth + Theme.spacingMedium : 0
+    implicitWidth: (root.widget ? root.widget.implicitWidth : 0) + portalStatusWidth
+    implicitHeight: Math.max(root.widget ? root.widget.implicitHeight : 0,
+                             portalStatus ? portalStatus.implicitHeight : 0)
+
+    Loader {
+        id: portalStatusLoader
+        active: root.zoneName === "statusBar" && root.itemType === "scaleWeight"
+            && BelkaPortal.owned
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        sourceComponent: Component { PortalStatusIndicator {} }
+    }
 
     Loader {
         id: loader
         anchors.fill: parent
+        anchors.rightMargin: root.portalStatusWidth
 
         source: {
             // In center zones, compile action buttons to CustomItem

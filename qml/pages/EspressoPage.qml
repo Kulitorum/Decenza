@@ -358,6 +358,18 @@ T.Page {
         }
     }
 
+    PortalReadout {
+        id: portalReadout
+        anchors.top: parent.top
+        anchors.topMargin: Theme.pageTopMargin
+        anchors.left: parent.left
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.right: viewModeButton.left
+        anchors.rightMargin: Theme.spacingSmall
+        height: Math.max(implicitHeight, viewModeButton.height)
+        visible: BelkaPortal.owned
+    }
+
     // Extraction view switcher (Loader swaps between ShotGraph and CupFill)
     Loader {
         id: extractionViewLoader
@@ -366,7 +378,9 @@ T.Page {
         anchors.right: parent.right
         anchors.bottom: graphLegend.visible ? graphLegend.top
                       : (espressoStopButton.visible ? espressoStopButton.top : infoBar.top)
-        anchors.topMargin: Theme.scaled(50)
+        anchors.topMargin: portalReadout.visible
+                         ? portalReadout.y + portalReadout.height + Theme.spacingSmall
+                         : Theme.scaled(50)
         sourceComponent: {
             switch (espressoPage.extractionViewMode) {
                 case "cupFill": return cupFillComponent
@@ -402,7 +416,7 @@ T.Page {
         id: viewModeButton
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(16)
+        anchors.topMargin: Theme.pageTopMargin + (portalReadout.visible ? 0 : Theme.scaled(16))
         anchors.rightMargin: Theme.spacingMedium
         z: 10
         width: Theme.scaled(44)
@@ -467,7 +481,7 @@ T.Page {
     Rectangle {
         id: statusBanner
         anchors.top: parent.top
-        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
+        anchors.topMargin: (portalReadout.visible ? extractionViewLoader.y : Theme.pageTopMargin) + Theme.scaled(20)
         x: espressoPage.extractionViewMode === "chart"
            ? (parent.width - width) / 2
            : Theme.spacingMedium
@@ -668,6 +682,7 @@ T.Page {
     GraphLegend {
         id: graphLegend
         liveMode: true
+        portalAvailable: ShotDataModel.portalSampleCount > 0 || BelkaPortal.owned
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top

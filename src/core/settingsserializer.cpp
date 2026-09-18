@@ -55,6 +55,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     refractometer["name"] = settings->savedRefractometerName();
     root["refractometer"] = refractometer;
 
+    root["portal"] = QJsonObject{{"address", settings->hardware()->portalAddress()},
+        {"name", settings->hardware()->portalName()},
+        {"syncDisplay", settings->hardware()->portalSyncDisplay()}};
+
     // Espresso settings
     QJsonObject espresso;
     espresso["temperature"] = settings->brew()->espressoTemperature();
@@ -422,6 +426,18 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& json,
                                         const QStringList& excludeKeys)
 {
+    if (json.contains("portal") && !excludeKeys.contains("portal")) {
+        const auto portal = json.value("portal").toObject();
+        // Per-field like every sibling block: a partial object must leave the
+        // fields it omits alone, not overwrite the saved device with "" (which
+        // would also tear down a live connection via portalDeviceChanged).
+        if (portal.contains("syncDisplay"))
+            settings->hardware()->setPortalSyncDisplay(portal.value("syncDisplay").toBool(true));
+        if (portal.contains("address") || portal.contains("name"))
+            settings->hardware()->setPortalDevice(
+                portal.value("address").toString(settings->hardware()->portalAddress()),
+                portal.value("name").toString(settings->hardware()->portalName()));
+    }
     // Set false by any step that could not apply what the backup asked for.
     // The single `return true` this function used to end on made every failure
     // unreportable by construction.

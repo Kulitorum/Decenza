@@ -1379,6 +1379,7 @@ T.Page {
                     darcyResistanceData: postShotReviewPage.editShotData.darcyResistance || []
                     conductanceDerivativeData: postShotReviewPage.editShotData.conductanceDerivative || []
                     temperatureMixData: postShotReviewPage.editShotData.temperatureMix || []
+                    portalSamples: postShotReviewPage.editShotData.portalSamples || []
                     pressureGoalData: postShotReviewPage.editShotData.pressureGoal || []
                     flowGoalData: postShotReviewPage.editShotData.flowGoal || []
                     temperatureGoalData: postShotReviewPage.editShotData.temperatureGoal || []
@@ -1467,6 +1468,7 @@ T.Page {
             }
 
             GraphLegend {
+                portalAvailable: (postShotReviewPage.editShotData.portalSamples || []).length > 0
                 visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
             }
 

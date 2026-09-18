@@ -91,9 +91,12 @@ QtObject {
     // is drawn, not merely how it is labelled.
     readonly property string _visibilityKey: {
         var parts = []
-        var keys = GraphSeries.keys
-        for (var i = 0; i < keys.length; i++)
-            parts.push(Settings.graph[keys[i]] ? "1" : "0")
+        var entries = GraphSeries.entries
+        var hasPortal = shotData.portalSamples && shotData.portalSamples.length > 0
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].portal && !hasPortal) continue
+            parts.push(Settings.graph[entries[i].key] ? "1" : "0")
+        }
         parts.push(Settings.graph.rightAxisMode)
         parts.push(String(Settings.graph.flowMultiplier))
         return parts.join("")

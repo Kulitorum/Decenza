@@ -3,7 +3,7 @@ import QtQuick
 import Decenza
 
 // The one description of the shot graph's series: label, colour, settings property,
-// tooltip, and the two visibility gates.
+// tooltip, and the visibility gates (advanced, post-shot and PORTAL data).
 //
 // This list existed four times in four shapes — as the legend's model, as a name→key map in
 // ComparisonDataTable, as a key+default array in LastShotChartSource, and as eleven property
@@ -20,7 +20,13 @@ QtObject {
 
     // `advanced` entries appear only in advanced mode; `postShotOnly` entries are hidden on
     // the live graph, where the curve cannot be computed until the shot is complete.
+    // `portal` entries require a saved PORTAL or recorded PORTAL samples, and are also
+    // `advanced`: PORTAL curves appear only in advanced mode, on every graph.
     readonly property var entries: [
+        { label: TranslationManager.translate("portal.legendEc", "PORTAL EC"), sColor: Theme.portalEcColor, key: "showPortalEc", dataKey: "portalEc", shortLabel: "EC", advanced: true, portal: true,
+          tip: TranslationManager.translate("portal.ecTip", "Electrical conductivity, raw value. Units are unverified; this is not TDS.") },
+        { label: TranslationManager.translate("portal.legendTemp", "PORTAL temp"), sColor: Theme.portalTemperatureColor, key: "showPortalTemperature", dataKey: "portalTemp", shortLabel: "Tp", advanced: true, portal: true,
+          tip: TranslationManager.translate("portal.tempTip", "Outlet temperature measured by PORTAL, on its own temperature axis.") },
         { label: TranslationManager.translate("graph.pressure", "Pressure"), sColor: Theme.pressureColor, key: "showPressure", dataKey: "pressure", shortLabel: "P",
           tip: TranslationManager.translate("graph.tip.pressure", "Pump pressure in bar. Shows the machine's intent — what it's trying to do.") },
         { label: TranslationManager.translate("graph.flow", "Flow"), sColor: Theme.flowColor, key: "showFlow", dataKey: "flow", shortLabel: "F",
@@ -47,13 +53,4 @@ QtObject {
         { label: TranslationManager.translate("graph.dCdt", "dC/dt"), sColor: Theme.conductanceDerivativeColor, key: "showConductanceDerivative", dataKey: "dCdt", shortLabel: "dC/dt", advanced: true, postShotOnly: true,
           tip: TranslationManager.translate("graph.tip.dCdt", "Rate of change of conductance. The best channeling detector — spikes reveal transient channels that are invisible in other curves.") }
     ]
-
-    // Property names only, for consumers that need to enumerate the settings rather than
-    // render them.
-    readonly property var keys: {
-        var out = []
-        for (var i = 0; i < graphSeries.entries.length; i++)
-            out.push(graphSeries.entries[i].key)
-        return out
-    }
 }

@@ -80,6 +80,7 @@ ColumnLayout {
         var out = []
         var all = GraphSeries.entries
         for (var i = 0; i < all.length; i++) {
+            if (all[i].portal) continue // Paired PORTAL samples are shown in individual shot graphs.
             out.push({
                 key: all[i].key,
                 dataKey: all[i].dataKey,

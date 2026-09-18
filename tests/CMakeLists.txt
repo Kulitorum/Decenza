@@ -490,10 +490,13 @@ target_include_directories(tst_builtinprofileformat PRIVATE ${CMAKE_BINARY_DIR})
 # 3.3 s translation unit a second time for no reason, and nothing detected that
 # until the duplication audit — which is why check_test_source_duplication.py
 # now fails on exactly this shape.
+add_library(decenza_shotparserlib STATIC ${CMAKE_SOURCE_DIR}/src/history/shotfileparser.cpp)
+target_link_libraries(decenza_shotparserlib PUBLIC decenza_testlib)
+
 add_decenza_test(tst_visualizershotparse
     tst_visualizershotparse.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotfileparser.cpp
 )
+target_link_libraries(tst_visualizershotparse PRIVATE decenza_shotparserlib)
 target_compile_definitions(tst_visualizershotparse PRIVATE
     TST_VIS_PARSE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
@@ -1326,6 +1329,19 @@ add_decenza_test(tst_difluidr2
 )
 target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
 
+# PORTAL transport lifecycle: subscription confirmation is not a measurement,
+# malformed/stale/disconnected samples must not appear live; graph writes bracket capture.
+add_decenza_test(tst_belkaportal
+    tst_belkaportal.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/belkaportaldevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/belkaportaldevice.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/portalcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/portalcontroller.h
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_belkaportal PRIVATE decenza_shotlib decenza_settingsserializerlib Qt6::Qml)
+target_include_directories(tst_belkaportal PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_difluidr1: DiFluid R1 key derivation, AES decrypt, plaintext parsing (#1307) ---
 add_decenza_test(tst_difluidr1
     tst_difluidr1.cpp
@@ -1401,7 +1417,7 @@ add_decenza_test(tst_sampleblobseries
     tst_sampleblobseries.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_sampleblobseries PRIVATE decenza_shotlib)
+target_link_libraries(tst_sampleblobseries PRIVATE decenza_shotlib decenza_shotparserlib)
 target_include_directories(tst_sampleblobseries PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mqttclient: reconnect state machine (backoff cadence, reachability, user-disconnect) ---
