@@ -12,6 +12,7 @@
 #include "machine/machinestate.h"
 #include "models/shotdatamodel.h"
 #include <QScopeGuard>
+#include <QJSEngine>
 
 class PortalDiscoveryReplay : public QObject {
     Q_OBJECT
@@ -99,6 +100,38 @@ class tst_BelkaPortal : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void historyCursorUsesRecordedSegments() {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/GraphUtils.js"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QString source = QString::fromUtf8(file.readAll());
+        source.remove(QStringLiteral(".pragma library"));
+        QJSEngine engine;
+        const auto load = engine.evaluate(source);
+        QVERIFY2(!load.isError(), qPrintable(load.toString()));
+        const auto lookup = engine.globalObject().property("portalReadingAtTime");
+        QVERIFY(lookup.isCallable());
+        const auto samples = engine.evaluate(QStringLiteral(R"([
+            {time:1, ecRaw:0, temperatureC:20, breakBefore:true},
+            {time:2, ecRaw:2, temperatureC:40, breakBefore:false},
+            {time:3, ecRaw:4, temperatureC:60, breakBefore:true},
+            {time:4, ecRaw:6, temperatureC:80, breakBefore:false}
+        ])"));
+        const auto at = [&](double time) { return lookup.call({samples, QJSValue(time)}); };
+        QCOMPARE(at(1).property("ecRaw").toNumber(), 0.0);
+        QCOMPARE(at(1.5).property("ecRaw").toNumber(), 1.0);
+        QCOMPARE(at(1.5).property("temperatureC").toNumber(), 30.0);
+        QVERIFY(at(0.99).isNull());
+        QVERIFY(at(4.01).isNull());
+        QVERIFY(at(2.01).isNull()); // even a short recorded interruption stays empty
+        QVERIFY(at(2.99).isNull());
+        QCOMPARE(at(3).property("ecRaw").toNumber(), 4.0);
+        QCOMPARE(at(3.5).property("temperatureC").toNumber(), 70.0);
+        QCOMPARE(at(4).property("ecRaw").toNumber(), 6.0);
+        QVERIFY(lookup.call({engine.newArray(), QJSValue(1)}).isNull());
+        const auto single = engine.evaluate(QStringLiteral("[{time:2,ecRaw:0.073,temperatureC:23}]"));
+        QCOMPARE(lookup.call({single, QJSValue(2)}).property("ecRaw").toNumber(), 0.073);
+        QVERIFY(lookup.call({single, QJSValue(2.01)}).isNull());
+    }
     void stateLoggingCollapsesWithinEachShotAndReportsEveryLinkLoss() {
         PortalLogCapture logs;
         auto* transport = new PortalTransport;

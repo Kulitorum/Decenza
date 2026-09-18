@@ -28,3 +28,24 @@ function paddedAxisEnd(axisEnd, plotWidth, paddingPx) {
     var w = Math.max(1, plotWidth)
     return axisEnd * w / Math.max(1, w - paddingPx)
 }
+
+// Interpolate only along recorded PORTAL segments. Never extrapolate beyond
+// the recording or bridge a breakBefore gap. Binary search keeps scrubbing
+// independent of shot length; samples arrive sorted from the history decoder.
+function portalReadingAtTime(samples, time) {
+    if (!samples || !samples.length || !isFinite(time)) return null
+    var low = 0
+    var high = samples.length
+    while (low < high) {
+        var mid = Math.floor((low + high) / 2)
+        if (samples[mid].time < time) low = mid + 1
+        else high = mid
+    }
+    if (low < samples.length && samples[low].time === time) return samples[low]
+    if (low === 0 || low === samples.length || samples[low].breakBefore) return null
+    var a = samples[low - 1]
+    var b = samples[low]
+    var fraction = (time - a.time) / (b.time - a.time)
+    return { ecRaw: a.ecRaw + fraction * (b.ecRaw - a.ecRaw),
+             temperatureC: a.temperatureC + fraction * (b.temperatureC - a.temperatureC) }
+}

@@ -220,6 +220,11 @@ Item {
             }
         }
 
+        var portal = portalValuesAtTime(time)
+        if (portal) {
+            vals.portalEc = portal.ec
+            vals.portalTemperature = portal.temperature
+        }
         inspectValues = vals
         inspecting = true
         announceAtPosition(pixelX, pixelY)
@@ -227,6 +232,17 @@ Item {
 
     function dismissInspect() {
         inspecting = false
+    }
+
+    function portalValuesAtTime(time) {
+        var reading = GraphUtils.portalReadingAtTime(portalSamples, time)
+        if (!reading) return null
+        return {
+            ec: { label: "PORTAL " + TranslationManager.translate("portal.ecRaw", "EC (raw)"),
+                  value: reading.ecRaw, unit: "", decimals: 3, color: Theme.portalEcColor },
+            temperature: { label: "PORTAL", value: Theme.cToDisplay(reading.temperatureC),
+                           unit: Theme.tempUnitSuffix(), decimals: 1, color: Theme.portalTemperatureColor }
+        }
     }
 
     // Return the phase label active at the given time, or empty string if none.
@@ -275,6 +291,13 @@ Item {
             }
         }
 
+        var portal = portalValuesAtTime(time)
+        if (portal) {
+            if (Settings.graph.showPortalEc)
+                parts.push(portal.ec.label + " " + portal.ec.value.toFixed(portal.ec.decimals))
+            if (Settings.graph.showPortalTemperature)
+                parts.push(portal.temperature.label + " " + portal.temperature.value.toFixed(1) + " " + portal.temperature.unit)
+        }
         if (parts.length === 0) return
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
             var phase = getPhaseAtTime(time)
@@ -406,7 +429,7 @@ Item {
         samples: chart.portalSamples
         showLabels: chart.showLabels
     }
-    onPortalSamplesChanged: Qt.callLater(chart.updateTimeAxis)
+    onPortalSamplesChanged: Qt.callLater(chart.doReload)
 
     GraphsView {
         id: graphsView

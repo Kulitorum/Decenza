@@ -132,3 +132,31 @@ Display-command failure SHALL leave an established measurement stream available.
 
 - **WHEN** notification enable fails or no valid notification arrives within the freshness window after dispatch
 - **THEN** setup SHALL end with a visible error and permit an idle retry
+
+### Requirement: History inspection includes PORTAL curves
+
+The inspect readout SHALL show raw EC and outlet temperature in the selected temperature unit for enabled PORTAL curves. Values SHALL follow the drawn segment between recorded samples without extrapolation or interpolation across a recorded gap.
+
+#### Scenario: Inspect a gap or an older shot
+
+- **WHEN** the cursor is outside a recorded PORTAL segment, within an interruption, or on a shot without PORTAL samples
+- **THEN** the readout SHALL omit unavailable PORTAL values while retaining available machine values
+
+#### Scenario: Toggle a curve while inspecting
+
+- **WHEN** a PORTAL curve is hidden or shown with the cursor active
+- **THEN** its inspect value SHALL disappear or reappear without another tap
+
+### Requirement: Saved PORTAL reconnect is available from the status bar
+
+A saved PORTAL SHALL show a funnel icon and connection state immediately after the status-bar scale slot. Users without a saved PORTAL SHALL retain their existing bar and saved layout. Reconnect SHALL use the existing peripheral reconnect path and SHALL be blocked during machine operations and pending connections.
+
+#### Scenario: Tap an offline PORTAL while idle
+
+- **WHEN** the user taps the offline PORTAL status with the machine idle
+- **THEN** Decenza SHALL retry the saved PORTAL connection without navigating to Settings
+
+#### Scenario: Tap during a shot
+
+- **WHEN** the machine is busy or PORTAL is already connected or connecting
+- **THEN** the status SHALL NOT disconnect or restart the peripheral

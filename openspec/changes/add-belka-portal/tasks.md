@@ -67,3 +67,11 @@
 - [x] Fix the theme null guard, include PORTAL in the app editor and palette generator, and share sample validity and EC bounds.
 - [x] Validate this follow-up revision: 118/118 native tests with ASan/UBSan, 244/244 QML files, all text gates, strict OpenSpec, 7 local offscreen checks, three detected/restored lifecycle mutations, and the private Android arm64 test APK.
 - [ ] Confirm reconnection, optional display failure and notification recovery on the physical tablet; verify native Apple cancellation on hardware separately.
+
+## History inspection and status-bar reconnect
+
+- [x] Add PORTAL EC (raw) and outlet-temperature readouts to the history/review cursor, respecting visibility, gaps and temperature units.
+- [x] Add an owner-only funnel/status beside the status-bar scale, reusing the idle reconnect path without changing saved layouts or the widget palette.
+- [x] Extend the wiki manual draft; publication remains with the maintainer.
+- [x] Validate cursor boundaries, gaps and their deliberate mutation; 118/118 native tests, 245/245 QML files, all text gates, strict OpenSpec, 14 local offscreen QtTest results and the private Android arm64 APK.
+- [ ] Verify finger scrubbing and status-bar reconnection on the physical tablet.

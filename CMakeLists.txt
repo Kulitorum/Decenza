@@ -1411,6 +1411,7 @@ set(QML_FILES
     qml/components/ShotGraph.qml
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
+    qml/components/PortalStatusIndicator.qml
     qml/components/RatioPresetDialog.qml
     qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
