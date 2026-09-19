@@ -779,6 +779,12 @@ private:
     }
     uint32_t m_cpuBoardModel = 0;
 
+    // True from connectToDevice() until the ready marker fires. It is NOT the
+    // same question as isConnected(), which goes true when the characteristics
+    // register (bletransport.cpp:725) — about 0.75 s earlier on an SM-X210. Both
+    // are true for that tail, writes go through, and the connect is not finished:
+    // #1955, #1956 and #1957 were all bugs in that gap. Test anything that cares
+    // against BOTH, the way goToSleep() and wakeUp() do.
     bool m_connecting = false;
     bool m_simulationMode = false;
     bool m_firmwareFlashInProgress = false;
