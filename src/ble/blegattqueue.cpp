@@ -326,8 +326,8 @@ qsizetype BleGattQueue::dropFor(Requester requester, bool keepConnectSetup) {
                    : QString("dropped %1 operation(s) for a torn-down transport").arg(dropped));
     }
 
-    // Whatever else was waiting is now eligible, and the whole point of
-    // releasing on teardown is that a dead link does not hold the stack.
+    // Whatever else was waiting is now eligible: on teardown a dead link must
+    // not hold the stack, and a cleared command must not hold it either.
     scheduleDispatch();
     emitDrainedIfIdle();
     return dropped;

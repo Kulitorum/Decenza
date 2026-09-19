@@ -79,9 +79,10 @@ public:
      * Clear any pending command queue and return the number of commands
      * that were dropped. Called before urgent operations (SAW stop, sleep)
      * to prevent stale commands from interfering. A connect still being set
-     * up keeps its setup. Transports without queuing return 0. The count lets DE1Device skip invalidating its
-     * per-register MMR dedup cache when nothing was actually dropped (the
-     * cache is only at risk when a queued write never reached the wire).
+     * up keeps its setup. Transports without queuing return 0. The count
+     * lets DE1Device skip invalidating its per-register MMR dedup cache when
+     * nothing was actually dropped (the cache is only at risk when a queued
+     * write never reached the wire).
      */
     virtual qsizetype clearQueue() { return 0; }
 
