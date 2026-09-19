@@ -12,6 +12,7 @@
 #include <QBluetoothAddress>
 #include <QLowEnergyConnectionParameters>
 #include <QDebug>
+#include <QScopedValueRollback>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -199,6 +200,7 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
 
 void BleTransport::subscribeAll() {
     if (!m_service) return;
+    const QScopedValueRollback<bool> setup(m_submittingConnectSetup, true);
 
     m_streamsNotEnabled.clear();
 
@@ -252,8 +254,6 @@ void BleTransport::disconnect() {
     // torn-down connection's queued work must not bleed into the next attempt,
     // and a dead link must not hold the radio for every other device.
     m_operationTimeoutTimer.stop();
-    m_discoveryQueued = false;
-    m_readyMarkerPending = false;
     m_gattQueue->forget(this);
     forgetWriteFailureState();
 
@@ -298,33 +298,14 @@ void BleTransport::disconnect() {
 }
 
 qsizetype BleTransport::clearQueue() {
-    // forget() counts the in-flight operation as well as the queued ones, which
-    // is what this caller needs: it is about to change machine state and must
-    // invalidate the MMR dedup cache if an MMR write was mid-air. Under-report
-    // there and m_lastMMRValues claims the DE1 holds a value it never received.
-    m_operationTimeoutTimer.stop();
-    const qsizetype dropped = m_gattQueue->forget(this);
-    // A clear during connect setup takes the setup with it. Left dropped, the
-    // link stays up with connected() never firing and DE1Device "connecting"
-    // forever (SM-X210, 2026-09-18: 11 setup operations dropped, stuck 16 h).
-    // Requeued rather than torn down, so the write the caller submits next
-    // (stop) still goes out, ahead of the setup via writeUrgent(). Discovery is
-    // requeued only if it never started: once discoverDetails() has run, the
-    // platform finishes it regardless, and a second call is a silent no-op
-    // (qlowenergyservice.cpp:585-586) that would hold the queue to its timeout.
-    const bool rediscover = m_discoveryQueued;
-    const bool resubscribe = m_readyMarkerPending;
-    m_discoveryQueued = false;
-    m_readyMarkerPending = false;
-    if (rediscover || resubscribe) {
-        info(QString("DE1 connection setup was interrupted by a command-queue clear "
-                     "before the link was ready; requeuing %1")
-                 .arg(rediscover ? "characteristic discovery" : "notification setup"));
-        if (rediscover)
-            submitDiscovery();
-        else
-            subscribeAll();
-    }
+    // clearCommands() counts the in-flight operation as well as the queued ones,
+    // which is what this caller needs: it is about to change machine state and
+    // must invalidate the MMR dedup cache if an MMR write was mid-air. Under-
+    // report there and m_lastMMRValues claims the DE1 holds a value it never
+    // received. Connect setup is kept, so its operation clock keeps running.
+    const qsizetype dropped = m_gattQueue->clearCommands(this);
+    if (m_gattQueue->inFlightRequester() != this)
+        m_operationTimeoutTimer.stop();
     return dropped;
 }
 
@@ -483,8 +464,6 @@ void BleTransport::onControllerDisconnected() {
     // Clear pending BLE operations to prevent writes against a dead connection,
     // which causes DeadObjectException crashes on Android (issue #189)
     m_operationTimeoutTimer.stop();
-    m_discoveryQueued = false;
-    m_readyMarkerPending = false;
     m_gattQueue->forget(this);
     m_characteristicsReady = false;
     m_notificationLiveness.invalidate();
@@ -1144,6 +1123,7 @@ BleGattQueue::Operation BleTransport::operationFor(const QBluetoothUuid& key,
     // compile clean and turn a 5-retry/500 ms policy into 500 retries.
     op.policy.maxRetries = MAX_WRITE_RETRIES;
     op.policy.retryDelayMs = WRITE_RETRY_DELAY_MS;
+    op.connectSetup = m_submittingConnectSetup;
     op.issue = [this, timeoutMs, issue = std::move(issue)]() {
         // Armed here rather than by the callers so it covers retries too: the
         // queue calls issue() again for each one, and a retry that also goes
@@ -1291,8 +1271,8 @@ void BleTransport::failRequiredStream(const QBluetoothUuid& uuid) {
     emit de1LinkFault(QStringLiteral("subscribe-failed"));
 
     // Drops everything of ours still queued, which includes the ready marker.
-    // That is how "do not report connected" is expressed.
-    m_readyMarkerPending = false;
+    // That is how "do not report connected" is expressed: no flag to set, no
+    // flag to forget to clear.
     m_gattQueue->forget(this);
 }
 
@@ -1304,8 +1284,8 @@ void BleTransport::submitDiscovery() {
     //
     // Keyed by the service, which is what its completion — stateChanged ->
     // RemoteServiceDiscovered — reports.
+    const QScopedValueRollback<bool> setup(m_submittingConnectSetup, true);
     auto op = operationFor(DE1::SERVICE_UUID, QStringLiteral("discover"), [this]() {
-        m_discoveryQueued = false;
         if (!m_service) {
             log(QStringLiteral("Characteristic discovery skipped - no service"));
             m_gattQueue->noteFailed(this);
@@ -1323,7 +1303,6 @@ void BleTransport::submitDiscovery() {
                             "connection attempt will be retried"));
         emitQueueDrainedIfIdle();
     };
-    m_discoveryQueued = true;
     m_gattQueue->submit(std::move(op));
 }
 
@@ -1331,8 +1310,8 @@ void BleTransport::submitReadyMarker() {
     BleGattQueue::Operation op;
     op.requester = this;
     op.label = QStringLiteral("de1 ready");
+    op.connectSetup = true;
     op.issue = [this]() {
-        m_readyMarkerPending = false;
         // One positive statement of what the machine will actually send. INFO,
         // because this is the connect narrative a user reads.
         if (m_streamsNotEnabled.isEmpty()) {
@@ -1352,6 +1331,5 @@ void BleTransport::submitReadyMarker() {
         // Issues nothing to the platform, so nothing else will ever end it.
         m_gattQueue->noteSucceeded(this);
     };
-    m_readyMarkerPending = true;
     m_gattQueue->submit(std::move(op));
 }

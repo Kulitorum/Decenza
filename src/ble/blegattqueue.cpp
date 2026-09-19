@@ -289,18 +289,29 @@ void BleGattQueue::noteFailed(Requester requester) {
 }
 
 qsizetype BleGattQueue::forget(Requester requester) {
+    return dropFor(requester, /*keepConnectSetup=*/false);
+}
+
+qsizetype BleGattQueue::clearCommands(Requester requester) {
+    return dropFor(requester, /*keepConnectSetup=*/true);
+}
+
+qsizetype BleGattQueue::dropFor(Requester requester, bool keepConnectSetup) {
+    const auto drops = [&](const Operation& op) {
+        return op.requester == requester && !(keepConnectSetup && op.connectSetup);
+    };
     qsizetype dropped = 0;
 
     QQueue<Operation> kept;
     for (const Operation& op : std::as_const(m_queue)) {
-        if (op.requester == requester)
+        if (drops(op))
             ++dropped;
         else
             kept.enqueue(op);
     }
     m_queue.swap(kept);
 
-    if (m_inFlight.has_value() && m_inFlight->requester == requester) {
+    if (m_inFlight.has_value() && drops(*m_inFlight)) {
         chargeForeignWait();
         ++dropped;
         m_inFlight.reset();
@@ -310,8 +321,9 @@ qsizetype BleGattQueue::forget(Requester requester) {
     }
 
     if (dropped > 0) {
-        GQ_LOG(QString("dropped %1 operation(s) for a torn-down transport")
-                   .arg(dropped));
+        GQ_LOG(keepConnectSetup
+                   ? QString("cleared %1 queued command(s), connect setup kept").arg(dropped)
+                   : QString("dropped %1 operation(s) for a torn-down transport").arg(dropped));
     }
 
     // Whatever else was waiting is now eligible, and the whole point of

@@ -141,10 +141,9 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
-    // Sleep requested mid-connect waits for the connection. Sent at once, its
-    // queue clear dropped the connect's setup (SM-X210, 2026-09-18: stuck
-    // 16 h), and the connect-time wake to Idle would undo it anyway.
-    void sleepDuringConnectIsSentOnceConnectedInsteadOfIdle() {
+    // A sleep while connecting goes out at once, and the connect-time wake to
+    // Idle must not undo it. A wake in between supersedes the sleep.
+    void sleepWhileConnectingIsNotUndoneByTheConnectWake() {
         const auto requestedStates = [](const MockTransport& t) {
             QList<QByteArray> states;
             for (const auto& w : t.writes)
@@ -158,23 +157,18 @@ private slots:
         TestFixture f;
         f.transport.m_connected = false;
         f.device.m_connecting = true;
-        f.transport.pendingQueueSize = 11;  // the connect's setup, still queued
-
-        QTest::ignoreMessage(QtInfoMsg,
-                             QRegularExpression(QStringLiteral("Sleep requested while the DE1 is still connecting")));
         f.device.goToSleep();
-        QCOMPARE(f.transport.pendingQueueSize, qsizetype(11));  // setup not cleared
-        QVERIFY(requestedStates(f.transport).isEmpty());
-
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("Not waking the DE1 on connect")));
         f.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{sleep});
 
-        // Control: a connect with no sleep requested still wakes the machine.
         TestFixture g;
         g.transport.m_connected = false;
         g.device.m_connecting = true;
+        g.device.goToSleep();
+        g.device.wakeUp();
         g.transport.setConnectedSim(true);
-        QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
+        QCOMPARE(requestedStates(g.transport), (QList<QByteArray>{sleep, idle, idle}));
     }
 
     void disconnectIsANoOpWhenSubStateAlreadyReady() {

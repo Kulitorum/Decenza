@@ -174,17 +174,15 @@ private:
     /**
      * A queue entry that issues nothing and completes itself.
      *
-     * It is how "every subscription above has been confirmed" is expressed:
-     * FIFO ordering puts it after the subscribes, and a required-stream
-     * failure calls forget(), which drops it along with the rest of this
-     * transport's queued work. Reaching it IS the confirmation.
+     * It is how "every subscription above has been confirmed" is expressed
+     * without a flag: FIFO ordering puts it after the subscribes, and a
+     * required-stream failure calls forget(), which drops it along with the
+     * rest of this transport's queued work. Reaching it IS the confirmation.
      */
     void submitReadyMarker();
-    // Each connect-setup stage still waiting in the queue, so clearQueue() can
-    // requeue the one it drops. Set on submit, cleared when the stage starts
-    // or something forgets it (teardown, failRequiredStream(), clearQueue()).
-    bool m_discoveryQueued = false;
-    bool m_readyMarkerPending = false;
+    // Set while subscribeAll() and submitDiscovery() submit, so operationFor()
+    // tags their operations connectSetup and clearQueue() keeps them.
+    bool m_submittingConnectSetup = false;
 
     /** True when the slot holds this transport's operation for `uuid`. */
     bool ownsInFlight(const QBluetoothUuid& uuid) const;
