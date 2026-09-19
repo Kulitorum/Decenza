@@ -43,15 +43,8 @@ private:
         return d;
     }
 
-    // Every REQUESTED_STATE write in order. Asserting on the whole list rather
-    // than the last one is the point: a duplicate or a suppressed write is the
-    // defect these tests exist for, and only the sequence shows it.
     static QList<QByteArray> requestedStates(const MockTransport& t) {
-        QList<QByteArray> states;
-        for (const auto& w : t.writes)
-            if (w.first == DE1::Characteristic::REQUESTED_STATE)
-                states.append(w.second);
-        return states;
+        return t.writesFor(DE1::Characteristic::REQUESTED_STATE);
     }
 
 private slots:

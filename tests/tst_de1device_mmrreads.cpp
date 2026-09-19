@@ -230,16 +230,8 @@ private slots:
     }
 
     static qsizetype countEspressoStateWrites(const MockTransport& t) {
-        qsizetype n = 0;
-        for (const auto& w : t.writes) {
-            if (w.first == DE1::Characteristic::REQUESTED_STATE
-                && w.second.size() == 1
-                && static_cast<uint8_t>(w.second.at(0))
-                       == static_cast<uint8_t>(DE1::State::Espresso)) {
-                ++n;
-            }
-        }
-        return n;
+        return t.writesFor(DE1::Characteristic::REQUESTED_STATE)
+            .count(QByteArray(1, static_cast<char>(DE1::State::Espresso)));
     }
 
     void startEspressoFiresImmediatelyWithNoRecentUpload() {

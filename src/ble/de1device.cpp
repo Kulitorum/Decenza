@@ -167,26 +167,25 @@ void DE1Device::onTransportConnected() {
     emit guiEnabledChanged();
 
     // Send Idle to wake the machine (same as de1app on connect), unless a sleep
-    // was requested while connecting. That sleep may already have gone out —
-    // goToSleep() writes it itself once the characteristics are ready — and then
-    // nothing is owed and nothing is sent here. Where it is still owed,
-    // goToSleep() rather than a plain write: its urgent write goes ahead of the
-    // initial reads queued behind the setup, so the machine is asleep before its
-    // state is read. Read first, the screensaver saw the pre-sleep state and
-    // bounced to the idle page.
-    if (m_sleepRequestedWhileConnecting) {
-        const bool stillToSend = m_sleepAwaitingReadyLink;
-        m_sleepRequestedWhileConnecting = false;
-        m_sleepAwaitingReadyLink = false;
-        if (stillToSend) {
-            DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
-            goToSleep();
-        } else {
-            DEVICE_LOG(QStringLiteral("Connected; the sleep requested while connecting already "
-                                      "went out on the ready link — not waking"));
-        }
-    } else {
+    // was asked for while connecting. One already Sent needs nothing further;
+    // one still Owed goes through goToSleep() rather than a plain write, so its
+    // urgent write jumps the initial reads queued behind the setup and the
+    // machine is asleep before its state is read. Read first, the screensaver
+    // saw the pre-sleep state and bounced to the idle page.
+    const ConnectSleep pendingSleep = m_connectSleep;
+    m_connectSleep = ConnectSleep::None;
+    switch (pendingSleep) {
+    case ConnectSleep::None:
         requestState(DE1::State::Idle);
+        break;
+    case ConnectSleep::Owed:
+        DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
+        goToSleep();
+        break;
+    case ConnectSleep::Sent:
+        DEVICE_LOG(QStringLiteral("Connected; the sleep requested while connecting already "
+                                  "went out on the ready link — not waking"));
+        break;
     }
 
     // Send initial settings once the transport signals a full connection.
@@ -359,8 +358,7 @@ void DE1Device::onTransportDisconnected() {
     // retries on the same object (bletransport.cpp:113-137), so a failed attempt
     // reaches here and nowhere else. Left set, they suppress the NEXT connect's
     // wake on behalf of a connection that is already dead.
-    m_sleepRequestedWhileConnecting = false;
-    m_sleepAwaitingReadyLink = false;
+    m_connectSleep = ConnectSleep::None;
 
     m_connecting = false;
     emit connectingChanged();
@@ -630,8 +628,7 @@ void DE1Device::disconnect() {
         finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
     }
     m_sleepPendingAfterUpload = false;
-    m_sleepRequestedWhileConnecting = false;
-    m_sleepAwaitingReadyLink = false;
+    m_connectSleep = ConnectSleep::None;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -1278,11 +1275,8 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-    if (state == DE1::State::Idle) {
-        // A wake supersedes that sleep, sent or merely held.
-        m_sleepRequestedWhileConnecting = false;
-        m_sleepAwaitingReadyLink = false;
-    }
+    // A wake supersedes that sleep, Sent or merely Owed.
+    if (state == DE1::State::Idle) m_connectSleep = ConnectSleep::None;
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -1599,18 +1593,23 @@ bool DE1Device::goToSleep() {
         return false;
     }
 
-    // While connecting, remember the sleep so the connect sends it instead of
-    // its wake. Before the characteristics are ready a write here can only fail,
-    // and its failure is reported as a DE1 link fault (it latched the scale to
-    // BALANCED on an SM-X210, 2026-09-19), so send nothing until then.
+    // While connecting, the connect sends this sleep instead of its wake.
     if (m_connecting) {
-        m_sleepRequestedWhileConnecting = true;
         if (!isConnected()) {
-            m_sleepAwaitingReadyLink = true;
+            // Before the characteristics are ready a write can only fail, and
+            // its failure is reported as a DE1 link fault (it latched the scale
+            // to BALANCED on an SM-X210, 2026-09-19), so hold it for the connect.
+            m_connectSleep = ConnectSleep::Owed;
             DEVICE_INFO(QStringLiteral("Sleep requested while the DE1 is still connecting; "
                                        "it will be sent once the connection is ready"));
             return false;
         }
+        // Ready enough to carry it, so it goes out below and the connect owes
+        // nothing — but must still not follow it with a wake. Sent counts the
+        // write, not its delivery: writeUrgent() is queue POSITION
+        // (bletransport.cpp:173-176), so an abandoned write loses this sleep.
+        // Accepted, against a connect that re-sent one every time.
+        m_connectSleep = ConnectSleep::Sent;
     }
 
     if (!m_transport) return false;
@@ -1624,10 +1623,7 @@ bool DE1Device::goToSleep() {
         m_lastMMRValues.clear();
     }
 
-    // The write below is what discharges it. writeUrgent() is queue POSITION and
-    // not delivery (bletransport.cpp:173-176), so an abandoned write loses this
-    // sleep — accepted, against a connect that re-sent one every time.
-    m_sleepAwaitingReadyLink = false;
+    // Send sleep command directly (don't queue it)
     writeRequestedState(DE1::State::Sleep, StateWrite::Urgent);
     return true;
 }
@@ -1636,16 +1632,15 @@ void DE1Device::wakeUp() {
     // Mirror of goToSleep(): before the characteristics are ready, dropping a
     // pending sleep is the whole wake, since the connect then sends Idle.
     if (m_connecting && !isConnected()) {
-        if (m_sleepAwaitingReadyLink) {
+        if (m_connectSleep == ConnectSleep::Owed) {
             // The other half of goToSleep()'s "it will be sent once the
             // connection is ready", which is INFO and otherwise never resolves.
-            // Keyed on the unsent sleep: one already written cannot be unsent,
-            // and saying so would be a false resolution of a line never logged.
+            // Only for an Owed sleep: one already Sent cannot be unsent, and
+            // saying so would resolve a line that was never logged.
             DEVICE_INFO(QStringLiteral("Wake requested while still connecting; the sleep "
                                        "requested earlier will not be sent"));
         }
-        m_sleepRequestedWhileConnecting = false;
-        m_sleepAwaitingReadyLink = false;
+        m_connectSleep = ConnectSleep::None;
         return;
     }
     requestState(DE1::State::Idle);
