@@ -777,7 +777,12 @@ private:
     SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
-    bool m_sleepRequestedWhileConnecting = false;  // Connect sends Sleep, not Idle
+    bool m_sleepRequestedWhileConnecting = false;  // Connect must not wake the machine
+    // The same sleep, not yet written, so the connect still owes it. Separate
+    // because the characteristics can go ready while m_connecting is still true:
+    // there goToSleep() writes at once, and re-sending from the first flag alone
+    // put a second Sleep on the wire (SM-X210, 2026-09-19).
+    bool m_sleepAwaitingReadyLink = false;
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading

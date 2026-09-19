@@ -172,9 +172,16 @@ void DE1Device::onTransportConnected() {
     // setup, so the machine is asleep before its state is read. Read first, the
     // screensaver saw the pre-sleep state and bounced to the idle page.
     if (m_sleepRequestedWhileConnecting) {
+        const bool stillToSend = m_sleepAwaitingReadyLink;
         m_sleepRequestedWhileConnecting = false;
-        DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
-        goToSleep();
+        m_sleepAwaitingReadyLink = false;
+        if (stillToSend) {
+            DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
+            goToSleep();
+        } else {
+            DEVICE_LOG(QStringLiteral("Connected; the sleep requested while connecting already "
+                                      "went out on the ready link — not waking"));
+        }
     } else {
         requestState(DE1::State::Idle);
     }
@@ -614,6 +621,7 @@ void DE1Device::disconnect() {
     }
     m_sleepPendingAfterUpload = false;
     m_sleepRequestedWhileConnecting = false;
+    m_sleepAwaitingReadyLink = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -1260,8 +1268,16 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-    if (state == DE1::State::Idle)
-        m_sleepRequestedWhileConnecting = false;  // a wake supersedes that sleep
+    // Every state the app asks for, so a machine that did not follow can be told
+    // from one that was never asked. goToSleep() logs itself twice over while a
+    // wake logged nothing, which left a wake lost between the app and an SM-X210
+    // undiagnosable from the field log reporting it (2026-09-19).
+    DEVICE_LOG(QStringLiteral("Requesting state: %1").arg(DE1::stateToString(state)));
+    if (state == DE1::State::Idle) {
+        // A wake supersedes that sleep, sent or merely held.
+        m_sleepRequestedWhileConnecting = false;
+        m_sleepAwaitingReadyLink = false;
+    }
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -1573,6 +1589,7 @@ bool DE1Device::goToSleep() {
     if (m_connecting) {
         m_sleepRequestedWhileConnecting = true;
         if (!isConnected()) {
+            m_sleepAwaitingReadyLink = true;
             DEVICE_INFO(QStringLiteral("Sleep requested while the DE1 is still connecting; "
                                        "it will be sent once the connection is ready"));
             return false;
@@ -1591,6 +1608,7 @@ bool DE1Device::goToSleep() {
     }
 
     // Send sleep command directly (don't queue it)
+    m_sleepAwaitingReadyLink = false;  // discharged by the write below
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
     m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
     return true;
@@ -1604,6 +1622,7 @@ void DE1Device::wakeUp() {
             // The other half of goToSleep()'s "it will be sent once the
             // connection is ready", which is INFO and otherwise never resolves.
             m_sleepRequestedWhileConnecting = false;
+            m_sleepAwaitingReadyLink = false;
             DEVICE_INFO(QStringLiteral("Wake requested while still connecting; the sleep "
                                        "requested earlier will not be sent"));
         }

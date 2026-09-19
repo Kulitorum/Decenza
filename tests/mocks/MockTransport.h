@@ -106,6 +106,15 @@ public:
         else emit disconnected();
     }
 
+    // Announce the connect on a link that is ALREADY carrying writes. The DE1's
+    // characteristics register before its ready marker fires, so isConnected()
+    // is true for the last stretch of a connect; setConnectedSim() cannot reach
+    // that window because it returns early when the state is unchanged.
+    void emitConnectedSim() {
+        m_connected = true;
+        emit connected();
+    }
+
     // Simulate the BLE stack ACKing every captured write in order, mirroring
     // what BleTransport::onCharacteristicWritten does on the real device.
     // Tests that need to simulate dropped, reordered, or partial ACKs should

@@ -179,10 +179,14 @@ private slots:
 
         // Link already carrying writes but still connecting (a required
         // stream failed, or USB replaced it): sent at once, not held for a
-        // connect that may never complete.
+        // connect that may never complete. The connect that follows must then
+        // neither wake the machine nor repeat the sleep — SM-X210, 2026-09-19,
+        // where the characteristics went ready 0.75 s before the connect did.
         TestFixture h;
         h.device.m_connecting = true;
         h.device.goToSleep();
+        QCOMPARE(requestedStates(h.transport), QList<QByteArray>{sleep});
+        h.transport.emitConnectedSim();
         QCOMPARE(requestedStates(h.transport), QList<QByteArray>{sleep});
     }
 
