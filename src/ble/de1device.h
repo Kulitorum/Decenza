@@ -777,6 +777,7 @@ private:
     SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
+    bool m_sleepPendingAfterConnect = false;  // Sleep requested while m_connecting
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading

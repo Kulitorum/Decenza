@@ -371,26 +371,56 @@ private slots:
         QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 
-    // A clear that lands mid-connect drops the ready marker with the setup it
-    // guards (SM-X210, 2026-09-18: link up, never connected, 16 h stuck). The
-    // setup is requeued, and the write goToSleep() submits right after the
-    // clear must still reach the radio: a teardown here once dropped it.
-    // Headless, subscribeAll() has no service, so only the requeue's log and
-    // the write's survival are observable.
-    void clearBeforeTheLinkIsReadyRequeuesSetupAndKeepsTheNextWrite() {
+    // A clear that lands mid-connect drops the setup stage still queued
+    // (SM-X210, 2026-09-18: link up, never connected, 16 h stuck), and the
+    // write submitted right after the clear must still reach the radio: a
+    // teardown here once dropped it. Headless, subscribeAll() has no service,
+    // so the notification-setup requeue itself is not observable here.
+    void clearBeforeTheLinkIsReadyKeepsTheNextWrite() {
         BleGattQueue queue;
         BleTransport t(nullptr, &queue);
         QSignalSpy disconnected(&t, &DE1Transport::disconnected);
         t.submitReadyMarker();
 
         QTest::ignoreMessage(QtInfoMsg,
-                             QRegularExpression(QStringLiteral("setup was interrupted by a command-queue clear")));
+                             QRegularExpression(QStringLiteral("requeuing notification setup")));
         t.clearQueue();
         t.writeUrgent(DE1::Characteristic::REQUESTED_STATE, payload('s'));
         dispatch();
 
         QCOMPARE(queue.inFlightKey(), DE1::Characteristic::REQUESTED_STATE);
         QCOMPARE(disconnected.count(), 0);
+    }
+
+    // Discovery dropped before it started is requeued; one already started is
+    // not, because the platform finishes it and a second discoverDetails() is a
+    // silent no-op that would hold the queue to its timeout.
+    void clearRequeuesDiscoveryOnlyIfItNeverStarted() {
+        {
+            BleGattQueue queue;
+            BleTransport t(nullptr, &queue);
+            t.write(frameWrite(), payload('1'));
+            dispatch();  // the write holds the slot, so discovery waits behind it
+            t.submitDiscovery();
+
+            QTest::ignoreMessage(QtInfoMsg,
+                                 QRegularExpression(QStringLiteral("requeuing characteristic discovery")));
+            t.clearQueue();
+
+            QCOMPARE(queue.pendingCount(), qsizetype(1));
+            QCOMPARE(queue.m_queue.at(0).key, DE1::SERVICE_UUID);
+        }
+        {
+            BleGattQueue queue;
+            BleTransport t(nullptr, &queue);
+            t.submitDiscovery();
+            dispatch();  // discovery takes the slot and starts
+
+            t.clearQueue();
+
+            QCOMPARE(queue.pendingCount(), qsizetype(0));
+            QVERIFY(!queue.isBusy());
+        }
     }
 
     // --- retry and timeout constants -------------------------------------

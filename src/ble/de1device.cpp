@@ -166,8 +166,14 @@ void DE1Device::onTransportConnected() {
     emit connectedChanged();
     emit guiEnabledChanged();
 
-    // Send Idle state to wake the machine (same as de1app on connect)
-    requestState(DE1::State::Idle);
+    if (m_sleepPendingAfterConnect) {
+        m_sleepPendingAfterConnect = false;
+        DEVICE_LOG(QStringLiteral("Connection ready, now sending the deferred sleep"));
+        goToSleep();
+    } else {
+        // Send Idle state to wake the machine (same as de1app on connect)
+        requestState(DE1::State::Idle);
+    }
 
     // Send initial settings once the transport signals a full connection.
     // Previously called from parseVersion(), but on Linux/BlueZ the VERSION
@@ -603,6 +609,7 @@ void DE1Device::disconnect() {
         finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
     }
     m_sleepPendingAfterUpload = false;
+    m_sleepPendingAfterConnect = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -1553,6 +1560,16 @@ bool DE1Device::goToSleep() {
         return false;
     }
 
+    // Mid-connect, defer until onTransportConnected(). Sent now, the clear
+    // below would drop the connect's setup, and the connect-time wake to Idle
+    // would undo the sleep anyway (SM-X210, 2026-09-18: link stuck 16 h).
+    if (m_connecting) {
+        DEVICE_INFO(QStringLiteral("Sleep requested while the DE1 is still connecting; "
+                                   "it will be sent once the connection is ready"));
+        m_sleepPendingAfterConnect = true;
+        return false;
+    }
+
     if (!m_transport) return false;
     // Clear pending commands - sleep takes priority. Only drop the MMR
     // cache if something was actually queued — an empty queue means the
@@ -1579,6 +1596,7 @@ void DE1Device::clearCommandQueue() {
         finishProfileUpload(false, QStringLiteral("command queue cleared during upload"));
     }
     m_sleepPendingAfterUpload = false;
+    m_sleepPendingAfterConnect = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;

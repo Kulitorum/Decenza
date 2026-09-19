@@ -252,6 +252,7 @@ void BleTransport::disconnect() {
     // torn-down connection's queued work must not bleed into the next attempt,
     // and a dead link must not hold the radio for every other device.
     m_operationTimeoutTimer.stop();
+    m_discoveryQueued = false;
     m_readyMarkerPending = false;
     m_gattQueue->forget(this);
     forgetWriteFailureState();
@@ -303,17 +304,26 @@ qsizetype BleTransport::clearQueue() {
     // there and m_lastMMRValues claims the DE1 holds a value it never received.
     m_operationTimeoutTimer.stop();
     const qsizetype dropped = m_gattQueue->forget(this);
-    if (m_readyMarkerPending) {
-        // The clear took the connect's setup with it. Left dropped, the link
-        // stays up with connected() never firing and DE1Device "connecting"
-        // forever: SM-X210, 2026-09-18, a sleep 100 ms after "Characteristics
-        // ready" dropped all 11 setup operations and nothing recovered for 16 h.
-        // Requeued rather than torn down, so the write the caller submits next
-        // (sleep, stop) still goes out, ahead of the setup via writeUrgent().
-        m_readyMarkerPending = false;
-        info(QStringLiteral("DE1 connection setup was interrupted by a command-queue clear "
-                            "before the link was ready; requeuing it"));
-        subscribeAll();
+    // A clear during connect setup takes the setup with it. Left dropped, the
+    // link stays up with connected() never firing and DE1Device "connecting"
+    // forever (SM-X210, 2026-09-18: 11 setup operations dropped, stuck 16 h).
+    // Requeued rather than torn down, so the write the caller submits next
+    // (stop) still goes out, ahead of the setup via writeUrgent(). Discovery is
+    // requeued only if it never started: once discoverDetails() has run, the
+    // platform finishes it regardless, and a second call is a silent no-op
+    // (qlowenergyservice.cpp:585-586) that would hold the queue to its timeout.
+    const bool rediscover = m_discoveryQueued;
+    const bool resubscribe = m_readyMarkerPending;
+    m_discoveryQueued = false;
+    m_readyMarkerPending = false;
+    if (rediscover || resubscribe) {
+        info(QString("DE1 connection setup was interrupted by a command-queue clear "
+                     "before the link was ready; requeuing %1")
+                 .arg(rediscover ? "characteristic discovery" : "notification setup"));
+        if (rediscover)
+            submitDiscovery();
+        else
+            subscribeAll();
     }
     return dropped;
 }
@@ -473,6 +483,7 @@ void BleTransport::onControllerDisconnected() {
     // Clear pending BLE operations to prevent writes against a dead connection,
     // which causes DeadObjectException crashes on Android (issue #189)
     m_operationTimeoutTimer.stop();
+    m_discoveryQueued = false;
     m_readyMarkerPending = false;
     m_gattQueue->forget(this);
     m_characteristicsReady = false;
@@ -1294,6 +1305,7 @@ void BleTransport::submitDiscovery() {
     // Keyed by the service, which is what its completion — stateChanged ->
     // RemoteServiceDiscovered — reports.
     auto op = operationFor(DE1::SERVICE_UUID, QStringLiteral("discover"), [this]() {
+        m_discoveryQueued = false;
         if (!m_service) {
             log(QStringLiteral("Characteristic discovery skipped - no service"));
             m_gattQueue->noteFailed(this);
@@ -1311,6 +1323,7 @@ void BleTransport::submitDiscovery() {
                             "connection attempt will be retried"));
         emitQueueDrainedIfIdle();
     };
+    m_discoveryQueued = true;
     m_gattQueue->submit(std::move(op));
 }
 

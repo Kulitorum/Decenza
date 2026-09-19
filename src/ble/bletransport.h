@@ -180,8 +180,10 @@ private:
      * transport's queued work. Reaching it IS the confirmation.
      */
     void submitReadyMarker();
-    // From submitReadyMarker() until the marker runs or something forgets it:
-    // teardown, failRequiredStream(), or clearQueue(), which requeues the setup.
+    // Each connect-setup stage still waiting in the queue, so clearQueue() can
+    // requeue the one it drops. Set on submit, cleared when the stage starts
+    // or something forgets it (teardown, failRequiredStream(), clearQueue()).
+    bool m_discoveryQueued = false;
     bool m_readyMarkerPending = false;
 
     /** True when the slot holds this transport's operation for `uuid`. */
