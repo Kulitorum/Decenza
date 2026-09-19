@@ -253,7 +253,6 @@ void BleTransport::disconnect() {
     // and a dead link must not hold the radio for every other device.
     m_operationTimeoutTimer.stop();
     m_readyMarkerPending = false;
-    m_setupTeardownPending = false;
     m_gattQueue->forget(this);
     forgetWriteFailureState();
 
@@ -305,30 +304,18 @@ qsizetype BleTransport::clearQueue() {
     m_operationTimeoutTimer.stop();
     const qsizetype dropped = m_gattQueue->forget(this);
     if (m_readyMarkerPending) {
+        // The clear took the connect's setup with it. Left dropped, the link
+        // stays up with connected() never firing and DE1Device "connecting"
+        // forever: SM-X210, 2026-09-18, a sleep 100 ms after "Characteristics
+        // ready" dropped all 11 setup operations and nothing recovered for 16 h.
+        // Requeued rather than torn down, so the write the caller submits next
+        // (sleep, stop) still goes out, ahead of the setup via writeUrgent().
         m_readyMarkerPending = false;
-        abandonUnfinishedSetup(dropped);
+        info(QStringLiteral("DE1 connection setup was interrupted by a command-queue clear "
+                            "before the link was ready; requeuing it"));
+        subscribeAll();
     }
     return dropped;
-}
-
-void BleTransport::abandonUnfinishedSetup(qsizetype dropped) {
-    // Seen on an SM-X210 (2026-09-18, build 3596): a sleep request 100 ms after
-    // "Characteristics ready" cleared the queue, dropping all 11 setup
-    // operations. Writes kept working, the machine never reported state, and
-    // DE1Device stayed "connecting" for 16 h with no reconnect attempt.
-    warn(QString("DE1 connection setup was interrupted: a command-queue clear dropped "
-                 "%1 operation(s), including the notification setup, before the link "
-                 "was ready. The machine would never report its state on this link, "
-                 "so it is being reconnected.")
-             .arg(dropped));
-    m_setupTeardownPending = true;
-    // Queued: clearQueue() callers (goToSleep, clearCommandQueue) keep using
-    // the transport after it returns, and disconnect() re-enters DE1Device
-    // through disconnected().
-    QMetaObject::invokeMethod(this, [this]() {
-        if (m_setupTeardownPending)
-            disconnect();
-    }, Qt::QueuedConnection);
 }
 
 qsizetype BleTransport::discardQueued(const QList<QBluetoothUuid>& uuids) {
@@ -487,7 +474,6 @@ void BleTransport::onControllerDisconnected() {
     // which causes DeadObjectException crashes on Android (issue #189)
     m_operationTimeoutTimer.stop();
     m_readyMarkerPending = false;
-    m_setupTeardownPending = false;
     m_gattQueue->forget(this);
     m_characteristicsReady = false;
     m_notificationLiveness.invalidate();

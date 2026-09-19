@@ -174,23 +174,15 @@ private:
     /**
      * A queue entry that issues nothing and completes itself.
      *
-     * It is how "every subscription above has been confirmed" is expressed
-     * without a flag: FIFO ordering puts it after the subscribes, and a
-     * required-stream failure calls forget(), which drops it along with the
-     * rest of this transport's queued work. Reaching it IS the confirmation.
+     * It is how "every subscription above has been confirmed" is expressed:
+     * FIFO ordering puts it after the subscribes, and a required-stream
+     * failure calls forget(), which drops it along with the rest of this
+     * transport's queued work. Reaching it IS the confirmation.
      */
     void submitReadyMarker();
-    /**
-     * A queue clear dropped the ready marker before it ran. The link stays up
-     * with no notifications enabled and connected() never fires, so nothing
-     * would ever retry it: tear it down and let the reconnect ladder take over.
-     */
-    void abandonUnfinishedSetup(qsizetype dropped);
-    // From submitReadyMarker() until the marker runs or the link is torn down.
+    // From submitReadyMarker() until the marker runs or something forgets it:
+    // teardown, failRequiredStream(), or clearQueue(), which requeues the setup.
     bool m_readyMarkerPending = false;
-    // An abandonUnfinishedSetup() teardown is posted and nothing has torn the
-    // link down since.
-    bool m_setupTeardownPending = false;
 
     /** True when the slot holds this transport's operation for `uuid`. */
     bool ownsInFlight(const QBluetoothUuid& uuid) const;

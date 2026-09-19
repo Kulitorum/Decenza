@@ -372,40 +372,24 @@ private slots:
     }
 
     // A clear that lands mid-connect drops the ready marker with the setup it
-    // guards. Without a teardown the link stayed up, never reported connected,
-    // and nothing retried it (SM-X210, 2026-09-18: 16 h stuck).
-    void clearBeforeTheLinkIsReadyTearsItDown() {
+    // guards (SM-X210, 2026-09-18: link up, never connected, 16 h stuck). The
+    // setup is requeued, and the write goToSleep() submits right after the
+    // clear must still reach the radio: a teardown here once dropped it.
+    // Headless, subscribeAll() has no service, so only the requeue's log and
+    // the write's survival are observable.
+    void clearBeforeTheLinkIsReadyRequeuesSetupAndKeepsTheNextWrite() {
         BleGattQueue queue;
         BleTransport t(nullptr, &queue);
-        QSignalSpy connected(&t, &DE1Transport::connected);
-        QSignalSpy disconnected(&t, &DE1Transport::disconnected);
-        t.write(frameWrite(), payload('1'));  // holds the slot ahead of the marker
-        t.submitReadyMarker();
-        dispatch();
-
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("DE1 connection setup was interrupted")));
-        t.clearQueue();
-        QCOMPARE(disconnected.count(), 0);  // posted, not re-entrant
-
-        QTRY_COMPARE(disconnected.count(), 1);
-        QCOMPARE(connected.count(), 0);
-    }
-
-    // Once the marker has run, a clear is an ordinary command clear.
-    void clearAfterTheLinkIsReadyLeavesItUp() {
-        BleGattQueue queue;
-        BleTransport t(nullptr, &queue);
-        QSignalSpy connected(&t, &DE1Transport::connected);
         QSignalSpy disconnected(&t, &DE1Transport::disconnected);
         t.submitReadyMarker();
-        dispatch();
-        QCOMPARE(connected.count(), 1);
 
-        t.write(frameWrite(), payload('1'));
+        QTest::ignoreMessage(QtInfoMsg,
+                             QRegularExpression(QStringLiteral("setup was interrupted by a command-queue clear")));
         t.clearQueue();
+        t.writeUrgent(DE1::Characteristic::REQUESTED_STATE, payload('s'));
         dispatch();
 
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::REQUESTED_STATE);
         QCOMPARE(disconnected.count(), 0);
     }
 
