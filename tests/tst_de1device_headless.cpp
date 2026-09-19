@@ -170,6 +170,8 @@ private slots:
         g.transport.m_connected = false;
         g.device.m_connecting = true;
         g.device.goToSleep();
+        QTest::ignoreMessage(QtInfoMsg,
+                             QRegularExpression(QStringLiteral("the sleep requested earlier will not be sent")));
         g.device.wakeUp();
         QVERIFY(requestedStates(g.transport).isEmpty());
         g.transport.setConnectedSim(true);

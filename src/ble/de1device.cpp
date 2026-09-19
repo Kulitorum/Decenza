@@ -167,12 +167,14 @@ void DE1Device::onTransportConnected() {
     emit guiEnabledChanged();
 
     // Send Idle state to wake the machine (same as de1app on connect), unless the
-    // last request while connecting was sleep. A plain write, not goToSleep():
-    // its queue clear would drop the initial reads queued behind the setup.
+    // last request while connecting was sleep. goToSleep() rather than a plain
+    // write: its urgent write goes ahead of the initial reads queued behind the
+    // setup, so the machine is asleep before its state is read. Read first, the
+    // screensaver saw the pre-sleep state and bounced to the idle page.
     if (m_sleepRequestedWhileConnecting) {
         m_sleepRequestedWhileConnecting = false;
         DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
-        requestState(DE1::State::Sleep);
+        goToSleep();
     } else {
         requestState(DE1::State::Idle);
     }
@@ -1598,7 +1600,13 @@ void DE1Device::wakeUp() {
     // Mirror of goToSleep(): before the characteristics are ready, dropping a
     // pending sleep is the whole wake, since the connect then sends Idle.
     if (m_connecting && !isConnected()) {
-        m_sleepRequestedWhileConnecting = false;
+        if (m_sleepRequestedWhileConnecting) {
+            // The other half of goToSleep()'s "it will be sent once the
+            // connection is ready", which is INFO and otherwise never resolves.
+            m_sleepRequestedWhileConnecting = false;
+            DEVICE_INFO(QStringLiteral("Wake requested while still connecting; the sleep "
+                                       "requested earlier will not be sent"));
+        }
         return;
     }
     requestState(DE1::State::Idle);
