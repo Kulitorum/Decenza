@@ -101,9 +101,31 @@ public:
     // Used by tests that verify behaviour across a disconnect/reconnect cycle.
     void setConnectedSim(bool newState) {
         if (m_connected == newState) return;
-        m_connected = newState;
-        if (newState) emit connected();
-        else emit disconnected();
+        if (newState) {
+            emitConnectedSim();
+        } else {
+            m_connected = false;
+            emit disconnected();
+        }
+    }
+
+    // Announce the connect on a link that is ALREADY carrying writes. The DE1's
+    // characteristics register before its ready marker fires, so isConnected()
+    // is true for the last stretch of a connect; setConnectedSim() cannot reach
+    // that window because it returns early when the state is unchanged.
+    void emitConnectedSim() {
+        m_connected = true;
+        emit connected();
+    }
+
+    // Payloads written to one characteristic, in order. Tests assert on the
+    // whole sequence because a duplicated or suppressed write is the defect
+    // they exist for, and only the sequence shows it.
+    QList<QByteArray> writesFor(const QBluetoothUuid& uuid) const {
+        QList<QByteArray> payloads;
+        for (const auto& w : writes)
+            if (w.first == uuid) payloads.append(w.second);
+        return payloads;
     }
 
     // Simulate the BLE stack ACKing every captured write in order, mirroring

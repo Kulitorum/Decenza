@@ -157,11 +157,9 @@ private slots:
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
 
-        for (const auto& w : f.transport.writes) {
-            QVERIFY2(!(w.first == DE1::Characteristic::REQUESTED_STATE &&
-                       w.second == QByteArray(1, static_cast<char>(DE1::State::Sleep))),
-                     "firmware updates must not put the DE1 to sleep");
-        }
+        QVERIFY2(!f.transport.writesFor(DE1::Characteristic::REQUESTED_STATE)
+                      .contains(QByteArray(1, static_cast<char>(DE1::State::Sleep))),
+                 "firmware updates must not put the DE1 to sleep");
     }
 
     void eraseCompleteNotification_startsUploadBeforeFallbackTimer() {

@@ -460,6 +460,15 @@ protected:
     void customEvent(QEvent* event) override;
 
 private:
+    enum class StateWrite { Normal, Urgent };
+
+    // The one place REQUESTED_STATE is written. Three callers reach it
+    // (requestState, stopOperationUrgent, goToSleep) and only a line at the
+    // write itself can tell a machine that ignored us from one never asked:
+    // logging at the callers would announce requests the guards below them drop.
+    // Callers check m_transport first.
+    void writeRequestedState(DE1::State state, StateWrite urgency);
+
     // Build the 20-byte MMR payload without sending it (shared by writeMMR/writeMMRUrgent)
     static QByteArray buildMMRPayload(uint32_t address, uint32_t value);
 
@@ -770,6 +779,12 @@ private:
     }
     uint32_t m_cpuBoardModel = 0;
 
+    // True from connectToDevice() until the ready marker fires. It is NOT the
+    // same question as isConnected(), which goes true when the characteristics
+    // register (bletransport.cpp:725) — about 0.75 s earlier on an SM-X210. Both
+    // are true for that tail, writes go through, and the connect is not finished:
+    // #1955, #1956 and #1957 were all bugs in that gap. Test anything that cares
+    // against BOTH, the way goToSleep() and wakeUp() do.
     bool m_connecting = false;
     bool m_simulationMode = false;
     bool m_firmwareFlashInProgress = false;
@@ -777,7 +792,14 @@ private:
     SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
-    bool m_sleepRequestedWhileConnecting = false;  // Connect sends Sleep, not Idle
+    // A sleep asked for while the connect was still in flight. Owed and Sent
+    // differ because the characteristics can go ready while m_connecting is
+    // still true: there goToSleep() writes at once, and a connect that re-sent
+    // anyway put a second Sleep on the wire (SM-X210, 2026-09-19). Either way
+    // the connect must not send its usual wake. One value rather than a bool
+    // per fact, so the fourth combination cannot be written down.
+    enum class ConnectSleep { None, Owed, Sent };
+    ConnectSleep m_connectSleep = ConnectSleep::None;
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading
