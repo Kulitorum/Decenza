@@ -166,8 +166,15 @@ void DE1Device::onTransportConnected() {
     emit connectedChanged();
     emit guiEnabledChanged();
 
-    // Send Idle state to wake the machine (same as de1app on connect)
-    requestState(DE1::State::Idle);
+    // Send Idle state to wake the machine (same as de1app on connect), unless it
+    // was put to sleep while connecting: the wake would undo that sleep.
+    if (m_sleepRequestedWhileConnecting) {
+        m_sleepRequestedWhileConnecting = false;
+        DEVICE_INFO(QStringLiteral("Not waking the DE1 on connect: it was put to sleep "
+                                   "while connecting"));
+    } else {
+        requestState(DE1::State::Idle);
+    }
 
     // Send initial settings once the transport signals a full connection.
     // Previously called from parseVersion(), but on Linux/BlueZ the VERSION
@@ -603,6 +610,7 @@ void DE1Device::disconnect() {
         finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
     }
     m_sleepPendingAfterUpload = false;
+    m_sleepRequestedWhileConnecting = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -1249,6 +1257,8 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
+    if (state == DE1::State::Idle)
+        m_sleepRequestedWhileConnecting = false;  // a wake supersedes that sleep
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -1567,6 +1577,8 @@ bool DE1Device::goToSleep() {
     // Send sleep command directly (don't queue it)
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
     m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
+    if (m_connecting)
+        m_sleepRequestedWhileConnecting = true;
     return true;
 }
 

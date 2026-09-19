@@ -205,6 +205,9 @@ public:
         // requester tearing down is not told about work it is itself dropping.
         std::function<void()> onAbandoned;
         Policy policy;
+        // Part of a connect's setup (discovery, subscriptions, ready marker,
+        // initial reads). Kept by clearCommands(), dropped only by forget().
+        bool connectSetup = false;
     };
 
     /**
@@ -250,6 +253,14 @@ public:
      * what never reached the device.
      */
     qsizetype forget(Requester requester);
+
+    /**
+     * forget(), but keeps connectSetup operations, queued or in flight. For a
+     * requester clearing its pending COMMANDS on a live link (sleep, stop):
+     * dropping the setup there leaves the link up and never ready — SM-X210,
+     * 2026-09-18, stuck 16 h. Returns the number dropped.
+     */
+    qsizetype clearCommands(Requester requester);
 
     /**
      * Drop this requester's queued operations whose key is in `keys`. Does NOT
@@ -310,6 +321,8 @@ signals:
 #endif
 
 private:
+    // The body of forget() and clearCommands().
+    qsizetype dropFor(Requester requester, bool keepConnectSetup);
     void dispatchNext();
     // Rejects an unrunnable operation at submit. See the definition.
     static bool validate(const Operation& op);

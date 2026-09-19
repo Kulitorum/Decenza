@@ -12,6 +12,7 @@
 #include <QBluetoothAddress>
 #include <QLowEnergyConnectionParameters>
 #include <QDebug>
+#include <QScopedValueRollback>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -199,6 +200,7 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
 
 void BleTransport::subscribeAll() {
     if (!m_service) return;
+    const QScopedValueRollback<bool> setup(m_submittingConnectSetup, true);
 
     m_streamsNotEnabled.clear();
 
@@ -296,12 +298,15 @@ void BleTransport::disconnect() {
 }
 
 qsizetype BleTransport::clearQueue() {
-    // forget() counts the in-flight operation as well as the queued ones, which
-    // is what this caller needs: it is about to change machine state and must
-    // invalidate the MMR dedup cache if an MMR write was mid-air. Under-report
-    // there and m_lastMMRValues claims the DE1 holds a value it never received.
-    m_operationTimeoutTimer.stop();
-    return m_gattQueue->forget(this);
+    // clearCommands() counts the in-flight operation as well as the queued ones,
+    // which is what this caller needs: it is about to change machine state and
+    // must invalidate the MMR dedup cache if an MMR write was mid-air. Under-
+    // report there and m_lastMMRValues claims the DE1 holds a value it never
+    // received. Connect setup is kept, so its operation clock keeps running.
+    const qsizetype dropped = m_gattQueue->clearCommands(this);
+    if (m_gattQueue->inFlightRequester() != this)
+        m_operationTimeoutTimer.stop();
+    return dropped;
 }
 
 qsizetype BleTransport::discardQueued(const QList<QBluetoothUuid>& uuids) {
@@ -1118,6 +1123,7 @@ BleGattQueue::Operation BleTransport::operationFor(const QBluetoothUuid& key,
     // compile clean and turn a 5-retry/500 ms policy into 500 retries.
     op.policy.maxRetries = MAX_WRITE_RETRIES;
     op.policy.retryDelayMs = WRITE_RETRY_DELAY_MS;
+    op.connectSetup = m_submittingConnectSetup;
     op.issue = [this, timeoutMs, issue = std::move(issue)]() {
         // Armed here rather than by the callers so it covers retries too: the
         // queue calls issue() again for each one, and a retry that also goes
@@ -1278,6 +1284,7 @@ void BleTransport::submitDiscovery() {
     //
     // Keyed by the service, which is what its completion — stateChanged ->
     // RemoteServiceDiscovered — reports.
+    const QScopedValueRollback<bool> setup(m_submittingConnectSetup, true);
     auto op = operationFor(DE1::SERVICE_UUID, QStringLiteral("discover"), [this]() {
         if (!m_service) {
             log(QStringLiteral("Characteristic discovery skipped - no service"));
@@ -1303,6 +1310,7 @@ void BleTransport::submitReadyMarker() {
     BleGattQueue::Operation op;
     op.requester = this;
     op.label = QStringLiteral("de1 ready");
+    op.connectSetup = true;
     op.issue = [this]() {
         // One positive statement of what the machine will actually send. INFO,
         // because this is the connect narrative a user reads.

@@ -141,6 +141,36 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    // A sleep while connecting goes out at once, and the connect-time wake to
+    // Idle must not undo it. A wake in between supersedes the sleep.
+    void sleepWhileConnectingIsNotUndoneByTheConnectWake() {
+        const auto requestedStates = [](const MockTransport& t) {
+            QList<QByteArray> states;
+            for (const auto& w : t.writes)
+                if (w.first == DE1::Characteristic::REQUESTED_STATE)
+                    states.append(w.second);
+            return states;
+        };
+        const QByteArray sleep(1, static_cast<char>(DE1::State::Sleep));
+        const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
+
+        TestFixture f;
+        f.transport.m_connected = false;
+        f.device.m_connecting = true;
+        f.device.goToSleep();
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("Not waking the DE1 on connect")));
+        f.transport.setConnectedSim(true);
+        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{sleep});
+
+        TestFixture g;
+        g.transport.m_connected = false;
+        g.device.m_connecting = true;
+        g.device.goToSleep();
+        g.device.wakeUp();
+        g.transport.setConnectedSim(true);
+        QCOMPARE(requestedStates(g.transport), (QList<QByteArray>{sleep, idle, idle}));
+    }
+
     void disconnectIsANoOpWhenSubStateAlreadyReady() {
         // onTransportDisconnected() guards the reset on a value check, so an
         // already-quiet disconnect (the overwhelmingly common case) does not spam

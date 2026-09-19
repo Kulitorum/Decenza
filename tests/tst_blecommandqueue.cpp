@@ -371,6 +371,37 @@ private slots:
         QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 
+    // A clear during a connect keeps the connect's setup, queued or in flight,
+    // and drops only commands. SM-X210, 2026-09-18: a sleep's clear dropped the
+    // setup and the link sat connected-but-never-ready for 16 h. Headless the
+    // subscriptions and initial reads cannot be queued, so discovery and the
+    // ready marker stand in for the setup.
+    void clearKeepsConnectSetupAndDropsCommands() {
+        {
+            BleGattQueue queue;
+            BleTransport t(nullptr, &queue);
+            t.write(frameWrite(), payload('1'));
+            t.submitDiscovery();
+            t.submitReadyMarker();
+            t.write(writeToMmr(), payload('2'));
+
+            QCOMPARE(t.clearQueue(), qsizetype(2));
+            QCOMPARE(queue.pendingCount(), qsizetype(2));
+            QCOMPARE(queue.m_queue.at(0).key, DE1::SERVICE_UUID);
+            QCOMPARE(queue.m_queue.at(1).label, QStringLiteral("de1 ready"));
+        }
+        {
+            BleGattQueue queue;
+            BleTransport t(nullptr, &queue);
+            t.submitDiscovery();
+            dispatch();  // discovery takes the slot
+
+            QCOMPARE(t.clearQueue(), qsizetype(0));
+            QCOMPARE(queue.inFlightKey(), DE1::SERVICE_UUID);
+            QVERIFY(t.m_operationTimeoutTimer.isActive());
+        }
+    }
+
     // --- retry and timeout constants -------------------------------------
 
     // Pinned as VALUES, not as "whatever the header says". The retry budget

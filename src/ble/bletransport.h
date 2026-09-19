@@ -180,6 +180,9 @@ private:
      * rest of this transport's queued work. Reaching it IS the confirmation.
      */
     void submitReadyMarker();
+    // Set while subscribeAll() and submitDiscovery() submit, so operationFor()
+    // tags their operations connectSetup and clearQueue() keeps them.
+    bool m_submittingConnectSetup = false;
 
     /** True when the slot holds this transport's operation for `uuid`. */
     bool ownsInFlight(const QBluetoothUuid& uuid) const;
