@@ -252,6 +252,8 @@ void BleTransport::disconnect() {
     // torn-down connection's queued work must not bleed into the next attempt,
     // and a dead link must not hold the radio for every other device.
     m_operationTimeoutTimer.stop();
+    m_readyMarkerPending = false;
+    m_setupTeardownPending = false;
     m_gattQueue->forget(this);
     forgetWriteFailureState();
 
@@ -301,7 +303,32 @@ qsizetype BleTransport::clearQueue() {
     // invalidate the MMR dedup cache if an MMR write was mid-air. Under-report
     // there and m_lastMMRValues claims the DE1 holds a value it never received.
     m_operationTimeoutTimer.stop();
-    return m_gattQueue->forget(this);
+    const qsizetype dropped = m_gattQueue->forget(this);
+    if (m_readyMarkerPending) {
+        m_readyMarkerPending = false;
+        abandonUnfinishedSetup(dropped);
+    }
+    return dropped;
+}
+
+void BleTransport::abandonUnfinishedSetup(qsizetype dropped) {
+    // Seen on an SM-X210 (2026-09-18, build 3596): a sleep request 100 ms after
+    // "Characteristics ready" cleared the queue, dropping all 11 setup
+    // operations. Writes kept working, the machine never reported state, and
+    // DE1Device stayed "connecting" for 16 h with no reconnect attempt.
+    warn(QString("DE1 connection setup was interrupted: a command-queue clear dropped "
+                 "%1 operation(s), including the notification setup, before the link "
+                 "was ready. The machine would never report its state on this link, "
+                 "so it is being reconnected.")
+             .arg(dropped));
+    m_setupTeardownPending = true;
+    // Queued: clearQueue() callers (goToSleep, clearCommandQueue) keep using
+    // the transport after it returns, and disconnect() re-enters DE1Device
+    // through disconnected().
+    QMetaObject::invokeMethod(this, [this]() {
+        if (m_setupTeardownPending)
+            disconnect();
+    }, Qt::QueuedConnection);
 }
 
 qsizetype BleTransport::discardQueued(const QList<QBluetoothUuid>& uuids) {
@@ -459,6 +486,8 @@ void BleTransport::onControllerDisconnected() {
     // Clear pending BLE operations to prevent writes against a dead connection,
     // which causes DeadObjectException crashes on Android (issue #189)
     m_operationTimeoutTimer.stop();
+    m_readyMarkerPending = false;
+    m_setupTeardownPending = false;
     m_gattQueue->forget(this);
     m_characteristicsReady = false;
     m_notificationLiveness.invalidate();
@@ -1265,8 +1294,8 @@ void BleTransport::failRequiredStream(const QBluetoothUuid& uuid) {
     emit de1LinkFault(QStringLiteral("subscribe-failed"));
 
     // Drops everything of ours still queued, which includes the ready marker.
-    // That is how "do not report connected" is expressed: no flag to set, no
-    // flag to forget to clear.
+    // That is how "do not report connected" is expressed.
+    m_readyMarkerPending = false;
     m_gattQueue->forget(this);
 }
 
@@ -1304,6 +1333,7 @@ void BleTransport::submitReadyMarker() {
     op.requester = this;
     op.label = QStringLiteral("de1 ready");
     op.issue = [this]() {
+        m_readyMarkerPending = false;
         // One positive statement of what the machine will actually send. INFO,
         // because this is the connect narrative a user reads.
         if (m_streamsNotEnabled.isEmpty()) {
@@ -1323,5 +1353,6 @@ void BleTransport::submitReadyMarker() {
         // Issues nothing to the platform, so nothing else will ever end it.
         m_gattQueue->noteSucceeded(this);
     };
+    m_readyMarkerPending = true;
     m_gattQueue->submit(std::move(op));
 }
