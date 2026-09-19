@@ -877,10 +877,12 @@ T.Page {
         mediaPlayerLoader.active = false
         mediaPlaying = false
 
-        // Wake up the DE1, or try to reconnect if disconnected
-        if (DE1Device.connected) {
+        // Wake up the DE1, or try to reconnect if disconnected. While it is
+        // still connecting, wakeUp() cancels a sleep requested during the
+        // connect, which would otherwise be sent once it completes.
+        if (DE1Device.connected || DE1Device.connecting) {
             DE1Device.wakeUp()
-        } else if (!DE1Device.connecting) {
+        } else {
             BLEManager.tryDirectConnectToDE1()
         }
 
