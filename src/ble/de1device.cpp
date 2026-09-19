@@ -166,12 +166,13 @@ void DE1Device::onTransportConnected() {
     emit connectedChanged();
     emit guiEnabledChanged();
 
-    // Send Idle state to wake the machine (same as de1app on connect), unless it
-    // was put to sleep while connecting: the wake would undo that sleep.
+    // Send Idle state to wake the machine (same as de1app on connect), unless the
+    // last request while connecting was sleep. A plain write, not goToSleep():
+    // its queue clear would drop the initial reads queued behind the setup.
     if (m_sleepRequestedWhileConnecting) {
         m_sleepRequestedWhileConnecting = false;
-        DEVICE_INFO(QStringLiteral("Not waking the DE1 on connect: it was put to sleep "
-                                   "while connecting"));
+        DEVICE_INFO(QStringLiteral("Connected; sending the sleep requested while connecting"));
+        requestState(DE1::State::Sleep);
     } else {
         requestState(DE1::State::Idle);
     }
@@ -1563,6 +1564,19 @@ bool DE1Device::goToSleep() {
         return false;
     }
 
+    // While connecting, remember the sleep so the connect sends it instead of
+    // its wake. Before the characteristics are ready a write here can only fail,
+    // and its failure is reported as a DE1 link fault (it latched the scale to
+    // BALANCED on an SM-X210, 2026-09-19), so send nothing until then.
+    if (m_connecting) {
+        m_sleepRequestedWhileConnecting = true;
+        if (!isConnected()) {
+            DEVICE_INFO(QStringLiteral("Sleep requested while the DE1 is still connecting; "
+                                       "it will be sent once the connection is ready"));
+            return false;
+        }
+    }
+
     if (!m_transport) return false;
     // Clear pending commands - sleep takes priority. Only drop the MMR
     // cache if something was actually queued — an empty queue means the
@@ -1577,12 +1591,16 @@ bool DE1Device::goToSleep() {
     // Send sleep command directly (don't queue it)
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
     m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
-    if (m_connecting)
-        m_sleepRequestedWhileConnecting = true;
     return true;
 }
 
 void DE1Device::wakeUp() {
+    // Mirror of goToSleep(): before the characteristics are ready, dropping a
+    // pending sleep is the whole wake, since the connect then sends Idle.
+    if (m_connecting && !isConnected()) {
+        m_sleepRequestedWhileConnecting = false;
+        return;
+    }
     requestState(DE1::State::Idle);
 }
 

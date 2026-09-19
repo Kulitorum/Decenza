@@ -141,9 +141,11 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
-    // A sleep while connecting goes out at once, and the connect-time wake to
-    // Idle must not undo it. A wake in between supersedes the sleep.
-    void sleepWhileConnectingIsNotUndoneByTheConnectWake() {
+    // The last sleep or wake requested while connecting is what the connect
+    // sends. Before the link can carry it, nothing is written: a doomed write
+    // is reported as a link fault. SM-X210, 2026-09-19: a wake during the
+    // connect was lost and the machine stayed asleep behind an awake app.
+    void connectSendsTheLastSleepOrWakeRequestedWhileConnecting() {
         const auto requestedStates = [](const MockTransport& t) {
             QList<QByteArray> states;
             for (const auto& w : t.writes)
@@ -154,21 +156,32 @@ private slots:
         const QByteArray sleep(1, static_cast<char>(DE1::State::Sleep));
         const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
 
+        // Link not ready: sleep is held, then sent in place of the wake.
         TestFixture f;
         f.transport.m_connected = false;
         f.device.m_connecting = true;
         f.device.goToSleep();
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("Not waking the DE1 on connect")));
+        QVERIFY(requestedStates(f.transport).isEmpty());
         f.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{sleep});
 
+        // Link not ready: a later wake cancels the held sleep.
         TestFixture g;
         g.transport.m_connected = false;
         g.device.m_connecting = true;
         g.device.goToSleep();
         g.device.wakeUp();
+        QVERIFY(requestedStates(g.transport).isEmpty());
         g.transport.setConnectedSim(true);
-        QCOMPARE(requestedStates(g.transport), (QList<QByteArray>{sleep, idle, idle}));
+        QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
+
+        // Link already carrying writes but still connecting (a required
+        // stream failed, or USB replaced it): sent at once, not held for a
+        // connect that may never complete.
+        TestFixture h;
+        h.device.m_connecting = true;
+        h.device.goToSleep();
+        QCOMPARE(requestedStates(h.transport), QList<QByteArray>{sleep});
     }
 
     void disconnectIsANoOpWhenSubStateAlreadyReady() {
