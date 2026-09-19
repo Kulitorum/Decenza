@@ -43,6 +43,17 @@ private:
         return d;
     }
 
+    // Every REQUESTED_STATE write in order. Asserting on the whole list rather
+    // than the last one is the point: a duplicate or a suppressed write is the
+    // defect these tests exist for, and only the sequence shows it.
+    static QList<QByteArray> requestedStates(const MockTransport& t) {
+        QList<QByteArray> states;
+        for (const auto& w : t.writes)
+            if (w.first == DE1::Characteristic::REQUESTED_STATE)
+                states.append(w.second);
+        return states;
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
     void defaultsToHeadless() {
@@ -146,13 +157,6 @@ private slots:
     // is reported as a link fault. SM-X210, 2026-09-19: a wake during the
     // connect was lost and the machine stayed asleep behind an awake app.
     void connectSendsTheLastSleepOrWakeRequestedWhileConnecting() {
-        const auto requestedStates = [](const MockTransport& t) {
-            QList<QByteArray> states;
-            for (const auto& w : t.writes)
-                if (w.first == DE1::Characteristic::REQUESTED_STATE)
-                    states.append(w.second);
-            return states;
-        };
         const QByteArray sleep(1, static_cast<char>(DE1::State::Sleep));
         const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
 
@@ -188,6 +192,29 @@ private slots:
         QCOMPARE(requestedStates(h.transport), QList<QByteArray>{sleep});
         h.transport.emitConnectedSim();
         QCOMPARE(requestedStates(h.transport), QList<QByteArray>{sleep});
+    }
+
+    // A sleep held for a connect that then FAILS must not reach the next connect.
+    // BleTransport retries on the same object (bletransport.cpp:113-137), so a
+    // failed attempt reaches onTransportDisconnected() and never disconnect() —
+    // the only teardown that used to clear the flags. Left set, the next connect
+    // suppressed its own wake for a sleep belonging to a dead attempt, and the
+    // machine stayed asleep behind an app that showed it connected.
+    void aFailedConnectDoesNotCarryItsSleepIntoTheNext() {
+        const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
+
+        TestFixture f;
+        f.transport.m_connected = false;
+        f.device.m_connecting = true;
+        f.device.goToSleep();
+        QVERIFY(requestedStates(f.transport).isEmpty());
+
+        f.device.onTransportDisconnected();  // the attempt failed
+        f.device.m_connecting = true;        // the transport retries by itself
+        f.transport.setConnectedSim(true);
+
+        // A connect carrying no sleep of its own wakes the machine.
+        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
     }
 
     void disconnectIsANoOpWhenSubStateAlreadyReady() {

@@ -166,11 +166,14 @@ void DE1Device::onTransportConnected() {
     emit connectedChanged();
     emit guiEnabledChanged();
 
-    // Send Idle state to wake the machine (same as de1app on connect), unless the
-    // last request while connecting was sleep. goToSleep() rather than a plain
-    // write: its urgent write goes ahead of the initial reads queued behind the
-    // setup, so the machine is asleep before its state is read. Read first, the
-    // screensaver saw the pre-sleep state and bounced to the idle page.
+    // Send Idle to wake the machine (same as de1app on connect), unless a sleep
+    // was requested while connecting. That sleep may already have gone out —
+    // goToSleep() writes it itself once the characteristics are ready — and then
+    // nothing is owed and nothing is sent here. Where it is still owed,
+    // goToSleep() rather than a plain write: its urgent write goes ahead of the
+    // initial reads queued behind the setup, so the machine is asleep before its
+    // state is read. Read first, the screensaver saw the pre-sleep state and
+    // bounced to the idle page.
     if (m_sleepRequestedWhileConnecting) {
         const bool stillToSend = m_sleepAwaitingReadyLink;
         m_sleepRequestedWhileConnecting = false;
@@ -351,6 +354,13 @@ void DE1Device::onTransportDisconnected() {
         m_subState = DE1::SubState::Ready;
         emit subStateChanged();
     }
+
+    // Both teardown paths clear these, not just disconnect(): BleTransport
+    // retries on the same object (bletransport.cpp:113-137), so a failed attempt
+    // reaches here and nowhere else. Left set, they suppress the NEXT connect's
+    // wake on behalf of a connection that is already dead.
+    m_sleepRequestedWhileConnecting = false;
+    m_sleepAwaitingReadyLink = false;
 
     m_connecting = false;
     emit connectingChanged();
@@ -1268,11 +1278,6 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-    // Every state the app asks for, so a machine that did not follow can be told
-    // from one that was never asked. goToSleep() logs itself twice over while a
-    // wake logged nothing, which left a wake lost between the app and an SM-X210
-    // undiagnosable from the field log reporting it (2026-09-19).
-    DEVICE_LOG(QStringLiteral("Requesting state: %1").arg(DE1::stateToString(state)));
     if (state == DE1::State::Idle) {
         // A wake supersedes that sleep, sent or merely held.
         m_sleepRequestedWhileConnecting = false;
@@ -1324,8 +1329,21 @@ void DE1Device::requestState(DE1::State state) {
 
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
-    QByteArray data(1, static_cast<char>(state));
-    m_transport->write(DE1::Characteristic::REQUESTED_STATE, data);
+    writeRequestedState(state, StateWrite::Normal);
+}
+
+void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
+    // A wake that never reached the machine reads exactly like one the app never
+    // sent, and the field log could not separate them: this was the only state
+    // write with no line of its own (SM-X210, 2026-09-19).
+    DEVICE_LOG(QStringLiteral("Requesting state: %1%2")
+                   .arg(DE1::stateToString(state),
+                        urgency == StateWrite::Urgent ? QStringLiteral(" (urgent)") : QString()));
+    const QByteArray data(1, static_cast<char>(state));
+    if (urgency == StateWrite::Urgent)
+        m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
+    else
+        m_transport->write(DE1::Characteristic::REQUESTED_STATE, data);
 }
 
 void DE1Device::startEspresso() {
@@ -1545,8 +1563,7 @@ void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
         m_lastSawTriggerMs = 0;
         m_lastSawWriteMs = 0;
     }
-    QByteArray data(1, static_cast<char>(DE1::State::Idle));
-    m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
+    writeRequestedState(DE1::State::Idle, StateWrite::Urgent);
 }
 
 void DE1Device::requestIdle() {
@@ -1607,10 +1624,11 @@ bool DE1Device::goToSleep() {
         m_lastMMRValues.clear();
     }
 
-    // Send sleep command directly (don't queue it)
-    m_sleepAwaitingReadyLink = false;  // discharged by the write below
-    QByteArray data(1, static_cast<char>(DE1::State::Sleep));
-    m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
+    // The write below is what discharges it. writeUrgent() is queue POSITION and
+    // not delivery (bletransport.cpp:173-176), so an abandoned write loses this
+    // sleep — accepted, against a connect that re-sent one every time.
+    m_sleepAwaitingReadyLink = false;
+    writeRequestedState(DE1::State::Sleep, StateWrite::Urgent);
     return true;
 }
 
@@ -1618,14 +1636,16 @@ void DE1Device::wakeUp() {
     // Mirror of goToSleep(): before the characteristics are ready, dropping a
     // pending sleep is the whole wake, since the connect then sends Idle.
     if (m_connecting && !isConnected()) {
-        if (m_sleepRequestedWhileConnecting) {
+        if (m_sleepAwaitingReadyLink) {
             // The other half of goToSleep()'s "it will be sent once the
             // connection is ready", which is INFO and otherwise never resolves.
-            m_sleepRequestedWhileConnecting = false;
-            m_sleepAwaitingReadyLink = false;
+            // Keyed on the unsent sleep: one already written cannot be unsent,
+            // and saying so would be a false resolution of a line never logged.
             DEVICE_INFO(QStringLiteral("Wake requested while still connecting; the sleep "
                                        "requested earlier will not be sent"));
         }
+        m_sleepRequestedWhileConnecting = false;
+        m_sleepAwaitingReadyLink = false;
         return;
     }
     requestState(DE1::State::Idle);

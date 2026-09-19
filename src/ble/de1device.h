@@ -460,6 +460,15 @@ protected:
     void customEvent(QEvent* event) override;
 
 private:
+    enum class StateWrite { Normal, Urgent };
+
+    // The one place REQUESTED_STATE is written. Three callers reach it
+    // (requestState, stopOperationUrgent, goToSleep) and only a line at the
+    // write itself can tell a machine that ignored us from one never asked:
+    // logging at the callers would announce requests the guards below them drop.
+    // Callers check m_transport first.
+    void writeRequestedState(DE1::State state, StateWrite urgency);
+
     // Build the 20-byte MMR payload without sending it (shared by writeMMR/writeMMRUrgent)
     static QByteArray buildMMRPayload(uint32_t address, uint32_t value);
 
