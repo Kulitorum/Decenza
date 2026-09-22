@@ -429,6 +429,16 @@ private slots:
             const qint64 merged = EquipmentStorage::supersedeOrEditGrinderStatic(db, S, "Turin", "DF83V", "83mm DLC flat");
             QCOMPARE(merged, fork);  // repointed to the existing matching package
             QCOMPARE(EquipmentStorage::loadPackageStatic(db, S).supersededBy, fork);
+
+            // A history load of the shot on P (or S) lands on the live fork;
+            // a removed or missing package resolves to nothing.
+            QCOMPARE(EquipmentStorage::currentPackageIdStatic(db, P), fork);
+            QCOMPARE(EquipmentStorage::currentPackageIdStatic(db, S), fork);
+            QCOMPARE(EquipmentStorage::currentPackageIdStatic(db, fork), fork);
+            QSqlQuery rm(db);
+            QVERIFY(rm.exec(QString("UPDATE equipment_packages SET in_inventory = 0 WHERE id = %1").arg(fork)));
+            QCOMPARE(EquipmentStorage::currentPackageIdStatic(db, P), qint64(0));
+            QCOMPARE(EquipmentStorage::currentPackageIdStatic(db, 999999), qint64(0));
         });
     }
 

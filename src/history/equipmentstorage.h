@@ -202,6 +202,10 @@ public:
                                       EquipmentPackageView* view, QString* failReason,
                                       bool* reused = nullptr);
     static EquipmentPackage loadPackageStatic(QSqlDatabase& db, qint64 packageId);
+    // The in-inventory package `packageId` lives on as: itself, or the end of its
+    // superseded_by chain (an identity edit forks a new package). 0 when the
+    // package is gone or was removed from inventory.
+    static qint64 currentPackageIdStatic(QSqlDatabase& db, qint64 packageId);
     static EquipmentItem loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId);
     // The package's basket item, or an invalid item (id == 0) when none.
     static EquipmentItem loadBasketItemStatic(QSqlDatabase& db, qint64 packageId);

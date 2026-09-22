@@ -810,6 +810,20 @@ EquipmentPackage EquipmentStorage::loadPackageStatic(QSqlDatabase& db, qint64 pa
     return packageFromQueryRow(query);
 }
 
+qint64 EquipmentStorage::currentPackageIdStatic(QSqlDatabase& db, qint64 packageId)
+{
+    // Bounded: a superseded_by cycle should not exist, but must not hang a load.
+    for (int hop = 0; hop < 16 && packageId > 0; ++hop) {
+        const EquipmentPackage pkg = loadPackageStatic(db, packageId);
+        if (!pkg.isValid())
+            return 0;
+        if (pkg.inInventory)
+            return pkg.id;
+        packageId = pkg.supersededBy;
+    }
+    return 0;
+}
+
 EquipmentItem EquipmentStorage::loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId)
 {
     QSqlQuery query(db);
