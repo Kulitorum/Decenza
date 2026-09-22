@@ -2242,6 +2242,31 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 41: a grinder edit that forked a package moved bags onto the
+    // fork but left recipes on the retired package, so activating one selected
+    // a package no longer in inventory. The fork now moves recipes too; this
+    // repairs the rows it missed. A data fix, so the bump is gated on it.
+    if (currentVersion >= 40 && currentVersion < 41) {
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 41 recipe equipment heal", 1);
+        if (!txn.ok()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 41 could not start a transaction"
+                          " - will retry next launch";
+        } else {
+            qsizetype healed = 0;
+            const bool ok = RecipeStorage::healRetiredEquipmentLinksStatic(m_db, &healed)
+                && query.exec("DELETE FROM schema_version")
+                && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (41)"));
+            if (ok && txn.commit()) {
+                currentVersion = 41;
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 41 complete -" << healed
+                              << "recipe(s) moved off a retired equipment package";
+            } else {
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 41 incomplete - will retry next launch";
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

@@ -373,8 +373,8 @@ private slots:
 
     // A grinder edit that forks the package must carry recipes with it, like
     // bags: activation reads recipe.equipmentId and would otherwise select the
-    // retired package. A row written before that repoint existed (or promoted
-    // from an older shot) is read as the live fork.
+    // retired package. A write naming the retired id (promotion from an older
+    // shot) stores the fork, and migration 41 repairs rows the old fork missed.
     void recipeFollowsGrinderFork() {
         withRawDb(freshDbPath(), "recipe_fork", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
@@ -398,7 +398,20 @@ private slots:
             QVERIFY(stored.next());
             QCOMPARE(stored.value(0).toLongLong(), fork);
 
+            // Write side: insert and update naming the retired id store the fork.
+            r.name = "Promoted from an old shot";
+            r.equipmentId = P;
+            const qint64 promoted = RecipeStorage::insertRecipeStatic(db, r);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, promoted).equipmentId, fork);
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, promoted, {{"equipmentId", P}}));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, promoted).equipmentId, fork);
+
+            // A row left on the retired package by the old fork: the heal moves it.
             QVERIFY(QSqlQuery(db).exec(QString("UPDATE recipes SET equipment_id = %1 WHERE id = %2").arg(P).arg(stale)));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, stale).equipmentId, P);
+            qsizetype healed = -1;
+            QVERIFY(RecipeStorage::healRetiredEquipmentLinksStatic(db, &healed));
+            QCOMPARE(healed, qsizetype(1));
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, stale).equipmentId, fork);
         });
     }
