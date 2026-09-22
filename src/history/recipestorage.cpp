@@ -922,10 +922,10 @@ Recipe RecipeStorage::recipeFromQueryRow(const QSqlQuery& query)
     return recipe;
 }
 
-// A grinder edit forks its package and retires the old one. A recipe linked to
-// the retired id (promoted from an older shot, or an import) is stored against
-// the fork instead, so activation never selects a retired package. A removed
-// package is kept as given — that link was the user's to keep.
+// A grinder edit forks or merges its package and retires the old one. A recipe
+// linked to the retired id (promoted from an older shot, or an import) is stored
+// against its live successor instead. A chain ending at a removed package keeps
+// the id as given — that link was the user's to keep.
 static qint64 liveEquipmentId(QSqlDatabase& db, qint64 equipmentId)
 {
     if (equipmentId <= 0)

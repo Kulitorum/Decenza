@@ -437,7 +437,7 @@ private slots:
         QCOMPARE(m_settings.dye()->dyeBeanBaseData(), QString());
     }
 
-    void dyeBeanIdentityExcludedFromExport() {
+    void dyeBagAndEquipmentIdentityExcludedFromExport() {
         // Bean identity (incl. the Bean Base link) lives on the active bag, and
         // the grinder on the active equipment package, in the shot history
         // database and travel via the DB import path — the settings JSON must

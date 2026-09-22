@@ -16,7 +16,8 @@ clear-with-zero.
 
 ## update has reference semantics
 
-An edit applies to every bag and shot referencing the package — it is not a copy. Changing
+An edit applies to every bag and recipe referencing the package, and to its shots unless it forks
+(below) — it is not a copy. Changing
 `grinderBrand`/`grinderModel` re-derives `rpmAdjustable` from the registry.
 
 `update` always needs an existing `packageId`. An update can still produce a new id through the

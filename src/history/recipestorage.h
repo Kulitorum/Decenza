@@ -382,7 +382,7 @@ public:
     // the .cpp); updateRecipeFieldsStatic does the same for an equipmentId key.
     static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe);
     // Migration 41: repoint recipes still linked to a package a grinder edit
-    // retired (the fork used to move bags but not recipes). *healed = rows moved.
+    // retired (edits used to move bags but not recipes). *healed = rows moved.
     static bool healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed = nullptr);
     static Recipe loadRecipeStatic(QSqlDatabase& db, qint64 recipeId);
     // True when a recipeReady()-shaped map represents a row that no longer

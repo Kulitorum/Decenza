@@ -1067,6 +1067,7 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
         ShotRecord record;
         qint64 matchedBagId = -1;
         qint64 equipmentId = 0;
+        bool sameGrinder = false;
         if (!withTempDb(dbPath, "load_meta", [&](QSqlDatabase& db) {
             record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
             // Resolve the shot's bag (its bag_id link, or an identity match
@@ -1077,14 +1078,27 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
                 db, shotId, record.summary.beanBrand, record.summary.beanType);
             if (record.equipmentId > 0)
                 equipmentId = EquipmentStorage::currentPackageIdStatic(db, record.equipmentId);
+            // A fork can change the grinder itself (burrs, or a different
+            // model), and a grind number only means something on the grinder
+            // it was dialed on.
+            if (equipmentId > 0) {
+                const EquipmentItem g = EquipmentStorage::loadGrinderItemStatic(db, equipmentId);
+                auto same = [](const QString& a, const QString& b) {
+                    return a.trimmed().compare(b.trimmed(), Qt::CaseInsensitive) == 0;
+                };
+                sameGrinder = equipmentId == record.equipmentId
+                    || (same(g.brand, record.grinderBrand) && same(g.model, record.grinderModel)
+                        && same(g.burrs, record.grinderBurrs));
+            }
         })) {
             DIAG_WARN(STORAGE, "maincontroller") << "loadShotWithMetadata: Failed to open DB for shot" << shotId;
         }
 
         // Apply metadata on main thread (interacts with QML state and BLE)
         QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, matchedBagId, equipmentId,
-                                         record = std::move(record)]() {
-            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride, matchedBagId, equipmentId);
+                                         sameGrinder, record = std::move(record)]() {
+            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride, matchedBagId,
+                                                    equipmentId, sameGrinder);
         }, Qt::QueuedConnection);
     });
 
@@ -1093,7 +1107,7 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
 }
 
 void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride,
-                                             qint64 matchedBagId, qint64 equipmentId) {
+                                             qint64 matchedBagId, qint64 equipmentId, bool sameGrinder) {
     if (shotRecord.summary.id <= 0) {
         DIAG_WARN(STORAGE, "maincontroller") << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
         emit shotMetadataLoaded(shotId, false);
@@ -1127,14 +1141,26 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         m_settings->dye()->setDyeRoastDate(shotRecord.roastDate);
         m_settings->dye()->setDyeRoastLevel(shotRecord.roastLevel);
         // The grinder is the active equipment package; the dye grinder
-        // identity setters are only its display cache. Switch BEFORE the
-        // grind write, which also lands on the active package's last dial.
-        // A shot whose package was removed keeps the current equipment, and
-        // its grind is not restored: that number belongs to another grinder.
+        // identity setters are only its display cache. Switch BEFORE the dial
+        // writes, which also land on the active package's last dial. The dial
+        // is restored only onto the grinder it was dialed on; a shot with no
+        // package link predates packages and restores onto the current one.
         if (equipmentId > 0)
             m_settings->dye()->setActiveEquipmentId(equipmentId);
-        if (equipmentId > 0 || shotRecord.equipmentId <= 0)
+        if (sameGrinder || shotRecord.equipmentId <= 0) {
             m_settings->dye()->setDyeGrinderSetting(shotRecord.grinderSetting);
+            if (shotRecord.rpm > 0)
+                m_settings->dye()->setDyeGrinderRpm(static_cast<int>(shotRecord.rpm));
+        } else {
+            // One multi-arg call: the grind is free text, and chained .arg()
+            // would substitute into a "%n" the user typed.
+            const QString where = equipmentId > 0
+                ? QStringLiteral("now package %1, a different grinder").arg(equipmentId)
+                : QStringLiteral("no longer in inventory, so the equipment was not switched");
+            EQUIP_INFO_STDERR("Load", QStringLiteral("shot %1: grind \"%2\" was dialed on package %3, %4 - dial left unchanged")
+                                  .arg(QString::number(shotId), shotRecord.grinderSetting,
+                                       QString::number(shotRecord.equipmentId), where));
+        }
         m_settings->dye()->setDyeBarista(shotRecord.barista);
         // Bean Base link follows the shot's snapshot — and clears when the
         // shot was unlinked, so the previous bag's link can't leak onto a
@@ -1616,6 +1642,15 @@ void MainController::setupRecipeConnections() {
         const qint64 recipeEq = m_activeRecipe.value("equipmentId").toLongLong();
         if (recipeEq > 0 && m_settings->dye()->activeEquipmentId() != recipeEq)
             deactivateRecipe();
+    });
+    // Editing the active recipe's grinder forks its package and moves the recipe
+    // row with it; follow in the cache too, or the watcher above reads the edit
+    // as a switch away and deactivates. Arrives before the editor re-activates
+    // the result id (see EquipmentStorage::packageSuperseded).
+    connect(m_equipmentStorage, &EquipmentStorage::packageSuperseded, this,
+            [this](qint64 fromId, qint64 toId) {
+        if (m_activeRecipe.value("equipmentId").toLongLong() == fromId)
+            m_activeRecipe.insert(QStringLiteral("equipmentId"), toId);
     });
     // The steam pitcher and the water vessel are ingredients too (#1895): the
     // user picking a different one is making a different drink, not editing

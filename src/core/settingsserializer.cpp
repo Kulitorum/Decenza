@@ -881,9 +881,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // DYE metadata. Bean identity fields (beanBrand/beanType/roastDate/
     // roastLevel/beanBaseId/beanBaseData) and grinder fields (grinderBrand/
     // Model/Burrs/Setting) from legacy exports are skipped — they are
-    // read-throughs of the active bag and equipment package now, and writing
-    // them would mutate whatever bag or grinder happens to be active on this
-    // device. Both arrive via the database import instead.
+    // read-throughs of the active bag and equipment package now. Writing them
+    // would put another device's bean and grind into whatever bag and package
+    // are active here, and its grinder name over this one's. Both arrive via
+    // the database import instead.
     if (json.contains("dye") && !excludeKeys.contains("dye")) {
         QJsonObject dye = json["dye"].toObject();
         if (dye.contains("beanWeight")) settings->dye()->setDyeBeanWeight(dye["beanWeight"].toDouble());

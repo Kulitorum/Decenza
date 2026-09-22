@@ -2242,27 +2242,35 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
-    // Migration 41: a grinder edit that forked a package moved bags onto the
-    // fork but left recipes on the retired package, so activating one selected
-    // a package no longer in inventory. The fork now moves recipes too; this
-    // repairs the rows it missed. A data fix, so the bump is gated on it.
+    // Migration 41: a grinder edit that forked or merged a package moved bags
+    // onto the result but left recipes on the retired package, so activating one
+    // selected a package no longer in inventory. Edits now move recipes too; this
+    // repairs the rows they missed. Not reachable: a merged-away package with no
+    // shots was hard-deleted, and a recipe left on it has no successor to follow.
+    // A data fix, so the bump is gated on it.
     if (currentVersion >= 40 && currentVersion < 41) {
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 41 recipe equipment heal", 1);
         if (!txn.ok()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 41 could not start a transaction"
-                          " - will retry next launch";
+            EQUIP_WARN_STDERR("Migration", "41 could not start a transaction - will retry next launch");
         } else {
             qsizetype healed = 0;
-            const bool ok = RecipeStorage::healRetiredEquipmentLinksStatic(m_db, &healed)
-                && query.exec("DELETE FROM schema_version")
-                && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (41)"));
+            bool ok = RecipeStorage::healRetiredEquipmentLinksStatic(m_db, &healed);
+            if (ok) {
+                ok = query.exec("DELETE FROM schema_version")
+                    && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (41)"));
+                if (!ok)
+                    EQUIP_WARN_STDERR("Migration", QString("41 could not stamp the schema version: %1")
+                                                       .arg(query.lastError().text()));
+            }
             if (ok && txn.commit()) {
                 currentVersion = 41;
-                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 41 complete -" << healed
-                              << "recipe(s) moved off a retired equipment package";
+                EQUIP_INFO_STDERR("Migration", QString("41 complete - %1 recipe(s) moved off a retired "
+                                                       "equipment package").arg(healed));
             } else {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 41 incomplete - will retry next launch";
+                EQUIP_WARN_STDERR("Migration", QString("41 incomplete - will retry next launch%1")
+                                                   .arg(ok ? QStringLiteral(" (commit failed: %1)").arg(txn.commitError())
+                                                           : QString()));
             }
         }
     }

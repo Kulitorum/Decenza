@@ -785,8 +785,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     {"error", "Unknown settings key(s)"},
                     {"unknownKeys", QJsonArray::fromStringList(unknownKeys)}
                 };
-                // Grinder identity is the active equipment package, not a
-                // setting; these keys were accepted once and changed nothing.
+                // Removed in MCP 1.9.1: the equipment package owns the grinder.
                 for (const QString& k : std::as_const(unknownKeys)) {
                     if (k == "dyeGrinderBrand" || k == "dyeGrinderModel" || k == "dyeGrinderBurrs") {
                         err["hint"] = "The grinder is chosen through equipment packages: use the equipment tool to switch or edit it.";

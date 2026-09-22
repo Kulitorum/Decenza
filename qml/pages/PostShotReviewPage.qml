@@ -800,14 +800,16 @@ T.Page {
         Settings.dye.dyeBeanType = editBeanType
         Settings.dye.dyeRoastDate = editRoastDate
         Settings.dye.dyeRoastLevel = editRoastLevel
-        // The grinder is the active equipment package. A re-point made here
-        // carries forward; the grind then lands on that package's last dial,
-        // never on a different grinder's. (editShotData still holds the
-        // previously saved equipment — it is advanced after this call.)
+        // A re-point here becomes the active equipment (and the active bag's).
+        // The dial is written only when it belongs to the active package, or the
+        // shot has none. (editShotData still holds the previous equipment — it
+        // is advanced after this call.)
         if (editEquipmentId > 0 && editEquipmentId !== (editShotData.equipmentId || -1))
             Settings.dye.activeEquipmentId = editEquipmentId
-        if (editEquipmentId <= 0 || Settings.dye.activeEquipmentId === editEquipmentId)
+        if (editEquipmentId <= 0 || Settings.dye.activeEquipmentId === editEquipmentId) {
             Settings.dye.dyeGrinderSetting = editGrinderSetting
+            if (editRpm > 0) Settings.dye.dyeGrinderRpm = editRpm
+        }
         Settings.dye.dyeBarista = editBarista
         if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
         if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
@@ -2283,7 +2285,8 @@ T.Page {
     }
     // Re-point this shot's grinder to a different/new package. The picker
     // doesn't touch the active bag (applyToActiveBag:false); we resolve the
-    // chosen package and persist equipmentId here.
+    // chosen package and persist equipmentId here. On the most recent shot the
+    // save's runStickySync then makes it the active (and active bag's) package.
     SwitchEquipmentDialog {
         id: shotEquipmentDialog
         applyToActiveBag: false
