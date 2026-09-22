@@ -634,7 +634,8 @@ private:
 
     void applyAllSettings();
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
-                                 qint64 matchedBagId = -1);
+                                 qint64 matchedBagId = -1, qint64 equipmentId = 0,
+                                 bool sameGrinder = false);
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
     void applyHeaterTweaks();

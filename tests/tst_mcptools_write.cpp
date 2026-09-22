@@ -477,6 +477,26 @@ private slots:
         QVERIFY2(found, "steamTemperature should be in updated list");
     }
 
+    // The grinder is the equipment package's, not a setting. These keys were once
+    // accepted, reported as updated, and changed nothing; re-adding one to the
+    // schema must fail here rather than silently succeed again.
+    void settingsSetRejectsGrinderIdentityKeys()
+    {
+        McpTestFixture f;
+        registerTools(f);
+
+        const QString before = f.settings.dye()->dyeGrinderModel();
+        QJsonObject args;
+        args["dyeGrinderModel"] = "Not A Grinder";
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY(result.contains("error"));
+        QVERIFY(!result.contains("updated"));
+        QVERIFY(result["unknownKeys"].toArray().contains(QJsonValue("dyeGrinderModel")));
+        QVERIFY(result["hint"].toString().contains("equipment"));
+        QCOMPARE(f.settings.dye()->dyeGrinderModel(), before);
+    }
+
     // Verifies that settings_set persists visualizerAutoUpdate through the MCP
     // tool surface. Does NOT exercise the shots_update auto-update gate inside
     // the QMetaObject::invokeMethod lambda in registerWriteTools — that path

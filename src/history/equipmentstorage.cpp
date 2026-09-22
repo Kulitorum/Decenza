@@ -5,6 +5,7 @@
 #include "core/basketaliases.h"
 #include "core/puckprep.h"
 
+#include <QSet>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
@@ -494,10 +495,14 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
-        [this, resultId, success, failReason](bool) {
+        [this, packageId, resultId, success, failReason](bool) {
             // Reason first, so a listener can record it before the terminal status.
             if (!*success && !failReason->isEmpty())
                 emit packageUpdateFailed(*resultId, *failReason);
+            // Before packageUpdated: a surface that re-activates the result id on
+            // packageUpdated must find caches already following the fork.
+            if (*success && *resultId != packageId)
+                emit packageSuperseded(packageId, *resultId);
             emit packageUpdated(*resultId, *success);
             if (*success)
                 emit packagesChanged();
@@ -808,6 +813,23 @@ EquipmentPackage EquipmentStorage::loadPackageStatic(QSqlDatabase& db, qint64 pa
     if (!query.exec() || !query.next())
         return EquipmentPackage();
     return packageFromQueryRow(query);
+}
+
+qint64 EquipmentStorage::currentPackageIdStatic(QSqlDatabase& db, qint64 packageId)
+{
+    // Every non-enrichment edit adds a hop, so the chain is unbounded in length;
+    // the visited set only stops a cycle, which nothing should create.
+    QSet<qint64> visited;
+    while (packageId > 0 && !visited.contains(packageId)) {
+        visited.insert(packageId);
+        const EquipmentPackage pkg = loadPackageStatic(db, packageId);
+        if (!pkg.isValid())
+            return 0;
+        if (pkg.inInventory)
+            return pkg.id;
+        packageId = pkg.supersededBy;
+    }
+    return 0;
 }
 
 EquipmentItem EquipmentStorage::loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId)
@@ -1689,16 +1711,25 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         q.bindValue(":id", packageId);
         return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
     };
-    auto repointBags = [&](qint64 from, qint64 to) -> bool {
-        QSqlQuery q(db);
-        q.prepare("UPDATE coffee_bags SET equipment_id = :to WHERE equipment_id = :from");
-        q.bindValue(":to", to);
-        q.bindValue(":from", from);
-        if (!q.exec()) {
-            EQUIP_WARN_STDERR("Identity",
-                              QString("repoint bags failed: %1")
-                                  .arg(q.lastError().text()));
-            return false;
+    // Bags and recipes are live references and follow the package; shots are
+    // history and stay put. A table not created yet has no rows (see
+    // mergePackagesUnlockedStatic for why skipping it is legitimate).
+    const QStringList presentTables = db.tables();
+    auto repointLiveRefs = [&](qint64 from, qint64 to) -> bool {
+        for (const char* table : {"coffee_bags", "recipes"}) {
+            if (!presentTables.contains(QLatin1String(table)))
+                continue;
+            QSqlQuery q(db);
+            q.prepare(QString("UPDATE %1 SET equipment_id = :to WHERE equipment_id = :from")
+                          .arg(QLatin1String(table)));
+            q.bindValue(":to", to);
+            q.bindValue(":from", from);
+            if (!q.exec()) {
+                EQUIP_WARN_STDERR("Identity",
+                                  QString("repoint %1 failed: %2")
+                                      .arg(table, q.lastError().text()));
+                return false;
+            }
         }
         return true;
     };
@@ -1718,7 +1749,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     };
 
     // The whole identity edit must be atomic — a partial commit could repoint
-    // bags without retiring the old package (a duplicate live package). Wrap in a
+    // bags and recipes without retiring the old package (a duplicate live package). Wrap in a
     // transaction and roll back on any failure.
     //
     // Failure returns -1, NOT packageId. Both are "the package still has its old
@@ -1752,7 +1783,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
                                                                   basketBrand, basketModel, puck);
     if (mergeTarget > 0) {
-        if (!repointBags(packageId, mergeTarget))
+        if (!repointLiveRefs(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {
             // Inherit the lineage before the row goes: an older package may have
@@ -1828,7 +1859,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return editedId;
     }
 
-    // Used package: fork (copy name + last dial), repoint bags, retire the old.
+    // Used package: fork (copy name + last dial), repoint bags and recipes, retire the old.
     const EquipmentPackage old = loadPackageStatic(db, packageId);
     EquipmentPackage np;
     np.name = old.name;
@@ -1839,7 +1870,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
                                                         basketBrand, basketModel, puck);
     if (newId <= 0)
         return -1;  // fork failed; leave as-is
-    if (!repointBags(packageId, newId))
+    if (!repointLiveRefs(packageId, newId))
         return -1;
     if (!softDelete(packageId, newId))
         return -1;

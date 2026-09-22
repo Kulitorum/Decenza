@@ -313,13 +313,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     root["ai"] = ai;
 
     // DYE (Describe Your Espresso) metadata. Bean identity fields (brand,
-    // type, roast date/level, Bean Base link) are NOT exported — they are
-    // read-throughs of the active bag, and bags travel in the database.
+    // type, roast date/level, Bean Base link) and the grinder (identity and
+    // dial) are NOT exported — they are read-throughs of the active bag and
+    // equipment package, and both travel in the database.
     QJsonObject dye;
-    dye["grinderBrand"] = settings->dye()->dyeGrinderBrand();
-    dye["grinderModel"] = settings->dye()->dyeGrinderModel();
-    dye["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
-    dye["grinderSetting"] = settings->dye()->dyeGrinderSetting();
     dye["beanWeight"] = settings->dye()->dyeBeanWeight();
     dye["drinkWeight"] = settings->dye()->dyeDrinkWeight();
     // drinkTds/drinkEy are session-scratch (not persisted), so skip backup/restore.
@@ -882,16 +879,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     }
 
     // DYE metadata. Bean identity fields (beanBrand/beanType/roastDate/
-    // roastLevel/beanBaseId/beanBaseData) from legacy exports are skipped —
-    // they are read-throughs of the active bag now, and writing them would
-    // mutate whatever bag happens to be active on this device. Bag identity
-    // arrives via the database import instead.
+    // roastLevel/beanBaseId/beanBaseData) and grinder fields (grinderBrand/
+    // Model/Burrs/Setting) from legacy exports are skipped — they are
+    // read-throughs of the active bag and equipment package now. Writing them
+    // would put another device's bean and grind into whatever bag and package
+    // are active here, and its grinder name over this one's. Both arrive via
+    // the database import instead.
     if (json.contains("dye") && !excludeKeys.contains("dye")) {
         QJsonObject dye = json["dye"].toObject();
-        if (dye.contains("grinderBrand")) settings->dye()->setDyeGrinderBrand(dye["grinderBrand"].toString());
-        if (dye.contains("grinderModel")) settings->dye()->setDyeGrinderModel(dye["grinderModel"].toString());
-        if (dye.contains("grinderBurrs")) settings->dye()->setDyeGrinderBurrs(dye["grinderBurrs"].toString());
-        if (dye.contains("grinderSetting")) settings->dye()->setDyeGrinderSetting(dye["grinderSetting"].toString());
         if (dye.contains("beanWeight")) settings->dye()->setDyeBeanWeight(dye["beanWeight"].toDouble());
         if (dye.contains("drinkWeight")) settings->dye()->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
         // drinkTds/drinkEy are session-scratch (not persisted); ignore on restore.

@@ -202,6 +202,10 @@ public:
                                       EquipmentPackageView* view, QString* failReason,
                                       bool* reused = nullptr);
     static EquipmentPackage loadPackageStatic(QSqlDatabase& db, qint64 packageId);
+    // The in-inventory package `packageId` lives on as: itself, or the end of its
+    // superseded_by chain (an identity edit forks it, or merges it into another).
+    // 0 when the chain ends at a removed or missing package.
+    static qint64 currentPackageIdStatic(QSqlDatabase& db, qint64 packageId);
     static EquipmentItem loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId);
     // The package's basket item, or an invalid item (id == 0) when none.
     static EquipmentItem loadBasketItemStatic(QSqlDatabase& db, qint64 packageId);
@@ -236,17 +240,18 @@ public:
     // as active:
     //   - identity unchanged                      -> same id (no-op)
     //   - another in-inventory package matches     -> merge: repoint this
-    //       package's bags to it, delete this package if unused else soft-delete
+    //       package's bags and recipes to it, delete this package if unused else soft-delete
     //       it with superseded_by -> that id
     //   - package unused (no shots)                -> edit in place -> same id
     //   - every differing component was EMPTY      -> edit in place -> same id
     //       (enrichment: filling in gear the package always had, not a swap)
     //   - package used (>=1 shot)                  -> fork a new package (copies
-    //       name + last dial), repoint bags, soft-delete old (superseded_by) -> new id
+    //       name + last dial), repoint bags and recipes, soft-delete old (superseded_by) -> new id
     // Identity is the full (grinder brand/model/burrs + basket brand/model +
     // puckprep canonical flag string) tuple; "no basket" / "no puck prep" are
-    // distinct values. Bag repointing is done here; the active-equipment selection
-    // is the caller's to update from the returned id.
+    // distinct values. Bags and recipes are repointed here (shots never are: they
+    // keep the gear they were pulled with); the active-equipment selection is the
+    // caller's to update from the returned id.
     static qint64 supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
                                         const QString& brand, const QString& model,
                                         const QString& burrs,
@@ -407,6 +412,9 @@ signals:
     // not read alike).
     void packageUpdateFailed(qint64 packageId, const QString& reason);
     void packageDeleted(qint64 packageId, bool success);
+    // An update forked or merged `fromId` into `toId` (bags and recipes moved
+    // with it). Emitted immediately BEFORE packageUpdated(toId, true).
+    void packageSuperseded(qint64 fromId, qint64 toId);
     void packagesChanged();
 
 private:

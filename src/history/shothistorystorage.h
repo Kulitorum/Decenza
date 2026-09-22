@@ -83,7 +83,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 40;
+    static constexpr int kCurrentSchemaVersion = 41;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).

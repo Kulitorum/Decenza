@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "recipestorage.h"
 #include "coffeebagstorage.h"
+#include "equipmentstorage.h"
 #include "core/dbutils.h"
 #include "core/yieldspec.h"
 
@@ -921,8 +922,23 @@ Recipe RecipeStorage::recipeFromQueryRow(const QSqlQuery& query)
     return recipe;
 }
 
-qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe)
+// A grinder edit forks or merges its package and retires the old one. A recipe
+// linked to the retired id (promoted from an older shot, or an import) is stored
+// against its live successor instead. A chain ending at a removed package keeps
+// the id as given — that link was the user's to keep.
+static qint64 liveEquipmentId(QSqlDatabase& db, qint64 equipmentId)
 {
+    if (equipmentId <= 0)
+        return equipmentId;
+    const qint64 live = EquipmentStorage::currentPackageIdStatic(db, equipmentId);
+    return live > 0 ? live : equipmentId;
+}
+
+qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input)
+{
+    Recipe recipe = input;
+    recipe.equipmentId = liveEquipmentId(db, recipe.equipmentId);
+
     // Column list, placeholders, and binds all derived from the writable
     // columns of kCols, in table order — adding a column needs no edit here.
     QStringList columns, placeholders;
@@ -946,6 +962,43 @@ qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe)
         return -1;
     }
     return query.lastInsertId().toLongLong();
+}
+
+bool RecipeStorage::healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed)
+{
+    if (healed)
+        *healed = 0;
+    if (!db.tables().contains(QStringLiteral("recipes")))
+        return true;  // table not created yet: nothing linked
+    QSqlQuery query(db);
+    if (!query.exec("SELECT r.id, r.equipment_id FROM recipes r "
+                    "JOIN equipment_packages p ON p.id = r.equipment_id "
+                    "WHERE p.in_inventory = 0 AND p.superseded_by IS NOT NULL")) {
+        DIAG_WARN(RECIPES, "RecipeStorage") << "retired-equipment heal query failed:" << query.lastError().text();
+        return false;
+    }
+    QVector<QPair<qint64, qint64>> moves;
+    while (query.next()) {
+        const qint64 from = query.value(1).toLongLong();
+        const qint64 to = liveEquipmentId(db, from);
+        if (to != from)
+            moves.append({query.value(0).toLongLong(), to});
+    }
+    query.finish();
+    for (const auto& [recipeId, to] : std::as_const(moves)) {
+        QSqlQuery upd(db);
+        upd.prepare("UPDATE recipes SET equipment_id = ? WHERE id = ?");
+        upd.addBindValue(to);
+        upd.addBindValue(recipeId);
+        if (!upd.exec()) {
+            DIAG_WARN(RECIPES, "RecipeStorage") << "retired-equipment heal failed for recipe" << recipeId
+                                                << ":" << upd.lastError().text();
+            return false;
+        }
+    }
+    if (healed)
+        *healed = moves.size();
+    return true;
 }
 
 Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
@@ -1093,6 +1146,8 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
         // NULL-collapsing (empty string / 0 -> NULL) matches insert exactly.
         Recipe scratch;
         col->set(scratch, it.value());
+        if (it.key() == QLatin1String("equipmentId"))
+            scratch.equipmentId = liveEquipmentId(db, scratch.equipmentId);
         assignments << QString("%1 = ?").arg(QLatin1String(col->sql));
         values << col->bind(scratch);
     }
