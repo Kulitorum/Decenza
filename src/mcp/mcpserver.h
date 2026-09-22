@@ -108,7 +108,9 @@ struct PendingConfirmation {
 // 1.9.0: Brew Settings parity — settings_set brew overrides (no profile edit), settings_get
 // brew state, profiles_edit_params espressoTemperature, equipment create; machine_start drops
 // brew arguments.
-inline constexpr const char* McpSurfaceVersion = "1.9.0";
+// 1.9.1: settings_set drops dyeGrinderBrand/Model/Burrs, which never changed the grinder
+// (the equipment package owns it); sending one now errors with a pointer to `equipment`.
+inline constexpr const char* McpSurfaceVersion = "1.9.1";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";

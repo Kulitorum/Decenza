@@ -1703,16 +1703,25 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         q.bindValue(":id", packageId);
         return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
     };
-    auto repointBags = [&](qint64 from, qint64 to) -> bool {
-        QSqlQuery q(db);
-        q.prepare("UPDATE coffee_bags SET equipment_id = :to WHERE equipment_id = :from");
-        q.bindValue(":to", to);
-        q.bindValue(":from", from);
-        if (!q.exec()) {
-            EQUIP_WARN_STDERR("Identity",
-                              QString("repoint bags failed: %1")
-                                  .arg(q.lastError().text()));
-            return false;
+    // Bags and recipes are live references and follow the package; shots are
+    // history and stay put. A table not created yet has no rows (see the
+    // merge's repoint for why that is legitimate).
+    const QStringList presentTables = db.tables();
+    auto repointLiveRefs = [&](qint64 from, qint64 to) -> bool {
+        for (const char* table : {"coffee_bags", "recipes"}) {
+            if (!presentTables.contains(QLatin1String(table)))
+                continue;
+            QSqlQuery q(db);
+            q.prepare(QString("UPDATE %1 SET equipment_id = :to WHERE equipment_id = :from")
+                          .arg(QLatin1String(table)));
+            q.bindValue(":to", to);
+            q.bindValue(":from", from);
+            if (!q.exec()) {
+                EQUIP_WARN_STDERR("Identity",
+                                  QString("repoint %1 failed: %2")
+                                      .arg(table, q.lastError().text()));
+                return false;
+            }
         }
         return true;
     };
@@ -1766,7 +1775,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
                                                                   basketBrand, basketModel, puck);
     if (mergeTarget > 0) {
-        if (!repointBags(packageId, mergeTarget))
+        if (!repointLiveRefs(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {
             // Inherit the lineage before the row goes: an older package may have
@@ -1853,7 +1862,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
                                                         basketBrand, basketModel, puck);
     if (newId <= 0)
         return -1;  // fork failed; leave as-is
-    if (!repointBags(packageId, newId))
+    if (!repointLiveRefs(packageId, newId))
         return -1;
     if (!softDelete(packageId, newId))
         return -1;

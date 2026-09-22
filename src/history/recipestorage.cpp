@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "recipestorage.h"
 #include "coffeebagstorage.h"
+#include "equipmentstorage.h"
 #include "core/dbutils.h"
 #include "core/yieldspec.h"
 
@@ -955,7 +956,17 @@ Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
     query.bindValue(":id", recipeId);
     if (!query.exec() || !query.next())
         return Recipe();
-    return recipeFromQueryRow(query);
+    Recipe recipe = recipeFromQueryRow(query);
+    // A grinder edit forks the package; a recipe linked before the fork (or
+    // promoted from an older shot) still names the retired one. Read it as
+    // the live fork so activation never selects a retired package. A removed
+    // package stays as stored — that link was the user's to keep.
+    if (recipe.equipmentId > 0) {
+        const qint64 live = EquipmentStorage::currentPackageIdStatic(db, recipe.equipmentId);
+        if (live > 0)
+            recipe.equipmentId = live;
+    }
+    return recipe;
 }
 
 // static

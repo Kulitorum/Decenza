@@ -629,9 +629,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"dyeBeanType", QJsonObject{{"type", "string"}, {"description", "Bean type/name"}}},
                 {"dyeRoastDate", QJsonObject{{"type", "string"}, {"description", "Roast date"}}},
                 {"dyeRoastLevel", QJsonObject{{"type", "string"}, {"description", "Roast level"}}},
-                {"dyeGrinderBrand", QJsonObject{{"type", "string"}, {"description", "Grinder brand"}}},
-                {"dyeGrinderModel", QJsonObject{{"type", "string"}, {"description", "Grinder model"}}},
-                {"dyeGrinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs"}}},
                 {"dyeGrinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"dyeGrinderRpm", QJsonObject{{"type", "integer"}, {"description", "Grinder motor RPM (variable-RPM grinders); the second half of the dial-in alongside dyeGrinderSetting"}}},
                 {"dyeBeanWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}},
@@ -784,10 +781,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     unknownKeys.append(it.key());
             }
             if (!unknownKeys.isEmpty()) {
-                respond(QJsonObject{
+                QJsonObject err{
                     {"error", "Unknown settings key(s)"},
                     {"unknownKeys", QJsonArray::fromStringList(unknownKeys)}
-                });
+                };
+                // Grinder identity is the active equipment package, not a
+                // setting; these keys were accepted once and changed nothing.
+                for (const QString& k : std::as_const(unknownKeys)) {
+                    if (k == "dyeGrinderBrand" || k == "dyeGrinderModel" || k == "dyeGrinderBurrs") {
+                        err["hint"] = "The grinder is chosen through equipment packages: use the equipment tool to switch or edit it.";
+                        break;
+                    }
+                }
+                respond(err);
                 return;
             }
 
@@ -982,21 +988,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 QString v = args["dyeRoastLevel"].toString();
                 addSetter([settings, v]() { settings->dye()->setDyeRoastLevel(v); });
                 updated << "dyeRoastLevel";
-            }
-            if (args.contains("dyeGrinderBrand")) {
-                QString v = args["dyeGrinderBrand"].toString();
-                addSetter([settings, v]() { settings->dye()->setDyeGrinderBrand(v); });
-                updated << "dyeGrinderBrand";
-            }
-            if (args.contains("dyeGrinderModel")) {
-                QString v = args["dyeGrinderModel"].toString();
-                addSetter([settings, v]() { settings->dye()->setDyeGrinderModel(v); });
-                updated << "dyeGrinderModel";
-            }
-            if (args.contains("dyeGrinderBurrs")) {
-                QString v = args["dyeGrinderBurrs"].toString();
-                addSetter([settings, v]() { settings->dye()->setDyeGrinderBurrs(v); });
-                updated << "dyeGrinderBurrs";
             }
             if (args.contains("dyeGrinderSetting")) {
                 QString v = args["dyeGrinderSetting"].toString();

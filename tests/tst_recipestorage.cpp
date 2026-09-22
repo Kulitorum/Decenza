@@ -10,6 +10,7 @@
 
 #include "history/recipestorage.h"
 #include "history/coffeebagstorage.h"
+#include "history/equipmentstorage.h"
 #include "shotrowfixtures.h"
 
 // Recipe storage (add-recipes, recipes-bag-links-ui-polish): CRUD statics,
@@ -367,6 +368,38 @@ private slots:
             QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "filter"), qint64(0));
             QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "latte"), qint64(0));
             QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, ""), qint64(0));
+        });
+    }
+
+    // A grinder edit that forks the package must carry recipes with it, like
+    // bags: activation reads recipe.equipmentId and would otherwise select the
+    // retired package. A row written before that repoint existed (or promoted
+    // from an older shot) is read as the live fork.
+    void recipeFollowsGrinderFork() {
+        withRawDb(freshDbPath(), "recipe_fork", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(QSqlQuery(db).exec("CREATE TABLE shots (id INTEGER PRIMARY KEY, equipment_id INTEGER)"));
+
+            EquipmentPackage base;
+            const qint64 P = EquipmentStorage::createPackageWithGrinderStatic(db, base, "Turin", "DF83V", "83mm flat steel");
+            QVERIFY(QSqlQuery(db).exec(QString("INSERT INTO shots (equipment_id) VALUES (%1)").arg(P)));
+            Recipe r = sampleRecipe();
+            r.equipmentId = P;
+            const qint64 linked = RecipeStorage::insertRecipeStatic(db, r);
+            r.name = "Stale link";
+            const qint64 stale = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(linked > 0 && stale > 0);
+
+            const qint64 fork = EquipmentStorage::supersedeOrEditGrinderStatic(db, P, "Turin", "DF83V", "83mm DLC flat");
+            QVERIFY(fork > 0 && fork != P);
+            QSqlQuery stored(db);
+            QVERIFY(stored.exec(QString("SELECT equipment_id FROM recipes WHERE id = %1").arg(linked)));
+            QVERIFY(stored.next());
+            QCOMPARE(stored.value(0).toLongLong(), fork);
+
+            QVERIFY(QSqlQuery(db).exec(QString("UPDATE recipes SET equipment_id = %1 WHERE id = %2").arg(P).arg(stale)));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, stale).equipmentId, fork);
         });
     }
 

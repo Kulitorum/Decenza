@@ -438,10 +438,11 @@ private slots:
     }
 
     void dyeBeanIdentityExcludedFromExport() {
-        // Bean identity (incl. the Bean Base link) lives on the active bag in
-        // the shot history database and travels via the DB import path — the
-        // settings JSON must not carry it (importing it on another device
-        // would write through into whatever bag is active there).
+        // Bean identity (incl. the Bean Base link) lives on the active bag, and
+        // the grinder on the active equipment package, in the shot history
+        // database and travel via the DB import path — the settings JSON must
+        // not carry them (importing them on another device would write
+        // through into whatever bag or grinder is active there).
         m_settings.dye()->setDyeBeanBaseId("abc-123");
         m_settings.dye()->setDyeBeanBaseData("{\"id\":\"abc-123\"}");
         const QJsonObject exported = SettingsSerializer::exportToJson(&m_settings, false);
@@ -453,19 +454,29 @@ private slots:
         QVERIFY(!dye.contains("roastLevel"));
         QVERIFY(!dye.contains("beanBaseId"));
         QVERIFY(!dye.contains("beanBaseData"));
+        QVERIFY(!dye.contains("grinderBrand"));
+        QVERIFY(!dye.contains("grinderModel"));
+        QVERIFY(!dye.contains("grinderBurrs"));
+        QVERIFY(!dye.contains("grinderSetting"));
         QVERIFY(!exported.contains("beans"));
 
         // Importing a legacy export's dye section must not touch the link.
         m_settings.dye()->setDyeBeanBaseId("keep-me");
+        const QString grinderBefore = m_settings.dye()->dyeGrinderModel();
+        const QString grindBefore = m_settings.dye()->dyeGrinderSetting();
         QJsonObject legacy = exported;
         QJsonObject legacyDye = legacy["dye"].toObject();
         legacyDye["beanBaseId"] = "stale-id";
         legacyDye["beanBrand"] = "Stale Roaster";
+        legacyDye["grinderModel"] = "Stale Grinder";
+        legacyDye["grinderSetting"] = "stale-grind";
         legacy["dye"] = legacyDye;
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         SettingsSerializer::importFromJson(&m_settings, legacy);
         QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("keep-me"));
+        QCOMPARE(m_settings.dye()->dyeGrinderModel(), grinderBefore);
+        QCOMPARE(m_settings.dye()->dyeGrinderSetting(), grindBefore);
 
         m_settings.dye()->clearBeanBaseLink();
     }

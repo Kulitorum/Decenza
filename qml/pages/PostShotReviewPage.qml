@@ -800,10 +800,14 @@ T.Page {
         Settings.dye.dyeBeanType = editBeanType
         Settings.dye.dyeRoastDate = editRoastDate
         Settings.dye.dyeRoastLevel = editRoastLevel
-        Settings.dye.dyeGrinderBrand = editGrinderBrand
-        Settings.dye.dyeGrinderModel = editGrinderModel
-        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
-        Settings.dye.dyeGrinderSetting = editGrinderSetting
+        // The grinder is the active equipment package. A re-point made here
+        // carries forward; the grind then lands on that package's last dial,
+        // never on a different grinder's. (editShotData still holds the
+        // previously saved equipment — it is advanced after this call.)
+        if (editEquipmentId > 0 && editEquipmentId !== (editShotData.equipmentId || -1))
+            Settings.dye.activeEquipmentId = editEquipmentId
+        if (editEquipmentId <= 0 || Settings.dye.activeEquipmentId === editEquipmentId)
+            Settings.dye.dyeGrinderSetting = editGrinderSetting
         Settings.dye.dyeBarista = editBarista
         if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
         if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
