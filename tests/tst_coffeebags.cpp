@@ -1987,6 +1987,7 @@ private slots:
         SettingsDye dye;
         dye.setBagStorage(&storage);
         QSignalSpy appliedSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
+        QSignalSpy changedSpy(&dye, &SettingsDye::activeBagYieldSpecChanged);
         QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
 
         dye.setActiveBagId(static_cast<int>(bagA));
@@ -2000,12 +2001,15 @@ private slots:
         QCOMPARE(appliedSpy.count(), 1);
         QCOMPARE(dye.activeBagYieldValue(), 42.0);
 
-        // An external yield edit still lands in the cache — silently.
+        // An external yield edit still lands in the cache — and its NOTIFY
+        // still fires, which is what Update Bag's enable-gate binds to.
+        const qsizetype changedBefore = changedSpy.count();
         storage.requestUpdateBag(bagA, {{QStringLiteral("yieldValue"), 50.0},
                                         {QStringLiteral("yieldMode"), QStringLiteral("absolute")}});
         QTRY_COMPARE(readySpy.count(), 3);
         QCOMPARE(appliedSpy.count(), 1);
         QCOMPARE(dye.activeBagYieldValue(), 50.0);
+        QVERIFY(changedSpy.count() > changedBefore);
 
         // A bag CHANGE arms, in both directions.
         dye.setActiveBagId(static_cast<int>(bagB));
@@ -2015,16 +2019,30 @@ private slots:
         QTRY_COMPARE(appliedSpy.count(), 3);
         QCOMPARE(appliedSpy.last().at(0).toDouble(), 50.0);
 
+        // Two switches before the first row lands: B's row is dropped as stale
+        // and A's must still apply as a switch — the activeBagIdChanged clear
+        // has already wiped the session anchor.
+        dye.setActiveBagId(static_cast<int>(bagB));
+        dye.setActiveBagId(static_cast<int>(bagA));
+        QTRY_COMPARE(readySpy.count(), 7);
+        QCOMPARE(appliedSpy.count(), 4);
+
+        // A historical-shot load with no matched bag drops the link
+        // keep-fields; re-selecting the bag afterwards is a switch.
+        dye.setActiveBagKeepFields(-1);
+        dye.setActiveBagId(static_cast<int>(bagA));
+        QTRY_COMPARE(appliedSpy.count(), 5);
+        QCOMPARE(appliedSpy.last().at(0).toDouble(), 50.0);
+
         drainDbWork(storage);
         clearDyeSettings();
     }
 
     // Recipe activation applies the recipe's package over a bag selected
-    // keep-fields, and the bag does not always adopt it (the package was
-    // already active, or the row could not reference it). The same-bag reload
-    // that follows must then leave the active package alone — a row with no
-    // package says nothing about the grinder — or the equipment watcher
-    // deactivates the recipe after every shot.
+    // keep-fields; a package that is already active is never written onto the
+    // row, so the row may name none or another package. The same-bag reload
+    // that follows must leave the active package alone, or the equipment
+    // watcher deactivates the recipe after every shot.
     void settingsDyeSameBagReloadKeepsEquipment() {
         clearDyeSettings();
 
@@ -2042,6 +2060,7 @@ private slots:
         SettingsDye dye;
         dye.setBagStorage(&storage);
         QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
+        QSignalSpy appliedSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
 
         // The recipe's package is active before its bag is selected keep-fields,
         // so nothing writes the package onto the row.
@@ -2050,15 +2069,23 @@ private slots:
         QTRY_COMPARE(readySpy.count(), 1);
         QCOMPARE(dye.activeEquipmentId(), 26);
 
-        // The post-shot stamp reloads the row: its empty package must not win.
+        // The post-shot stamp reloads the row: its empty package must not win,
+        // and the bag's yield is not armed over the recipe's either.
         storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("doseWeightG"), 18.0}});
         QTRY_COMPARE(readySpy.count(), 2);
         QCOMPARE(dye.activeEquipmentId(), 26);
+        QCOMPARE(appliedSpy.count(), 0);
 
         // A real switch to a package-less bag still follows the row.
         dye.setActiveBagId(-1);
         dye.setActiveBagId(static_cast<int>(bagNoPackage));
         QTRY_COMPARE(readySpy.count(), 3);
+        QVERIFY(dye.activeEquipmentId() <= 0);
+
+        // A same-bag reload never moves the equipment, even when the row now
+        // names a package: the bag dialog sets the active equipment itself.
+        storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("equipmentId"), 30}});
+        QTRY_COMPARE(readySpy.count(), 4);
         QVERIFY(dye.activeEquipmentId() <= 0);
 
         drainDbWork(storage);
