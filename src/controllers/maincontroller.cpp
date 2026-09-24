@@ -494,8 +494,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->clearBrewOverrides();
     });
 
-    // A user bean switch carries the bag's yield spec (fires only from
-    // applyActiveBag, never on a keep-fields historical/favorite load). It
+    // A user bean switch carries the bag's yield spec (fires only when the
+    // applied bag's id changes — never on a keep-fields historical/favorite
+    // load, and never on a same-bag reload such as the post-shot dose stamp,
+    // which used to re-arm the bag's yield over the session's, #1960). It
     // arrives after the clear-to-profile reset above, so a bag with a saved
     // anchor re-establishes it (idle brew-settings widget turns yellow); a
     // bag whose mode is "none" leaves the brew at the profile default the

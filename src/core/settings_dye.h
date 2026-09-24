@@ -441,6 +441,12 @@ private:
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
+    // The bag whose row was last applied. applyActiveBag treats a row for a
+    // different id as a switch and a reload of the SAME bag — the post-shot
+    // dose stamp, a bag-dialog or MCP edit — as a cache refresh: it neither
+    // re-arms the bag's yield over the session override nor lets a
+    // package-less row clear the active equipment (#1960).
+    int m_appliedBagId = -1;
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;
     QString m_activeBagStorageHint;

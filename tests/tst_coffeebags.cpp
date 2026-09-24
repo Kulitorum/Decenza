@@ -1962,6 +1962,109 @@ private slots:
         clearDyeSettings();
     }
 
+    // A reload of the SAME active bag (post-shot dose stamp, bag-dialog or MCP
+    // edit) refreshes the yield cache but must NOT re-arm the session anchor:
+    // that is how a Brew Settings 52 g went back to the bag's 42 g after every
+    // shot (#1960). Only a bag CHANGE arms it.
+    void settingsDyeSameBagReloadDoesNotRearmYield() {
+        clearDyeSettings();
+
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        qint64 bagA = -1, bagB = -1;
+        withRawDb(path, "rearm_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "A";
+            a.yieldValue = 42.0; a.yieldMode = QStringLiteral("absolute");
+            bagA = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "B";
+            b.yieldValue = 36.0; b.yieldMode = QStringLiteral("absolute");
+            bagB = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagA > 0 && bagB > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+        QSignalSpy appliedSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
+        QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
+
+        dye.setActiveBagId(static_cast<int>(bagA));
+        QTRY_COMPARE(appliedSpy.count(), 1);
+        QCOMPARE(readySpy.count(), 1);
+
+        // The post-shot stamp: an external write to the active bag, not one of
+        // SettingsDye's own, so the bagUpdated handler reloads the row.
+        storage.requestUpdateBag(bagA, {{QStringLiteral("doseWeightG"), 18.0}});
+        QTRY_COMPARE(readySpy.count(), 2);
+        QCOMPARE(appliedSpy.count(), 1);
+        QCOMPARE(dye.activeBagYieldValue(), 42.0);
+
+        // An external yield edit still lands in the cache — silently.
+        storage.requestUpdateBag(bagA, {{QStringLiteral("yieldValue"), 50.0},
+                                        {QStringLiteral("yieldMode"), QStringLiteral("absolute")}});
+        QTRY_COMPARE(readySpy.count(), 3);
+        QCOMPARE(appliedSpy.count(), 1);
+        QCOMPARE(dye.activeBagYieldValue(), 50.0);
+
+        // A bag CHANGE arms, in both directions.
+        dye.setActiveBagId(static_cast<int>(bagB));
+        QTRY_COMPARE(appliedSpy.count(), 2);
+        QCOMPARE(appliedSpy.last().at(0).toDouble(), 36.0);
+        dye.setActiveBagId(static_cast<int>(bagA));
+        QTRY_COMPARE(appliedSpy.count(), 3);
+        QCOMPARE(appliedSpy.last().at(0).toDouble(), 50.0);
+
+        drainDbWork(storage);
+        clearDyeSettings();
+    }
+
+    // Recipe activation applies the recipe's package over a bag selected
+    // keep-fields, and the bag does not always adopt it (the package was
+    // already active, or the row could not reference it). The same-bag reload
+    // that follows must then leave the active package alone — a row with no
+    // package says nothing about the grinder — or the equipment watcher
+    // deactivates the recipe after every shot.
+    void settingsDyeSameBagReloadKeepsEquipment() {
+        clearDyeSettings();
+
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        qint64 bagNoPackage = -1;
+        withRawDb(path, "keep_equipment_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "No package";
+            bagNoPackage = CoffeeBagStorage::insertBagStatic(db, a);
+        });
+        QVERIFY(bagNoPackage > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+        QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
+
+        // The recipe's package is active before its bag is selected keep-fields,
+        // so nothing writes the package onto the row.
+        dye.setActiveEquipmentId(26);
+        dye.setActiveBagKeepFields(static_cast<int>(bagNoPackage));
+        QTRY_COMPARE(readySpy.count(), 1);
+        QCOMPARE(dye.activeEquipmentId(), 26);
+
+        // The post-shot stamp reloads the row: its empty package must not win.
+        storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("doseWeightG"), 18.0}});
+        QTRY_COMPARE(readySpy.count(), 2);
+        QCOMPARE(dye.activeEquipmentId(), 26);
+
+        // A real switch to a package-less bag still follows the row.
+        dye.setActiveBagId(-1);
+        dye.setActiveBagId(static_cast<int>(bagNoPackage));
+        QTRY_COMPARE(readySpy.count(), 3);
+        QVERIFY(dye.activeEquipmentId() <= 0);
+
+        drainDbWork(storage);
+        clearDyeSettings();
+    }
+
     // The dose ladder (dose-source-precedence): recipe → bag → profile, resolved
     // by SettingsDye::doseOwner(). Drives the real async bag apply, so the bag
     // rung is armed the way a bag selection actually arms it.

@@ -94,6 +94,7 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     const double keptDose = bag.value("doseWeightG", 0.0).toDouble();
                     m_activeBagDoseG = keptDose > 0 ? keptDose : 0;
                     m_activeBagDoseResolved = true;
+                    m_appliedBagId = activeBagId();
                     return;
                 }
                 applyActiveBag(bag);
@@ -765,6 +766,7 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_activeBagYieldMode = QStringLiteral("none");
         m_activeBagDoseG = 0;           // no bag → no rung, and nothing to wait for
         m_activeBagDoseResolved = true;
+        m_appliedBagId = -1;
         emit activeBagYieldSpecChanged();
         emit activeBagChanged();
         return;
@@ -801,6 +803,7 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_activeBagYieldMode = QStringLiteral("none");
         m_activeBagDoseG = 0;           // no bag → no rung, and nothing to wait for
         m_activeBagDoseResolved = true;
+        m_appliedBagId = -1;
         emit activeBagYieldSpecChanged();
         emit activeBagIdChanged();
         emit activeBagChanged();
@@ -820,6 +823,12 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
 
 void SettingsDye::applyActiveBag(const QVariantMap& bag)
 {
+    // A bag CHANGE applies the row as a switch; a reload of the same bag (the
+    // post-shot dose stamp, a bag-dialog or MCP edit) refreshes the cache and
+    // leaves what only a switch may change alone (#1960).
+    const bool bagChanged = m_appliedBagId != activeBagId();
+    m_appliedBagId = activeBagId();
+
     // Guard suppresses the setters' write-through — these values just came
     // FROM the bag.
     m_applyingBag = true;
@@ -838,7 +847,15 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     // bag's bean-scoped dial-in; apply when present (a fresh bag with none keeps
     // the current dial and adopts it on the next edit / shot stamp). Guarded by
     // m_applyingBag so none of this writes back to the bag/package.
-    setActiveEquipmentId(bag.value("equipmentId", -1).toLongLong());
+    //
+    // A row with NO package says nothing about the grinder, so on a same-bag
+    // reload it must not clear the active one: a recipe's package is applied
+    // over its bag at activation without the bag adopting it (already-active
+    // package, or one the row could not reference), and clearing it here
+    // deactivated the recipe through the equipment watcher after every shot.
+    const qint64 bagEquipmentId = bag.value("equipmentId", -1).toLongLong();
+    if (bagChanged || bagEquipmentId > 0)
+        setActiveEquipmentId(bagEquipmentId);
     const QString grindSetting = bag.value("grinderSetting").toString();
     if (!grindSetting.isEmpty())
         setDyeGrinderSetting(grindSetting);
@@ -882,12 +899,15 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     // MainController applies it on top of the switch's clear-to-profile
     // reset — gated there on no recipe being active (the ladder: recipe
     // outranks bag). mode "none" → the brew stays at the profile default.
+    // Only a bag CHANGE arms the session; a reload of the same bag keeps the
+    // cache truthful and leaves the session anchor alone (m_appliedBagId).
     m_activeBagYieldValue = bag.value("yieldValue", 0.0).toDouble();
     m_activeBagYieldMode = YieldSpec::normalizedMode(bag.value("yieldMode").toString());
     if (m_activeBagYieldValue <= 0)
         m_activeBagYieldMode = YieldSpec::modeNone();
     emit activeBagYieldSpecChanged();
-    emit activeBagYieldSpecApplied(m_activeBagYieldValue, m_activeBagYieldMode);
+    if (bagChanged)
+        emit activeBagYieldSpecApplied(m_activeBagYieldValue, m_activeBagYieldMode);
 }
 
 void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
