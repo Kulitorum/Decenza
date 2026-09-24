@@ -21,7 +21,6 @@ public slots:
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
-    void sendKeepAlive() override;
     void sleep() override;
     void wake() override { enableLcd(); }
 
@@ -41,6 +40,7 @@ private slots:
 
 private:
     void sendCommand(uint8_t cmd);
+    void sendCommand(uint8_t cmd, ScaleBleTransport::WriteType writeType);
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Skale";

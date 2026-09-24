@@ -149,6 +149,13 @@ void SkaleScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUui
 }
 
 void SkaleScale::sendCommand(uint8_t cmd) {
+    // Unacknowledged, as decaid writes every Skale2 command
+    // (decaid skale2_scale.dart:207-211). An acknowledged write the scale leaves
+    // unanswered blocks every later request on Android until the link drops (#1965).
+    sendCommand(cmd, ScaleBleTransport::WriteType::WithoutResponse);
+}
+
+void SkaleScale::sendCommand(uint8_t cmd, ScaleBleTransport::WriteType writeType) {
     if (!m_transport || !m_characteristicsReady) {
         SKALE_LOG(QString("sendCommand(0x%1) - transport not ready, skipping")
                   .arg(cmd, 2, 16, QChar('0')));
@@ -158,15 +165,7 @@ void SkaleScale::sendCommand(uint8_t cmd) {
     SKALE_LOG(QString("sendCommand(0x%1)").arg(cmd, 2, 16, QChar('0')));
     QByteArray packet;
     packet.append(static_cast<char>(cmd));
-    m_transport->writeCharacteristic(Scale::Skale::SERVICE, Scale::Skale::CMD, packet);
-}
-
-void SkaleScale::sendKeepAlive() {
-    // Skale-only exception to #1092; see #1896.
-    if (m_transport && m_characteristicsReady) {
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::WEIGHT);
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::BUTTON);
-    }
+    m_transport->writeCharacteristic(Scale::Skale::SERVICE, Scale::Skale::CMD, packet, writeType);
 }
 
 void SkaleScale::tare() {
@@ -198,7 +197,9 @@ void SkaleScale::sleep() {
     connect(m_transport, &ScaleBleTransport::characteristicWritten,
             this, [this]() { emit sleepCompleted(); },
             Qt::SingleShotConnection);
-    disableLcd();
+    // Acknowledged: sleepCompleted waits for the ACK, and BlueZ and WinRT report
+    // none for an unacknowledged write.
+    sendCommand(0xEE, ScaleBleTransport::WriteType::WithResponse);
 }
 
 void SkaleScale::disableLcd() {
