@@ -62,12 +62,20 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!--
+        gwpAsanMode="always" (Android 11+; older devices ignore it): a small
+        random sample of heap allocations is guarded, so a use-after-free or
+        overflow on one of them crashes at the bad access, and the tombstone
+        names where that memory was allocated and freed. Crashes we could only
+        see as a victim (#1927, #1937, #1963) become ones that name the culprit.
+    -->
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
         android:label="Decenza"
         android:icon="@mipmap/icon"
         android:theme="@style/AppTheme"
-        android:allowBackup="true">
+        android:allowBackup="true"
+        android:gwpAsanMode="always">
 
         <activity
             android:name="io.github.kulitorum.decenza_de1.DecenzaActivity"
