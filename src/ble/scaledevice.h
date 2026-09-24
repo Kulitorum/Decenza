@@ -84,7 +84,7 @@ public slots:
     virtual void sleep() { emit sleepCompleted(); }  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
-    virtual void sendKeepAlive() {}  // Override to send BLE keepalive (e.g., re-enable notifications)
+    virtual void sendKeepAlive() {}  // Periodic 30 s hook; do not rewrite CCCDs here (#1092, #1965)
     virtual void startFirmwareUpdate(const QString& targetVersion) { Q_UNUSED(targetVersion); }
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes

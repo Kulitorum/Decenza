@@ -354,7 +354,7 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
         //            backend does not even queue the request
         //            (qlowenergycontroller_bluez.cpp:2704-2709).
         //   WinRT    does not: `if (writeWithResponse)`
-        //            (qlowenergycontroller_winrt.cpp:1654-1657).
+        //            (qlowenergycontroller_winrt.cpp:1620-1623).
         //
         // So this HAS to be a platform split, and an earlier version of this
         // code got it wrong in the dangerous direction: it cited the Android

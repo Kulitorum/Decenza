@@ -149,9 +149,10 @@ void SkaleScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUui
 }
 
 void SkaleScale::sendCommand(uint8_t cmd) {
-    // Unacknowledged, as decaid writes every Skale2 command
-    // (decaid skale2_scale.dart:207-211). An acknowledged write the scale leaves
-    // unanswered blocks every later request on Android until the link drops (#1965).
+    // Unacknowledged, as decaid sends every Skale2 command (skale2_scale.dart
+    // _safeWrite, :207-211). If the Skale leaves an acknowledged request
+    // unanswered, Android refuses every later request until the link drops
+    // (#1965; QtBluetoothLE.java:69, :1699 -> :1648).
     sendCommand(cmd, ScaleBleTransport::WriteType::WithoutResponse);
 }
 
@@ -197,8 +198,9 @@ void SkaleScale::sleep() {
     connect(m_transport, &ScaleBleTransport::characteristicWritten,
             this, [this]() { emit sleepCompleted(); },
             Qt::SingleShotConnection);
-    // Acknowledged: sleepCompleted waits for the ACK, and BlueZ and WinRT report
-    // none for an unacknowledged write.
+    // Acknowledged: sleepCompleted needs characteristicWritten, which only
+    // Android emits for an unacknowledged write (qtscalebletransport.cpp:345,
+    // corebluetoothscalebletransport.mm:958).
     sendCommand(0xEE, ScaleBleTransport::WriteType::WithResponse);
 }
 

@@ -21,6 +21,8 @@ public slots:
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
+    // No keep-alive override, deliberately: #1897's 30 s CCCD rewrite did not
+    // stop the #1896 drops, and one unanswered rewrite wedges Android (#1965).
     void sleep() override;
     void wake() override { enableLcd(); }
 
