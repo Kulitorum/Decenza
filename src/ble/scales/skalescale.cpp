@@ -149,6 +149,14 @@ void SkaleScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUui
 }
 
 void SkaleScale::sendCommand(uint8_t cmd) {
+    // Unacknowledged, as decaid sends every Skale2 command (skale2_scale.dart
+    // _safeWrite, :207-211). If the Skale leaves an acknowledged request
+    // unanswered, Android refuses every later request until the link drops
+    // (#1965; QtBluetoothLE.java:69, :1699 -> :1648).
+    sendCommand(cmd, ScaleBleTransport::WriteType::WithoutResponse);
+}
+
+void SkaleScale::sendCommand(uint8_t cmd, ScaleBleTransport::WriteType writeType) {
     if (!m_transport || !m_characteristicsReady) {
         SKALE_LOG(QString("sendCommand(0x%1) - transport not ready, skipping")
                   .arg(cmd, 2, 16, QChar('0')));
@@ -158,15 +166,7 @@ void SkaleScale::sendCommand(uint8_t cmd) {
     SKALE_LOG(QString("sendCommand(0x%1)").arg(cmd, 2, 16, QChar('0')));
     QByteArray packet;
     packet.append(static_cast<char>(cmd));
-    m_transport->writeCharacteristic(Scale::Skale::SERVICE, Scale::Skale::CMD, packet);
-}
-
-void SkaleScale::sendKeepAlive() {
-    // Skale-only exception to #1092; see #1896.
-    if (m_transport && m_characteristicsReady) {
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::WEIGHT);
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::BUTTON);
-    }
+    m_transport->writeCharacteristic(Scale::Skale::SERVICE, Scale::Skale::CMD, packet, writeType);
 }
 
 void SkaleScale::tare() {
@@ -198,7 +198,10 @@ void SkaleScale::sleep() {
     connect(m_transport, &ScaleBleTransport::characteristicWritten,
             this, [this]() { emit sleepCompleted(); },
             Qt::SingleShotConnection);
-    disableLcd();
+    // Acknowledged: sleepCompleted needs characteristicWritten, which only
+    // Android emits for an unacknowledged write (qtscalebletransport.cpp:345,
+    // corebluetoothscalebletransport.mm:958).
+    sendCommand(0xEE, ScaleBleTransport::WriteType::WithResponse);
 }
 
 void SkaleScale::disableLcd() {

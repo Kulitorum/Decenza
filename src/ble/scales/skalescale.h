@@ -21,7 +21,8 @@ public slots:
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
-    void sendKeepAlive() override;
+    // No keep-alive override, deliberately: #1897's 30 s CCCD rewrite did not
+    // stop the #1896 drops, and one unanswered rewrite wedges Android (#1965).
     void sleep() override;
     void wake() override { enableLcd(); }
 
@@ -41,6 +42,7 @@ private slots:
 
 private:
     void sendCommand(uint8_t cmd);
+    void sendCommand(uint8_t cmd, ScaleBleTransport::WriteType writeType);
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Skale";
