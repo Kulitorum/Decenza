@@ -19,6 +19,38 @@
 static int codeInThisBinary() { return 42; }
 #endif
 
+// The protobuf wire format, written independently of CrashHandler's reader, so
+// a tombstone can be built field by field from tombstone.proto's numbers.
+namespace pb {
+QByteArray varint(quint64 v)
+{
+    QByteArray out;
+    do {
+        char b = char(v & 0x7f);
+        v >>= 7;
+        if (v)
+            b = char(b | 0x80);
+        out.append(b);
+    } while (v);
+    return out;
+}
+QByteArray u(quint32 field, quint64 v) { return varint(quint64(field) << 3) + varint(v); }
+QByteArray len(quint32 field, const QByteArray& b) { return varint((quint64(field) << 3) | 2) + varint(b.size()) + b; }
+QByteArray fixed64(quint32 field) { return varint((quint64(field) << 3) | 1) + QByteArray(8, 'x'); }
+QByteArray frame(quint64 relPc, const QByteArray& function, const QByteArray& file, const QByteArray& buildId = {})
+{
+    return u(1, relPc) + u(2, relPc + 0x7000000000) + len(4, function) + u(5, 16) + len(6, file)
+         + (buildId.isEmpty() ? QByteArray() : len(8, buildId));
+}
+QByteArray threadEntry(quint32 tid, const QByteArray& name, const QList<QByteArray>& frames)
+{
+    QByteArray thread = u(1, tid) + len(2, name) + len(3, len(1, "x0") + u(2, 1));
+    for (const QByteArray& f : frames)
+        thread += len(4, f);
+    return len(16, u(1, tid) + len(2, thread));
+}
+} // namespace pb
+
 // Exercises WebDebugLogger::sessionIndex()'s cache: reused across repeated
 // calls when the persisted file hasn't changed, rebuilt when it has
 // (including trimLogFile()'s truncate-and-rewrite path, which changes both
@@ -934,6 +966,118 @@ private slots:
         QVERIFY(out.contains(QStringLiteral("lines omitted")));
         QCOMPARE(out.count(QStringLiteral("no answer within 3000 ms")), 1);
         QVERIFY(out.contains(QStringLiteral("(+4 earlier)")));
+    }
+
+    // A Java exception reaches debug.log as one prefixed line per frame, all at
+    // WARN. The exception line, not the outermost frames, must be what survives.
+    void crashNarrative_javaTraceKeepsItsException()
+    {
+        QStringList lines;
+        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] java.lang.IllegalStateException: boom");
+        for (int i = 0; i < 30; ++i)
+            lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] \tat a.b.Frame.m%1(Frame.java:%1)").arg(i);
+        lines << QStringLiteral("[   1.000] WARN  [Runtime][Unattributed] ");
+        for (int i = 0; i < 40; ++i)
+            lines << QStringLiteral("[   2.%1] DEBUG [Shot][ShotDataModel] chatter %1").arg(i, 3, 10, QLatin1Char('0'));
+
+        const QString out = CrashHandler::selectCrashNarrative(lines, 1600);
+
+        QVERIFY(out.contains(QStringLiteral("IllegalStateException: boom")));
+        QVERIFY(out.contains(QStringLiteral("Frame.m0(")));
+        QVERIFY(!out.contains(QStringLiteral("Frame.m29(")));
+    }
+
+    void tombstone_summaryPutsTheCauseFirst()
+    {
+        const QByteArray app = "/data/app/~~a/io.github.kulitorum.decenza_de1-b/base.apk!libDecenza_arm64-v8a.so";
+        const QByteArray qt = "/data/app/~~a/io.github.kulitorum.decenza_de1-b/lib/arm64/libQt6Core_arm64-v8a.so";
+        const QByteArray libc = "/apex/com.android.runtime/lib64/bionic/libc.so";
+        const QByteArray signal = pb::u(1, 11) + pb::len(2, "SIGSEGV")
+            + pb::u(3, quint64(qint64(-6))) + pb::len(4, "SI_TKILL") + pb::u(8, 1) + pb::u(9, 0x10);
+        const QByteArray heap = pb::u(1, 0x1234) + pb::u(2, 64) + pb::u(3, 7)
+            + pb::len(4, pb::frame(0x100, "malloc", libc)) + pb::len(4, pb::frame(0x200, "ShotModel::add", app, "aaaa"))
+            + pb::u(5, 8) + pb::len(6, pb::frame(0x300, "ShotModel::~ShotModel", app, "aaaa"));
+        const QByteArray cause = pb::len(1, "[GWP-ASan]: Use After Free, 0 bytes into a 64-byte allocation")
+            + pb::len(2, pb::u(1, 0) + pb::u(2, 1) + pb::len(3, heap));
+
+        QByteArray proto = pb::u(1, 1) + pb::len(2, "vendor/device:14/UP1A/1:user/release-keys")
+            + pb::u(5, 999) + pb::u(6, 42) + pb::len(10, signal)
+            + pb::len(14, "Abort message line one\nline two")
+            + pb::len(15, cause)
+            + pb::len(17, QByteArray(5000, 'm'))   // memory mappings: skipped whole
+            + pb::fixed64(99)                     // an unknown field of another wire type
+            + pb::threadEntry(43, "Binder:1", {pb::frame(0x10, "ioctl", libc)})
+            + pb::threadEntry(44, "BleWorker", {pb::frame(0x20, "futex", libc), pb::frame(0x400, "QThread::run", qt, "bbbb")})
+            + pb::threadEntry(42, "QSGRenderThread", {pb::frame(0x500, "QSGRenderer::render", qt, "bbbb"),
+                                                      pb::frame(0x600, "Decenza::draw", app, "aaaa")});
+
+        const QString out = CrashHandler::summarizeTombstone(proto, 3000);
+
+        QVERIFY2(!out.contains(QStringLiteral("could not be parsed")), qPrintable(out));
+        QVERIFY(out.contains(QStringLiteral("Signal 11 (SIGSEGV), code -6 (SI_TKILL), fault addr 0x10")));
+        QVERIFY(out.contains(QStringLiteral("Abort message: Abort message line one\n    line two")));
+        QVERIFY(out.contains(QStringLiteral("#01 libDecenza_arm64-v8a.so+0x200 ShotModel::add+16")));
+        QVERIFY(out.contains(QStringLiteral("libDecenza_arm64-v8a.so=aaaa")));
+        QVERIFY(out.contains(QStringLiteral("44 \"BleWorker\": #01 libQt6Core_arm64-v8a.so+0x400")));
+        QVERIFY(!out.contains(QStringLiteral("Binder:1")));  // no frame in the app's libraries
+
+        const QStringList order = {QStringLiteral("Signal 11"), QStringLiteral("Abort message"),
+                                   QStringLiteral("Cause: [GWP-ASan]"), QStringLiteral("Allocated by thread 7"),
+                                   QStringLiteral("Freed by thread 8"), QStringLiteral("Crashing thread 42 \"QSGRenderThread\""),
+                                   QStringLiteral("Build IDs"), QStringLiteral("Fingerprint"),
+                                   QStringLiteral("Other threads")};
+        qsizetype at = -1;
+        for (const QString& part : order) {
+            const qsizetype next = out.indexOf(part);
+            QVERIFY2(next > at, qPrintable(part));
+            at = next;
+        }
+
+        // Within budget, with the cut said rather than silent.
+        QByteArray crowded = proto;
+        for (int i = 0; i < 200; ++i)
+            crowded += pb::threadEntry(1000 + i, "Worker", {pb::frame(0x700, "QEventLoop::exec", qt)});
+        const QString cut = CrashHandler::summarizeTombstone(crowded, 3000);
+        QVERIFY(cut.size() <= 3000);
+        QVERIFY(cut.contains(QStringLiteral("Crashing thread 42")));
+        QVERIFY(cut.endsWith(QStringLiteral("(tombstone summary cut at 3000 chars)\n")));
+
+        // Ahead of the handler's own ART capture, so a head-anchored slice keeps it.
+        const QString log = QStringLiteral("Signal: 6\n\nART abort message (logcat):\nx\n\nBacktrace (1 frames):\n");
+        const QString merged = CrashHandler::insertTombstoneSection(log, out);
+        QVERIFY(merged.indexOf(QStringLiteral("Android tombstone")) < merged.indexOf(QStringLiteral("ART abort message")));
+
+        // A crash log that would overrun the server's slice gives up its own
+        // backtrace, which duplicates the tombstone, and nothing after it.
+        const QString fullLog = QStringLiteral("Signal: 6\n\nART abort message (logcat):\n%1\n\nBacktrace (30 frames):\n%2"
+                                               "\n\nSystem log tail (logcat):\nlast line\n\n%3\n")
+            .arg(QString(4000, QLatin1Char('a')), QString(3500, QLatin1Char('b')),
+                 QString::fromLatin1(CrashHandler::kReportEnd));
+        QCOMPARE(CrashHandler::insertTombstoneSummary(log, out), merged);  // under budget: untouched
+        QVERIFY(fullLog.size() + cut.size() > CrashHandler::kCrashLogBudget);
+        const QString fitted = CrashHandler::insertTombstoneSummary(fullLog, cut);
+        QVERIFY(fitted.size() <= CrashHandler::kCrashLogBudget);
+        QVERIFY(fitted.contains(QStringLiteral("Backtrace: omitted to fit the report")));
+        QVERIFY(!fitted.contains(QString(100, QLatin1Char('b'))));
+        QVERIFY(fitted.contains(QString(4000, QLatin1Char('a'))));
+        QVERIFY(fitted.contains(QStringLiteral("System log tail (logcat):\nlast line")));
+        QVERIFY(fitted.endsWith(QString::fromLatin1(CrashHandler::kReportEnd) + QLatin1Char('\n')));
+    }
+
+    // It is read from a file the system hands over; nothing about it is trusted.
+    void tombstone_malformedInputIsReportedNotTrusted()
+    {
+        const QByteArray head = pb::len(2, "fingerprint") + pb::u(6, 42);
+        const QByteArray whole = head
+            + pb::threadEntry(42, "main", {pb::frame(0x10, "f", "/data/app/x/libDecenza_arm64-v8a.so")});
+        // Every cut inside the thread entry; a cut between fields is a valid message.
+        for (qsizetype n = head.size() + 1; n < whole.size(); ++n) {
+            const QString out = CrashHandler::summarizeTombstone(whole.left(n), 3000);
+            QVERIFY2(out.contains(QStringLiteral("could not be parsed")), qPrintable(QString::number(n)));
+        }
+        QVERIFY(CrashHandler::summarizeTombstone(QByteArray(64, char(0xff)), 3000)
+                    .contains(QStringLiteral("could not be parsed")));
+        QVERIFY(CrashHandler::summarizeTombstone(QByteArray(), 3000).contains(QStringLiteral("Signal 0")));
     }
 
 #ifdef Q_OS_MACOS

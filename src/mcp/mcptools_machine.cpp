@@ -6,6 +6,7 @@
 #include "../models/shotdatamodel.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
+#include "../core/deviceinfo.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -14,9 +15,6 @@
 #include <QScreen>
 #include <QGuiApplication>
 #include "version.h"
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#endif
 
 // Compute steam health progress and status from tracker state
 struct SteamHealthInfo {
@@ -194,16 +192,14 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             platform["architecture"] = QSysInfo::currentCpuArchitecture();
             platform["deviceModel"] = QSysInfo::machineHostName();
 #ifdef Q_OS_ANDROID
-            platform["androidSdkVersion"] = QJniObject::getStaticField<jint>(
-                "android/os/Build$VERSION", "SDK_INT");
-            QJniObject model = QJniObject::getStaticObjectField<jstring>(
-                "android/os/Build", "MODEL");
-            if (model.isValid())
-                platform["deviceModel"] = model.toString();
-            QJniObject manufacturer = QJniObject::getStaticObjectField<jstring>(
-                "android/os/Build", "MANUFACTURER");
-            if (manufacturer.isValid())
-                platform["manufacturer"] = manufacturer.toString();
+            {
+                const DeviceInfo::AndroidBuild& build = DeviceInfo::androidBuild();
+                platform["androidSdkVersion"] = build.sdkInt;
+                if (!build.model.isEmpty())
+                    platform["deviceModel"] = build.model;
+                if (!build.manufacturer.isEmpty())
+                    platform["manufacturer"] = build.manufacturer;
+            }
 #endif
 #ifdef Q_OS_IOS
             platform["osType"] = "ios";

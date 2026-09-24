@@ -1,10 +1,11 @@
 #ifndef CRASHHANDLER_H
 #define CRASHHANDLER_H
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
 #include <signal.h>
 #endif
 
@@ -70,6 +71,36 @@ public:
     /// is in log order with omitted stretches marked.
     static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
 
+    /// The server keeps the first 10000 characters of a new issue's crash log and
+    /// the first 5000 of a comment's. The tombstone summary goes near the top,
+    /// so this is what it may cost of the 5000.
+    static constexpr qsizetype kTombstoneSummaryBudget = 3000;
+
+    /// crashLog with the previous run's Android tombstone summarised into it,
+    /// ahead of this handler's own capture. On Android 12+ the tombstone is read
+    /// through ApplicationExitInfo, matched by the "Pid:" line writeCrashLog()
+    /// writes; elsewhere, and when there is none, a one-line note says why.
+    /// Unchanged on every other platform.
+    static QString withAndroidTombstone(const QString& crashLog);
+
+    /// A debuggerd tombstone (tombstone.proto) as report text within charBudget:
+    /// signal, abort message, causes with GWP-ASan allocation/free stacks, the
+    /// crashing thread, then other threads' first app frame. Malformed input
+    /// yields a note, never a crash.
+    static QString summarizeTombstone(const QByteArray& proto, qsizetype charBudget);
+
+    /// What the server keeps of a new issue's crash log (table in crashhandler.cpp).
+    static constexpr qsizetype kCrashLogBudget = 10000;
+
+    /// Puts section into crashLog before this handler's ART capture (or its
+    /// backtrace), so the server's head-anchored slice keeps it.
+    static QString insertTombstoneSection(const QString& crashLog, const QString& section);
+
+    /// insertTombstoneSection() for a parsed summary. Past kCrashLogBudget this
+    /// handler's own backtrace is dropped: the summary's crashing thread is the
+    /// same stack, and otherwise the server's cut decides what is lost.
+    static QString insertTombstoneSummary(const QString& crashLog, const QString& summary);
+
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     /// "<image> 0x<address>" for a code address, the address unslid (runtime minus
     /// the image's dyld slide): what `atos -o <dSYM>` looks up with no -l or -s, "at
@@ -83,6 +114,11 @@ private:
     // SA_SIGINFO, for the interrupted pc: backtrace() inside a handler starts from
     // saved return addresses and never includes the faulting frame.
     static void signalActionHandler(int signal, siginfo_t* info, void* context);
+#elif defined(Q_OS_ANDROID)
+    // SA_SIGINFO, so the original siginfo and ucontext can be handed on to the
+    // handler this one displaced (debuggerd's), which needs both to write a
+    // tombstone of the crash rather than of this handler.
+    static void chainingSignalHandler(int signal, siginfo_t* info, void* context);
 #else
     static void signalHandler(int signal);
 #endif

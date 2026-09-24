@@ -1,3 +1,4 @@
+#include "core/deviceinfo.h"
 #include "core/diagnosticlogging.h"
 #include "crashreporter.h"
 #include "version.h"
@@ -6,7 +7,6 @@
 #include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QSysInfo>
 #include <QDebug>
 
 static const char* API_URL = "https://api.decenza.coffee/v1/crash-report";
@@ -35,18 +35,7 @@ QString CrashReporter::platform() const
 
 QString CrashReporter::deviceInfo() const
 {
-    QString info = QSysInfo::prettyProductName();
-
-#ifdef Q_OS_ANDROID
-    // Try to get more specific Android device info
-    QString manufacturer = QSysInfo::productType();
-    QString model = QSysInfo::machineHostName();
-    if (!manufacturer.isEmpty() || !model.isEmpty()) {
-        info = manufacturer + " " + model;
-    }
-#endif
-
-    return info.simplified();
+    return DeviceInfo::description();
 }
 
 void CrashReporter::submitReport(const QString& crashLog,

@@ -4,6 +4,7 @@
 #include "mcpserver.h"
 #include "mcptunnel_tsnet.h"
 #include "../core/settings_mcp.h"
+#include "../core/deviceinfo.h"
 
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -16,9 +17,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#endif
 
 McpRemoteAccess::McpRemoteAccess(QObject* parent)
     : QObject(parent)
@@ -248,10 +246,9 @@ void McpRemoteAccess::startTunnel()
     // Use the marketing model name (Build.MODEL, e.g. "SM-X210") instead so the
     // node is recognisable and distinct.
     if (host.isEmpty() || host == QLatin1String("localhost")) {
-        const QJniObject model = QJniObject::getStaticObjectField<jstring>(
-            "android/os/Build", "MODEL");
-        if (model.isValid())
-            host = model.toString().toLower();
+        const QString model = DeviceInfo::androidBuild().model;
+        if (!model.isEmpty())
+            host = model.toLower();
     }
 #endif
     for (QChar& c : host) {
