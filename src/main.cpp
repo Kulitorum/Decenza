@@ -1052,7 +1052,7 @@ int main(int argc, char *argv[])
     }
 #ifdef Q_OS_ANDROID
     {
-        const DeviceInfo::AndroidBuild& build = DeviceInfo::androidBuild();
+        const DeviceInfo::AndroidBuild build = DeviceInfo::androidBuild();
         DIAG_DEBUG(APP, "SDK") << "Android" << build.release
                  << "SDK:" << build.sdkInt
                  << "device:" << build.manufacturer << build.model;

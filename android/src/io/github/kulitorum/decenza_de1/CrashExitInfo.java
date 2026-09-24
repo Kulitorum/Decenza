@@ -38,8 +38,13 @@ public final class CrashExitInfo {
             }
             ApplicationExitInfo exit = exits.get(0);
             if (exit.getReason() != ApplicationExitInfo.REASON_CRASH_NATIVE) {
-                sLastStatus = "pid " + pid + " exited with " + reasonName(exit.getReason())
-                        + " (" + exit.getDescription() + "), not a native crash";
+                // What was recorded, not a verdict: a crash that never reached
+                // debuggerd is recorded as REASON_SIGNALED, status = the signal.
+                String description = exit.getDescription();
+                sLastStatus = "the system recorded " + reasonName(exit.getReason())
+                        + " with status " + exit.getStatus()
+                        + (description != null ? " (" + description + ")" : "")
+                        + " for pid " + pid + ", so debuggerd wrote no tombstone for it";
                 return null;
             }
             try (InputStream in = exit.getTraceInputStream()) {
@@ -57,10 +62,14 @@ public final class CrashExitInfo {
                     }
                     out.write(buf, 0, n);
                 }
+                if (out.size() == 0) {
+                    sLastStatus = "the tombstone attached to pid " + pid + " is empty";
+                    return null;
+                }
                 return out.toByteArray();
             }
-        } catch (Exception e) {
-            sLastStatus = "reading the exit record failed: " + e;
+        } catch (Throwable t) {
+            sLastStatus = "reading the exit record failed: " + t;
             return null;
         }
     }
@@ -71,13 +80,15 @@ public final class CrashExitInfo {
 
     private static String reasonName(int reason) {
         switch (reason) {
+            case ApplicationExitInfo.REASON_SIGNALED: return "death by signal";
             case ApplicationExitInfo.REASON_CRASH: return "a Java crash";
             case ApplicationExitInfo.REASON_ANR: return "an ANR";
-            case ApplicationExitInfo.REASON_SIGNALED: return "a signal";
             case ApplicationExitInfo.REASON_LOW_MEMORY: return "a low-memory kill";
             case ApplicationExitInfo.REASON_EXIT_SELF: return "its own exit";
             case ApplicationExitInfo.REASON_USER_REQUESTED: return "a user request";
-            default: return "reason " + reason;
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE: return "an excessive-resource kill";
+            case ApplicationExitInfo.REASON_OTHER: return "an unspecified system kill";
+            default: return "exit reason " + reason;
         }
     }
 }

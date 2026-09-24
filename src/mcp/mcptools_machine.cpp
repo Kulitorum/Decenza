@@ -193,7 +193,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             platform["deviceModel"] = QSysInfo::machineHostName();
 #ifdef Q_OS_ANDROID
             {
-                const DeviceInfo::AndroidBuild& build = DeviceInfo::androidBuild();
+                const DeviceInfo::AndroidBuild build = DeviceInfo::androidBuild();
                 platform["androidSdkVersion"] = build.sdkInt;
                 if (!build.model.isEmpty())
                     platform["deviceModel"] = build.model;

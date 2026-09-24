@@ -6,15 +6,16 @@
 #ifdef Q_OS_ANDROID
 #include <QJniEnvironment>
 #include <QJniObject>
+#include <QMutex>
+#include <QMutexLocker>
 #endif
 
-// What device this is, read once. Header-only for the reason logpaths.h gives:
+// What device this is. Header-only for the reason logpaths.h gives:
 // crashhandler.cpp and mcpremoteaccess.cpp are compiled into different test
 // targets, and inline functions cost neither of them a link dependency.
 //
 // On Android QSysInfo cannot answer this: productType() is "android" and
-// machineHostName() is "localhost", which is what every Android crash report
-// said about its device until this existed.
+// machineHostName() is "localhost".
 namespace DeviceInfo {
 
 struct AndroidBuild {
@@ -22,33 +23,36 @@ struct AndroidBuild {
     QString model;
     QString release;      // Build.VERSION.RELEASE, e.g. "14"
     int sdkInt = -1;      // -1 when unreadable, and on every other platform
-    // Why sdkInt is -1, for BLEManager's one-time warning.
-    bool sdkIntThrew = false;
-    int sdkIntRaw = 0;
+    int sdkIntRaw = 0;    // what the read returned, for BLEManager's warning
 };
 
-// Build.* are permanent characteristics of the OS image, so this is cached.
-inline const AndroidBuild& androidBuild()
+// Build.* are permanent characteristics of the OS image, so a successful read
+// is cached. A failed one is not: the first caller is CrashHandler::install(),
+// before the app object exists. A failure shows only as an empty value or -1.
+inline AndroidBuild androidBuild()
 {
-    static const AndroidBuild cached = []() {
-        AndroidBuild b;
 #ifdef Q_OS_ANDROID
-        QJniEnvironment env;
-        const auto field = [&env](const char* cls, const char* name) {
+    static QMutex mutex;
+    static AndroidBuild cached;
+    QMutexLocker lock(&mutex);
+    if (cached.sdkInt < 0) {
+        // This overload leaves an exception pending (qjniobject.cpp:1318-1333),
+        // which would poison the next JNI call; getStaticField<jint> clears its own.
+        const auto field = [](const char* cls, const char* name) {
             const QJniObject v = QJniObject::getStaticObjectField<jstring>(cls, name);
-            env.checkAndClearExceptions();
+            QJniEnvironment().checkAndClearExceptions();
             return v.isValid() ? v.toString().trimmed() : QString();
         };
-        b.manufacturer = field("android/os/Build", "MANUFACTURER");
-        b.model = field("android/os/Build", "MODEL");
-        b.release = field("android/os/Build$VERSION", "RELEASE");
-        b.sdkIntRaw = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
-        b.sdkIntThrew = env.checkAndClearExceptions();
-        b.sdkInt = (b.sdkIntThrew || b.sdkIntRaw <= 0) ? -1 : b.sdkIntRaw;
-#endif
-        return b;
-    }();
+        cached.manufacturer = field("android/os/Build", "MANUFACTURER");
+        cached.model = field("android/os/Build", "MODEL");
+        cached.release = field("android/os/Build$VERSION", "RELEASE");
+        cached.sdkIntRaw = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
+        cached.sdkInt = cached.sdkIntRaw > 0 ? cached.sdkIntRaw : -1;
+    }
     return cached;
+#else
+    return {};
+#endif
 }
 
 // One line naming the device, for crash reports: "samsung SM-X210, Android 14
@@ -56,7 +60,7 @@ inline const AndroidBuild& androidBuild()
 inline QString description()
 {
 #ifdef Q_OS_ANDROID
-    const AndroidBuild& b = androidBuild();
+    const AndroidBuild b = androidBuild();
     QString device = b.model;
     // Some MODEL strings already start with the manufacturer.
     if (!b.manufacturer.isEmpty() && !device.startsWith(b.manufacturer, Qt::CaseInsensitive))

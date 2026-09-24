@@ -32,6 +32,12 @@ public:
     static constexpr const char* kReportStart = "=== CRASH REPORT ===";
     static constexpr const char* kReportEnd   = "=== END CRASH REPORT ===";
 
+    /// Section headings writeCrashLog() prints and insertTombstoneSection()
+    /// anchors on. Each section is preceded by a blank line.
+    static constexpr const char* kArtCaptureHeading = "ART abort message (logcat, fatal priority only):";
+    static constexpr const char* kBacktraceHeading  = "Backtrace (";
+    static constexpr const char* kLogcatTailHeading = "System log tail (logcat):";
+
     /// Install signal handlers. Call once at startup.
     static void install();
 
@@ -67,27 +73,33 @@ public:
 
     /// Picks from one run's lines what fits charBudget: session markers, the last
     /// 20 entries (consecutive repeats merged), then FATAL down to DEBUG, newest
-    /// first. Lines with no level tag survive only among the last entries. Output
+    /// first. Lines with no level tag survive only among the last entries, and so
+    /// do a Java stack trace's frames after its first, and empty messages. Output
     /// is in log order with omitted stretches marked.
     static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
 
-    /// The server keeps the first 10000 characters of a new issue's crash log and
-    /// the first 5000 of a comment's. The tombstone summary goes near the top,
-    /// so this is what it may cost of the 5000.
-    static constexpr qsizetype kTombstoneSummaryBudget = 3000;
+    /// What the tombstone summary may cost of the 5000-char comment slice
+    /// (table in crashhandler.cpp).
+    static constexpr qsizetype kTombstoneSummaryBudget = 3500;
 
-    /// crashLog with the previous run's Android tombstone summarised into it,
-    /// ahead of this handler's own capture. On Android 12+ the tombstone is read
-    /// through ApplicationExitInfo, matched by the "Pid:" line writeCrashLog()
-    /// writes; elsewhere, and when there is none, a one-line note says why.
-    /// Unchanged on every other platform.
+    /// On Android: crashLog with the previous run's tombstone summarised into it,
+    /// ahead of this handler's own capture, read through ApplicationExitInfo and
+    /// matched by writeCrashLog()'s "Pid:" line. Below Android 12, or when there
+    /// is no tombstone, a one-line note says why. Unchanged on other platforms.
     static QString withAndroidTombstone(const QString& crashLog);
 
+    struct TombstoneSummary {
+        QString text;
+        // Every frame of the crashing thread is in text, so this handler's own
+        // backtrace adds nothing.
+        bool hasWholeCrashingThread = false;
+    };
+
     /// A debuggerd tombstone (tombstone.proto) as report text within charBudget:
-    /// signal, abort message, causes with GWP-ASan allocation/free stacks, the
-    /// crashing thread, then other threads' first app frame. Malformed input
-    /// yields a note, never a crash.
-    static QString summarizeTombstone(const QByteArray& proto, qsizetype charBudget);
+    /// signal, abort message, causes, the crashing thread, GWP-ASan allocation and
+    /// free stacks, then other threads' first app frame. Malformed input yields a
+    /// note, never a crash.
+    static TombstoneSummary summarizeTombstone(const QByteArray& proto, qsizetype charBudget);
 
     /// What the server keeps of a new issue's crash log (table in crashhandler.cpp).
     static constexpr qsizetype kCrashLogBudget = 10000;
@@ -96,10 +108,10 @@ public:
     /// backtrace), so the server's head-anchored slice keeps it.
     static QString insertTombstoneSection(const QString& crashLog, const QString& section);
 
-    /// insertTombstoneSection() for a parsed summary. Past kCrashLogBudget this
-    /// handler's own backtrace is dropped: the summary's crashing thread is the
-    /// same stack, and otherwise the server's cut decides what is lost.
-    static QString insertTombstoneSummary(const QString& crashLog, const QString& summary);
+    /// insertTombstoneSection() for a summary. Past kCrashLogBudget, and only when
+    /// the summary holds the whole crashing thread, this handler's own backtrace
+    /// is dropped rather than leaving the server's cut to decide what is lost.
+    static QString insertTombstoneSummary(const QString& crashLog, const TombstoneSummary& summary);
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     /// "<image> 0x<address>" for a code address, the address unslid (runtime minus

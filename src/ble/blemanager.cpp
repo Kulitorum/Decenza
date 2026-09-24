@@ -268,16 +268,12 @@ int BLEManager::androidSdkInt()
 {
 #ifdef Q_OS_ANDROID
     static const int cached = []() {
-        const DeviceInfo::AndroidBuild& b = DeviceInfo::androidBuild();
+        const DeviceInfo::AndroidBuild b = DeviceInfo::androidBuild();
         if (b.sdkInt < 0) {
-            // Logged here, once, rather than at each caller — and it keeps the
-            // exception-versus-bogus-value distinction that the callers' own
-            // messages used to carry. Without it the two are indistinguishable
-            // in a submitted log.
             BT_WARN_TAGGED("BLEManager", QStringLiteral(
-                "could not read Android SDK_INT (value=%1, jni_exception=%2) — "
+                "could not read Android SDK_INT (value=%1) — "
                 "callers that gate on the API level will treat it as unknown")
-                    .arg(b.sdkIntRaw).arg(b.sdkIntThrew ? "yes" : "no"));
+                    .arg(b.sdkIntRaw));
         }
         return b.sdkInt;
     }();
