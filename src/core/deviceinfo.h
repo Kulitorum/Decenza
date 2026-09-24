@@ -28,14 +28,15 @@ struct AndroidBuild {
 
 // Build.* are permanent characteristics of the OS image, so a successful read
 // is cached. A failed one is not: the first caller is CrashHandler::install(),
-// before the app object exists. A failure shows only as an empty value or -1.
+// before the app object exists, and CrashHandler::refreshDeviceLine() reads
+// again once it does. A failure shows only as an empty value or -1.
 inline AndroidBuild androidBuild()
 {
 #ifdef Q_OS_ANDROID
     static QMutex mutex;
     static AndroidBuild cached;
     QMutexLocker lock(&mutex);
-    if (cached.sdkInt < 0) {
+    if (cached.sdkInt < 0 || cached.model.isEmpty()) {
         // This overload leaves an exception pending (qjniobject.cpp:1318-1333),
         // which would poison the next JNI call; getStaticField<jint> clears its own.
         const auto field = [](const char* cls, const char* name) {

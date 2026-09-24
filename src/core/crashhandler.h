@@ -41,6 +41,10 @@ public:
     /// Install signal handlers. Call once at startup.
     static void install();
 
+    /// Re-read the crash header's "Device:" line, which install() reads before
+    /// the app object exists. Call once it does.
+    static void refreshDeviceLine();
+
     /// Uninstall signal handlers. Call before app exit to prevent spurious crash reports.
     static void uninstall();
 
@@ -90,15 +94,19 @@ public:
 
     struct TombstoneSummary {
         QString text;
-        // Every frame of the crashing thread is in text, so this handler's own
-        // backtrace adds nothing.
+        // Every frame of the crashing thread is in text, and the unwinder left
+        // no note against it.
         bool hasWholeCrashingThread = false;
+        // What the tombstone records, -1 when it does not: compared with the
+        // report's "Tid:" and "Signal:" lines to tell whether both are one crash.
+        qint64 tid = -1;
+        int signal = -1;
     };
 
     /// A debuggerd tombstone (tombstone.proto) as report text within charBudget:
-    /// signal, abort message, causes, the crashing thread, GWP-ASan allocation and
-    /// free stacks, then other threads' first app frame. Malformed input yields a
-    /// note, never a crash.
+    /// signal, abort message, causes, GWP-ASan allocation and free stacks, the
+    /// crashing thread, then other threads' first app frame. Malformed input
+    /// yields a note, never a crash.
     static TombstoneSummary summarizeTombstone(const QByteArray& proto, qsizetype charBudget);
 
     /// What the server keeps of a new issue's crash log (table in crashhandler.cpp).
@@ -108,9 +116,11 @@ public:
     /// backtrace), so the server's head-anchored slice keeps it.
     static QString insertTombstoneSection(const QString& crashLog, const QString& section);
 
-    /// insertTombstoneSection() for a summary. Past kCrashLogBudget, and only when
-    /// the summary holds the whole crashing thread, this handler's own backtrace
-    /// is dropped rather than leaving the server's cut to decide what is lost.
+    /// insertTombstoneSection() for a summary. A tombstone whose thread or signal
+    /// differs from crashLog's is labelled a second fault. Past kCrashLogBudget,
+    /// and only when the summary holds the whole crashing thread of this same
+    /// crash, this handler's own backtrace is dropped rather than leaving the
+    /// server's cut to decide what is lost.
     static QString insertTombstoneSummary(const QString& crashLog, const TombstoneSummary& summary);
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)

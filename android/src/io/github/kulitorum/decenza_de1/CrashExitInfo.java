@@ -7,6 +7,7 @@ import android.os.Build;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.Date;
 import java.util.List;
 
 /** The system's record of how a previous process of this app died. */
@@ -40,11 +41,14 @@ public final class CrashExitInfo {
             if (exit.getReason() != ApplicationExitInfo.REASON_CRASH_NATIVE) {
                 // What was recorded, not a verdict: a crash that never reached
                 // debuggerd is recorded as REASON_SIGNALED, status = the signal.
+                // The time is for the report's "Time:" line: the lookup is by pid
+                // alone, and records outlive the process.
                 String description = exit.getDescription();
                 sLastStatus = "the system recorded " + reasonName(exit.getReason())
                         + " with status " + exit.getStatus()
                         + (description != null ? " (" + description + ")" : "")
-                        + " for pid " + pid + ", so debuggerd wrote no tombstone for it";
+                        + " for pid " + pid + " at " + new Date(exit.getTimestamp())
+                        + ", so no tombstone is attached to its exit record";
                 return null;
             }
             try (InputStream in = exit.getTraceInputStream()) {

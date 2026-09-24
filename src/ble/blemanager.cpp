@@ -267,17 +267,15 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 int BLEManager::androidSdkInt()
 {
 #ifdef Q_OS_ANDROID
-    static const int cached = []() {
-        const DeviceInfo::AndroidBuild b = DeviceInfo::androidBuild();
-        if (b.sdkInt < 0) {
-            BT_WARN_TAGGED("BLEManager", QStringLiteral(
-                "could not read Android SDK_INT (value=%1) — "
-                "callers that gate on the API level will treat it as unknown")
-                    .arg(b.sdkIntRaw));
-        }
-        return b.sdkInt;
-    }();
-    return cached;
+    // Not cached here: DeviceInfo caches a good read and retries a failed one.
+    const DeviceInfo::AndroidBuild b = DeviceInfo::androidBuild();
+    if (b.sdkInt < 0) {
+        BT_WARN_TAGGED("BLEManager", QStringLiteral(
+            "could not read Android SDK_INT (value=%1) — "
+            "callers that gate on the API level will treat it as unknown")
+                .arg(b.sdkIntRaw));
+    }
+    return b.sdkInt;
 #else
     return -1;
 #endif

@@ -624,6 +624,7 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication app(argc, argv);
+    CrashHandler::refreshDeviceLine();
 
     // --- Bundled UI font (issues #1469, #1537) -----------------------------
     // Decenza ships its own UI font so text glyph metrics are deterministic
