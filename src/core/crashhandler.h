@@ -1,10 +1,11 @@
 #ifndef CRASHHANDLER_H
 #define CRASHHANDLER_H
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
 #include <signal.h>
 #endif
 
@@ -31,8 +32,18 @@ public:
     static constexpr const char* kReportStart = "=== CRASH REPORT ===";
     static constexpr const char* kReportEnd   = "=== END CRASH REPORT ===";
 
+    /// Section headings writeCrashLog() prints and insertTombstoneSection()
+    /// anchors on. Each section is preceded by a blank line.
+    static constexpr const char* kArtCaptureHeading = "ART abort message (logcat, fatal priority only):";
+    static constexpr const char* kBacktraceHeading  = "Backtrace (";
+    static constexpr const char* kLogcatTailHeading = "System log tail (logcat):";
+
     /// Install signal handlers. Call once at startup.
     static void install();
+
+    /// Re-read the crash header's "Device:" line, which install() reads before
+    /// the app object exists. Call once it does.
+    static void refreshDeviceLine();
 
     /// Uninstall signal handlers. Call before app exit to prevent spurious crash reports.
     static void uninstall();
@@ -66,9 +77,51 @@ public:
 
     /// Picks from one run's lines what fits charBudget: session markers, the last
     /// 20 entries (consecutive repeats merged), then FATAL down to DEBUG, newest
-    /// first. Lines with no level tag survive only among the last entries. Output
+    /// first. Lines with no level tag survive only among the last entries, and so
+    /// do a Java stack trace's frames after its first, and empty messages. Output
     /// is in log order with omitted stretches marked.
     static QString selectCrashNarrative(const QStringList& lines, qsizetype charBudget);
+
+    /// What the tombstone summary may cost of the 5000-char comment slice
+    /// (table in crashhandler.cpp).
+    static constexpr qsizetype kTombstoneSummaryBudget = 3500;
+
+    /// On Android: crashLog with the previous run's tombstone summarised into it,
+    /// ahead of this handler's own capture, read through ApplicationExitInfo and
+    /// matched by writeCrashLog()'s "Pid:" line. Below Android 12, or when there
+    /// is no tombstone, a one-line note says why. Unchanged on other platforms.
+    static QString withAndroidTombstone(const QString& crashLog);
+
+    struct TombstoneSummary {
+        QString text;
+        // Every frame of the crashing thread is in text, and the unwinder left
+        // no note against it.
+        bool hasWholeCrashingThread = false;
+        // What the tombstone records, -1 when it does not: compared with the
+        // report's "Tid:" and "Signal:" lines to tell whether both are one crash.
+        qint64 tid = -1;
+        int signal = -1;
+    };
+
+    /// A debuggerd tombstone (tombstone.proto) as report text within charBudget:
+    /// signal, abort message, causes, GWP-ASan allocation and free stacks, the
+    /// crashing thread, then other threads' first app frame. Malformed input
+    /// yields a note, never a crash.
+    static TombstoneSummary summarizeTombstone(const QByteArray& proto, qsizetype charBudget);
+
+    /// What the server keeps of a new issue's crash log (table in crashhandler.cpp).
+    static constexpr qsizetype kCrashLogBudget = 10000;
+
+    /// Puts section into crashLog before this handler's ART capture (or its
+    /// backtrace), so the server's head-anchored slice keeps it.
+    static QString insertTombstoneSection(const QString& crashLog, const QString& section);
+
+    /// insertTombstoneSection() for a summary. A tombstone whose thread or signal
+    /// differs from crashLog's is labelled a second fault. Past kCrashLogBudget,
+    /// and only when the summary holds the whole crashing thread of this same
+    /// crash, this handler's own backtrace is dropped rather than leaving the
+    /// server's cut to decide what is lost.
+    static QString insertTombstoneSummary(const QString& crashLog, const TombstoneSummary& summary);
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     /// "<image> 0x<address>" for a code address, the address unslid (runtime minus
@@ -83,6 +136,11 @@ private:
     // SA_SIGINFO, for the interrupted pc: backtrace() inside a handler starts from
     // saved return addresses and never includes the faulting frame.
     static void signalActionHandler(int signal, siginfo_t* info, void* context);
+#elif defined(Q_OS_ANDROID)
+    // SA_SIGINFO, so the original siginfo and ucontext can be handed on to the
+    // handler this one displaced (debuggerd's), which needs both to write a
+    // tombstone of the crash rather than of this handler.
+    static void chainingSignalHandler(int signal, siginfo_t* info, void* context);
 #else
     static void signalHandler(int signal);
 #endif

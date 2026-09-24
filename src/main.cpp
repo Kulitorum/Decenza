@@ -116,6 +116,7 @@ extern "C" const char* __ubsan_default_options()
 
 
 #include "core/asynclogger.h"
+#include "core/deviceinfo.h"
 #include "core/btlogfilter.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
@@ -623,6 +624,7 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication app(argc, argv);
+    CrashHandler::refreshDeviceLine();
 
     // --- Bundled UI font (issues #1469, #1537) -----------------------------
     // Decenza ships its own UI font so text glyph metrics are deterministic
@@ -1051,14 +1053,10 @@ int main(int argc, char *argv[])
     }
 #ifdef Q_OS_ANDROID
     {
-        jint sdkInt = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
-        QJniObject release = QJniObject::getStaticObjectField<jstring>("android/os/Build$VERSION", "RELEASE");
-        QJniObject model = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MODEL");
-        QJniObject mfr = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MANUFACTURER");
-        DIAG_DEBUG(APP, "SDK") << "Android" << (release.isValid() ? release.toString() : QString())
-                 << "SDK:" << sdkInt
-                 << "device:" << (mfr.isValid() ? mfr.toString() : QString())
-                 << (model.isValid() ? model.toString() : QString());
+        const DeviceInfo::AndroidBuild build = DeviceInfo::androidBuild();
+        DIAG_DEBUG(APP, "SDK") << "Android" << build.release
+                 << "SDK:" << build.sdkInt
+                 << "device:" << build.manufacturer << build.model;
 
         // Screen-reader fingerprint. TalkBack is a Play-Store app that updates
         // independently of the OS, and its handling of synthesized text-change
@@ -2233,7 +2231,10 @@ int main(int argc, char *argv[])
     // Hand the previous run's crash log to the singleton QML already uses for crash reporting,
     // replacing the bare "PreviousCrashLog"/"PreviousDebugLogTail" context properties. crashReporter
     // is declared further up and already outlives `engine`, so this needs no hoist of its own.
-    crashReporter.setPreviousRun(previousCrashLog, previousDebugLogTail);
+    // The tombstone lookup has none of the crash check's ordering constraint, so
+    // it waits until the app object and its Android context exist.
+    crashReporter.setPreviousRun(CrashHandler::withAndroidTombstone(previousCrashLog),
+                                 previousDebugLogTail);
 
     // Hoisted here from ~1500 lines below for that same rule, when it became a QML singleton.
     // A context property is dropped by QML when its object emits destroyed(), so it survived

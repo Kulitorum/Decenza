@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "crashhandler.h"
+#include "deviceinfo.h"
 #include "logpaths.h"
 #include "mcp/mcplogfilter.h"
 #include "version.h"
@@ -7,7 +8,10 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QMap>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QDebug>
@@ -22,6 +26,9 @@
 #endif
 
 #ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
+#include <QJniObject>
+#include <QtCore/qcoreapplication_platform.h>
 #include <unwind.h>
 #include <dlfcn.h>
 #include <link.h>
@@ -63,10 +70,29 @@ static char s_buildLine[64] = {0};
 // identified by the backtrace's own binary-images list.
 static char s_imageUuid[128] = {0};
 
+// DeviceInfo::description(), precomputed in install() so the signal handler
+// never calls JNI.
+static char s_deviceLine[192] = {0};
+
 #ifdef Q_OS_ANDROID
 // "--pid=<N>" argument for logcat, precomputed in install() so the signal
 // handler never has to format it.
 static char s_logcatPidArg[32] = {0};
+
+// What each signal was handled by before install(): debuggerd's handler, which
+// writes the tombstone. sigchain returns it for the signals ART claims
+// (sigchain.cc __sigaction), the kernel for the rest. Calling it, rather than
+// re-raising with SIG_DFL, is what produces a tombstone.
+static struct sigaction s_previousActions[NSIG];
+
+// Set once the handler starts writing. A second crash while it runs (a fault in
+// the writer on a corrupt heap, or another thread) must not reopen crash.log
+// with "w" and replace the first report. atomic_flag: lock-free, so
+// async-signal-safe, and two threads crashing at once cannot both get in.
+static std::atomic_flag s_handlingCrash = ATOMIC_FLAG_INIT;
+
+// The crash header's "Tombstone:" line, set by chainingSignalHandler().
+static const char* s_handoffNote = nullptr;
 #endif
 
 // Store recent debug messages for context
@@ -172,8 +198,20 @@ static void writeBacktraceToFile(FILE* f)
     // The frame after __kernel_rt_sigreturn is the faulting instruction; frames
     // after it are return addresses, whose call is the instruction before. In
     // #1937, #5 disassembles to the faulting stlxr and #6 to the insn after a bl.
-    fprintf(f, "\nBacktrace (%zu frames, module+offset):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    //
+    // Frames before the sigreturn trampoline are this handler's own, the same
+    // in every report. Numbering stays the raw frame index.
+    size_t first = 0;
     for (size_t i = 0; i < count; ++i) {
+        if (locations[i].module && strcmp(moduleBaseName(locations[i].module), "[vdso]") == 0) {
+            first = i;
+            break;
+        }
+    }
+    fprintf(f, "\n%s%zu frames, module+offset):\n", CrashHandler::kBacktraceHeading, count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    if (first > 0)
+        fprintf(f, "  #0-#%zu: crash handler (omitted)\n", first - 1); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    for (size_t i = first; i < count; ++i) {
         if (locations[i].module) {
             fprintf(f, "  #%zu: %s+0x%zx", i, moduleBaseName(locations[i].module), // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                     static_cast<size_t>(locations[i].offset));
@@ -235,6 +273,16 @@ static void writeBacktraceToFile(FILE* f)
 // and 29-frame backtrace were ~4117 chars; Android frames have since dropped the
 // APK path (~240 chars each in #1937, ~80 now), so that figure is an upper bound.
 //
+// On Android 12+ withAndroidTombstone() then inserts up to
+// kTombstoneSummaryBudget AHEAD of this capture, at the next launch (plus one
+// ~130-char line when the tombstone is of a second fault). On the
+// 5000 path that leaves this capture ~650-1200 chars, depending on the last
+// debug message. That is the part that gives way because the summary keeps
+// the head and the tail of ART's abort message, and a ref-table dump's
+// Summary, naming the leaked class, is its tail. On the 10000 path
+// insertTombstoneSummary() drops the backtrace instead when the whole overruns
+// and the tombstone holds the whole crashing thread of this same crash.
+//
 // #1745 is what this replaces: a blind `-t 200` unfiltered tail, which returned
 // 41 lines of OTHER THREADS' stacks and not one line of diagnosis. ART emits its
 // abort block at fatal priority — the report's lines read " F rum.decenza_de:" —
@@ -270,16 +318,42 @@ enum class CaptureOutcome {
 };
 
 
+// Lines that explain nothing and would spend the budget, counted by kind.
+struct CaptureDropped {
+    size_t memMap = 0;      // ART's heap-verification mapping list: 1276 of 4000 bytes in #1963
+    size_t separators = 0;  // logcat's buffer separator
+    size_t total() const { return memMap + separators; }
+};
+
+// The counter a line is dropped into, or nullptr to keep it. Plain byte search:
+// this runs in the signal handler.
+static size_t* uninformativeCaptureCounter(const char* line, size_t len, CaptureDropped* dropped)
+{
+    const struct { const char* needle; size_t* counter; } kNoise[] = {
+        {"] [MemMap: ", &dropped->memMap},
+        {"--------- beginning of ", &dropped->separators},
+    };
+    for (const auto& noise : kNoise) {
+        const size_t n = strlen(noise.needle);
+        for (size_t i = 0; i + n <= len; ++i) {
+            if (memcmp(line + i, noise.needle, n) == 0)
+                return noise.counter;
+        }
+    }
+    return nullptr;
+}
+
 // Read the child's output through a pipe and write at most byteBudget of it to
-// f. Head-anchored on purpose: `logcat -t N` gives the LAST N lines, which is
-// the #1745 bug, so the cap has to be applied by us, from the start of the
-// stream. `bytesOut` receives what was written (may be non-zero even on a
+// f, minus uninformativeCaptureCounter()'s lines. Head-anchored on purpose: `logcat -t N`
+// gives the LAST N lines, which is the #1745 bug, so the cap has to be applied
+// by us, from the start of the stream. `bytesOut` receives what was written (may be non-zero even on a
 // failure outcome — a stream can fail part-way).
 static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
                                           size_t byteBudget, size_t* bytesOut,
-                                          int* rawStatusOut)
+                                          CaptureDropped* droppedOut, int* rawStatusOut)
 {
     *bytesOut = 0;
+    *droppedOut = {};
     *rawStatusOut = 0;
 
     int fds[2];
@@ -291,7 +365,8 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
         close(fds[0]);
         // stdout ONLY. logcat's own stderr must NOT reach the content pipe:
         // the unfiltered fallback runs only on CaptureOutcome::NoEntries, and
-        // that outcome requires the stream to have produced nothing. A device
+        // that outcome requires the stream to have produced nothing that
+        // survives uninformativeCaptureCounter(). A device
         // that rejects these arguments would put logcat's complaint in the
         // pipe, which counts as captured bytes, yields Content instead of
         // NoEntries, and skips the fallback — the one path that rescues a
@@ -343,6 +418,23 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
 
     size_t written = 0;
     bool budgetHit = false;
+    char line[512];
+    size_t lineLen = 0;
+    CaptureDropped dropped;
+    const auto flushLine = [&]() {
+        if (lineLen == 0 || budgetHit)
+            return;
+        if (size_t* counter = uninformativeCaptureCounter(line, lineLen, &dropped)) {
+            ++*counter;
+        } else {
+            const size_t remaining = byteBudget - written;
+            const size_t take = lineLen < remaining ? lineLen : remaining;
+            fwrite(line, 1, take, f);
+            written += take;
+            budgetHit = written >= byteBudget;
+        }
+        lineLen = 0;
+    };
     bool eof = false;
     bool readFailed = false;
     bool reaped = false;
@@ -356,20 +448,18 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
             char buf[1024];
             ssize_t n = read(fds[0], buf, sizeof(buf));
             if (n > 0) {
-                const size_t remaining = byteBudget - written;
-                const size_t take = (static_cast<size_t>(n) < remaining)
-                                        ? static_cast<size_t>(n) : remaining;
-                if (take > 0) {
-                    fwrite(buf, 1, take, f);
-                    written += take;
+                // A line longer than the buffer is written in pieces.
+                for (ssize_t b = 0; b < n && !budgetHit; ++b) {
+                    line[lineLen++] = buf[b];
+                    if (buf[b] == '\n' || lineLen == sizeof(line))
+                        flushLine();
                 }
-                if (written >= byteBudget) {
-                    budgetHit = true;
+                if (budgetHit)
                     break;
-                }
                 continue;
             }
             if (n == 0) {
+                flushLine();  // a last line with no newline
                 eof = true;
                 break;
             }
@@ -396,7 +486,9 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
             // it — it holds the write end of a pipe we are about to close.
             kill(child, SIGKILL);
             close(fds[0]);
+            flushLine();
             *bytesOut = written;
+            *droppedOut = dropped;
             return CaptureOutcome::ChildLost;
         }
         if (eof || budgetHit || readFailed)
@@ -407,6 +499,7 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
     }
 
     const bool timedOut = !eof && !budgetHit && !readFailed;
+    flushLine();  // a partial line held when the stream stopped early
 
     close(fds[0]);
     if (!reaped) {
@@ -426,6 +519,7 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
         readFailed = true;
 
     *bytesOut = written;
+    *droppedOut = dropped;
     *rawStatusOut = childStatus;
     if (readFailed)
         return CaptureOutcome::ReadFailed;
@@ -449,7 +543,7 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
 // be MISattributed, which is worse: a truncated capture that prints "end of
 // capture" tells the reader ART's dump genuinely ended there.
 static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
-                               size_t byteBudget, int rawStatus)
+                               const CaptureDropped& dropped, size_t byteBudget, int rawStatus)
 {
     switch (outcome) {
     case CaptureOutcome::Content:
@@ -461,7 +555,10 @@ static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
                    "server's slice)\n", byteBudget);
         break;
     case CaptureOutcome::NoEntries:
-        fprintf(f, "  (logcat ran and had nothing to report for this pid)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+        if (dropped.total() > 0)
+            fprintf(f, "  (logcat returned only the lines omitted below)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+        else
+            fprintf(f, "  (logcat ran and had nothing to report for this pid)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
         break;
     case CaptureOutcome::ExecFailed:
         fprintf(f, "  (logcat exec failed — no capture)\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
@@ -496,6 +593,10 @@ static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
                    "status=0x%x)\n", bytes, static_cast<unsigned>(rawStatus));
         break;
     }
+    // Every marker ends its line, so this one starts on its own.
+    if (dropped.total() > 0)
+        fprintf(f, "  (omitted as uninformative: %zu ART [MemMap: lines, %zu logcat separators)\n", // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+                dropped.memMap, dropped.separators);
 }
 
 // ART's own account of why it aborted. Written BEFORE our backtrace, which is
@@ -510,13 +611,15 @@ static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
 // first).
 static CaptureOutcome appendArtAbortMessageToFile(FILE* f)
 {
-    fprintf(f, "\nART abort message (logcat, fatal priority only):\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "\n%s\n", CrashHandler::kArtCaptureHeading); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     size_t bytes = 0;
+    CaptureDropped dropped;
     int rawStatus = 0;
     const CaptureOutcome outcome = captureLogcatToFile(
-        f, /*fatalOnly=*/true, kFatalCaptureBudget, &bytes, &rawStatus);
-    writeCaptureMarker(f, outcome, bytes, kFatalCaptureBudget, rawStatus);
-    if (outcome == CaptureOutcome::NoEntries)
+        f, /*fatalOnly=*/true, kFatalCaptureBudget, &bytes, &dropped, &rawStatus);
+    writeCaptureMarker(f, outcome, bytes, dropped, kFatalCaptureBudget, rawStatus);
+    // A fatal-priority MemMap list is ART's own output, so not that.
+    if (outcome == CaptureOutcome::NoEntries && dropped.memMap == 0)
         fprintf(f, "  (so this was not an ART abort, or logd rotated its " // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
                    "entries out)\n");
     return outcome;
@@ -524,12 +627,13 @@ static CaptureOutcome appendArtAbortMessageToFile(FILE* f)
 
 static void appendLogcatTailToFile(FILE* f, size_t byteBudget)
 {
-    fprintf(f, "\nSystem log tail (logcat):\n"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "\n%s\n", CrashHandler::kLogcatTailHeading); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     size_t bytes = 0;
+    CaptureDropped dropped;
     int rawStatus = 0;
     const CaptureOutcome outcome =
-        captureLogcatToFile(f, /*fatalOnly=*/false, byteBudget, &bytes, &rawStatus);
-    writeCaptureMarker(f, outcome, bytes, byteBudget, rawStatus);
+        captureLogcatToFile(f, /*fatalOnly=*/false, byteBudget, &bytes, &dropped, &rawStatus);
+    writeCaptureMarker(f, outcome, bytes, dropped, byteBudget, rawStatus);
 }
 #endif
 
@@ -540,7 +644,7 @@ static void writeBacktraceToFile(FILE* f)
     int count = backtrace(buffer, 64);
     char** symbols = backtrace_symbols(buffer, count);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "\n%s%d frames):\n", CrashHandler::kBacktraceHeading, count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (int i = 0; i < count; ++i) {
         fprintf(f, "  #%d: %s\n", i, symbols[i] ? symbols[i] : "???"); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     }
@@ -558,7 +662,7 @@ static void writeBacktraceToFile(FILE* f)
     HANDLE process = GetCurrentProcess();
     SymInitialize(process, nullptr, TRUE);
 
-    fprintf(f, "\nBacktrace (%d frames):\n", frames); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "\n%s%d frames):\n", CrashHandler::kBacktraceHeading, frames); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     SYMBOL_INFO* symbol = (SYMBOL_INFO*)calloc(sizeof(SYMBOL_INFO) + 256, 1);
     symbol->MaxNameLen = 255;
@@ -685,7 +789,7 @@ static void writeBacktraceToFile(FILE* f)
     LoadedImage images[64];
     int imageCount = 0;
 
-    fprintf(f, "\nBacktrace (%d return addresses, each the instruction after its call; image and unslid address):\n", count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "\n%s%d return addresses, each the instruction after its call; image and unslid address):\n", CrashHandler::kBacktraceHeading, count); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     for (int i = 0; i < count; ++i) {
         const uintptr_t address = reinterpret_cast<uintptr_t>(buffer[i]);
         LoadedImage image;
@@ -745,6 +849,16 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName, void* fault
     fprintf(f, "Signal: %d (%s)\n", signal, signalName); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
     if (s_buildLine[0] != '\0')
         fprintf(f, "Build: %s\n", s_buildLine); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    if (s_deviceLine[0] != '\0')
+        fprintf(f, "Device: %s\n", s_deviceLine); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+#ifdef Q_OS_ANDROID
+    // Pid: what withAndroidTombstone() finds the exit record by. Tid: what
+    // insertTombstoneSummary() checks the tombstone is of this crash by.
+    fprintf(f, "Pid: %d\n", static_cast<int>(getpid())); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    fprintf(f, "Tid: %d\n", static_cast<int>(gettid())); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+    if (s_handoffNote)
+        fprintf(f, "Tombstone: %s\n", s_handoffNote); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
+#endif
     if (s_imageUuid[0] != '\0')
         fprintf(f, "Image: %s\n", s_imageUuid); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
@@ -844,6 +958,27 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName, void* fault
     }
 }
 
+// Re-raise with the default action (core dump, etc.).
+static void dieWithDefault(int signal)
+{
+    std::signal(signal, SIG_DFL);
+    std::raise(signal);
+}
+
+static const char* signalName(int signal)
+{
+    switch (signal) {
+        case SIGSEGV: return "SIGSEGV (Segmentation fault)";
+        case SIGABRT: return "SIGABRT (Abort)";
+#ifdef SIGBUS
+        case SIGBUS:  return "SIGBUS (Bus error)";
+#endif
+        case SIGFPE:  return "SIGFPE (Floating point exception)";
+        case SIGILL:  return "SIGILL (Illegal instruction)";
+        default: return "UNKNOWN";
+    }
+}
+
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 void CrashHandler::signalActionHandler(int signal, siginfo_t*, void* context)
 {
@@ -858,6 +993,54 @@ void CrashHandler::signalActionHandler(int signal, siginfo_t*, void* context)
     }
     handleSignal(signal, pc);
 }
+#elif defined(Q_OS_ANDROID)
+// One line appended to crash.log, so a second fault leaves a trace in the
+// report the first is writing. open/write only: the writer may be the one faulting.
+static void noteSecondSignal(int signal)
+{
+    const int fd = open(s_crashLogPath, O_WRONLY | O_APPEND);
+    if (fd < 0)
+        return;
+    char line[128];
+    const int n = snprintf(line, sizeof(line),
+                           "\n(second signal %d on thread %d while this report was being "
+                           "written; it went straight to debuggerd)\n",
+                           signal, static_cast<int>(gettid()));
+    if (n > 0)
+        (void)write(fd, line, static_cast<size_t>(n < int(sizeof(line)) ? n : int(sizeof(line)) - 1));
+    close(fd);
+}
+
+void CrashHandler::chainingSignalHandler(int signal, siginfo_t* info, void* context)
+{
+    const struct sigaction& previous = s_previousActions[signal];
+    // sa_handler and sa_sigaction share storage, so this holds whatever the flags.
+    const bool hasPrevious = previous.sa_handler != SIG_DFL && previous.sa_handler != SIG_IGN;
+
+    if (!s_handlingCrash.test_and_set()) {
+        // Intent, not fact: a fault in the writer can kill the process first.
+        // The report's end marker is what says the handoff was reached.
+        s_handoffNote = hasPrevious ? "to debuggerd once this report is complete"
+                                    : "none (no handler to hand to; debuggerd disabled?)";
+        writeCrashLog(signal, signalName(signal), nullptr);
+    } else {
+        noteSecondSignal(signal);
+    }
+    if (!hasPrevious) {
+        dieWithDefault(signal);
+        return;
+    }
+    // As sigchain.cc's Handler() does for a chained action: its mask, the call,
+    // then return. debuggerd dumps from this ucontext and resend_signal() re-queues
+    // the signal under SIG_DFL (debuggerd_handler.cpp); the mask holds it until
+    // this handler returns, and then it kills the process. A permissive-MTE
+    // recovery returns without re-queuing, and the process has to carry on.
+    pthread_sigmask(SIG_BLOCK, &previous.sa_mask, nullptr);
+    if (previous.sa_flags & SA_SIGINFO)
+        previous.sa_sigaction(signal, info, context);
+    else
+        previous.sa_handler(signal);
+}
 #else
 void CrashHandler::signalHandler(int signal)
 {
@@ -867,24 +1050,8 @@ void CrashHandler::signalHandler(int signal)
 
 void CrashHandler::handleSignal(int signal, void* faultPc)
 {
-    const char* signalName = "UNKNOWN";
-    switch (signal) {
-        case SIGSEGV: signalName = "SIGSEGV (Segmentation fault)"; break;
-        case SIGABRT: signalName = "SIGABRT (Abort)"; break;
-#ifdef SIGBUS
-        case SIGBUS:  signalName = "SIGBUS (Bus error)"; break;
-#endif
-        case SIGFPE:  signalName = "SIGFPE (Floating point exception)"; break;
-        case SIGILL:  signalName = "SIGILL (Illegal instruction)"; break;
-        default: break;
-    }
-
-    // Write crash log
-    writeCrashLog(signal, signalName, faultPc);
-
-    // Re-raise signal to get default behavior (core dump, etc.)
-    std::signal(signal, SIG_DFL);
-    std::raise(signal);
+    writeCrashLog(signal, signalName(signal), faultPc);
+    dieWithDefault(signal);
 }
 
 void CrashHandler::install()
@@ -913,6 +1080,7 @@ void CrashHandler::install()
     strncpy(s_debugLogPath, debugPathBytes.constData(), sizeof(s_debugLogPath) - 1);
 
     snprintf(s_buildLine, sizeof(s_buildLine), "%s build %d", VERSION_STRING, versionCode());
+    refreshDeviceLine();
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     recordOwnImage();
 #endif
@@ -934,6 +1102,19 @@ void CrashHandler::install()
     sigemptyset(&action.sa_mask);
     for (const int s : {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL})
         sigaction(s, &action, nullptr);
+#elif defined(Q_OS_ANDROID)
+    struct sigaction action {};
+    action.sa_sigaction = chainingSignalHandler;
+    // No SA_ONSTACK: for the signals ART claims, sigchain's own flags decide the
+    // stack, and the rest are raised on a stack that still works. SA_EXPOSE_TAGBITS
+    // stops sigchain untagging si_addr before debuggerd sees it (sigchain.cc Handler()).
+    action.sa_flags = SA_SIGINFO;
+#ifdef SA_EXPOSE_TAGBITS
+    action.sa_flags |= SA_EXPOSE_TAGBITS;
+#endif
+    sigemptyset(&action.sa_mask);
+    for (const int s : {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL})
+        sigaction(s, &action, &s_previousActions[s]);
 #else
     std::signal(SIGSEGV, signalHandler);
     std::signal(SIGABRT, signalHandler);
@@ -945,10 +1126,21 @@ void CrashHandler::install()
 #endif
 }
 
+void CrashHandler::refreshDeviceLine()
+{
+    snprintf(s_deviceLine, sizeof(s_deviceLine), "%s", DeviceInfo::description().toUtf8().constData());
+}
+
 void CrashHandler::uninstall()
 {
-    // Restore default signal handlers to prevent spurious crash reports during cleanup
-    // Crashes after main() returns are typically runtime cleanup issues we can't fix
+    // Stop reporting crashes during cleanup: after main() returns they are
+    // typically runtime teardown we can't fix.
+#ifdef Q_OS_ANDROID
+    // debuggerd's handler, not SIG_DFL: a teardown crash still gets a tombstone,
+    // and writes no crash.log.
+    for (const int s : {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL})
+        sigaction(s, &s_previousActions[s], nullptr);
+#else
     std::signal(SIGSEGV, SIG_DFL);
     std::signal(SIGABRT, SIG_DFL);
 #ifdef SIGBUS
@@ -956,6 +1148,7 @@ void CrashHandler::uninstall()
 #endif
     std::signal(SIGFPE, SIG_DFL);
     std::signal(SIGILL, SIG_DFL);
+#endif
 
     // Restore previous message handler
     if (s_previousHandler) {
@@ -1168,12 +1361,27 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
         return text.left(qMin(context > 0 ? context : text.size(), keep))
             + QStringLiteral(" …") + suffix;
     };
+    // A Java exception is ONE qWarning (qjnienvironment.cpp:546) that debug.log
+    // splits into a prefixed line per frame. Ranked by level, its newest lines,
+    // the outermost frames, beat the exception line that names it: #1963 kept
+    // "at java.lang.Thread.run" and not the exception. So past the first frame,
+    // a trace's lines rank below DEBUG and survive only in the tail.
+    static const QRegularExpression javaFrame(
+        QStringLiteral("\\] \\t(at |\\.\\.\\. \\d+ more)"));
+    // The trace's trailing newline leaves a line with nothing after the tag but,
+    // at WARN, its " {category=… source=…}" suffix.
+    static const QRegularExpression emptyMessage(
+        QStringLiteral("\\] \\s*(\\{[^}]*\\})?$"));
+    bool previousWasFrame = false;
     for (const LineMatch& e : entries) {
         QString text = clip(e.text);
         if (e.count > 1)
             text += QStringLiteral(" (x%1)").arg(e.count);
         rendered.append(text);
-        ranks.append(McpLogFilter::levelRank(McpLogFilter::lineLevel(e.text)));
+        const bool isFrame = javaFrame.match(e.text).hasMatch();
+        const bool demoted = (isFrame && previousWasFrame) || emptyMessage.match(e.text).hasMatch();
+        ranks.append(demoted ? -1 : McpLogFilter::levelRank(McpLogFilter::lineLevel(e.text)));
+        previousWasFrame = isFrame;
     }
 
     // Priority: the session marker, the last lines, then each level from FATAL
@@ -1258,4 +1466,589 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
     }
     // Only a budget smaller than the header and one gap marker gets here.
     return out.left(charBudget);
+}
+
+// ---- Android tombstones ------------------------------------------------------
+//
+// Field numbers are tombstone.proto's (AOSP system/core/debuggerd/proto/
+// tombstone.proto); the fields read here have been stable since Android 12,
+// when apps were first given the file.
+namespace {
+
+// Just enough protobuf wire format for tombstone.proto. Every read is
+// bounds-checked; malformed input clears ok() and stops the parse.
+class ProtoReader {
+public:
+    explicit ProtoReader(QByteArrayView data)
+        : m_begin(data.data()), m_p(data.data()), m_end(data.data() + data.size()) {}
+
+    bool next()
+    {
+        if (!m_ok || m_p >= m_end)
+            return false;
+        const quint64 tag = varint();
+        m_field = static_cast<quint32>(tag >> 3);
+        m_wire = static_cast<int>(tag & 7);
+        if (m_field == 0)
+            m_ok = false;
+        return m_ok;
+    }
+    quint32 field() const { return m_field; }
+    bool ok() const { return m_ok; }
+    qsizetype offset() const { return m_p - m_begin; }
+
+    quint64 varint()
+    {
+        quint64 value = 0;
+        for (int shift = 0; shift < 64; shift += 7) {
+            if (m_p >= m_end) {
+                m_ok = false;
+                return 0;
+            }
+            const auto byte = static_cast<quint8>(*m_p++);
+            value |= quint64(byte & 0x7f) << shift;
+            if (!(byte & 0x80))
+                return value;
+        }
+        m_ok = false;
+        return 0;
+    }
+
+    // The current field's value as each type, or a neutral value (and the field
+    // skipped) when it arrived with a different wire type.
+    quint64 u64()
+    {
+        if (m_wire == 0)
+            return varint();
+        skip();
+        return 0;
+    }
+    qint32 i32() { return static_cast<qint32>(u64()); }
+    QByteArrayView bytes()
+    {
+        if (m_wire != 2) {
+            skip();
+            return {};
+        }
+        const quint64 len = varint();
+        if (!m_ok || len > quint64(m_end - m_p)) {
+            m_ok = false;
+            return {};
+        }
+        const QByteArrayView v(m_p, static_cast<qsizetype>(len));
+        m_p += len;
+        return v;
+    }
+    QString string() { return QString::fromUtf8(bytes()); }
+
+    void skip()
+    {
+        switch (m_wire) {
+        case 0: varint(); break;
+        case 1: advance(8); break;
+        case 2: bytes(); break;
+        case 5: advance(4); break;
+        default: m_ok = false; break;  // groups (3/4) do not occur in proto3
+        }
+    }
+
+private:
+    void advance(qsizetype n)
+    {
+        if (n > m_end - m_p)
+            m_ok = false;
+        else
+            m_p += n;
+    }
+
+    const char* m_begin;
+    const char* m_p;
+    const char* m_end;
+    quint32 m_field = 0;
+    int m_wire = 0;
+    bool m_ok = true;
+};
+
+struct TombFrame {
+    quint64 relPc = 0;
+    QString function;
+    quint64 functionOffset = 0;
+    QString file;
+    QString buildId;
+};
+
+struct TombThread {
+    qint32 id = 0;
+    QString name;
+    QList<TombFrame> frames;
+    QStringList backtraceNotes;  // why the unwind stopped, when it did
+};
+
+struct TombCause {
+    QString text;
+    bool hasHeap = false;
+    quint64 allocTid = 0;
+    quint64 freeTid = 0;
+    QList<TombFrame> allocFrames;
+    QList<TombFrame> freeFrames;
+};
+
+struct Tombstone {
+    QString fingerprint;
+    QString timestamp;
+    bool hasTid = false;
+    quint32 tid = 0;
+    bool hasSignal = false;
+    qint32 signal = 0;
+    QString signalName;
+    qint32 code = 0;
+    QString codeName;
+    bool hasFaultAddress = false;
+    quint64 faultAddress = 0;
+    QString abortMessage;
+    QList<TombCause> causes;
+    QList<TombThread> threads;
+};
+
+// Each parse returns false once the reader has failed; the caller stops there.
+bool parseFrame(QByteArrayView data, TombFrame* out)
+{
+    ProtoReader r(data);
+    while (r.next()) {
+        switch (r.field()) {
+        case 1: out->relPc = r.u64(); break;
+        case 4: out->function = r.string(); break;
+        case 5: out->functionOffset = r.u64(); break;
+        case 6: out->file = r.string(); break;
+        case 8: out->buildId = r.string(); break;
+        default: r.skip(); break;
+        }
+    }
+    return r.ok();
+}
+
+bool parseThread(QByteArrayView data, TombThread* out)
+{
+    ProtoReader r(data);
+    while (r.next()) {
+        switch (r.field()) {
+        case 1: out->id = r.i32(); break;
+        case 2: out->name = r.string(); break;
+        case 7: out->backtraceNotes.append(r.string()); break;
+        case 4: {
+            TombFrame frame;
+            if (!parseFrame(r.bytes(), &frame))
+                return false;
+            out->frames.append(frame);
+            break;
+        }
+        default: r.skip(); break;
+        }
+    }
+    return r.ok();
+}
+
+bool parseHeap(QByteArrayView data, TombCause* out)
+{
+    out->hasHeap = true;
+    ProtoReader r(data);
+    while (r.next()) {
+        const quint32 f = r.field();
+        if (f == 3) {
+            out->allocTid = r.u64();
+        } else if (f == 5) {
+            out->freeTid = r.u64();
+        } else if (f == 4 || f == 6) {
+            TombFrame frame;
+            if (!parseFrame(r.bytes(), &frame))
+                return false;
+            (f == 4 ? out->allocFrames : out->freeFrames).append(frame);
+        } else {
+            r.skip();
+        }
+    }
+    return r.ok();
+}
+
+bool parseCause(QByteArrayView data, TombCause* out)
+{
+    ProtoReader r(data);
+    while (r.next()) {
+        if (r.field() == 1) {
+            out->text = r.string();
+        } else if (r.field() == 2) {  // MemoryError; its HeapObject is field 3
+            ProtoReader m(r.bytes());
+            while (m.next()) {
+                if (m.field() == 3) {
+                    if (!parseHeap(m.bytes(), out))
+                        return false;
+                } else {
+                    m.skip();
+                }
+            }
+            if (!m.ok())
+                return false;
+        } else {
+            r.skip();
+        }
+    }
+    return r.ok();
+}
+
+bool parseTombstone(QByteArrayView data, Tombstone* out, qsizetype* failedAt)
+{
+    ProtoReader r(data);
+    while (r.next()) {
+        switch (r.field()) {
+        case 2: out->fingerprint = r.string(); break;
+        case 4: out->timestamp = r.string(); break;
+        case 6:
+            out->hasTid = true;
+            out->tid = static_cast<quint32>(r.u64());
+            break;
+        case 10: {
+            out->hasSignal = true;
+            ProtoReader s(r.bytes());
+            while (s.next()) {
+                switch (s.field()) {
+                case 1: out->signal = s.i32(); break;
+                case 2: out->signalName = s.string(); break;
+                case 3: out->code = s.i32(); break;
+                case 4: out->codeName = s.string(); break;
+                case 8: out->hasFaultAddress = s.u64() != 0; break;
+                case 9: out->faultAddress = s.u64(); break;
+                default: s.skip(); break;
+                }
+            }
+            if (!s.ok()) {
+                *failedAt = r.offset();
+                return false;
+            }
+            break;
+        }
+        case 14: out->abortMessage = r.string(); break;
+        case 15: {
+            TombCause cause;
+            if (!parseCause(r.bytes(), &cause)) {
+                *failedAt = r.offset();
+                return false;
+            }
+            out->causes.append(cause);
+            break;
+        }
+        case 16: {  // map<uint32, Thread>: entries of {1: key, 2: value}
+            ProtoReader e(r.bytes());
+            TombThread thread;
+            while (e.next()) {
+                if (e.field() == 2) {
+                    if (!parseThread(e.bytes(), &thread)) {
+                        *failedAt = r.offset();
+                        return false;
+                    }
+                } else {
+                    e.skip();
+                }
+            }
+            if (!e.ok()) {
+                *failedAt = r.offset();
+                return false;
+            }
+            out->threads.append(thread);
+            break;
+        }
+        default: r.skip(); break;
+        }
+    }
+    *failedAt = r.offset();
+    return r.ok();
+}
+
+// "/data/app/~~x/pkg-y/base.apk!libQt6Core_arm64-v8a.so" -> "libQt6Core_arm64-v8a.so"
+QString frameModule(const QString& file)
+{
+    if (file.isEmpty())
+        return QStringLiteral("?");
+    QString name = file.mid(file.lastIndexOf(QLatin1Char('/')) + 1);
+    const qsizetype bang = name.lastIndexOf(QLatin1Char('!'));
+    return bang >= 0 ? name.mid(bang + 1) : name;
+}
+
+// Shipped in our APK: Decenza, Qt, and what they bundle. The package name, not
+// just /data/app/, which also holds WebView and Play services.
+bool isAppFrame(const TombFrame& f)
+{
+    return f.file.contains(QLatin1String("/io.github.kulitorum.decenza_de1-"));
+}
+
+QString frameLine(int index, const TombFrame& f)
+{
+    constexpr qsizetype kMaxFunction = 80;
+    QString line = QStringLiteral("    #%1 %2+0x%3")
+        .arg(index, 2, 10, QLatin1Char('0'))
+        .arg(frameModule(f.file))
+        .arg(f.relPc, 0, 16);
+    if (!f.function.isEmpty()) {
+        const QString fn = f.function.size() > kMaxFunction
+            ? f.function.left(kMaxFunction) + QStringLiteral("…") : f.function;
+        line += QStringLiteral(" %1+%2").arg(fn).arg(f.functionOffset);
+    }
+    return line + QLatin1Char('\n');
+}
+
+} // namespace
+
+CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray& proto,
+                                                                qsizetype charBudget)
+{
+    Tombstone t;
+    qsizetype failedAt = 0;
+    const bool parsed = parseTombstone(proto, &t, &failedAt);
+
+    QString out = QStringLiteral("Android tombstone (debuggerd, read at the next launch):\n");
+    if (!parsed) {
+        out += QStringLiteral("  (could not be parsed: %1 bytes, failed in the field ending at "
+                              "byte %2; fields read before it follow)\n")
+                   .arg(proto.size()).arg(failedAt);
+    }
+    // Against the report's "Time:" line: the exit record is found by pid alone.
+    if (!t.timestamp.isEmpty())
+        out += QStringLiteral("  Time: %1\n").arg(t.timestamp);
+
+    if (t.hasSignal) {
+        QString signalLine = QStringLiteral("  Signal %1 (%2), code %3 (%4)")
+            .arg(t.signal).arg(t.signalName).arg(t.code).arg(t.codeName);
+        if (t.hasFaultAddress)
+            signalLine += QStringLiteral(", fault addr 0x%1").arg(t.faultAddress, 0, 16);
+        out += signalLine + QLatin1Char('\n');
+    } else {
+        out += parsed ? QStringLiteral("  (no signal info in the tombstone)\n")
+                      : QStringLiteral("  (no signal info read before the parse failed)\n");
+    }
+
+    if (!t.abortMessage.isEmpty()) {
+        // Head and tail: ART puts the reason first and, for a reference-table
+        // overflow, the Summary naming the leaked class last.
+        constexpr qsizetype kAbortHead = 250;
+        constexpr qsizetype kAbortTail = 550;
+        QString msg = t.abortMessage.trimmed();
+        if (msg.size() > kAbortHead + kAbortTail)
+            msg = msg.left(kAbortHead) + QStringLiteral(" … ") + msg.right(kAbortTail);
+        out += QStringLiteral("  Abort message: %1\n")
+                   .arg(msg.replace(QLatin1Char('\n'), QStringLiteral("\n    ")));
+    }
+
+    for (const TombCause& cause : std::as_const(t.causes))
+        out += QStringLiteral("  Cause: %1\n").arg(cause.text);
+
+    QMap<QString, QString> buildIds;  // app module -> build id, for frames shown
+    const auto appendFrames = [&](const QList<TombFrame>& frames, qsizetype max) {
+        for (qsizetype i = 0; i < frames.size() && i < max; ++i) {
+            out += frameLine(static_cast<int>(i), frames[i]);
+            if (isAppFrame(frames[i]) && !frames[i].buildId.isEmpty())
+                buildIds.insert(frameModule(frames[i].file), frames[i].buildId);
+        }
+        if (frames.size() > max)
+            out += QStringLiteral("    … %1 more frames\n").arg(frames.size() - max);
+    };
+
+    // GWP-ASan's allocation and free stacks first: nothing else in the report has
+    // them, while the crashing thread duplicates this handler's own backtrace,
+    // which is kept whenever the thread does not survive the cut.
+    for (const TombCause& cause : std::as_const(t.causes)) {
+        if (!cause.hasHeap)
+            continue;
+        if (!cause.allocFrames.isEmpty()) {
+            out += QStringLiteral("  Allocated by thread %1:\n").arg(cause.allocTid);
+            appendFrames(cause.allocFrames, 10);
+        }
+        if (!cause.freeFrames.isEmpty()) {
+            out += QStringLiteral("  Freed by thread %1:\n").arg(cause.freeTid);
+            appendFrames(cause.freeFrames, 10);
+        }
+    }
+
+    constexpr qsizetype kMaxCrashingFrames = 32;
+    const TombThread* crashing = nullptr;
+    for (const TombThread& thread : std::as_const(t.threads)) {
+        if (static_cast<quint32>(thread.id) == t.tid)
+            crashing = &thread;
+    }
+    qsizetype crashingEnd = -1;  // where the whole crashing thread has been written
+    if (crashing) {
+        out += QStringLiteral("  Crashing thread %1 \"%2\":\n").arg(crashing->id).arg(crashing->name);
+        if (crashing->frames.isEmpty())
+            out += QStringLiteral("    (no frames)\n");
+        appendFrames(crashing->frames, kMaxCrashingFrames);
+        // A note means the unwind was short or unsymbolized (tombstone.proto,
+        // backtrace_note), so the stack is not one to drop the backtrace for.
+        if (!crashing->backtraceNotes.isEmpty()) {
+            out += QStringLiteral("    (unwinder: %1)\n")
+                       .arg(crashing->backtraceNotes.join(QStringLiteral("; ")));
+        } else if (!crashing->frames.isEmpty() && crashing->frames.size() <= kMaxCrashingFrames) {
+            crashingEnd = out.size();
+        }
+    } else if (!parsed) {
+        out += QStringLiteral("  (the crashing thread was not read before the parse failed)\n");
+    } else if (t.threads.isEmpty()) {
+        out += QStringLiteral("  (the tombstone has no threads)\n");
+    } else {
+        out += QStringLiteral("  (no thread matches the crashing tid %1)\n").arg(t.tid);
+    }
+
+    if (!buildIds.isEmpty()) {
+        QStringList ids;
+        for (auto it = buildIds.cbegin(); it != buildIds.cend(); ++it)
+            ids.append(it.key() + QLatin1Char('=') + it.value());
+        out += QStringLiteral("  Build IDs: %1\n").arg(ids.join(QStringLiteral(", ")));
+    }
+    if (!t.fingerprint.isEmpty())
+        out += QStringLiteral("  Fingerprint: %1\n").arg(t.fingerprint);
+
+    // What the rest of the app was doing, one frame each, until the budget runs out.
+    QString others;
+    for (const TombThread& thread : std::as_const(t.threads)) {
+        if (&thread == crashing)
+            continue;
+        for (qsizetype i = 0; i < thread.frames.size(); ++i) {
+            if (isAppFrame(thread.frames[i])) {
+                others += QStringLiteral("    %1 \"%2\":").arg(thread.id).arg(thread.name)
+                        + frameLine(static_cast<int>(i), thread.frames[i]).mid(3);
+                break;
+            }
+        }
+    }
+    if (!others.isEmpty())
+        out += QStringLiteral("  Other threads, first frame in the app's own libraries:\n") + others;
+
+    if (out.size() > charBudget) {
+        const QString marker = QStringLiteral("  (tombstone summary cut at %1 chars)\n").arg(charBudget);
+        const qsizetype cut = out.lastIndexOf(QLatin1Char('\n'), charBudget - marker.size() - 1);
+        out = out.left(cut > 0 ? cut + 1 : 0) + marker;
+        if (crashingEnd > cut + 1)
+            crashingEnd = -1;
+    }
+    return {out, crashingEnd > 0, t.hasTid ? qint64(t.tid) : -1, t.hasSignal ? t.signal : -1};
+}
+
+QString CrashHandler::insertTombstoneSection(const QString& crashLog, const QString& section)
+{
+    for (const QString& anchor : {QStringLiteral("\n") + QLatin1String(kArtCaptureHeading),
+                                  QStringLiteral("\n") + QLatin1String(kBacktraceHeading),
+                                  QStringLiteral("\n") + QLatin1String(kReportEnd)}) {
+        const qsizetype at = crashLog.indexOf(anchor);
+        if (at >= 0)
+            return crashLog.left(at) + QStringLiteral("\n") + section + crashLog.mid(at);
+    }
+    return crashLog + QStringLiteral("\n") + section;
+}
+
+QString CrashHandler::insertTombstoneSummary(const QString& crashLog, const TombstoneSummary& summary)
+{
+    // The exit record is found by pid, so a second fault while the report was
+    // written (the writer's own, or another thread's) is the one debuggerd saw.
+    static const QRegularExpression tidLine(QStringLiteral("^Tid: (\\d+)$"),
+                                            QRegularExpression::MultilineOption);
+    static const QRegularExpression signalLine(QStringLiteral("^Signal: (\\d+) "),
+                                               QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch tid = tidLine.match(crashLog);
+    const QRegularExpressionMatch sig = signalLine.match(crashLog);
+    const bool sameCrash = tid.hasMatch() && sig.hasMatch()
+        && tid.captured(1).toLongLong() == summary.tid && sig.captured(1).toInt() == summary.signal;
+    QString text = summary.text;
+    if (!sameCrash && tid.hasMatch() && sig.hasMatch() && summary.tid >= 0 && summary.signal >= 0) {
+        text.insert(text.indexOf(QLatin1Char('\n')) + 1,
+                    QStringLiteral("  (NOT the crash above: signal %1 on thread %2 here, signal %3 on "
+                                   "thread %4 there; a second fault while the report was written)\n")
+                        .arg(summary.signal).arg(summary.tid)
+                        .arg(sig.captured(1), tid.captured(1)));
+    }
+
+    const QString merged = insertTombstoneSection(crashLog, text);
+    if (merged.size() <= kCrashLogBudget || !summary.hasWholeCrashingThread || !sameCrash)
+        return merged;
+    const qsizetype start = merged.indexOf(QStringLiteral("\n") + QLatin1String(kBacktraceHeading));
+    if (start < 0)
+        return merged;
+    // The section runs to the blank line writeCrashLog() puts before the next one.
+    const qsizetype end = merged.indexOf(QStringLiteral("\n\n"), start + 1);
+    return merged.left(start)
+        + QStringLiteral("\nBacktrace: omitted to fit the report; the tombstone's "
+                         "crashing thread above is the same stack.\n")
+        + (end >= 0 ? merged.mid(end + 1) : QString());
+}
+
+QString CrashHandler::withAndroidTombstone(const QString& crashLog)
+{
+#ifdef Q_OS_ANDROID
+    if (crashLog.isEmpty())
+        return crashLog;
+
+    // No end marker: the writer died before the handoff (header's "Tombstone:").
+    const bool unfinished = !crashLog.contains(QLatin1String(kReportEnd));
+    const auto noted = [&crashLog, unfinished](QString why, bool handoffExpected = true) {
+        if (unfinished && handoffExpected)
+            why += QStringLiteral("; this report never reached its end marker, so the handler "
+                                  "died writing it and never handed the crash to debuggerd");
+        DIAG_INFO(APP, "CrashHandler").noquote() << "Previous crash has no tombstone summary:" << why;
+        return insertTombstoneSection(crashLog, QStringLiteral("Android tombstone: (%1)\n").arg(why));
+    };
+
+    static const QRegularExpression pidLine(QStringLiteral("^Pid: (\\d+)$"),
+                                            QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch m = pidLine.match(crashLog);
+    if (!m.hasMatch())
+        return noted(QStringLiteral("none looked up: this crash log has no Pid line, so it was "
+                                    "written by a build that did not collect tombstones"),
+                     /*handoffExpected=*/false);
+    // getHistoricalProcessExitReasons() reads pid 0 as "every process".
+    const int pid = m.captured(1).toInt();
+    if (pid <= 0)
+        return noted(QStringLiteral("none looked up: the Pid line reads %1").arg(m.captured(1)));
+
+    // Only on the launch after a crash: a binder call, a file read and a parse on
+    // the main thread. The log line below carries the time it took.
+    QElapsedTimer timer;
+    timer.start();
+    constexpr const char* kClass = "io/github/kulitorum/decenza_de1/CrashExitInfo";
+    QJniEnvironment env;
+    const QJniObject context = QNativeInterface::QAndroidApplication::context();
+    const QJniObject result = QJniObject::callStaticObjectMethod(
+        kClass, "nativeCrashTombstone", "(Landroid/content/Context;I)[B",
+        context.object<jobject>(), static_cast<jint>(pid));
+    if (env->ExceptionCheck()) {
+        const jthrowable exception = env->ExceptionOccurred();
+        env->ExceptionClear();
+        const QJniObject thrown(exception);
+        env->DeleteLocalRef(exception);
+        const QString what = thrown.callObjectMethod<jstring>("toString").toString();
+        return noted(QStringLiteral("the Java lookup threw %1")
+                         .arg(what.isEmpty() ? QStringLiteral("an exception whose toString() failed") : what));
+    }
+    if (!result.isValid()) {
+        const QString status = QJniObject::callStaticObjectMethod(
+            kClass, "lastStatus", "()Ljava/lang/String;").toString();
+        const bool statusThrew = env.checkAndClearExceptions();
+        // Every null return sets a status, so an empty one means the class did not
+        // load: Qt clears that exception itself (qjniobject.cpp:524-530).
+        return noted(statusThrew ? QStringLiteral("the lookup returned nothing and its status call threw")
+                     : status.isEmpty() ? QStringLiteral("CrashExitInfo did not load, so no reason is known")
+                                        : status);
+    }
+
+    const auto array = result.object<jbyteArray>();
+    QByteArray proto(env->GetArrayLength(array), Qt::Uninitialized);
+    env->GetByteArrayRegion(array, 0, static_cast<jsize>(proto.size()),
+                            reinterpret_cast<jbyte*>(proto.data()));
+    if (proto.isEmpty())
+        return noted(QStringLiteral("the tombstone the system returned is empty"));
+
+    const TombstoneSummary summary = summarizeTombstone(proto, kTombstoneSummaryBudget);
+    DIAG_INFO(APP, "CrashHandler") << "Previous crash tombstone:" << proto.size() << "bytes,"
+                                   << (summary.hasWholeCrashingThread ? "whole crashing thread"
+                                                                      : "crashing thread incomplete")
+                                   << "in" << timer.elapsed() << "ms";
+    return insertTombstoneSummary(crashLog, summary);
+#else
+    return crashLog;
+#endif
 }

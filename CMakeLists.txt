@@ -946,6 +946,7 @@ set(HEADERS
     src/core/accessibilitymanager.h
     src/core/autowakemanager.h
     src/core/crashhandler.h
+    src/core/deviceinfo.h
     src/core/profilestorage.h
     src/core/translationmanager.h
     src/core/updatechecker.h

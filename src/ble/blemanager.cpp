@@ -4,6 +4,7 @@
 #include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
+#include "core/deviceinfo.h"
 #include "core/fileshare.h"
 #include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
@@ -260,35 +261,21 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 }
 
 // Android API level, or -1 where it cannot be read (and on every other
-// platform). Cached: SDK_INT is a permanent OS characteristic.
-//
-// Centralised because there are now two callers with different predicates —
-// the dual-HIGH seed at SDK < 30 and the adapter-remedy gate at SDK >= 33 —
-// and each was otherwise free to hand-roll its own JNI read, its own
-// exception check and its own failure behaviour.
+// platform). The read is DeviceInfo::androidBuild(); this adds the one warning
+// that both callers (the dual-HIGH seed at SDK < 30 and the adapter-remedy gate
+// at SDK >= 33) would otherwise each hand-roll.
 int BLEManager::androidSdkInt()
 {
 #ifdef Q_OS_ANDROID
-    static const int cached = []() {
-        QJniEnvironment jniEnv;
-        const jint v = QJniObject::getStaticField<jint>(
-            "android/os/Build$VERSION", "SDK_INT");
-        const bool threw = jniEnv.checkAndClearExceptions();
-        if (threw || v <= 0) {
-            // Logged here, once, rather than at each caller — and it keeps the
-            // exception-versus-bogus-value distinction that the callers' own
-            // messages used to carry. Without it the two are indistinguishable
-            // in a submitted log, which is the diagnostic that centralising
-            // this read would otherwise have cost.
-            BT_WARN_TAGGED("BLEManager", QStringLiteral(
-                "could not read Android SDK_INT (value=%1, jni_exception=%2) — "
-                "callers that gate on the API level will treat it as unknown")
-                    .arg(static_cast<int>(v)).arg(threw ? "yes" : "no"));
-            return -1;
-        }
-        return static_cast<int>(v);
-    }();
-    return cached;
+    // Not cached here: DeviceInfo caches a good read and retries a failed one.
+    const DeviceInfo::AndroidBuild b = DeviceInfo::androidBuild();
+    if (b.sdkInt < 0) {
+        BT_WARN_TAGGED("BLEManager", QStringLiteral(
+            "could not read Android SDK_INT (value=%1) — "
+            "callers that gate on the API level will treat it as unknown")
+                .arg(b.sdkIntRaw));
+    }
+    return b.sdkInt;
 #else
     return -1;
 #endif
