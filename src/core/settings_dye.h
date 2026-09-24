@@ -420,11 +420,13 @@ private:
 
 
     void ensureDyeCacheLoaded() const;
-    // Copy the bag's fields into the dye cache (bean identity always —
-    // including empties, absence is silence; grinder/dose only when the bag
-    // has values, so a fresh bag inherits the current setup and adopts it
-    // via write-through later).
+    // Apply a bag row on a switch: bean identity always (including empties —
+    // absence is silence), equipment as stored (even none), grind/dose only
+    // when present so a fresh bag inherits the current dial and adopts it via
+    // write-through later. A same-bag reload only refreshes the caches — see
+    // m_appliedBagId.
     void applyActiveBag(const QVariantMap& bag);
+    void refreshBagCaches(const QVariantMap& bag);
     // Queue an async write of one field to the active bag (no-op while
     // applyActiveBag is running or when no bag/storage is attached).
     void writeThroughToBag(const QString& field, const QVariant& value);
@@ -441,6 +443,12 @@ private:
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
+    // The bag whose row was last applied; -1 once a switch is requested. A row
+    // for another id applies as a switch. A reload of the SAME bag — the
+    // post-shot dose stamp, a bag-dialog or MCP edit — only refreshes the
+    // caches: it neither re-arms the bag's yield over the session anchor nor
+    // moves the active equipment (#1960).
+    int m_appliedBagId = -1;
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;
     QString m_activeBagStorageHint;

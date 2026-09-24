@@ -494,12 +494,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->clearBrewOverrides();
     });
 
-    // A user bean switch carries the bag's yield spec (fires only from
-    // applyActiveBag, never on a keep-fields historical/favorite load). It
-    // arrives after the clear-to-profile reset above, so a bag with a saved
-    // anchor re-establishes it (idle brew-settings widget turns yellow); a
-    // bag whose mode is "none" leaves the brew at the profile default the
-    // clear set.
+    // A bean switch, or an Update Bag write (persistYieldSpecToBag), carries
+    // the bag's yield spec; a same-bag reload and a keep-fields load
+    // (historical/favorite shot, recipe activation) do not (#1960). A switch's
+    // clear-to-profile reset has already run, so a bag with a saved anchor
+    // re-establishes it (idle brew-settings widget turns yellow); a bag whose
+    // mode is "none" leaves the brew at the profile default the clear set.
     //
     // This walks the FULL ladder (recipe -> bag -> profile) rather than just
     // vetoing the bag while a recipe is active. The veto looked equivalent
@@ -548,6 +548,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             // The recipe designs no yield: the ladder falls through to the
             // bag rung below, exactly as with no recipe active.
         }
+        // An anchor already standing wins: at launch it was restored from
+        // settings and nothing cleared it (a switch clears first, so a switch
+        // always lands here empty). The bag's spec fills an empty session; it
+        // never replaces one (#1960 across a relaunch).
+        if (m_settings->brew()->hasBrewYieldOverride())
+            return;
         if (value > 0 && mode != QLatin1String("none"))
             m_settings->brew()->setBrewYieldAnchor(value, mode);
     });
