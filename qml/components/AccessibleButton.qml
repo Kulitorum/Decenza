@@ -77,7 +77,7 @@ T.Button {
     // which supplied them and which we no longer inherit. Templates types declare no
     // geometry at all — QQuickControl computes implicitContentWidth/implicitBackgroundWidth
     // in C++ but leaves implicitWidth itself to the style
-    // (qquickcontrol.cpp:1749-1757), so without this every button would be 0 wide.
+    // (qquickcontrol.cpp:1751-1759), so without this every button would be 0 wide.
     //
     // The insets are the load-bearing ones: Material draws a button's background 6px
     // short at top and bottom, so the fill under a 44px AccessibleButton is 32px tall.

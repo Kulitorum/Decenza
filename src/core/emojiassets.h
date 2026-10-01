@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // Which emoji assets are actually bundled.
 //

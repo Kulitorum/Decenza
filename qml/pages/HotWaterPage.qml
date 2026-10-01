@@ -83,7 +83,7 @@ T.Page {
     function saveCurrentVessel(volume, flowRate, temperature) {
         var name = page.getCurrentVesselName()
         if (name) {
-            var temp = (temperature !== undefined) ? temperature : temperatureInput.value
+            let temp = (temperature !== undefined) ? temperature : temperatureInput.value
             Settings.brew.updateWaterVesselPreset(Settings.brew.selectedWaterVessel, name, volume, Settings.brew.waterVolumeMode, flowRate, temp)
         }
     }
@@ -94,7 +94,7 @@ T.Page {
     function vesselFocusTarget(i: int): Item {
         // Range-checked as well as null-checked: Repeater.count is the MODEL size and is
         // emitted before the delegates exist (regenerate() returns early until
-        // componentComplete(), qquickrepeater.cpp:379-396), so `count > 0` with a null
+        // componentComplete(), qquickrepeater.cpp:434-438), so `count > 0` with a null
         // itemAt() is normal while a creation-time binding first evaluates.
         if (i < 0 || i >= vesselRepeater.count) return null
         var it = vesselRepeater.itemAt(i) as RepeaterDelegateItem
@@ -1126,7 +1126,7 @@ T.Page {
                             // Select the just-added preset (appended at the end) and load its
                             // values into the inputs, so edits apply to the new preset rather
                             // than the previously-selected one.
-                            var newIndex = Settings.brew.waterVesselPresets.length - 1
+                            let newIndex = Settings.brew.waterVesselPresets.length - 1
                             page.selectVessel(newIndex, Settings.brew.getWaterVesselPreset(newIndex))
                             newVesselNameInput.text = ""
                             addVesselDialog.close()

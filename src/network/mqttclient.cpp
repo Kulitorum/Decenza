@@ -22,6 +22,7 @@
 #include <QPointer>
 #include "mdnsresolver.h"
 #endif
+#include "localnetworkaccess.h"
 
 MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
                        Settings* settings, SettingsMqtt* settingsMqtt,
@@ -298,6 +299,7 @@ void MqttClient::connectToBroker()
         emit statusChanged();
         return;
     }
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::Mqtt);
 
 #ifdef Q_OS_ANDROID
     // Android's getaddrinfo() doesn't reliably resolve .local mDNS hostnames.

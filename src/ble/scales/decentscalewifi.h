@@ -377,9 +377,9 @@ private:
     //
     // 1. QWebSocket SYNTHESIZES a `disconnected` for a connect that never
     //    established. `open()` sets ConnectingState before connectToHost
-    //    (qtwebsockets/src/websockets/qwebsocket_p.cpp:545,550) and the
+    //    (qtwebsockets/src/websockets/qwebsocket_p.cpp:498,503) and the
     //    disconnected emit is gated only on `webSocketState !=
-    //    UnconnectedState` (:1335-1337) — so a failed connect reaches
+    //    UnconnectedState` (:1288-1290) — so a failed connect reaches
     //    onDisconnected at all. QTcpSocket does NOT do this: its own emit is
     //    gated on `previousState == ConnectedState || ClosingState`
     //    (qtbase/src/network/socket/qabstractsocket.cpp:2739-2741).

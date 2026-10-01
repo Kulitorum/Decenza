@@ -70,7 +70,7 @@ DecenzaDialog {
     // Set one puck flag (QML can't mutate a single key of a var object in place).
     function setPuck(key, on) {
         var p = {}
-        for (var k in root.fPuck) p[k] = root.fPuck[k]
+        for (let k in root.fPuck) p[k] = root.fPuck[k]
         p[key] = on
         root.fPuck = p
     }
@@ -209,8 +209,8 @@ DecenzaDialog {
         var known = Settings.dye.knownGrinderBrands()
         var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBrands() : []
         var seen = {}, out = []
-        for (var i = 0; i < known.length; ++i) { if (!seen[known[i]]) { seen[known[i]] = true; out.push(known[i]) } }
-        for (var j = 0; j < history.length; ++j) { if (history[j] && !seen[history[j]]) { seen[history[j]] = true; out.push(history[j]) } }
+        for (let i = 0; i < known.length; ++i) { if (!seen[known[i]]) { seen[known[i]] = true; out.push(known[i]) } }
+        for (let j = 0; j < history.length; ++j) { if (history[j] && !seen[history[j]]) { seen[history[j]] = true; out.push(history[j]) } }
         return out
     }
     function modelSuggestions() { return Settings.dye.knownGrinderModels(root.fBrand) }
@@ -228,7 +228,7 @@ DecenzaDialog {
     function basketModelDescriptions() {
         var out = {}
         var models = Settings.dye.knownBasketModels(root.fBasketBrand)
-        for (var i = 0; i < models.length; ++i)
+        for (let i = 0; i < models.length; ++i)
             out[models[i]] = Settings.dye.basketModelSummary(root.fBasketBrand, models[i])
         return out
     }
@@ -243,7 +243,7 @@ DecenzaDialog {
     // PuckPrep::canonical) — the dedup identity and the save payload key.
     function puckCanonical() {
         var on = []
-        for (var i = 0; i < puckPrepRows.length; ++i)
+        for (let i = 0; i < puckPrepRows.length; ++i)
             if (fPuck[puckPrepRows[i].key]) on.push(puckPrepRows[i].key)
         on.sort()
         return on.join(",")
@@ -258,8 +258,8 @@ DecenzaDialog {
         var gbu = fBurrs.trim().toLowerCase()
         var bb = fBasketBrand.trim().toLowerCase(), bm = fBasketModel.trim().toLowerCase()
         var pc = puckCanonical()
-        for (var i = 0; i < packages.length; ++i) {
-            var p = packages[i]
+        for (let i = 0; i < packages.length; ++i) {
+            let p = packages[i]
             if (!p || p.id === undefined) continue
             if (editPackageId > 0 && p.id === editPackageId) continue
             if (String(p.grinderBrand || "").trim().toLowerCase() === gb
@@ -292,8 +292,8 @@ DecenzaDialog {
         var n = fName.trim().toLowerCase()
         if (n.length === 0) return -1
         if (n === _originalName.trim().toLowerCase()) return -1
-        for (var i = 0; i < packages.length; ++i) {
-            var p = packages[i]
+        for (let i = 0; i < packages.length; ++i) {
+            let p = packages[i]
             if (!p || p.id === undefined) continue
             if (editPackageId > 0 && p.id === editPackageId) continue
             if (String(p.name || "").trim().toLowerCase() === n)
@@ -553,7 +553,7 @@ DecenzaDialog {
                                     var models = Settings.dye.knownGrinderModels(t)
                                     if (models.length === 1) {
                                         root.fModel = models[0]
-                                        var burrs = Settings.dye.suggestedBurrs(t, models[0])
+                                        let burrs = Settings.dye.suggestedBurrs(t, models[0])
                                         if (burrs.length === 1) root.fBurrs = burrs[0]
                                     }
                                 }
@@ -676,7 +676,7 @@ DecenzaDialog {
         }
         // Puck-prep flags as namespaced keys (storage builds the canonical form;
         // all-false clears any existing puck prep).
-        for (var i = 0; i < puckPrepRows.length; ++i)
+        for (let i = 0; i < puckPrepRows.length; ++i)
             fields["puckPrep_" + puckPrepRows[i].key] = !!fPuck[puckPrepRows[i].key]
         if (formMode === "edit" && editPackageId > 0) {
             // Editing identity may copy-on-write into a new package id; wait for

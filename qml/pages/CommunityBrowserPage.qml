@@ -197,7 +197,7 @@ Item {
             // Load more when reaching bottom
             onAtYEndChanged: {
                 if (atYEnd && count > 0 && !LibrarySharing.browsing) {
-                    var totalPages = Math.ceil(LibrarySharing.totalCommunityResults / 20)
+                    let totalPages = Math.ceil(LibrarySharing.totalCommunityResults / 20)
                     if (communityBrowser.currentPage < totalPages) {
                         communityBrowser.currentPage++
                         LibrarySharing.browseCommunity(communityBrowser.filterType, communityBrowser.filterVariable,

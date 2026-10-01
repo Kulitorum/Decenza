@@ -129,7 +129,7 @@ T.Page {
     readonly property var _shotProfileDefaults: {
         if (!editShotData.profileJson) return ({ yield: 0, temp: 0 })
         try {
-            var p = JSON.parse(editShotData.profileJson)
+            let p = JSON.parse(editShotData.profileJson)
             return { yield: p.target_weight || 0, temp: p.espresso_temperature || 0 }
         } catch (e) { return ({ yield: 0, temp: 0 }) }
     }
@@ -183,9 +183,9 @@ T.Page {
     function recipeSteamText() {
         if (!editShotData.steamJson) return ""
         try {
-            var s = JSON.parse(editShotData.steamJson)
+            let s = JSON.parse(editShotData.steamJson)
             if (!s.hasMilk) return ""
-            var parts = []
+            let parts = []
             if (s.pitcherName) parts.push(s.pitcherName)
             if ((s.milkWeightG || 0) > 0)
                 parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
@@ -195,9 +195,9 @@ T.Page {
     function recipeWaterText() {
         if (!editShotData.hotWaterJson) return ""
         try {
-            var w = JSON.parse(editShotData.hotWaterJson)
+            let w = JSON.parse(editShotData.hotWaterJson)
             if (!w.hasWater) return ""
-            var parts = []
+            let parts = []
             if (w.vesselName) parts.push(w.vesselName)
             if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
             if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
@@ -564,7 +564,7 @@ T.Page {
     // Formula: EY(%) = (beverageWeight × TDS%) / doseWeight
     function calculateEy() {
         if (editDoseWeight > 0 && editDrinkWeight > 0 && editDrinkTds > 0) {
-            var ey = (editDrinkWeight * editDrinkTds) / editDoseWeight
+            let ey = (editDrinkWeight * editDrinkTds) / editDoseWeight
             ey = Math.round(ey * 10) / 10  // Round to 1 decimal
             editDrinkEy = ey
         }
@@ -978,7 +978,7 @@ T.Page {
                 // on an unedited shot — where editShotData is still the raw
                 // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
                 // the frame arrays, dateTime, etc. See the helper's docstring.
-                var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                let nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
                 nb.visualizerId = visualizerId
                 nb.visualizerUrl = url
                 nb.hasVisualizerUpload = true
@@ -1073,7 +1073,7 @@ T.Page {
                                     // The recorded temp is the effective brew temperature (present
                                     // on every shot); highlight it only when it deviated from the
                                     // shot-time profile's own default.
-                                    var tempStr = "(" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
+                                    let tempStr = "(" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
                                     if (postShotReviewPage._shotTempOverridden)
                                         tempStr = "<font color=\"" + Theme.colorToHex(Theme.highlightColor) + "\">" + tempStr + "</font>"
                                     result = name + " " + tempStr
@@ -1455,9 +1455,9 @@ T.Page {
 
                         onPositionChanged: function(mouse) {
                             if (pressed) {
-                                var currentY = mouse.y + resizeHandle.mapToItem(postShotReviewPage, 0, 0).y
-                                var delta = currentY - startY
-                                var newHeight = startHeight + delta
+                                let currentY = mouse.y + resizeHandle.mapToItem(postShotReviewPage, 0, 0).y
+                                let delta = currentY - startY
+                                let newHeight = startHeight + delta
                                 // Clamp between min and max
                                 newHeight = Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), newHeight))
                                 postShotReviewPage.graphHeight = newHeight
@@ -1896,7 +1896,7 @@ T.Page {
                         WebDebugLogger.warn("Shot", "PostShotReviewPage", ["enrichment merge skipped — unparseable blob"].map(String).join(" "))
                         return
                     }
-                    for (var k in attrs) merged[k] = attrs[k]
+                    for (let k in attrs) merged[k] = attrs[k]
                     postShotReviewPage.editBeanBaseJson = JSON.stringify(merged)
                     if (attrs.degree) postShotReviewPage.editRoastLevel = attrs.degree
                     postShotReviewPage.autosave("beanBase", true)
@@ -2383,7 +2383,7 @@ T.Page {
                     // Re-upload: PATCH metadata from current edit fields. Reuse
                     // buildVisualizerOverrides() so the manual and auto-update paths
                     // stay in sync as fields evolve.
-                    var patchOverrides = postShotReviewPage.buildVisualizerOverrides()
+                    let patchOverrides = postShotReviewPage.buildVisualizerOverrides()
                     postShotReviewPage._patchInFlight = true
                     // editShotData may be a plain-JS clone (badges/save) or the
                     // raw gadget; the C++ method takes QVariant and coerces it,
@@ -2397,7 +2397,7 @@ T.Page {
                     // overrides. The C++ method takes QVariant and coerces via
                     // ShotProjection::coerce(), so id, durationSec, and frame
                     // arrays survive isValid().
-                    var uploadOverrides = postShotReviewPage.buildVisualizerOverrides()
+                    let uploadOverrides = postShotReviewPage.buildVisualizerOverrides()
                     postShotReviewPage._firstUploadInFlight = true
                     MainController.visualizer.uploadShotFromHistoryWithOverrides(
                         postShotReviewPage.editShotData, uploadOverrides)
@@ -2491,7 +2491,7 @@ T.Page {
                     // Prose, not the JSON envelope — the user is pasting this into
                     // an external AI tool. See #1042 / ShotDetailPage clipboard
                     // path for rationale.
-                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
+                    let summary = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
                     if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
                 // Open configured AI app

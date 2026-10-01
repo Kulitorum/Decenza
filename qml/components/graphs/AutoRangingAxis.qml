@@ -47,11 +47,11 @@ ValueAxis {
 
         var list = series
         if (!list) return
-        for (var i = 0; i < list.length; ++i) {
-            var s = list[i]
+        for (let i = 0; i < list.length; ++i) {
+            let s = list[i]
             if (!s || !s.count) continue
-            for (var j = 0; j < s.count; ++j) {
-                var p = s.at(j)
+            for (let j = 0; j < s.count; ++j) {
+                let p = s.at(j)
                 if (!isFinite(p.y)) continue
                 if (p.y < lo) lo = p.y
                 if (p.y > hi) hi = p.y
@@ -107,10 +107,10 @@ ValueAxis {
     }
 
     function _rebind() {
-        for (var i = 0; i < _bound.length; ++i) _unbindOne(_bound[i])
+        for (let i = 0; i < _bound.length; ++i) _unbindOne(_bound[i])
         _bound = []
         if (!series) return
-        for (var k = 0; k < series.length; ++k) {
+        for (let k = 0; k < series.length; ++k) {
             _bindOne(series[k])
             _bound.push(series[k])
         }

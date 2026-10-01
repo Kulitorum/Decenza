@@ -59,8 +59,8 @@ LayoutWidgetItem {
         var favs = Settings.app.favoriteProfiles
         var sel = Settings.app.selectedFavoriteProfile
         var out = []
-        for (var i = 0; i < favs.length; ++i) {
-            var name = (favs[i] && favs[i].name) || ""
+        for (let i = 0; i < favs.length; ++i) {
+            let name = (favs[i] && favs[i].name) || ""
             // Match PresetPillRow.pillLayoutName's modified marker on the selected pill.
             if (ProfileManager.profileModified && i === sel)
                 name = ProfileManager.isCurrentProfileReadOnly
@@ -84,7 +84,7 @@ LayoutWidgetItem {
     readonly property int _profilePageStart: {
         var idx = Math.max(0, Math.min(profilePageIndex, _profilePageSizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += _profilePageSizes[p]
         return start
     }
@@ -190,7 +190,7 @@ LayoutWidgetItem {
         // placement, down for an upper-half one); the button/popup stay put.
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
         }
@@ -206,9 +206,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -219,8 +219,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 // Clamp right
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width

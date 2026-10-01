@@ -392,17 +392,25 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
 # loosening the anchor, which would risk matching "Warning:" inside a message body.
 GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
 
-# A second, independent count of how many findings the output holds — see check_accounting().
-# It must be anchored on the severity prefix as well as the trailing [category]: qmllint echoes
-# the offending SOURCE LINE under each diagnostic, and QML source ending in an array subscript
-# (`var bag = idlePage.visibleBags[index]`) looks exactly like a category tag otherwise. That
-# mistake made this check claim 48 phantom missing diagnostics on its first run.
-DIAGNOSTIC_LINE_RE = re.compile(
-    r"^(?:Warning|Error|Info): .*\[[A-Za-z0-9._-]+\]$")
+# Qt 6.12's qmllint splits some messages over several lines, with the category tag alone on the
+# last: "...hoisted to function scope\nReplace it with const or let...\n [block-scope-var-declaration]".
+# Matching the tag on the severity line dropped all 86 of them, and the accounting check agreed,
+# because it looked for the same one-line shape. join_continuations() folds them back into one line.
+TAG_RE = re.compile(r" \[[A-Za-z0-9._-]+\]$")
+SEVERITY_LINE_RE = re.compile(r"^(?:Warning|Error|Info): ")
 
-# The same shape, unanchored, for check_accounting()'s independent count — see there.
-DIAGNOSTIC_ANYWHERE_RE = re.compile(
-    r"(?:Warning|Error|Info): [^\n]*? \[[A-Za-z0-9._-]+\](?=\n|$)")
+# check_accounting()'s independent count: a severity prefix whose message reaches a [category]
+# tag within three more lines, before the next prefix. Untagged prefixes are hints attached to the
+# diagnostic above ("Info: Set \"pragma ComponentBehavior: Bound\"..." plus "Suggested change:"
+# lines), not findings. A prefix counts at a line start or glued onto a hint (see GLUED_RE) —
+# never after whitespace or a quote, which is how "Warning: " appears inside echoed QML source
+# (BrewDialog.qml carries one in a translation fallback).
+_PREFIX = r"(?:Warning|Error|Info): "
+_NOT_PREFIX_CHAR = r"(?:(?!" + _PREFIX + r")[^\n])"
+DIAGNOSTIC_RE = re.compile(
+    r"(?:^|(?<=[^\s\"'/]))" + _PREFIX + _NOT_PREFIX_CHAR + r"*?"
+    r"(?:\n" + _NOT_PREFIX_CHAR + r"*?){0,3} \[[A-Za-z0-9._-]+\](?=\n|$)",
+    re.MULTILINE)
 
 
 def check_accounting(output: str, parsed: int) -> None:
@@ -418,7 +426,7 @@ def check_accounting(output: str, parsed: int) -> None:
     # this check blind to the exact bug it was written for: if the splitting regex stops
     # matching, both numbers fall together and agree. Matching the diagnostic shape anywhere in
     # the text — not line-anchored — counts glued diagnostics whether or not the split works.
-    expected = len(DIAGNOSTIC_ANYWHERE_RE.findall(output))
+    expected = len(DIAGNOSTIC_RE.findall(output))
     if expected != parsed:
         sys.exit(
             f"Parser accounting mismatch: the output holds {expected} diagnostic line(s) but "
@@ -428,10 +436,30 @@ def check_accounting(output: str, parsed: int) -> None:
         )
 
 
+def join_continuations(lines: list[str]) -> list[str]:
+    """Fold a diagnostic whose [category] tag sits on a later line back onto its severity line.
+
+    The folded lines are replaced with empty strings rather than removed, so lines[i + 1] is
+    still the echoed source line for a one-line diagnostic.
+    """
+    out = list(lines)
+    for i, line in enumerate(out):
+        if not SEVERITY_LINE_RE.match(line) or TAG_RE.search(line):
+            continue
+        for j in range(i + 1, min(i + 4, len(out))):
+            if SEVERITY_LINE_RE.match(out[j]):
+                break  # an untagged hint, not a diagnostic: leave it alone
+            if TAG_RE.search(out[j]):
+                out[i] = " ".join([line, *(l.strip() for l in out[i + 1:j + 1])])
+                out[i + 1:j + 1] = [""] * (j - i)
+                break
+    return out
+
+
 def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter, dict[str, Counter]]:
     """-> (per-category counts, per-file unqualified identifiers, per-file totals,
            per-file per-category counts)"""
-    lines = GLUED_RE.sub("\n", output).split("\n")
+    lines = join_continuations(GLUED_RE.sub("\n", output).split("\n"))
     categories: Counter = Counter()
     unqualified: dict[str, Counter] = defaultdict(Counter)
     per_file: Counter = Counter()

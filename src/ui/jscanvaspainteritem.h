@@ -4,7 +4,7 @@
 #include <QtCanvasPainter/qcanvaspainteritem.h>
 
 #include "jscanvascontext.h"
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // QML element exposing a Canvas-like JS surface (`onPaint`, `requestPaint()`)
 // backed by Qt 6.11's GPU-accelerated QCanvasPainter. The QML handler records

@@ -60,7 +60,7 @@ Item {
             // Pills display presets as "Small Pitcher" etc., so users name them that way —
             // don't render "…the Large Pitcher pitcher". Separate full template (not string
             // surgery) so translators control word order in both forms.
-            var tpl = _pitcherName.toLowerCase().indexOf("pitcher") >= 0
+            let tpl = _pitcherName.toLowerCase().indexOf("pitcher") >= 0
                 ? TranslationManager.translate("steamplan.sentenceNamedPitcher", "Steam %1 of milk, using the %2 for %3")
                 : TranslationManager.translate("steamplan.sentence", "Steam %1 of milk, using the %2 pitcher for %3")
             return tpl.arg(fmt(_milkStr, true)).arg(fmt(_pitcherName, true)).arg(fmt(_durStr, true))

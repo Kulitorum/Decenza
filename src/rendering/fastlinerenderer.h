@@ -6,7 +6,7 @@
 #include <QVector>
 #include <QSGGeometryNode>
 #include <QSGFlatColorMaterial>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class FastLineRenderer : public QQuickItem {
     Q_OBJECT

@@ -471,7 +471,7 @@ are called only from C++. Diff the two `public slots:` blocks when you write one
 ## A `QML_SINGLETON` with a defaulted `parent` never calls its own `create()`
 
 Qt chooses a singleton's construction mode in `singletonConstructionMode()`
-(`qtdeclarative/src/qml/qml/qqmlprivate.h:155-167`), and the ORDER of its tests is the trap.
+(`qtdeclarative/src/qml/qml/qqmlprivate.h:186-201`), and the ORDER of its tests is the trap.
 Abridged to the three branches that matter — read the source for the real thing, this drops the
 leading `is_base_of<QObject, T>` branch, the trailing `return None`, and the `::value` suffixes:
 
@@ -483,6 +483,13 @@ if constexpr (std::is_default_constructible<T>::value)
 if constexpr (HasSingletonFactory<T>::value)
     return SingletonConstructionMode::Factory;          // T::create(q, j)
 ```
+
+Qt 6.12 added a branch ahead of all three: `QmlUncreatable<WrapperT>` returns `ExplicitNone`
+(`qqmlprivate.h:191-192`). A singleton that also carries `QML_UNCREATABLE` is never constructed by
+Qt at all, neither `new T` nor `create()`, and QML gets null plus a critical "is not available
+because the callback function returns a null pointer" (`qqmlengine.cpp:1459-1465`). That mode is
+for `QQmlEngine::setExternalSingletonInstance()`. No singleton here carries both macros; don't add
+`QML_UNCREATABLE` to one.
 
 Default-constructibility is tested **before** the factory. So this is enough to disable
 `create()` entirely:
@@ -526,7 +533,7 @@ Every singleton that hands QML an object the app already owns now uses that wrap
 
 `MachineState` was the one worth checking rather than assuming, because it exposes `Q_ENUM(Phase)`
 to 155 QML sites and enum reads on a singleton resolve INSIDE the instance guard
-(`qqmltypewrapper.cpp:320`), where a failure is runtime-only. It converts cleanly:
+(`qqmltypewrapper.cpp:325`), where a failure is runtime-only. It converts cleanly:
 `QML_FOREIGN` registers the foreign class's metaobject, so the generated `Decenza.qmltypes`
 carries the identical `Enum { name: "Phase" }` block with all 16 values before and after. If you
 are ever tempted to assume that, diff the qmltypes — it is one build and it answers the question.
@@ -556,7 +563,7 @@ the name read as `undefined`. Per Qt 6.11.1: `qv4qmlcontext.cpp:229` resolves th
 `QQmlTypeWrapper::create(v4, nullptr, r.type)` — it calls `singletonInstance<QObject*>()` and
 **discards the result**, so the wrapper is built either way — and `QQmlTypeWrapper` has no
 `virtualToBoolean` override, so that wrapper is a truthy `Object` with `typeof === "object"`. Only
-the *member read* degrades: `qqmltypewrapper.cpp:319` fails its `if (QObject *singleton = ...)` and
+the *member read* degrades: `qqmltypewrapper.cpp:325` fails its `if (QObject *singleton = ...)` and
 falls through to `Object::virtualGet`, yielding `undefined`.
 
 So the name passes both halves of the usual guard and the first method call throws
@@ -583,7 +590,7 @@ Debug, while working on exactly the two configurations it gets tested on.
 "the same work with the UI kept responsive". It delivers **queued events** while a QML signal
 handler is still on the stack, and if one of them destroys an object that handler belongs to, Qt
 does not limp on — `QQmlData::destroyed()` calls **`qFatal()`**
-(`qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396`):
+(`qtdeclarative/src/qml/qml/qqmldata.cpp:415-441`):
 
 ```
 Object 0x12a0fa680 destroyed while one of its QML signal handlers is in progress.
@@ -613,11 +620,11 @@ TabBar.onCurrentIndexChanged  ->  markTabLoaded() writes loadedTabs
 file on main today. Go by the name, not the number.)
 
 **What is established and what is not.** The stack proves an event delivered inside the pump
-destroyed the page — `QObject::event` deletes on `DeferredDelete` at `qobject.cpp:1463-1464`. It
+destroyed the page — `QObject::event` deletes on `DeferredDelete` at `qobject.cpp:1475-1476`. It
 does **not** prove *which* posted event, and the obvious story is the one Qt guards against: a bare
-`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1858-1873`
+`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1885-1900`
 allows one through only when it was posted at a deeper loop+scope level than the pump, or before
-the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2534-2557` records
+the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2546-2569` records
 those levels specifically so that
 
 ```cpp

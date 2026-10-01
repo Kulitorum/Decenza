@@ -93,10 +93,10 @@ Item {
         if (xSpan === 0 || ySpan === 0) return []
 
         var result = []
-        for (var i = 0; i < pts.length; ++i) {
-            var p = pts[i]
-            var px = ((p.x - xRange[0]) / xSpan) * w
-            var py = h - ((p.y - yRange[0]) / ySpan) * h  // flip Y
+        for (let i = 0; i < pts.length; ++i) {
+            let p = pts[i]
+            let px = ((p.x - xRange[0]) / xSpan) * w
+            let py = h - ((p.y - yRange[0]) / ySpan) * h  // flip Y
             result.push(Qt.point(px, py))
         }
         return result

@@ -4,7 +4,7 @@
 
 #include <QObject>
 #include <QPointer>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class QNetworkAccessManager;
 class QNetworkReply;

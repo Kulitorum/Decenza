@@ -62,7 +62,7 @@ Rectangle {
 
         var tail = " What do you think, and how should I adjust the next shot?"
         if (parts.length > 0) {
-            var msg = "Here's how this shot tasted: " + parts.join(", ") + "."
+            let msg = "Here's how this shot tasted: " + parts.join(", ") + "."
             if (intakeOverall > 0) msg += " I'd rate it " + intakeOverall + "/100."
             return msg + tail
         }
@@ -703,8 +703,8 @@ Rectangle {
                                 // ask() doesn't touch the index; switchConversation() must run first
                                 // so the web UI shows this conversation (e.g. after a clear).
                                 MainController.aiManager.switchConversation(overlay.savedShot)
-                                var bevType = (overlay.beverageType || "espresso").toLowerCase()
-                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedShot.profileName || "")
+                                let bevType = (overlay.beverageType || "espresso").toLowerCase()
+                                let systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedShot.profileName || "")
                                 conversation.ask(systemPrompt, message)
                                 sent = true
                             } else {

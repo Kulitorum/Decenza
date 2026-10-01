@@ -2,7 +2,7 @@
 
 #include <QtQuick3D/QQuick3DGeometry>
 #include <QVector3D>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // Custom cylinder geometry with configurable sides
 class PipeCylinderGeometry : public QQuick3DGeometry {

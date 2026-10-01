@@ -30,7 +30,7 @@ DecenzaDialog {
         // to restore.
         var overlay = Overlay.overlay
         if (overlay) {
-            var win = overlay.Window.window
+            let win = overlay.Window.window
             if (win && win.activeFocusItem) {
                 win.activeFocusItem.focus = false
             }
@@ -40,8 +40,8 @@ DecenzaDialog {
         dateString = DateUtils.normalizeDateString(dateString || "")
 
         if (dateString && dateString.length === 10) {
-            var parts = dateString.split("-")
-            var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+            let parts = dateString.split("-")
+            let d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
             if (!isNaN(d.getTime())) {
                 selectedDate = d
                 monthGrid.month = d.getMonth()
@@ -240,10 +240,10 @@ DecenzaDialog {
                     anchors.fill: parent
                     onClicked: {
                         if (dayDelegate.isCurrentMonth) {
-                            var d = new Date(dayDelegate.model.year, dayDelegate.model.month, dayDelegate.model.day)
+                            let d = new Date(dayDelegate.model.year, dayDelegate.model.month, dayDelegate.model.day)
                             root.selectedDate = d
-                            var mm = String(d.getMonth() + 1).padStart(2, '0')
-                            var dd = String(d.getDate()).padStart(2, '0')
+                            let mm = String(d.getMonth() + 1).padStart(2, '0')
+                            let dd = String(d.getDate()).padStart(2, '0')
                             root.dateSelected(d.getFullYear() + "-" + mm + "-" + dd)
                             root.close()
                         }

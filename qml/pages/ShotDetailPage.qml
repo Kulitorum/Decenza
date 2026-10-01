@@ -53,7 +53,7 @@ T.Page {
     readonly property var _shotProfileDefaults: {
         if (!shotData.profileJson) return ({ yield: 0, temp: 0 })
         try {
-            var p = JSON.parse(shotData.profileJson)
+            let p = JSON.parse(shotData.profileJson)
             return { yield: p.target_weight || 0, temp: p.espresso_temperature || 0 }
         } catch (e) { return ({ yield: 0, temp: 0 }) }
     }
@@ -166,7 +166,7 @@ T.Page {
         // provenance — never re-derived from target ÷ dose, which a post-shot
         // dose correction would distort.
         if (shotData.doseWeightG > 0) {
-            var achieved = "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
+            let achieved = "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
             if (shotData.yieldMode === "ratio" && (shotData.yieldAnchorValue || 0) > 0)
                 return achieved + " " + TranslationManager.translate("shotdetail.targetRatio", "(target 1:%1)")
                     .arg(Number(shotData.yieldAnchorValue).toFixed(1))
@@ -205,9 +205,9 @@ T.Page {
     function recipeSteamText() {
         if (!shotData.steamJson) return ""
         try {
-            var s = JSON.parse(shotData.steamJson)
+            let s = JSON.parse(shotData.steamJson)
             if (!s.hasMilk) return ""
-            var parts = []
+            let parts = []
             if (s.pitcherName) parts.push(s.pitcherName)
             if ((s.milkWeightG || 0) > 0)
                 parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
@@ -218,9 +218,9 @@ T.Page {
     function recipeWaterText() {
         if (!shotData.hotWaterJson) return ""
         try {
-            var w = JSON.parse(shotData.hotWaterJson)
+            let w = JSON.parse(shotData.hotWaterJson)
             if (!w.hasWater) return ""
-            var parts = []
+            let parts = []
             if (w.vesselName) parts.push(w.vesselName)
             if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
             if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
@@ -338,7 +338,7 @@ T.Page {
                                     // The recorded temp is the effective brew temperature (present
                                     // on every shot); highlight it only when it deviated from the
                                     // shot-time profile's own default.
-                                    var tempStr = "(" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
+                                    let tempStr = "(" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
                                     if (shotDetailPage._shotTempOverridden)
                                         tempStr = "<font color=\"" + Theme.colorToHex(Theme.highlightColor) + "\">" + tempStr + "</font>"
                                     result = name + " " + tempStr
@@ -707,9 +707,9 @@ T.Page {
 
                         onPositionChanged: function(mouse) {
                             if (pressed) {
-                                var currentY = mouse.y + resizeHandle.mapToItem(shotDetailPage, 0, 0).y
-                                var delta = currentY - startY
-                                var newHeight = startHeight + delta
+                                let currentY = mouse.y + resizeHandle.mapToItem(shotDetailPage, 0, 0).y
+                                let delta = currentY - startY
+                                let newHeight = startHeight + delta
                                 newHeight = Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), newHeight))
                                 shotDetailPage.graphHeight = newHeight
                             }
@@ -1616,7 +1616,7 @@ T.Page {
                     // Prose, not the JSON envelope — the user is pasting this into
                     // an external AI tool, where prose is more readable and avoids
                     // double-shipping the structured fields.
-                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotDetailPage.shotData)
+                    let summary = MainController.aiManager.buildShotAnalysisProseForShot(shotDetailPage.shotData)
                     if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
                 var url = Settings.network.discussShotUrl()

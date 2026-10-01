@@ -38,7 +38,7 @@ QtObject {
         // would not create a dependency on its own.
         var _ = TranslationManager.translationVersion
         var out = {}
-        for (var i = 0; i < tabs.length; i++) {
+        for (let i = 0; i < tabs.length; i++) {
             out[tabs[i].id] = TranslationManager.translate(tabs[i].key, tabs[i].fallback)
         }
         return out
@@ -46,8 +46,8 @@ QtObject {
 
     function visibleTabs() {
         var out = []
-        for (var i = 0; i < tabs.length; i++) {
-            var t = tabs[i]
+        for (let i = 0; i < tabs.length; i++) {
+            let t = tabs[i]
             if (!t.debugOnly || Settings.app.isDebugBuild) out.push(t)
         }
         return out
@@ -56,7 +56,7 @@ QtObject {
     // Returns the index into visibleTabs() for the given id, or -1 if unknown/hidden.
     function indexOf(id) {
         var vis = visibleTabs()
-        for (var i = 0; i < vis.length; i++) {
+        for (let i = 0; i < vis.length; i++) {
             if (vis[i].id === id) return i
         }
         return -1
@@ -71,7 +71,7 @@ QtObject {
     function visibleTabNames() {
         var vis = visibleTabs()
         var names = []
-        for (var i = 0; i < vis.length; i++) {
+        for (let i = 0; i < vis.length; i++) {
             names.push(tabLabels[vis[i].id])
         }
         return names

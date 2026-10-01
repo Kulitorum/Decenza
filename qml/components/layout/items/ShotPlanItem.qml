@@ -75,7 +75,7 @@ LayoutWidgetItem {
     Accessible.role: root._steamMode ? Accessible.StaticText : Accessible.Button
     Accessible.name: {
         if (root._steamMode) {
-            var sp = compactSteamPlan.text || fullSteamPlan.text || ""
+            let sp = compactSteamPlan.text || fullSteamPlan.text || ""
             return sp ? TranslationManager.translate("plan.a11y.steamPlan", "Steam plan: %1").arg(sp)
                       : TranslationManager.translate("plan.a11y.steamPlanEmpty", "Steam plan")
         }

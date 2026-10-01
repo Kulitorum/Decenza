@@ -84,7 +84,7 @@ DecenzaDialog {
         if (actionId === "none")
             return TranslationManager.translate("customeditor.action.none", "None")
         if (actionId) {
-            var entry = Settings.network.layoutActionLabels()[actionId]
+            let entry = Settings.network.layoutActionLabels()[actionId]
             if (entry === undefined) return actionId
             return TranslationManager.translate(entry.key, entry.fallback)
         }
@@ -369,7 +369,7 @@ DecenzaDialog {
         currentIndex: {
             var cur = gesturePicker.gestureKey === "longPressAction" ? popup.longPressAction
                                                                     : popup.doubleclickAction
-            for (var i = 0; i < gesturePicker._items.length; i++)
+            for (let i = 0; i < gesturePicker._items.length; i++)
                 if (gesturePicker._items[i].id === cur) return i
             return 0
         }

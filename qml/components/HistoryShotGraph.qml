@@ -1,5 +1,5 @@
 // The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
-// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightRange`, `tempRange`,
 // `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
 // declares each injected role it uses required, so Bound cannot break role injection
 // here.
@@ -100,7 +100,7 @@ Item {
         conductanceSeries.clear()
         darcyResistanceSeries.clear()
 
-        for (var i = 0; i < pressureData.length; i++)
+        for (let i = 0; i < pressureData.length; i++)
             pressureSeries.append(pressureData[i].x, pressureData[i].y)
         // Flow family carries the multiplier. These are native Qt Graphs LineSeries bound to
         // the view's shared axis, so unlike the live graph's renderers there is no per-series
@@ -108,15 +108,15 @@ Item {
         // arrays are NOT touched: pressureAxisMax and every readout still read true values
         // from them, and doReload() re-appends from scratch whenever the factor changes.
         var flowScale = chart.flowMultiplier
-        for (i = 0; i < flowData.length; i++)
+        for (let i = 0; i < flowData.length; i++)
             flowSeries.append(flowData[i].x, flowData[i].y * flowScale)
-        for (i = 0; i < weightFlowRateData.length; i++)
+        for (let i = 0; i < weightFlowRateData.length; i++)
             weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y * flowScale)
-        for (i = 0; i < resistanceData.length; i++)
+        for (let i = 0; i < resistanceData.length; i++)
             resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
-        for (i = 0; i < conductanceData.length; i++)
+        for (let i = 0; i < conductanceData.length; i++)
             conductanceSeries.append(conductanceData[i].x, conductanceData[i].y)
-        for (i = 0; i < darcyResistanceData.length; i++)
+        for (let i = 0; i < darcyResistanceData.length; i++)
             darcyResistanceSeries.append(darcyResistanceData[i].x, darcyResistanceData[i].y)
     }
 
@@ -127,7 +127,7 @@ Item {
         // No early return on empty pressureData — temperature- or weight-only
         // rows (corrupt/partial) still get a sensible axis from maxTime alone.
         var markerMaxTime = 0
-        for (var m = 0; m < phaseMarkers.length; m++) {
+        for (let m = 0; m < phaseMarkers.length; m++) {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
         }
         var axisEnd = Math.max(maxTime, markerMaxTime, portalOverlay.lastTime)
@@ -141,7 +141,7 @@ Item {
     function segmentGoalData(data, maxSegments) {
         if (!data || data.length === 0) return []
         var segments = [[data[0]]]
-        for (var i = 1; i < data.length; i++) {
+        for (let i = 1; i < data.length; i++) {
             if (data[i].x - data[i - 1].x > 0.5 && segments.length < maxSegments) {
                 segments.push([data[i]])
             } else {
@@ -168,9 +168,9 @@ Item {
         if (!data || data.length === 0) return null
         var closest = data[0]
         var minDist = Math.abs(closest.x - time)
-        for (var i = 1; i < data.length; i++) {
-            var p = data[i]
-            var dist = Math.abs(p.x - time)
+        for (let i = 1; i < data.length; i++) {
+            let p = data[i]
+            let dist = Math.abs(p.x - time)
             if (dist < minDist) {
                 closest = p
                 minDist = dist
@@ -213,8 +213,8 @@ Item {
             { key: "dCdt", name: "dC/dt", data: conductanceDerivativeData, unit: "" }
         ]
 
-        for (var i = 0; i < curves.length; i++) {
-            var v = findValueAtTime(curves[i].data, time)
+        for (let i = 0; i < curves.length; i++) {
+            let v = findValueAtTime(curves[i].data, time)
             if (v !== null) {
                 vals[curves[i].key] = { name: curves[i].name, value: curves[i].convert ? curves[i].convert(v) : v, unit: curves[i].unit }
             }
@@ -249,8 +249,8 @@ Item {
     // Skips "Start"/"End" sentinels — they are structural, not user-facing.
     function getPhaseAtTime(time) {
         var label = ""
-        for (var i = 0; i < phaseMarkers.length; i++) {
-            var m = phaseMarkers[i]
+        for (let i = 0; i < phaseMarkers.length; i++) {
+            let m = phaseMarkers[i]
             if (m.time <= time) {
                 if (m.label !== "Start" && m.label !== "End")
                     label = m.label
@@ -280,12 +280,12 @@ Item {
         ]
 
         var parts = []
-        for (var i = 0; i < curves.length; i++) {
+        for (let i = 0; i < curves.length; i++) {
             if (!curves[i].show) continue
-            var v = findValueAtTime(curves[i].data, time)
+            let v = findValueAtTime(curves[i].data, time)
             if (v !== null) {
-                var dv = curves[i].convert ? curves[i].convert(v) : v
-                var entry = curves[i].name + " " + dv.toFixed(1)
+                let dv = curves[i].convert ? curves[i].convert(v) : v
+                let entry = curves[i].name + " " + dv.toFixed(1)
                 if (curves[i].unit !== "") entry += " " + curves[i].unit
                 parts.push(entry)
             }
@@ -300,8 +300,8 @@ Item {
         }
         if (parts.length === 0) return
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
-            var phase = getPhaseAtTime(time)
-            var header = "At " + time.toFixed(1) + " seconds"
+            let phase = getPhaseAtTime(time)
+            let header = "At " + time.toFixed(1) + " seconds"
             if (phase !== "") header += ", " + phase + " phase"
             AccessibilityManager.announce(header + ". " + parts.join(". "), true)
         }
@@ -335,19 +335,19 @@ Item {
     // this by hand.
     property double pressureAxisMax: {
         var maxVal = 0
-        for (var i = 0; i < pressureData.length; i++) {
+        for (let i = 0; i < pressureData.length; i++) {
             if (pressureData[i].y > maxVal) maxVal = pressureData[i].y
         }
-        for (var i = 0; i < flowData.length; i++) {
+        for (let i = 0; i < flowData.length; i++) {
             if (flowData[i].y > maxVal) maxVal = flowData[i].y
         }
-        for (var i = 0; i < weightFlowRateData.length; i++) {
+        for (let i = 0; i < weightFlowRateData.length; i++) {
             if (weightFlowRateData[i].y > maxVal) maxVal = weightFlowRateData[i].y
         }
-        for (i = 0; i < pressureGoalData.length; i++) {
+        for (let i = 0; i < pressureGoalData.length; i++) {
             if (pressureGoalData[i].y > maxVal) maxVal = pressureGoalData[i].y
         }
-        for (i = 0; i < flowGoalData.length; i++) {
+        for (let i = 0; i < flowGoalData.length; i++) {
             if (flowGoalData[i].y > maxVal) maxVal = flowGoalData[i].y
         }
         // Resistance excluded — values are clamped at source and clip at the
@@ -373,23 +373,23 @@ Item {
     // factor in their appended points (see loadMainSeries), so this object exists to give
     // the labels the same numbers the plot is drawn against.
     QtObject {
-        id: flowAxis
+        id: flowRange
         property real min: 0
         property real max: chart.pressureAxisMax / chart.flowMultiplier
     }
 
     QtObject {
-        id: tempAxis
+        id: tempRange
         property real min: 40
         property real max: 100
     }
 
     QtObject {
-        id: weightAxis
+        id: weightRange
         property real min: 0
         property real max: {
             var maxW = 0
-            for (var i = 0; i < chart.weightData.length; i++) {
+            for (let i = 0; i < chart.weightData.length; i++) {
                 if (chart.weightData[i].y > maxW) maxW = chart.weightData[i].y
             }
             return Math.max(10, maxW * 1.1)
@@ -400,14 +400,14 @@ Item {
         id: dCdtAxis
         property real min: {
             var minV = 0
-            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+            for (let i = 0; i < chart.conductanceDerivativeData.length; i++) {
                 if (chart.conductanceDerivativeData[i].y < minV) minV = chart.conductanceDerivativeData[i].y
             }
             return minV < 0 ? -Math.abs(minV) * 1.15 : 0
         }
         property real max: {
             var maxV = 0
-            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+            for (let i = 0; i < chart.conductanceDerivativeData.length; i++) {
                 if (chart.conductanceDerivativeData[i].y > maxV) maxV = chart.conductanceDerivativeData[i].y
             }
             var padded = maxV * 1.15
@@ -452,7 +452,7 @@ Item {
             labelFormat: "%.0f"
             visible: chart.showLabels
             // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
-            // titles itself AND reserves layout space for them (axisrenderer.cpp:622
+            // titles itself AND reserves layout space for them (axisrenderer.cpp:662-698
             // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
             // migration (#1146) carried this over as a Text positioned off `plotArea`
             // bottom-right, which floated it ON TOP of the plot, over any trace running
@@ -527,7 +527,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: chart.temperatureData
         strokeColor: Theme.temperatureColor
         strokeWidth: Theme.scaled(3)
@@ -538,7 +538,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: chart.temperatureMixData
         strokeColor: Theme.temperatureMixColor
         strokeWidth: Theme.scaled(2)
@@ -549,7 +549,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: weightAxis
+        axisY: weightRange
         points: chart.weightData
         strokeColor: Theme.weightColor
         strokeWidth: Theme.scaled(3)
@@ -590,9 +590,9 @@ Item {
             required property var modelData
             graphsView: chart.graphsViewRef
             axisX: timeAxis
-            // Mapped through flowAxis so the dashed target moves with the trace chasing it.
+            // Mapped through flowRange so the dashed target moves with the trace chasing it.
             // DashedLineSeries only reads min/max, so a value holder is enough.
-            axisY: flowAxis
+            axisY: flowRange
             points: modelData
             strokeColor: Theme.flowGoalColor
             strokeWidth: Theme.scaled(2)
@@ -603,7 +603,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: chart.temperatureGoalData
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
@@ -615,7 +615,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: chart.temperatureMixGoalData
         strokeColor: Theme.temperatureMixGoalColor
         strokeWidth: Theme.scaled(2)
@@ -748,9 +748,9 @@ Item {
         height: graphsView.plotArea.height
 
         mode: chart.rightAxisMode
-        weightAxis: weightAxis
-        tempAxis: tempAxis
-        flowAxis: flowAxis
+        weightAxis: weightRange
+        tempAxis: tempRange
+        flowAxis: flowRange
         onTapped: chart.toggleRightAxis()
     }
 }

@@ -17,10 +17,10 @@ Tests are **auto-enabled in Debug builds** (single-config generators like Ninja/
 
 ```bash
 # Debug build — tests included automatically
-cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Debug ..
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.12.0/macos -DCMAKE_BUILD_TYPE=Debug ..
 
 # Release build — tests off by default, opt-in with:
-cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Release ..
+cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.12.0/macos -DCMAKE_BUILD_TYPE=Release ..
 
 # Run all tests — in parallel (the suite is parallel-safe; see below)
 ctest --output-on-failure -j$(nproc) --repeat until-pass:3   # macOS: -j$(sysctl -n hw.ncpu)
@@ -28,6 +28,10 @@ ctest --output-on-failure -j$(nproc) --repeat until-pass:3   # macOS: -j$(sysctl
 # Run a specific test
 ./tests/tst_sav
 ./tests/tst_saw
+
+# Filter by name. --no-tests=error makes a pattern that matches nothing (a renamed
+# test) fail; without it ctest runs zero tests and exits 0.
+ctest -R tst_saw --no-tests=error
 ```
 
 Override with `-DBUILD_TESTS=OFF` (Debug) or `-DBUILD_TESTS=ON` (Release) as needed.
@@ -51,7 +55,7 @@ Debug builds instrument automatically (see below). To run an explicit instrument
 ```bash
 # Separate build dir — sanitized objects don't mix with your normal build
 mkdir build-ubsan && cd build-ubsan
-cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Release \
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.12.0/macos -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTS=ON -DENABLE_UBSAN=ON ..
 ninja
 
@@ -697,7 +701,7 @@ A 12-shot golden set lives in the repo with a `manifest.json` listing expected v
 Runs automatically as a CTest entry:
 
 ```bash
-ctest -R shot_corpus_regression
+ctest -R tst_shotcorpus --no-tests=error
 ```
 
 Which is equivalent to:

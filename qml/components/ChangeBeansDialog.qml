@@ -91,10 +91,10 @@ DecenzaDialog {
     function syncDerivedBagYield() {
         var d = parseFloat(fDose) || 0
         if (fYieldAnchor === "ratio") {
-            var r = parseFloat(fYieldRatio) || 0
+            let r = parseFloat(fYieldRatio) || 0
             fYield = (d > 0 && r > 0) ? (d * r).toFixed(1) : ""
         } else if (fYieldAnchor === "absolute") {
-            var y = parseFloat(fYield) || 0
+            let y = parseFloat(fYield) || 0
             fYieldRatio = (d > 0 && y > 0) ? (y / d).toFixed(1) : ""
         }
     }
@@ -284,7 +284,7 @@ DecenzaDialog {
             "steepTime": fSteepTime
         }
         var anyDetail = false
-        for (var k in edits) {
+        for (let k in edits) {
             if (String(edits[k]).trim().length > 0) { anyDetail = true; break }
         }
         if (fBeanBaseData.length > 0 || anyDetail) {
@@ -374,8 +374,8 @@ DecenzaDialog {
 
     function roasterSuggestions() {
         var out = root._historyRoasters.slice()
-        for (var i = 0; i < formCanonicalEntries.length; i++) {
-            var name = formCanonicalEntries[i].roasterName
+        for (let i = 0; i < formCanonicalEntries.length; i++) {
+            let name = formCanonicalEntries[i].roasterName
             if (name && out.indexOf(name) === -1) out.push(name)
         }
         return out
@@ -383,8 +383,8 @@ DecenzaDialog {
 
     function coffeeSuggestions() {
         var out = root._historyBeanTypes.slice()
-        for (var i = 0; i < formCanonicalEntries.length; i++) {
-            var entry = formCanonicalEntries[i]
+        for (let i = 0; i < formCanonicalEntries.length; i++) {
+            let entry = formCanonicalEntries[i]
             if (fRoaster.length > 0 && entry.roasterName
                 && entry.roasterName.toLowerCase() !== fRoaster.toLowerCase())
                 continue
@@ -396,8 +396,8 @@ DecenzaDialog {
     // A picked coffee suggestion that came from Bean Base carries the
     // canonical link — apply it like a search-bar pick (enriched async).
     function adoptCanonicalByName(coffeeName) {
-        for (var i = 0; i < formCanonicalEntries.length; i++) {
-            var entry = formCanonicalEntries[i]
+        for (let i = 0; i < formCanonicalEntries.length; i++) {
+            let entry = formCanonicalEntries[i]
             if (entry.roastName !== coffeeName) continue
             if (fRoaster.length > 0 && entry.roasterName
                 && entry.roasterName.toLowerCase() !== fRoaster.toLowerCase())
@@ -1662,7 +1662,7 @@ DecenzaDialog {
                                 "steepTime": function(v) { root.fSteepTime = v }
                             }
                             var applied = 0
-                            for (var key in written) {
+                            for (let key in written) {
                                 if (setters[key]) {
                                     setters[key](String(written[key]))
                                     applied++
@@ -1680,7 +1680,7 @@ DecenzaDialog {
                             // not win. cacheBagImageFromUrl's cache-hit-wins is
                             // for warming a bag that has no photo yet.
                             if (fields["imageUrl"]) {
-                                var imgKey = root.fBeanBaseId.length > 0 ? root.fBeanBaseId
+                                let imgKey = root.fBeanBaseId.length > 0 ? root.fBeanBaseId
                                     : (root.formMode === "edit" && root.editBagId > 0
                                         ? "bag-" + root.editBagId : "")
                                 if (imgKey.length > 0)
@@ -1697,13 +1697,13 @@ DecenzaDialog {
                                 // Name the field, the old value and the new one.
                                 // A count alone does not let the user see that
                                 // something they were shown has changed.
-                                var names = []
-                                for (var c = 0; c < root._extractionCorrections.length; ++c) {
-                                    var corr = root._extractionCorrections[c]
+                                let names = []
+                                for (let c = 0; c < root._extractionCorrections.length; ++c) {
+                                    let corr = root._extractionCorrections[c]
                                     names.push(root.detailFieldLabel(corr.field)
                                                + " " + corr.from + " \u2192 " + corr.to)
                                 }
-                                var justFilled = applied - corrected
+                                let justFilled = applied - corrected
                                 root.infoStatus = justFilled > 0
                                     ? TranslationManager.translate(
                                         "changebeans.form.getInfo.corrected",
@@ -1738,8 +1738,8 @@ DecenzaDialog {
                             if (root.mode !== "form" || root.fBeanBaseId !== canonicalId)
                                 return
                             try {
-                                var blob = JSON.parse(root.fBeanBaseData)
-                                for (var key in attrs)
+                                let blob = JSON.parse(root.fBeanBaseData)
+                                for (let key in attrs)
                                     blob[key] = attrs[key]
                                 root.fBeanBaseData = JSON.stringify(blob)
                                 root.syncDetailFieldsFromBlob()

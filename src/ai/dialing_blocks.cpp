@@ -645,7 +645,7 @@ enum class RecommendationKind {
 //   2. The JSON type is not guaranteed. The schema says string, but a model may
 //      emit `"grinderSetting": 4.75` unquoted, and QJsonValue::toString()
 //      returns an EMPTY QString for a non-string type
-//      (qtbase/src/corelib/serialization/qjsonvalue.cpp:790 — "If type() is not
+//      (qtbase/src/corelib/serialization/qjsonvalue.cpp:776 — "If type() is not
 //      String, a null QString will be returned"). Read as empty that reads as
 //      "no grind change", and grinderMatches() returns true on its isEmpty()
 //      early-out — scoring a recommendation nobody can check as fully followed.

@@ -34,7 +34,7 @@ Item {
     // (e.g. the status bar's pageTitle-then-spacer layout). Fill the row for fill
     // modes or when a spacer is present; otherwise shrink-to-content and align.
     readonly property bool hasSpacer: {
-        for (var i = 0; i < items.length; i++)
+        for (let i = 0; i < items.length; i++)
             if (items[i].type === "spacer") return true
         return false
     }

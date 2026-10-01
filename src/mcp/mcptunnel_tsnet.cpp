@@ -5,6 +5,10 @@
 #include <QDir>
 #include <QMetaObject>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+
+#include <cstdlib>
 
 #ifdef DECENZA_ENABLE_TSNET
 extern "C" {
@@ -32,7 +36,8 @@ bool McpTunnelTsnet::isAvailable()
 }
 
 void McpTunnelTsnet::applyUpdate(quint64 epoch, State state, const QString& authUrl,
-                                 const QString& certDomain, const QString& errorMsg)
+                                 const QString& certDomain, const QString& errorMsg,
+                                 FunnelGrant grant)
 {
     Q_ASSERT(thread() == QThread::currentThread());  // main thread only
     // Drop updates from a superseded worker generation (post-stop / restart).
@@ -50,6 +55,10 @@ void McpTunnelTsnet::applyUpdate(quint64 epoch, State state, const QString& auth
     if (m_certDomain != certDomain) {
         m_certDomain = certDomain;
         emit certDomainChanged();
+    }
+    if (m_funnelGrant != grant) {
+        m_funnelGrant = grant;
+        emit funnelGrantChanged();
     }
     if (m_state != state) {
         m_state = state;
@@ -91,9 +100,10 @@ void McpTunnelTsnet::start(const QString& stateDir, const QString& hostname, qui
 void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname, quint16 localPort)
 {
 #ifdef DECENZA_ENABLE_TSNET
-    auto post = [this, epoch](State st, const QString& au, const QString& cd, const QString& err) {
-        QMetaObject::invokeMethod(this, [this, epoch, st, au, cd, err]() {
-            applyUpdate(epoch, st, au, cd, err);
+    auto post = [this, epoch](State st, const QString& au, const QString& cd, const QString& err,
+                              FunnelGrant grant = GrantUnknown) {
+        QMetaObject::invokeMethod(this, [this, epoch, st, au, cd, err, grant]() {
+            applyUpdate(epoch, st, au, cd, err, grant);
         }, Qt::QueuedConnection);
     };
     // Interruptible sleep so stop() (which sets m_stopRequested) is honoured
@@ -136,6 +146,20 @@ void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname
         return tailscale_get_cert_domain(sd, buf, sizeof(buf)) == 0
                    ? QString::fromUtf8(buf) : QString();
     };
+    // The "funnel" node capability (tailscale.com tailcfg/nodecap/nodecap.go:108) is
+    // what the admin console's Funnel policy grants; Self.CapMap omits it when absent.
+    auto funnelGrant = [&]() -> FunnelGrant {
+        char* json = nullptr;
+        if (tailscale_status_json(sd, &json) != 0 || !json)
+            return GrantUnknown;
+        const QJsonObject self =
+            QJsonDocument::fromJson(QByteArray(json)).object().value(QLatin1String("Self")).toObject();
+        free(json);
+        if (self.isEmpty())
+            return GrantUnknown;
+        return self.value(QLatin1String("CapMap")).toObject().contains(QLatin1String("funnel"))
+                   ? Granted : NotGranted;
+    };
 
     // Cancel bring-up if stop() arrived between tailscale_new and here.
     if (m_stopRequested.load()) { closeHandle(); return; }
@@ -175,8 +199,10 @@ void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname
         if (state == QLatin1String("Running")) {
             const QString domain = certDomain();
             if (domain.isEmpty()) {
-                // Node up but no DNS/cert domain yet — keep waiting.
-                post(Starting, QString(), QString(), QString());
+                // Node up but no cert domain: the netmap lists no name Tailscale will issue
+                // a certificate for, i.e. HTTPS certificates are off for the tailnet
+                // (tailscale.com tsnet/tsnet.go:720-725, tailcfg/tailcfg.go:1823).
+                post(Starting, QString(), QString(), QString(), HttpsOff);
             } else {
                 // (Re-)apply the Funnel serve config every cycle. SetServeConfig
                 // is idempotent, and re-applying is what lets a Funnel grant made
@@ -192,7 +218,7 @@ void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname
                 // Report the FQDN. This is NOT proof of public reachability —
                 // McpRemoteAccess probes the real Funnel URL before it surfaces
                 // the connector URL / "Active" (funnel may not be granted yet).
-                post(Running, QString(), domain, QString());
+                post(Running, QString(), domain, QString(), funnelGrant());
             }
         } else if (state == QLatin1String("NeedsLogin")
                    || state == QLatin1String("NeedsMachineAuth")) {

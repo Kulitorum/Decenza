@@ -36,9 +36,9 @@ Rectangle {
                 return Theme.bottomBarHeight + Theme.scaled(8)
             }
             // Center zones: scale by width, derive height from aspect ratio
-            var refW = Theme.scaled(800)
-            var availW = (width > 0 ? width : 100) - Theme.scaled(8)
-            var s = Math.min(1.0, availW / refW)
+            let refW = Theme.scaled(800)
+            let availW = (width > 0 ? width : 100) - Theme.scaled(8)
+            let s = Math.min(1.0, availW / refW)
             return Theme.scaled(120) * s + Theme.scaled(8)
         }
         if (entryType === "layout") {
@@ -46,7 +46,7 @@ Rectangle {
         }
         if (entryType === "theme") {
             // 3:2 aspect ratio matching thumbnail (300x200)
-            var tw = (width > 0 ? width : 100) - Theme.scaled(8)
+            let tw = (width > 0 ? width : 100) - Theme.scaled(8)
             return tw * 2 / 3 + Theme.scaled(8)
         }
         return Theme.scaled(44)
@@ -119,7 +119,7 @@ Rectangle {
         if (t.name) return t.name
         // Fallback: extract from tags (community entries store name as "name:XXX" tag)
         var tags = entryData.tags || []
-        for (var i = 0; i < tags.length; i++) {
+        for (let i = 0; i < tags.length; i++) {
             if (tags[i].indexOf("name:") === 0)
                 return tags[i].substring(5)
         }
@@ -219,11 +219,11 @@ Rectangle {
     readonly property var previewModelData: {
         var src = entryItemData
         var d = {}
-        for (var key in src) d[key] = src[key]
+        for (let key in src) d[key] = src[key]
         d.id = d.id || "preview"
         var compiled = compileActionType(d.type || "")
         if (compiled) {
-            for (var key2 in compiled) d[key2] = compiled[key2]
+            for (let key2 in compiled) d[key2] = compiled[key2]
         }
         return d
     }
@@ -246,7 +246,7 @@ Rectangle {
             "%CONNECTED%": "Online", "%CONNECTED_COLOR%": "",
             "%DEVICES%": "Machine"
         }
-        for (var token in vars) {
+        for (let token in vars) {
             if (result.indexOf(token) >= 0)
                 result = result.replace(new RegExp(token.replace(/%/g, "\\%"), "g"), vars[token])
         }

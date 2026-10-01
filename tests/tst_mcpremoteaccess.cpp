@@ -356,6 +356,76 @@ private slots:
         QVERIFY(before != after);
     }
 
+    // ── Funnel probe failures (friend access) ─────────────────────────────
+    // A device that has Funnel, while Tailscale is still bringing its URL up, used
+    // to be told after 30 s to go and enable Funnel.
+    void classifyProbeFailure_data()
+    {
+        using PF = McpRemoteAccess::ProbeFailure;
+        QTest::addColumn<int>("grant");
+        QTest::addColumn<bool>("hostNotFound");
+        QTest::addColumn<int>("failCount");
+        QTest::addColumn<int>("expected");
+        const int granted = McpTunnelTsnet::Granted;
+        const int notGranted = McpTunnelTsnet::NotGranted;
+        const int unknown = McpTunnelTsnet::GrantUnknown;
+        const int dnsLimit = McpRemoteAccess::kProbeFailuresBeforeDnsError;
+        const int answerLimit = McpRemoteAccess::kProbeFailuresBeforeNotAnsweringError;
+        const int grace = McpRemoteAccess::kProbeFailuresBeforeError;
+        QTest::newRow("granted, unpublished: waiting at once") << granted << true << 1 << int(PF::WaitingForTailscale);
+        QTest::newRow("granted, unpublished: still waiting") << granted << true << dnsLimit - 1 << int(PF::WaitingForTailscale);
+        QTest::newRow("granted, never published") << granted << true << dnsLimit << int(PF::DnsNotPublished);
+        // The restart warm-up: the name resolves and the connection is closed for ~40 s.
+        QTest::newRow("granted, warming up: past the grace") << granted << false << grace << int(PF::WaitingForTailscale);
+        QTest::newRow("granted, warming up: still waiting") << granted << false << answerLimit - 1 << int(PF::WaitingForTailscale);
+        QTest::newRow("granted, never answers") << granted << false << answerLimit << int(PF::NotAnswering);
+        QTest::newRow("not granted: grace") << notGranted << true << grace - 1 << int(PF::Verifying);
+        QTest::newRow("not granted") << notGranted << true << grace << int(PF::FunnelNotGranted);
+        QTest::newRow("grant unknown, unpublished") << unknown << true << grace << int(PF::Unreachable);
+    }
+
+    void classifyProbeFailure()
+    {
+        QFETCH(int, grant);
+        QFETCH(bool, hostNotFound);
+        QFETCH(int, failCount);
+        QFETCH(int, expected);
+        QCOMPARE(int(McpRemoteAccess::classifyProbeFailure(
+                     static_cast<McpTunnelTsnet::FunnelGrant>(grant), hostNotFound, failCount)),
+                 expected);
+    }
+
+    // The setup button used to show whenever the status wasn't Active, so a
+    // configured device offered setup on every start and every transient error.
+    void setupNeeded_data()
+    {
+        using T = McpTunnelTsnet;
+        using R = McpRemoteAccess;
+        QTest::addColumn<int>("grant");
+        QTest::addColumn<int>("tunnelState");
+        QTest::addColumn<int>("status");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("granted, waiting for Tailscale") << int(T::Granted) << int(T::Running) << int(R::Publishing) << false;
+        QTest::newRow("granted, transient error") << int(T::Granted) << int(T::Running) << int(R::Error) << false;
+        QTest::newRow("not granted") << int(T::NotGranted) << int(T::Running) << int(R::Error) << true;
+        QTest::newRow("HTTPS certificates off") << int(T::HttpsOff) << int(T::Starting) << int(R::Error) << true;
+        QTest::newRow("starting, nothing known yet") << int(T::GrantUnknown) << int(T::Starting) << int(R::Starting) << false;
+        QTest::newRow("needs sign-in") << int(T::GrantUnknown) << int(T::NeedsLogin) << int(R::Starting) << true;
+        QTest::newRow("tunnel failed") << int(T::GrantUnknown) << int(T::Error) << int(R::Error) << true;
+    }
+
+    void setupNeeded()
+    {
+        QFETCH(int, grant);
+        QFETCH(int, tunnelState);
+        QFETCH(int, status);
+        QFETCH(bool, expected);
+        QCOMPARE(McpRemoteAccess::setupNeeded(static_cast<McpTunnelTsnet::FunnelGrant>(grant),
+                                              static_cast<McpTunnelTsnet::State>(tunnelState),
+                                              static_cast<McpRemoteAccess::Status>(status)),
+                 expected);
+    }
+
     // ── Constant-time comparison (friend access) ──────────────────────────
     void constantTimeCompare()
     {

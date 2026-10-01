@@ -51,10 +51,10 @@ Item {
     Component.onDestruction: {
         // Explicitly destroy null-parent instances — they are outside the QObject tree
         // and won't be freed automatically when this component is destroyed
-        for (var i = 0; i < cylinderEntries.length; i++) {
+        for (let i = 0; i < cylinderEntries.length; i++) {
             if (cylinderEntries[i]) cylinderEntries[i].destroy()
         }
-        for (var j = 0; j < sphereEntries.length; j++) {
+        for (let j = 0; j < sphereEntries.length; j++) {
             if (sphereEntries[j]) sphereEntries[j].destroy()
         }
         cylinderEntries = []
@@ -78,10 +78,10 @@ Item {
         sphereInstanceList.instances = []
 
         // Destroy the entry objects
-        for (var i = 0; i < cylinderEntries.length; i++) {
+        for (let i = 0; i < cylinderEntries.length; i++) {
             if (cylinderEntries[i]) cylinderEntries[i].destroy()
         }
-        for (var j = 0; j < sphereEntries.length; j++) {
+        for (let j = 0; j < sphereEntries.length; j++) {
             if (sphereEntries[j]) sphereEntries[j].destroy()
         }
 
@@ -179,11 +179,11 @@ Item {
         ]
 
         var valid = []
-        for (var i = 0; i < directions.length; i++) {
-            var d = directions[i]
-            var nx = vx + d.x
-            var ny = vy + d.y
-            var nz = vz + d.z
+        for (let i = 0; i < directions.length; i++) {
+            let d = directions[i]
+            let nx = vx + d.x
+            let ny = vy + d.y
+            let nz = vz + d.z
 
             if (lastDir && d.x === -lastDir.x && d.y === -lastDir.y && d.z === -lastDir.z) {
                 continue
@@ -262,7 +262,7 @@ Item {
         var canContinue = !isVoxelBlocked(nx, ny, nz)
 
         if (!canContinue) {
-            var newDir = findValidDirection(vx, vy, vz, pipe.lastDir)
+            let newDir = findValidDirection(vx, vy, vz, pipe.lastDir)
             if (!newDir) {
                 finishCurrentPipe()
                 return
@@ -285,7 +285,7 @@ Item {
         } else {
             // 30% chance to turn anyway
             if (Math.random() < 0.3 && pipe.segmentCount > 0) {
-                var turnDir = findValidPerpendicularDirection(vx, vy, vz, pipe.dir, pipe.lastDir)
+                let turnDir = findValidPerpendicularDirection(vx, vy, vz, pipe.dir, pipe.lastDir)
                 if (turnDir) {
                     addSphereInstance(pipe.pos, color, pipeRadius)
 
@@ -341,11 +341,11 @@ Item {
         }
 
         var valid = []
-        for (var i = 0; i < perpDirs.length; i++) {
-            var d = perpDirs[i]
-            var nx = vx + d.x
-            var ny = vy + d.y
-            var nz = vz + d.z
+        for (let i = 0; i < perpDirs.length; i++) {
+            let d = perpDirs[i]
+            let nx = vx + d.x
+            let ny = vy + d.y
+            let nz = vz + d.z
 
             if (lastDir && d.x === -lastDir.x && d.y === -lastDir.y && d.z === -lastDir.z) {
                 continue
@@ -392,7 +392,7 @@ Item {
     View3D {
         id: view3d
         anchors.fill: parent
-        camera: camera
+        camera: pipesCamera
         environment: sceneEnvironment
 
         SceneEnvironment {
@@ -408,7 +408,7 @@ Item {
             eulerRotation.y: root.cameraAngle
 
             PerspectiveCamera {
-                id: camera
+                id: pipesCamera
                 position: Qt.vector3d(0, 50, 450)
                 eulerRotation.x: -5
                 clipNear: 10

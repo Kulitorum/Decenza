@@ -22,8 +22,9 @@ data and the trade-offs — read it rather than this summary.
 - **Also at**: `github.com/skialpine/qtbase`, branch `a11y/android-talkback-fixes`
 - **Touches**: `src/plugins/platforms/android/qandroidplatformopenglwindow.cpp`, +16 −1
 
-**Verified to apply to `v6.11.2`** (`git apply --check`, 2026-08-18). The `qFatal` this replaces is
-still present upstream at that tag, at `qandroidplatformopenglwindow.cpp:68`.
+**Verified to apply to `v6.11.2`** (`git apply --check`, 2026-08-18) **and `v6.12.0`**
+(`patch --dry-run` against `~/Qt/6.12.0/Src`, 2026-10-01). The `qFatal` this replaces is still
+present at both tags, at `qandroidplatformopenglwindow.cpp:68`.
 
 **Why it is not shipped.** Decenza shipped it as a patched Android platform plugin in
 `android/qt-overrides/` until the Qt 6.11.2 upgrade, which deleted that directory. The other two
@@ -35,8 +36,8 @@ judged not to justify a permanent fork with an ABI lock and a rebuild obligation
 **The upstream fix, if it lands, supersedes this.** Gerrit
 [735089](https://codereview.qt-project.org/c/qt/qtbase/+/735089) — "Android: drop deadlock protector
 from EGL/Vk surface paths" — removes the protector from these paths entirely, which is the better
-fix. As of 2026-08-18 it is `NEW` on `dev` with no `Pick-to:` footer. Getting it picked to `6.11`
-would land it in 6.11.3 and make this file dead.
+fix. It is not in 6.12.0 (above). As of 2026-08-18 it was `NEW` on `dev` with no `Pick-to:`
+footer; a pick to `6.12` would land it in a 6.12 patch release and make this file dead.
 
 **If it has to come back.** Rebuild the Android platform plugin from qtbase at the tag Decenza
 builds against:

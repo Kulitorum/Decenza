@@ -23,7 +23,7 @@
 
 #include "../history/shotprojection.h"
 #include "multicastlock.h"
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class ShotHistoryStorage;
 struct ShotRecord;

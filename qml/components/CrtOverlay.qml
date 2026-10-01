@@ -25,7 +25,7 @@ Item {
             ctx.clearRect(0, 0, width, height)
             ctx.fillStyle = "rgba(0, 0, 0, 0.08)"
             var gap = 3
-            for (var y = 0; y < height; y += gap) {
+            for (let y = 0; y < height; y += gap) {
                 ctx.fillRect(0, y, width, 1)
             }
         }

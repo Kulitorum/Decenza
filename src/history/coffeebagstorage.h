@@ -11,7 +11,7 @@
 #include <functional>
 #include <memory>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
 class QJsonArray;
 class QJsonObject;

@@ -1,5 +1,5 @@
 // The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
-// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightRange`, `tempRange`,
 // `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
 // declares each injected role it uses required, so Bound cannot break role injection
 // here.
@@ -116,7 +116,7 @@ Item {
             subTickCount: 0
             labelFormat: "%.0f"
             // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
-            // titles itself AND reserves layout space for them (axisrenderer.cpp:622
+            // titles itself AND reserves layout space for them (axisrenderer.cpp:662-698
             // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
             // migration (#1146) carried this over as a Text positioned off `plotArea`
             // bottom-right, which floated it ON TOP of the plot, over any trace running
@@ -154,7 +154,7 @@ Item {
     // QtObject value holders that DashedLineSeries / FastLineRenderer can read for
     // coordinate mapping. Qt Graphs has no sanctioned dual-Y-axis path here.
     QtObject {
-        id: tempAxis
+        id: tempRange
         property real min: 40
         property real max: 100
     }
@@ -164,13 +164,13 @@ Item {
     // 0-12 bar for pressure. The right-axis label column reads this object in flow mode,
     // so what it prints and what is drawn cannot drift apart.
     QtObject {
-        id: flowAxis
+        id: flowRange
         property real min: pressureAxis.min
         property real max: pressureAxis.max / chart.flowMultiplier
     }
 
     QtObject {
-        id: weightAxis
+        id: weightRange
         property real min: 0
         // Live shots may bump SAW past the configured target (#792 +10g button), so
         // take the larger of profile target and current MachineState target. Each
@@ -208,7 +208,7 @@ Item {
             axisX: timeAxis
             // Same multiplier as the flow trace it is the target for — a goal drawn at a
             // different scale than the curve chasing it would be worse than no goal.
-            axisY: flowAxis
+            axisY: flowRange
             points: modelData
             strokeColor: Theme.flowGoalColor
             strokeWidth: Theme.scaled(2)
@@ -216,11 +216,11 @@ Item {
         }
     }
 
-    // Temperature goal — mapped to the right tempAxis.
+    // Temperature goal — mapped to the right tempRange.
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: ShotDataModel.temperatureGoalPoints
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
@@ -231,7 +231,7 @@ Item {
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: tempAxis
+        axisY: tempRange
         points: ShotDataModel.temperatureMixGoalPoints
         strokeColor: Theme.temperatureMixGoalColor
         strokeWidth: Theme.scaled(2)
@@ -304,7 +304,7 @@ Item {
         color: Theme.temperatureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: tempAxis.min; maxY: tempAxis.max
+        minY: tempRange.min; maxY: tempRange.max
         visible: Settings.graph.showTemperature
     }
 
@@ -370,7 +370,7 @@ Item {
         color: Theme.temperatureMixColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: tempAxis.min; maxY: tempAxis.max
+        minY: tempRange.min; maxY: tempRange.max
         visible: Settings.graph.showTemperatureMix && chart.advancedMode
     }
 
@@ -381,7 +381,7 @@ Item {
         color: Theme.weightColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: weightAxis.min; maxY: weightAxis.max
+        minY: weightRange.min; maxY: weightRange.max
         visible: Settings.graph.showWeight
     }
 
@@ -502,9 +502,9 @@ Item {
         height: graphsView.plotArea.height
 
         mode: chart.rightAxisMode
-        weightAxis: weightAxis
-        tempAxis: tempAxis
-        flowAxis: flowAxis
+        weightAxis: weightRange
+        tempAxis: tempRange
+        flowAxis: flowRange
         onTapped: chart.toggleRightAxis()
     }
 }

@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QVector>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // Adaptive rendering of a profile's temperature(s) for the shot-plan widget and
 // the Brew Settings dialog. A brew temperature override shifts EVERY frame by a

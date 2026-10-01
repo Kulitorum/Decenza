@@ -1830,11 +1830,10 @@ KeyboardAwareContainer {
                     id: mapLoader
                     anchors.fill: parent
                     active: mapTestPopup.visible && Settings.app.hasQuick3D
-                    source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
-                    onLoaded: {
-                        item.testMode = true
-                        item.testLatitude = Qt.binding(function() { return MainController.shotReporter ? MainController.shotReporter.latitude : 0 })
-                        item.testLongitude = Qt.binding(function() { return MainController.shotReporter ? MainController.shotReporter.longitude : 0 })
+                    sourceComponent: ShotMapScreensaver {
+                        testMode: true
+                        testLatitude: MainController.shotReporter ? MainController.shotReporter.latitude : 0
+                        testLongitude: MainController.shotReporter ? MainController.shotReporter.longitude : 0
                     }
                 }
 

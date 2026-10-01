@@ -5,7 +5,7 @@
 // src/network/shotserver_layout.cpp). Both compile the same segment schema to the same stored
 // `content` string, so the two must agree byte for byte — CLAUDE.md's rule that the app and
 // ShotServer surfaces stay in sync. Neither had any test, and they had already drifted: the
-// C++ side escapes the double quote via QString::toHtmlEscaped() (qstring.cpp:10129) and the
+// C++ side escapes the double quote via QString::toHtmlEscaped() (qstring.cpp:10118) and the
 // JS side did not.
 //
 // The JS is run out of shipping source, not reimplemented here. A copy would drift and then

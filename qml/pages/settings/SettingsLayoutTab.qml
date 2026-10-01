@@ -84,7 +84,7 @@ Item {
     // Handle move left within zone
     function onMoveLeft(itemId, zoneName) {
         var items = Settings.network.getZoneItems(zoneName)
-        for (var i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i > 0) {
                 Settings.network.reorderItem(zoneName, i, i - 1)
                 break
@@ -95,7 +95,7 @@ Item {
     // Handle move right within zone
     function onMoveRight(itemId, zoneName) {
         var items = Settings.network.getZoneItems(zoneName)
-        for (var i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i < items.length - 1) {
                 Settings.network.reorderItem(zoneName, i, i + 1)
                 break

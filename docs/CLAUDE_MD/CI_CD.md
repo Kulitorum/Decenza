@@ -101,8 +101,7 @@ git push origin vX.Y.Z
 - iOS bundle ID: `io.github.kulitorum.decenza` (differs from Android: `io.github.kulitorum.decenza_de1`)
 - iOS signing credentials expire yearly — see `docs/IOS_CI_FOR_CLAUDE.md` for renewal
 - iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). Manual `workflow_dispatch` builds default to `upload_to_appstore=false` (test only). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
-- Android keystore path is configurable via `ANDROID_KEYSTORE_PATH` env var (falls back to local path)
-- Android build uses `build.gradle` post-build hook for signing and versioned APK naming
+- Android signing is Qt's own (`QT_ANDROID_SIGN_APK` plus `QT_ANDROID_KEYSTORE_*` env vars) and the workflow renames the signed APK to `Decenza_<version>.apk` — see `PLATFORM_BUILD.md`
 
 ## Publishing Releases
 
@@ -239,6 +238,5 @@ Without `--latest`, the previous stable release remains the "latest" and the aut
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
 - `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)
-- APK files are for direct distribution (sideloading)
-- AAB files are only for Google Play Store uploads
-- Users cannot install AAB files directly
+- Android is distributed by sideloading the APK only. Decenza is **not on Google Play**, so Play's target-API deadlines never drive an SDK change; the target SDK follows Qt's default.
+- No AAB is produced: it is a Play upload format, not something users can install.

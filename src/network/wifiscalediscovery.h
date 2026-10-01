@@ -244,7 +244,7 @@ private:
     // Polled by the blocking worker so stopBrowse() can actually stop it.
     // Without this the worker holds a QThreadPool thread for its full deadline,
     // and ~QCoreApplication's unconditional waitForDone() (verified:
-    // qtbase/src/corelib/kernel/qcoreapplication.cpp:927) turns that into a
+    // qtbase/src/corelib/kernel/qcoreapplication.cpp:954) turns that into a
     // multi-second hang on quit with the UI already gone.
     std::shared_ptr<std::atomic<bool>> m_browseCancel;
 

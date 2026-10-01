@@ -3,6 +3,7 @@
 #include "shotserver.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
+#include "localnetworkaccess.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "webtemplates/auth_page.h"
@@ -481,6 +482,7 @@ void ShotServer::setPort(int port)
 
 bool ShotServer::start()
 {
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WebServer);
     if (m_server) {
         stop();
     }

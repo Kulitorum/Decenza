@@ -239,7 +239,7 @@ T.Page {
                     }
                     onPositionChanged: function(mouse) {
                         if (pressed) {
-                            var graphPos = mapToItem(shotGraph, mouse.x, mouse.y)
+                            let graphPos = mapToItem(shotGraph, mouse.x, mouse.y)
                             shotGraph.inspectAtPosition(graphPos.x, graphPos.y)
                         }
                     }
@@ -288,9 +288,9 @@ T.Page {
                         }
                         onPositionChanged: function(mouse) {
                             if (pressed) {
-                                var currentY = mouse.y + resizeHandle.mapToItem(autoFavoriteInfoPage, 0, 0).y
-                                var delta = currentY - startY
-                                var newHeight = startHeight + delta
+                                let currentY = mouse.y + resizeHandle.mapToItem(autoFavoriteInfoPage, 0, 0).y
+                                let delta = currentY - startY
+                                let newHeight = startHeight + delta
                                 newHeight = Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), newHeight))
                                 autoFavoriteInfoPage.graphHeight = newHeight
                             }

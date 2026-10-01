@@ -202,7 +202,7 @@ QtObject {
     function _stepDecimals(step, currentValue) {
         var d = _decimalsOf(step)
         if (currentValue !== undefined && currentValue !== null) {
-            var s = String(currentValue).trim()
+            let s = String(currentValue).trim()
             if (/^-?\d+(\.\d+)?$/.test(s))
                 d = Math.max(d, _decimalsOf(parseFloat(s)))
         }
@@ -247,7 +247,7 @@ QtObject {
         //    (a Mignon user logging plain "2.5" lands here), so the skip must
         //    be re-checked or the catalog's refusal is silently resurrected.
         if (/^-?\d+(\.\d+)?$/.test(s)) {
-            var v = parseFloat(s) + n * step
+            let v = parseFloat(s) + n * step
             if (v < 0 && Settings.dye.grinderIsClickIndexed(root.grinderBrand, root.grinderModel))
                 return ""             // click-indexed dial floor -> skip
             return _fmtNum(v, step, s)
@@ -256,7 +256,7 @@ QtObject {
         // 2. Number embedded in text: optional non-digit prefix + number + suffix.
         var m = s.match(/^(\D*)(\d+(?:\.\d+)?)(\D*)$/)
         if (m) {
-            var nv = parseFloat(m[2]) + n * step
+            let nv = parseFloat(m[2]) + n * step
             if (nv < 0) nv = 0               // clamp numeric >= 0
             return m[1] + _fmtNum(nv, step, m[2]) + m[3]
         }
@@ -264,10 +264,10 @@ QtObject {
         // 3. Pure letters (1..3 chars): step the LAST character by ordinal,
         //    clamp to A..Z (no wrap), preserve case and any leading chars.
         if (/^[A-Za-z]{1,3}$/.test(s)) {
-            var last = s.charAt(s.length - 1)
-            var isUpper = last === last.toUpperCase()
-            var base = isUpper ? 65 : 97      // 'A' / 'a'
-            var ord = last.charCodeAt(0) - base + n
+            let last = s.charAt(s.length - 1)
+            let isUpper = last === last.toUpperCase()
+            let base = isUpper ? 65 : 97      // 'A' / 'a'
+            let ord = last.charCodeAt(0) - base + n
             if (ord < 0) ord = 0
             if (ord > 25) ord = 25
             return s.substring(0, s.length - 1) + String.fromCharCode(base + ord)
@@ -302,11 +302,11 @@ QtObject {
             // must not become a blank highlighted row), then ALL observed.
             if (cur.length > 0)
                 out.push({ value: cur, isCurrent: true })
-            for (var k = 0; k < list.length; k++)
+            for (let k = 0; k < list.length; k++)
                 out.push({ value: list[k], isCurrent: false })
             return out
         }
-        for (var i = 0; i < list.length; i++)
+        for (let i = 0; i < list.length; i++)
             out.push({ value: list[i], isCurrent: i === idx })
         return out
     }
@@ -328,8 +328,8 @@ QtObject {
         if (!observed || observed.length === 0)
             return ""
         var nums = []
-        for (var i = 0; i < observed.length; i++) {
-            var t = String(observed[i]).trim()
+        for (let i = 0; i < observed.length; i++) {
+            let t = String(observed[i]).trim()
             if (/^-?\d+(\.\d+)?$/.test(t))
                 nums.push(parseFloat(t))
         }
@@ -350,8 +350,8 @@ QtObject {
         var canon = root.stepGrind(anchor, 0, step, catalog[root.grindWindowSteps])
         var out = []
         var seen = ({})
-        for (var n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
-            var v = root.stepGrind(anchor, n, step, catalog[n + root.grindWindowSteps])
+        for (let n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
+            let v = root.stepGrind(anchor, n, step, catalog[n + root.grindWindowSteps])
             if (v === "" || v === undefined) continue
             if (seen[v]) continue
             seen[v] = true
@@ -414,8 +414,8 @@ QtObject {
         var canonicalCurrent = root.stepGrind(cur, 0, step, catalog[root.grindWindowSteps])
         var generated = []
         var seen = ({})
-        for (var n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
-            var v = root.stepGrind(cur, n, step, catalog[n + root.grindWindowSteps])
+        for (let n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
+            let v = root.stepGrind(cur, n, step, catalog[n + root.grindWindowSteps])
             if (v === "" || v === undefined) continue
             if (seen[v]) continue
             seen[v] = true
@@ -434,9 +434,9 @@ QtObject {
             //    here would silently replace a value the user actually set, and
             //    grind has no untouched-anchor commit gate (GrindPickerDialog).
             if (cur.length === 0) {
-                var anchor = root._medianObservedAnchor()
+                let anchor = root._medianObservedAnchor()
                 if (anchor.length > 0) {
-                    var win = root._windowAround(anchor, step)
+                    let win = root._windowAround(anchor, step)
                     if (win.length > 2)
                         return win
                 }
@@ -460,10 +460,10 @@ QtObject {
         var rpmStepValue = root.rpmStep()
         var out = []
         var seen = ({})
-        for (var n = -root.rpmWindowSteps; n <= root.rpmWindowSteps; n++) {
-            var rpm = anchor + n * rpmStepValue
+        for (let n = -root.rpmWindowSteps; n <= root.rpmWindowSteps; n++) {
+            let rpm = anchor + n * rpmStepValue
             if (rpm <= 0) continue
-            var v = String(rpm)
+            let v = String(rpm)
             if (seen[v]) continue
             seen[v] = true
             out.push({ value: v, isCurrent: rpmSet && n === 0 })

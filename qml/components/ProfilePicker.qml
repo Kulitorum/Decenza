@@ -136,12 +136,12 @@ Item {
     // like the grid. recommendedList stamps its "used with <bean>" reason.
     readonly property var tier1List: {
         var byTitle = {}
-        for (var i = 0; i < picker.filteredAll.length; ++i) byTitle[picker.filteredAll[i].title] = picker.filteredAll[i]
+        for (let i = 0; i < picker.filteredAll.length; ++i) byTitle[picker.filteredAll[i].title] = picker.filteredAll[i]
         var withBean = picker._ranked.withBean || []
         var out = []
         var seen = {}
-        for (i = 0; i < withBean.length; ++i) {
-            var e = byTitle[withBean[i].profileName]
+        for (let i = 0; i < withBean.length; ++i) {
+            let e = byTitle[withBean[i].profileName]
             if (e && !seen[e.title]) { out.push(e); seen[e.title] = true }
         }
         return out
@@ -155,9 +155,9 @@ Item {
     // against a second copy of the same ranking.
     readonly property var tier2List: {
         var byTitle = {}
-        for (var i = 0; i < picker.filteredAll.length; ++i) byTitle[picker.filteredAll[i].title] = picker.filteredAll[i]
+        for (let i = 0; i < picker.filteredAll.length; ++i) byTitle[picker.filteredAll[i].title] = picker.filteredAll[i]
         var used = {}
-        for (i = 0; i < picker.tier1List.length; ++i) used[picker.tier1List[i].title] = true
+        for (let i = 0; i < picker.tier1List.length; ++i) used[picker.tier1List[i].title] = true
 
         var out = []
         function pushWithReason(entry, reason) {
@@ -168,14 +168,14 @@ Item {
         }
 
         if (picker.teaType !== "") {
-            for (var t in byTitle) {
+            for (let t in byTitle) {
                 if (used[t]) continue
                 if (ProfileManager.teaProfileMatchesType(t, picker.teaType))
                     pushWithReason(byTitle[t], TranslationManager.translate(
                         "recipes.wizard.profiles.matchesType", "matches %1").arg(picker.teaType))
             }
         } else if (picker.roastLevel !== "") {
-            for (t in byTitle) {
+            for (let t in byTitle) {
                 if (used[t]) continue
                 if (ProfileManager.kbProfileSuitsRoast(t, picker.roastLevel))
                     pushWithReason(byTitle[t], TranslationManager.translate(
@@ -183,8 +183,8 @@ Item {
             }
         }
         var similar = picker._ranked.similar || []
-        for (i = 0; i < similar.length; ++i) {
-            var e = byTitle[similar[i].profileName]
+        for (let i = 0; i < similar.length; ++i) {
+            let e = byTitle[similar[i].profileName]
             if (e && !used[e.title])
                 pushWithReason(e, TranslationManager.translate(
                     "recipes.wizard.profiles.similarBeans", "used with similar beans"))
@@ -198,7 +198,7 @@ Item {
     // wizard's old tier ③ "all remaining"); a profile never appears twice.
     readonly property var sortedAllList: {
         var shown = {}
-        for (var r = 0; r < picker.recommendedList.length; ++r) shown[picker.recommendedList[r].name] = true
+        for (let r = 0; r < picker.recommendedList.length; ++r) shown[picker.recommendedList[r].name] = true
         var list = picker.filteredAll.filter(function(e) { return !shown[e.name] })
 
         if (picker.sortMode === "alpha") {
@@ -228,8 +228,8 @@ Item {
     readonly property var recommendedList: {
         var out = []
         var usedWith = TranslationManager.translate("profilepicker.reason.usedWith", "used with %1").arg(picker.beanLabel)
-        for (var i = 0; i < picker.tier1List.length; ++i) {
-            var copy = Object.assign({}, picker.tier1List[i])
+        for (let i = 0; i < picker.tier1List.length; ++i) {
+            let copy = Object.assign({}, picker.tier1List[i])
             copy.reason = usedWith
             out.push(copy)
         }

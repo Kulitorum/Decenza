@@ -75,7 +75,7 @@
 // the hoist.
 
 #include "core/diagnosticlogging.h"
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
 
@@ -96,6 +96,7 @@
 #include "../network/crashreporter.h"
 #include "../models/steamdatamodel.h"
 #include "../core/memorymonitor.h"
+#include "../network/localnetworkaccess.h"
 #include "../core/autowakemanager.h"
 #include "../controllers/sensorcalibrationcontroller.h"
 #include "../history/shothistoryexporter.h"
@@ -180,7 +181,7 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
 //     built whether or not there is an instance.
 //   - QQmlTypeWrapper has no virtualToBoolean override, so that wrapper is a truthy Object and
 //     `typeof` on it is "object".
-//   - Only the MEMBER READ degrades: qqmltypewrapper.cpp:319 fails its
+//   - Only the MEMBER READ degrades: qqmltypewrapper.cpp:325 fails its
 //     `if (QObject *qobjectSingleton = ...)` and falls through to Object::virtualGet, giving
 //     `undefined`.
 //
@@ -199,7 +200,7 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
 // qv4qmlcontext.cpp:552-553 ends the lookup with `engine->throwReferenceError(name->toQString())`
 // — so the bare `X` in `X.doThing !== undefined` throws before the member is reached. Guard the
 // PLATFORM there. (`typeof X` happens to be honest in this case: Runtime::TypeofName::call clears
-// the exception on purpose, qv4runtime.cpp:1746-1754, "typeof doesn't throw". Do not rely on that
+// the exception on purpose, qv4runtime.cpp:1750-1758, "typeof doesn't throw". Do not rely on that
 // asymmetry — one idiom that is right in both cases is the platform check.)
 //
 // A platform check (`Qt.platform.os !== "ios"`) is also fine, because it short-circuits before the
@@ -340,7 +341,7 @@ public:
 // MachineState.Phase.X at 155 QML sites. QML_FOREIGN registers the foreign class's metaobject,
 // so the enum is exported exactly as it was when the macros sat on the class — checked against
 // the generated Decenza.qmltypes before and after. Note enum reads on a singleton resolve
-// INSIDE the instance guard (qqmltypewrapper.cpp:320), so they depend on this publish; see
+// INSIDE the instance guard (qqmltypewrapper.cpp:325), so they depend on this publish; see
 // machinestate.h for what that costs if the publish is ever missed.
 struct MachineStateForeign
 {
@@ -536,6 +537,22 @@ public:
     static MemoryMonitor* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "MemoryMonitor");
+    }
+};
+
+// 2 references across 1 QML file.
+struct LocalNetworkAccessForeign
+{
+    Q_GADGET
+    QML_FOREIGN(LocalNetworkAccess)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(LocalNetworkAccess)
+
+public:
+    inline static LocalNetworkAccess* s_singletonInstance = nullptr;
+    static LocalNetworkAccess* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "LocalNetworkAccess");
     }
 };
 

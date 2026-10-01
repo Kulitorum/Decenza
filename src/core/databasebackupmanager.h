@@ -7,7 +7,7 @@
 #include <QVector>
 #include <memory>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class Settings;
 class TranslationManager;
 class ShotHistoryStorage;

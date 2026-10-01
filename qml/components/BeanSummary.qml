@@ -60,7 +60,7 @@ Item {
     // carry an id — accept either.
     readonly property bool canonical: {
         if (!useShotData && Settings.dye.dyeBeanBaseId.length > 0) return true
-        for (var k in beanBase) {
+        for (let k in beanBase) {
             if (beanBase[k] !== undefined && String(beanBase[k]).length > 0) return true
         }
         return false
@@ -104,7 +104,7 @@ Item {
             if (beanBase.origin) parts.push(String(beanBase.origin))
             if (beanBase.process) parts.push(String(beanBase.process))
         } else {
-            var name = [effRoaster, effCoffee].filter(function(s) { return s && s.length > 0 }).join(" ")
+            let name = [effRoaster, effCoffee].filter(function(s) { return s && s.length > 0 }).join(" ")
             if (name.length > 0) parts.push(name)
         }
         var roast = formatRoastDate(effRoastDate)
@@ -113,7 +113,7 @@ Item {
         // Freezer state: the current portion's thaw date, or "Frozen" while no
         // portion has been pulled yet.
         if (effDefrostDate.length > 0) {
-            var defAge = daysSince(effDefrostDate)
+            let defAge = daysSince(effDefrostDate)
             if (defAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
                     .arg(formatRoastDate(effDefrostDate)).arg(defAge))
@@ -123,7 +123,7 @@ Item {
         // Opened is INDEPENDENT of the freezer state above (mirrors BagCard):
         // a thawed portion can also have been opened, and both dates matter.
         if (effOpenedDate.length > 0) {
-            var openAge = daysSince(effOpenedDate)
+            let openAge = daysSince(effOpenedDate)
             if (openAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
                     .arg(formatRoastDate(effOpenedDate)).arg(openAge))

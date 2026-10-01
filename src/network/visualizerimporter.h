@@ -7,7 +7,7 @@
 #include <QVector>
 #include "../profile/profile.h"
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class MainController;
 class ProfileSaveHelper;
 class Settings;

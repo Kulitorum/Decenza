@@ -45,7 +45,7 @@ LayoutWidgetItem {
     readonly property var _flushPageSizes: {
         var favs = Settings.brew.flushPresets
         var w = []
-        for (var i = 0; i < favs.length; ++i)
+        for (let i = 0; i < favs.length; ++i)
             w.push(flushPillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
         var sizes = PillFit.packPageSizes(w, Theme.scaled(12), _pillFitAvail, 2)
         if (sizes.length <= 1)
@@ -56,7 +56,7 @@ LayoutWidgetItem {
     readonly property int _flushPageStart: {
         var idx = Math.max(0, Math.min(flushPageIndex, _flushPageSizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += _flushPageSizes[p]
         return start
     }
@@ -167,7 +167,7 @@ LayoutWidgetItem {
         onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
@@ -176,7 +176,7 @@ LayoutWidgetItem {
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
-            for (var i = 0; i < presets.length; ++i) {
+            for (let i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
             var selRel = Settings.brew.selectedFlushPreset - root._flushPageStart
@@ -200,9 +200,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -213,8 +213,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width
                 if (globalX + centered < 0)

@@ -9,7 +9,7 @@
 #include <QColor>
 #include <QVariantList>
 #include <QVariantMap>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class DocumentFormatter : public QObject
 {

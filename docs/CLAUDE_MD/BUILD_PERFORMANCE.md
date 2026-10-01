@@ -8,7 +8,7 @@ whether AOT is worth paying for.
 **Rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the AOT
 coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
 macOS Debug build, Qt 6.11.1 — the version they were taken under, left as measured
-rather than relabelled to the current 6.11.2. They are a snapshot, not a contract.
+rather than relabelled to the current 6.12.0. They are a snapshot, not a contract.
 Every one is re-derivable with the commands in "How to re-derive" at the bottom — do
 that rather than trusting these figures after the QML tree or the Qt version has moved.
 
@@ -167,7 +167,7 @@ cachegen on all 221 (seconds of wall time, in parallel), then ninja compares the
 regenerated `.cpp` against the old one and prunes every unit whose output came out
 byte-identical. The expensive half still only happens where the code really changed.
 
-The path is reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:3841-3847` — the
+The path is reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:2578-2607` — the
 reason the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued
 onto the leading `qml/` of the relative path). **If Qt changes that formula the build
 fails loudly at configure time**, because `add_custom_command(APPEND)` against an
@@ -300,8 +300,9 @@ after and a reviewer summing all three across the two sweeps will find a phantom
 Not a styling concern, and not visible to the compiler, qmllint or the test suite. Under a
 style, `QtQuick.Controls.Page` is the style's `Page.qml` — a **composite** type — and a
 composite matches only instances whose own metaobject chain contains it. Qt says so in
-`qqmltypewrapper.cpp:513-516`: *"a composite type cannot be equal to a non-composite object
-instance (Rectangle{} is never an instance of CustomRectangle)"*. `as` is `doInstanceof`,
+`qqmltypewrapper.cpp:509-511`: *"If the target type is a composite type, we can cut
+instanceof short if the object is not of a composite type (e.g. Rectangle{} is never an
+instance of CustomRectangle)"*. `as` is `doInstanceof`,
 and a failed **object** cast returns `null`, not `undefined` (`qv4runtime.cpp:394-406`).
 
 So re-rooting a page at `T.Page` drops the style composite out of its chain, and every
@@ -325,7 +326,7 @@ over anything the migrated file does not already replace. Three things bite:
 - **`implicitWidth` / `implicitHeight`.** The `Math.max(implicitBackground… , implicitContent…)`
   formula lives ONLY in the style QML. C++ computes the `implicitContentWidth` and
   `implicitBackgroundWidth` inputs but leaves the result to the style
-  (`qquickcontrol.cpp:1749-1757`), so a Templates root that does not declare it is **0 wide**.
+  (`qquickcontrol.cpp:1751-1759`), so a Templates root that does not declare it is **0 wide**.
 - **Insets.** Material inset buttons by 6 (all four sides for `RoundButton`, top/bottom for
   `Button`), so the background paints smaller than the control. Dropping them silently
   fattens every instance. They are **unscaled literals** in Material — keep them unscaled,
@@ -456,10 +457,10 @@ memory. **An unexplained mechanism is a reason to keep investigating, not a reas
 to write a ban into a reference doc.**
 
 Annotations do still change runtime semantics, not just codegen: a `string` parameter
-converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:337` ->
-`qv4runtime.cpp:618`), which silently defeats an `if (!x) return ""` guard. Optional
+converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:368-369` ->
+`qv4runtime.cpp:620-621`), which silently defeats an `if (!x) return ""` guard. Optional
 parameters and guarded ones must be `var`, which coerces nothing
-(`qv4jscall_p.h:331`).
+(`qv4jscall_p.h:362-363`).
 
 **Context properties: gone.** `src/main.cpp` now contains zero `setContextProperty`
 calls and 23 QML singletons (`src/core/contextsingletons_qml.h`). The entire
@@ -571,10 +572,10 @@ touching the reactivity mechanism `tst_translationreactivity` guards.
 
 **`Cannot retrieve a non-object type by ID: <id>` — 1464 skips across 82 files.**
 The condition is `variant() == ObjectById && !retrieved->isReferenceType()`
-(`qqmljstypepropagator.cpp:637-641`): `genericType()` walks the base chain looking
+(`qqmljstypepropagator.cpp:350-353`): `genericType()` walks the base chain looking
 for a scope whose `internalName()` is literally `QObject`, and returns
 `m_jsValueType` — a value type — when the walk does not get there
-(`qqmljstyperesolver.cpp:875-921`).
+(`qqmljstyperesolver.cpp:891-972`).
 
 **Referencing by `id` any object whose type comes from QtQuick.Controls fails.
 Everything else works.** Established by controlled experiment (an 11-line probe

@@ -62,7 +62,7 @@ Item {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 if (xhr.status === 200) {
                     try {
-                        var data = JSON.parse(xhr.responseText)
+                        let data = JSON.parse(xhr.responseText)
                         shots = data.shots || []
                         topProfiles = data.top_profiles || []
                         shotCount = shots.length
@@ -156,16 +156,16 @@ Item {
                 ctx.strokeStyle = "#1a2a3a"
                 ctx.lineWidth = 1
 
-                for (var lon = -180; lon <= 180; lon += 30) {
-                    var pos = root.latLonToXY(0, lon)
+                for (let lon = -180; lon <= 180; lon += 30) {
+                    let pos = root.latLonToXY(0, lon)
                     ctx.beginPath()
                     ctx.moveTo(pos.x, 0)
                     ctx.lineTo(pos.x, height)
                     ctx.stroke()
                 }
 
-                for (var lat = -60; lat <= 75; lat += 15) {
-                    var pos2 = root.latLonToXY(lat, 0)
+                for (let lat = -60; lat <= 75; lat += 15) {
+                    let pos2 = root.latLonToXY(lat, 0)
                     ctx.beginPath()
                     ctx.moveTo(0, pos2.y)
                     ctx.lineTo(width, pos2.y)
@@ -235,9 +235,9 @@ Item {
                 ctx.beginPath()
 
                 var firstPoint = true
-                for (var lon = -180; lon <= 180; lon += 2) {
-                    var ha = (hourAngle + lon) * Math.PI / 180
-                    var lat
+                for (let lon = -180; lon <= 180; lon += 2) {
+                    let ha = (hourAngle + lon) * Math.PI / 180
+                    let lat
                     if (Math.abs(declination) < 0.001) {
                         lat = Math.atan(-Math.cos(ha) / 0.001) * 180 / Math.PI
                     } else {
@@ -245,7 +245,7 @@ Item {
                     }
                     lat = Math.max(-85, Math.min(85, lat))
 
-                    var pos = root.latLonToXY(lat, lon)
+                    let pos = root.latLonToXY(lat, lon)
                     if (firstPoint) {
                         ctx.moveTo(pos.x, pos.y)
                         firstPoint = false
@@ -386,18 +386,17 @@ Item {
         anchors.fill: parent
         active: Settings.app.hasQuick3D && root.mapShape === "globe"
         visible: root.mapShape === "globe"
+        // By URL: ShotMapGlobe is only in the module when Quick3D is.
         source: "qrc:/qt/qml/Decenza/qml/components/ShotMapGlobe.qml"
-        onLoaded: {
-            item.shots = Qt.binding(function() { return root.shots })
-            item.mapTexture = Qt.binding(function() { return root.mapTexture })
-            item.textureSource = Qt.binding(function() { return root.textureSource })
-            item.globeRotation = Qt.binding(function() { return root.globeRotation })
-            item.globeRadius = Qt.binding(function() { return root.globeRadius })
-            item.testMode = Qt.binding(function() { return root.testMode })
-            item.testLatitude = Qt.binding(function() { return root.testLatitude })
-            item.testLongitude = Qt.binding(function() { return root.testLongitude })
-            item.widgetMode = Qt.binding(function() { return root.widgetMode })
-        }
+        Binding { target: globeLoader.item; property: "shots"; value: root.shots }
+        Binding { target: globeLoader.item; property: "mapTexture"; value: root.mapTexture }
+        Binding { target: globeLoader.item; property: "textureSource"; value: root.textureSource }
+        Binding { target: globeLoader.item; property: "globeRotation"; value: root.globeRotation }
+        Binding { target: globeLoader.item; property: "globeRadius"; value: root.globeRadius }
+        Binding { target: globeLoader.item; property: "testMode"; value: root.testMode }
+        Binding { target: globeLoader.item; property: "testLatitude"; value: root.testLatitude }
+        Binding { target: globeLoader.item; property: "testLongitude"; value: root.testLongitude }
+        Binding { target: globeLoader.item; property: "widgetMode"; value: root.widgetMode }
     }
 
     // ==================== OVERLAYS (shared for both views) ====================

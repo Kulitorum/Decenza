@@ -54,7 +54,7 @@ public class DecenzaActivity extends QtActivity {
     //   } else { ...loadQtLibraries()... }
     //
     // and isLaunchedAsAlias() is a plain name comparison of the intent's
-    // component against this class (QtActivityBase.java:169-178). So a HOME
+    // component against this class (QtActivityBase.java:169-182). So a HOME
     // launch through LauncherAlias produces an activity with no Qt behind it,
     // and the first lifecycle callback into QtNative dies with
     // UnsatisfiedLinkError. That is issues #1239, #1511, #1512 and #1869.
@@ -107,9 +107,9 @@ public class DecenzaActivity extends QtActivity {
     }
 
     // Qt's onNewIntent/onActivityResult/onRequestPermissionsResult call a
-    // native on QtNative with no guard (QtActivityBase.java:369-385, Qt
-    // 6.11.2), and those natives are registered by the Android QPA plugin's
-    // JNI_OnLoad (androidjnimain.cpp:752-762, :907-926). Reached with Qt's
+    // native on QtNative with no guard (QtActivityBase.java:375-391, Qt
+    // 6.12.0), and those natives are registered by the Android QPA plugin's
+    // JNI_OnLoad (androidjnimain.cpp:757-767, :907-926). Reached with Qt's
     // libraries not loaded, the call throws UnsatisfiedLinkError, which lands
     // on the main thread's uncaught handler and kills the process.
     //
@@ -135,7 +135,7 @@ public class DecenzaActivity extends QtActivity {
     // there is nowhere to escape to while the DE1 runs unattended. A process
     // that dies and is restarted by Android is the better failure. Same
     // reasoning for onDestroy, whose QtNative.terminateQtNativeApplication()
-    // precedes the System.exit(0) that ends it (QtActivityBase.java:210-223):
+    // precedes the System.exit(0) that ends it (QtActivityBase.java:216-229):
     // catching there would skip the exit and strand the process.
     private void dispatchToQt(String callback, Runnable body) {
         try {

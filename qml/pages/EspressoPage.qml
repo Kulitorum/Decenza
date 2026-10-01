@@ -63,7 +63,7 @@ T.Page {
     function getAccessibilityValue(index) {
         switch (index) {
             case 0: // Frame
-                var frameInfo = MainController.currentFrameName || TranslationManager.translate("espresso.accessible.starting", "Starting")
+                let frameInfo = MainController.currentFrameName || TranslationManager.translate("espresso.accessible.starting", "Starting")
                 return TranslationManager.translate("espresso.accessible.frame", "Frame:") + " " + frameInfo
             case 1: // Time
                 return TranslationManager.translate("espresso.accessible.time", "Time:") + " " + MachineState.shotTime.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.seconds", "seconds")
@@ -74,7 +74,7 @@ T.Page {
             case 4: // Temperature
                 return TranslationManager.translate("espresso.accessible.temperature", "Temperature:") + " " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " " + TranslationManager.translate("espresso.accessible.degrees", "degrees")
             case 5: // Weight and/or Volume
-                var parts = []
+                let parts = []
                 if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
                 if (MachineState.targetVolume > 0) parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
                 return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
@@ -104,7 +104,7 @@ T.Page {
     // Accessibility: announce full status
     function announceFullStatus() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var status = TranslationManager.translate("espresso.accessible.shotStatus", "Shot status.") + " "
+            let status = TranslationManager.translate("espresso.accessible.shotStatus", "Shot status.") + " "
             status += getAccessibilityValue(0) + ". "  // Frame
             status += getAccessibilityValue(1) + ". "  // Time
             status += getAccessibilityValue(2) + ". "  // Pressure
@@ -348,11 +348,11 @@ T.Page {
             if (key === "espresso/extractionView")
                 espressoPage.extractionViewMode = Settings.value("espresso/extractionView", "chart")
             else if (key === "espresso/showPhaseIndicator") {
-                var v = Settings.value("espresso/showPhaseIndicator", true)
+                let v = Settings.value("espresso/showPhaseIndicator", true)
                 espressoPage.showPhaseIndicator = (v === true || v === "true")
             }
             else if (key === "espresso/showStats") {
-                var vs = Settings.value("espresso/showStats", true)
+                let vs = Settings.value("espresso/showStats", true)
                 espressoPage.showStats = (vs === true || vs === "true")
             }
         }
@@ -549,7 +549,7 @@ T.Page {
                         case MachineState.Phase.Ending:
                             // Show frame name if available (advanced/flow profiles),
                             // fall back to generic phase name
-                            var frameName = espressoPage.displayedFrameName
+                            let frameName = espressoPage.displayedFrameName
                             if (frameName)
                                 return frameName
                             if (MachineState.phase === MachineState.Phase.Preinfusion)

@@ -65,8 +65,8 @@ Page {
     function getAvailableLanguages() {
         var available = []
         var existing = TranslationManager.availableLanguages
-        for (var i = 0; i < isoLanguages.length; i++) {
-            var lang = isoLanguages[i]
+        for (let i = 0; i < isoLanguages.length; i++) {
+            let lang = isoLanguages[i]
             if (existing.indexOf(lang.code) === -1) {
                 available.push(lang)
             }

@@ -10,7 +10,7 @@
 #include "core/firmwareassetcache.h"
 #include "core/firmwareheader.h"
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class DE1Device;
 
 // Orchestrates the three-phase DE1 firmware update (erase → upload → verify)

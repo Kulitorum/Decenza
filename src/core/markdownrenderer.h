@@ -2,7 +2,7 @@
 
 #include <QObject>
 #include <QString>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // Markdown -> HTML, so QML can render markdown AND emoji in the same block of text.
 //

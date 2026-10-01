@@ -1037,7 +1037,8 @@ QString ShotServer::generateSettingsPage() const
 
         function remoteStatusLine(status, detail) {
             if (!status) return '';
-            const labels = { off: 'Off', starting: 'Starting…', active: 'Active — public link is live',
+            const labels = { off: 'Off', starting: 'Starting…', publishing: 'Funnel is on',
+                             active: 'Active — public link is live',
                              reconnecting: 'Reconnecting…', error: 'Problem' };
             let line = labels[status] || status;
             if (detail) line += ' — ' + detail;

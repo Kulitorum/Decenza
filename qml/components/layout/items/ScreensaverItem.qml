@@ -1,3 +1,6 @@
+// Bound: the Loader components below read this file's ids. No Repeater or delegate here, and
+// modelData is a declared property (LayoutWidgetItem.qml:24), not an injected role.
+pragma ComponentBehavior: Bound
 import QtQuick
 import Decenza
 
@@ -87,17 +90,15 @@ LayoutWidgetItem {
             // Flip Clock preview — use Loader to destroy text nodes when not visible,
             // preventing stale QSGDefaultGlyphNode updates on the render thread
             Loader {
+                id: compactFlipLoader
                 anchors.centerIn: parent
                 width: parent.width / 0.756
                 height: parent.width / 1.764
                 active: root.isFlipClock && root.isCompact
                 visible: root.isFlipClock
-                source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
-                onLoaded: {
-                    item.running = Qt.binding(function() {
-                        return visible && compactContent.visible
-                    })
-                    item.backgroundColor = "transparent"
+                sourceComponent: FlipClockScreensaver {
+                    running: compactFlipLoader.visible && compactContent.visible
+                    backgroundColor: "transparent"
                 }
             }
 
@@ -110,29 +111,29 @@ LayoutWidgetItem {
 
             // Pipes preview (Quick3D) — only create when compact to avoid duplicate View3D
             Loader {
+                id: compactPipesLoader
                 anchors.fill: parent
                 active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
                 visible: root.screensaverSubtype === "pipes"
+                // By URL: PipesScreensaver is only in the module when Quick3D is.
                 source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
-                onLoaded: item.running = Qt.binding(function() {
-                    return visible && compactContent.visible
-                })
+                Binding {
+                    target: compactPipesLoader.item
+                    property: "running"
+                    value: compactPipesLoader.visible && compactContent.visible
+                }
             }
 
             // Shot Map preview — only create when compact to avoid duplicate instances
             Loader {
+                id: compactShotMapLoader
                 anchors.fill: parent
                 active: root.screensaverSubtype === "shotmap" && root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
-                source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
-                onLoaded: {
-                    item.running = Qt.binding(function() {
-                        return visible && compactContent.visible
-                    })
-                    item.widgetMode = true
-                    item.mapTexture = Qt.binding(function() {
-                        return root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
-                    })
+                sourceComponent: ShotMapScreensaver {
+                    running: compactShotMapLoader.visible && compactContent.visible
+                    widgetMode: true
+                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
                 }
             }
 
@@ -183,6 +184,7 @@ LayoutWidgetItem {
             // Flip Clock — use Loader to destroy text nodes when not visible,
             // preventing stale QSGDefaultGlyphNode updates on the render thread
             Loader {
+                id: fullFlipLoader
                 anchors.centerIn: parent
                 // Virtual size makes the clock exactly fill the widget width
                 // cardWidth = parent.width / 5.04; virtual dims ensure that's what min() returns
@@ -190,12 +192,9 @@ LayoutWidgetItem {
                 height: parent.width / 1.764
                 active: root.isFlipClock && !root.isCompact
                 visible: root.isFlipClock
-                source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
-                onLoaded: {
-                    item.running = Qt.binding(function() {
-                        return visible && fullContent.visible
-                    })
-                    item.backgroundColor = "transparent"
+                sourceComponent: FlipClockScreensaver {
+                    running: fullFlipLoader.visible && fullContent.visible
+                    backgroundColor: "transparent"
                 }
             }
 
@@ -206,31 +205,30 @@ LayoutWidgetItem {
                 running: visible && fullContent.visible
             }
 
-            // 3D Pipes — Loader with qrc path (requires Quick3D)
+            // 3D Pipes — by URL: PipesScreensaver is only in the module when Quick3D is
             Loader {
+                id: fullPipesLoader
                 anchors.fill: parent
                 active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
-                onLoaded: item.running = Qt.binding(function() {
-                    return visible && fullContent.visible
-                })
+                Binding {
+                    target: fullPipesLoader.item
+                    property: "running"
+                    value: fullPipesLoader.visible && fullContent.visible
+                }
             }
 
-            // Shot Map — Loader with qrc path (flat map works without Quick3D)
+            // Shot Map (flat map works without Quick3D)
             Loader {
+                id: fullShotMapLoader
                 anchors.fill: parent
                 active: root.screensaverSubtype === "shotmap" && !root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
-                source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
-                onLoaded: {
-                    item.running = Qt.binding(function() {
-                        return visible && fullContent.visible
-                    })
-                    item.widgetMode = true
-                    item.mapTexture = Qt.binding(function() {
-                        return root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
-                    })
+                sourceComponent: ShotMapScreensaver {
+                    running: fullShotMapLoader.visible && fullContent.visible
+                    widgetMode: true
+                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
                 }
             }
 

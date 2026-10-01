@@ -38,7 +38,7 @@ Rectangle {
         if (entry && entry.type) return entry.type
         if (activeTab !== "community") return ""
         var entries = LibrarySharing.communityEntries
-        for (var i = 0; i < entries.length; i++) {
+        for (let i = 0; i < entries.length; i++) {
             if (entries[i].id === id) return entries[i].type || ""
         }
         return ""
@@ -50,7 +50,7 @@ Rectangle {
         if (activeTab === "local") return true
         // Community tab: only allow deleting own entries
         var entries = LibrarySharing.communityEntries
-        for (var i = 0; i < entries.length; i++) {
+        for (let i = 0; i < entries.length; i++) {
             if (entries[i].id === WidgetLibrary.selectedEntryId)
                 return entries[i].deviceId === Settings.app.deviceId()
         }
@@ -523,8 +523,8 @@ Rectangle {
                             : []
                 if (libraryPanel.showItems && libraryPanel.showZones && libraryPanel.showLayouts && libraryPanel.showThemes) return entries
                 var result = []
-                for (var i = 0; i < entries.length; i++) {
-                    var t = entries[i].type || ""
+                for (let i = 0; i < entries.length; i++) {
+                    let t = entries[i].type || ""
                     if ((t === "item" && libraryPanel.showItems) ||
                         (t === "zone" && libraryPanel.showZones) ||
                         (t === "layout" && libraryPanel.showLayouts) ||
@@ -667,7 +667,7 @@ Rectangle {
         // Community entry - need to find the type from community data, then download first
         var entries = LibrarySharing.communityEntries
         var type = ""
-        for (var i = 0; i < entries.length; i++) {
+        for (let i = 0; i < entries.length; i++) {
             if (entries[i].id === entryId) {
                 type = entries[i].type || ""
                 break
@@ -745,7 +745,7 @@ Rectangle {
         }
         function onDownloadComplete(localEntryId) {
             if (libraryPanel.pendingApplyZone) {
-                var entry = WidgetLibrary.getEntry(localEntryId)
+                let entry = WidgetLibrary.getEntry(localEntryId)
                 if (entry && entry.type) {
                     libraryPanel.applyEntry(localEntryId, entry.type, libraryPanel.pendingApplyZone)
                     libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)

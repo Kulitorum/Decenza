@@ -13,7 +13,7 @@
 #       custom command output.
 #     CMake Generate step failed.  Build files cannot be regenerated correctly.
 #
-# So a drift in Qt's path formula (Qt6QmlMacros.cmake:3841-3847) fails the build loudly
+# So a drift in Qt's path formula (Qt6QmlMacros.cmake:2578-2607) fails the build loudly
 # at configure time. It cannot silently detach. The original rationale was written from
 # belief rather than measurement, which is the very habit the rest of this file preaches
 # against; it is recorded here rather than quietly deleted.

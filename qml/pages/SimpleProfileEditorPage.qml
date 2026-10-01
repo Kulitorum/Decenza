@@ -131,11 +131,11 @@ T.Page {
         ]
         var closest = "hold"
         var closestDist = 999999
-        for (var i = 0; i < sections.length; i++) {
-            var s = sections[i]
+        for (let i = 0; i < sections.length; i++) {
+            let s = sections[i]
             if (!s.item.visible || s.item.height === 0) continue
-            var sectionCenter = s.item.y + s.item.height / 2
-            var dist = Math.abs(viewCenter - sectionCenter)
+            let sectionCenter = s.item.y + s.item.height / 2
+            let dist = Math.abs(viewCenter - sectionCenter)
             if (dist < closestDist) {
                 closestDist = dist
                 closest = s.name
@@ -146,7 +146,7 @@ T.Page {
 
     function sectionToFrame(sectionName) {
         if (!profile || !profile.steps) return -1
-        for (var i = 0; i < profile.steps.length; i++) {
+        for (let i = 0; i < profile.steps.length; i++) {
             if (frameToSection(i) === sectionName) return i
         }
         return -1
@@ -316,8 +316,8 @@ T.Page {
                         target: editorScrollView.contentItem
                         function onMovingChanged() {
                             if (!(editorScrollView.contentItem as Flickable).moving && !editorPage.scrollingFromSelection) {
-                                var section = editorPage.findCenteredSection()
-                                var frameIdx = editorPage.sectionToFrame(section)
+                                let section = editorPage.findCenteredSection()
+                                let frameIdx = editorPage.sectionToFrame(section)
                                 if (frameIdx >= 0 && frameIdx !== editorPage.selectedFrameIndex) {
                                     editorPage.selectedFrameIndex = frameIdx
                                 }
@@ -1076,7 +1076,7 @@ T.Page {
         function doSave() {
             Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
-                var filename = ProfileManager.titleToFilename(saveAsTitleField.text)
+                let filename = ProfileManager.titleToFilename(saveAsTitleField.text)
                 if (ProfileManager.isBuiltInFilename(filename)) {
                     saveAsDialog.close()
                     builtInNameDialog.open()
@@ -1277,7 +1277,7 @@ T.Page {
             freshConversion = true
             WebDebugLogger.warn("Recipes", "SimpleProfileEditorPage", ["Converting non-recipe profile to",
                          isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName].map(String).join(" "))
-            var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
+            let defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             if (isFlow) {
                 ProfileManager.createNewFlowProfile(ProfileManager.currentProfileName || defaultName)
             } else {

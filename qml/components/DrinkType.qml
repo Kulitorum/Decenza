@@ -76,7 +76,7 @@ QtObject {
         } catch (e) { WebDebugLogger.warn("Recipes", "DrinkType", ["bad steam JSON on recipe", (r && r.name) || "?", e].map(String).join(" ")) }
         try {
             if (r && r.hotWaterJson) {
-                var w = JSON.parse(r.hotWaterJson)
+                let w = JSON.parse(r.hotWaterJson)
                 water = !!w.hasWater
                 order = w.order || ""
             }

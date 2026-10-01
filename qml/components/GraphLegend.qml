@@ -21,9 +21,9 @@ Item {
     readonly property var _visibleModel: {
         var out = []
         var all = GraphSeries.entries
-        for (var i = 0; i < all.length; i++) {
-            var m = all[i]
-            var vis = (!m.advanced || legendRoot.advancedMode) && (!m.postShotOnly || !legendRoot.liveMode)
+        for (let i = 0; i < all.length; i++) {
+            let m = all[i]
+            let vis = (!m.advanced || legendRoot.advancedMode) && (!m.postShotOnly || !legendRoot.liveMode)
             if (!vis || (m.portal && !legendRoot.portalAvailable))
                 continue
             out.push({

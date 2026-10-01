@@ -81,7 +81,7 @@ DecenzaDialog {
     // The colour value behind a given preset id, for deriving a readable tile label.
     function _presetColour(id) {
         var list = Settings.theme.backgroundPresets
-        for (var i = 0; i < list.length; i++) {
+        for (let i = 0; i < list.length; i++) {
             if (list[i].id === id)
                 return list[i].value
         }
@@ -113,13 +113,13 @@ DecenzaDialog {
         var result = []
 
         var personal = ScreensaverManager.getPersonalMediaList()
-        for (var i = 0; i < personal.length; i++) {
+        for (let i = 0; i < personal.length; i++) {
             if (personal[i].type === "image")
                 result.push({ path: personal[i].path, key: "p" + personal[i].id })
         }
 
         var cached = ScreensaverManager.getCachedCatalogImages()
-        for (var j = 0; j < cached.length; j++) {
+        for (let j = 0; j < cached.length; j++) {
             result.push({ path: cached[j].path, key: "c" + cached[j].id })
         }
 

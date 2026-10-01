@@ -158,7 +158,7 @@ DecenzaDialog {
                 Accessible.role: Accessible.Button
                 Accessible.name: {
                     if (MainController.dataMigration.discoveredDevices.length > 0) {
-                        var dev = MainController.dataMigration.discoveredDevices[0]
+                        let dev = MainController.dataMigration.discoveredDevices[0]
                         return (dev.deviceName || "Unknown Device") + ", " + dev.ipAddress
                     }
                     return ""

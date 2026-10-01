@@ -1379,7 +1379,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
 bool EquipmentStorage::isEnrichmentOf(const PackageIdentity& before, const PackageIdentity& after)
 {
     // toCaseFolded, not toLower: they are DIFFERENT Unicode tables (CaseFold vs
-    // LowerCase, qtbase/src/corelib/text/qstring.cpp:7230 and :7245) and only the
+    // LowerCase, qtbase/src/corelib/text/qstring.cpp:7218 and :7235) and only the
     // former matches Qt::CaseInsensitive, which is what
     // findPackageByGrinderIdentityStatic compares with. They agree on the accented
     // Latin this was written for and disagree elsewhere (Greek final sigma), so

@@ -98,8 +98,8 @@ T.ApplicationWindow {
 
         // If this is a Text with content, add it
         if (item instanceof Text && item.text && item.text.length > 0) {
-            var centerX = offsetX + item.width / 2
-            var centerY = offsetY + item.height / 2
+            let centerX = offsetX + item.width / 2
+            let centerY = offsetY + item.height / 2
             results.push({ text: item, x: centerX, y: centerY })
         }
 
@@ -110,8 +110,8 @@ T.ApplicationWindow {
 
         // Recurse into children
         var childList = item.children || item.contentChildren || []
-        for (var i = 0; i < childList.length; i++) {
-            var child = childList[i]
+        for (let i = 0; i < childList.length; i++) {
+            let child = childList[i]
             if (!child || !child.visible || child.width === undefined) continue
             collectTexts(child, offsetX + child.x + scrollOffsetX, offsetY + child.y + scrollOffsetY, results)
         }
@@ -124,10 +124,10 @@ T.ApplicationWindow {
         var closest = null
         var closestDist = accessibilitySearchRadius
 
-        for (var i = 0; i < results.length; i++) {
-            var dx = results[i].x - tapX
-            var dy = results[i].y - tapY
-            var dist = Math.sqrt(dx * dx + dy * dy)
+        for (let i = 0; i < results.length; i++) {
+            let dx = results[i].x - tapX
+            let dy = results[i].y - tapY
+            let dist = Math.sqrt(dx * dx + dy * dy)
             if (dist < closestDist) {
                 closestDist = dist
                 closest = results[i].text
@@ -479,7 +479,7 @@ T.ApplicationWindow {
             if (root.autoLoadIdleCountdown <= 0) return
             root.autoLoadIdleCountdown--
             if (root.autoLoadIdleCountdown <= 0) {
-                var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                let pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (pageName === "idlePage") {
                     ProfileManager.loadAutoLoadProfileIfNeeded()
                     MainController.loadAutoLoadRecipeIfNeeded()
@@ -652,7 +652,7 @@ T.ApplicationWindow {
                         AccessibilityManager.announce(trSteamHeaterOffSteaming.text)
                 }
                 // Navigate to SteamPage immediately so user sees heating progress
-                var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage !== "steamPage" && !pageStack.busy) {
                     root.saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
@@ -679,7 +679,7 @@ T.ApplicationWindow {
         target: Settings
         function onValueChanged(key) {
             if (key === "autoSleepMinutes") {
-                var val = Settings.value("autoSleepMinutes", 60)
+                let val = Settings.value("autoSleepMinutes", 60)
                 root.autoSleepMinutes = (val === undefined || val === null) ? 60 : parseInt(val)
                 // Update normal countdown to new value
                 if (!root.screensaverActive && root.autoSleepMinutes > 0) {
@@ -687,7 +687,7 @@ T.ApplicationWindow {
                     root.stayAwakeSuppressionLogged = false
                 }
             } else if (key === "ui/configurePageScale") {
-                var val = Settings.value("ui/configurePageScale", false)
+                let val = Settings.value("ui/configurePageScale", false)
                 WebDebugLogger.debug("App", "main", ["configurePageScale changed:", val, "type:", typeof val].map(String).join(" "))
                 Theme.configurePageScaleEnabled = (val === true || val === "true")
                 WebDebugLogger.debug("App", "main", ["configurePageScaleEnabled set to:", Theme.configurePageScaleEnabled].map(String).join(" "))
@@ -770,7 +770,7 @@ T.ApplicationWindow {
 
     function queuePopup(popupId, params) {
         // Deduplicate by popupId
-        for (var i = 0; i < pendingPopups.length; i++) {
+        for (let i = 0; i < pendingPopups.length; i++) {
             if (pendingPopups[i].id === popupId) return
         }
         pendingPopups = pendingPopups.concat([{id: popupId, params: params || {}}])
@@ -794,6 +794,7 @@ T.ApplicationWindow {
             || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
             || noScaleAbortDialog.visible || crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
+            || localNetworkDeniedDialog.visible
     }
 
     function showNextPendingPopup() {
@@ -804,8 +805,8 @@ T.ApplicationWindow {
         var queue = pendingPopups.slice()
         var next
         if (AppShell.scaleDialogDeferred) {
-            var idx = -1
-            for (var i = 0; i < queue.length; i++) {
+            let idx = -1
+            for (let i = 0; i < queue.length; i++) {
                 if (queue[i].id !== "flowScale" && queue[i].id !== "scaleDisconnected") {
                     idx = i
                     break
@@ -825,6 +826,7 @@ T.ApplicationWindow {
 
             case "update": updateDialog.open(); break
             case "chargingMismatch": chargingMismatchDialog.open(); break
+            case "localNetworkDenied": localNetworkDeniedDialog.open(); break
             case "bleError":
                 // Skip a stale generic connection error if the DE1 has since
                 // reconnected (e.g. an overnight link drop that self-healed while
@@ -920,7 +922,7 @@ T.ApplicationWindow {
     //      define — so the name resolves to nothing and reading a member off it throws
     //      `ReferenceError: GHCSimulator is not defined`. Only `typeof` survives this: an
     //      unresolvable identifier makes V4 clear the exception and answer "undefined"
-    //      (qtdeclarative/src/qml/jsruntime/qv4runtime.cpp:1746-1754, Runtime::TypeofName::call).
+    //      (qtdeclarative/src/qml/jsruntime/qv4runtime.cpp:1750-1758, Runtime::TypeofName::call).
     //   2. The type is registered but the INSTANCE is null — Linux any config, Windows/macOS
     //      Release, Android/iOS Debug. Here the name is a TRUTHY wrapper and only member reads
     //      come back undefined, so `typeof` alone passes and the call throws a TypeError. See
@@ -950,8 +952,8 @@ T.ApplicationWindow {
     Component.onCompleted: {
         // Restore window position on desktop (not size - keep default to match real device)
         if (Qt.platform.os !== "android" && Qt.platform.os !== "ios") {
-            var savedX = Settings.value("mainWindow/x", -1)
-            var savedY = Settings.value("mainWindow/y", -1)
+            let savedX = Settings.value("mainWindow/x", -1)
+            let savedY = Settings.value("mainWindow/y", -1)
             if (savedX >= 0 && savedY >= 0) {
                 root.x = savedX
                 root.y = savedY
@@ -1232,7 +1234,7 @@ T.ApplicationWindow {
     //
     // `as T.Page`, NOT `as Page`. QtQuick.Controls.Page resolves to the active style's
     // Page.qml — a COMPOSITE type — and a composite can only match an instance whose own
-    // metaobject chain contains it (`qqmltypewrapper.cpp:513-516`: "Rectangle{} is never an
+    // metaobject chain contains it (`qqmltypewrapper.cpp:509-511`: "Rectangle{} is never an
     // instance of CustomRectangle"). `as` is doInstanceof, and a failed object cast yields
     // null (`qv4runtime.cpp:394-406`). Pages root at QtQuick.Templates.Page now, so the
     // style composite is no longer in their chain and `as Page` would return null on every
@@ -1488,10 +1490,10 @@ T.ApplicationWindow {
             if (!item || !item.visible) return
             // Check 'color' property (Rectangle, Text, etc.)
             if (item.color !== undefined) {
-                var c = ("" + item.color).substring(0, 7).toLowerCase()
+                let c = ("" + item.color).substring(0, 7).toLowerCase()
                 if (c.charAt(0) === "#") foundColors[c] = true
             }
-            for (var i = 0; i < item.children.length; i++) {
+            for (let i = 0; i < item.children.length; i++) {
                 walkItem(item.children[i])
             }
         }
@@ -1513,9 +1515,9 @@ T.ApplicationWindow {
         ]
 
         var matched = []
-        for (var j = 0; j < themeColorNames.length; j++) {
-            var name = themeColorNames[j]
-            var themeVal = ("" + Theme[name]).substring(0, 7).toLowerCase()
+        for (let j = 0; j < themeColorNames.length; j++) {
+            let name = themeColorNames[j]
+            let themeVal = ("" + Theme[name]).substring(0, 7).toLowerCase()
             if (foundColors[themeVal]) {
                 matched.push(name)
             }
@@ -1638,6 +1640,109 @@ T.ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: bleErrorDialog.close()
             }
+        }
+    }
+
+    // Android 17: a LAN feature started without the local network permission. The features
+    // keep running and connect once the user allows it, so this only explains and links there.
+    property var localNetworkDeniedFeatures: []
+
+    DecenzaDialog {
+        id: localNetworkDeniedDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        onClosed: {
+            // The screensaver closes and re-queues this dialog; keep the list for the re-show.
+            if (!root.screensaverActive)
+                root.localNetworkDeniedFeatures = []
+            root.showNextPendingPopup()
+        }
+
+        Tr { id: trLocalNetworkTitle; key: "main.dialog.localNetwork.title"; fallback: "Allow Local Network Access"; visible: false }
+        Tr { id: trLocalNetworkBody; key: "main.dialog.localNetwork.body"; fallback: "These features cannot reach devices on your network until you allow \"Nearby devices\" for Decenza in Android Settings:"; visible: false }
+        Tr { id: trLocalNetworkWebServer; key: "main.dialog.localNetwork.feature.webServer"; fallback: "Remote access web server"; visible: false }
+        Tr { id: trLocalNetworkMqtt; key: "main.dialog.localNetwork.feature.mqtt"; fallback: "MQTT (home automation)"; visible: false }
+        Tr { id: trLocalNetworkWifiScale; key: "main.dialog.localNetwork.feature.wifiScale"; fallback: "WiFi scale"; visible: false }
+        Tr { id: trLocalNetworkMigration; key: "main.dialog.localNetwork.feature.deviceMigration"; fallback: "Device-to-device transfer"; visible: false }
+        Tr { id: trOpenAppSettings; key: "main.button.openAppSettings"; fallback: "Open App Settings"; visible: false }
+
+        function featureLabel(feature) {
+            switch (feature) {
+            case LocalNetworkAccess.WebServer: return trLocalNetworkWebServer.text
+            case LocalNetworkAccess.Mqtt: return trLocalNetworkMqtt.text
+            case LocalNetworkAccess.WifiScale: return trLocalNetworkWifiScale.text
+            case LocalNetworkAccess.DeviceMigration: return trLocalNetworkMigration.text
+            }
+            return ""
+        }
+        readonly property string featureList: root.localNetworkDeniedFeatures
+            .map(f => "• " + featureLabel(f)).join("\n")
+
+        onOpened: {
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(trLocalNetworkTitle.text + ". " + trLocalNetworkBody.text + " " + featureList, true)
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryContrastColor
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: trLocalNetworkTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: trLocalNetworkBody.text + "\n" + localNetworkDeniedDialog.featureList
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            AccessibleButton {
+                text: trOpenAppSettings.text
+                accessibleName: trOpenAppSettings.text
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    LocalNetworkAccess.openAppSettings()
+                    localNetworkDeniedDialog.close()
+                }
+            }
+
+            AccessibleButton {
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: localNetworkDeniedDialog.close()
+            }
+        }
+    }
+
+    Connections {
+        target: LocalNetworkAccess
+        function onDenied(feature) {
+            if (root.localNetworkDeniedFeatures.indexOf(feature) === -1)
+                root.localNetworkDeniedFeatures = root.localNetworkDeniedFeatures.concat([feature])
+            if (localNetworkDeniedDialog.visible)
+                return
+            if (root.screensaverActive || root.anyModalDialogVisible()) {
+                root.queuePopup("localNetworkDenied")
+                return
+            }
+            localNetworkDeniedDialog.open()
         }
     }
 
@@ -2327,7 +2432,7 @@ T.ApplicationWindow {
         if (pageName === "postShotReviewPage") {
             root.returnToPageName = pageName
             // Get the editShotId from the current page, fallback to lastSavedShotId
-            var currentReview = pageStack.currentItem as PostShotReviewPage
+            let currentReview = pageStack.currentItem as PostShotReviewPage
             if (currentReview && currentReview.editShotId > 0) {
                 root.returnToShotId = currentReview.editShotId
             } else {
@@ -2512,7 +2617,7 @@ T.ApplicationWindow {
             if (root.pendingMetadataNavigation) {
                 root.pendingMetadataNavigation = false
                 // Settings.value() may return string on Windows (REG_SZ), coerce to Number
-                var timeout = Number(Settings.value("postShotReviewTimeout", 31))
+                let timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
                     WebDebugLogger.debug("Shot", "main", ["Post-shot review timeout is Instant, skipping review page"].map(String).join(" "))
                     root.goToIdle()
@@ -4202,11 +4307,12 @@ T.ApplicationWindow {
             { dialog: standbySwitchDialog,     id: "standbySwitch" },
             { dialog: bleErrorDialog,          id: "bleError" },
             { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
+            { dialog: localNetworkDeniedDialog, id: "localNetworkDenied" },
             { dialog: noScaleAbortDialog,      id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },
         ]
-        for (var i = 0; i < popups.length; i++) {
+        for (let i = 0; i < popups.length; i++) {
             if (popups[i].dialog.visible) {
                 if (popups[i].id) {
                     // Preserve bleError dialog state when re-queuing
@@ -4342,7 +4448,7 @@ T.ApplicationWindow {
             // Reset the inactivity countdown on user touch (the scheduled
             // stay-awake window is independent of activity)
             if (root.autoSleepMinutes > 0 && !root.screensaverActive) {
-                var prev = root.sleepCountdownNormal
+                let prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 root.stayAwakeSuppressionLogged = false
                 if (prev <= 5) WebDebugLogger.debug("AutoSleep", "main", ["Reset by touch: " + prev + " -> " + root.sleepCountdownNormal].map(String).join(" "))
@@ -4470,9 +4576,9 @@ T.ApplicationWindow {
             // Check for 2-finger swipe left (back gesture) when accessibility is on
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled &&
                 startPoints.length === 2 && touchPoints.length === 2) {
-                var deltaX1 = touchPoints[0].x - startPoints[0].x
-                var deltaX2 = touchPoints[1].x - startPoints[1].x
-                var avgDeltaX = (deltaX1 + deltaX2) / 2
+                let deltaX1 = touchPoints[0].x - startPoints[0].x
+                let deltaX2 = touchPoints[1].x - startPoints[1].x
+                let avgDeltaX = (deltaX1 + deltaX2) / 2
 
                 // Swipe left threshold: -100 pixels
                 if (avgDeltaX < -100) {
@@ -4537,13 +4643,13 @@ T.ApplicationWindow {
                 // Guard: if a new shot started while the old one was still saving,
                 // onShotStarted cleared the overlay but this stale signal arrived
                 // late. Don't interrupt the active shot.
-                var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage === "espressoPage") {
                     WebDebugLogger.debug("Shot", "main", ["Post-shot navigation: new shot in progress, skipping stale review"].map(String).join(" "))
                     return
                 }
 
-                var timeout = Number(Settings.value("postShotReviewTimeout", 31))
+                let timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
                     WebDebugLogger.debug("Shot", "main", ["Post-shot review: Instant timeout, going to idle"].map(String).join(" "))
                     root.goToIdle()
@@ -5168,7 +5274,7 @@ T.ApplicationWindow {
         // Walk the visual parent chain: popup content goes through the Overlay item,
         // regular page content does not.
         var overlay = root.Overlay.overlay
-        for (var p = item; p; p = p.parent) {
+        for (let p = item; p; p = p.parent) {
             if (p === overlay)
                 return false
         }

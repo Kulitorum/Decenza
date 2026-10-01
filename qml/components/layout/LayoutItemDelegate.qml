@@ -291,7 +291,7 @@ Item {
                     var compiled = root.compileToCustom(root.itemType)
                     if (!compiled) return root.modelData
                     var merged = { id: root.modelData.id, type: root.modelData.type }
-                    for (var key in compiled) {
+                    for (let key in compiled) {
                         if (compiled.hasOwnProperty(key))
                             merged[key] = compiled[key]
                     }
@@ -308,9 +308,9 @@ Item {
                     // every stored key would silently change how existing widgets look.
                     var reserved = Settings.network.gestureReservedActionForType(root.itemType)
                     var gestureKeys = ["longPressAction", "doubleclickAction"]
-                    for (var g = 0; g < gestureKeys.length; ++g) {
-                        var gk = gestureKeys[g]
-                        var stored = root.modelData[gk]
+                    for (let g = 0; g < gestureKeys.length; ++g) {
+                        let gk = gestureKeys[g]
+                        let stored = root.modelData[gk]
                         if (stored !== undefined && stored !== "")
                             merged[gk] = stored
                         else if (reserved)

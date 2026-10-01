@@ -89,10 +89,10 @@ void TestTextEscaping::initTestCase()
                     //
                     // WHAT THIS TEST NO LONGER COVERS: stripping the annotations means the
                     // QJSEngine below runs the UNTYPED function, while the app runs the typed
-                    // one through coerceAndCall (qv4function.cpp:68-73). Argument coercion is
+                    // one through coerceAndCall (qv4function.cpp:69-74). Argument coercion is
                     // therefore untested here — a green run says nothing about it. That gap is
                     // real: a `string` annotation turns undefined into the literal "undefined"
-                    // (qv4jscall_p.h:337 -> qv4runtime.cpp:618), which is why the guarded
+                    // (qv4jscall_p.h:368-369 -> qv4runtime.cpp:620-621), which is why the guarded
                     // parameters in Theme.qml are `var`. Covering it needs a QML-engine test
                     // that links the Decenza module, which no test binary does today.
                     const qsizetype open = fn.indexOf('(');

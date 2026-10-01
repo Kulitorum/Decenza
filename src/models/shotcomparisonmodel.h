@@ -7,7 +7,7 @@
 #include <QColor>
 #include <QThread>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class ShotHistoryStorage;
 struct ShotRecord;
 

@@ -1,33 +1,28 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.10.1'
-    }
+// Written in the AGP 9 DSL of Qt's own Gradle templates
+// (qtbase/src/android/templates_cmake/app/build.gradle.in in 6.12.0), not the
+// legacy single-module template androiddeployqt would otherwise copy.
+// Repositories and plugin resolution live in settings.gradle.
+plugins {
+    id 'com.android.application' version '9.2.1'
 }
-
-repositories {
-    google()
-    mavenCentral()
-}
-
-apply plugin: qtGradlePluginType
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
-    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.core:core:1.17.0'
 }
+
+// androiddeployqt passes the compile platform as a string, "android-<api>[.<minor>]"
+// (qtbase/src/tools/androiddeployqt/main.cpp:3144-3148). CMakeLists.txt chooses it.
+def compilePlatform = (androidCompileSdkVersion - 'android-').tokenize('.')
 
 android {
     namespace = androidPackageName
-    // androidCompileSdkVersion (from Qt) is 34, but androidx.core:core:1.16.0
-    // requires compileSdk 35+. This only affects compilation, NOT device compatibility
-    // (minSdk still controls which devices can install the app).
-    compileSdkVersion 35
-    buildToolsVersion androidBuildToolsVersion
+    compileSdk {
+        version = release(compilePlatform[0].toInteger()) {
+            minorApiLevel = compilePlatform.size() > 1 ? compilePlatform[1].toInteger() : 0
+        }
+    }
+    buildToolsVersion = androidBuildToolsVersion
     ndkVersion = androidNdkVersion
 
     sourceSets {
@@ -39,144 +34,39 @@ android {
             resources.srcDirs = ['resources']
             assets.srcDirs = ['assets']
             jniLibs.srcDirs = ['libs']
-       }
+        }
     }
 
-    tasks.withType(JavaCompile) {
-        options.incremental = true
-        options.compilerArgs += ['-Xlint:all']
-    }
-
-    // Java 17, not 1.8, because that is what Qt's own template sets:
-    // qtbase/src/android/templates/build.gradle:66 in Qt 6.11.2 reads
-    // `sourceCompatibility JavaVersion.VERSION_17`. This file is a fork of that
-    // template which had drifted back to 1.8, so 17 restores the level Qt
-    // itself builds and tests its Android Java against.
-    //
-    // NOT "AGP 9 requires it" — AGP 9.0.0 changes the DEFAULT source/target
-    // from 8 to 11, which is a default, not a floor, and an explicit 1.8 is not
-    // documented as rejected. The obsolete-source warning a build prints is
-    // javac's, not AGP's. The 12 Java files here are written for 8 and gain
-    // nothing from the language level.
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // lint/androidResources, not lintOptions/aaptOptions: the old names are
-    // DEPRECATED ALIASES over the same objects — CommonExtension.lintOptions is
-    // annotated "Renamed to `lint`" — so this moves to the non-deprecated
-    // spelling and changes no behaviour.
-    //
-    // Both spellings still work, and do not write "removed in AGP 9" here: Qt
-    // 6.11.2's own template pins AGP 9.0.0
-    // (qtbase/src/android/templates/build.gradle:9) and still uses lintOptions
-    // at :70 and aaptOptions at :74, which it could not if AGP 9 had removed
-    // them.
-    //
-    // noCompress keeps its method form. 'rcc' must stay uncompressed for Qt to
-    // mmap the resource bundle; the non-deprecated property form is
-    // `noCompress.add('rcc')` (getter-only, so `+=` does not work), and Qt
-    // upstream uses the method. Left for whoever can test an Android build.
     lint {
         abortOnError = false
     }
 
     androidResources {
-        noCompress 'rcc'
+        noCompress += ['rcc'] // Qt mmaps the resource bundle
+        // Decenza's UI strings are not Android resources; this drops the libraries' translations.
+        localeFilters += ['en']
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = legacyPackaging.toBoolean()
+        }
     }
 
     defaultConfig {
-        resConfig "en"
-        minSdkVersion qtMinSdkVersion
-        targetSdkVersion qtTargetSdkVersion
-        ndk.abiFilters = qtTargetAbiList.split(",")
+        minSdk = qtMinSdkVersion.toInteger()
+        targetSdk = qtTargetSdkVersion.toInteger()
+        ndk {
+            abiFilters += qtTargetAbiList.split(',')
+        }
     }
-
 }
 
-// Copy APK/AAB with versioned filename after build completes
-gradle.buildFinished { result ->
-    if (result.failure) return
-
-    // Read versionName from AndroidManifest.xml
-    def manifestFile = file("${projectDir}/AndroidManifest.xml")
-    def versionName = "1.0.0"
-    if (manifestFile.exists()) {
-        def match = manifestFile.text =~ /android:versionName="([^"]+)"/
-        if (match.find()) {
-            versionName = match.group(1)
-        }
-    }
-
-    // Sign and copy APK with versioned filename
-    def apkDir = file("${buildDir}/outputs/apk/release")
-    if (apkDir.exists()) {
-        def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH") ?: "C:/CODE/Android APK keystore.jks"
-        def keyAlias = "de1-key"
-        def storePass = System.getenv("QT_ANDROID_KEYSTORE_STORE_PASS") ?: "rZ8!YC5nvrLhc7m1uvNV"
-
-        // Find apksigner in Android SDK
-        def androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: "C:/Users/Micro/AppData/Local/Android/Sdk"
-        def buildToolsDir = file("${androidHome}/build-tools")
-        def apksigner = null
-        if (buildToolsDir.exists()) {
-            // Get latest build-tools version
-            def versions = buildToolsDir.listFiles()?.sort { it.name }?.reverse()
-            if (versions) {
-                def apksignerName = System.getProperty("os.name").toLowerCase().contains("windows") ? "apksigner.bat" : "apksigner"
-                apksigner = new File(versions[0], apksignerName)
-            }
-        }
-
-        apkDir.listFiles()?.each { f ->
-            if (f.name.endsWith('-release-unsigned.apk')) {
-                def dest = new File(apkDir, "Decenza_${versionName}.apk")
-                if (!dest.exists() || f.lastModified() > dest.lastModified()) {
-                    if (apksigner?.exists()) {
-                        // Sign directly to versioned filename
-                        def signCmd = [apksigner.absolutePath, "sign",
-                                      "--ks", keystorePath,
-                                      "--ks-key-alias", keyAlias,
-                                      "--ks-pass", "pass:${storePass}",
-                                      "--out", dest.absolutePath,
-                                      f.absolutePath]
-                        def proc = signCmd.execute()
-                        proc.waitFor()
-                        if (proc.exitValue() == 0) {
-                            println "\n==========================================\nVERSIONED APK (signed): ${dest.absolutePath}\n==========================================\n"
-                        } else {
-                            println "APK signing failed: ${proc.err.text}"
-                        }
-                    } else {
-                        println "WARNING: apksigner not found, cannot create versioned APK"
-                    }
-                }
-            }
-        }
-    }
-
-    // Copy AAB with versioned filename
-    def bundleDir = file("${buildDir}/outputs/bundle/release")
-    if (bundleDir.exists()) {
-        def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH") ?: "C:/CODE/Android APK keystore.jks"
-        def keyAlias = "de1-key"
-        def storePass = System.getenv("QT_ANDROID_KEYSTORE_STORE_PASS") ?: "rZ8!YC5nvrLhc7m1uvNV"
-
-        bundleDir.listFiles()?.each { f ->
-            if (f.name.endsWith('-release.aab') && !f.name.startsWith('Decenza-')) {
-                def dest = new File(bundleDir, "Decenza-${versionName}.aab")
-                if (!dest.exists() || f.lastModified() > dest.lastModified()) {
-                    java.nio.file.Files.copy(f.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-
-                    // Sign the copy with jarsigner
-                    def signCmd = ["jarsigner", "-keystore", keystorePath, "-storepass", storePass, dest.absolutePath, keyAlias]
-                    def signProc = signCmd.execute()
-                    signProc.waitFor()
-
-                    println "\n==========================================\nVERSIONED AAB (signed): ${dest.absolutePath}\n==========================================\n"
-                }
-            }
-        }
-    }
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:all']
 }

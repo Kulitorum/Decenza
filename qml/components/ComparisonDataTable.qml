@@ -79,7 +79,7 @@ ColumnLayout {
     readonly property var allColumns: {
         var out = []
         var all = GraphSeries.entries
-        for (var i = 0; i < all.length; i++) {
+        for (let i = 0; i < all.length; i++) {
             if (all[i].portal) continue // Paired PORTAL samples are shown in individual shot graphs.
             out.push({
                 key: all[i].key,
@@ -93,7 +93,7 @@ ColumnLayout {
     }
     readonly property var columns: {
         var out = []
-        for (var i = 0; i < allColumns.length; i++) {
+        for (let i = 0; i < allColumns.length; i++) {
             if (!allColumns[i].advanced || advancedMode) out.push(allColumns[i])
         }
         return out

@@ -10,7 +10,7 @@
 
 #include "history/bagid.h"
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
 class BeanBaseClient;
 class CoffeeBagStorage;

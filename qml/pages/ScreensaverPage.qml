@@ -248,7 +248,7 @@ T.Page {
                 // must be destroyed together; a persistent VideoOutput retains the last
                 // decoded frame's CVPixelBuffer/IOSurface on macOS.
                 videoTransitionCount++
-                var liveRss = MemoryMonitor.liveRssMB()
+                let liveRss = MemoryMonitor.liveRssMB()
 
                 // Speak only when RSS has MOVED 5 MB from the last line printed.
                 //
@@ -280,11 +280,11 @@ T.Page {
                 // that speaks, so the record never implies the screensaver stopped
                 // cycling.
                 videoTransitionsSinceLog++
-                var movedMB = liveRss - preDestroyRss
+                let movedMB = liveRss - preDestroyRss
                 if (videoTransitionCount === 1 || Math.abs(movedMB) >= 5) {
-                    var delta = videoTransitionCount > 1
+                    let delta = videoTransitionCount > 1
                         ? " delta:" + movedMB.toFixed(1) + " MB" : ""
-                    var folded = videoTransitionsSinceLog > 1
+                    let folded = videoTransitionsSinceLog > 1
                         ? " (+" + (videoTransitionsSinceLog - 1) +
                           " transitions within 5 MB of the last line)" : ""
                     WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Video transition #" + videoTransitionCount +
@@ -538,8 +538,13 @@ T.Page {
         active: Settings.app.hasQuick3D && screensaverPage.isPipesMode && !screensaverPage.appSuspended
         visible: screensaverPage.isPipesMode
         z: 0
+        // By URL: PipesScreensaver is only in the module when Quick3D is.
         source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isPipesMode && screensaverPage.visible && !screensaverPage.appSuspended })
+        Binding {
+            target: pipesLoader.item
+            property: "running"
+            value: screensaverPage.isPipesMode && screensaverPage.visible && !screensaverPage.appSuspended
+        }
     }
 
     // Flip Clock screensaver
@@ -549,8 +554,9 @@ T.Page {
         active: screensaverPage.isFlipClockMode && !screensaverPage.appSuspended
         visible: screensaverPage.isFlipClockMode
         z: 0
-        source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isFlipClockMode && screensaverPage.visible && !screensaverPage.appSuspended })
+        sourceComponent: FlipClockScreensaver {
+            running: screensaverPage.isFlipClockMode && screensaverPage.visible && !screensaverPage.appSuspended
+        }
     }
 
     // Strange Attractor screensaver
@@ -560,8 +566,9 @@ T.Page {
         active: screensaverPage.isAttractorMode && !screensaverPage.appSuspended
         visible: screensaverPage.isAttractorMode
         z: 0
-        source: "qrc:/qt/qml/Decenza/qml/components/StrangeAttractorScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isAttractorMode && screensaverPage.visible && !screensaverPage.appSuspended })
+        sourceComponent: StrangeAttractorScreensaver {
+            running: screensaverPage.isAttractorMode && screensaverPage.visible && !screensaverPage.appSuspended
+        }
     }
 
     // Shot Map screensaver (flat map works without Quick3D, globe loaded conditionally)
@@ -571,8 +578,9 @@ T.Page {
         active: screensaverPage.isShotMapMode && !screensaverPage.appSuspended
         visible: screensaverPage.isShotMapMode
         z: 0
-        source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isShotMapMode && screensaverPage.visible && !screensaverPage.appSuspended })
+        sourceComponent: ShotMapScreensaver {
+            running: screensaverPage.isShotMapMode && screensaverPage.visible && !screensaverPage.appSuspended
+        }
     }
 
     // Fallback: show a subtle animation while no cached media (videos mode only)

@@ -22,7 +22,6 @@ T.Page {
     property int selectedStepIndex: -1
     property bool profileModified: ProfileManager.profileModified
     property string originalProfileName: ""
-    property int stepVersion: 0  // Increment to force step editor refresh
 
     function handleBack() {
         flushPendingEdits()
@@ -109,9 +108,6 @@ T.Page {
         AccessibilityManager.announce(parts.join(". "))
     }
 
-    function updatePageTitle() {
-    }
-
     // Commit any text fields that use onEditingFinished (which won't fire on navigation)
     function flushPendingEdits() {
         if (profile) {
@@ -122,15 +118,19 @@ T.Page {
         }
     }
 
+    // Bindings read the profile through this property, and a var property notifies only
+    // when it is assigned a different object (qtdeclarative/src/qml/qml/qqmlvmemetaobject.cpp:1357-1358),
+    // so an edit made in place is published by assigning a copy. A deep one, so `step` and
+    // the graph's frames are new objects too.
+    function publishProfile() {
+        profile = JSON.parse(JSON.stringify(profile))
+    }
+
     // Update profile state and refresh UI (BLE upload deferred to editor exit, see #557)
     function uploadProfile() {
         if (profile) {
             ProfileManager.uploadProfile(profile)
-            // Force step editor bindings to re-evaluate
-            stepVersion++
-            // Force graph to update by creating a new array reference
-            // (assigning same reference doesn't trigger onFramesChanged)
-            profileGraph.frames = profile.steps.slice()
+            publishProfile()
         }
     }
 
@@ -304,13 +304,20 @@ T.Page {
                             id: profileGraph
                             anchors.fill: parent
                             frames: profileEditorPage.profile ? profileEditorPage.profile.steps : []
-                            selectedFrameIndex: profileEditorPage.selectedStepIndex
                             targetWeight: profileEditorPage.profile ? (profileEditorPage.profile.target_weight || 0) : 0
                             targetVolume: profileEditorPage.profile ? (profileEditorPage.profile.target_volume || 0) : 0
 
                             onFrameSelected: function(index) {
                                 profileEditorPage.selectedStepIndex = index
                             }
+                        }
+                        // A Binding element rather than a property binding: the graph assigns
+                        // selectedFrameIndex itself on a click (ProfileGraph.qml:295, 310), which
+                        // would remove a property binding and stop later selections showing.
+                        Binding {
+                            target: profileGraph
+                            property: "selectedFrameIndex"
+                            value: profileEditorPage.selectedStepIndex
                         }
                     }
 
@@ -353,7 +360,6 @@ T.Page {
                             id: openProfileSettingsButton
                             Layout.fillWidth: true
                             text: {
-                                profileEditorPage.stepVersion
                                 if (!profileEditorPage.profile) return TranslationManager.translate("profileEditor.settings", "Settings")
                                 var temp = profileEditorPage.profile.steps.length > 0 ? Theme.formatTemperature(profileEditorPage.profile.steps[0].temperature, 0) : Theme.formatTemperature(93, 0)
                                 return TranslationManager.translate("profileEditor.settings", "Settings") + " (" + temp + ")"
@@ -379,7 +385,6 @@ T.Page {
                             id: openLimitsButton
                             Layout.fillWidth: true
                             text: {
-                                profileEditorPage.stepVersion
                                 if (!profileEditorPage.profile) return TranslationManager.translate("profileEditor.limits", "Limits")
                                 var parts = []
                                 if (profileEditorPage.profile.target_weight > 0) parts.push(profileEditorPage.profile.target_weight.toFixed(0) + "g")
@@ -474,7 +479,6 @@ T.Page {
                     onEditingFinished: {
                         if (profileEditorPage.profile && text.length > 0 && text !== profileEditorPage.profile.title) {
                             profileEditorPage.profile.title = text
-                            profileEditorPage.updatePageTitle()
                             profileEditorPage.uploadProfile()
                         }
                     }
@@ -531,22 +535,22 @@ T.Page {
                 RowLayout { Layout.fillWidth: true
                     Text { text: TranslationManager.translate("profileEditor.allTemps", "All temps"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
-                    Text { text: profileEditorPage.stepVersion >= 0 && profileEditorPage.profile && profileEditorPage.profile.steps.length > 0 ? Theme.formatTemperature(profileEditorPage.profile.steps[0].temperature, 1) : Theme.formatTemperature(93.0, 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                    Text { text: profileEditorPage.profile && profileEditorPage.profile.steps.length > 0 ? Theme.formatTemperature(profileEditorPage.profile.steps[0].temperature, 1) : Theme.formatTemperature(93.0, 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                 }
                 ValueInput {
                     Layout.fillWidth: true; valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix()
                     // Stored in Celsius; shown and entered in the user's unit.
-                    value: { profileEditorPage.stepVersion; return Theme.cToDisplay(profileEditorPage.profile && profileEditorPage.profile.steps.length > 0 ? profileEditorPage.profile.steps[0].temperature : 93) }
+                    value: Theme.cToDisplay(profileEditorPage.profile && profileEditorPage.profile.steps.length > 0 ? profileEditorPage.profile.steps[0].temperature : 93)
                     // onValueModified mutates the profile per adjustment tick so the UI
                     // reflects the change live; onValueCommitted fires the BLE upload
                     // once on release instead of per tick.
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile && profileEditorPage.profile.steps.length > 0) {
                             // newValue is in the display unit; convert to Celsius for storage.
-                            var rounded = Math.round(Theme.displayToC(newValue) * 10) / 10
-                            var delta = rounded - profileEditorPage.profile.steps[0].temperature
-                            for (var i = 0; i < profileEditorPage.profile.steps.length; i++) {
+                            let rounded = Math.round(Theme.displayToC(newValue) * 10) / 10
+                            let delta = rounded - profileEditorPage.profile.steps[0].temperature
+                            for (let i = 0; i < profileEditorPage.profile.steps.length; i++) {
                                 profileEditorPage.profile.steps[i].temperature += delta
                             }
                             profileEditorPage.profile.espresso_temperature = rounded
@@ -579,7 +583,7 @@ T.Page {
                     ValueInput {
                         Layout.fillWidth: true; valueColor: Theme.weightColor
                         accessibleName: TranslationManager.translate("profileEditor.recommendedDose", "Recommended dose"); from: 5; to: 100; stepSize: 0.1; suffix: " g"
-                        value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.recommended_dose ?? 18) : 18 }
+                        value: profileEditorPage.profile ? (profileEditorPage.profile.recommended_dose ?? 18) : 18
                         onValueModified: function(newValue) { if (profileEditorPage.profile) { profileEditorPage.profile.recommended_dose = Math.round(newValue * 10) / 10 } }
                         onValueCommitted: profileEditorPage.uploadProfile()
                     }
@@ -647,7 +651,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
                     from: Theme.cToDisplay(0); to: Theme.cToDisplay(45); stepSize: 1; suffix: Theme.tempUnitSuffix()
                     // Stored in Celsius; shown and entered in the user's unit.
-                    value: { profileEditorPage.stepVersion; return Theme.cToDisplay(profileEditorPage.profile ? (profileEditorPage.profile.tank_desired_water_temperature ?? 0) : 0) }
+                    value: Theme.cToDisplay(profileEditorPage.profile ? (profileEditorPage.profile.tank_desired_water_temperature ?? 0) : 0)
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
                             profileEditorPage.profile.tank_desired_water_temperature = Math.round(Theme.displayToC(newValue))
@@ -666,7 +670,7 @@ T.Page {
                     Layout.preferredWidth: Theme.scaled(160)
                     accessibleName: TranslationManager.translate("profileEditor.preinfusionEndsAccessible", "Preinfusion ends after step")
                     from: 0; to: profileEditorPage.profile ? profileEditorPage.profile.steps.length : 0; stepSize: 1
-                    value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.preinfuse_frame_count ?? 0) : 0 }
+                    value: profileEditorPage.profile ? (profileEditorPage.profile.preinfuse_frame_count ?? 0) : 0
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
                             profileEditorPage.profile.preinfuse_frame_count = Math.round(newValue)
@@ -690,12 +694,12 @@ T.Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
                     from: 0; to: 500; stepSize: 1; suffix: " mL"
-                    displayText: { profileEditorPage.stepVersion; return profileEditorPage.profile && profileEditorPage.profile.target_volume <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
-                    value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.target_volume || 0) : 0 }
+                    displayText: profileEditorPage.profile && profileEditorPage.profile.target_volume <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
+                    value: profileEditorPage.profile ? (profileEditorPage.profile.target_volume || 0) : 0
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
                             profileEditorPage.profile.target_volume = Math.round(newValue)
-                            profileEditorPage.stepVersion++
+                            profileEditorPage.publishProfile()
                         }
                     }
                     onValueCommitted: profileEditorPage.uploadProfile()
@@ -716,12 +720,12 @@ T.Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
                     from: 0; to: 500; stepSize: 0.1; suffix: " g"
-                    displayText: { profileEditorPage.stepVersion; return profileEditorPage.profile && profileEditorPage.profile.target_weight <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
-                    value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.target_weight || 0) : 0 }
+                    displayText: profileEditorPage.profile && profileEditorPage.profile.target_weight <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
+                    value: profileEditorPage.profile ? (profileEditorPage.profile.target_weight || 0) : 0
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
                             profileEditorPage.profile.target_weight = Math.round(newValue * 10) / 10
-                            profileEditorPage.stepVersion++
+                            profileEditorPage.publishProfile()
                         }
                     }
                     onValueCommitted: profileEditorPage.uploadProfile()
@@ -737,10 +741,10 @@ T.Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.limitFlowRangeAccessible", "Limit flow range for pressure steps")
                     from: 0; to: 8; stepSize: 0.01; suffix: " mL/s"
-                    value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.maximum_flow_range_advanced ?? 0.6) : 0.6 }
+                    value: profileEditorPage.profile ? (profileEditorPage.profile.maximum_flow_range_advanced ?? 0.6) : 0.6
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
-                            var newRange = Math.round(newValue * 100) / 100
+                            let newRange = Math.round(newValue * 100) / 100
                             profileEditorPage.profile.maximum_flow_range_advanced = newRange
                             profileEditorPage.applyRangeToAllSteps()
                         }
@@ -758,10 +762,10 @@ T.Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.pressureColor
                     accessibleName: TranslationManager.translate("profileEditor.limitPressureRangeAccessible", "Limit pressure range for flow steps")
                     from: 0; to: 8; stepSize: 0.01; suffix: " bar"
-                    value: { profileEditorPage.stepVersion; return profileEditorPage.profile ? (profileEditorPage.profile.maximum_pressure_range_advanced ?? 0.6) : 0.6 }
+                    value: profileEditorPage.profile ? (profileEditorPage.profile.maximum_pressure_range_advanced ?? 0.6) : 0.6
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile) {
-                            var newRange = Math.round(newValue * 100) / 100
+                            let newRange = Math.round(newValue * 100) / 100
                             profileEditorPage.profile.maximum_pressure_range_advanced = newRange
                             profileEditorPage.applyRangeToAllSteps()
                         }
@@ -957,7 +961,7 @@ T.Page {
         function doSave() {
             Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
-                var filename = ProfileManager.titleToFilename(saveAsTitleField.text)
+                let filename = ProfileManager.titleToFilename(saveAsTitleField.text)
                 if (ProfileManager.isBuiltInFilename(filename)) {
                     saveAsDialog.close()
                     builtInNameDialog.open()
@@ -1239,7 +1243,7 @@ T.Page {
             clip: true
             contentWidth: availableWidth
 
-            property var step: (profileEditorPage.stepVersion >= 0) && profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0 && profileEditorPage.selectedStepIndex < profileEditorPage.profile.steps.length ?
+            property var step: profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0 && profileEditorPage.selectedStepIndex < profileEditorPage.profile.steps.length ?
                    profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex] : null
 
             ColumnLayout {
@@ -1255,7 +1259,7 @@ T.Page {
                         Accessible.name: TranslationManager.translate("profileEditor.frameName", "Frame name")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? stepEditorScroll.step.name : "" }
+                        text: stepEditorScroll.step ? stepEditorScroll.step.name : ""
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
@@ -1277,7 +1281,7 @@ T.Page {
                 }
 
                 // Temperature
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(profileEditorPage.stepVersion >= 0 && stepEditorScroll.step ? stepEditorScroll.step.temperature : 93); onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].temperature = Math.round(Theme.displayToC(newValue) * 10) / 10 } }; onValueCommitted: profileEditorPage.uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(stepEditorScroll.step ? stepEditorScroll.step.temperature : 93); onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].temperature = Math.round(Theme.displayToC(newValue) * 10) / 10 } }; onValueCommitted: profileEditorPage.uploadProfile() }
 
                 // Sensor toggle
                 Text { text: TranslationManager.translate("profileEditor.sensor", "Sensor"); font: Theme.captionFont; color: Theme.textSecondaryColor }
@@ -1333,7 +1337,7 @@ T.Page {
                         // across would hand the user a limit they never chose, in a unit they never
                         // chose — 6 bar silently becoming 6 mL/s. Reset to the step's own default
                         // (de1app enforce_pressure_step_flow_limit, de1_skin_settings.tcl:797).
-                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { var s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "pressure") { s.pump = "pressure"; s.max_flow_or_pressure = ProfileManager.defaultPressureFlowLimit } profileEditorPage.uploadProfile() } } }
+                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { let s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "pressure") { s.pump = "pressure"; s.max_flow_or_pressure = ProfileManager.defaultPressureFlowLimit } profileEditorPage.uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
@@ -1346,7 +1350,7 @@ T.Page {
                         // Mirror of the pressure handler above: a flow step's limiter is a PRESSURE
                         // limit, and off is legal there, so the carried-over flow limit clears
                         // rather than being reinterpreted as bar.
-                        MouseArea { id: goalFlowArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { var s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "flow") { s.pump = "flow"; s.max_flow_or_pressure = 0 } profileEditorPage.uploadProfile() } } }
+                        MouseArea { id: goalFlowArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { let s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "flow") { s.pump = "flow"; s.max_flow_or_pressure = 0 } profileEditorPage.uploadProfile() } } }
                     }
                 }
 
@@ -1357,10 +1361,10 @@ T.Page {
                     accessibleName: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? "Flow goal" : "Pressure goal"
                     from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? " mL/s" : " bar"
-                    value: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? (stepEditorScroll.step.pump === "flow" ? stepEditorScroll.step.flow : stepEditorScroll.step.pressure) : 0 }
+                    value: stepEditorScroll.step ? (stepEditorScroll.step.pump === "flow" ? stepEditorScroll.step.flow : stepEditorScroll.step.pressure) : 0
                     onValueModified: function(newValue) {
                         if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) {
-                            var val = Math.round(newValue * 100) / 100
+                            let val = Math.round(newValue * 100) / 100
                             if (profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].pump === "flow") {
                                 profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].flow = val
                             } else {
@@ -1410,15 +1414,15 @@ T.Page {
 
                 // Max duration
                 Text { text: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; displayText: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step && stepEditorScroll.step.seconds === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step ? stepEditorScroll.step.seconds : 30; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].seconds = Math.round(newValue) } }; onValueCommitted: profileEditorPage.uploadProfile() }
+                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; displayText: stepEditorScroll.step && stepEditorScroll.step.seconds === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepEditorScroll.step ? stepEditorScroll.step.seconds : 30; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].seconds = Math.round(newValue) } }; onValueCommitted: profileEditorPage.uploadProfile() }
 
                 // Max volume
                 Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume.accessible", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step && (stepEditorScroll.step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step ? (stepEditorScroll.step.volume || 0) : 0; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].volume = Math.round(newValue) } }; onValueCommitted: profileEditorPage.uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume.accessible", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: stepEditorScroll.step && (stepEditorScroll.step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepEditorScroll.step ? (stepEditorScroll.step.volume || 0) : 0; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].volume = Math.round(newValue) } }; onValueCommitted: profileEditorPage.uploadProfile() }
 
                 // Max weight (independent, app-side exit)
                 Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight.accessible", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step && (stepEditorScroll.step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: profileEditorPage.stepVersion >= 0 && stepEditorScroll.step ? (stepEditorScroll.step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10 } }; onValueCommitted: profileEditorPage.uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight.accessible", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: stepEditorScroll.step && (stepEditorScroll.step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepEditorScroll.step ? (stepEditorScroll.step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10 } }; onValueCommitted: profileEditorPage.uploadProfile() }
 
                 // Flow/Pressure limit (opposite of goal in section 2)
                 Text { text: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit"); font: Theme.captionFont; color: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
@@ -1432,8 +1436,8 @@ T.Page {
                     to: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
                     snapZeroTo: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.defaultPressureFlowLimit : 0
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? " mL/s" : " bar"
-                    displayText: { var v = profileEditorPage.stepVersion; var val = stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0; return (val === 0 && !(stepEditorScroll.step && stepEditorScroll.step.pump === "pressure")) ? TranslationManager.translate("profileEditor.off", "off") : "" }
-                    value: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0 }
+                    displayText: { var val = stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0; return (val === 0 && !(stepEditorScroll.step && stepEditorScroll.step.pump === "pressure")) ? TranslationManager.translate("profileEditor.off", "off") : "" }
+                    value: stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0
                     onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 100) / 100 } }
                     onValueCommitted: profileEditorPage.uploadProfile()
                 }
@@ -1449,7 +1453,7 @@ T.Page {
                     Item { Layout.fillWidth: true }
                     StyledSwitch {
                         id: exitIfSwitch
-                        checked: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? stepEditorScroll.step.exit_if : false }
+                        checked: stepEditorScroll.step ? stepEditorScroll.step.exit_if : false
                         onToggled: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].exit_if = checked; profileEditorPage.uploadProfile() } }
                         accessibleName: TranslationManager.translate("profileEditor.moveOnIfConditionMet", "Move on if condition met")
                     }
@@ -1468,7 +1472,7 @@ T.Page {
                         accessibleLabel: TranslationManager.translate("profileEditor.exitType", "Exit type")
                         contentItem: Text { text: exitTypeCombo.displayText; font: Theme.bodyFont; color: Theme.textColor; leftPadding: Theme.scaled(10); verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.scaled(36); color: Theme.backgroundColor; radius: Theme.scaled(6); border.width: 1; border.color: Theme.borderColor }
-                        currentIndex: { var v = profileEditorPage.stepVersion; if (!stepEditorScroll.step) return 0; switch (stepEditorScroll.step.exit_type) { case "pressure_over": return 0; case "pressure_under": return 1; case "flow_over": return 2; case "flow_under": return 3; default: return 0 } }
+                        currentIndex: { if (!stepEditorScroll.step) return 0; switch (stepEditorScroll.step.exit_type) { case "pressure_over": return 0; case "pressure_under": return 1; case "flow_over": return 2; case "flow_under": return 3; default: return 0 } }
                         onActivated: function(index) { if (!profileEditorPage.profile || profileEditorPage.selectedStepIndex < 0) return; var types = ["pressure_over", "pressure_under", "flow_over", "flow_under"]; profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].exit_type = types[index]; profileEditorPage.uploadProfile() }
                     }
 
@@ -1481,7 +1485,7 @@ T.Page {
                         from: 0; to: { if (!stepEditorScroll.step) return 12; switch (stepEditorScroll.step.exit_type) { case "flow_over": case "flow_under": return 8; default: return 12 } }
                         stepSize: 0.01
                         suffix: stepEditorScroll.step && (stepEditorScroll.step.exit_type === "flow_over" || stepEditorScroll.step.exit_type === "flow_under") ? " mL/s" : " bar"
-                        value: { var v = profileEditorPage.stepVersion; if (!stepEditorScroll.step) return 0; switch (stepEditorScroll.step.exit_type) { case "pressure_over": return stepEditorScroll.step.exit_pressure_over || 0; case "pressure_under": return stepEditorScroll.step.exit_pressure_under || 0; case "flow_over": return stepEditorScroll.step.exit_flow_over || 0; case "flow_under": return stepEditorScroll.step.exit_flow_under || 0; default: return 0 } }
+                        value: { if (!stepEditorScroll.step) return 0; switch (stepEditorScroll.step.exit_type) { case "pressure_over": return stepEditorScroll.step.exit_pressure_over || 0; case "pressure_under": return stepEditorScroll.step.exit_pressure_under || 0; case "flow_over": return stepEditorScroll.step.exit_flow_over || 0; case "flow_under": return stepEditorScroll.step.exit_flow_under || 0; default: return 0 } }
                         onValueModified: function(newValue) {
                             if (!profileEditorPage.profile || profileEditorPage.selectedStepIndex < 0) return
                             var val = Math.round(newValue * 100) / 100
@@ -1507,7 +1511,7 @@ T.Page {
                         Accessible.name: TranslationManager.translate("profileEditor.popupMessage", "Popup message")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? (stepEditorScroll.step.popup || "") : "" }
+                        text: stepEditorScroll.step ? (stepEditorScroll.step.popup || "") : ""
                         font: Theme.bodyFont; color: Theme.textColor
                         placeholder: TranslationManager.translate("profileEditor.popupMessagePlaceholder", "e.g., Swirl now, $weight")
                         leftPadding: Theme.scaled(12); rightPadding: Theme.scaled(12); topPadding: Theme.scaled(10); bottomPadding: Theme.scaled(10)
@@ -1602,7 +1606,6 @@ T.Page {
             Keyboard.commit()
             if (profileEditorPage.profile && nameField.text.length > 0) {
                 profileEditorPage.profile.title = nameField.text
-                profileEditorPage.updatePageTitle()
                 profileEditorPage.uploadProfile()
             }
             profileNameDialog.close()
@@ -1621,7 +1624,7 @@ T.Page {
         if (!profile || !profile.steps) return
         var flowRange = profile.maximum_flow_range_advanced ?? 0.6
         var pressureRange = profile.maximum_pressure_range_advanced ?? 0.6
-        for (var i = 0; i < profile.steps.length; i++) {
+        for (let i = 0; i < profile.steps.length; i++) {
             if (profile.steps[i].pump === "pressure") {
                 profile.steps[i].max_flow_or_pressure_range = flowRange
             } else if (profile.steps[i].pump === "flow") {
@@ -1661,16 +1664,8 @@ T.Page {
         // Insert after selected frame, or at end
         var insertIndex = selectedStepIndex >= 0 ? selectedStepIndex + 1 : profile.steps.length
         profile.steps.splice(insertIndex, 0, newStep)
-
-        // Force step editor bindings to re-evaluate BEFORE changing selection
-        // This ensures the new step's data is properly bound
-        stepVersion++
-
-        Qt.callLater(function() { selectedStepIndex = insertIndex })
-        // Force graph update by reassigning frames array
-        profileGraph.frames = []
-        profileGraph.frames = profile.steps
         uploadProfile()
+        selectedStepIndex = insertIndex
     }
 
     function duplicateStep(index) {
@@ -1682,15 +1677,8 @@ T.Page {
         copy.name = original.name + " (copy)"
 
         profile.steps.splice(index + 1, 0, copy)
-
-        // Force step editor bindings to re-evaluate BEFORE changing selection
-        stepVersion++
-
-        Qt.callLater(function() { selectedStepIndex = index + 1 })
-        // Force graph update by reassigning frames array
-        profileGraph.frames = []
-        profileGraph.frames = profile.steps
         uploadProfile()
+        selectedStepIndex = index + 1
     }
 
     function deleteStep(index) {
@@ -1701,10 +1689,6 @@ T.Page {
         if (selectedStepIndex >= profile.steps.length) {
             selectedStepIndex = profile.steps.length - 1
         }
-
-        // Force graph update by reassigning frames array
-        profileGraph.frames = []
-        profileGraph.frames = profile.steps
         uploadProfile()
     }
 
@@ -1714,18 +1698,13 @@ T.Page {
 
         var step = profile.steps.splice(fromIndex, 1)[0]
         profile.steps.splice(toIndex, 0, step)
-        // Force graph update by reassigning frames array
-        profileGraph.frames = []
-        profileGraph.frames = profile.steps
-        // Update selection after frames are reassigned
-        selectedStepIndex = toIndex
-        profileGraph.selectedFrameIndex = toIndex
         uploadProfile()
+        selectedStepIndex = toIndex
 
         // Announce the move for screen readers
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var name = step.name || TranslationManager.translate("profileEditor.unnamed", "unnamed")
-            var direction = toIndex < fromIndex ? TranslationManager.translate("profileEditor.left", "left") : TranslationManager.translate("profileEditor.right", "right")
+            let name = step.name || TranslationManager.translate("profileEditor.unnamed", "unnamed")
+            let direction = toIndex < fromIndex ? TranslationManager.translate("profileEditor.left", "left") : TranslationManager.translate("profileEditor.right", "right")
             AccessibilityManager.announce(TranslationManager.translate("profileEditor.movedFrame", "Moved %1 %2 to position %3 of %4").arg(name).arg(direction).arg(toIndex + 1).arg(profile.steps.length))
         }
     }
@@ -1754,11 +1733,6 @@ T.Page {
         // Track the original profile filename for saving (not the title!)
         originalProfileName = ProfileManager.baseProfileName || ""
         selectedStepIndex = -1
-        updatePageTitle()
-        // Force graph to update with new profile data
-        if (profile && profile.steps) {
-            profileGraph.frames = profile.steps.slice()
-        }
     }
 
     // Reload profile when page becomes active (StackView reactivation)
@@ -1771,7 +1745,6 @@ T.Page {
     }
 
     StackView.onActivated: {
-        updatePageTitle()
         lastAnnouncedFrame = null  // Reset for fresh announcements
         announceProfileInfo()
     }

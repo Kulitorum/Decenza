@@ -51,7 +51,7 @@
 #   thread is parked and still alive at exit, holding its per-thread _res -- is
 #   WRONG, and is recorded here so nobody re-derives it. QHostInfo connects
 #   QCoreApplication::destroyed to threadPool.waitForDone()
-#   (qtbase/src/network/kernel/qhostinfo.cpp:907-908, Qt 6.11.2, which is what
+#   (qtbase/src/network/kernel/qhostinfo.cpp:903-904, Qt 6.11.2, which is what
 #   CI builds), and waitForDone reaches QThreadPoolPrivate::reset(), which
 #   wait()s on and deletes every pool thread (qthreadpool.cpp:280-284). The test
 #   is QTEST_GUILESS_MAIN, so QCoreApplication is a stack object in main and
@@ -128,7 +128,7 @@
 #   The real cost is quantity, not kind: the template has no byte or count
 #   ceiling, so an arbitrarily large leak of this exact shape would also pass
 #   unreported. Today that is bounded by QHostInfo's pool cap of 20 threads
-#   (qhostinfo.cpp:910) times MAXNS, and Decenza has no unbounded resolver path
+#   (qhostinfo.cpp:906) times MAXNS, and Decenza has no unbounded resolver path
 #   -- wifiscalediscovery.cpp, decentscalewifi.cpp and mqttclient.cpp all share
 #   that one pool, and MdnsResolver uses raw 5353 sockets without getaddrinfo.
 #   If that ever stops being true, this entry stops being safe.

@@ -21,7 +21,7 @@
 // runtime registry. See the comment at that call site; it is a Qt guard that this app trips.
 
 #include "core/contextsingletons_qml.h"
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
 

@@ -12,7 +12,7 @@
 
 #include <functional>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QNetworkAccessManager;
 class QNetworkReply;
 class Settings;

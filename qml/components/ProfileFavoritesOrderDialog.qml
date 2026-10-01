@@ -40,7 +40,7 @@ DecenzaDialog {
         if (root._mode === "alpha") {
             list.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)) })
         } else if (root._mode === "usage") {
-            var usage = ProfileManager.profileUsage
+            let usage = ProfileManager.profileUsage
             list.sort(function(a, b) {
                 var ta = usage[a.name] ? usage[a.name].lastTimestamp : 0
                 var tb = usage[b.name] ? usage[b.name].lastTimestamp : 0
@@ -165,7 +165,7 @@ DecenzaDialog {
                 // never make a delete or a drag land on the wrong favorite.
                 function orderIndexOf(previewIndex) {
                     var fn = root._preview[previewIndex] ? root._preview[previewIndex].filename : ""
-                    for (var i = 0; i < root._order.length; ++i)
+                    for (let i = 0; i < root._order.length; ++i)
                         if (root._order[i].filename === fn) return i
                     return -1
                 }
@@ -211,8 +211,8 @@ DecenzaDialog {
                     // drop an entry the dialog's X button removed.
                     var liveNames = Settings.app.favoriteProfiles.map(function(f) { return f.filename })
                     var keep = {}
-                    for (var i = 0; i < root._order.length; ++i) keep[root._order[i].filename] = true
-                    for (i = liveNames.length - 1; i >= 0; --i) {
+                    for (let i = 0; i < root._order.length; ++i) keep[root._order[i].filename] = true
+                    for (let i = liveNames.length - 1; i >= 0; --i) {
                         if (!keep[liveNames[i]])
                             Settings.app.removeFavoriteProfile(i)
                     }
@@ -220,8 +220,8 @@ DecenzaDialog {
                     // ProfileManager; custom keeps whatever is written next.
                     Settings.app.favoriteProfileOrder = root._mode
                     if (root._mode === "custom") {
-                        var filenames = []
-                        for (i = 0; i < root._order.length; ++i) filenames.push(root._order[i].filename)
+                        let filenames = []
+                        for (let i = 0; i < root._order.length; ++i) filenames.push(root._order[i].filename)
                         Settings.app.setFavoritesOrder(filenames)
                     }
                     root.close()

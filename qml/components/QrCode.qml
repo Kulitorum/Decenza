@@ -36,8 +36,8 @@ Item {
         _modules = m.length;
         // Flatten to a simple array for the Repeater
         var flat = [];
-        for (var y = 0; y < m.length; y++)
-            for (var x = 0; x < m.length; x++)
+        for (let y = 0; y < m.length; y++)
+            for (let x = 0; x < m.length; x++)
                 flat.push(m[y][x] ? 1 : 0);
         _matrix = flat;
     }

@@ -4,8 +4,10 @@
 #include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
+#include "../network/localnetworkaccess.h"
 #include "core/deviceinfo.h"
 #include "core/fileshare.h"
+#include "core/permissionrequests.h"
 #include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
 #include "de1logging.h"
@@ -1041,6 +1043,7 @@ void BLEManager::probeMdnsForManualEntry() {
 void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp) {
     QString host = hostnameOrIp.trimmed();
     if (host.isEmpty()) return;
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
 
     // A bare name with no dot is an mDNS hostname missing its suffix — append
     // ".local" so it resolves (matches the discovery default "hds.local"). IPs
@@ -1212,7 +1215,7 @@ void BLEManager::requestBluetoothPermission() {
         // the part that generates the support question.
         de1Info(QStringLiteral("Requesting location permission — Android requires it to scan "
                                "for BLE devices"));
-        qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
+        PermissionRequests::request(locationPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 // DEBUG: granted is the non-event. "Scanning for devices..."
                 // follows within milliseconds and says it louder.
@@ -1244,7 +1247,7 @@ void BLEManager::requestBluetoothPermission() {
     switch (qApp->checkPermission(bluetoothPermission)) {
     case Qt::PermissionStatus::Undetermined:
         de1Info(QStringLiteral("Requesting Bluetooth permission — needed to reach the DE1"));
-        qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
+        PermissionRequests::request(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 // This line is back at INFO, and the reason is a mistake worth
                 // recording. It was deleted as a non-event on the grounds that
@@ -2173,6 +2176,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
 }
 
 void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     // NON-disruptive HDS identity check: open ws://<ip>/snapshot and require a
     // valid HDS frame (snapshot or status — both per the openscale WS protocol)
     // within the timeout. Does NOT touch the live (BLE backup) scale, so a
@@ -2701,6 +2705,7 @@ void BLEManager::scanForDevices() {
     // browse's first callback is a dump of the resolver's cache — stale
     // instances included — and the resolver's own pruning of those arrives
     // seconds later.
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     ensureWifiDiscovery();
     m_wifiDiscovery->browse(15000);
     m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(),
@@ -2731,6 +2736,7 @@ void BLEManager::scanForDevices() {
 }
 
 void BLEManager::browseWifiScales(int timeoutMs) {
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     ensureWifiDiscovery();
     m_wifiResults.clear();
     clearWifiScaleRows();

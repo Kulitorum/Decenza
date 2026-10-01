@@ -96,10 +96,10 @@ T.Page {
         // label — so "latte" or "tea" narrows the list too.
         var tokens = RecipeSearch.tokenize(query)
         var out = []
-        for (var i = 0; i < list.length; ++i) {
-            var r = list[i]
+        for (let i = 0; i < list.length; ++i) {
+            let r = list[i]
             if (tokens.length > 0) {
-                var hay = RecipeSearch.buildHaystack(
+                let hay = RecipeSearch.buildHaystack(
                     r, DrinkType.shortLabel(DrinkType.fromRecipeMap(r)))
                 if (!RecipeSearch.matches(hay, tokens))
                     continue
@@ -140,9 +140,9 @@ T.Page {
         var yieldG = Number(d.target_weight) || 0
         var temps = []
         var steps = d.steps || []
-        for (var i = 0; i < steps.length; ++i) {
-            var st = steps[i]
-            var stTemp = st ? Number(st.temperature) : 0
+        for (let i = 0; i < steps.length; ++i) {
+            let st = steps[i]
+            let stTemp = st ? Number(st.temperature) : 0
             if (stTemp > 0)
                 temps.push(stTemp)
         }
@@ -166,7 +166,7 @@ T.Page {
         var fn = ProfileManager.findProfileByTitle(title)
         if (fn && fn !== "") {
             // Catalog hit: deterministic per title → resolve once and cache.
-            var result = _numbersFromProfileObj(ProfileManager.getProfileByFilename(fn))
+            let result = _numbersFromProfileObj(ProfileManager.getProfileByFilename(fn))
             _profileNumbersCache[title] = result
             return result
         }
@@ -356,9 +356,9 @@ T.Page {
                     var r = recipesPage._repointRecipe
                     var wantTea = r && String(DrinkType.fromRecipeMap(r)).indexOf("tea") === 0
                     var out = []
-                    for (var i = 0; i < recipesPage._bags.length; ++i) {
-                        var b = recipesPage._bags[i]
-                        var isTea = String(b.kind || "") === "tea"
+                    for (let i = 0; i < recipesPage._bags.length; ++i) {
+                        let b = recipesPage._bags[i]
+                        let isTea = String(b.kind || "") === "tea"
                         if (isTea === wantTea)
                             out.push(b)
                     }
@@ -439,8 +439,8 @@ T.Page {
         // backfill a manual bag's photo, same as BagCard).
         imageLink: {
             if (!recipe || (recipe.bagId || 0) <= 0) return ""
-            for (var i = 0; i < recipesPage._bags.length; ++i) {
-                var b = recipesPage._bags[i]
+            for (let i = 0; i < recipesPage._bags.length; ++i) {
+                let b = recipesPage._bags[i]
                 if (b.id === recipe.bagId && b.beanBaseData && String(b.beanBaseData).length > 0) {
                     try { return JSON.parse(b.beanBaseData).link || "" } catch (e) { return "" }
                 }
@@ -507,7 +507,7 @@ T.Page {
                             Settings.dye.autoLoadRecipeId = -1
                             recipesPage.showToast(TranslationManager.translate("recipes.toast.auto_load_disabled", "Auto-load disabled"))
                         } else {
-                            var displaced = Settings.app.autoLoadProfileFilename !== ""
+                            let displaced = Settings.app.autoLoadProfileFilename !== ""
                                 || Settings.dye.autoLoadRecipeId !== -1
                             Settings.dye.autoLoadRecipeId = card.recipe.id
                             recipesPage.showToast(displaced

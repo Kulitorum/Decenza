@@ -90,7 +90,7 @@ ComboBox {
     // This avoids model-type issues (QVariant wrapping, delegateModel, etc.)
     function _buildItemList() {
         var items = []
-        for (var i = 0; i < control.count; i++) {
+        for (let i = 0; i < control.count; i++) {
             items.push(control.textFunction ? control.textFunction(i) : control.textAt(i))
         }
         return items

@@ -9,7 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class Settings;
 class TranslationManager;
 

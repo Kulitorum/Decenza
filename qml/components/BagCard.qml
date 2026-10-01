@@ -265,7 +265,7 @@ Rectangle {
         // Freezer state: the current portion's thaw date, or "Frozen" while no
         // portion has been pulled yet.
         if (defrostDate.length > 0) {
-            var defAge = daysSince(defrostDate)
+            let defAge = daysSince(defrostDate)
             if (defAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
                     .arg(formatRoastDate(defrostDate)).arg(defAge))
@@ -277,7 +277,7 @@ Rectangle {
         // meaningful at once. Chaining this onto the else-if would render the
         // "Mark Opened" action write-only on exactly the thawed bags that offer it.
         if (openedDate.length > 0) {
-            var openAge = daysSince(openedDate)
+            let openAge = daysSince(openedDate)
             if (openAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
                     .arg(formatRoastDate(openedDate)).arg(openAge))

@@ -24,41 +24,41 @@ ColumnLayout {
     function metricValue(key, info) {
         switch (key) {
             case "profile": {
-                var name = info.profileName || "\u2014"
-                var t = info.temperatureOverrideC
+                let name = info.profileName || "\u2014"
+                let t = info.temperatureOverrideC
                 return (t !== undefined && t !== null && t > 0) ? name + " (" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")" : name
             }
             case "duration":  return (info.durationSec || 0).toFixed(1) + "s"
             case "dose":      return (info.doseWeightG || 0).toFixed(1) + "g"
             case "output": {
-                var actual = (info.finalWeightG || 0).toFixed(1) + "g"
-                var t = info.targetWeightG
+                let actual = (info.finalWeightG || 0).toFixed(1) + "g"
+                let t = info.targetWeightG
                 return (t !== undefined && t !== null && t > 0 && Math.abs(t - info.finalWeightG) > 0.5)
                        ? actual + " (" + Math.round(t) + "g)" : actual
             }
             case "ratio":     return info.ratio || "\u2014"
             case "rating":    return (info.enjoyment || 0) + "%"
             case "bean": {
-                var bean = (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "")
+                let bean = (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "")
                 return bean || "\u2014"
             }
             case "grind": {
-                var brand = info.grinderBrand || ""
-                var model = info.grinderModel || ""
-                var grinder = (brand && model) ? brand + " " + model : (brand || model)
-                var setting = info.grinderSetting || ""
+                let brand = info.grinderBrand || ""
+                let model = info.grinderModel || ""
+                let grinder = (brand && model) ? brand + " " + model : (brand || model)
+                let setting = info.grinderSetting || ""
                 if (grinder && setting) return grinder + " @ " + setting
                 return grinder || setting || "\u2014"
             }
             case "rpm":       return (info.rpm && info.rpm > 0) ? Math.round(info.rpm) + " RPM" : "\u2014"
             case "roast": {
-                var parts = []
+                let parts = []
                 if (info.roastLevel) parts.push(info.roastLevel)
                 if (info.roastDate)  parts.push(info.roastDate)
                 return parts.length > 0 ? parts.join(", ") : "\u2014"
             }
             case "tdsEy": {
-                var p = []
+                let p = []
                 if (info.drinkTds > 0) p.push(info.drinkTds.toFixed(2) + "%")
                 if (info.drinkEy  > 0) p.push(info.drinkEy.toFixed(1)  + "%")
                 return p.join(" / ") || "\u2014"
@@ -71,8 +71,8 @@ ColumnLayout {
 
     // Returns true if at least one shot has data for this metric key
     function metricRowVisible(key) {
-        for (var i = 0; i < comparisonModel.shotCount; i++) {
-            var info = comparisonModel.getShotInfo(i)
+        for (let i = 0; i < comparisonModel.shotCount; i++) {
+            let info = comparisonModel.getShotInfo(i)
             switch (key) {
                 case "tdsEy":   if (info.drinkTds > 0 || info.drinkEy  > 0) return true; break
                 case "rpm":     if (info.rpm && info.rpm > 0)                 return true; break

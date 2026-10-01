@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class LocationProvider;
 class Settings;
 

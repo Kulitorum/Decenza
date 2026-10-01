@@ -15,7 +15,7 @@
 #include <memory>
 #include <optional>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QThread;
 class SerialDbWorker;
 

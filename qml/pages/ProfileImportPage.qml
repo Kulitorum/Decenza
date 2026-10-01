@@ -165,7 +165,7 @@ T.Page {
                     visible: {
                         // Only show if there are profiles with "different" status
                         var profiles = MainController.profileImporter.availableProfiles
-                        for (var i = 0; i < profiles.length; i++) {
+                        for (let i = 0; i < profiles.length; i++) {
                             if (profiles[i].status === "different") return true
                         }
                         return false

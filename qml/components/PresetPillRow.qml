@@ -127,10 +127,10 @@ FocusScope {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && presets.length > 0) {
             // Route through pillLayoutName so keyboard/switch-access announcements match what
             // touch/screen-reader-tap users hear (e.g. pillLabelFn's "Small Pitcher" transform).
-            var name = pillLayoutName(focusedIndex)
-            var modifiedText = (root.modified && focusedIndex === selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
-            var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
-            var hint = (presets[focusedIndex] && presets[focusedIndex].stateHint)
+            let name = pillLayoutName(focusedIndex)
+            let modifiedText = (root.modified && focusedIndex === selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+            let status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
+            let hint = (presets[focusedIndex] && presets[focusedIndex].stateHint)
                 ? ", " + presets[focusedIndex].stateHint : ""
             AccessibilityManager.announce(name + modifiedText + status + hint)
         }
@@ -159,7 +159,7 @@ FocusScope {
         var _ = pillSuffixVersion  // Track for reactivity
         var name = pillLayoutName(index)
         if (pillSuffixFn) {
-            var suffix = pillSuffixFn(presets[index])
+            let suffix = pillSuffixFn(presets[index])
             if (suffix) name = name + suffix
         }
         return name
@@ -223,11 +223,11 @@ FocusScope {
         // Reserve pillSuffixMaxWidth extra space per pill when a suffix function is provided
         var pillWidths = []
         var totalWidth = 0
-        for (var i = 0; i < presets.length; i++) {
-            var textWidth = measureTextWidth(pillLayoutName(i)) + (pillSuffixFn ? pillSuffixMaxWidth : 0)
+        for (let i = 0; i < presets.length; i++) {
+            let textWidth = measureTextWidth(pillLayoutName(i)) + (pillSuffixFn ? pillSuffixMaxWidth : 0)
             if (presets[i] && presets[i].icon)
                 textWidth += pillIconSize + Theme.scaled(6)
-            var pillWidth = textWidth + pillPadding
+            let pillWidth = textWidth + pillPadding
             pillWidths.push(pillWidth)
             totalWidth += pillWidth
         }
@@ -236,8 +236,8 @@ FocusScope {
 
         // If everything fits on one row, just return it
         if (totalWidth <= availableWidth) {
-            var singleRow = []
-            for (i = 0; i < presets.length; i++) {
+            let singleRow = []
+            for (let i = 0; i < presets.length; i++) {
                 singleRow.push({index: i, preset: presets[i], width: pillWidths[i]})
             }
             return [singleRow]
@@ -254,17 +254,17 @@ FocusScope {
         var currentRow = []
         var currentRowWidth = 0
 
-        for (i = 0; i < presets.length; i++) {
-            var pillWidth = pillWidths[i]
-            var spacingNeeded = currentRow.length > 0 ? pillSpacing : 0
-            var widthIfAdded = currentRowWidth + spacingNeeded + pillWidth
+        for (let i = 0; i < presets.length; i++) {
+            let pillWidth = pillWidths[i]
+            let spacingNeeded = currentRow.length > 0 ? pillSpacing : 0
+            let widthIfAdded = currentRowWidth + spacingNeeded + pillWidth
 
             // Start new row if:
             // 1. Adding this pill would exceed availableWidth AND row is not empty, OR
             // 2. Current row width is already >= target AND there are enough pills left for remaining rows
-            var remainingPills = presets.length - i
-            var remainingRows = numRows - rows.length
-            var shouldStartNewRow = false
+            let remainingPills = presets.length - i
+            let remainingRows = numRows - rows.length
+            let shouldStartNewRow = false
 
             if (currentRow.length > 0 && widthIfAdded > availableWidth) {
                 // Would overflow - must start new row
@@ -281,8 +281,8 @@ FocusScope {
                 spacingNeeded = 0
 
                 // Recalculate target for remaining pills
-                var remainingWidth = 0
-                for (var j = i; j < presets.length; j++) {
+                let remainingWidth = 0
+                for (let j = i; j < presets.length; j++) {
                     remainingWidth += pillWidths[j]
                     if (j > i) remainingWidth += pillSpacing
                 }
@@ -313,8 +313,8 @@ FocusScope {
         var msg = TranslationManager.translate("presets.pagination.pagePosition", "Page %1 of %2")
                     .replace("%1", (pageIndex + 1)).replace("%2", pageCount)
         if (presets.length > 0) {
-            var names = []
-            for (var i = 0; i < presets.length; ++i) names.push(pillLayoutName(i))
+            let names = []
+            for (let i = 0; i < presets.length; ++i) names.push(pillLayoutName(i))
             msg += ": " + names.join(", ")
         }
         AccessibilityManager.announce(msg)
@@ -556,7 +556,7 @@ FocusScope {
                                 // a deletion/reorder — fall back to the row's snapshot name
                                 // rather than announcing nothing.
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                    var announceName = root.pillDisplayName(pill.modelData.index) || pill.modelData.preset.name
+                                    let announceName = root.pillDisplayName(pill.modelData.index) || pill.modelData.preset.name
                                     AccessibilityManager.announce(announceName + " " + TranslationManager.translate("presetPill.selected", "selected"))
                                 }
                                 root.presetSelected(pill.modelData.index)

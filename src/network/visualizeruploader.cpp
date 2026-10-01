@@ -955,7 +955,7 @@ VisualizerUploader::remoteCoffeeBagState(const QJsonObject& remote)
         return RemoteBagState::Absent;
     // Anything that is not a string is a shape we do not understand. NOT "no
     // bag": QJsonValue::toString() returns an empty QString for every non-string
-    // type (qjsonvalue.cpp:791-794 -> qcborvalue.cpp:2202-2205), so reading it
+    // type (qjsonvalue.cpp:780-783 -> qcborvalue.cpp:2251-2254), so reading it
     // that way would silently turn an unparseable field into a licence to write.
     if (!value.isString())
         return RemoteBagState::Unreadable;

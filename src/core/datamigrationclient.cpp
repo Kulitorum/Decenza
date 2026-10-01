@@ -3,6 +3,7 @@
 #include "appsettings.h"
 #include "settings.h"
 #include "settingsserializer.h"
+#include "../network/localnetworkaccess.h"
 #include "profilestorage.h"
 #include "../profile/profile.h"
 #include "../profile/profilesavehelper.h"
@@ -82,6 +83,7 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
     if (m_connecting || m_importing) {
         return;
     }
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::DeviceMigration);
 
     // Normalize URL
     m_serverUrl = serverUrl;
@@ -1416,6 +1418,7 @@ void DataMigrationClient::startDiscovery()
     if (m_searching) {
         return;
     }
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::DeviceMigration);
 
     m_searching = true;
     m_discoveredDevices.clear();

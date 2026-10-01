@@ -5,7 +5,7 @@
 
 #include "../machine/machinestate.h"
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class Settings;
 class TranslationManager;
 

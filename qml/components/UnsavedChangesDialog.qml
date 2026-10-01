@@ -21,7 +21,7 @@ DecenzaDialog {
 
     onOpened: {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var msg
+            let msg
             if (root.showTry && root.showSaveAs)
                 msg = TranslationManager.translate("unsavedChanges.announcementWithTry", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, Save As, or Save.").arg(root.itemType)
             else if (root.showTry)

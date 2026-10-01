@@ -89,10 +89,10 @@ Item {
         if (n === 0)
             return 0
         var total = 0
-        for (var i = 0; i < n; i++) {
-            var e = legendRoot.entries[i]
-            var label = (e && e.label !== undefined) ? e.label : ""
-            var entryRowW = legendRoot._swatchWidth + Theme.scaled(6) + legendMetrics.advanceWidth(label)
+        for (let i = 0; i < n; i++) {
+            let e = legendRoot.entries[i]
+            let label = (e && e.label !== undefined) ? e.label : ""
+            let entryRowW = legendRoot._swatchWidth + Theme.scaled(6) + legendMetrics.advanceWidth(label)
             total += entryRowW + Theme.spacingMedium
         }
         total += Theme.spacingSmall * (n - 1)
