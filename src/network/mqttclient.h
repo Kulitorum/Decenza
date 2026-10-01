@@ -6,7 +6,7 @@
 #include <QTimer>
 #include <QMutex>
 #include <algorithm>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 extern "C" {
 #include <MQTTAsync.h>

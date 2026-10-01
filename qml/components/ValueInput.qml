@@ -181,7 +181,7 @@ Item {
     // Announce value when focused (for accessibility)
     onActiveFocusChanged: {
         if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var text = root.accessibleName || root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix)
+            let text = root.accessibleName || root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix)
             AccessibilityManager.announce(text)
         }
     }
@@ -319,7 +319,7 @@ Item {
 
                         // Announce parameter name when touched (accessibility)
                         if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                            var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
+                            let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                             AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                         }
                     }
@@ -333,8 +333,8 @@ Item {
                         // movement passes through to ScrollView for scrolling
                         // (preventStealing is false while dragReady is false).
                         if (!dragReady) {
-                            var absX = Math.abs(deltaX)
-                            var absY = Math.abs(deltaY)
+                            let absX = Math.abs(deltaX)
+                            let absY = Math.abs(deltaY)
                             if (absX > root.sc(15) && absX > absY) {
                                 dragReady = true
                                 isDragging = true
@@ -427,12 +427,6 @@ Item {
                         parent: Overlay.overlay
                         visible: valueDragArea.isDragging
 
-                        // Calculate luminance to determine text color
-                        function getContrastColor(c) {
-                            var luminance = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
-                            return luminance > 0.5 ? "#000000" : "#FFFFFF"
-                        }
-
                         property point anchorPos: bubbleAnchor.mapToItem(Overlay.overlay, 0, 0)
                         x: anchorPos.x - width / 2
                         y: anchorPos.y - height - root.sc(15)
@@ -471,7 +465,7 @@ Item {
                                 text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                                 font.pixelSize: root.sc(30)
                                 font.bold: true
-                                color: speechBubble.getContrastColor(root.valueColor)
+                                color: Theme.contrastColorFor(root.valueColor)
                             }
                         }
 
@@ -606,8 +600,8 @@ Item {
             popupContent.editMode = false
             popupValueContainer.forceActiveFocus()
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                var announcement = root.accessibleName ? root.accessibleName + ". " : ""
-                var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
+                let announcement = root.accessibleName ? root.accessibleName + ". " : ""
+                let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                 announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
                 AccessibilityManager.announce(announcement, true)
             }
@@ -761,7 +755,7 @@ Item {
                                 if (!isNaN(parsed)) {
                                     if (parsed === 0 && root.snapZeroTo > 0) parsed = root.snapZeroTo
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
-                                    var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
+                                    let roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
                                     parsed = Math.round(parsed / roundTo) * roundTo
                                     if (parsed !== root.effectiveValue) {
                                         root._emitValueModified(parsed)
@@ -824,7 +818,7 @@ Item {
 
                                 // Announce parameter name when bubble appears (accessibility)
                                 if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                    var valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
+                                    let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
                                     AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                                 }
                             }
@@ -837,8 +831,8 @@ Item {
                                 }
 
                                 if (isDragging) {
-                                    var vertDist = mouse.y - startY
-                                    var gear
+                                    let vertDist = mouse.y - startY
+                                    let gear
                                     if (root.hasFineGear && vertDist < -root.sc(50)) {
                                         gear = -1
                                     } else {
@@ -849,8 +843,8 @@ Item {
                                         root.announceGearChange(gear)
                                     }
 
-                                    var effectiveStep = root.gearToStep(gear)
-                                    var steps = Math.round(deltaX / root.sc(20))
+                                    let effectiveStep = root.gearToStep(gear)
+                                    let steps = Math.round(deltaX / root.sc(20))
                                     if (steps !== 0) {
                                         root.adjustValueWithStep(steps, effectiveStep)
                                         startX = mouse.x
@@ -897,14 +891,9 @@ Item {
                                 parent: Overlay.overlay
                                 visible: popupDragArea.pressed
 
-                                function getContrastColor(c) {
-                                    var luminance = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
-                                    return luminance > 0.5 ? "#000000" : "#FFFFFF"
-                                }
-
-                                property point globalPos: popupBubbleAnchor.mapToGlobal(0, 0)
-                                x: globalPos.x - width / 2
-                                y: globalPos.y - height - root.sc(15)
+                                property point anchorPos: popupBubbleAnchor.mapToItem(Overlay.overlay, 0, 0)
+                                x: anchorPos.x - width / 2
+                                y: anchorPos.y - height - root.sc(15)
                                 width: popupBubbleRect.width
                                 height: popupBubbleRect.height + popupBubbleTail.height - root.sc(3)
 
@@ -937,7 +926,7 @@ Item {
                                         text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
                                         font.pixelSize: root.sc(30)
                                         font.bold: true
-                                        color: dragBubble.getContrastColor(root.valueColor)
+                                        color: Theme.contrastColorFor(root.valueColor)
                                     }
                                 }
 
@@ -1103,7 +1092,7 @@ Item {
     function gearLabels() {
         var labels = ["×1", "×10", "×100"]
         if (root.hasFineGear) {
-            var ratio = root.fineStepSize / root.stepSize
+            let ratio = root.fineStepSize / root.stepSize
             // Show as fraction: e.g., fineStepSize=1, stepSize=10 → "×0.1"
             labels.unshift("×" + ratio.toFixed(ratio < 0.1 ? 2 : 1))
         }
@@ -1123,8 +1112,8 @@ Item {
 
     function announceGearChange(gear) {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var effectiveStep = gearToStep(gear)
-            var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
+            let effectiveStep = gearToStep(gear)
+            let d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
             AccessibilityManager.announce(TranslationManager.translate("valueinput.gear.step", "Step") + " " + effectiveStep.toFixed(d))
         }
     }

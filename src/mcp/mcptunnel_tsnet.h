@@ -33,6 +33,11 @@ public:
     };
     Q_ENUM(State)
 
+    // Whether the tailnet lets this device use Funnel, read from the node while its
+    // backend runs; Unknown otherwise. HttpsOff: the backend runs but the tailnet
+    // issues no certificate name, which Funnel needs (admin console, DNS page).
+    enum FunnelGrant { GrantUnknown, Granted, NotGranted, HttpsOff };
+
     explicit McpTunnelTsnet(QObject* parent = nullptr);
     ~McpTunnelTsnet() override;
 
@@ -55,11 +60,13 @@ public:
     QString authUrl() const { return m_authUrl; }       // login URL (empty unless NeedsLogin)
     QString certDomain() const { return m_certDomain; } // Funnel FQDN (empty until Running)
     QString lastError() const { return m_lastError; }
+    FunnelGrant funnelGrant() const { return m_funnelGrant; }
 
 signals:
     void stateChanged();
     void authUrlChanged();
     void certDomainChanged();
+    void funnelGrantChanged();
 
 private:
     // Applies a status update on the main thread (called via queued invocation
@@ -67,7 +74,8 @@ private:
     // posted by a worker generation that has since been stopped/superseded — are
     // dropped, so a late queued event can't clobber the current state.
     void applyUpdate(quint64 epoch, State state, const QString& authUrl,
-                     const QString& certDomain, const QString& errorMsg);
+                     const QString& certDomain, const QString& errorMsg,
+                     FunnelGrant grant = GrantUnknown);
 
     void runWorker(quint64 epoch, QString stateDir, QString hostname, quint16 localPort);
 
@@ -82,4 +90,5 @@ private:
     QString m_authUrl;
     QString m_certDomain;
     QString m_lastError;
+    FunnelGrant m_funnelGrant = GrantUnknown;
 };

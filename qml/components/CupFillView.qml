@@ -204,10 +204,10 @@ Item {
 
     // Helper: draw front half of an ellipse arc (PI to 2*PI)
     function frontArc(ctx, cx, cy, rx, ry, steps, asMove) {
-        for (var i = 0; i <= steps; i++) {
-            var a = Math.PI + (Math.PI * i / steps)
-            var x = cx + rx * Math.cos(a)
-            var y = cy + ry * Math.sin(a)
+        for (let i = 0; i <= steps; i++) {
+            let a = Math.PI + (Math.PI * i / steps)
+            let x = cx + rx * Math.cos(a)
+            let y = cy + ry * Math.sin(a)
             if (i === 0 && asMove) ctx.moveTo(x, y)
             else ctx.lineTo(x, y)
         }
@@ -303,9 +303,9 @@ Item {
                     ctx.moveTo(g.cx - g.cupBotW, g.botCy)
                     root.frontArc(ctx, g.cx, g.botCy, g.cupBotW, g.botOvalH, N, false)
                     ctx.lineTo(g.cx + fillRx, effectiveFillTopY)
-                    for (var wi = wSteps; wi >= 0; wi--) {
-                        var wx = g.cx - fillRx + fillRx * 2 * (wi / wSteps)
-                        var wy = effectiveFillTopY + Math.sin(root.wavePhase + wi * 0.5) * waveAmp
+                    for (let wi = wSteps; wi >= 0; wi--) {
+                        let wx = g.cx - fillRx + fillRx * 2 * (wi / wSteps)
+                        let wy = effectiveFillTopY + Math.sin(root.wavePhase + wi * 0.5) * waveAmp
                         ctx.lineTo(wx, wy)
                     }
                     ctx.closePath()
@@ -328,7 +328,7 @@ Item {
 
                     // Surface specular
                     if (effectiveFillRatio > 0.05) {
-                        var surfGrad = ctx.createLinearGradient(g.cx - fillRx, effectiveFillTopY, g.cx + fillRx, effectiveFillTopY)
+                        let surfGrad = ctx.createLinearGradient(g.cx - fillRx, effectiveFillTopY, g.cx + fillRx, effectiveFillTopY)
                         surfGrad.addColorStop(0, Qt.rgba(1, 0.95, 0.85, 0))
                         surfGrad.addColorStop(0.25, Qt.rgba(1, 0.95, 0.85, 0.06))
                         surfGrad.addColorStop(0.4, Qt.rgba(1, 0.95, 0.85, 0.14))
@@ -338,15 +338,15 @@ Item {
                         surfGrad.addColorStop(1, Qt.rgba(1, 0.95, 0.85, 0))
                         ctx.fillStyle = surfGrad
                         ctx.beginPath()
-                        for (var wh = 0; wh <= wSteps; wh++) {
-                            var whx = g.cx - fillRx * 0.92 + fillRx * 1.84 * (wh / wSteps)
-                            var why = effectiveFillTopY + Math.sin(root.wavePhase + wh * 0.5) * waveAmp - h * 0.002
+                        for (let wh = 0; wh <= wSteps; wh++) {
+                            let whx = g.cx - fillRx * 0.92 + fillRx * 1.84 * (wh / wSteps)
+                            let why = effectiveFillTopY + Math.sin(root.wavePhase + wh * 0.5) * waveAmp - h * 0.002
                             if (wh === 0) ctx.moveTo(whx, why)
                             else ctx.lineTo(whx, why)
                         }
-                        for (var wh2 = wSteps; wh2 >= 0; wh2--) {
-                            var wh2x = g.cx - fillRx * 0.92 + fillRx * 1.84 * (wh2 / wSteps)
-                            var wh2y = effectiveFillTopY + Math.sin(root.wavePhase + wh2 * 0.5) * waveAmp + h * 0.014
+                        for (let wh2 = wSteps; wh2 >= 0; wh2--) {
+                            let wh2x = g.cx - fillRx * 0.92 + fillRx * 1.84 * (wh2 / wSteps)
+                            let wh2y = effectiveFillTopY + Math.sin(root.wavePhase + wh2 * 0.5) * waveAmp + h * 0.014
                             ctx.lineTo(wh2x, wh2y)
                         }
                         ctx.closePath()
@@ -355,11 +355,11 @@ Item {
 
                     // Crema
                     if (effectiveFillRatio > 0.10) {
-                        var cremaFade = Math.min((effectiveFillRatio - 0.10) / 0.15, 1.0)
-                        var cremaRx = fillRx * 0.88
-                        var cremaRy = fillOvalH * 0.75
+                        let cremaFade = Math.min((effectiveFillRatio - 0.10) / 0.15, 1.0)
+                        let cremaRx = fillRx * 0.88
+                        let cremaRy = fillOvalH * 0.75
 
-                        var cremaGrad = ctx.createRadialGradient(
+                        let cremaGrad = ctx.createRadialGradient(
                             g.cx - cremaRx * 0.1, effectiveFillTopY, cremaRx * 0.1,
                             g.cx, effectiveFillTopY, cremaRx)
                         cremaGrad.addColorStop(0, Qt.rgba(0.88, 0.72, 0.48, 0.6 * cremaFade))
@@ -373,22 +373,22 @@ Item {
                         ctx.fill()
 
                         // Tiger stripes
-                        var stripeAlpha = 0.25 * cremaFade
-                        for (var ts = 0; ts < 4; ts++) {
-                            var tsRadius = cremaRx * (0.3 + ts * 0.18)
-                            var tsRy2 = cremaRy * (0.25 + ts * 0.15)
-                            var tsPhase = root.steamPhase * (0.15 + ts * 0.05) + ts * 1.5
-                            var tsStartAngle = tsPhase % (Math.PI * 2)
-                            var tsArcLen = Math.PI * (0.5 + ts * 0.15)
+                        let stripeAlpha = 0.25 * cremaFade
+                        for (let ts = 0; ts < 4; ts++) {
+                            let tsRadius = cremaRx * (0.3 + ts * 0.18)
+                            let tsRy2 = cremaRy * (0.25 + ts * 0.15)
+                            let tsPhase = root.steamPhase * (0.15 + ts * 0.05) + ts * 1.5
+                            let tsStartAngle = tsPhase % (Math.PI * 2)
+                            let tsArcLen = Math.PI * (0.5 + ts * 0.15)
 
                             ctx.strokeStyle = Qt.rgba(0.45, 0.25, 0.10, stripeAlpha * (1 - ts * 0.18))
                             ctx.lineWidth = Math.max(1, h * 0.004 + ts * h * 0.001)
                             ctx.beginPath()
-                            var tsSteps = 16
-                            for (var tsi = 0; tsi <= tsSteps; tsi++) {
-                                var tsAngle = tsStartAngle + tsArcLen * tsi / tsSteps
-                                var tsx = g.cx + tsRadius * Math.cos(tsAngle)
-                                var tsy = effectiveFillTopY + tsRy2 * Math.sin(tsAngle) +
+                            let tsSteps = 16
+                            for (let tsi = 0; tsi <= tsSteps; tsi++) {
+                                let tsAngle = tsStartAngle + tsArcLen * tsi / tsSteps
+                                let tsx = g.cx + tsRadius * Math.cos(tsAngle)
+                                let tsy = effectiveFillTopY + tsRy2 * Math.sin(tsAngle) +
                                           Math.sin(root.wavePhase + tsi * 0.3) * waveAmp * 0.3
                                 if (tsi === 0) ctx.moveTo(tsx, tsy)
                                 else ctx.lineTo(tsx, tsy)
@@ -400,10 +400,10 @@ Item {
                         ctx.strokeStyle = Qt.rgba(0.9, 0.78, 0.55, 0.3 * cremaFade)
                         ctx.lineWidth = Math.max(1, h * 0.005)
                         ctx.beginPath()
-                        for (var cj = 0; cj <= wSteps; cj++) {
-                            var crAng = Math.PI * cj / wSteps
-                            var crx = g.cx - cremaRx * Math.cos(crAng)
-                            var cry = effectiveFillTopY - cremaRy * 0.3 * Math.sin(crAng) +
+                        for (let cj = 0; cj <= wSteps; cj++) {
+                            let crAng = Math.PI * cj / wSteps
+                            let crx = g.cx - cremaRx * Math.cos(crAng)
+                            let cry = effectiveFillTopY - cremaRy * 0.3 * Math.sin(crAng) +
                                       Math.sin(root.wavePhase + cj * 0.5) * waveAmp * 0.4
                             if (cj === 0) ctx.moveTo(crx, cry)
                             else ctx.lineTo(crx, cry)
@@ -411,7 +411,7 @@ Item {
                         ctx.stroke()
 
                         // Bright center spot
-                        var centerSpot = ctx.createRadialGradient(
+                        let centerSpot = ctx.createRadialGradient(
                             g.cx - cremaRx * 0.15, effectiveFillTopY - cremaRy * 0.1, h * 0.005,
                             g.cx - cremaRx * 0.15, effectiveFillTopY - cremaRy * 0.1, cremaRx * 0.35)
                         centerSpot.addColorStop(0, Qt.rgba(1, 0.95, 0.8, 0.2 * cremaFade))
@@ -439,20 +439,20 @@ Item {
 
                     // Ripple rings
                     if (g.isPouring && root.currentFlow > 0.3 && effectiveFillRatio < 0.95) {
-                        for (var rp = 0; rp < 3; rp++) {
-                            var rpAge = (root.ripplePhase + rp * 2.0) % 6.0
+                        for (let rp = 0; rp < 3; rp++) {
+                            let rpAge = (root.ripplePhase + rp * 2.0) % 6.0
                             if (rpAge > 3.0) continue
-                            var rpProgress = rpAge / 3.0
-                            var rpAlpha = (1.0 - rpProgress) * 0.2
-                            var rpRadiusX = h * 0.01 + rpProgress * fillRx * 0.35
-                            var rpRadiusY = rpRadiusX * (fillOvalH / fillRx)
+                            let rpProgress = rpAge / 3.0
+                            let rpAlpha = (1.0 - rpProgress) * 0.2
+                            let rpRadiusX = h * 0.01 + rpProgress * fillRx * 0.35
+                            let rpRadiusY = rpRadiusX * (fillOvalH / fillRx)
                             ctx.strokeStyle = Qt.rgba(0.9, 0.8, 0.6, rpAlpha)
                             ctx.lineWidth = Math.max(1, h * 0.002)
                             ctx.beginPath()
-                            for (var rpi = 0; rpi <= 20; rpi++) {
-                                var rpAngle = Math.PI + (Math.PI * rpi / 20)
-                                var rpx = g.cx + rpRadiusX * Math.cos(rpAngle)
-                                var rpy = effectiveFillTopY + rpRadiusY * Math.sin(rpAngle) +
+                            for (let rpi = 0; rpi <= 20; rpi++) {
+                                let rpAngle = Math.PI + (Math.PI * rpi / 20)
+                                let rpx = g.cx + rpRadiusX * Math.cos(rpAngle)
+                                let rpy = effectiveFillTopY + rpRadiusY * Math.sin(rpAngle) +
                                           Math.sin(root.wavePhase) * waveAmp * 0.5
                                 if (rpi === 0) ctx.moveTo(rpx, rpy)
                                 else ctx.lineTo(rpx, rpy)
@@ -500,30 +500,30 @@ Item {
 
                 // ---- Stream from above (during extraction) ----
                 if (g.isPouring && root.currentFlow > 0.3 && root.displayWeight > 0 && g.fillRatio < 1.0) {
-                    var streamTopY = 0  // enters from top of screen
-                    var cupFloorY = g.botCy - g.botOvalH - cupH * 0.02
-                    var streamBot = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
-                    var streamLen = Math.max(streamBot - streamTopY, cupH * 0.01)
-                    var streamTopW = Math.min(cupH * 0.032 + root.currentFlow * cupH * 0.007, cupH * 0.06)
-                    var streamBotW = streamTopW * 0.5
-                    var streamSegs = 20
+                    let streamTopY = 0  // enters from top of screen
+                    let cupFloorY = g.botCy - g.botOvalH - cupH * 0.02
+                    let streamBot = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    let streamLen = Math.max(streamBot - streamTopY, cupH * 0.01)
+                    let streamTopW = Math.min(cupH * 0.032 + root.currentFlow * cupH * 0.007, cupH * 0.06)
+                    let streamBotW = streamTopW * 0.5
+                    let streamSegs = 20
 
                     ctx.beginPath()
-                    for (var ssL = 0; ssL <= streamSegs; ssL++) {
-                        var ssLt = ssL / streamSegs
-                        var wobL = Math.sin(root.wavePhase * 2.2 + ssLt * 5.0) * cupH * 0.006 * ssLt
-                        var ssLw = streamTopW + (streamBotW - streamTopW) * ssLt
+                    for (let ssL = 0; ssL <= streamSegs; ssL++) {
+                        let ssLt = ssL / streamSegs
+                        let wobL = Math.sin(root.wavePhase * 2.2 + ssLt * 5.0) * cupH * 0.006 * ssLt
+                        let ssLw = streamTopW + (streamBotW - streamTopW) * ssLt
                         if (ssL === 0) ctx.moveTo(g.cx + wobL - ssLw * 0.5, streamTopY + streamLen * ssLt)
                         else ctx.lineTo(g.cx + wobL - ssLw * 0.5, streamTopY + streamLen * ssLt)
                     }
-                    for (var ssR = streamSegs; ssR >= 0; ssR--) {
-                        var ssRt = ssR / streamSegs
-                        var wobR = Math.sin(root.wavePhase * 2.2 + ssRt * 5.0) * cupH * 0.006 * ssRt
-                        var ssRw = streamTopW + (streamBotW - streamTopW) * ssRt
+                    for (let ssR = streamSegs; ssR >= 0; ssR--) {
+                        let ssRt = ssR / streamSegs
+                        let wobR = Math.sin(root.wavePhase * 2.2 + ssRt * 5.0) * cupH * 0.006 * ssRt
+                        let ssRw = streamTopW + (streamBotW - streamTopW) * ssRt
                         ctx.lineTo(g.cx + wobR + ssRw * 0.5, streamTopY + streamLen * ssRt)
                     }
                     ctx.closePath()
-                    var stGrad = ctx.createLinearGradient(0, streamTopY, 0, streamBot)
+                    let stGrad = ctx.createLinearGradient(0, streamTopY, 0, streamBot)
                     stGrad.addColorStop(0, Qt.rgba(0.55, 0.35, 0.18, 0.5))
                     stGrad.addColorStop(0.15, Qt.rgba(0.52, 0.32, 0.16, 0.65))
                     stGrad.addColorStop(0.4, Qt.rgba(0.48, 0.28, 0.14, 0.75))
@@ -534,9 +534,9 @@ Item {
 
                     // Stream center highlight
                     ctx.beginPath()
-                    for (var ssC = 0; ssC <= streamSegs; ssC++) {
-                        var ssCt = ssC / streamSegs
-                        var wobC = Math.sin(root.wavePhase * 2.2 + ssCt * 5.0) * cupH * 0.006 * ssCt
+                    for (let ssC = 0; ssC <= streamSegs; ssC++) {
+                        let ssCt = ssC / streamSegs
+                        let wobC = Math.sin(root.wavePhase * 2.2 + ssCt * 5.0) * cupH * 0.006 * ssCt
                         if (ssC === 0) ctx.moveTo(g.cx + wobC, streamTopY + streamLen * ssCt)
                         else ctx.lineTo(g.cx + wobC, streamTopY + streamLen * ssCt)
                     }
@@ -546,13 +546,13 @@ Item {
                     ctx.stroke()
 
                     // Droplets
-                    for (var dr = 0; dr < 5; dr++) {
-                        var drT = ((root.wavePhase * 1.5 + dr * 1.4) % 3.5) / 3.5
+                    for (let dr = 0; dr < 5; dr++) {
+                        let drT = ((root.wavePhase * 1.5 + dr * 1.4) % 3.5) / 3.5
                         if (drT > 0.95) continue
-                        var drY = streamTopY + streamLen * drT
+                        let drY = streamTopY + streamLen * drT
                         if (root.displayWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
-                        var drWob = Math.sin(root.wavePhase * 2.2 + drT * 5.0) * cupH * 0.006 * drT
-                        var drSize = (cupH * 0.006 + root.currentFlow * cupH * 0.001) * (1 - drT * 0.3)
+                        let drWob = Math.sin(root.wavePhase * 2.2 + drT * 5.0) * cupH * 0.006 * drT
+                        let drSize = (cupH * 0.006 + root.currentFlow * cupH * 0.001) * (1 - drT * 0.3)
                         ctx.beginPath()
                         ctx.arc(g.cx + drWob, drY, drSize, 0, Math.PI * 2)
                         ctx.fillStyle = Qt.rgba(0.65, 0.42, 0.22, 0.4 + drT * 0.35)
@@ -560,9 +560,9 @@ Item {
                     }
 
                     // Splash glow
-                    var splashY = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
-                    var splashR = cupH * 0.042
-                    var splashGlow = ctx.createRadialGradient(g.cx, splashY, cupH * 0.005, g.cx, splashY, splashR)
+                    let splashY = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    let splashR = cupH * 0.042
+                    let splashGlow = ctx.createRadialGradient(g.cx, splashY, cupH * 0.005, g.cx, splashY, splashR)
                     splashGlow.addColorStop(0, Qt.rgba(0.7, 0.5, 0.3, 0.5))
                     splashGlow.addColorStop(0.4, Qt.rgba(0.6, 0.4, 0.2, 0.2))
                     splashGlow.addColorStop(1, Qt.rgba(0.5, 0.3, 0.15, 0))
@@ -574,23 +574,23 @@ Item {
 
                 // ---- Steam wisps ----
                 if (root.displayWeight > 0 && root.currentFlow < 2.0) {
-                    var steamAlphaBase = Math.min(root.displayWeight / 5.0, 1.0) * 0.14
-                    for (var sp = 0; sp < 4; sp++) {
-                        var steamOffX = (sp - 1.5) * g.cupW * 0.25
-                        var steamBaseY = root.displayWeight > 0 ? effectiveFillTopY : g.rimCy
-                        var steamStartY = Math.min(steamBaseY, g.rimCy) - cupH * 0.007
-                        var steamH2 = cupH * (0.07 + sp * 0.023)
-                        var steamEndY = steamStartY - steamH2
+                    let steamAlphaBase = Math.min(root.displayWeight / 5.0, 1.0) * 0.14
+                    for (let sp = 0; sp < 4; sp++) {
+                        let steamOffX = (sp - 1.5) * g.cupW * 0.25
+                        let steamBaseY = root.displayWeight > 0 ? effectiveFillTopY : g.rimCy
+                        let steamStartY = Math.min(steamBaseY, g.rimCy) - cupH * 0.007
+                        let steamH2 = cupH * (0.07 + sp * 0.023)
+                        let steamEndY = steamStartY - steamH2
 
-                        var phOff = root.steamPhase * (0.8 + sp * 0.2) + sp * 1.7
-                        var d1x = Math.sin(phOff) * w * (0.015 + sp * 0.003)
-                        var d1y = steamH2 * 0.33
-                        var d2x = Math.sin(phOff * 1.2 + 2) * w * (0.012 + sp * 0.003)
-                        var d2y = steamH2 * 0.66
+                        let phOff = root.steamPhase * (0.8 + sp * 0.2) + sp * 1.7
+                        let d1x = Math.sin(phOff) * w * (0.015 + sp * 0.003)
+                        let d1y = steamH2 * 0.33
+                        let d2x = Math.sin(phOff * 1.2 + 2) * w * (0.012 + sp * 0.003)
+                        let d2y = steamH2 * 0.66
 
-                        var segments = 12
-                        for (var seg = 0; seg < segments; seg++) {
-                            var t0 = seg / segments, t1 = (seg + 1) / segments
+                        let segments = 12
+                        for (let seg = 0; seg < segments; seg++) {
+                            let t0 = seg / segments, t1 = (seg + 1) / segments
                             // Cubic bezier evaluation for steam S-curve
                             function stmX(tt) {
                                 var s0 = g.cx+steamOffX, s1 = g.cx+steamOffX+d1x

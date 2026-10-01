@@ -251,13 +251,13 @@ Item {
     // Compute gradient color for a slider at a given position (0-1)
     function _sliderColor(channelIndex, pos) {
         if (_rgbMode) {
-            var r = _r, g = _g, b = _b
+            let r = _r, g = _g, b = _b
             if (channelIndex === 0) r = pos * 255
             else if (channelIndex === 1) g = pos * 255
             else b = pos * 255
             return Qt.rgba(r / 255, g / 255, b / 255, 1.0)
         } else {
-            var h = _h, l = _l, s = _s
+            let h = _h, l = _l, s = _s
             if (channelIndex === 0) h = pos * 360
             else if (channelIndex === 1) l = pos * 100
             else s = pos * 100

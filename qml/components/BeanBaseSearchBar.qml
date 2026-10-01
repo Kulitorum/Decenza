@@ -359,7 +359,7 @@ Item {
             // Empty / error states
             Text {
                 // `parent` here is the ListView's contentItem, not the ListView
-                // (qquickflickable.cpp:2442), and it is zero-high exactly when the list is
+                // (qquickflickable.cpp:2462), and it is zero-high exactly when the list is
                 // empty -- centring on it put this message half above the clipped top edge.
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: (resultsList.height - height) / 2

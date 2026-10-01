@@ -4,7 +4,7 @@
 #include <QString>
 #include <QStringList>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 /**
  * ProfileConverter - Batch convert DE1 app TCL profiles to our native JSON format
  *

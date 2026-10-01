@@ -61,8 +61,8 @@ T.Page {
             var groups = TranslationManager.getGroupedStrings()
             var search = searchFilter.toLowerCase()
 
-            for (var i = 0; i < groups.length; i++) {
-                var group = groups[i]
+            for (let i = 0; i < groups.length; i++) {
+                let group = groups[i]
 
                 // Filter by mode
                 if (filterMode === 1 && group.isTranslated) continue  // Missing/Uncustomized
@@ -99,7 +99,7 @@ T.Page {
 
             // Find and scroll back to the saved item
             if (savedKey) {
-                for (var i = 0; i < stringModel.count; i++) {
+                for (let i = 0; i < stringModel.count; i++) {
                     if (stringModel.get(i).fallback === savedKey) {
                         stringListView.positionViewAtIndex(i, ListView.Beginning)
                         break
@@ -783,13 +783,13 @@ T.Page {
                                     // Order below is deliberate: read the model, leave edit mode,
                                     // and make the mutation the last statement, because it
                                     // destroys this delegate.
-                                    var fallbackKey = delegateRoot.model.fallback
+                                    let fallbackKey = delegateRoot.model.fallback
                                     // A detached row (the model refreshed under us) reports an
                                     // empty fallback. Saving from one is never legitimate.
                                     if (!fallbackKey || fallbackKey.length === 0)
                                         return
-                                    var newText = text.trim()
-                                    var changed = newText !== (delegateRoot.model.translation || "")
+                                    let newText = text.trim()
+                                    let changed = newText !== (delegateRoot.model.translation || "")
                                     delegateRoot.setEditing(false, -1)
                                     if (changed) {
                                         TranslationManager.setGroupTranslation(fallbackKey, newText)

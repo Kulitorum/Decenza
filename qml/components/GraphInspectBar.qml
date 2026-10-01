@@ -56,7 +56,7 @@ Flow {
                 { key: "dCdt",            show: Settings.graph.showConductanceDerivative && advanced }
             ]
             var items = []
-            for (var i = 0; i < entries.length; i++) {
+            for (let i = 0; i < entries.length; i++) {
                 if (entries[i].show && vals[entries[i].key]) items.push(vals[entries[i].key])
             }
             return items

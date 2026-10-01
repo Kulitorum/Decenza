@@ -163,7 +163,7 @@ private:
     // machine loses the race; observed in a full-suite run. And an unmatched
     // ignoreMessage, while it DOES fail the test (qtestresult.cpp:251-254 calls
     // addFailure), reports with no file/line and without naming the pattern --
-    // that goes out separately as an Info line (qtestlog.cpp:397-417) -- so the
+    // that goes out separately as an Info line (qtestlog.cpp:398-418) -- so the
     // loss surfaced as a bare "Not all expected messages were received" pointing
     // at nothing. Waiting on the message names the line and asserts the tier.
     void sendPowerOffAndAwaitLog(FakeHdsServer& server, const QString& reason,

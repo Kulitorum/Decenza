@@ -8,7 +8,7 @@
 #include <QVariant>
 
 #include <QtCanvasPainter/qcanvasgradient.h>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 QT_BEGIN_NAMESPACE
 class QCanvasPainter;

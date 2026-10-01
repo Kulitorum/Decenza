@@ -30,7 +30,7 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // now known and closed: the QML engine was constructing its own.
     //
     // Qt tests is_default_constructible BEFORE it looks for a create() factory
-    // when it picks a QML_SINGLETON's construction mode (qqmlprivate.h:161-164),
+    // when it picks a QML_SINGLETON's construction mode (qqmlprivate.h:195-198),
     // and this class's constructor took `QObject *parent = nullptr`. So Qt chose
     // `new T` (:190), create() was never called, and the instance main.cpp
     // main.cpp published was ignored — QML talked to Qt's orphan

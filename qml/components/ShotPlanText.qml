@@ -291,7 +291,7 @@ Item {
         // consumed items (doseYield's yield, the anchor, temperature) ignore
         // their list positions.
         if (sentence && _anchorStr !== "") {
-            var s
+            let s
             if (_yieldStr !== "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
                     .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true)).arg(temp)
@@ -304,8 +304,8 @@ Item {
             else
                 s = TranslationManager.translate("shotplan.sentenceNoYieldNoTemp", "Brew %1, using %2")
                     .arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true))
-            var tail = []
-            for (var i = 0; i < order.length; i++) {
+            let tail = []
+            for (let i = 0; i < order.length; i++) {
                 switch (order[i]) {
                 case "doseYield": if (dose !== "") tail.push(dose); break
                 case "roaster":   if (_roasterStr !== "") tail.push(fmt(_roasterStr, true)); break
@@ -338,7 +338,7 @@ Item {
         // English word order; the a11y and rich paths share this builder so
         // they can't drift.
         if (sentence) {
-            var beans = ""
+            let beans = ""
             if (_roasterStr !== "" && _coffeeStr !== "")
                 beans = fmt(_roasterStr, true) + " " + fmt(_coffeeStr, true)
             else if (_roasterStr !== "")
@@ -346,7 +346,7 @@ Item {
             else if (_coffeeStr !== "")
                 beans = fmt(_coffeeStr, true)
 
-            var r = (_yieldStr !== "")
+            let r = (_yieldStr !== "")
                 ? TranslationManager.translate("shotplan.recipe.head", "Brew %1 of %2")
                     .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false))
                 : TranslationManager.translate("shotplan.recipe.headNoYield", "Brew %1")
@@ -364,8 +364,8 @@ Item {
                 r = TranslationManager.translate("shotplan.recipe.fromBeans", "%1 from %2")
                     .arg(r).arg(beans)
 
-            var rtail = []
-            for (var k = 0; k < order.length; k++) {
+            let rtail = []
+            for (let k = 0; k < order.length; k++) {
                 switch (order[k]) {
                 case "grind":     if (grind !== "") rtail.push(grind); break
                 case "roastDate": if (roasted !== "") rtail.push(roasted); break
@@ -376,7 +376,7 @@ Item {
 
         // Fragment format: every present item, in list order.
         var parts = []
-        for (var j = 0; j < order.length; j++) {
+        for (let j = 0; j < order.length; j++) {
             switch (order[j]) {
             case "doseYield":
                 if (dose !== "") parts.push(dose)

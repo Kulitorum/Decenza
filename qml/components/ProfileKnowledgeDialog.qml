@@ -72,20 +72,20 @@ DecenzaDialog {
     function formatContent(raw) {
         var lines = raw.split('\n')
         var parts = []
-        for (var i = 0; i < lines.length; i++) {
-            var line = lines[i]
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i]
             if (!line.trim()) continue
             if (line.startsWith('Also matches:') || line.startsWith('AnalysisFlags:')) continue
 
-            var colonIdx = line.indexOf(': ')
+            let colonIdx = line.indexOf(': ')
             if (colonIdx > 0 && colonIdx <= 35 && !line.startsWith('DO NOT') && !line.startsWith('-')) {
-                var label = line.substring(0, colonIdx).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                var value = line.substring(colonIdx + 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                let label = Theme.escapeHtml(line.substring(0, colonIdx))
+                let value = Theme.escapeHtml(line.substring(colonIdx + 2))
                 parts.push('<b>' + label + ':</b> ' + value)
             } else if (line.startsWith('DO NOT')) {
-                parts.push('<i>' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</i>')
+                parts.push('<i>' + Theme.escapeHtml(line) + '</i>')
             } else {
-                parts.push(line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                parts.push(Theme.escapeHtml(line))
             }
         }
         return parts.join('<br>')

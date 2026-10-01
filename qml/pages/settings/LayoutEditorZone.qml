@@ -382,7 +382,7 @@ Rectangle {
                                 }
                                 onReleased: {
                                     if (root._dragging) {
-                                        var endIndex = chipDelegate.itemIndex
+                                        let endIndex = chipDelegate.itemIndex
                                         if (_startIndex >= 0 && endIndex !== _startIndex)
                                             root.reorder(_startIndex, endIndex)
                                     }
@@ -393,7 +393,7 @@ Rectangle {
                                     // Roll back any live swaps so the DelegateModel
                                     // order matches the unchanged backing list.
                                     if (root._dragging) {
-                                        var cur = chipDelegate.itemIndex
+                                        let cur = chipDelegate.itemIndex
                                         if (_startIndex >= 0 && cur !== _startIndex)
                                             visualModel.items.move(cur, _startIndex, 1)
                                     }
@@ -490,8 +490,8 @@ Rectangle {
                             model: {
                                 var f = widgetFilter.text.trim().toLowerCase()
                                 var list = []
-                                for (var i = 0; i < catalog.length; i++) {
-                                    var e = catalog[i]
+                                for (let i = 0; i < catalog.length; i++) {
+                                    let e = catalog[i]
                                     if (f === "" || e.label.toLowerCase().indexOf(f) >= 0)
                                         list.push(e)
                                 }
@@ -500,7 +500,7 @@ Rectangle {
                                 })
                                 var out = []
                                 var lastCat = -1
-                                for (var j = 0; j < list.length; j++) {
+                                for (let j = 0; j < list.length; j++) {
                                     if (list[j].cat !== lastCat) {
                                         out.push({ isHeader: true, label: catNames[list[j].cat], type: "", cat: list[j].cat })
                                         lastCat = list[j].cat
@@ -607,7 +607,7 @@ Rectangle {
             "%CONNECTED%": "Online", "%CONNECTED_COLOR%": "",
             "%DEVICES%": "Devices"
         }
-        for (var token in varLabels) {
+        for (let token in varLabels) {
             if (plain.indexOf(token) >= 0)
                 plain = plain.replace(new RegExp(token.replace(/%/g, "\\%"), "g"), varLabels[token])
         }
@@ -619,7 +619,7 @@ Rectangle {
         // Fall back to action target if content is just "Text"
         var action = item.action || ""
         if (action) {
-            var actionLabels = {
+            let actionLabels = {
                 "navigate:settings": "Settings", "navigate:history": "History",
                 "navigate:profiles": "Profiles", "navigate:autofavorites": "Favorites",
                 "navigate:visualizer": "Visualizer", "navigate:recipes": "Recipes",

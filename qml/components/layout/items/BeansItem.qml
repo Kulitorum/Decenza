@@ -58,7 +58,7 @@ LayoutWidgetItem {
     FontMetrics { id: beanPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _beanPillWidths() {
         var out = []
-        for (var i = 0; i < inventoryBags.length; ++i)
+        for (let i = 0; i < inventoryBags.length; ++i)
             out.push(beanPillMetrics.advanceWidth(root.bagLabel(inventoryBags[i])) + Theme.scaled(40))
         return out
     }
@@ -76,7 +76,7 @@ LayoutWidgetItem {
             return []
         var idx = Math.max(0, Math.min(beanPageIndex, _beanPageSizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += _beanPageSizes[p]
         return inventoryBags.slice(start, start + (_beanPageSizes[idx] || 0))
     }
@@ -224,7 +224,7 @@ LayoutWidgetItem {
         }
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
@@ -232,7 +232,7 @@ LayoutWidgetItem {
             if (bags.length === 0) return
             var names = []
             var selectedName = ""
-            for (var i = 0; i < bags.length; ++i) {
+            for (let i = 0; i < bags.length; ++i) {
                 names.push(root.bagLabel(bags[i]))
                 if (bags[i].id === Settings.dye.activeBagId) selectedName = root.bagLabel(bags[i])
             }
@@ -253,9 +253,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -266,8 +266,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width
                 if (globalX + centered < 0)
@@ -294,7 +294,7 @@ LayoutWidgetItem {
             presets: root.visibleBags.map(function(b) { return { name: root.bagLabel(b) } })
             selectedIndex: {
                 var list = root.visibleBags
-                for (var i = 0; i < list.length; ++i) {
+                for (let i = 0; i < list.length; ++i) {
                     if (list[i].id === Settings.dye.activeBagId) return i
                 }
                 return -1

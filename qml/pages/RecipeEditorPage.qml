@@ -123,13 +123,13 @@ T.Page {
         var closest = "infuse"  // Default to infuse if nothing found
         var closestDist = 999999
 
-        for (var i = 0; i < sections.length; i++) {
-            var s = sections[i]
+        for (let i = 0; i < sections.length; i++) {
+            let s = sections[i]
             // Skip invisible or disabled sections
             if (!s.item.visible || s.item.height === 0) continue
 
-            var sectionCenter = s.item.y + s.item.height / 2
-            var dist = Math.abs(viewCenter - sectionCenter)
+            let sectionCenter = s.item.y + s.item.height / 2
+            let dist = Math.abs(viewCenter - sectionCenter)
             if (dist < closestDist) {
                 closestDist = dist
                 closest = s.name
@@ -143,7 +143,7 @@ T.Page {
     function sectionToFrame(sectionName) {
         if (!profile || !profile.steps) return -1
 
-        for (var i = 0; i < profile.steps.length; i++) {
+        for (let i = 0; i < profile.steps.length; i++) {
             if (frameToSection(i) === sectionName) return i
         }
 
@@ -309,8 +309,8 @@ T.Page {
                         target: recipeScrollView.contentItem
                         function onMovingChanged() {
                             if (!(recipeScrollView.contentItem as Flickable).moving && !recipeEditorPage.scrollingFromSelection) {
-                                var section = recipeEditorPage.findCenteredSection()
-                                var frameIdx = recipeEditorPage.sectionToFrame(section)
+                                let section = recipeEditorPage.findCenteredSection()
+                                let frameIdx = recipeEditorPage.sectionToFrame(section)
                                 if (frameIdx >= 0 && frameIdx !== recipeEditorPage.selectedFrameIndex) {
                                     recipeEditorPage.selectedFrameIndex = frameIdx
                                 }
@@ -843,8 +843,8 @@ T.Page {
         function doSave() {
             Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
-                var fullTitle = recipeEditorPage.editorPrefix() + saveAsTitleField.text
-                var filename = ProfileManager.titleToFilename(fullTitle)
+                let fullTitle = recipeEditorPage.editorPrefix() + saveAsTitleField.text
+                let filename = ProfileManager.titleToFilename(fullTitle)
                 if (ProfileManager.isBuiltInFilename(filename)) {
                     saveAsDialog.close()
                     builtInNameDialog.open()

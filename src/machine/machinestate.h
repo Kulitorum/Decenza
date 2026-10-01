@@ -24,7 +24,7 @@ class MachineState : public QObject {
     // rationale in src/controllers/maincontroller.h.
     //
     // ONE REAL BEHAVIOURAL CHANGE, and it is not obvious from the macros. Qt resolves enums on a
-    // singleton INSIDE the instance guard — qqmltypewrapper.cpp:320,
+    // singleton INSIDE the instance guard — qqmltypewrapper.cpp:325,
     // `if (QObject *qobjectSingleton = enginePrivate->singletonInstance<QObject*>(type))`, with
     // the enum branch within it. The old uncreatable-type registration took the `else` at :361,
     // which needs no instance at all. So the 157 `MachineState.Phase.X` reads in qml/ (on 155

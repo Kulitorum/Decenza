@@ -135,8 +135,8 @@ Item {
             default:                      return []
         }
         if (key === "weight") {
-            var scaled = []
-            for (var i = 0; i < data.length; i++) {
+            let scaled = []
+            for (let i = 0; i < data.length; i++) {
                 scaled.push({ x: data[i].x, y: data[i].y / 5.0 })
             }
             return scaled
@@ -156,9 +156,9 @@ Item {
     function _updateTimeAxis() {
         if (!comparisonModel) return
         var markerMaxTime = 0
-        for (var pmi = 0; pmi < comparisonModel.shotCount; pmi++) {
-            var pmMarkers = comparisonModel.getPhaseMarkers(pmi)
-            for (var pmj = 0; pmj < pmMarkers.length; pmj++) {
+        for (let pmi = 0; pmi < comparisonModel.shotCount; pmi++) {
+            let pmMarkers = comparisonModel.getPhaseMarkers(pmi)
+            for (let pmj = 0; pmj < pmMarkers.length; pmj++) {
                 if (pmMarkers[pmj].time > markerMaxTime) markerMaxTime = pmMarkers[pmj].time
             }
         }
@@ -173,9 +173,9 @@ Item {
     function _updateDCdtAxis() {
         if (!comparisonModel) return
         var dCdtMax = 0, dCdtMin = 0
-        for (var s = 0; s < comparisonModel.shotCount; s++) {
-            var pts = comparisonModel.getConductanceDerivativeData(s)
-            for (var i = 0; i < pts.length; i++) {
+        for (let s = 0; s < comparisonModel.shotCount; s++) {
+            let pts = comparisonModel.getConductanceDerivativeData(s)
+            for (let i = 0; i < pts.length; i++) {
                 if (pts[i].y > dCdtMax) dCdtMax = pts[i].y
                 if (pts[i].y < dCdtMin) dCdtMin = pts[i].y
             }
@@ -199,10 +199,10 @@ Item {
 
         var phases = []
         var phaseIndexMap = {}, nextPhaseIndex = 0
-        for (var pi = 0; pi < comparisonModel.shotCount; pi++) {
-            var markers = comparisonModel.getPhaseMarkers(pi)
-            for (var mi = 0; mi < markers.length; mi++) {
-                var lbl = markers[mi].label
+        for (let pi = 0; pi < comparisonModel.shotCount; pi++) {
+            let markers = comparisonModel.getPhaseMarkers(pi)
+            for (let mi = 0; mi < markers.length; mi++) {
+                let lbl = markers[mi].label
                 if (lbl === "Start") continue  // redundant — always 0.0s
                 if (lbl === "End") continue    // only added on SAW stops; inconsistent
                 if (phaseIndexMap[lbl] === undefined) phaseIndexMap[lbl] = nextPhaseIndex++
@@ -214,21 +214,21 @@ Item {
         // Default visibility: hide all phase labels except the last 2 unique ones.
         var uniqueLabels = []
         var seenLabels = {}
-        for (var ui = 0; ui < phases.length; ui++) {
-            var ul = phases[ui].label
+        for (let ui = 0; ui < phases.length; ui++) {
+            let ul = phases[ui].label
             if (!seenLabels[ul]) { seenLabels[ul] = true; uniqueLabels.push(ul) }
         }
         var hidden = {}
-        for (var hi = 0; hi < uniqueLabels.length - 2; hi++) {
+        for (let hi = 0; hi < uniqueLabels.length - 2; hi++) {
             hidden[uniqueLabels[hi]] = true
         }
         hiddenPhaseLabels = hidden
 
         // Seed crosshair at the default-visible second-to-last phase, averaged across shots.
         if (uniqueLabels.length >= 2) {
-            var targetLabel = uniqueLabels[uniqueLabels.length - 2]
-            var timeSum = 0, timeCount = 0
-            for (var ti = 0; ti < phases.length; ti++) {
+            let targetLabel = uniqueLabels[uniqueLabels.length - 2]
+            let timeSum = 0, timeCount = 0
+            for (let ti = 0; ti < phases.length; ti++) {
                 if (phases[ti].label === targetLabel) { timeSum += phases[ti].time; timeCount++ }
             }
             if (timeCount > 0) Qt.callLater(inspectAtTime, timeSum / timeCount)
@@ -261,7 +261,7 @@ Item {
         inspectTime = time
 
         var shotValues = []
-        for (var i = 0; i < comparisonModel.shotCount; i++) {
+        for (let i = 0; i < comparisonModel.shotCount; i++) {
             shotValues.push(_buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
                                               comparisonModel.getShotInfo(i)))
         }
@@ -270,9 +270,9 @@ Item {
 
         // Accessibility announcement
         var parts = [time.toFixed(1) + "s"]
-        for (var s = 0; s < shotValues.length; s++) {
-            var sv = shotValues[s]
-            var metrics = []
+        for (let s = 0; s < shotValues.length; s++) {
+            let sv = shotValues[s]
+            let metrics = []
             if (sv.hasPressure)    metrics.push(sv.pressure.toFixed(1) + " bar")
             if (sv.hasFlow)        metrics.push(sv.flow.toFixed(1) + " mL/s")
             if (sv.hasTemperature) metrics.push(Theme.cToDisplay(sv.temperature).toFixed(1) + " " + Theme.tempUnitSuffix())
@@ -304,7 +304,7 @@ Item {
         if (!comparisonModel || time < 0 || time > timeAxis.max) return
         inspectTime = time
         var shotValues = []
-        for (var i = 0; i < comparisonModel.shotCount; i++) {
+        for (let i = 0; i < comparisonModel.shotCount; i++) {
             shotValues.push(_buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
                                               comparisonModel.getShotInfo(i)))
         }
@@ -408,8 +408,8 @@ Item {
 
     readonly property var _allTraces: {
         var out = []
-        for (var s = 0; s < 3; s++) {
-            for (var c = 0; c < _curves.length; c++) {
+        for (let s = 0; s < 3; s++) {
+            for (let c = 0; c < _curves.length; c++) {
                 out.push({ shotIdx: s, curveIdx: c })
             }
         }
@@ -464,10 +464,10 @@ Item {
         onPaint: {
             var ctx = getContext("2d")
             ctx.clearRect(0, 0, width, height)
-            for (var i = 0; i < chart.phaseData.length; i++) {
-                var pd = chart.phaseData[i]
+            for (let i = 0; i < chart.phaseData.length; i++) {
+                let pd = chart.phaseData[i]
                 if (chart.hiddenPhaseLabels[pd.label]) continue
-                var x = (pd.time / timeAxis.max) * width
+                let x = (pd.time / timeAxis.max) * width
                 ctx.strokeStyle = chart.phaseColors[pd.phaseIndex % chart.phaseColors.length]
                 ctx.globalAlpha = 0.7
                 ctx.lineWidth = 1.5

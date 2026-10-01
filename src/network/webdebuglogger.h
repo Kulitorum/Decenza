@@ -7,7 +7,7 @@
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QFile>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class QQmlEngine;
 class QJSEngine;
@@ -269,7 +269,7 @@ private:
 };
 
 // Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
-// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
+// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:195-198). A default-constructible
 // singleton therefore gets `new T` (:190) and its create() is never called — dead code that
 // still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
 // shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.

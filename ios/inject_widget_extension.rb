@@ -60,7 +60,7 @@ profile = ENV["WIDGET_PROVISIONING_PROFILE_NAME"].to_s
 
 # --- Create the app-extension target -----------------------------------------
 ext = project.new_target(
-  :app_extension, EXT_TARGET, :ios, "17.0", project.products_group, :swift
+  :app_extension, EXT_TARGET, :ios, "18.0", project.products_group, :swift
 )
 
 # Source group + files
@@ -87,7 +87,7 @@ ext.build_configurations.each do |cfg|
   s["PRODUCT_BUNDLE_IDENTIFIER"]    = EXT_BUNDLE
   s["INFOPLIST_FILE"]               = INFO_PLIST
   s["CODE_SIGN_ENTITLEMENTS"]       = ENTITLEMENTS
-  s["IPHONEOS_DEPLOYMENT_TARGET"]   = "17.0"
+  s["IPHONEOS_DEPLOYMENT_TARGET"]   = "18.0"  # keep in step with CMakeLists.txt
   s["TARGETED_DEVICE_FAMILY"]       = "1,2"
   s["SWIFT_VERSION"]                = "5.0"
   s["GENERATE_INFOPLIST_FILE"]      = "NO"

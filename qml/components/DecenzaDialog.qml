@@ -37,7 +37,7 @@ T.Dialog {
 
     // From qtdeclarative/src/quickcontrols/material/Dialog.qml. The implicit-size formulas
     // live only in style QML — QQuickControl computes the inputs in C++ but leaves the
-    // result to the style (qquickcontrol.cpp:1749-1757) — so without them a dialog that
+    // result to the style (qquickcontrol.cpp:1751-1759) — so without them a dialog that
     // does not set an explicit width is zero-sized. Most of ours do set one; the ones that
     // don't relied entirely on this.
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
@@ -116,7 +116,7 @@ T.Dialog {
     }
 
     // The dimmer behind the dialog. A popup's own attached Overlay.modal wins over the
-    // window-wide default (qquickpopup.cpp:1274-1279), so declaring it here covers every
+    // window-wide default (qquickpopup.cpp:1327-1332), so declaring it here covers every
     // dialog that roots at this file, and a dialog that wants something else can still
     // override it. ProfilePreviewPopup already does.
     T.Overlay.modal: Rectangle {

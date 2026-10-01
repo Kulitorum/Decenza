@@ -186,15 +186,15 @@ public:
     // SettingsPage's TabBar.onCurrentIndexChanged handler is still on the stack. The symbolicated
     // stack then shows QCoreApplicationPrivate::sendPostedEvents -> QObject::event ->
     // ~QQmlElement<QQuickPage>, i.e. the outgoing page was destroyed inside the pump, taking its
-    // TabBar with it; QObject::event deletes on DeferredDelete at qobject.cpp:1463-1464. Qt turns
+    // TabBar with it; QObject::event deletes on DeferredDelete at qobject.cpp:1475-1476. Qt turns
     // a destroy-during-signal-handler into an abort, not a warning:
-    // qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396 (QQmlData::destroyed() -> qFatal() when
+    // qtdeclarative/src/qml/qml/qqmldata.cpp:415-441 (QQmlData::destroyed() -> qFatal() when
     // the handler isNotifying()).
     //
     // What is NOT established is which posted event did it. A bare processEvents() normally will
-    // NOT deliver a queued DeferredDelete — qcoreapplication.cpp:1858-1873 allows one through only
+    // NOT deliver a queued DeferredDelete — qcoreapplication.cpp:1885-1900 allows one through only
     // when it was posted at a deeper loop+scope level, or was posted before the outermost loop, or
-    // when DeferredDelete was passed explicitly — and qobject.cpp:2534-2557 records those levels
+    // when DeferredDelete was passed explicitly — and qobject.cpp:2546-2569 records those levels
     // for exactly the `foo->deleteLater(); qApp->processEvents();` case. So one of those clauses
     // held on the device, or the destroyer was some other queued event (a queued signal, a timer,
     // a Loader status change) that deleted synchronously. Qt's own message lists "deleted

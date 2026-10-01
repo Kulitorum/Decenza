@@ -3070,7 +3070,7 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
     poll.start();
     // ExcludeUserInputEvents is load-bearing, not tidiness: a second tap on Quit
     // delivered inside this loop reaches QCoreApplication::exit(), which exits
-    // EVERY loop in data->eventLoops (qcoreapplication.cpp:1520-1529) — including
+    // EVERY loop in data->eventLoops (qcoreapplication.cpp:1547-1556) — including
     // this one — abandoning the drain and discarding the write it is saving. The
     // quit-site comment claimed this protection before the flag was actually here.
     loop.exec(QEventLoop::ExcludeUserInputEvents);
@@ -4853,7 +4853,7 @@ void MainController::factoryResetAndQuit()
     // call leaves that handler on the stack for the whole of shutdown. Anything
     // in aboutToQuit that pumps events — the BLE drain, and now drainDbWork() —
     // would then be a nested event loop beneath a live QML handler, which is the
-    // qFatal in qqmlengine.cpp:1370-1396 that aborted shipped iOS 2.0.0 (#1692),
+    // qFatal in qqmldata.cpp:415-441 that aborted shipped iOS 2.0.0 (#1692),
     // not merely a slowdown.
     //
     // Posting it lands aboutToQuit on a clean stack, which is exactly what

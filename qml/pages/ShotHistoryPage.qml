@@ -146,7 +146,7 @@ T.Page {
         function onShotsFilteredReady(results, isAppend, totalCount) {
             if (isAppend) {
                 // loadMoreShots result
-                for (var i = 0; i < results.length; i++) {
+                for (let i = 0; i < results.length; i++) {
                     shotListModel.append(results[i])
                 }
                 shotHistoryPage.currentOffset += results.length
@@ -154,7 +154,7 @@ T.Page {
                 shotHistoryPage.isLoadingMore = false
             } else {
                 // Full refresh (loadShots or reloadPreservingScroll)
-                var j
+                let j
                 for (j = 0; j < results.length; j++) {
                     if (j < shotListModel.count) {
                         shotListModel.set(j, results[j])
@@ -168,7 +168,7 @@ T.Page {
                 shotHistoryPage.currentOffset = results.length
                 shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
                 if (shotHistoryPage._pendingRestoreContentY >= 0) {
-                    var targetY = shotHistoryPage._pendingRestoreContentY
+                    let targetY = shotHistoryPage._pendingRestoreContentY
                     shotHistoryPage._pendingRestoreContentY = -1
                     // Defer until the ListView has re-laid-out the refreshed
                     // model so contentHeight is final before we clamp/restore.
@@ -187,11 +187,11 @@ T.Page {
         // Read displayText (not text) so the in-progress IME preedit on Gboard/Samsung
         // is included — matches the onDisplayTextChanged trigger that scheduled this run.
         if (searchField.displayText.length > 0) {
-            var searchText = searchField.displayText
+            let searchText = searchField.displayText
 
             // Parse numeric keyword filters from search text
             // Syntax: keyword:N (exact), keyword:N-M (range), keyword:N+ (min only)
-            var keywords = [
+            let keywords = [
                 { pattern: /\brating:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minEnjoyment", maxKey: "maxEnjoyment" },
                 { pattern: /\brating:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minEnjoyment", maxKey: null },
                 { pattern: /\brating:(\d+(?:\.\d+)?)\b/g, minKey: "minEnjoyment", maxKey: "maxEnjoyment", exact: true },
@@ -212,9 +212,9 @@ T.Page {
                 { pattern: /\bey:(\d+(?:\.\d+)?)\b/g, minKey: "minEy", maxKey: "maxEy", exact: true }
             ]
 
-            for (var i = 0; i < keywords.length; i++) {
-                var kw = keywords[i]
-                var match = kw.pattern.exec(searchText)
+            for (let i = 0; i < keywords.length; i++) {
+                let kw = keywords[i]
+                let match = kw.pattern.exec(searchText)
                 if (match) {
                     if (match.length === 3) {
                         // Range: N-M
@@ -234,14 +234,14 @@ T.Page {
             }
 
             // Parse quality flag keywords (channeling:yes, grind:yes, skipframe:yes, puckfailed:yes)
-            var flagKeywords = [
+            let flagKeywords = [
                 { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
                 { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" },
                 { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" },
                 { pattern: /\bpuckfailed:yes\b/gi, filterKey: "filterPourTruncated" }
             ]
-            for (var j = 0; j < flagKeywords.length; j++) {
-                var fk = flagKeywords[j]
+            for (let j = 0; j < flagKeywords.length; j++) {
+                let fk = flagKeywords[j]
                 if (fk.pattern.test(searchText)) {
                     filter[fk.filterKey] = true
                     searchText = searchText.replace(fk.pattern, "")
@@ -285,17 +285,17 @@ T.Page {
             // "2026-07"; `bag:july` matches nothing.) Its storage-side name is
             // `bagTerm`, not `bagName`, so it never reads as the banner's
             // `bagLabel`.
-            var stringKeywords = [
+            let stringKeywords = [
                 { pattern: /\brecipe:(?:"([^"]*)"?|(\S+))/i, filterKey: "recipeName",
                   strip: /\brecipe:(?:"[^"]*"?|\S*)/gi },
                 { pattern: /\bbag:(?:"([^"]*)"?|(\S+))/i,    filterKey: "bagTerm",
                   strip: /\bbag:(?:"[^"]*"?|\S*)/gi }
             ]
-            for (var sk = 0; sk < stringKeywords.length; sk++) {
-                var kwd = stringKeywords[sk]
-                var m = kwd.pattern.exec(searchText)
+            for (let sk = 0; sk < stringKeywords.length; sk++) {
+                let kwd = stringKeywords[sk]
+                let m = kwd.pattern.exec(searchText)
                 if (!m) continue
-                var term = (m[1] !== undefined ? m[1] : m[2]) || ""
+                let term = (m[1] !== undefined ? m[1] : m[2]) || ""
                 term = term.trim()
                 filter[kwd.filterKey] = term.length > 0 ? term : " "
                 searchText = searchText.replace(m[0], "")
@@ -305,7 +305,7 @@ T.Page {
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
             searchText = searchText.replace(/\b(channeling|temp|grind|skipframe|puckfailed):yes\b/gi, "")
             // Same table, so a keyword can never be parsed without being stripped.
-            for (var sp = 0; sp < stringKeywords.length; sp++)
+            for (let sp = 0; sp < stringKeywords.length; sp++)
                 searchText = searchText.replace(stringKeywords[sp].strip, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
@@ -333,11 +333,11 @@ T.Page {
         // reads, which is where a typo like `bagID` is caught — at build time,
         // rather than by a runtime warning nobody reads.
         if (initialFilter) {
-            var bannerOnlyKeys = ["recipeName", "bagLabel", "equipmentLabel"]
-            for (var key in initialFilter) {
+            let bannerOnlyKeys = ["recipeName", "bagLabel", "equipmentLabel"]
+            for (let key in initialFilter) {
                 if (bannerOnlyKeys.indexOf(key) >= 0)
                     continue
-                var val = initialFilter[key]
+                let val = initialFilter[key]
                 if (val !== undefined && val !== null && val !== "")
                     filter[key] = val
             }
@@ -452,8 +452,8 @@ T.Page {
             return selectedShots.slice().sort(function(a, b) { return a - b })
         } else {
             // Return all loaded shots from the model
-            var ids = []
-            for (var i = 0; i < shotListModel.count; i++) {
+            let ids = []
+            for (let i = 0; i < shotListModel.count; i++) {
                 ids.push(shotListModel.get(i).id)
             }
             return ids
@@ -674,7 +674,7 @@ T.Page {
                             parts.push(TranslationManager.translate("shothistory.filter.grind", "grind %1")
                                        .arg(shotHistoryPage.initialFilter.grinderSetting))
                         if (shotHistoryPage.initialFilter.minDose !== undefined && shotHistoryPage.initialFilter.maxDose !== undefined) {
-                            var mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
+                            let mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
                             parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
                         }
                         if (shotHistoryPage.initialFilter.targetWeight !== undefined && shotHistoryPage.initialFilter.targetWeight >= 0) {
@@ -739,7 +739,7 @@ T.Page {
             // Infinite scroll - load more when near bottom
             onContentYChanged: {
                 if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
-                    var threshold = contentHeight - height - Theme.scaled(200)
+                    let threshold = contentHeight - height - Theme.scaled(200)
                     if (contentY > threshold) {
                         loadMoreTimer.restart()
                     }

@@ -10,7 +10,7 @@
 #include <functional>
 #include <memory>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
 class QSqlQuery;
 class SerialDbWorker;

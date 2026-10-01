@@ -447,7 +447,7 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
         // once at the deadline, and the cancel token is honoured within one slice.
         // A worker that ran the full window would pin a QThreadPool thread, and
         // ~QCoreApplication calls waitForDone() unconditionally
-        // (qtbase/src/corelib/kernel/qcoreapplication.cpp:927) — that is a
+        // (qtbase/src/corelib/kernel/qcoreapplication.cpp:954) — that is a
         // multi-second hang on quit with the UI already gone.
         constexpr int kPollSliceMs = 400;
         const int sdk = QNativeInterface::QAndroidApplication::sdkVersion();

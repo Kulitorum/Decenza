@@ -85,7 +85,7 @@ class MainController : public QObject {
     // that direct macros were fine because settings_qml.h's stated reason for the wrapper (a
     // <QtQml/...> include being "a build break" in saw_parity) was measurably false. That
     // measurement still stands, but it was never the reason that mattered: Qt tests
-    // is_default_constructible BEFORE it looks for a create() factory (qqmlprivate.h:161-164), so
+    // is_default_constructible BEFORE it looks for a create() factory (qqmlprivate.h:195-198), so
     // a directly-registered singleton whose constructor gains a defaulted parameter silently gets
     // `new T` and its factory is never called. AccessibilityManager shipped exactly that. The
     // wrapper shape cannot reach that branch at all — see docs/CLAUDE_MD/QML_GOTCHAS.md.
@@ -402,7 +402,8 @@ public:
     // and `Qt::ApplicationSuspended` — and NEITHER runs when the OS kills the
     // process outright: an Android
     // low-memory kill or force-stop, an iOS SIGKILL (the NORMAL iOS termination —
-    // qioseventdispatcher.mm:434 says so outright), a fatal signal reaching
+    // Qt 6.11.2's qioseventdispatcher.mm:436-438 said so outright; 6.12 dropped
+    // the comment), a fatal signal reaching
     // crashhandler.cpp's re-raise, or an ASan abort. Those lose queued writes with
     // no warning whatsoever, since ~SerialDbWorker never runs either.
     //

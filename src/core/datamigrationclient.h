@@ -18,7 +18,7 @@
 #include <QSettings>
 #include <memory>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class TranslationManager;
 class QTcpSocket;
 

@@ -72,7 +72,7 @@ Item {
 
     function recomputeFrameDurations() {
         var durations = []
-        for (var i = 0; i < frames.length; i++) {
+        for (let i = 0; i < frames.length; i++) {
             durations.push(estimateFrameDuration(frames[i], i))
         }
         frameDurations = durations
@@ -99,9 +99,9 @@ Item {
 
         // Long pour frames: estimate from target weight/volume
         if (secs >= 60 && pump === "flow") {
-            var flowRate = frame.flow || 0
+            let flowRate = frame.flow || 0
             if (flowRate > 0) {
-                var target = targetWeight > 0 ? targetWeight : targetVolume
+                let target = targetWeight > 0 ? targetWeight : targetVolume
                 if (target > 0) {
                     return Math.min(secs, Math.max(target / flowRate + 3, 10))
                 }
@@ -114,7 +114,7 @@ Item {
 
     property double totalDuration: {
         var total = 0
-        for (var i = 0; i < frameDurations.length; i++) {
+        for (let i = 0; i < frameDurations.length; i++) {
             total += frameDurations[i]
         }
         return Math.max(total, 5)
@@ -237,7 +237,7 @@ Item {
                 Accessible.onPressAction: bgMouseArea.clicked(null)
                 property double frameStart: {
                     var start = 0
-                    for (var i = 0; i < index; i++) {
+                    for (let i = 0; i < index; i++) {
                         start += (chart.frameDurations[i] || 0)
                     }
                     return start
@@ -342,14 +342,14 @@ Item {
         pressureSeries0.append(0, 0)
         flowSeries0.append(0, 0)
 
-        for (var i = 0; i < frames.length; i++) {
-            var frame = frames[i]
-            var duration = frameDurations[i] || 0
-            var startTime = time
-            var endTime = time + duration
-            var isSmooth = frame.transition === "smooth"
-            var pump = frame.pump || "pressure"
-            var temp = frame.temperature || 93
+        for (let i = 0; i < frames.length; i++) {
+            let frame = frames[i]
+            let duration = frameDurations[i] || 0
+            let startTime = time
+            let endTime = time + duration
+            let isSmooth = frame.transition === "smooth"
+            let pump = frame.pump || "pressure"
+            let temp = frame.temperature || 93
 
             if (duration <= 0) {
                 time = endTime
@@ -361,11 +361,11 @@ Item {
             // pressure ramping up (opposite of pressure-pump preinfusion).
             if (pump === "flow" && !hadPreinfusion && i === 0 && frame.exit_if && duration >= 2) {
                 hadPreinfusion = true
-                var piFlow = frame.flow || 4.0
-                var piExitP = frame.exit_pressure_over || 4.0
+                let piFlow = frame.flow || 4.0
+                let piExitP = frame.exit_pressure_over || 4.0
 
                 // Find pour flow for residual
-                for (var jp = i + 1; jp < frames.length; jp++) {
+                for (let jp = i + 1; jp < frames.length; jp++) {
                     if ((frames[jp].pump || "pressure") === "flow" && (frames[jp].flow || 0) > 0) {
                         residualFlow = frames[jp].flow
                         break
@@ -373,16 +373,16 @@ Item {
                 }
 
                 // Flow ramps from 0 to target, pressure builds gradually
-                var piSteps = Math.min(10, Math.max(4, Math.round(duration)))
-                for (var kp = 0; kp <= piSteps; kp++) {
-                    var fracPI = kp / piSteps
-                    var tPI = startTime + fracPI * duration
+                let piSteps = Math.min(10, Math.max(4, Math.round(duration)))
+                for (let kp = 0; kp <= piSteps; kp++) {
+                    let fracPI = kp / piSteps
+                    let tPI = startTime + fracPI * duration
                     // Flow: ramps up quickly then holds
-                    var flowFracPI = Math.min(1.0, fracPI * 3)  // reaches target at 1/3 through
-                    var flowPI = piFlow * flowFracPI
+                    let flowFracPI = Math.min(1.0, fracPI * 3)  // reaches target at 1/3 through
+                    let flowPI = piFlow * flowFracPI
                     // Pressure: builds with S-curve toward exit pressure
-                    var pEase = fracPI * fracPI * (3 - 2 * fracPI)
-                    var pressPI = pEase * piExitP
+                    let pEase = fracPI * fracPI * (3 - 2 * fracPI)
+                    let pressPI = pEase * piExitP
                     pressureSeries0.append(tPI, pressPI)
                     flowSeries0.append(tPI, flowPI)
                     tempPts.push({ x: tPI, y: temp })
@@ -394,15 +394,15 @@ Item {
             }
 
             if (pump === "pressure") {
-                var targetP = frame.pressure || 0
+                let targetP = frame.pressure || 0
 
                 if (!hadPreinfusion && duration >= 2) {
                     // First significant pressure frame: draw absorption curve
                     hadPreinfusion = true
-                    var peakFlow = Math.min(frame.flow || 8.0, 8.5)
+                    let peakFlow = Math.min(frame.flow || 8.0, 8.5)
 
                     // Find pour flow from the next flow frame (for residual estimation)
-                    for (var j = i + 1; j < frames.length; j++) {
+                    for (let j = i + 1; j < frames.length; j++) {
                         if ((frames[j].pump || "pressure") === "flow" && (frames[j].flow || 0) > 0) {
                             residualFlow = frames[j].flow
                             break
@@ -410,12 +410,12 @@ Item {
                     }
 
                     // Draw preinfusion using normalized shape scaled to this frame
-                    for (var k = 0; k < simTimeFrac.length; k++) {
-                        var t = startTime + simTimeFrac[k] * duration
-                        var p = simPresFrac[k] * targetP
+                    for (let k = 0; k < simTimeFrac.length; k++) {
+                        let t = startTime + simTimeFrac[k] * duration
+                        let p = simPresFrac[k] * targetP
                         // Scale flow: absorption peak, then decay toward residual
-                        var rawFlow = simFlowFrac[k] * peakFlow
-                        var f = Math.max(rawFlow, residualFlow * simPresFrac[k])
+                        let rawFlow = simFlowFrac[k] * peakFlow
+                        let f = Math.max(rawFlow, residualFlow * simPresFrac[k])
                         pressureSeries0.append(t, p)
                         flowSeries0.append(t, f)
                         tempPts.push({ x: t, y: temp })
@@ -427,19 +427,19 @@ Item {
                     // For smooth transitions (e.g., A-Flow Pressure Up/Decline),
                     // interpolate pressure over the full frame duration with multiple
                     // points to produce a visible curve (not just start/end).
-                    var startP = (isSmooth && currentPressure > 0) ? currentPressure : targetP
+                    let startP = (isSmooth && currentPressure > 0) ? currentPressure : targetP
 
                     if (isSmooth && Math.abs(startP - targetP) > 0.5 && duration >= 2) {
                         // Smooth ramp with intermediate points
-                        var steps = Math.min(8, Math.max(3, Math.round(duration / 2)))
-                        for (var s = 0; s <= steps; s++) {
-                            var frac = s / steps
-                            var tPt = startTime + frac * duration
+                        let steps = Math.min(8, Math.max(3, Math.round(duration / 2)))
+                        for (let s = 0; s <= steps; s++) {
+                            let frac = s / steps
+                            let tPt = startTime + frac * duration
                             // Ease-in-out: cubic hermite for natural pressure ramp
-                            var ease = frac * frac * (3 - 2 * frac)
-                            var pPt = startP + ease * (targetP - startP)
+                            let ease = frac * frac * (3 - 2 * frac)
+                            let pPt = startP + ease * (targetP - startP)
                             // Flow responds to changing pressure: higher pressure → more flow through puck
-                            var flowPt = residualFlow + (pPt / Math.max(1, targetP)) * residualFlow * 0.5
+                            let flowPt = residualFlow + (pPt / Math.max(1, targetP)) * residualFlow * 0.5
                             pressureSeries0.append(tPt, pPt)
                             flowSeries0.append(tPt, flowPt)
                             tempPts.push({ x: tPt, y: temp })
@@ -457,41 +457,41 @@ Item {
                 }
 
             } else if (pump === "flow") {
-                var targetFlow = frame.flow || 0
-                var limiter = frame.max_flow_or_pressure || 0
+                let targetFlow = frame.flow || 0
+                let limiter = frame.max_flow_or_pressure || 0
 
                 // flow=0 with smooth = continue at previous rate (A-Flow pattern)
-                var effectiveFlow = targetFlow
+                let effectiveFlow = targetFlow
                 if (targetFlow <= 0 && isSmooth) {
                     effectiveFlow = currentFlow > 0 ? currentFlow : 0
                 }
 
                 // Pressure during flow: limiter if set, otherwise residual from peak
-                var flowPressure = limiter > 0 ? limiter : (currentPressure > 0 ? currentPressure * 0.7 : 0)
+                let flowPressure = limiter > 0 ? limiter : (currentPressure > 0 ? currentPressure * 0.7 : 0)
 
                 // Smooth transitions ramp over the full frame duration (matching machine
                 // behavior with transition=smooth). Fast transitions settle quickly (~2s).
                 if (isSmooth && duration >= 2) {
                     // Smooth: interpolate over full duration with intermediate points
-                    var steps2 = Math.min(8, Math.max(3, Math.round(duration / 2)))
-                    for (var s2 = 0; s2 <= steps2; s2++) {
-                        var frac2 = s2 / steps2
-                        var tPt2 = startTime + frac2 * duration
-                        var ease2 = frac2 * frac2 * (3 - 2 * frac2)
+                    let steps2 = Math.min(8, Math.max(3, Math.round(duration / 2)))
+                    for (let s2 = 0; s2 <= steps2; s2++) {
+                        let frac2 = s2 / steps2
+                        let tPt2 = startTime + frac2 * duration
+                        let ease2 = frac2 * frac2 * (3 - 2 * frac2)
                         pressureSeries0.append(tPt2, currentPressure + ease2 * (flowPressure - currentPressure))
                         flowSeries0.append(tPt2, currentFlow + ease2 * (effectiveFlow - currentFlow))
                         tempPts.push({ x: tPt2, y: temp })
                     }
                 } else {
                     // Fast: ramp with ease-in-out curve over ~4s (matching machine PID settling)
-                    var rampTime = Math.min(4.0, duration * 0.4)
-                    var rampEnd = startTime + rampTime
-                    var rampSteps = Math.max(3, Math.round(rampTime * 2))
+                    let rampTime = Math.min(4.0, duration * 0.4)
+                    let rampEnd = startTime + rampTime
+                    let rampSteps = Math.max(3, Math.round(rampTime * 2))
 
-                    for (var sr = 0; sr <= rampSteps; sr++) {
-                        var fracR = sr / rampSteps
-                        var tR = startTime + fracR * rampTime
-                        var easeR = fracR * fracR * (3 - 2 * fracR)
+                    for (let sr = 0; sr <= rampSteps; sr++) {
+                        let fracR = sr / rampSteps
+                        let tR = startTime + fracR * rampTime
+                        let easeR = fracR * fracR * (3 - 2 * fracR)
                         pressureSeries0.append(tR, currentPressure + easeR * (flowPressure - currentPressure))
                         flowSeries0.append(tR, currentFlow + easeR * (effectiveFlow - currentFlow))
                         tempPts.push({ x: tR, y: temp })

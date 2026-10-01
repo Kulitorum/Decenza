@@ -53,10 +53,6 @@ Rectangle {
     }
 
     // URL detection: convert plain text to StyledText with clickable links
-    function escapeHtml(text) {
-        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    }
-
     function formatTextWithLinks(plainText) {
         if (!plainText) return ""
         // Run regex on original text before HTML escaping so URLs with & are not truncated
@@ -65,15 +61,15 @@ Rectangle {
         var result = ""
         var match
         while ((match = urlRegex.exec(plainText)) !== null) {
-            result += escapeHtml(plainText.substring(lastIndex, match.index))
-            var url = match[0].replace(/[.,;:!?\])}]+$/, '')  // trim trailing punctuation
+            result += Theme.escapeHtml(plainText.substring(lastIndex, match.index))
+            let url = match[0].replace(/[.,;:!?\])}]+$/, '')  // trim trailing punctuation
             // No inline style="color:" — Text.StyledText ignores it; the link color
             // comes from the Text.linkColor property on displayText instead.
-            result += '<a href="' + url + '">' + escapeHtml(url) + '</a>'
+            result += '<a href="' + url + '">' + Theme.escapeHtml(url) + '</a>'
             lastIndex = match.index + url.length
             urlRegex.lastIndex = lastIndex
         }
-        result += escapeHtml(plainText.substring(lastIndex))
+        result += Theme.escapeHtml(plainText.substring(lastIndex))
         return result.replace(/\n/g, "<br>")
     }
 
@@ -271,7 +267,7 @@ Rectangle {
             // Desktop: centered dialog
             var maxH = Math.min(parent.height * 0.75, Theme.scaled(500))
             if (keyboardActive && keyboardHeight > 0) {
-                var available = parent.height - keyboardHeight - Theme.scaled(20)
+                let available = parent.height - keyboardHeight - Theme.scaled(20)
                 return Math.min(maxH, Math.max(Theme.scaled(200), available))
             }
             return maxH

@@ -1427,6 +1427,7 @@ target_include_directories(tst_sampleblobseries PRIVATE ${CMAKE_BINARY_DIR})
 add_decenza_test(tst_mqttclient
     tst_mqttclient.cpp
     ${CMAKE_SOURCE_DIR}/src/network/mqttclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/localnetworkaccess.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_mqttclient PRIVATE paho-mqtt3a-static)

@@ -4,6 +4,7 @@
 #include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
+#include "../network/localnetworkaccess.h"
 #include "core/deviceinfo.h"
 #include "core/fileshare.h"
 #include "network/webdebuglogger.h"
@@ -1041,6 +1042,7 @@ void BLEManager::probeMdnsForManualEntry() {
 void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp) {
     QString host = hostnameOrIp.trimmed();
     if (host.isEmpty()) return;
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
 
     // A bare name with no dot is an mDNS hostname missing its suffix — append
     // ".local" so it resolves (matches the discovery default "hds.local"). IPs
@@ -2173,6 +2175,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
 }
 
 void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     // NON-disruptive HDS identity check: open ws://<ip>/snapshot and require a
     // valid HDS frame (snapshot or status — both per the openscale WS protocol)
     // within the timeout. Does NOT touch the live (BLE backup) scale, so a
@@ -2701,6 +2704,7 @@ void BLEManager::scanForDevices() {
     // browse's first callback is a dump of the resolver's cache — stale
     // instances included — and the resolver's own pruning of those arrives
     // seconds later.
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     ensureWifiDiscovery();
     m_wifiDiscovery->browse(15000);
     m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(),
@@ -2731,6 +2735,7 @@ void BLEManager::scanForDevices() {
 }
 
 void BLEManager::browseWifiScales(int timeoutMs) {
+    LocalNetworkAccess::request(LocalNetworkAccess::Feature::WifiScale);
     ensureWifiDiscovery();
     m_wifiResults.clear();
     clearWifiScaleRows();

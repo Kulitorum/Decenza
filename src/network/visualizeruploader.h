@@ -10,7 +10,7 @@
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 // Profile and ShotDataModel are INCLUDED, not forward-declared, because they appear as pointer
 // parameters of Q_INVOKABLE methods on a class that is now a QML type. moc must build a metatype
 // for every such parameter, and an incomplete type fails the build outright ("Pointer Meta Types

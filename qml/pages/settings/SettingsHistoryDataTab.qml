@@ -305,8 +305,8 @@ KeyboardAwareContainer {
                         accessibleLabel: TranslationManager.translate("settings.data.backuptime", "Backup time")
                         model: {
                             var times = [TranslationManager.translate("settings.data.backupoff", "Off")];
-                            for (var hour = 0; hour < 24; hour++) {
-                                var hourStr = hour.toString().padStart(2, '0');
+                            for (let hour = 0; hour < 24; hour++) {
+                                let hourStr = hour.toString().padStart(2, '0');
                                 times.push(hourStr + ":00");
                             }
                             return times;
@@ -475,16 +475,16 @@ KeyboardAwareContainer {
                     readonly property var rawBackups: MainController.backupManager ? MainController.backupManager.availableBackups : []
                     readonly property var displayNames: {
                         var list = [];
-                        for (var i = 0; i < rawBackups.length; i++) {
-                            var parts = rawBackups[i].split("|");
+                        for (let i = 0; i < rawBackups.length; i++) {
+                            let parts = rawBackups[i].split("|");
                             if (parts.length === 2) list.push(parts[0]);
                         }
                         return list;
                     }
                     readonly property var backupFilenames: {
                         var list = [];
-                        for (var i = 0; i < rawBackups.length; i++) {
-                            var parts = rawBackups[i].split("|");
+                        for (let i = 0; i < rawBackups.length; i++) {
+                            let parts = rawBackups[i].split("|");
                             if (parts.length === 2) list.push(parts[1]);
                         }
                         return list;
@@ -1534,7 +1534,7 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 historyDataTab.restoreInProgress = true;
-                                var started = MainController.backupManager.restoreBackup(
+                                let started = MainController.backupManager.restoreBackup(
                                     restoreConfirmDialog.selectedBackup,
                                     restoreConfirmDialog.mergeMode,
                                     restoreConfirmDialog.restoreShots,
@@ -1608,10 +1608,10 @@ KeyboardAwareContainer {
         y: {
             if (totpCodeField.activeFocus) {
                 // Center in the visible area above the keyboard
-                var kbHeight = Keyboard.rectangle.height;
+                let kbHeight = Keyboard.rectangle.height;
                 if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
                     kbHeight = parent.height * 0.45;
-                var availableHeight = parent.height - kbHeight;
+                let availableHeight = parent.height - kbHeight;
                 return Math.round(Math.max(Theme.scaled(10), (availableHeight - height) / 2));
             }
             return Math.round((parent.height - height) / 2);

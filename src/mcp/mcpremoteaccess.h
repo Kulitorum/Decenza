@@ -4,6 +4,7 @@
 #include <QHash>
 
 #include "mcpratewindow.h"
+#include "mcptunnel_tsnet.h"
 #include <QSet>
 #include <QByteArray>
 #include <QDateTime>
@@ -14,7 +15,6 @@ class QTcpSocket;
 class QTimer;
 class McpServer;
 class SettingsMcp;
-class McpTunnelTsnet;
 class QNetworkAccessManager;
 class QNetworkReply;
 
@@ -41,8 +41,8 @@ class QNetworkReply;
 class McpRemoteAccess : public QObject {
     Q_OBJECT
     Q_PROPERTY(Status status READ status NOTIFY statusChanged)
-    // Machine-readable status token for QML ("off"|"starting"|"active"|
-    // "reconnecting"|"error") — avoids exposing the C++ enum into QML.
+    // Machine-readable status token for QML ("off"|"starting"|"publishing"|
+    // "active"|"reconnecting"|"error") — avoids exposing the C++ enum into QML.
     Q_PROPERTY(QString statusString READ statusString NOTIFY statusChanged)
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusChanged)
     Q_PROPERTY(QString connectorUrl READ connectorUrl NOTIFY connectorUrlChanged)
@@ -52,11 +52,15 @@ class McpRemoteAccess : public QObject {
     Q_PROPERTY(QString loginUrl READ loginUrl NOTIFY loginUrlChanged)
     // Whether embedded-tunnel modes (Mode A) are compiled into this build.
     Q_PROPERTY(bool tunnelAvailable READ tunnelAvailable CONSTANT)
+    // Mode A: something the one-time Funnel setup covers is missing (sign-in,
+    // Funnel grant, HTTPS certificates). False once Tailscale grants Funnel.
+    Q_PROPERTY(bool tailscaleSetupNeeded READ tailscaleSetupNeeded NOTIFY tailscaleSetupNeededChanged)
 
 public:
     enum Status {
         Off,           // disabled
         Starting,      // listener coming up
+        Publishing,    // Mode A: Funnel granted, public URL not answering yet
         Active,        // listener up and serving the tokenized route
         Reconnecting,  // listener dropped; retrying
         Error          // could not start (port in use, unsupported mode)
@@ -80,6 +84,7 @@ public:
     int listenPort() const;
     QString loginUrl() const;
     static bool tunnelAvailable();
+    bool tailscaleSetupNeeded() const { return m_tailscaleSetupNeeded; }
 
     // Re-evaluate settings (enabled / mode / port) and start, stop, or restart
     // the listener accordingly. Safe to call repeatedly.
@@ -104,6 +109,7 @@ signals:
     void statusChanged();
     void connectorUrlChanged();
     void loginUrlChanged();
+    void tailscaleSetupNeededChanged();
 
 private slots:
     void onNewConnection();
@@ -132,6 +138,33 @@ private:
     void startReachabilityProbe();
     void stopReachabilityProbe();
     void doReachabilityProbe();
+
+    // What a failed reachability probe means. hostNotFound is the probe's DNS
+    // failure; every other failure (refused, TLS, timeout) passes false.
+    enum class ProbeFailure {
+        Verifying,         // inside the grace window, outcome still open
+        WaitingForTailscale,  // Funnel granted; Tailscale is still bringing the URL up
+        DnsNotPublished,   // granted, but the name never appeared
+        FunnelNotGranted,  // the tailnet policy does not give this device Funnel
+        NotAnswering,      // granted and resolvable, but nothing answers
+        Unreachable,       // grant unknown and the URL does not answer
+    };
+    static ProbeFailure classifyProbeFailure(McpTunnelTsnet::FunnelGrant grant, bool hostNotFound,
+                                             int failCount);
+    // Until the node reports the grant, only a sign-in prompt or a failure says
+    // setup is missing; a normal start would otherwise flash the setup button.
+    static bool setupNeeded(McpTunnelTsnet::FunnelGrant grant, McpTunnelTsnet::State tunnelState,
+                            Status status);
+    void updateTailscaleSetupNeeded();
+    static constexpr int kProbeFailuresBeforeError = 5;
+    // Windows for a granted device, at the 6 s probe interval. An unpublished name:
+    // 15 min. A cold start publishes within ~5 min (2026-10-01: 74 s at the
+    // authoritative servers, 346 s to clear the resolver's cached NXDOMAIN); one
+    // 2026-09-22 run never published in 13 min. A published name refusing the
+    // connection: 2 min. After a restart that lasted 37 s and 39 s (2026-09-23) and
+    // 43 s (2026-10-01) before the URL answered.
+    static constexpr int kProbeFailuresBeforeDnsError = 150;
+    static constexpr int kProbeFailuresBeforeNotAnsweringError = 20;
     void stopListener();
     void setStatus(Status status, const QString& detail = QString());
     void closeAllSockets();
@@ -191,6 +224,7 @@ private:
 
     Status m_status = Off;
     QString m_statusDetail;
+    bool m_tailscaleSetupNeeded = false;
 
     struct PendingRequest {
         QByteArray buffer;

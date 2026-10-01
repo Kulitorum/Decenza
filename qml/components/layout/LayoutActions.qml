@@ -145,15 +145,15 @@ QtObject {
             _warn("layoutActionCatalog() returned nothing; the action picker will be empty")
             return out
         }
-        for (var i = 0; i < catalog.length; ++i) {
-            var a = catalog[i]
+        for (let i = 0; i < catalog.length; ++i) {
+            let a = catalog[i]
             if (a.contexts.indexOf(ctx) < 0 && a.contexts.indexOf("all") < 0)
                 continue
             if (excludeSubmenu && a.expandsToSubmenu)
                 continue
             // Reading TranslationManager.translate (a Q_PROPERTY holding a callable)
             // establishes the dependency, so these labels re-resolve on a language change.
-            var label = TranslationManager.translate(a.labelKey, a.label)
+            let label = TranslationManager.translate(a.labelKey, a.label)
             // Marked in the catalog, not matched by id here: an id comparison on the far
             // side of the C++/QML boundary goes stale in silence if the id is renamed,
             // taking with it the only cue that this row opens a second list.
@@ -182,7 +182,7 @@ QtObject {
         items.push({ id: defaultLabel ? layoutActions.kNoAction : "",
                      label: TranslationManager.translate("customeditor.action.none", "None") })
         var filtered = pickerActions(pageContext, excludeSubmenu)
-        for (var i = 0; i < filtered.length; i++)
+        for (let i = 0; i < filtered.length; i++)
             items.push(filtered[i])
         return items
     }
@@ -258,7 +258,7 @@ QtObject {
         var target = parts.slice(1).join(":")
 
         if (category === "togglePreset") {
-            var p = ctx && ctx.idlePage ? ctx.idlePage : null
+            let p = ctx && ctx.idlePage ? ctx.idlePage : null
             if (p && typeof p.activePresetFunction !== "undefined") {
                 p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
             } else {
@@ -307,11 +307,12 @@ QtObject {
             case "community":       AppShell.communityBrowserRequested(); break
             case "flowCalibration": AppShell.flowCalibrationRequested(); break
             case "profileImport":   AppShell.profileImportRequested(); break
-            case "shotReview":
-                var shotId = MainController.lastSavedShotId
+            case "shotReview": {
+                let shotId = MainController.lastSavedShotId
                 if (shotId > 0)
                     AppShell.postShotReviewRequested(shotId, false)
                 break
+            }
             default:
                 _warn("unknown navigate target '" + target + "'")
             }
@@ -319,7 +320,7 @@ QtObject {
             // The hardware Group Head Controller (GHC), when present and active, takes
             // exclusive control of starting shots/steam/etc., so on-screen start calls
             // are only valid in headless (no/inactive GHC) or simulation mode.
-            var canStart = typeof DE1Device !== "undefined" && DE1Device !== null
+            let canStart = typeof DE1Device !== "undefined" && DE1Device !== null
                     && DE1Device.guiEnabled
                     && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
@@ -385,10 +386,10 @@ QtObject {
                         MainController.toggleSteamHeater("custom-widget-toggle")
                     }
                     break
-                case "uploadVisualizer":
-                    var lastId = MainController.lastSavedShotId
+                case "uploadVisualizer": {
+                    let lastId = MainController.lastSavedShotId
                     if (lastId > 0) {
-                        var handler = function(shotId, data) {
+                        let handler = function(shotId, data) {
                             if (shotId !== lastId) return
                             MainController.shotHistory.shotReady.disconnect(handler)
                             MainController.visualizer.uploadShotFromHistory(data)
@@ -399,22 +400,24 @@ QtObject {
                         _warn("uploadVisualizer — no saved shot this session, nothing to upload")
                     }
                     break
+                }
                 case "disconnectDE1":
                     if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.disconnect()
                     break
-                case "previousProfile":
-                    var prevName = ProfileManager.previousProfileName()
+                case "previousProfile": {
+                    let prevName = ProfileManager.previousProfileName()
                     if (prevName)
                         ProfileManager.loadProfile(prevName)
                     break
+                }
                 case "quit":
                     Qt.quit()
                     break
                 default:
                     // Handle parameterized commands like loadProfile:<name>
                     if (target.indexOf("loadProfile:") === 0) {
-                        var profileName = target.substring("loadProfile:".length)
+                        let profileName = target.substring("loadProfile:".length)
                         if (profileName)
                             ProfileManager.loadProfile(profileName)
                         else

@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add `cupLiftMidSettlePreservesLastStableAvg` to `tests/tst_settling.cpp` that constructs `ShotTimingController`, fires `onSawTriggered(41.2, 2.5, 42.0)`, calls `endShot()`, then replays the 19-sample stream extracted from `[SAW] Settling:` log lines for shot 5470: `41.5, 41.7, 42.0, 42.2, 42.3×7, 42.4×2, 42.5, 44, 48.4, 51, 38.5, −28`.
 - [ ] 1.2 Assert the final `tc.currentWeight()` is between 41.5 and 43.0 g (target ≈ 42.3) and that `isSawSettling()` is false. Use `QTest::ignoreMessage` for the `[SAW] Cup removed during settling` warning the cup-removed branch emits.
-- [ ] 1.3 Run `ctest -R settling` and confirm the new test FAILS before any code fix (returns ~38.5 g).
+- [ ] 1.3 Run `ctest -R settling --no-tests=error` and confirm the new test FAILS before any code fix (returns ~38.5 g).
 
 ## 2. ShotTimingController: capture + restore clean settling avg
 
@@ -12,7 +12,7 @@
 - [ ] 2.4 In the cup-removed branch of `onWeightSample` (lines 210–226), before the existing `return;`, restore `m_weight` using the fallback chain: clean avg → stop-weight floor → unchanged. Update the existing NOTE comment to describe the new behavior.
 - [ ] 2.5 Reset `m_lastCleanSettlingAvg = 0.0` in `startSettlingTimer()` (around line 466+).
 - [ ] 2.6 Reset `m_lastCleanSettlingAvg = 0.0` in `startShot()` alongside the existing `m_settlingPeakWeight = 0.0` reset (around line 111).
-- [ ] 2.7 Re-run `ctest -R settling` and confirm the new test now passes (returns ≈ 42.3 g).
+- [ ] 2.7 Re-run `ctest -R settling --no-tests=error` and confirm the new test now passes (returns ≈ 42.3 g).
 
 ## 3. ShotSummarizer: plumb stoppedBy into standalone shot block
 
@@ -50,7 +50,7 @@
 
 - [ ] 7.1 Build via Qt Creator MCP (Debug, with `BUILD_TESTS=ON`).
 - [ ] 7.2 Run full test suite: `ctest --output-on-failure`. All existing tests pass.
-- [ ] 7.3 Run `ctest -R shot_corpus_regression`. Detector verdicts unchanged (expected — detectors do not read `TC.currentWeight`).
+- [ ] 7.3 Run `ctest -R tst_shotcorpus --no-tests=error`. Detector verdicts unchanged (expected — detectors do not read `TC.currentWeight`).
 - [ ] 7.4 Lint: review the diff for stray includes, `qDebug` left in for development, etc.
 
 ## 8. Review and PR

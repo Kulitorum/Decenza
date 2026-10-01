@@ -125,7 +125,7 @@ LayoutWidgetItem {
         onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
             if (typeof MachineState !== "undefined" && MachineState !== null) MachineState.tareScale()
@@ -136,7 +136,7 @@ LayoutWidgetItem {
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var presets = Settings.brew.steamPitcherPresets
             var names = []
-            for (var i = 0; i < presets.length; ++i) {
+            for (let i = 0; i < presets.length; ++i) {
                 names.push(SteamLabels.pitcherName(presets[i]))
             }
             // Resolve through the helper, not by position: the built-in
@@ -162,9 +162,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -175,8 +175,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width
                 if (globalX + centered < 0)

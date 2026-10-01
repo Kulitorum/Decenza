@@ -3954,7 +3954,7 @@ QString ShotServer::generateLayoutPage() const
             // Must match DocumentFormatter::segmentsToHtml() byte for byte — a widget authored
             // here and one authored in the app compile to the same stored `content`. The C++
             // side uses QString::toHtmlEscaped(), which also escapes the double quote
-            // (qstring.cpp:10129), so this did too little and the two surfaces drifted.
+            // (qstring.cpp:10118), so this did too little and the two surfaces drifted.
             var escaped = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
             var styles = [];
             if (seg.color) styles.push("color:" + seg.color);

@@ -175,8 +175,8 @@ T.Page {
         case "details": {
             // Step back through the details windows; from the first one, back
             // out to the profile step (bean, for hot-water tea with no profile).
-            var pages = detailsPages()
-            var i = pages.indexOf(_detailsPage)
+            let pages = detailsPages()
+            let i = pages.indexOf(_detailsPage)
             if (i > 0) {
                 _detailsPage = pages[i - 1]
             } else if (isHotWaterTea) {
@@ -321,10 +321,10 @@ T.Page {
     function syncDerivedYieldFields() {
         var d = parseFloat(doseField.text) || 0
         if (fYieldMode === "ratio") {
-            var r = parseFloat(ratioField.text) || 0
+            let r = parseFloat(ratioField.text) || 0
             yieldField.text = (d > 0 && r > 0) ? (d * r).toFixed(1) : ""
         } else if (fYieldMode === "absolute") {
-            var y = parseFloat(yieldField.text) || 0
+            let y = parseFloat(yieldField.text) || 0
             ratioField.text = (d > 0 && y > 0) ? (y / d).toFixed(1) : ""
         } else {
             // Unanchored: both empty unless one gets typed into.
@@ -400,7 +400,7 @@ T.Page {
         var parts = []
         if (bean !== "") parts.push(bean)
         if (typeWord !== "") {
-            var stutter = bean !== ""
+            let stutter = bean !== ""
                 && bean.toLowerCase().endsWith(" " + typeWord.toLowerCase())
             if (bean.toLowerCase() === typeWord.toLowerCase())
                 stutter = true
@@ -422,8 +422,8 @@ T.Page {
         // inventory not yet loaded (or no usable value) the plain `base` ships.
         var suggestion = base
         if (nameCollides(base)) {
-            var yq = yieldQualifierText()
-            var dq = doseQualifierText()
+            let yq = yieldQualifierText()
+            let dq = doseQualifierText()
             if (yq !== "" && !nameCollides(base + " " + yq))
                 suggestion = base + " " + yq
             else if (dq !== "" && !nameCollides(base + " " + dq))
@@ -453,7 +453,7 @@ T.Page {
         if (lower.indexOf("d-flow/") === 0 || lower.indexOf("a-flow/") === 0)
             p = p.substring(p.indexOf("/") + 1).trim()
         if (typeWord && typeWord !== "") {
-            var lp = p.toLowerCase(), lt = typeWord.toLowerCase()
+            let lp = p.toLowerCase(), lt = typeWord.toLowerCase()
             if (lp === lt)
                 return ""
             if (lp.endsWith(" " + lt))
@@ -468,7 +468,7 @@ T.Page {
         var c = (candidate || "").trim().toLowerCase()
         if (c === "")
             return false
-        for (var i = 0; i < _existingRecipeNames.length; ++i)
+        for (let i = 0; i < _existingRecipeNames.length; ++i)
             if (_existingRecipeNames[i] === c)
                 return true
         return false
@@ -478,11 +478,11 @@ T.Page {
     // absolute yield / dose → "40g" (trailing ".0" trimmed).
     function yieldQualifierText() {
         if (fYieldMode === "ratio") {
-            var r = parseFloat(ratioField.text) || 0
+            let r = parseFloat(ratioField.text) || 0
             return r > 0 ? "1:" + trimNumForName(r) : ""
         }
         if (fYieldMode === "absolute") {
-            var y = parseFloat(yieldField.text) || 0
+            let y = parseFloat(yieldField.text) || 0
             return y > 0 ? trimNumForName(y) + "g" : ""
         }
         return ""
@@ -602,7 +602,7 @@ T.Page {
     function deriveDrinkType() {
         var bev = ""
         if (fProfileTitle !== "") {
-            var fn = ProfileManager.findProfileByTitle(fProfileTitle)
+            let fn = ProfileManager.findProfileByTitle(fProfileTitle)
             if (fn && fn !== "")
                 bev = String(ProfileManager.getProfileByFilename(fn).beverage_type || "").toLowerCase()
         }
@@ -621,7 +621,7 @@ T.Page {
         if (!json || json === "")
             return
         try {
-            var s = JSON.parse(json)
+            let s = JSON.parse(json)
             fHasMilk = !!s.hasMilk
             fMilkWeightG = s.milkWeightG || 0
             fHeaterOff = !!s.heaterOff
@@ -659,7 +659,7 @@ T.Page {
         if (!json || json === "")
             return
         try {
-            var w = JSON.parse(json)
+            let w = JSON.parse(json)
             fHasWater = !!w.hasWater
             fVesselName = w.vesselName || ""
             fVesselVolume = w.volume || 0
@@ -765,7 +765,7 @@ T.Page {
         // temperature is only the fallback for a snapshot-less shot.
         // Unresolvable both ways → no pin.
         if ((shot.temperatureOverrideC || 0) > 0) {
-            var promoteAnchor = 0
+            let promoteAnchor = 0
             if (shot.profileJson && String(shot.profileJson).length > 0) {
                 try {
                     promoteAnchor = Number(JSON.parse(shot.profileJson).espresso_temperature) || 0
@@ -776,7 +776,7 @@ T.Page {
             if (promoteAnchor <= 0)
                 promoteAnchor = fProfileTempC
             if (promoteAnchor > 0) {
-                var promoteOffset = shot.temperatureOverrideC - promoteAnchor
+                let promoteOffset = shot.temperatureOverrideC - promoteAnchor
                 if (Math.abs(promoteOffset) < 0.05)
                     promoteOffset = 0
                 if (isTeaDrink)
@@ -822,8 +822,8 @@ T.Page {
         fProfileYieldG = Number(d.target_weight) || 0
         var temps = []
         var steps = d.steps || []
-        for (var i = 0; i < steps.length; ++i) {
-            var stTemp = steps[i] ? Number(steps[i].temperature) : 0
+        for (let i = 0; i < steps.length; ++i) {
+            let stTemp = steps[i] ? Number(steps[i].temperature) : 0
             if (stTemp > 0)
                 temps.push(stTemp)
         }
@@ -1079,8 +1079,8 @@ T.Page {
         fProfileYieldG = detail.target_weight || 0
         var pickedTemps = []
         var pickedSteps = detail.steps || []
-        for (var psi = 0; psi < pickedSteps.length; ++psi) {
-            var psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
+        for (let psi = 0; psi < pickedSteps.length; ++psi) {
+            let psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
             if (psTemp > 0)
                 pickedTemps.push(psTemp)
         }
@@ -1131,8 +1131,8 @@ T.Page {
     // it has since been retired, so the selection stays visible).
     function equipmentTileModel() {
         var arr = [{ isNone: true }]
-        for (var i = 0; i < _packages.length; ++i) {
-            var p = _packages[i]
+        for (let i = 0; i < _packages.length; ++i) {
+            let p = _packages[i]
             if (p.inInventory !== false || p.id === fEquipmentId)
                 arr.push(p)
         }
@@ -1174,7 +1174,7 @@ T.Page {
         // Every entry, INCLUDING the built-in "Heater off" appended last. It
         // used to be filtered out here, which left the wizard unable to express
         // a drink the machine is perfectly capable of: one that steams nothing.
-        for (var i = 0; i < presets.length; ++i) {
+        for (let i = 0; i < presets.length; ++i) {
             arr.push(presets[i])
             if ((presets[i].name || "") === fPitcherName)
                 found = true
@@ -1233,7 +1233,7 @@ T.Page {
         var presets = Settings.brew.waterVesselPresets
         var arr = []
         var found = false
-        for (var i = 0; i < presets.length; ++i) {
+        for (let i = 0; i < presets.length; ++i) {
             arr.push(presets[i])
             if ((presets[i].name || "") === fVesselName)
                 found = true
@@ -1381,10 +1381,10 @@ T.Page {
         if (tempStr !== "")
             parts.push(tempStr)
         if (activeTemplate.grind) {
-            var g = fGrind.trim()
+            let g = fGrind.trim()
             if (g !== "") {
-                var rpm = fRpmPinned
-                var grindStr = TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g)
+                let rpm = fRpmPinned
+                let grindStr = TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g)
                 if (fEquipmentRpmCapable && rpm > 0)
                     grindStr += " · " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm)
                 parts.push(grindStr)
@@ -1505,9 +1505,9 @@ T.Page {
         if (steps.length === 0)
             return ""
         var maxP = 0, maxF = 0
-        for (var i = 0; i < steps.length; ++i) {
-            var p = Number(steps[i].pressure) || 0
-            var f = Number(steps[i].flow) || 0
+        for (let i = 0; i < steps.length; ++i) {
+            let p = Number(steps[i].pressure) || 0
+            let f = Number(steps[i].flow) || 0
             if (p > maxP) maxP = p
             if (f > maxF) maxF = f
         }
@@ -1527,9 +1527,9 @@ T.Page {
     function resetNumbersToProfile() {
         var dose = 0
         if (fProfileTitle !== "") {
-            var fn = ProfileManager.findProfileByTitle(fProfileTitle)
+            let fn = ProfileManager.findProfileByTitle(fProfileTitle)
             if (fn && fn !== "") {
-                var d = ProfileManager.getProfileByFilename(fn)
+                let d = ProfileManager.getProfileByFilename(fn)
                 dose = d.recommended_dose || 0
                 fProfileTempC = d.espresso_temperature || 0
                 fProfileYieldG = d.target_weight || 0
@@ -1565,8 +1565,8 @@ T.Page {
             if (fBagBlob !== "") {
                 try { _teaBrewing = JSON.parse(fBagBlob) } catch (e) { _teaBrewing = ({}); WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad bag blob JSON:", e].map(String).join(" ")) }
             }
-            var stated = parseFloat(_teaBrewing.brewTempC) || 0
-            var typeMatched = fProfileTitle !== ""
+            let stated = parseFloat(_teaBrewing.brewTempC) || 0
+            let typeMatched = fProfileTitle !== ""
                 && ProfileManager.teaProfileMatchesType(fProfileTitle, String(_teaBrewing.teaType || ""))
             if (fTeaTempC <= 0 && (stated > 0 || parseFloat(_teaBrewing.leafGramsPer100Ml) > 0))
                 _numbersSource = "teabag"
@@ -1585,9 +1585,9 @@ T.Page {
                     fTeaTempC = ProfileManager.defaultTeaTempC(String(_teaBrewing.teaType || ""))
             }
             // Leaf dose from the bag's ratio × the target volume.
-            var ratio = parseFloat(_teaBrewing.leafGramsPer100Ml) || 0
+            let ratio = parseFloat(_teaBrewing.leafGramsPer100Ml) || 0
             if (doseField.text === "" && ratio > 0) {
-                var volumeMl = isHotWaterTea ? fVesselVolume : (parseFloat(yieldField.text) || 0)
+                let volumeMl = isHotWaterTea ? fVesselVolume : (parseFloat(yieldField.text) || 0)
                 if (volumeMl > 0)
                     doseField.text = (ratio * volumeMl / 100).toFixed(1)
             }
@@ -1630,7 +1630,7 @@ T.Page {
     readonly property var _wizardAllowedBeverages: {
         var out = []
         var bevs = activeTemplate.beverages || []
-        for (var i = 0; i < bevs.length; ++i) {
+        for (let i = 0; i < bevs.length; ++i) {
             if (bevs[i] !== "") out.push(bevs[i])
         }
         return out
@@ -1677,7 +1677,7 @@ T.Page {
             // Direction only when the grind was dialed for a DIFFERENT
             // profile and the KB knows both profiles' UGS ordering.
             if (src !== "" && wizardPage.fProfileTitle !== "" && src !== wizardPage.fProfileTitle) {
-                var dir = ProfileManager.grindDirectionBetween(src, wizardPage.fProfileTitle)
+                let dir = ProfileManager.grindDirectionBetween(src, wizardPage.fProfileTitle)
                 if (dir === "finer")
                     parts.push(TranslationManager.translate("recipes.wizard.grindHint.finer",
                         "%1 typically grinds finer — start finer than that.").arg(wizardPage.fProfileTitle))
@@ -1813,11 +1813,11 @@ T.Page {
             // Cache existing recipe names (excluding the one being edited) so
             // suggestName() can disambiguate a collision synchronously.
             var names = []
-            for (var i = 0; i < list.length; ++i) {
-                var r = list[i]
+            for (let i = 0; i < list.length; ++i) {
+                let r = list[i]
                 if (wizardPage.mode === "edit" && (r.id || 0) === wizardPage.editRecipeId)
                     continue
-                var n = ((r && r.name) || "").trim().toLowerCase()
+                let n = ((r && r.name) || "").trim().toLowerCase()
                 if (n !== "")
                     names.push(n)
             }
@@ -1848,11 +1848,11 @@ T.Page {
         function onInventoryReady(bags) {
             wizardPage._bags = bags
             if (wizardPage.hasBean) {
-                for (var i = 0; i < bags.length; ++i) {
-                    var b = bags[i]
+                for (let i = 0; i < bags.length; ++i) {
+                    let b = bags[i]
                     // The hard bag link first; bean identity only as a
                     // fallback for link-less recipes (e.g. stale imports).
-                    var match = wizardPage.fBagId > 0
+                    let match = wizardPage.fBagId > 0
                         ? b.id === wizardPage.fBagId
                         : (wizardPage.fBeanBaseId !== ""
                             ? b.beanBaseId === wizardPage.fBeanBaseId
@@ -1878,7 +1878,7 @@ T.Page {
         function onInventoryReady(packages) {
             wizardPage._packages = packages
             if (wizardPage.fEquipmentId > 0) {
-                for (var i = 0; i < packages.length; ++i) {
+                for (let i = 0; i < packages.length; ++i) {
                     if (packages[i].id === wizardPage.fEquipmentId) {
                         wizardPage.fEquipmentName = packages[i].name
                             || ((packages[i].grinderBrand || "") + " " + (packages[i].grinderModel || "")).trim()
@@ -1902,13 +1902,13 @@ T.Page {
             if (wizardPage.fEquipmentId <= 0 && !wizardPage._fromSummary
                     && wizardPage.currentStep === "details"
                     && wizardPage._detailsPage === "equipment") {
-                var inInv = packages.filter(function(p) { return p.inInventory !== false })
+                let inInv = packages.filter(function(p) { return p.inInventory !== false })
                 if (inInv.length === 1) {
                     wizardPage.selectEquipment(inInv[0])
                     wizardPage._detailsPage = "numbers"
                 } else if (inInv.length > 1) {
-                    var activeId = Settings.dye.activeEquipmentId
-                    for (var j = 0; j < inInv.length; j++)
+                    let activeId = Settings.dye.activeEquipmentId
+                    for (let j = 0; j < inInv.length; j++)
                         if (inInv[j].id === activeId) {
                             wizardPage.selectEquipment(inInv[j])
                             break
@@ -2370,9 +2370,9 @@ T.Page {
                     readonly property var kindBags: {
                         var kind = wizardPage.activeTemplate.bagKind
                         var out = []
-                        for (var i = 0; i < wizardPage._bags.length; ++i) {
-                            var b = wizardPage._bags[i]
-                            var bKind = String(b.kind || "") === "tea" ? "tea" : "coffee"
+                        for (let i = 0; i < wizardPage._bags.length; ++i) {
+                            let b = wizardPage._bags[i]
+                            let bKind = String(b.kind || "") === "tea" ? "tea" : "coffee"
                             if (bKind === kind)
                                 out.push(b)
                         }

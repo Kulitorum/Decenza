@@ -54,7 +54,7 @@ T.Page {
         target: MainController.shotHistory
         function onAutoFavoritesReady(results) {
             favoritesModel.clear()
-            for (var i = 0; i < results.length; i++) {
+            for (let i = 0; i < results.length; i++) {
                 if (Settings.network.autoFavoritesHideUnrated && results[i].avgEnjoyment <= 0)
                     continue
                 favoritesModel.append(results[i])
@@ -107,7 +107,7 @@ T.Page {
         var includeProfile = includes.profile
 
         if (includeBean) {
-            var bean = (beanBrand || "") + (beanType ? " - " + beanType : "")
+            let bean = (beanBrand || "") + (beanType ? " - " + beanType : "")
             if (bean) parts.push(bean)
         }
         if (includeProfile && profileName)
@@ -118,7 +118,7 @@ T.Page {
             // appended only in the modes that key on it; the default mode spans
             // every setting, so naming one would describe a group that does not
             // exist.
-            var pkg = equipmentName
+            let pkg = equipmentName
                 || ((grinderBrand || "") + " " + (grinderModel || "")).trim()
             if (includes.grindSetting && grinderSetting)
                 pkg = (pkg + " @ " + grinderSetting).trim()
@@ -470,7 +470,7 @@ T.Page {
                                 // shots the card aggregates, even though the card itself displays
                                 // the latest shot's raw dose.
                                 if (Settings.network.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
-                                    var bucket = favoriteDelegate.model.doseBucket || 0
+                                    let bucket = favoriteDelegate.model.doseBucket || 0
                                     if (bucket > 0) {
                                         filter.minDose = bucket - 0.25
                                         filter.maxDose = bucket + 0.25
@@ -480,7 +480,7 @@ T.Page {
                                     // by exact target yield. minYield/maxYield would filter
                                     // actual pour weight, which almost never equals the target
                                     // to float precision.
-                                    var t = favoriteDelegate.model.targetWeightG || 0
+                                    let t = favoriteDelegate.model.targetWeightG || 0
                                     if (t > 0)
                                         filter.targetWeight = t
                                 }

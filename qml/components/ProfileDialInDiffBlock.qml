@@ -99,7 +99,7 @@ Column {
         if (!row.numeric) return 0
         var max = maxDecimalsFor(row.unit)
         var d = max
-        for (var i = 1; i < max; i++) {
+        for (let i = 1; i < max; i++) {
             if (row.oldValue.toFixed(i) !== row.newValue.toFixed(i)) { d = i; break }
         }
         while (d > 0
@@ -147,7 +147,7 @@ Column {
             return TranslationManager.translate("profilediff.unchanged",
                        "Unchanged copy of %1").arg(root.baseTitle)
         var parts = []
-        for (var i = 0; i < root.rows.length; i++)
+        for (let i = 0; i < root.rows.length; i++)
             parts.push(root.labelFor(root.rows[i]) + " " + root.changeText(root.rows[i]))
         return TranslationManager.translate("profilediff.heading",
                    "Your changes from %1").arg(root.baseTitle) + ": " + parts.join(", ")

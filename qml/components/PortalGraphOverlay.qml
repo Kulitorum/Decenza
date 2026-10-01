@@ -21,8 +21,8 @@ Item {
     function segments(field) {
         var result = []
         var current = []
-        for (var i = 0; i < samples.length; i++) {
-            var sample = samples[i]
+        for (let i = 0; i < samples.length; i++) {
+            let sample = samples[i]
             if (sample.breakBefore && current.length > 0) {
                 result.push(current)
                 current = []
@@ -81,13 +81,13 @@ Item {
     // replays the saved list; packet arrivals never copy/re-segment that list.
     property var liveSegments: []
     function clearLive() {
-        for (var i = 0; i < liveSegments.length; i++) liveSegments[i].destroy()
+        for (let i = 0; i < liveSegments.length; i++) liveSegments[i].destroy()
         liveSegments = []
     }
     function appendLive(time, ecRaw, temperatureC, breakBefore) {
         if (!live) return
         if (breakBefore || liveSegments.length === 0) {
-            var segment = liveSegment.createObject(portalGraph)
+            let segment = liveSegment.createObject(portalGraph)
             if (!segment) return
             liveSegments.push(segment)
         }
@@ -98,8 +98,8 @@ Item {
     Component.onCompleted: {
         if (!live) return
         var initial = ShotDataModel.portalSamples
-        for (var i = 0; i < initial.length; i++) {
-            var sample = initial[i]
+        for (let i = 0; i < initial.length; i++) {
+            let sample = initial[i]
             appendLive(sample.time, sample.ecRaw, sample.temperatureC, sample.breakBefore)
         }
     }

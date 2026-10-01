@@ -31,7 +31,7 @@
 // Why this rather than QTest::ignoreMessage: ignoreMessage is a PERMISSION, not
 // an assertion. An unmatched pattern is reported by printUnhandledIgnoreMessages()
 // via addMessage() with QAbstractTestLogger::Info
-// (qtbase/src/testlib/qtestlog.cpp:397-419) — a printed line, never a failure.
+// (qtbase/src/testlib/qtestlog.cpp:398-420) — a printed line, never a failure.
 // So a test built on ignoreMessage alone still passes if the line under test is
 // demoted a tier or deleted outright.
 //

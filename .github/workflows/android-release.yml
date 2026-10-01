@@ -35,7 +35,7 @@ env:
   # android/qt-overrides/ was deleted with the move to 6.11.2, which carries
   # both of its accessibility fixes upstream; the one fix it carried that is
   # still not upstream is kept as source only, in docs/qt-patches/.
-  QT_VERSION: '6.11.2'
+  QT_VERSION: '6.12.0'
 
 jobs:
   build-android:
@@ -112,8 +112,13 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-android-v1'
 
-      - name: Install Android NDK
+      - name: Install Android NDK and compile platform
         run: |
+          # The compile platform is stated once, in CMakeLists.txt.
+          PLATFORM=$(grep -oP 'QT_ANDROID_COMPILE_SDK_VERSION "\K[^"]+' CMakeLists.txt)
+          echo "Compile platform: $PLATFORM"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM"
+
           # Try to detect which NDK version Qt expects
           QT_NDK_VERSION=""
           for TOOLCHAIN in "$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
@@ -123,7 +128,7 @@ jobs:
             fi
           done
 
-          # Fallback to known-good version for Qt 6.11.x (matches local dev NDK)
+          # Fallback: the NDK Qt 6.12 documents (r27c), matching the local dev NDK
           if [ -z "$QT_NDK_VERSION" ]; then
             QT_NDK_VERSION="27.2.12479018"
           fi
@@ -133,7 +138,7 @@ jobs:
           # Install if not already present
           if [ ! -d "$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" ]; then
             echo "Installing NDK $QT_NDK_VERSION..."
-            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$QT_NDK_VERSION" || true
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$QT_NDK_VERSION"
           else
             echo "NDK $QT_NDK_VERSION already installed"
           fi
@@ -161,9 +166,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-android-qt6.11.2-${{ hashFiles('android/build.gradle') }}
+          key: gradle-android-qt6.12.0-${{ hashFiles('android/build.gradle', 'android/settings.gradle') }}
           restore-keys: |
-            gradle-android-qt6.11.2-
+            gradle-android-qt6.12.0-
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
@@ -206,8 +211,12 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; a release APK cannot be signed."
+            exit 1
+          fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
+          echo "QT_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
@@ -219,84 +228,40 @@ jobs:
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
+            -DQT_ANDROID_SIGN_APK=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
+      # androiddeployqt signs with apksigner from these (androiddeployqt/main.cpp:469-492)
+      # and fails the build if the path or alias is missing.
       - name: Build
         env:
+          QT_ANDROID_KEYSTORE_ALIAS: de1-key
           QT_ANDROID_KEYSTORE_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEYSTORE_PATH: ${{ env.ANDROID_KEYSTORE_PATH }}
         run: |
           cd build
           cmake --build . --config Release --parallel $(nproc)
 
-      - name: Find APK
+      - name: Name the signed APK
         id: apk
         run: |
           VERSION=${{ steps.version.outputs.version }}
-
-          echo "=== All APK files ==="
-          find build -name "*.apk" -type f 2>/dev/null || true
-
-          echo "=== All AAB files ==="
-          find build -name "*.aab" -type f 2>/dev/null || true
-
-          # Look for versioned APK first (from build.gradle hook)
-          APK_PATH=$(find build -name "Decenza_${VERSION}.apk" -type f 2>/dev/null | head -1)
-
-          # Fallback: signed APK
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find build -name "*-release-signed.apk" -type f 2>/dev/null | head -1)
-          fi
-
-          # Last resort: unsigned APK
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find build -name "*-release-unsigned.apk" -type f 2>/dev/null | head -1)
-          fi
-
-          echo "Found APK: $APK_PATH"
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-
-      - name: Sign APK if unsigned
-        id: signed_apk
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          APK="${{ steps.apk.outputs.apk_path }}"
-          VERSION=${{ steps.version.outputs.version }}
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: No APK found!"
+          mapfile -t SIGNED < <(find build -name "*-release-signed.apk" -type f)
+          if [ "${#SIGNED[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed release APK, found ${#SIGNED[@]}:"
+            find build -name "*.apk" -type f
             exit 1
           fi
-
-          if echo "$APK" | grep -q "unsigned"; then
-            echo "APK is unsigned, signing manually..."
-            APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name "apksigner" -not -name "*.bat" -type f | sort -V | tail -1)
-
-            if [ -n "$APKSIGNER" ]; then
-              SIGNED_APK="$(dirname $APK)/Decenza_${VERSION}.apk"
-              $APKSIGNER sign \
-                --ks "$ANDROID_KEYSTORE_PATH" \
-                --ks-key-alias "de1-key" \
-                --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
-                --out "$SIGNED_APK" \
-                "$APK"
-              echo "Signed APK: $SIGNED_APK"
-              echo "apk_path=$SIGNED_APK" >> $GITHUB_OUTPUT
-            else
-              echo "ERROR: apksigner not found!"
-              exit 1
-            fi
-          else
-            echo "APK is already signed"
-            echo "apk_path=$APK" >> $GITHUB_OUTPUT
-          fi
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -not -name "*.bat" -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "${SIGNED[0]}"
+          APK="$(dirname "${SIGNED[0]}")/Decenza_${VERSION}.apk"
+          cp "${SIGNED[0]}" "$APK"
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7
         with:
           name: Decenza-Android-arm64
-          path: ${{ steps.signed_apk.outputs.apk_path || steps.apk.outputs.apk_path }}
+          path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 1
           overwrite: true
 
@@ -306,10 +271,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          APK="${{ steps.signed_apk.outputs.apk_path }}"
-          if [ -z "$APK" ]; then
-            APK="${{ steps.apk.outputs.apk_path }}"
-          fi
+          APK="${{ steps.apk.outputs.apk_path }}"
 
           # Find the release tag
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then

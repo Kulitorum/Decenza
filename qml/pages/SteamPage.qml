@@ -32,7 +32,7 @@ T.Page {
     // a redundant BLE write.
     StackView.onActivated: {
         if (!isSteaming) {
-            var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            let preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             // Re-apply the selected pitcher through the one shared implementation
             // rather than re-deriving its flow/temperature/duration here, which is
             // what this handler used to do — a fourth copy of the same operation.
@@ -77,7 +77,7 @@ T.Page {
     function pitcherFocusTarget(i: int): Item {
         // Range-checked as well as null-checked: Repeater.count is the MODEL size and is
         // emitted before the delegates exist (regenerate() returns early until
-        // componentComplete(), qquickrepeater.cpp:379-396), so `count > 0` with a null
+        // componentComplete(), qquickrepeater.cpp:434-438), so `count > 0` with a null
         // itemAt() is normal while a creation-time binding first evaluates.
         if (i < 0 || i >= pitcherRepeater.count) return null
         var it = pitcherRepeater.itemAt(i) as RepeaterDelegateItem
@@ -138,7 +138,7 @@ T.Page {
         target: MachineState
         function onScaleWeightChanged() {
             if (!steamPage.isSteaming) {
-                var m = steamPage.currentMeasuredMilk()
+                let m = steamPage.currentMeasuredMilk()
                 if (m > 0) steamPage.lastOnScaleMilk = m
             }
         }
@@ -159,9 +159,9 @@ T.Page {
             // live scaled time, falling back to capturedMilkForScaling()'s two sources in
             // priority order (this session's capture, then the last on-scale reading) once
             // the pitcher is lifted to the wand.
-            var _scaledNow = steamPage.steamTimeoutUserAdjusted ? 0 : steamPage.scaledSteamTimeout()
+            let _scaledNow = steamPage.steamTimeoutUserAdjusted ? 0 : steamPage.scaledSteamTimeout()
             if (_scaledNow <= 0 && !steamPage.steamTimeoutUserAdjusted) {
-                var _cm = steamPage.capturedMilkForScaling()
+                let _cm = steamPage.capturedMilkForScaling()
                 if (_cm > 0) _scaledNow = steamPage.steamTimeForMilk(_cm)
             }
             if (_scaledNow > 0) {
@@ -269,7 +269,7 @@ T.Page {
             // temperature (when provided) is Celsius; otherwise fall back to the
             // stored (Celsius) steam temperature — never the display widget, whose
             // value carries no unit tag once read imperatively.
-            var temp = (temperature !== undefined) ? temperature : Settings.brew.steamTemperature
+            let temp = (temperature !== undefined) ? temperature : Settings.brew.steamTemperature
             Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow, temp)
         }
     }
@@ -295,16 +295,16 @@ T.Page {
     // the pills navigate via Keys handlers and so offer no chain to fall through to.
     // Never target a pill by raw index; ask for one that is actually showing.
     function firstVisiblePresetPill() {
-        for (var i = 0; i < livePresetRepeater.count; i++) {
-            var pill = livePresetRepeater.itemAt(i)
+        for (let i = 0; i < livePresetRepeater.count; i++) {
+            let pill = livePresetRepeater.itemAt(i)
             if (pill && pill.visible) return pill
         }
         return null
     }
 
     function lastVisiblePresetPill() {
-        for (var i = livePresetRepeater.count - 1; i >= 0; i--) {
-            var pill = livePresetRepeater.itemAt(i)
+        for (let i = livePresetRepeater.count - 1; i >= 0; i--) {
+            let pill = livePresetRepeater.itemAt(i)
             if (pill && pill.visible) return pill
         }
         return null
@@ -661,23 +661,23 @@ T.Page {
                             // Step over hidden ("Off") pills the same way Tab does, rather
                             // than parking focus on one the user cannot see.
                             Keys.onLeftPressed: function(event) {
-                                for (var i = livePitcherPill.index - 1; i >= 0; i--) {
-                                    var prior = livePresetRepeater.itemAt(i)
+                                for (let i = livePitcherPill.index - 1; i >= 0; i--) {
+                                    let prior = livePresetRepeater.itemAt(i)
                                     if (prior && prior.visible) { prior.forceActiveFocus(); break }
                                 }
                                 event.accepted = true
                             }
                             Keys.onRightPressed: function(event) {
-                                for (var j = livePitcherPill.index + 1; j < livePresetRepeater.count; j++) {
-                                    var candidate = livePresetRepeater.itemAt(j)
+                                for (let j = livePitcherPill.index + 1; j < livePresetRepeater.count; j++) {
+                                    let candidate = livePresetRepeater.itemAt(j)
                                     if (candidate && candidate.visible) { candidate.forceActiveFocus(); break }
                                 }
                                 event.accepted = true
                             }
                             Keys.onTabPressed: function(event) {
                                 var nextPill = null
-                                for (var i = livePitcherPill.index + 1; i < livePresetRepeater.count && !nextPill; i++) {
-                                    var candidate = livePresetRepeater.itemAt(i)
+                                for (let i = livePitcherPill.index + 1; i < livePresetRepeater.count && !nextPill; i++) {
+                                    let candidate = livePresetRepeater.itemAt(i)
                                     if (candidate && candidate.visible) nextPill = candidate
                                 }
                                 var target = nextPill
@@ -690,8 +690,8 @@ T.Page {
                             }
                             Keys.onBacktabPressed: function(event) {
                                 var prevPill = null
-                                for (var j = livePitcherPill.index - 1; j >= 0 && !prevPill; j--) {
-                                    var prior = livePresetRepeater.itemAt(j)
+                                for (let j = livePitcherPill.index - 1; j >= 0 && !prevPill; j--) {
+                                    let prior = livePresetRepeater.itemAt(j)
                                     if (prior && prior.visible) prevPill = prior
                                 }
                                 var back = prevPill
@@ -1996,7 +1996,7 @@ T.Page {
                                                 "steam.toast.pitcherWeightCleared",
                                                 "Empty %1 pitcher weight cleared").arg(pName))
                                         } else {
-                                            var w = MachineState.scaleWeight
+                                            let w = MachineState.scaleWeight
                                             Settings.brew.setSteamPitcherWeight(idx, w)
                                             steamPage.showPitcherToast(TranslationManager.translate(
                                                 "steam.toast.pitcherWeightStored",
@@ -2720,7 +2720,7 @@ T.Page {
                     onClicked: {
                         Keyboard.commit()
                         if (newPitcherName.text.trim() !== "") {
-                            var presetCount = Settings.brew.steamPitcherCount()
+                            let presetCount = Settings.brew.steamPitcherCount()
                             Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150, Settings.brew.steamTemperature)
                             // Selecting the new preset fires onSelectedSteamPitcherChanged,
                             // which loads its temperature into the slider/active temp.

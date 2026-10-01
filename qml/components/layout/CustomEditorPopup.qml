@@ -59,8 +59,8 @@ DecenzaDialog {
         if (!html || html.indexOf("<") < 0) return html
         var inTag = false
         var inQuote = false
-        for (var i = 0; i < html.length; i++) {
-            var ch = html[i]
+        for (let i = 0; i < html.length; i++) {
+            let ch = html[i]
             if (inQuote) {
                 if (ch === '"') inQuote = false
                 else if (ch === '<') {
@@ -99,7 +99,7 @@ DecenzaDialog {
             WebDebugLogger.debug("App", "CustomEditorPopup", ["Loaded from segments"].map(String).join(" "))
         } else {
             // Legacy item — load HTML into TextArea directly
-            var rawContent = props.content || "Text"
+            let rawContent = props.content || "Text"
             textContent = sanitizeHtml(rawContent)
             if (textContent !== rawContent) {
                 WebDebugLogger.warn("App", "CustomEditorPopup", ["Auto-saved sanitized content for item:", id].map(String).join(" "))
@@ -198,11 +198,11 @@ DecenzaDialog {
         var stem = actionId.split(":").slice(0, 2).join(":")
         var stemEntry = popup._actionLabels[stem]
         if (stemEntry !== undefined) {
-            var arg = actionId.substring(stem.length + 1)
-            var label = TranslationManager.translate(stemEntry.key, stemEntry.fallback)
+            let arg = actionId.substring(stem.length + 1)
+            let label = TranslationManager.translate(stemEntry.key, stemEntry.fallback)
             if (stem === "command:loadProfile") {
-                var profiles = ProfileManager.availableProfiles
-                for (var j = 0; j < profiles.length; j++) {
+                let profiles = ProfileManager.availableProfiles
+                for (let j = 0; j < profiles.length; j++) {
                     if (profiles[j].name === arg)
                         return label + ": " + profiles[j].title
                 }
@@ -235,8 +235,8 @@ DecenzaDialog {
             TapHandler {
                 onTapped: function(eventPoint) {
                     if (contentInput.activeFocus) {
-                        var pos = eventPoint.position
-                        var mapped = editorFlickable.mapToItem(inputFlickable, pos.x, pos.y)
+                        let pos = eventPoint.position
+                        let mapped = editorFlickable.mapToItem(inputFlickable, pos.x, pos.y)
                         if (mapped.x >= 0 && mapped.y >= 0 &&
                             mapped.x <= inputFlickable.width && mapped.y <= inputFlickable.height) {
                             return  // Tap inside text input, don't dismiss
@@ -487,7 +487,7 @@ DecenzaDialog {
                                 // RichText, matching CustomItem — the saved format is CSS
                                 // spans, which StyledText drops entirely: it has no `<span>`
                                 // handler and never reads a `style=` attribute
-                                // (qquickstyledtext.cpp:421-422). This preview claims a 1:1
+                                // (qquickstyledtext.cpp:450-451). This preview claims a 1:1
                                 // match with the live widget and previously shared its
                                 // blindness to every colour and size the editor sets.
                                 textFormat: Text.RichText
@@ -1238,7 +1238,7 @@ DecenzaDialog {
             case "longpress": currentAction = popup.textLongPressAction; break
             case "doubleclick": currentAction = popup.textDoubleclickAction; break
         }
-        for (var i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
             if (actionMatches(currentAction, items[i].id))
                 return i
         }
@@ -1294,7 +1294,7 @@ DecenzaDialog {
                 case "longpress": currentAction = popup.textLongPressAction; break
                 case "doubleclick": currentAction = popup.textDoubleclickAction; break
             }
-            for (var i = 0; i < _profiles.length; i++) {
+            for (let i = 0; i < _profiles.length; i++) {
                 if (currentAction === "command:loadProfile:" + _profiles[i].fileName)
                     return i
             }
@@ -1304,7 +1304,7 @@ DecenzaDialog {
         onAboutToShow: {
             var profiles = ProfileManager.availableProfiles
             var items = []
-            for (var i = 0; i < profiles.length; i++)
+            for (let i = 0; i < profiles.length; i++)
                 items.push({ title: profiles[i].title, fileName: profiles[i].name })
             _profiles = items
         }

@@ -7,7 +7,7 @@
 #include <QColor>
 #include <QRandomGenerator>
 #include <QMutex>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // Attractor types
 enum class AttractorType {

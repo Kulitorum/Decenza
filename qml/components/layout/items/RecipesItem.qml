@@ -91,7 +91,7 @@ LayoutWidgetItem {
     FontMetrics { id: recipePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _recipePillWidths() {
         var out = []
-        for (var i = 0; i < inventoryRecipes.length; ++i)
+        for (let i = 0; i < inventoryRecipes.length; ++i)
             // Recipe pills always carry a drink-type icon → always add its width.
             out.push(recipePillMetrics.advanceWidth(inventoryRecipes[i].name || "")
                      + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
@@ -113,7 +113,7 @@ LayoutWidgetItem {
             return []
         var idx = Math.max(0, Math.min(recipePageIndex, _recipePageSizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += _recipePageSizes[p]
         return inventoryRecipes.slice(start, start + (_recipePageSizes[idx] || 0))
     }
@@ -239,7 +239,7 @@ LayoutWidgetItem {
         }
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
@@ -247,7 +247,7 @@ LayoutWidgetItem {
             if (recipes.length === 0) return
             var names = []
             var selectedName = ""
-            for (var i = 0; i < recipes.length; ++i) {
+            for (let i = 0; i < recipes.length; ++i) {
                 names.push(recipes[i].name)
                 if (recipes[i].id === MainController.selectedRecipeId) selectedName = recipes[i].name
             }
@@ -268,9 +268,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -281,8 +281,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width
                 if (globalX + centered < 0)
@@ -319,7 +319,7 @@ LayoutWidgetItem {
             })
             selectedIndex: {
                 var list = root.visibleRecipes
-                for (var i = 0; i < list.length; ++i) {
+                for (let i = 0; i < list.length; ++i) {
                     if (list[i].id === MainController.selectedRecipeId) return i
                 }
                 return -1

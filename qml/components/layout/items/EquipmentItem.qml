@@ -62,7 +62,7 @@ LayoutWidgetItem {
     FontMetrics { id: equipmentPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     readonly property var _equipmentPageSizes: {
         var w = []
-        for (var i = 0; i < inventoryEquipment.length; ++i)
+        for (let i = 0; i < inventoryEquipment.length; ++i)
             w.push(equipmentPillMetrics.advanceWidth(equipmentLabel(inventoryEquipment[i])) + Theme.scaled(40))
         var sizes = PillFit.packPageSizes(w, Theme.scaled(12), _pillFitAvail, 2)
         if (sizes.length <= 1)
@@ -75,7 +75,7 @@ LayoutWidgetItem {
             return []
         var idx = Math.max(0, Math.min(equipmentPageIndex, _equipmentPageSizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += _equipmentPageSizes[p]
         return inventoryEquipment.slice(start, start + (_equipmentPageSizes[idx] || 0))
     }
@@ -197,7 +197,7 @@ LayoutWidgetItem {
         // and popup stay put; only the other content yields.
         onOpened: {
             if (root.idlePage) {
-                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
             _announceOnOpen()
@@ -218,7 +218,7 @@ LayoutWidgetItem {
             if (pkgs.length === 0) return
             var names = []
             var selectedName = ""
-            for (var i = 0; i < pkgs.length; ++i) {
+            for (let i = 0; i < pkgs.length; ++i) {
                 names.push(root.equipmentLabel(pkgs[i]))
                 if (pkgs[i].id === Settings.dye.activeEquipmentId) selectedName = root.equipmentLabel(pkgs[i])
             }
@@ -239,9 +239,9 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalY = root.mapToItem(null, 0, 0).y
-                var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
-                var spaceAbove = globalY - Theme.spacingSmall
+                let globalY = root.mapToItem(null, 0, 0).y
+                let spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
+                let spaceAbove = globalY - Theme.spacingSmall
                 if (height > spaceBelow && spaceAbove > spaceBelow)
                     return -height - Theme.spacingSmall
             }
@@ -252,8 +252,8 @@ LayoutWidgetItem {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
             var win = root.appWindow
             if (win) {
-                var globalX = root.mapToItem(null, 0, 0).x
-                var centered = -width / 2 + parent.width / 2
+                let globalX = root.mapToItem(null, 0, 0).x
+                let centered = -width / 2 + parent.width / 2
                 if (globalX + centered + width > win.width)
                     centered = win.width - globalX - width
                 if (globalX + centered < 0)
@@ -280,7 +280,7 @@ LayoutWidgetItem {
             presets: root.visibleEquipment.map(function(p) { return { name: root.equipmentLabel(p) } })
             selectedIndex: {
                 var list = root.visibleEquipment
-                for (var i = 0; i < list.length; ++i) {
+                for (let i = 0; i < list.length; ++i) {
                     if (list[i].id === Settings.dye.activeEquipmentId) return i
                 }
                 return -1

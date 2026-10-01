@@ -176,11 +176,11 @@ T.Page {
     function requestPanelClearance(panelTop: real, panelHeight: real) {
         var panelBottom = panelTop + panelHeight
         if ((panelTop + panelBottom) / 2 >= idlePage.height / 2) {
-            var up = idlePage._idleContentBottom - panelTop + Theme.spacingSmall
+            let up = idlePage._idleContentBottom - panelTop + Theme.spacingSmall
             idlePage.bottomPanelClearance = Math.max(0, Math.min(up, idlePage._maxPanelClearance))
             idlePage.topPanelClearance = 0
         } else {
-            var down = panelBottom - idlePage._idleContentTop + Theme.spacingSmall
+            let down = panelBottom - idlePage._idleContentTop + Theme.spacingSmall
             idlePage.topPanelClearance = Math.max(0, Math.min(down, idlePage._maxPanelClearance))
             idlePage.bottomPanelClearance = 0
         }
@@ -277,7 +277,7 @@ T.Page {
     function _pillPageStart(sizes: var, pageIndex: int): int {
         var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
         var start = 0
-        for (var p = 0; p < idx; ++p)
+        for (let p = 0; p < idx; ++p)
             start += sizes[p]
         return start
     }
@@ -332,7 +332,7 @@ T.Page {
     property int beanPageIndex: 0
     readonly property var _beanPageSizes: {
         var w = []
-        for (var i = 0; i < inventoryBags.length; ++i)
+        for (let i = 0; i < inventoryBags.length; ++i)
             w.push(idlePillMetrics.advanceWidth(bagLabel(inventoryBags[i])) + Theme.scaled(40))
         return _pillPagesFor(w, beanPresetLoader.width)
     }
@@ -370,7 +370,7 @@ T.Page {
     property int equipmentPageIndex: 0
     readonly property var _equipmentPageSizes: {
         var w = []
-        for (var i = 0; i < inventoryEquipment.length; ++i)
+        for (let i = 0; i < inventoryEquipment.length; ++i)
             w.push(idlePillMetrics.advanceWidth(equipmentLabel(inventoryEquipment[i])) + Theme.scaled(40))
         return _pillPagesFor(w, equipmentPresetLoader.width)
     }
@@ -407,7 +407,7 @@ T.Page {
     property int recipePageIndex: 0
     readonly property var _recipePageSizes: {
         var w = []
-        for (var i = 0; i < inventoryRecipes.length; ++i)
+        for (let i = 0; i < inventoryRecipes.length; ++i)
             // Recipe pills always carry a drink-type icon → add its width.
             w.push(idlePillMetrics.advanceWidth(inventoryRecipes[i].name || "")
                    + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
@@ -442,8 +442,8 @@ T.Page {
         var favs = Settings.app.favoriteProfiles
         var sel = Settings.app.selectedFavoriteProfile
         var w = []
-        for (var i = 0; i < favs.length; ++i) {
-            var name = (favs[i] && favs[i].name) || ""
+        for (let i = 0; i < favs.length; ++i) {
+            let name = (favs[i] && favs[i].name) || ""
             if (_m && i === sel)
                 name = ProfileManager.isCurrentProfileReadOnly
                     ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
@@ -463,7 +463,7 @@ T.Page {
     readonly property var _flushPageSizes: {
         var favs = Settings.brew.flushPresets
         var w = []
-        for (var i = 0; i < favs.length; ++i)
+        for (let i = 0; i < favs.length; ++i)
             w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
         return _pillPagesFor(w, flushPresetLoader.width)
     }
@@ -475,7 +475,7 @@ T.Page {
     readonly property var _hotWaterPageSizes: {
         var favs = Settings.brew.waterVesselPresets
         var w = []
-        for (var i = 0; i < favs.length; ++i)
+        for (let i = 0; i < favs.length; ++i)
             w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
         return _pillPagesFor(w, hotWaterPresetLoader.width)
     }
@@ -802,18 +802,19 @@ T.Page {
         }
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && activePresetFunction !== "") {
-            var presets = []
-            var selectedName = ""
+            let presets = []
+            let selectedName = ""
             switch (activePresetFunction) {
-                case "espresso":
+                case "espresso": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleProfiles
-                    var selAbs = Settings.app.selectedFavoriteProfile
-                    var selRel = selAbs - idlePage._profilePageStart
+                    let selAbs = Settings.app.selectedFavoriteProfile
+                    let selRel = selAbs - idlePage._profilePageStart
                     if (selRel >= 0 && selRel < presets.length) {
                         selectedName = presets[selRel].name
                     }
                     break
+                }
                 case "steam":
                     // Resolve through the helper, not by position: the built-in
                     // "Heater off" pitcher is stored as a sentinel, so a `>= 0`
@@ -822,26 +823,28 @@ T.Page {
                     selectedName = SteamLabels.pitcherName(
                         Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
                     break
-                case "hotwater":
+                case "hotwater": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleWaterVessels
-                    var selWv = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
+                    let selWv = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
                     if (selWv >= 0 && selWv < presets.length) {
                         selectedName = presets[selWv].name
                     }
                     break
-                case "flush":
+                }
+                case "flush": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleFlush
-                    var selFl = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
+                    let selFl = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
                     if (selFl >= 0 && selFl < presets.length) {
                         selectedName = presets[selFl].name
                     }
                     break
+                }
                 case "beans":
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
-                    for (var bi = 0; bi < idlePage.visibleBags.length; ++bi) {
+                    for (let bi = 0; bi < idlePage.visibleBags.length; ++bi) {
                         if (idlePage.visibleBags[bi].id === Settings.dye.activeBagId) {
                             selectedName = idlePage.bagLabel(idlePage.visibleBags[bi])
                             break
@@ -851,7 +854,7 @@ T.Page {
                 case "equipment":
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
-                    for (var ei = 0; ei < idlePage.visibleEquipment.length; ++ei) {
+                    for (let ei = 0; ei < idlePage.visibleEquipment.length; ++ei) {
                         if (idlePage.visibleEquipment[ei].id === Settings.dye.activeEquipmentId) {
                             selectedName = idlePage.equipmentLabel(idlePage.visibleEquipment[ei])
                             break
@@ -861,7 +864,7 @@ T.Page {
                 case "recipes":
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleRecipes.map(function(r) { return { name: r.name } })
-                    for (var ri = 0; ri < idlePage.visibleRecipes.length; ++ri) {
+                    for (let ri = 0; ri < idlePage.visibleRecipes.length; ++ri) {
                         // Match the pill highlight (selectedIndex) — the synchronous
                         // MainController.selectedRecipeId, not the lagging activeRecipeId.
                         if (idlePage.visibleRecipes[ri].id === MainController.selectedRecipeId) {
@@ -873,11 +876,11 @@ T.Page {
             }
 
             if (presets.length > 0) {
-                var names = []
-                for (var i = 0; i < presets.length; i++) {
+                let names = []
+                for (let i = 0; i < presets.length; i++) {
                     names.push(presets[i].name)
                 }
-                var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
+                let announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
                 if (selectedName !== "") {
                     announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
                 }
@@ -1400,7 +1403,7 @@ T.Page {
                     presets: idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
                     selectedIndex: {
                         var list = idlePage.visibleBags
-                        for (var i = 0; i < list.length; ++i) {
+                        for (let i = 0; i < list.length; ++i) {
                             if (list[i].id === Settings.dye.activeBagId) return i
                         }
                         return -1
@@ -1433,7 +1436,7 @@ T.Page {
                     presets: idlePage.visibleEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
                     selectedIndex: {
                         var list = idlePage.visibleEquipment
-                        for (var i = 0; i < list.length; ++i) {
+                        for (let i = 0; i < list.length; ++i) {
                             if (list[i].id === Settings.dye.activeEquipmentId) return i
                         }
                         return -1
@@ -1474,7 +1477,7 @@ T.Page {
                     })
                     selectedIndex: {
                         var list = idlePage.visibleRecipes
-                        for (var i = 0; i < list.length; ++i) {
+                        for (let i = 0; i < list.length; ++i) {
                             if (list[i].id === MainController.selectedRecipeId) return i
                         }
                         return -1
@@ -1711,7 +1714,7 @@ T.Page {
     // expressions, so scaling the content there would put the band's size on both
     // sides of its own binding. It is applied as a render transform on the zone
     // instead: QQuickItem::setScale only marks BasicTransform dirty and emits no
-    // geometry change (qtdeclarative/src/quick/items/qquickitem.cpp:6442-6454), so
+    // geometry change (qtdeclarative/src/quick/items/qquickitem.cpp:6448-6460), so
     // anchors, width and height never see it.
     readonly property real lowerMidBarClearHeight: {
         if (!idlePage.lowerMidBarVisible) return idlePage.lowerMidBarRestHeight

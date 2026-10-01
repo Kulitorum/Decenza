@@ -145,7 +145,7 @@ When the DE1 simulator is active (`DE1Device::simulationMode() == true`), the fi
 
 ## Testing without a real DE1
 
-Five suites cover the firmware module. **No counts here on purpose** — the numbers this section used to carry were hand-maintained, drifted every time a test was added, and were twice internally inconsistent (a stated total that did not match the sum of its own per-suite figures). A data-driven test also contributes one slot and N reported cases, so there is no single number that is right for both readings. `ctest -R firmware` is the source of truth.
+Five suites cover the firmware module. **No counts here on purpose** — the numbers this section used to carry were hand-maintained, drifted every time a test was added, and were twice internally inconsistent (a stated total that did not match the sum of its own per-suite figures). A data-driven test also contributes one slot and N reported cases, so there is no single number that is right for both readings. `ctest -R firmware --no-tests=error` is the source of truth.
 
 - `tst_firmwarepackets` — packet builder byte layouts (FWMapRequest, firmware chunk, parser)
 - `tst_firmwareheader` — `.dat` header parser and on-disk validator: BoardMarker, the size floor and ceiling, and the malformed-header shapes (`_data()` table)

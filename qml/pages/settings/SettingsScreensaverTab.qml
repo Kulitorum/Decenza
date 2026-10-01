@@ -660,8 +660,8 @@ Item {
                                 displayText: {
                                     var mins = value
                                     if (mins >= 60) {
-                                        var hours = Math.floor(mins / 60)
-                                        var rem = mins % 60
+                                        let hours = Math.floor(mins / 60)
+                                        let rem = mins % 60
                                         if (rem === 0) return hours + TranslationManager.translate("common.unit.h", "h")
                                         return hours + TranslationManager.translate("common.unit.h", "h") + " " + rem + TranslationManager.translate("common.unit.m", "m")
                                     }
@@ -775,7 +775,7 @@ Item {
                         }
 
                         // `parent` here is the ListView's contentItem
-                        // (qquickflickable.cpp:2442), not the ListView -- `parent.count` was
+                        // (qquickflickable.cpp:2462), not the ListView -- `parent.count` was
                         // undefined, so neither of these placeholders has ever appeared.
                         Tr {
                             anchors.horizontalCenter: parent.horizontalCenter

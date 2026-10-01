@@ -36,7 +36,7 @@ T.Page {
         if (!(index in loadedTabs)) {
             // Must create a new object - reassigning the same reference
             // won't trigger QML property change notifications
-            var tabs = Object.assign({}, loadedTabs)
+            let tabs = Object.assign({}, loadedTabs)
             tabs[index] = true
             loadedTabs = tabs
         }
@@ -126,7 +126,7 @@ T.Page {
             settingsPage.markTabLoaded(currentIndex)
 
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                var tabNames = SettingsTabs.visibleTabNames()
+                let tabNames = SettingsTabs.visibleTabNames()
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(TranslationManager.translate("settings.accessible.tabAnnounce", "%1 tab").arg(tabNames[currentIndex]))
                 }
@@ -446,7 +446,7 @@ T.Page {
             // loading is synchronous but item is only valid after active flips, so
             // statusChanged is still the correct hook when scrollToCard is called
             // before the loader's active binding has re-evaluated
-            var conn = function() {
+            let conn = function() {
                 if (loader.status === Loader.Ready && loader.item) {
                     loader.statusChanged.disconnect(conn)
                     doScrollAndHighlight(loader.item, cardId)
@@ -471,8 +471,8 @@ T.Page {
         var flickable = findFlickableParent(card)
         if (flickable) {
             // Map card position to Flickable content coordinates
-            var mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
-            var targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
+            let mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
+            let targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
                 flickable.contentHeight - flickable.height))
             flickable.contentY = targetY
         }
@@ -488,18 +488,18 @@ T.Page {
         if (!item) return null
         // Check the item itself (handles root-level objectName like SettingsLayoutTab)
         if (item.objectName === name) return item
-        for (var i = 0; i < item.children.length; i++) {
-            var child = item.children[i]
+        for (let i = 0; i < item.children.length; i++) {
+            let child = item.children[i]
             if (child.objectName === name) return child
-            var found = findChildByObjectName(child, name)
+            let found = findChildByObjectName(child, name)
             if (found) return found
         }
         // Flickable children live in contentItem, not in .children
         if (item.contentItem && item instanceof Flickable) {
-            for (var j = 0; j < item.contentItem.children.length; j++) {
-                var contentChild = item.contentItem.children[j]
+            for (let j = 0; j < item.contentItem.children.length; j++) {
+                let contentChild = item.contentItem.children[j]
                 if (contentChild.objectName === name) return contentChild
-                var found2 = findChildByObjectName(contentChild, name)
+                let found2 = findChildByObjectName(contentChild, name)
                 if (found2) return found2
             }
         }

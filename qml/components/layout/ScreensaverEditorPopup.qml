@@ -41,7 +41,7 @@ DecenzaDialog {
 
     readonly property var _planAvailable: {
         var avail = []
-        for (var i = 0; i < ShotPlanConfig.allKeys.length; i++) {
+        for (let i = 0; i < ShotPlanConfig.allKeys.length; i++) {
             if (shotPlanItems.indexOf(ShotPlanConfig.allKeys[i]) === -1)
                 avail.push(ShotPlanConfig.allKeys[i])
         }
@@ -151,7 +151,7 @@ DecenzaDialog {
             // (shotPlanShowSteamPlan is a live key, not one of them).
             // Typed call: a JS array through the generic QVariant setter arrives
             // as a QJSValue and would be stored as null (see settings_network.h).
-            var ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
+            let ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
             ok = Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanStacked", shotPlanStacked) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanYieldTargetOnly", shotPlanYieldTargetOnly) && ok
@@ -595,7 +595,7 @@ DecenzaDialog {
                                                 // Roll back any live swaps so the DelegateModel
                                                 // order matches the unchanged working list.
                                                 if (popup._planDragging) {
-                                                    var cur = planChip.itemIndex
+                                                    let cur = planChip.itemIndex
                                                     if (_startIndex >= 0 && cur !== _startIndex)
                                                         planVisualModel.items.move(cur, _startIndex, 1)
                                                 }

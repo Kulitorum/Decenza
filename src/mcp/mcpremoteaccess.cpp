@@ -63,6 +63,7 @@ QString McpRemoteAccess::statusString() const
     switch (m_status) {
     case Off:          return QStringLiteral("off");
     case Starting:     return QStringLiteral("starting");
+    case Publishing:   return QStringLiteral("publishing");
     case Active:       return QStringLiteral("active");
     case Reconnecting: return QStringLiteral("reconnecting");
     case Error:        return QStringLiteral("error");
@@ -228,6 +229,12 @@ void McpRemoteAccess::startTunnel()
         connect(m_tunnel, &McpTunnelTsnet::stateChanged, this, &McpRemoteAccess::onTunnelStateChanged);
         connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &McpRemoteAccess::connectorUrlChanged);
         connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &McpRemoteAccess::loginUrlChanged);
+        // HTTPS-off arrives while the tunnel stays Starting, so no stateChanged follows.
+        connect(m_tunnel, &McpTunnelTsnet::funnelGrantChanged, this, [this] {
+            if (m_tunnel->state() == McpTunnelTsnet::Starting)
+                onTunnelStateChanged();
+            updateTailscaleSetupNeeded();
+        });
     }
     const QString stateDir = tsnetStateDir();
     // Node name → Funnel subdomain. Include the device name so multiple Decenza
@@ -285,7 +292,14 @@ void McpRemoteAccess::onTunnelStateChanged()
     case McpTunnelTsnet::Starting:
         m_funnelReachable = false;
         stopReachabilityProbe();
-        setStatus(Starting, QStringLiteral("Connecting to Tailscale"));
+        if (m_tunnel->funnelGrant() == McpTunnelTsnet::HttpsOff) {
+            setStatus(Error, QStringLiteral(
+                "HTTPS certificates are off for this tailnet. Turn them on in the Tailscale admin "
+                "console (DNS page; see “Set up Tailscale Funnel”). This clears automatically "
+                "once they're on."));
+        } else {
+            setStatus(Starting, QStringLiteral("Connecting to Tailscale"));
+        }
         break;
     case McpTunnelTsnet::Running:
         // The node is up and Funnel is configured locally, but that is NOT proof
@@ -309,6 +323,7 @@ void McpRemoteAccess::onTunnelStateChanged()
         break;
     }
     emit connectorUrlChanged();
+    updateTailscaleSetupNeeded();
 }
 
 void McpRemoteAccess::startReachabilityProbe()
@@ -360,6 +375,7 @@ void McpRemoteAccess::doReachabilityProbe()
     connect(reply, &QNetworkReply::finished, this, [this, reply, gen, domain]() {
         const bool gotHttpResponse =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
+        const bool hostNotFound = reply->error() == QNetworkReply::HostNotFoundError;
         const QString errStr = reply->errorString();
         reply->deleteLater();
         // Ignore a reply from a superseded probing session (disable / mode
@@ -389,47 +405,88 @@ void McpRemoteAccess::doReachabilityProbe()
             return;
         }
 
-        // No HTTP response: DNS not published, no route, TLS/timeout. Common
-        // cause is Funnel not granted for this node yet. Keep probing (it
-        // recovers once granted), but after a grace window surface an actionable
-        // error instead of an unbounded "Verifying…".
-        // Rate-limited: a Funnel that is never granted fails forever at the 6 s
-        // probe interval, which is 600 warnings an hour against a 500-line
-        // in-memory ring (WebDebugLogger) — it evicts the very startup lines a
-        // reader needs. errStr is effectively constant across cycles, so dropped
-        // lines carry nothing the kept ones don't.
+        // No HTTP response. Keep probing whatever the cause: each case below clears
+        // by itself once the public URL answers.
         //
-        // Tiering, corrected: this used to WARN through the whole grace window
-        // "so the run-up to the Error status is fully visible". But the window is
-        // five attempts and a healthy start recovers on the third — a real
-        // startup logged two WARNs and then went Active, which is warning about a
-        // configuration that is working. That is the habit this codebase is
-        // trying to break, and it was being taught by the retry ladder itself.
-        //
-        // So: DEBUG while the outcome is still open, and the FIRST warning is the
-        // one that accompanies the Error status. It carries the attempt count, so
-        // the run-up is still in the log — as one line that means something
-        // rather than five that pre-announce a verdict not yet reached.
+        // Rate-limited: a failure that never clears repeats at the 6 s probe
+        // interval, 600 lines an hour against a 500-line in-memory ring
+        // (WebDebugLogger), evicting the startup lines a reader needs. So DEBUG
+        // while the outcome is open or expected, and WARN only alongside an Error
+        // status: on entering it, then once a minute.
         ++m_probeFailCount;
-        constexpr int kProbeFailuresBeforeError = 5;
-        constexpr int kProbeWarnEveryNAfterGrace = 10;  // 10 × 6 s = once a minute
+        constexpr int kProbeWarnEveryNWhileError = 10;  // 10 x 6 s = once a minute
         const QString probeLine =
             QStringLiteral("Funnel reachability probe failed: %1 (attempt %2)")
                 .arg(errStr).arg(m_probeFailCount);
-        if (m_probeFailCount < kProbeFailuresBeforeError) {
-            // Still inside the window where this routinely resolves by itself.
+        const ProbeFailure failure =
+            classifyProbeFailure(m_tunnel->funnelGrant(), hostNotFound, m_probeFailCount);
+
+        QString errorDetail;
+        switch (failure) {
+        case ProbeFailure::Verifying:
             MCP_LOG_TAGGED("RemoteAccess", probeLine);
-        } else if (m_probeFailCount == kProbeFailuresBeforeError
-                   || m_probeFailCount % kProbeWarnEveryNAfterGrace == 0) {
-            MCP_WARN_TAGGED("RemoteAccess", probeLine);
-        }
-        if (m_probeFailCount >= kProbeFailuresBeforeError && m_status != Error) {
-            setStatus(Error, QStringLiteral(
+            return;
+        case ProbeFailure::WaitingForTailscale:
+            MCP_LOG_TAGGED("RemoteAccess", probeLine);
+            if (m_status != Publishing) {
+                MCP_INFO_TAGGED("RemoteAccess",
+                    hostNotFound
+                        ? QStringLiteral("Funnel is enabled for this device; waiting for Tailscale "
+                                         "to publish %1 in public DNS. A resolver that already "
+                                         "answered \"not found\" keeps that answer for up to 5 "
+                                         "minutes").arg(domain)
+                        : QStringLiteral("Funnel is enabled for this device; waiting for %1 to "
+                                         "answer (%2)").arg(domain, errStr));
+            }
+            setStatus(Publishing, QStringLiteral(
+                "Waiting for Tailscale to bring up the public address, which can take a few "
+                "minutes after starting."));
+            return;
+        case ProbeFailure::FunnelNotGranted:
+            errorDetail = QStringLiteral(
+                "Funnel isn't enabled for this device. Allow it in the Tailscale admin console "
+                "(see “Set up Tailscale Funnel”). This clears automatically once it's allowed.");
+            break;
+        case ProbeFailure::DnsNotPublished:
+            errorDetail = QStringLiteral(
+                "Tailscale still hasn't published %1 after 15 minutes. Check in the Tailscale "
+                "admin console that this device is connected and has Funnel. This clears "
+                "automatically once the address is reachable.").arg(domain);
+            break;
+        case ProbeFailure::NotAnswering:
+            errorDetail = QStringLiteral(
+                "%1 still isn't answering after 2 minutes (%2). This clears automatically once "
+                "it responds.").arg(domain, errStr);
+            break;
+        case ProbeFailure::Unreachable:
+            errorDetail = QStringLiteral(
                 "Public Funnel URL isn't reachable yet. Make sure Funnel is enabled for this "
                 "device in the Tailscale admin console (see “Set up Tailscale Funnel”). "
-                "This clears automatically once it's reachable."));
+                "This clears automatically once it's reachable.");
+            break;
         }
+        if (m_status != Error || m_probeFailCount % kProbeWarnEveryNWhileError == 0)
+            MCP_WARN_TAGGED("RemoteAccess", probeLine);
+        setStatus(Error, errorDetail);
     });
+}
+
+McpRemoteAccess::ProbeFailure McpRemoteAccess::classifyProbeFailure(
+        McpTunnelTsnet::FunnelGrant grant, bool hostNotFound, int failCount)
+{
+    // A granted device is waiting on Tailscale, not on the user, so it gets a window
+    // sized to how long Tailscale takes rather than the startup grace.
+    if (grant == McpTunnelTsnet::Granted) {
+        if (hostNotFound)
+            return failCount >= kProbeFailuresBeforeDnsError ? ProbeFailure::DnsNotPublished
+                                                             : ProbeFailure::WaitingForTailscale;
+        return failCount >= kProbeFailuresBeforeNotAnsweringError ? ProbeFailure::NotAnswering
+                                                                  : ProbeFailure::WaitingForTailscale;
+    }
+    if (failCount < kProbeFailuresBeforeError)
+        return ProbeFailure::Verifying;
+    return grant == McpTunnelTsnet::NotGranted ? ProbeFailure::FunnelNotGranted
+                                               : ProbeFailure::Unreachable;
 }
 
 void McpRemoteAccess::stopListener()
@@ -464,6 +521,28 @@ void McpRemoteAccess::setStatus(Status status, const QString& detail)
     if (status == Error && !detail.isEmpty())
         MCP_WARN_TAGGED("RemoteAccess", detail);
     emit statusChanged();
+    updateTailscaleSetupNeeded();
+}
+
+bool McpRemoteAccess::setupNeeded(McpTunnelTsnet::FunnelGrant grant,
+                                  McpTunnelTsnet::State tunnelState, Status status)
+{
+    switch (grant) {
+    case McpTunnelTsnet::Granted:    return false;
+    case McpTunnelTsnet::NotGranted:
+    case McpTunnelTsnet::HttpsOff:   return true;
+    case McpTunnelTsnet::GrantUnknown: break;
+    }
+    return tunnelState == McpTunnelTsnet::NeedsLogin || status == Error;
+}
+
+void McpRemoteAccess::updateTailscaleSetupNeeded()
+{
+    const bool needed = m_tunnel && setupNeeded(m_tunnel->funnelGrant(), m_tunnel->state(), m_status);
+    if (needed == m_tailscaleSetupNeeded)
+        return;
+    m_tailscaleSetupNeeded = needed;
+    emit tailscaleSetupNeededChanged();
 }
 
 void McpRemoteAccess::onNewConnection()

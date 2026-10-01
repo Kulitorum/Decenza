@@ -105,7 +105,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addTea", "Add a new bag of tea")
                     onClicked: {
                         var hasTea = false
-                        for (var i = 0; i < bagInventoryPage.inventoryBags.length; ++i) {
+                        for (let i = 0; i < bagInventoryPage.inventoryBags.length; ++i) {
                             if (String(bagInventoryPage.inventoryBags[i].kind || "") === "tea") {
                                 hasTea = true
                                 break

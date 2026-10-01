@@ -128,7 +128,7 @@ DecenzaDialog {
 
     // Index of the current value within a rows array (-1 if none is current).
     function _currentIndex(rows) {
-        for (var i = 0; i < rows.length; i++)
+        for (let i = 0; i < rows.length; i++)
             if (rows[i].isCurrent === true)
                 return i
         return -1
@@ -149,7 +149,7 @@ DecenzaDialog {
             return null
         if (ci.positionViewAtIndex !== undefined)
             return ci
-        for (var i = 0; i < ci.children.length; ++i)
+        for (let i = 0; i < ci.children.length; ++i)
             if (ci.children[i].positionViewAtIndex !== undefined)
                 return ci.children[i]
         return null
@@ -212,8 +212,8 @@ DecenzaDialog {
         root._snapTo(grindTumbler, gi >= 0 ? gi : Math.floor(root._grindRows.length / 2))
         var ri = root._currentIndex(root._rpmRows)
         if (ri < 0 && root.rowSource) {
-            var anchor = String(root.rowSource.rpmDefaultAnchor)
-            for (var i = 0; i < root._rpmRows.length; i++)
+            let anchor = String(root.rowSource.rpmDefaultAnchor)
+            for (let i = 0; i < root._rpmRows.length; i++)
                 if (root._rpmRows[i].value === anchor) { ri = i; break }
         }
         const rpmIndex = ri >= 0 ? ri : Math.floor(root._rpmRows.length / 2)

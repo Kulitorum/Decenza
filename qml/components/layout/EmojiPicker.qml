@@ -57,7 +57,7 @@ Item {
     // Build all categories: Decenza SVGs + emoji from EmojiData.js
     readonly property var categories: {
         var result = [decenzaCategory]
-        for (var i = 0; i < EmojiData.categories.length; i++) {
+        for (let i = 0; i < EmojiData.categories.length; i++) {
             result.push({
                 name: EmojiData.categories[i].name,
                 isSvg: false,

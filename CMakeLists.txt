@@ -141,6 +141,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     GuiPrivate
     Widgets
     Qml
+    QmlIntegration
     Quick
     QuickControls2
     Bluetooth
@@ -195,8 +196,9 @@ endif()
 # Platform-specific settings
 if(ANDROID)
     set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
+    # Qt 6.12's defaults (androiddeployqt/main.cpp:175-176).
     set(ANDROID_MIN_SDK_VERSION 28)
-    set(ANDROID_TARGET_SDK_VERSION 34)
+    set(ANDROID_TARGET_SDK_VERSION 37)
 
     # Fetch OpenSSL for Android (required for HTTPS)
     # See: https://github.com/KDAB/android_openssl
@@ -210,9 +212,15 @@ if(ANDROID)
     include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
 endif()
 
+# Qt 6.12's minimums (qtbase/.cmake.conf:58,64). Both Info.plist files read this
+# value, and the CI workflows no longer pass their own.
 if(IOS)
-    # Qt 6.11.2 was built for iOS 17.0
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "18.0")
+elseif(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.4")
+endif()
+
+if(IOS)
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
 
@@ -834,6 +842,7 @@ set(SOURCES
     src/network/mqttclient.cpp
     src/network/mdnsresolver.cpp
     src/network/multicastlock.cpp
+    src/network/localnetworkaccess.cpp
     src/network/wifiscaleresult.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -1237,17 +1246,15 @@ if(WIN32)
     set_property(TARGET Decenza PROPERTY QT_WIN_RC_ICONS "${app_icon_resource_windows}")
 endif()
 
-# Qt 6.11 added a new required target property QT_ANDROID_COMPILE_SDK_VERSION
-# (the SDK platform used at BUILD time, separate from target SDK at runtime).
-# Without it, Qt Creator fails the APK packaging step with "Android build SDK
-# version is not defined". Compile SDK >= target SDK conventionally; use
-# android-35 here (Android 15) — installed by default by setup-android in CI
-# and on most local dev machines. Target SDK is the runtime-targeted API
-# level the AndroidManifest declares, controlled by ANDROID_TARGET_SDK_VERSION.
+# The compile platform is Qt 6.12's own choice for its Java
+# (qtbase/cmake/QtPublicAndroidHelpers.cmake:70). android/build.gradle parses it and
+# android-release.yml installs it from this line, so it is stated only here.
 if(ANDROID)
+    # The namespace and application id; the manifest no longer carries a package attribute.
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_PACKAGE_NAME "io.github.kulitorum.decenza_de1")
     set_property(TARGET Decenza PROPERTY QT_ANDROID_MIN_SDK_VERSION ${ANDROID_MIN_SDK_VERSION})
     set_property(TARGET Decenza PROPERTY QT_ANDROID_TARGET_SDK_VERSION ${ANDROID_TARGET_SDK_VERSION})
-    set_property(TARGET Decenza PROPERTY QT_ANDROID_COMPILE_SDK_VERSION "android-35")
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_COMPILE_SDK_VERSION "android-37.0")
 endif()
 
 # Optionally link Quick3D and add 3D screensaver sources
@@ -1626,7 +1633,6 @@ qt_add_qml_module(Decenza
     VERSION 1.1
     QML_FILES ${QML_FILES}
     DEPENDENCIES ${DECENZA_QML_DEPENDENCIES}
-    NO_GENERATE_EXTRA_QMLDIRS
 )
 
 # ---------------------------------------------------------------------------
@@ -1975,7 +1981,7 @@ set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 # qmlcachegen resolves QML-DECLARED types (singletons like Theme, and every
 # component used by name) by READING those files through `-I <builddir>`. It does
 # not declare them as inputs, and it has no --depfile, so it cannot report them
-# either: Qt's own add_custom_command (Qt6QmlMacros.cmake:3864) lists only the
+# either: Qt's own add_custom_command (Qt6QmlMacros.cmake:3982-4003) lists only the
 # file's own source, the .qrc files, Decenza.qmltypes and qmldir.
 #
 # The result is a build that is quietly WRONG rather than merely stale. Editing
@@ -2384,7 +2390,8 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_graph.cpp
         src/ble/scales/scaletypeids.cpp
     )
-    target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
+    # QmlIntegration: the settings headers carry QML_ELEMENT; without it moc cannot see the macro.
+    target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth Qt6::QmlIntegration)
     target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
     # PCH for the dev tools.

@@ -19,16 +19,6 @@ KeyboardAwareContainer {
     property string testResultMessage: ""
     property bool testResultSuccess: false
 
-    // modelDisplayName()/availableModels() are non-reactive invokables. Bump
-    // this on configurationChanged (which fires after the model is applied) and
-    // reference it in those bindings so provider-card subtitles refresh when the
-    // selected model changes.
-    property int configTick: 0
-    Connections {
-        target: MainController.aiManager
-        function onConfigurationChanged() { aiTab.configTick++ }
-    }
-
     // Helper function to check if provider has a key configured
     function isProviderConfigured(providerId) {
         switch(providerId) {
@@ -158,10 +148,7 @@ KeyboardAwareContainer {
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: {
-                                            aiTab.configTick  // dependency: refresh on model change
-                                            return MainController.aiManager ? MainController.aiManager.modelDisplayName(providerTile.modelData.id) : ""
-                                        }
+                                        text: MainController.aiManager ? (MainController.aiManager.modelDisplayNames[providerTile.modelData.id] ?? "") : ""
                                         font.pixelSize: Theme.scaled(11)
                                         color: providerTile.isSelected ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
@@ -278,7 +265,7 @@ KeyboardAwareContainer {
                     // first entry) when unset or stale, without writing it back.
                     function selectedIndex() {
                         var sel = Settings.ai.providerModel(currentProvider)
-                        for (var i = 0; i < options.length; i++) {
+                        for (let i = 0; i < options.length; i++) {
                             if (options[i].id === sel) return i
                         }
                         return 0
@@ -433,30 +420,15 @@ KeyboardAwareContainer {
                 // per-provider strings hardcoded here understated the cost by
                 // 5x to 8x depending on the model, and went stale unnoticed,
                 // because nothing tied them to the models they described.
-                //
-                // TWO dependencies have to be spelled out, because costHint()
-                // is a plain invokable and a binding records nothing from
-                // calling one:
-                //   configTick  — re-evaluate when the SELECTED MODEL changes.
-                //   translate   — re-evaluate on a LANGUAGE change. costHint()
-                //                 translates C++-side via translateString(),
-                //                 which is not the reactive Q_PROPERTY, so
-                //                 without this read the line stays in the old
-                //                 language until the model happens to change.
-                //                 This is the 3,248-call-site freeze described
-                //                 in QML_GOTCHAS.md, one binding at a time.
                 // Empty when the selected model has no priced entry, so bind
                 // visible to the text rather than to the provider alone.
                 Text {
                     visible: Settings.ai.aiProvider !== "ollama" && text.length > 0
                     text: {
-                        var _model = aiTab.configTick
-                        var _lang = TranslationManager.translate
                         if (Settings.ai.aiProvider === "openrouter")
                             return TranslationManager.translate("settings.ai.cost.openrouter",
                                 "Cost varies by model")
-                        return MainController.aiManager
-                            ? MainController.aiManager.costHint(Settings.ai.aiProvider) : ""
+                        return MainController.aiManager ? MainController.aiManager.selectedCostHint : ""
                     }
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
@@ -847,7 +819,7 @@ KeyboardAwareContainer {
                     text: {
                         var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(Settings.network.shotServerPort)
                         if (typeof McpServer !== "undefined" && McpServer) {
-                            var sessions = McpServer.activeSessionCount
+                            let sessions = McpServer.activeSessionCount
                             if (sessions > 0)
                                 status += " · " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
                         }
@@ -1210,6 +1182,8 @@ KeyboardAwareContainer {
                                     : TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg(RemoteMcpAccess.listenPort)
                             case "starting":
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.starting", "Starting…")
+                            case "publishing":
+                                return TranslationManager.translate("settings.ai.remoteMcp.status.publishing", "Funnel is on — waiting for Tailscale to bring up the public address. This can take a few minutes after starting.")
                             case "reconnecting":
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.reconnecting", "Reconnecting…")
                             case "error":
@@ -1226,12 +1200,12 @@ KeyboardAwareContainer {
                         wrapMode: Text.WordWrap
                     }
 
-                    // One-time Tailscale setup — opens a step-by-step popup. Hidden
-                    // once the connector is active (setup is done), so it doesn't
-                    // linger after everything is working.
+                    // One-time Tailscale setup — opens a step-by-step popup. Shown only
+                    // while Tailscale reports something the setup covers as missing, so
+                    // a configured device doesn't offer it during start-up or a blip.
                     AccessibleButton {
                         visible: Settings.mcp.remoteMcpMode === "tailscale"
-                            && RemoteMcpAccess.statusString !== "active"
+                            && RemoteMcpAccess.tailscaleSetupNeeded
                         text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupButton", "Set up Tailscale Funnel (one-time)…")
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupAccessible", "Open Tailscale Funnel setup instructions")
                         warning: RemoteMcpAccess.statusString === "error"

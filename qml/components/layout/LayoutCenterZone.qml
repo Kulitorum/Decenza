@@ -63,14 +63,14 @@ Item {
     readonly property int buttonCount: {
         if (!items) return 0
         var count = 0
-        for (var i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
             if (!isAutoSized(items[i].type)) count++
         }
         return count
     }
     readonly property bool hasSpacer: {
         if (!items) return false
-        for (var i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
             if (items[i].type === "spacer") return true
         }
         return false
@@ -107,17 +107,17 @@ Item {
                 Layout.preferredWidth: {
                     // Flip clock: interpolate between buttonWidth and wide based on clockScale
                     if (modelData.type === "screensaverFlipClock") {
-                        var s = typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
+                        let s = typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
                         return root.buttonWidth + s * (root.buttonHeight * 3.7 - root.buttonWidth)
                     }
                     // Shot map: scale width from 1x to 1.7x buttonWidth
                     if (modelData.type === "screensaverShotMap") {
-                        var m = typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
+                        let m = typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
                         return root.buttonWidth * m
                     }
                     // Last shot: scale width from 1x to 2.5x buttonWidth
                     if (modelData.type === "lastShot") {
-                        var ls = typeof modelData.shotScale === "number" ? modelData.shotScale : 1.0
+                        let ls = typeof modelData.shotScale === "number" ? modelData.shotScale : 1.0
                         return root.buttonWidth * ls
                     }
                     if (root.isAutoSized(modelData.type)) return -1

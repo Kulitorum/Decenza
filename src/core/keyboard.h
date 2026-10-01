@@ -2,7 +2,7 @@
 
 #include <QObject>
 #include <QRectF>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 // The virtual keyboard / input method, as a type QML can be checked against.
 //

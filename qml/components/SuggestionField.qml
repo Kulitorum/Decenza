@@ -120,7 +120,7 @@ Item {
         }
         var filter = query.toLowerCase()
         var filtered = []
-        for (var i = 0; i < suggestions.length; i++) {
+        for (let i = 0; i < suggestions.length; i++) {
             if (suggestions[i].toLowerCase().indexOf(filter) !== -1) {
                 filtered.push(suggestions[i])
             }
@@ -217,15 +217,15 @@ Item {
             // top match when the typed text isn't already an exact entry.
             // Otherwise commit the typed text (keeps brand-new names intact).
             if (suggestionPopup.visible && suggestionList.count > 0) {
-                var matches = root.getFilteredSuggestions()
-                var pick = -1
+                let matches = root.getFilteredSuggestions()
+                let pick = -1
                 if (suggestionList.currentIndex >= 0)
                     pick = suggestionList.currentIndex
                 else if (matches.length === 1)
                     pick = 0
                 else {
-                    var exact = false
-                    for (var i = 0; i < matches.length; i++)
+                    let exact = false
+                    for (let i = 0; i < matches.length; i++)
                         if (matches[i].toLowerCase() === text.toLowerCase()) { exact = true; break }
                     if (!exact && matches.length > 0) pick = 0
                 }
@@ -417,10 +417,10 @@ Item {
             var below = textInput.y + textInput.height
             var win = root.hostWindow
             if (win) {
-                var fieldTopGlobal = textInput.mapToItem(null, 0, 0).y
-                var fieldBottomGlobal = fieldTopGlobal + textInput.height
-                var spaceBelow = win.height - fieldBottomGlobal
-                var spaceAbove = fieldTopGlobal
+                let fieldTopGlobal = textInput.mapToItem(null, 0, 0).y
+                let fieldBottomGlobal = fieldTopGlobal + textInput.height
+                let spaceBelow = win.height - fieldBottomGlobal
+                let spaceAbove = fieldTopGlobal
                 if (implicitHeight + Theme.scaled(4) > spaceBelow && spaceAbove > spaceBelow)
                     return textInput.y - implicitHeight - Theme.scaled(2)
             }

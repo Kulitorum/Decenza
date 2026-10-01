@@ -53,12 +53,12 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
 - **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`). The DHCP lease can rotate — if reconnect fails, plug in USB and run `adb shell ip route | grep wlan` to read the current IP, then `adb tcpip 5555` + `adb connect <ip>:5555`.
-- **Qt version**: 6.11.2
-- **Qt path**: `C:/Qt/6.11.2/msvc2022_64`
-- **Qt sources**: `~/Qt/6.11.2/Src` (macOS) — the full source tree for the exact version we build against. **Read it instead of guessing at Qt behaviour, and cite file-and-line in any comment that asserts what Qt does.** An un-sourced claim in a comment gets believed and then licenses wrong code: both bugs below were written as settled fact first and found by opening the source much later.
+- **Qt version**: 6.12.0
+- **Qt path**: `C:/Qt/6.12.0/msvc2022_64`
+- **Qt sources**: `~/Qt/6.12.0/Src` (macOS) — the full source tree for the exact version we build against. **Read it instead of guessing at Qt behaviour, and cite file-and-line in any comment that asserts what Qt does.** An un-sourced claim in a comment gets believed and then licenses wrong code: both bugs below were written as settled fact first and found by opening the source much later.
   - Error handling is not inferable from the enum names — several `errno` values collapse onto one `QAbstractSocket::SocketError`, per platform, and `connectToHost()` with an IP literal can emit `errorOccurred` **synchronously** (`qtbase/src/network/socket/qnativesocketengine_unix.cpp`, `qabstractsocket.cpp`).
   - Neither is the object model — a registered singleton with no instance is **truthy**, not `undefined` (`qtdeclarative/src/qml/jsruntime/qv4qmlcontext.cpp:229`). See `QML_GOTCHAS.md`.
-- **No local Qt contribution checkout.** `~/Development/GitHub/qtbase` and `~/Development/GitHub/qtdeclarative` were Gerrit clones for upstreaming patches; they were deleted with the 6.11.2 upgrade, once every patch they carried was either shipped upstream or preserved as source. Clone fresh from Gerrit if you need to contribute again. **`~/Qt/6.11.2/Src` is the copy to read for reference** — a contribution clone never was, since it sits on whatever branch is in flight.
+- **No local Qt contribution checkout.** `~/Development/GitHub/qtbase` and `~/Development/GitHub/qtdeclarative` were Gerrit clones for upstreaming patches; they were deleted with the 6.11.2 upgrade, once every patch they carried was either shipped upstream or preserved as source. Clone fresh from Gerrit if you need to contribute again. **`~/Qt/6.12.0/Src` is the copy to read for reference** — a contribution clone never was, since it sits on whatever branch is in flight.
 - **Decenza ships stock Qt.** No patched platform plugin, jar, framework or library is committed or packaged. A Qt bug is fixed upstream, worked around in Decenza's own code, or accepted as a known issue. Patches kept only as source (not built, not shipped) live in `docs/qt-patches/`, each with its upstream bug and the condition under which it would come back.
 - **C++ standard**: C++17
 - **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference
@@ -117,7 +117,7 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
   - **This is a real failure mode here, not a style preference, and it runs one way.** An assistant writing a comment will produce four paragraphs where two sentences do, and each paragraph reads as reasonable on its own. Length also disguises staleness: a long comment has more claims to rot, and readers skim it rather than checking it, so a wrong sentence survives inside a wall of right ones. `screenreaderprobe.h` shipped at 110 lines of comment for 40 lines of code and was cut to 43 without losing a single fact a developer needs — what went was drafting history ("an earlier draft got this backwards"), the same Linux caveat stated twice, and prose restating the table beneath it.
   - **The review ratio is the diagnostic, and it is already failing.** Across three reviews in one session on this repo, findings about COMMENTS — stale, contradictory, miscounted, citing functions the same change had deleted — outnumbered findings about behaviour. That is not reviewers being pedantic; it is the comments being large enough to carry more defects than the code they sit beside, and it means review attention that should have gone to logic went to prose instead. If a review of your change spends more of itself on comments than on code, the comments are too big, and shrinking them is the fix.
   - **Write the comment, then cut it before committing.** If something in the cut half turns out to be load-bearing, that usually means the CODE is unclear — name the variable better, split the function, make the invariant an assert — rather than that the comment needed to be longer. Same rule the manual entries follow, and for the same reason.
-  - The one thing never to cut is a SOURCE. "Qt tests is_default_constructible before the factory (qqmlprivate.h:161-164)" is shorter than the paragraph explaining it and worth more, because the next reader can check it.
+  - The one thing never to cut is a SOURCE. "Qt tests is_default_constructible before the factory (qqmlprivate.h:195-198)" is shorter than the paragraph explaining it and worth more, because the next reader can check it.
 
 - **Centralize anything produced at more than one site — never hand-roll it per call, never copy a helper's body.** A repeated format, prefix, tag, wording, or policy is a drift opportunity: each copy is free to change alone, silently, and nothing fails when one does. Put it behind one function or macro and call that. This is not a tidiness preference, it is how the copies stay true to each other.
   - **Never copy a macro/helper body to specialize it** — alias it. `difluidr1.cpp` and `difluidr2.cpp` each hand-copied `SCALE_LOG`/`SCALE_WARN` from `scalelogging.h` instead of aliasing, so a one-line fix to the shared macro had to be found and applied in three places; the two copies were only still identical by luck. `#define R1_LOG(msg) SCALE_LOG("DiFluidR1", msg)` is the correct shape.
@@ -184,14 +184,16 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   did. See `QML_NAVIGATION.md`. Status-bar widgets are tappable from their own destination, so a
   destination pushes through `pushUnlessCurrent()` rather than `pageStack.push()` directly.
 - **A `QML_SINGLETON` whose constructor has a defaulted `parent` never calls its own `create()`.**
-  Qt tests `is_default_constructible` BEFORE the factory (`qqmlprivate.h:161-164`), so it does
+  Qt tests `is_default_constructible` BEFORE the factory (`qqmlprivate.h:195-198`), so it does
   `new T` and the published instance is ignored — QML then talks to Qt's orphan while C++ holds a
   different object. Registration and qmllint cannot see this: both objects are the same TYPE. It
   shipped, giving `AccessibilityManager` two live TTS engines. For an object main() owns, Qt's
   documented answer is a `QML_FOREIGN` wrapper (`contextsingletons_qml.h`), which cannot reach the
   trap — every such singleton now uses one. A singleton that owns its own instance keeps its own
   `create()` plus a `static_assert(!std::is_default_constructible_v<T>)`, and
-  `tst_qmlregistration` asserts a new one cannot skip it.
+  `tst_qmlregistration` asserts a new one cannot skip it. Since Qt 6.12, never add
+  `QML_UNCREATABLE` to a singleton: Qt then constructs it not at all and QML gets null
+  (`qqmlprivate.h:191-192`).
 - **A registered singleton with no instance is TRUTHY, not `undefined`.** `typeof X !== "undefined"
   && X` passes and the first member call throws. Qt builds the type wrapper whether or not
   `singletonInstance()` returned anything; only the member read degrades to `undefined`. Guard the
@@ -216,7 +218,7 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
 - **A nested event loop reachable from a QML signal handler is a crash, not a slowdown.**
   `processEvents()` / `exec()` below a handler delivers queued events, and one that destroys an
   object whose handler is still running makes Qt `qFatal()`
-  (`qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396`) — shipped iOS 2.0.0 aborted this way
+  (`qtdeclarative/src/qml/qml/qqmldata.cpp:415-441`) — shipped iOS 2.0.0 aborted this way
   (#1692). Long work goes on a worker thread with results posted back queued, never pumped inline;
   a progress bar is not a reason to pump. Which posted event did it is NOT established, and the
   obvious guess (a `DeferredDelete`) is gated — see `QML_GOTCHAS.md` for the sources.
@@ -237,7 +239,7 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   - Rule of thumb: colour picture in the emoji keyboard → emoji, fine. Line-drawing symbol in your text colour → font glyph, also fine now, but confirm coverage with the script. Toolbar/navigation affordance → neither; use a themed SVG.
 - **The bundled font covers Latin (incl. Extended), Greek and Cyrillic only.** In CJK, Arabic, Hebrew, Devanagari and Thai locales every glyph comes from a platform fallback, so the metric determinism the bundled font provides does **not** apply there. Layout tolerance (wrap/elide/content-driven sizing) is what keeps those UIs from clipping — never rely on a fixed width that only fits the design font.
 - **`elide` is dead on `Text.RichText`**: prefer `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
-  - **But `StyledText` cannot render CSS.** It has no `<span>` handler and never reads a `style=` attribute. The only tag whose attributes reach the character format is `<font>` (`qquickstyledtext.cpp:421-422`), and the `size` it accepts there is an HTML 1-7, not px (`:566-572`). So a `<span style="color:…; font-size:…px">` is dropped silently — text renders at the default colour and size. (`<a>`, `<img>`, `<ol>` and `<ul>` attributes *are* parsed, they just carry no styling; `<img>` is what makes `Theme.replaceEmojiWithImg` work under StyledText.) If the markup carries CSS, `Text.RichText` is the only option — and it ignores **both** `elide` and `maximumLineCount`, so bound the paint with `clip: true` and don't declare either. This is not hypothetical: it is what made the custom-widget editor's colour and S/M/L/XL rows decorative for their whole life, with the preview sharing the blindness so nothing on screen contradicted the save.
+  - **But `StyledText` cannot render CSS.** It has no `<span>` handler and never reads a `style=` attribute. The only tag whose attributes reach the character format is `<font>` (`qquickstyledtext.cpp:450-451`), and the `size` it accepts there is an HTML 1-7, not px (`:579-585`). So a `<span style="color:…; font-size:…px">` is dropped silently — text renders at the default colour and size. (`<a>`, `<img>`, `<ol>` and `<ul>` attributes *are* parsed, they just carry no styling; `<img>` is what makes `Theme.replaceEmojiWithImg` work under StyledText.) If the markup carries CSS, `Text.RichText` is the only option — and it ignores **both** `elide` and `maximumLineCount`, so bound the paint with `clip: true` and don't declare either. This is not hypothetical: it is what made the custom-widget editor's colour and S/M/L/XL rows decorative for their whole life, with the preview sharing the blindness so nothing on screen contradicted the save.
 - **Measuring text in a binding**: use `FontMetrics.advanceWidth(str)`, never a mutated `TextMetrics` (`.text=`/read `.width`) — the latter self-triggers a binding loop. Mutated `TextMetrics` is only safe in an imperative Timer/handler writing a plain property. Runtime-only; a clean build won't catch it.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
 
@@ -294,8 +296,8 @@ Full rules, the measured payload breakdown, and the `registerActionTool` contrac
 
 ## Platforms
 
-- Desktop: Windows, macOS, Linux
-- Mobile: Android (API 28+), iOS (17.0+)
+- Desktop: Windows, macOS (14.4+), Linux
+- Mobile: Android (API 28+, targets 37), iOS (18.0+)
 - Android needs Location permission for BLE scanning
 
 ## Versioning

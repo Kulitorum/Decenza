@@ -284,12 +284,12 @@ T.Page {
         weightFlowSeries.clear()
 
         var fData = FlowCalibrationModel.flowData
-        for (var i = 0; i < fData.length; i++) {
+        for (let i = 0; i < fData.length; i++) {
             flowSeries.append(fData[i].x, fData[i].y)
         }
 
         var wfData = FlowCalibrationModel.weightFlowData
-        for (i = 0; i < wfData.length; i++) {
+        for (let i = 0; i < wfData.length; i++) {
             weightFlowSeries.append(wfData[i].x, wfData[i].y)
         }
     }

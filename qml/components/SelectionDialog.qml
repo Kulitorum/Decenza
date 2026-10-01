@@ -62,7 +62,7 @@ DecenzaDialog {
         if (dialogList.count > 0) {
             if (root.currentValue.length > 0) {
                 // String-based: find matching index and scroll to it
-                for (var i = 0; i < root._snapshot.length; i++) {
+                for (let i = 0; i < root._snapshot.length; i++) {
                     if (root._snapshot[i] === root.currentValue) {
                         dialogList.positionViewAtIndex(i, ListView.Center)
                         break

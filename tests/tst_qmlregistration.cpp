@@ -272,7 +272,7 @@ private slots:
     // default-constructible, and the assert has to live beside the class.
     //
     // Qt picks the construction mode in singletonConstructionMode()
-    // (qtdeclarative/src/qml/qml/qqmlprivate.h:155-167) and tests
+    // (qtdeclarative/src/qml/qml/qqmlprivate.h:186-201) and tests
     // is_default_constructible BEFORE it looks for the factory (:161-164). A
     // default-constructible singleton therefore gets `new T` at :190 and its
     // create() is never called at all — so main.cpp's published instance is
@@ -292,7 +292,7 @@ private slots:
     // assert. Note how few types this covers now, and why that is correct: every
     // singleton handing QML an object main() owns is a QML_FOREIGN wrapper, and
     // those are immune structurally — T != WrapperT takes the FactoryWrapper
-    // branch at qqmlprivate.h:159-160, BEFORE default-constructibility is tested
+    // branch at qqmlprivate.h:193-194, BEFORE default-constructibility is tested
     // at :161 — so they are skipped here and carry no assert. What is left is the
     // singleton that owns its own instance and so declares create() on itself;
     // today that is WebDebugLogger alone. This slot exists for the NEXT one.
@@ -350,7 +350,7 @@ private slots:
                  qPrintable(QStringLiteral(
                      "%1 declares create() but %2 has no "
                      "static_assert(!std::is_default_constructible_v<%2>). Qt tests "
-                     "is_default_constructible BEFORE the factory (qqmlprivate.h:161-164), so if "
+                     "is_default_constructible BEFORE the factory (qqmlprivate.h:195-198), so if "
                      "this type is ever default-constructible Qt will 'new' its own instance and "
                      "never call create() — silently. Add the assert beside the class.")
                      .arg(header, cppName)));

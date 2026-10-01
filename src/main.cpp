@@ -1252,6 +1252,9 @@ int main(int argc, char *argv[])
 
     TranslationManager translationManager(&sharedNetworkManager, &settings);
     checkpoint("TranslationManager");
+    // Before BLEManager: a saved WiFi scale is probed during startup, and its permission
+    // request is dropped if this does not exist yet.
+    LocalNetworkAccess localNetworkAccess;
     BLEManager bleManager;
 
     // Two switches, deliberately kept apart:
@@ -3920,7 +3923,7 @@ int main(int argc, char *argv[])
     // MUST be called explicitly, and this is not optional bookkeeping — without it the
     // declarative registration above never runs and every translated string in the app is
     // `undefined`. Qt registers a module's compile-time types lazily, on first import, behind
-    // this guard (qqmltypeloader.cpp:783, and identically qqmlimport.cpp:920):
+    // this guard (qqmltypeloader.cpp:805-807, and identically qqmlimport.cpp:943-944):
     //
     //     auto module = QQmlMetaType::typeModule(qmldir.typeNamespace(), import->version);
     //     if (!module)
@@ -3979,6 +3982,7 @@ int main(int argc, char *argv[])
     SensorCalibrationControllerForeign::s_singletonInstance = &sensorCalibration;
     BatteryManagerForeign::s_singletonInstance = &batteryManager;
     MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
+    LocalNetworkAccessForeign::s_singletonInstance = &localNetworkAccess;
     memoryMonitor.setEngine(&engine);
     AccessibilityManagerForeign::s_singletonInstance = &accessibilityManager;
     ProfileStorageForeign::s_singletonInstance = &profileStorage;
@@ -4862,7 +4866,7 @@ int main(int argc, char *argv[])
         //
         // ExcludeUserInputEvents because a second tap on Quit, delivered inside
         // this loop, reaches QCoreApplication::exit() — which exits EVERY loop in
-        // data->eventLoops (qcoreapplication.cpp:1520-1529), including this one.
+        // data->eventLoops (qcoreapplication.cpp:1547-1556), including this one.
         // That would abandon the drain and discard exactly the write it is here
         // to save, at the hand of an impatient user.
         //

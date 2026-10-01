@@ -40,7 +40,7 @@ Item {
     default property alias content: contentContainer.data
 
     function hasActiveFocus() {
-        for (var i = 0; i < textFields.length; i++) {
+        for (let i = 0; i < textFields.length; i++) {
             if (textFields[i] && textFields[i].activeFocus)
                 return true
         }
@@ -48,7 +48,7 @@ Item {
     }
 
     function getActiveFocusField() {
-        for (var i = 0; i < textFields.length; i++) {
+        for (let i = 0; i < textFields.length; i++) {
             if (textFields[i] && textFields[i].activeFocus)
                 return textFields[i]
         }
@@ -94,11 +94,11 @@ Item {
             keyboardOffset = 0
             estimatedKeyboardHeight = kbHeight
             // Use mapToItem for both top and bottom to handle scaled parents correctly
-            var overlayFieldTop = focusedField.mapToItem(targetFlickable.contentItem, 0, 0)
-            var overlayFieldBottom = focusedField.mapToItem(targetFlickable.contentItem, 0, focusedField.height)
-            var overlayMargin = 20
-            var overlayVisibleHeight = root.height - kbHeight
-            var overlayMaxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
+            let overlayFieldTop = focusedField.mapToItem(targetFlickable.contentItem, 0, 0)
+            let overlayFieldBottom = focusedField.mapToItem(targetFlickable.contentItem, 0, focusedField.height)
+            let overlayMargin = 20
+            let overlayVisibleHeight = root.height - kbHeight
+            let overlayMaxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
             if (overlayFieldBottom.y + overlayMargin > targetFlickable.contentY + overlayVisibleHeight) {
                 targetFlickable.contentY = Math.min(
                     overlayFieldBottom.y + overlayMargin - overlayVisibleHeight, overlayMaxContentY)
@@ -143,7 +143,7 @@ Item {
 
     // Connect to each text field's focus signal
     onTextFieldsChanged: {
-        for (var i = 0; i < textFields.length; i++) {
+        for (let i = 0; i < textFields.length; i++) {
             textFields[i].activeFocusChanged.connect(_updateFocusState)
         }
     }

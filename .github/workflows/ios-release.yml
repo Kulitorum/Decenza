@@ -100,7 +100,7 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.11.2'
+          version: '6.12.0'
           target: 'ios'
           arch: 'ios'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
@@ -201,7 +201,6 @@ jobs:
           # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DENABLE_TSNET=ON \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \

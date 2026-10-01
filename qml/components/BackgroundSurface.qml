@@ -86,7 +86,7 @@ Item {
     function _lookup(list, id) {
         if (!id || id.length === 0)
             return ({})
-        for (var i = 0; i < list.length; i++) {
+        for (let i = 0; i < list.length; i++) {
             if (list[i].id === id)
                 return list[i]
         }

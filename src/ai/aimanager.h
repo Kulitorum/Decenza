@@ -16,7 +16,7 @@
 #include "../history/shothistory_types.h"
 #include "dialing_blocks.h"  // AdvisorContextBlocks — cached between the context request and the send
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class QNetworkAccessManager;
 class AIProvider;
 class AIConversation;
@@ -47,6 +47,10 @@ class AIManager : public QObject {
     Q_PROPERTY(bool lastTestSuccess READ lastTestSuccess NOTIFY testResultChanged)
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
     Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
+    // Provider-card text for QML. Properties, not the methods they wrap, so a binding
+    // re-evaluates when the selected model or the language changes.
+    Q_PROPERTY(QVariantMap modelDisplayNames READ modelDisplayNames NOTIFY modelSummaryChanged)
+    Q_PROPERTY(QString selectedCostHint READ selectedCostHint NOTIFY modelSummaryChanged)
     Q_PROPERTY(AIConversation* conversation READ conversation CONSTANT)
     Q_PROPERTY(bool hasAnyConversation READ hasAnyConversation NOTIFY conversationIndexChanged)
 
@@ -88,7 +92,9 @@ public:
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
     QString currentModelName() const;
-    Q_INVOKABLE QString modelDisplayName(const QString& providerId) const;
+    QString modelDisplayName(const QString& providerId) const;
+    QVariantMap modelDisplayNames() const;  // providerId -> modelDisplayName()
+    QString selectedCostHint() const { return costHint(selectedProvider()); }
     // Selectable models for a provider as a list of { "id", "name" } maps, in UI
     // order (first = recommended default). Empty when the provider has a single
     // fixed model — the UI hides the model picker in that case.
@@ -101,8 +107,7 @@ public:
     // selection. Depends on the model, so re-read it when the selection changes
     // — a per-provider figure is wrong across a catalog that spans 10x. Empty
     // when the provider has no catalog to price.
-    Q_INVOKABLE QString costHint(const QString& providerId,
-                                 const QString& modelId = QString()) const;
+    QString costHint(const QString& providerId, const QString& modelId = QString()) const;
     AIConversation* conversation() const { return m_conversation; }
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }
@@ -390,6 +395,7 @@ public:
 signals:
     void providerChanged();
     void configurationChanged();
+    void modelSummaryChanged();
     void analyzingChanged();
     void recommendationReceived(const QString& recommendation);
     void errorOccurred(const QString& error);

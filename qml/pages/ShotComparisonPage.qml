@@ -35,8 +35,8 @@ T.Page {
     readonly property var phaseEntries: {
         var _dep = comparisonGraph.phaseData
         var seen = {}, result = []
-        for (var i = 0; i < comparisonGraph.phaseData.length; i++) {
-            var pd = comparisonGraph.phaseData[i]
+        for (let i = 0; i < comparisonGraph.phaseData.length; i++) {
+            let pd = comparisonGraph.phaseData[i]
             if (!seen[pd.label]) { seen[pd.label] = true; result.push({ label: pd.label, phaseIndex: pd.phaseIndex }) }
         }
         return result
@@ -121,8 +121,8 @@ T.Page {
                     }
                     onPositionChanged: function(mouse) {
                         if (!scrubbing) {
-                            var dx = Math.abs(mouse.x - pressX)
-                            var dy = Math.abs(mouse.y - pressY)
+                            let dx = Math.abs(mouse.x - pressX)
+                            let dy = Math.abs(mouse.y - pressY)
                             // Only steal the gesture for horizontal drags (scrubbing)
                             if (dx > dragThreshold && dx > dy) {
                                 scrubbing = true
@@ -130,14 +130,14 @@ T.Page {
                             }
                         }
                         if (scrubbing) {
-                            var graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
+                            let graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
                             comparisonGraph.inspectAtPosition(graphPos.x, graphPos.y)
                         }
                     }
                     onReleased: function(mouse) {
                         if (!scrubbing) {
                             // Simple tap — inspect at tap position
-                            var graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
+                            let graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
                             comparisonGraph.inspectAtPosition(graphPos.x, graphPos.y)
                         }
                         scrubbing = false
@@ -264,9 +264,9 @@ T.Page {
 
                         onPositionChanged: function(mouse) {
                             if (pressed) {
-                                var currentY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
-                                var delta = currentY - startY
-                                var newHeight = startHeight + delta
+                                let currentY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
+                                let delta = currentY - startY
+                                let newHeight = startHeight + delta
                                 // Clamp between min and max
                                 newHeight = Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), newHeight))
                                 shotComparisonPage.graphHeight = newHeight

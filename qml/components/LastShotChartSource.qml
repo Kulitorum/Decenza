@@ -93,7 +93,7 @@ QtObject {
         var parts = []
         var entries = GraphSeries.entries
         var hasPortal = shotData.portalSamples && shotData.portalSamples.length > 0
-        for (var i = 0; i < entries.length; i++) {
+        for (let i = 0; i < entries.length; i++) {
             if (entries[i].portal && !hasPortal) continue
             parts.push(Settings.graph[entries[i].key] ? "1" : "0")
         }
@@ -178,7 +178,7 @@ QtObject {
         }
 
         function onShotsDeleted(shotIds) {
-            for (var i = 0; i < shotIds.length; i++) {
+            for (let i = 0; i < shotIds.length; i++) {
                 if (Number(shotIds[i]) === Number(root._shotId)) {
                     root._refresh()
                     return

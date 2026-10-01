@@ -62,13 +62,6 @@ KeyboardAwareContainer {
     // Bumped when editing palette changes, to force swatch re-evaluation
     property int _paletteVersion: 0
 
-    function colorToHex(c) {
-        var r = Math.round(c.r * 255).toString(16).padStart(2, '0')
-        var g = Math.round(c.g * 255).toString(16).padStart(2, '0')
-        var b = Math.round(c.b * 255).toString(16).padStart(2, '0')
-        return "#" + r + g + b
-    }
-
     function getColorValue(colorName) {
         var _v = _paletteVersion  // reactive dependency
         var editColors = Settings.theme.editingPaletteColors()
@@ -83,7 +76,7 @@ KeyboardAwareContainer {
         selectedColorName = colorName
         selectedColorValue = getColorValue(colorName)
         colorEditor.setColor(selectedColorValue)
-        hexField.text = themesTab.colorToHex(selectedColorValue)
+        hexField.text = Theme.colorToHex(selectedColorValue)
         _selecting = false
     }
 
@@ -91,7 +84,7 @@ KeyboardAwareContainer {
     property bool _updatingFromHex: false
 
     function applyColorChange(newColor) {
-        Settings.theme.setEditingPaletteColor(selectedColorName, colorToHex(newColor))
+        Settings.theme.setEditingPaletteColor(selectedColorName, Theme.colorToHex(newColor))
         selectedColorValue = newColor
     }
 
@@ -272,7 +265,7 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
-                                text: themesTab.colorToHex(themesTab.selectedColorValue)
+                                text: Theme.colorToHex(themesTab.selectedColorValue)
                                 font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.bodyFont.pixelSize
                                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
@@ -343,7 +336,7 @@ KeyboardAwareContainer {
                                     themesTab.applyColorChange(colorEditor.color)
                                 }
                                 if (!themesTab._updatingFromHex && !themesTab._selecting) {
-                                    hexField.text = themesTab.colorToHex(colorEditor.color)
+                                    hexField.text = Theme.colorToHex(colorEditor.color)
                                 }
                             }
                         }

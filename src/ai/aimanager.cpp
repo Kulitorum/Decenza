@@ -106,6 +106,7 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
 
     // Connect to settings changes
     connect(m_settings->ai(), &SettingsAI::configurationChanged, this, &AIManager::onSettingsChanged);
+    connect(this, &AIManager::configurationChanged, this, &AIManager::modelSummaryChanged);
 }
 
 AIManager::~AIManager()
@@ -197,6 +198,10 @@ void AIManager::setTranslationManager(TranslationManager* tm)
         if (p) p->setTranslationManager(tm);
     }
     if (m_conversation) m_conversation->setTranslationManager(tm);
+    // The cost hint is translated C++-side.
+    if (tm)
+        connect(tm, &TranslationManager::translationsChanged, this, &AIManager::modelSummaryChanged,
+                Qt::UniqueConnection);
 }
 
 QString AIManager::tr_(const char* key, const char* fallback) const {
@@ -218,6 +223,14 @@ QString AIManager::modelDisplayName(const QString& providerId) const
 {
     AIProvider* provider = providerById(providerId);
     return provider ? provider->shortModelName() : QString();
+}
+
+QVariantMap AIManager::modelDisplayNames() const
+{
+    QVariantMap names;
+    for (const QString& providerId : availableProviders())
+        names.insert(providerId, modelDisplayName(providerId));
+    return names;
 }
 
 QVariantList AIManager::availableModels(const QString& providerId) const

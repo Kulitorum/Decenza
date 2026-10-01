@@ -6,7 +6,7 @@ Reviewed **2026-09-10** against the [Qt 6.12 snapshot notes](https://doc-snapsho
 
 The consolidation PR changes planning only. Keep this change active and its implementation tasks open; archive and apply its deltas to the main specs with the future implementation PR, not with this planning update.
 
-Implementation starts after GA. The [release schedule](https://wiki.qt.io/Qt_6.12_Release) now plans **RC September 14 and GA September 30**, replacing September 8/22. Beta 4 shipped September 4; the `6.12.0` branch was cut September 9. Snapshot documentation remains work in progress; verify the chosen release tag and installer artifacts before relying on a fix.
+**Qt 6.12.0 was released 2026-09-30** (RC 2026-09-18). Re-reviewed **2026-10-01** against the [final notes](https://doc.qt.io/qt-6/whatsnew612.html) and the tagged source installed at `~/Qt/6.12.0/Src`; source citations below are to that tree. The [known-issues page](https://wiki.qt.io/Qt_6.12_Known_Issues) lists only QTBUG-150760 (Qt OPC UA, unused).
 
 ## Why
 
@@ -17,6 +17,8 @@ Decenza is on stock Qt **6.11.2**. Qt 6.12 makes Canvas Painter a supported modu
 - Upgrade all platforms and the sanitizer workflow to the same released Qt 6.12 patch version, retaining stock runtime binaries.
 - **BREAKING:** inherit Qt's iOS/iPadOS **18.0** and macOS **14.4** minimums. The July 29 decision to take iOS 18 and keep one Qt version across platforms stands.
 - Reconcile Android build templates and back navigation, Apple deployment targets, Windows manifest generation, and QML tooling/runtime changes.
+- Target Android **API 37**, Qt 6.12's default (`qtbase/src/tools/androiddeployqt/main.cpp:176`), replacing our pin of 34, and handle the API 35–37 behaviour changes that opts into — above all the **local network permission**. Decenza is sideload-only, so no store deadline drives this; minSdk stays 28, Qt's default (`main.cpp:175`). A target SDK never narrows which devices can install.
+- Replace the custom `gradle.buildFinished` signing hook in `android/build.gradle` with Qt's own APK signing, and stop producing an AAB: it is a Google Play upload format, and Decenza is not on Play.
 - Adopt declarative chart data and single-unit label formatting where useful; evaluate automatic label margins and the Canvas Painter graph backend where the stock binaries provide it.
 - Evaluate new APIs that could remove existing glue: QtCanvas2D, externally supplied QML singletons, and HTML/color helpers. Each evaluation ends with an explicit adopt/defer result.
 
@@ -29,9 +31,14 @@ Decenza is on stock Qt **6.11.2**. Qt 6.12 makes Canvas Painter a supported modu
 | **Missing required properties** | Qt now reports instantiation errors rather than constructing incomplete components. | Exercise dynamic pages, Loaders, and delegates. Do not blindly add required properties and break injected model roles. |
 | **qmllint / qmlls** | Opaque type information, fewer duplicate unknown-type warnings, new shadowing/recursion/filename warnings, and navigation through QML_FOREIGN affect our tooling. | Rebuild type information; compare diagnostics by file/category. Keep default warning coverage. Smaller totals alone are not proof of fixes. |
 | **Android back** | Predictive back uses OnBackInvokedCallback; Qt enables its manifest attribute by default. Unhandled back now backgrounds the task. | Check our custom manifest against DecenzaActivity and main.qml's Keys.onReleased navigation; test dialogs, editors, root back, resume, and active BLE/machine operation. |
-| **Android build** | Qt specifies Gradle 9.5.1 / AGP 9.2.1. Our custom build.gradle pins AGP 8.10.1, retains resConfig "en", and has a buildFinished packaging hook. | Reconcile with the installed template and verify signed APK/AAB output. CI already uses JDK 21; delete the obsolete Java-17-to-21 task. |
+| **Android build** | Qt specifies Gradle 9.5.1 / AGP 9.2.1 (`qtbase/src/android/templates/build.gradle:9`). Our custom build.gradle pins AGP 8.10.1, retains resConfig "en", and pins compileSdk 35 here and in CMakeLists.txt. | Rebase on the 6.12 template; compileSdk follows the target. CI already uses JDK 21. |
+| **Android signing** | Our `gradle.buildFinished` hook signs with hard-coded Windows paths, a committed keystore-password fallback, and a manifest regex for the version; CI adds three APK-find fallbacks and a "sign if unsigned" step. Qt signs packages itself: `QT_ANDROID_SIGN_APK` passes `--sign` (`Qt6AndroidMacros.cmake:717-723`), keystore from `QT_ANDROID_KEYSTORE_*` env (`androiddeployqt/main.cpp:469-492`), apksigner (`:3461`). | Delete the hook, including its AAB copy-and-sign; sign the APK through Qt; CI renames the one signed APK. `QT_ANDROID_SIGN_AAB` restores an AAB if Decenza ever goes on Play. |
+| **Android target SDK 37** | API 35: edge-to-edge enforced (no inset handling exists in qml/ or android/). API 36: predictive back stops dispatching `KEYCODE_BACK`, which main.qml and two editors rely on. API 37: orientation lock ignored on screens ≥600dp, with no opt-out — the app follows how the device is held, so a landscape tablet stays landscape; exposure is portrait rotation and split-screen. Each applies only on devices running that Android version. | Handle insets, verify back delivery, decide large-screen portrait behaviour. Audited android/src for API 37 native-DCL, static-final reflection, MessageQueue and BAL changes: no use. CT/ECH defaults affect only Android's own network stack, not Qt+OpenSSL. |
+| **Local network permission (API 37)** | On Android 17, all LAN traffic — TCP in/out, UDP, multicast, `.local` resolution — needs runtime `ACCESS_LOCAL_NETWORK` (Nearby devices group). Denied TCP surfaces as a timeout. Affects WiFi scale and discovery, ShotServer and inbound MCP, MQTT, device migration, relay, tsnet (100.64.0.0/10 counts as local) and screen capture. Qt 6.12 has no support (no reference in qtbase/qtconnectivity/qtwebsockets). | Declare it, request via `QtAndroidPrivate::requestPermission` (`qandroidextras_p.h:239`) or JNI on the user action that needs it, and surface denial like the iOS Local Network case. Test on Android 16 with `adb shell am compat enable RESTRICT_LOCAL_NETWORK`. |
+| **OpenSSL** | Qt ships no OpenSSL on any platform. The new Android step only bundles libraries found via `OPENSSL_ROOT_DIR` or vcpkg when the FFmpeg plugin needs them, and skips ones already in `QT_ANDROID_EXTRA_LIBS` (`Qt6AndroidMacros.cmake:154-240`); we set neither. | Not adopted: our code links OpenSSL directly (ShotServer certificates, aes128.cpp) and needs headers and link libraries. KDAB android_openssl stays. |
+| **Windows rendering** | Screen colour spaces now come from ICC profiles; DirectWrite reads per-font GASP antialiasing. | Visual pass on Windows. |
 | **CMake** | Release notes now require a 3.25+ configuring tool. Policy-baseline guidance still permits cmake_minimum_required(3.16+); ours is 3.21. | Verify actual kit/runner CMake versions separately from the policy baseline. QTP0006 concerns Wayland generators we do not call. |
-| **Windows manifest** | qt_add_executable() generates compatibility, long-path, and UAC settings. | Verify the final executable/installer has no duplicate manifest or unintended elevation change. |
+| **Windows manifest** | qt_add_executable() generates compatibility, long-path, and UAC settings. The repo has no manifest or .rc of its own. | Verify the generated manifest and elevation; `QT_WINDOWS_APP_PROJECT_EXECUTION_LEVEL` exists if the default is wrong. |
 | **Input/accessibility** | ImhNoFullscreen, positive decimal input, TalkBack scrolling/expanded states, and reduced-motion hints fit our landscape UI. | Keep TalkBack as a regression gate; evaluate input/motion hints on actual controls without replacing validation. |
 | **Small helpers and inherited wins** | Qt.escapeHtml(), Color, faster date parsing, and resource-content deduplication. | Replace only equivalent QML helpers; preserve escaping/color contracts. No speculative performance refactors. |
 
@@ -42,7 +49,7 @@ References: [QtCanvas2D](https://doc-snapshots.qt.io/qt6-6.12/qtcanvas2d-qmlmodu
 - Reconcile iOS deployment settings: CMake currently sets 17.0 while the iOS workflow passes 14.0. Inspect generated app/widget targets and set the effective floor consistently to 18.0.
 - Update the macOS workflow's explicit 13.0 target to 14.4. The old task claiming desktop users were unaffected was wrong; release notes must explain **both** Apple floors as Qt requirements.
 - Jeff's previously recorded iPad7,4 (10.5-inch iPad Pro) cannot run iPadOS 18. Reconfirm available hardware and simulator slices before claiming coverage. Do **not** call this an “A12+” minimum: [Apple's list](https://support.apple.com/en-us/104986) includes the 7th-generation iPad. Devices losing support between iPadOS 17 and 18 include the 6th-generation iPad, 10.5-inch iPad Pro, and 12.9-inch iPad Pro (2nd generation). Avoid listing devices already unsupported by iOS/iPadOS 17 as newly dropped.
-- Android stays API 28+. The current matrix specifies NDK r27c / 27.2.12479018; continue deriving its exact revision from Qt and verify the compile SDK separately.
+- Android minSdk stays 28; target becomes 37 (see findings). Continue deriving the NDK revision from Qt.
 - **android/qt-overrides/ was deleted by the 6.11.2 upgrade.** Both TalkBack fixes shipped upstream; the deadlock-protector patch was dropped and preserved only as source in docs/qt-patches/. No plugin/jar rebuild or version-lock restoration belongs here. Preserve the existing **Decenza Ships Stock Qt Runtime Binaries** requirement. Check Gerrit 735089 against the chosen release to record whether the accepted crash is fixed.
 
 ### Chart work and retained investigation
@@ -68,6 +75,8 @@ Qt.escapeHtml is relevant to Theme.escapeHtml and ExpandableTextArea only after 
 
 No immediate work for BLE advertising (we are a central), Qt HTTP Server limits (ShotServer uses QTcpServer), Qt MQTT (we use Paho), native controls styling, design tooling, HarmonyOS, or log axes. The macOS QScreen::grabWindow permission change does not directly describe our ScreenCaptureService, which uses **QQuickWindow::grabWindow**. Keep screenshot smoke testing without inventing a permission requirement. Optional Quick3D screensavers still merit a smoke test; no new sky/XR features are planned.
 
+Checked on 2026-10-01, no action: multi-argument `string.arg()` (no QML call passes more than one), `QSoundEffect` always emitting `sourceChanged` (not connected), macOS/iOS `QStandardPaths` changes (unused locations), `QSaveFile` permission deferral (no permissions set), `DateTimeAxis.tickCount` and log axes (unused).
+
 ## Capabilities
 
 ### New Capabilities
@@ -76,11 +85,11 @@ None.
 
 ### Modified Capabilities
 
-- `build-config`: Qt 6.12 on every platform, Apple deployment floors, required configuring tools, and accurate release communication. Preserve the stock-runtime policy.
+- `build-config`: Qt 6.12 on every platform, Apple deployment floors, required configuring tools, accurate release communication, Android target SDK 37 with local-network permission handling, and Qt-native Android signing. Preserve the stock-runtime policy.
 - `charting`: conditional use of an available stock Canvas Painter backend and evidence for backend-attributed performance claims; retain graph behavior and performance targets.
 
 ## Impact
 
-Implementation affects CMakeLists.txt, six release workflows and nightly-sanitizers.yml, Android templates, graph QML, and version/platform documentation. Optional adoption may touch contextsingletons_qml.h, src/ui/jscanvas*, CupFillView, and shared QML helpers. Baseline module lists already include Canvas Painter and Graphs; verify QML plugin deployment if QtCanvas2D is adopted.
+Implementation affects CMakeLists.txt, six release workflows and nightly-sanitizers.yml, Android templates/manifest/signing, the permission path for every LAN feature on Android, graph QML, and version/platform documentation. Optional adoption may touch contextsingletons_qml.h, src/ui/jscanvas*, CupFillView, and shared QML helpers. Baseline module lists already include Canvas Painter and Graphs; verify QML plugin deployment if QtCanvas2D is adopted.
 
 Use Qt Creator MCP for local builds/tests and dispatch platform CI before release. linux-release.yml can run the suite on demand; text-invariants.yml runs build-free checks on relevant PRs. Device checks cover Android back/resume, TalkBack, BLE discovery/cancellation, full shots, graph performance, and iOS app/widget behavior. Update the wiki for visible changes and release notes for both Apple floors.

@@ -354,6 +354,28 @@ private slots:
         QCOMPARE(failed2.last().at(1).toString(), QString("urlFetchUnsupported"));
     }
 
+    // The AI settings tab binds to these properties. If they stop notifying, the provider card
+    // and the cost line keep showing the previous model, and nothing else fails.
+    void modelSummaryFollowsModelSelection()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        const QString savedModel = settings.ai()->providerModel("openai");
+        const auto restoreModel = qScopeGuard([&] { settings.ai()->setProviderModel("openai", savedModel); });
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setProviderModel("openai", "gpt-5.6-terra");
+        AIManager mgr(&nam, &settings);
+        const QVariant terraName = mgr.modelDisplayNames().value("openai");
+        QVERIFY(mgr.selectedCostHint().contains("$0.04 per shot"));
+        QSignalSpy changed(&mgr, &AIManager::modelSummaryChanged);
+
+        settings.ai()->setProviderModel("openai", "gpt-5.6-luna");
+        QVERIFY(changed.count() > 0);
+        QVERIFY(mgr.selectedCostHint().contains("$0.004 per shot"));
+        QVERIFY(mgr.modelDisplayNames().value("openai") != terraName);
+    }
+
     // The extraction request-type routing: ANY leak into recommendationReceived
     // renders raw JSON in the advisor UI; a stuck flag misroutes the advisor's
     // next response. Drives the private slots directly via the friend seam —

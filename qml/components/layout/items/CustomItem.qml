@@ -199,8 +199,8 @@ LayoutWidgetItem {
         if (!html || html.indexOf("<") < 0) return html
         var inTag = false
         var inQuote = false
-        for (var i = 0; i < html.length; i++) {
-            var ch = html[i]
+        for (let i = 0; i < html.length; i++) {
+            let ch = html[i]
             if (inQuote) {
                 if (ch === '"') inQuote = false
                 else if (ch === '<') {
@@ -371,7 +371,7 @@ LayoutWidgetItem {
                 // (`<span style="color:…; font-size:…px">`, documentformatter.cpp:400-411) and
                 // StyledText has no `<span>` handler and never reads a
                 // `style=` attribute. The only tag whose attributes reach the character format
-                // is `<font>` (qquickstyledtext.cpp:421-422); `<a>`, `<img>`, `<ol>` and `<ul>`
+                // is `<font>` (qquickstyledtext.cpp:450-451); `<a>`, `<img>`, `<ol>` and `<ul>`
                 // attributes are parsed too but carry no styling — and `<img>` is why emoji
                 // (Theme.replaceEmojiWithImg) rendered correctly here all along.
                 // So the span was dropped and every custom widget rendered at the default

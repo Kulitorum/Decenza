@@ -44,11 +44,11 @@ DecenzaDialog {
         if (a.length === 0) return b.length
         if (b.length === 0) return a.length
         var matrix = []
-        for (var i = 0; i <= b.length; i++) matrix[i] = [i]
-        for (var j = 0; j <= a.length; j++) matrix[0][j] = j
-        for (i = 1; i <= b.length; i++) {
-            for (j = 1; j <= a.length; j++) {
-                var cost = a[j - 1] === b[i - 1] ? 0 : 1
+        for (let i = 0; i <= b.length; i++) matrix[i] = [i]
+        for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                let cost = a[j - 1] === b[i - 1] ? 0 : 1
                 matrix[i][j] = Math.min(
                     matrix[i - 1][j] + 1,
                     matrix[i][j - 1] + 1,
@@ -62,8 +62,8 @@ DecenzaDialog {
     // Check if queryWord fuzzy-matches any word in targetWords
     function fuzzyWordMatch(queryWord, targetWords) {
         var maxDist = queryWord.length <= 3 ? 0 : (queryWord.length <= 5 ? 1 : 2)
-        for (var i = 0; i < targetWords.length; i++) {
-            var tw = targetWords[i]
+        for (let i = 0; i < targetWords.length; i++) {
+            let tw = targetWords[i]
             // Exact substring still works
             if (tw.indexOf(queryWord) !== -1) return true
             // Fuzzy: compare against words of similar length
@@ -72,7 +72,7 @@ DecenzaDialog {
             }
             // Fuzzy: check if query is a fuzzy prefix of a longer word
             if (maxDist > 0 && tw.length > queryWord.length) {
-                var prefix = tw.substring(0, queryWord.length + maxDist)
+                let prefix = tw.substring(0, queryWord.length + maxDist)
                 if (editDistance(queryWord, prefix) <= maxDist) return true
             }
         }
@@ -102,13 +102,13 @@ DecenzaDialog {
         var results = []
         var queryWords = query.split(/\s+/)
 
-        for (var i = 0; i < allEntries.length; i++) {
-            var entry = allEntries[i]
-            var searchText = (entry.title + " " + entry.description + " " + entry.keywords.join(" ")).toLowerCase()
+        for (let i = 0; i < allEntries.length; i++) {
+            let entry = allEntries[i]
+            let searchText = (entry.title + " " + entry.description + " " + entry.keywords.join(" ")).toLowerCase()
 
             // Fast path: exact substring match for all query words
-            var allExact = true
-            for (var w = 0; w < queryWords.length; w++) {
+            let allExact = true
+            for (let w = 0; w < queryWords.length; w++) {
                 if (searchText.indexOf(queryWords[w]) === -1) {
                     allExact = false
                     break
@@ -117,9 +117,9 @@ DecenzaDialog {
             if (allExact) { results.push(entry); continue }
 
             // Slow path: fuzzy word matching
-            var targetWords = searchText.split(/\s+/)
-            var allFuzzy = true
-            for (w = 0; w < queryWords.length; w++) {
+            let targetWords = searchText.split(/\s+/)
+            let allFuzzy = true
+            for (let w = 0; w < queryWords.length; w++) {
                 if (!fuzzyWordMatch(queryWords[w], targetWords)) {
                     allFuzzy = false
                     break
@@ -258,7 +258,7 @@ DecenzaDialog {
 
             // Empty state
             Text {
-                // `parent` here is the ListView's contentItem (qquickflickable.cpp:2442),
+                // `parent` here is the ListView's contentItem (qquickflickable.cpp:2462),
                 // which is zero-high exactly when the list is empty -- centring on it put
                 // this message half above the clipped top edge.
                 anchors.horizontalCenter: parent.horizontalCenter

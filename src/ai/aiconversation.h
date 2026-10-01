@@ -7,7 +7,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <optional>
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class AIManager;
 class TranslationManager;

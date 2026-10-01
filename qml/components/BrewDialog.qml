@@ -119,7 +119,7 @@ DecenzaDialog {
 
     function getRecipeSuggestions() {
         var names = []
-        for (var i = 0; i < recipeChoices.length; i++)
+        for (let i = 0; i < recipeChoices.length; i++)
             names.push(recipeChoices[i].name)
         return names
     }
@@ -129,8 +129,8 @@ DecenzaDialog {
     // switches). Returns -1 when nothing matches.
     function resolveRecipeId(name) {
         var fallback = -1
-        for (var i = 0; i < recipeChoices.length; i++) {
-            var r = recipeChoices[i]
+        for (let i = 0; i < recipeChoices.length; i++) {
+            let r = recipeChoices[i]
             if (r.name === name) {
                 if (r.id !== Settings.dye.activeRecipeId)
                     return r.id
@@ -173,7 +173,7 @@ DecenzaDialog {
         var shown = anchorMode === "ratio" ? ratio : targetValue
         if (anchorMode === "ratio") {
             // One tolerance unit, converted through the dose (0.1 g).
-            var d = doseValue > 0 ? doseValue : 18
+            let d = doseValue > 0 ? doseValue : 18
             return Math.abs(shown - storedYieldValue) * d > 0.1
         }
         return Math.abs(shown - storedYieldValue) > 0.1
@@ -232,7 +232,7 @@ DecenzaDialog {
     function getProfileSuggestions() {
         var profiles = ProfileManager.availableProfiles
         var titles = []
-        for (var i = 0; i < profiles.length; i++)
+        for (let i = 0; i < profiles.length; i++)
             titles.push(profiles[i].title)
         return titles
     }
@@ -314,7 +314,7 @@ DecenzaDialog {
     onAboutToShow: {
         // Announce dialog for accessibility
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
+            let announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
             if (Settings.dye.dyeBeanBrand.length > 0)
                 announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dye.dyeBeanBrand
             if (Settings.dye.dyeBeanType.length > 0)
@@ -504,7 +504,7 @@ DecenzaDialog {
                             }
                         } else {
                             root.anchorMode = "none"
-                            var profileTarget = ProfileManager.profileTargetWeight
+                            let profileTarget = ProfileManager.profileTargetWeight
                             root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
                             root.targetValue = profileTarget > 0 ? profileTarget : root.doseValue * root.ratio
                         }
@@ -888,7 +888,7 @@ DecenzaDialog {
                                 // absolute (recipe-relative-temp-offset); activation
                                 // recomputes profileTemp + offset at apply time.
                                 // recipeUpdated → MainController refreshes m_activeRecipe.
-                                var newOffset = root.temperatureValue - root.profileTemperature
+                                let newOffset = root.temperatureValue - root.profileTemperature
                                 if (Math.abs(newOffset) < 0.05)
                                     newOffset = 0
                                 root._pendingRecipeUpdateId = Settings.dye.activeRecipeId

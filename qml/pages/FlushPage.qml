@@ -48,7 +48,7 @@ T.Page {
     //
     // The null check is not defensive padding: Repeater.count is the MODEL size and is
     // emitted before the delegates exist — regenerate() returns early until
-    // componentComplete() (qquickrepeater.cpp:379-396) — so `count > 0` with a null
+    // componentComplete() (qquickrepeater.cpp:434-438) — so `count > 0` with a null
     // itemAt() is the normal state while a creation-time KeyNavigation binding first
     // evaluates. Dereferencing through the cast there threw on every page open.
     function presetFocusTarget(i: int): Item {

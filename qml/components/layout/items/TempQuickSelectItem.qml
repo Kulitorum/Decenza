@@ -63,10 +63,10 @@ LayoutWidgetItem {
         var step = root.tempStepC
         var out = []
         var seen = ({})
-        for (var n = -5; n <= 5; n++) {
-            var v = cur + n * step
+        for (let n = -5; n <= 5; n++) {
+            let v = cur + n * step
             if (!(v >= 70 && v <= 100)) continue    // clamp to the brew range (NaN-safe)
-            var key = v.toFixed(2)                   // fold float dirt + de-duplicate
+            let key = v.toFixed(2)                   // fold float dirt + de-duplicate
             if (seen[key]) continue
             seen[key] = true
             out.push({ value: v, label: Theme.formatTemperature(v, 1), isCurrent: n === 0 })

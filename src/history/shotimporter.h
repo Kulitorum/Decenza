@@ -6,7 +6,7 @@
 #include <QFuture>
 #include <QTemporaryDir>
 
-#include <QtQml/qqmlregistration.h>
+#include <QtQmlIntegration/qqmlintegration.h>
 class ShotHistoryStorage;
 
 /**

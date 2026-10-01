@@ -49,14 +49,10 @@ void applyBrush(QCanvasPainter *p, const BrushSpec &s, bool fill)
         if (fill) p->setFillStyle(g);
         else      p->setStrokeStyle(g);
     } else {
-        // Canvas-2D's createRadialGradient takes two circles (inner focal
-        // point and outer extent) but QCanvasRadialGradient is single-center
-        // with concentric radii. When the centers differ we use the inner
-        // circle's center as the gradient origin: in Canvas 2D the inner
-        // circle is the focal point where the start color is brightest, so
-        // anchoring the gradient there preserves the "lit-from-this-side"
-        // asymmetry the QML caller designed (e.g. CupFillView's crema).
-        QCanvasRadialGradient g(s.x0, s.y0, s.r1, s.r0);
+        // Canvas 2D's two circles, inner then outer. Not the four-argument form: Qt 6.12
+        // reversed it from (cx, cy, outer, inner) to (cx, cy, inner, outer), which compiles
+        // unchanged and swaps the radii (qcanvasradialgradient.h:20-25).
+        QCanvasRadialGradient g(s.x0, s.y0, s.r0, s.x1, s.y1, s.r1);
         g.setStops(s.stops);
         if (fill) p->setFillStyle(g);
         else      p->setStrokeStyle(g);

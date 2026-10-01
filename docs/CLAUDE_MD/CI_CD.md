@@ -239,6 +239,5 @@ Without `--latest`, the previous stable release remains the "latest" and the aut
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
 - `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)
-- APK files are for direct distribution (sideloading)
-- AAB files are only for Google Play Store uploads
-- Users cannot install AAB files directly
+- Android is distributed by sideloading the APK only. Decenza is **not on Google Play**, so Play's target-API deadlines never drive an SDK change; the target SDK follows Qt's default.
+- No AAB is produced: it is a Play upload format, not something users can install.

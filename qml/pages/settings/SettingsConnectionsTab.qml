@@ -942,7 +942,7 @@ Item {
                         }
 
                         // A visual child of a ListView is reparented to its
-                        // contentItem (qquickflickable.cpp:2442), so `parent`
+                        // contentItem (qquickflickable.cpp:2462), so `parent`
                         // here is NOT the ListView: `parent.count` was undefined
                         // and this placeholder never once appeared. Read count
                         // off the list by id, and centre against the list's own
@@ -1273,14 +1273,14 @@ Item {
 
                                 function indexOfPrimary() {
                                     var scales = Settings.knownScales
-                                    for (var i = 0; i < scales.length; i++) {
+                                    for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary) return i
                                     }
                                     return -1
                                 }
                                 function primaryLabel() {
                                     var scales = Settings.knownScales
-                                    for (var i = 0; i < scales.length; i++) {
+                                    for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary)
                                             return scales[i].name || scales[i].type
                                     }
@@ -1373,7 +1373,7 @@ Item {
                                     Rectangle {
                                         property string badge: {
                                             var scales = Settings.knownScales
-                                            for (var i = 0; i < scales.length; i++) {
+                                            for (let i = 0; i < scales.length; i++) {
                                                 if (scales[i].isPrimary)
                                                     return scalePicker.transportLabel(scales[i].type)
                                             }
@@ -1562,7 +1562,7 @@ Item {
                                 text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
                                 accessibleName: {
                                     var scales = Settings.knownScales
-                                    for (var i = 0; i < scales.length; i++) {
+                                    for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary)
                                             return TranslationManager.translate("connections.forgetScale", "Forget scale") + " " + scales[i].name
                                     }
@@ -1570,13 +1570,13 @@ Item {
                                 }
                                 onClicked: {
                                     var scales = Settings.knownScales
-                                    for (var i = 0; i < scales.length; i++) {
+                                    for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary) {
                                             BLEManager.clearSavedScale()
                                             Settings.removeKnownScale(scales[i].address)
                                             // Reconnect BLEManager to whichever scale is now primary.
-                                            var remaining = Settings.knownScales
-                                            for (var j = 0; j < remaining.length; j++) {
+                                            let remaining = Settings.knownScales
+                                            for (let j = 0; j < remaining.length; j++) {
                                                 if (remaining[j].isPrimary) {
                                                     BLEManager.setSavedScaleAddress(remaining[j].address,
                                                                                     remaining[j].type,
@@ -1877,20 +1877,20 @@ Item {
                             // for WiFi is "wifi:hostname" — matches what we save).
                             var known = {}
                             var knownScales = Settings.knownScales
-                            for (var k = 0; k < knownScales.length; k++) {
+                            for (let k = 0; k < knownScales.length; k++) {
                                 known[knownScales[k].address] = true
                             }
                             var savedRefAddr = Settings.savedRefractometerAddress || ""
 
                             var items = []
                             var skippedScales = 0
-                            for (var i = 0; i < scales.length; i++) {
+                            for (let i = 0; i < scales.length; i++) {
                                 if (known[scales[i].address]) { skippedScales++; continue }
                                 items.push({ deviceName: scales[i].name, address: scales[i].address,
                                              deviceType: scales[i].type, deviceClass: "scale" })
                             }
                             var skippedRefs = 0
-                            for (var j = 0; j < refractometers.length; j++) {
+                            for (let j = 0; j < refractometers.length; j++) {
                                 if (savedRefAddr && refractometers[j].address === savedRefAddr) {
                                     skippedRefs++; continue
                                 }
@@ -1898,7 +1898,7 @@ Item {
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
                             var portals = BelkaPortal.devices
-                            for (var p = 0; p < portals.length; p++) {
+                            for (let p = 0; p < portals.length; p++) {
                                 if (portals[p].identifier === BelkaPortal.savedAddress) continue
                                 items.push({ deviceName: portals[p].label, address: portals[p].identifier,
                                              deviceType: "PORTAL", deviceClass: "portal" })

@@ -113,7 +113,7 @@ Item {
                             if (updateTab.versionTapCount >= 7) {
                                 updateTab.versionTapCount = 0
                                 Settings.app.developerTranslationUpload = !Settings.app.developerTranslationUpload
-                                var message
+                                let message
                                 if (Settings.app.developerTranslationUpload) {
                                     message = "Translation upload enabled! Go to Settings, Language to upload."
                                 } else {
@@ -122,7 +122,7 @@ Item {
                                 translationUploadToast.show(message)
                                 AccessibilityManager.announce(message)
                             } else if (updateTab.versionTapCount >= 4) {
-                                var remaining = (7 - updateTab.versionTapCount) + " more taps"
+                                let remaining = (7 - updateTab.versionTapCount) + " more taps"
                                 translationUploadToast.show(remaining + "...")
                                 AccessibilityManager.announce(remaining)
                             }
@@ -479,13 +479,13 @@ Item {
                             Text {
                                 text: {
                                     if (MainController.updateChecker.updateAvailable) {
-                                        var betaTag = MainController.updateChecker.latestIsBeta ? " (Beta)" : ""
+                                        let betaTag = MainController.updateChecker.latestIsBeta ? " (Beta)" : ""
                                         // 0 means the release notes state no build number, so there is
                                         // none to show — printing "(Build 0)" would read as a real one.
-                                        var buildTag = MainController.updateChecker.latestVersionCode > 0
+                                        let buildTag = MainController.updateChecker.latestVersionCode > 0
                                                      ? " (Build " + MainController.updateChecker.latestVersionCode + ")"
                                                      : ""
-                                        var msg = TranslationManager.translate("settings.update.updateavailable", "Update available:") +
+                                        let msg = TranslationManager.translate("settings.update.updateavailable", "Update available:") +
                                                " v" + MainController.updateChecker.latestVersion + betaTag + buildTag
                                         // Add platform-specific note for iOS
                                         if (Qt.platform.os === "ios") {

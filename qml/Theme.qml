@@ -59,8 +59,8 @@ QtObject {
         if (!emoji) return ""
         if (emoji.indexOf("qrc:") === 0) return emoji
         var cps = []
-        for (var i = 0; i < emoji.length; ) {
-            var cp = emoji.codePointAt(i)
+        for (let i = 0; i < emoji.length; ) {
+            let cp = emoji.codePointAt(i)
             i += cp > 0xFFFF ? 2 : 1
             if (cp !== 0xFE0F) cps.push(cp.toString(16))
         }
@@ -200,15 +200,15 @@ QtObject {
         var result = ""
         var i = 0
         while (i < text.length) {
-            var cp = text.codePointAt(i)
-            var charLen = cp > 0xFFFF ? 2 : 1
+            let cp = text.codePointAt(i)
+            let charLen = cp > 0xFFFF ? 2 : 1
             if (_isEmoji(cp) || _isEmojiPresentation(text, i, cp)) {
                 // Collect full emoji sequence (multi-codepoint with ZWJ, modifiers)
-                var emojiCps = [cp]
-                var j = i + charLen
+                let emojiCps = [cp]
+                let j = i + charLen
                 while (j < text.length) {
-                    var next = text.codePointAt(j)
-                    var nextLen = next > 0xFFFF ? 2 : 1
+                    let next = text.codePointAt(j)
+                    let nextLen = next > 0xFFFF ? 2 : 1
                     if (next === 0xFE0F) {
                         // Variation selector 16 — skip (emojiToImage strips it)
                         j += nextLen
@@ -216,9 +216,9 @@ QtObject {
                     }
                     if (next === 0x200D) {
                         // ZWJ — consume it only if followed by an emoji
-                        var zjPos = j + nextLen
+                        let zjPos = j + nextLen
                         if (zjPos < text.length) {
-                            var after = text.codePointAt(zjPos)
+                            let after = text.codePointAt(zjPos)
                             if (_isEmoji(after)) {
                                 j = zjPos
                                 emojiCps.push(0x200D)
@@ -237,7 +237,7 @@ QtObject {
                     }
                     break
                 }
-                var src = _emojiAssetPath(emojiCps.map(function(c) { return c.toString(16) }))
+                let src = _emojiAssetPath(emojiCps.map(function(c) { return c.toString(16) }))
                 if (src === "") {
                     // Nothing bundled for this sequence — drop it rather than emitting a
                     // path that resolves to nothing. The surrounding text is unaffected.
@@ -255,7 +255,7 @@ QtObject {
                 // Stray variation selector — skip
                 i += charLen
             } else {
-                var chunk = text.substring(i, i + charLen)
+                let chunk = text.substring(i, i + charLen)
                 result += allowMarkup ? chunk : escapeHtml(chunk)
                 i += charLen
             }
@@ -270,8 +270,8 @@ QtObject {
         var result = ""
         var i = 0
         while (i < text.length) {
-            var cp = text.codePointAt(i)
-            var charLen = cp > 0xFFFF ? 2 : 1
+            let cp = text.codePointAt(i)
+            let charLen = cp > 0xFFFF ? 2 : 1
             if (!_isEmoji(cp) && cp !== 0xFE0F && cp !== 0x200D) {
                 result += text.substring(i, i + charLen)
             }
@@ -339,8 +339,8 @@ QtObject {
     function joinWithBullet(parts: var): string {
         var sep = bulletSep
         var out = []
-        for (var i = 0; i < parts.length; i++) {
-            var p = String(parts[i])
+        for (let i = 0; i < parts.length; i++) {
+            let p = String(parts[i])
             if (p.length > 0) out.push(escapeHtml(p))
         }
         return out.join(sep)
@@ -436,7 +436,7 @@ QtObject {
     function cDeltaToDisplay(deltaCelsius: real): real { return TemperatureDisplay.cDeltaToDisplay(deltaCelsius, tempIsFahrenheit()) }
     function displayToCDelta(deltaValue: real): real { return TemperatureDisplay.displayToCDelta(deltaValue, tempIsFahrenheit()) }
     // `decimals` is optional at 3 of the 39 call sites. With `: int` the omitted argument
-    // is coerced, not left undefined — toInt32(undefined) is 0 (qv4jscall_p.h:329-340),
+    // is coerced, not left undefined — toInt32(undefined) is 0 (qv4jscall_p.h:359-370),
     // which is what the guard below already produced. The guard is kept so the function
     // still behaves if the annotation is ever removed.
     function formatTemperature(celsius: real, decimals: int): string {
@@ -555,13 +555,6 @@ QtObject {
             return fallback
         }
         return derived[key]
-    }
-
-    function _mix(a: color, b: color, t: real): color {
-        return Qt.rgba(a.r + (b.r - a.r) * t,
-                       a.g + (b.g - a.g) * t,
-                       a.b + (b.b - a.b) * t,
-                       1.0)
     }
 
     // Keep an accent fill only while the derived text can be read on it; otherwise fall
