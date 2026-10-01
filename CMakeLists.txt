@@ -715,6 +715,7 @@ set(SOURCES
     src/core/hdsfirmwareupdatecontroller.cpp
     src/core/firmwareassetcache.cpp
     src/core/fileshare.cpp
+    src/core/permissionrequests.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
     src/ble/blegattqueue.cpp
@@ -2010,9 +2011,9 @@ foreach(_qml_file IN LISTS QML_FILES)
     list(APPEND _decenza_qml_abs "${_abs}")
 endforeach()
 
-# Path formula mirrored from Qt6QmlMacros.cmake — keep in step with it. In Qt 6.11.2 the
-# three substitutions are at :3864, :3867 and :3870 (they were around :3841-3847 in 6.11.1;
-# cite the version you actually read, because this formula MOVES).
+# Path formula mirrored from Qt6QmlMacros.cmake — keep in step with it. In Qt 6.12.0 the
+# three substitutions are at :2595, :2598 and :2601 (:3864-3870 in 6.11.2; cite the version
+# you actually read, because this formula MOVES).
 #
 # 6.11.2 CHANGED IT, and that is not cosmetic: the character class gained `/` and a space,
 #

@@ -8,8 +8,10 @@
 #include <utility>
 
 #ifdef Q_OS_ANDROID
-#include <QCoreApplication>
+#include "core/permissionrequests.h"
+
 #include <QFuture>
+#include <QGuiApplication>
 #include <QJniObject>
 #include <QtCore/private/qandroidextras_p.h>
 #endif
@@ -38,6 +40,14 @@ LocalNetworkAccess::LocalNetworkAccess(QObject* parent)
     : QObject(parent)
 {
     s_instance = this;
+#ifdef Q_OS_ANDROID
+    // A request interrupted before the user answered (screen off, activity recreated) is asked
+    // again once Decenza is back in front.
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive && !m_requestInFlight && !m_waiting.isEmpty())
+            ask(*m_waiting.cbegin());
+    });
+#endif
 }
 
 LocalNetworkAccess::~LocalNetworkAccess()
@@ -79,18 +89,32 @@ void LocalNetworkAccess::requestOnOwnThread(Feature feature)
     }
 
     m_waiting.insert(feature);
-    if (m_requestInFlight)
-        return;
-    m_requestInFlight = true;
-    NETWORK_INFO_STDERR("LocalNetworkAccess",
-        QStringLiteral("Requesting local network permission for the %1").arg(featureName(feature)));
-    QtAndroidPrivate::requestPermission(kPermission).then(this, [this](QtAndroidPrivate::PermissionResult result) {
-        onResult(result == QtAndroidPrivate::Authorized);
-    });
+    if (!m_requestInFlight)
+        ask(feature);
 #else
     Q_UNUSED(feature);
 #endif
 }
+
+#ifdef Q_OS_ANDROID
+void LocalNetworkAccess::ask(Feature feature)
+{
+    m_requestInFlight = true;
+    NETWORK_INFO_STDERR("LocalNetworkAccess",
+        QStringLiteral("Requesting local network permission for the %1").arg(featureName(feature)));
+    PermissionRequests::requestAndroid(kPermission, this, [this](std::optional<bool> granted) {
+        if (granted) {
+            onResult(*granted);
+            return;
+        }
+        // Not a refusal: the features stay waiting and are asked for again.
+        m_requestInFlight = false;
+        NETWORK_INFO_STDERR("LocalNetworkAccess",
+            QStringLiteral("Local network permission request was interrupted before it was answered; "
+                           "asking again when Decenza is next in front"));
+    });
+}
+#endif
 
 void LocalNetworkAccess::onResult(bool granted)
 {

@@ -48,6 +48,8 @@ android {
 
     androidResources {
         noCompress += ['rcc'] // Qt mmaps the resource bundle
+        // Decenza's UI strings are not Android resources; this drops the libraries' translations.
+        localeFilters += ['en']
     }
 
     packaging {

@@ -108,7 +108,7 @@ public class DecenzaActivity extends QtActivity {
 
     // Qt's onNewIntent/onActivityResult/onRequestPermissionsResult call a
     // native on QtNative with no guard (QtActivityBase.java:375-391, Qt
-    // 6.11.2), and those natives are registered by the Android QPA plugin's
+    // 6.12.0), and those natives are registered by the Android QPA plugin's
     // JNI_OnLoad (androidjnimain.cpp:757-767, :907-926). Reached with Qt's
     // libraries not loaded, the call throws UnsatisfiedLinkError, which lands
     // on the main thread's uncaught handler and kills the process.

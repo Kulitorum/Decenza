@@ -11,8 +11,8 @@
  * TCP in and out, UDP, multicast and ".local" lookups are all blocked, and a blocked TCP
  * connect surfaces as a timeout rather than an error. Each feature calls request() where it
  * starts using the network, so anything already enabled asks at launch and anything else asks
- * when the user first turns it on. Qt has no QPermission type for it (6.12), so this uses
- * QtAndroidPrivate directly.
+ * when the user first turns it on. Qt has no QPermission type for it (6.12), so this asks
+ * through PermissionRequests::requestAndroid.
  *
  * A no-op on every other platform and below Android 17. iOS and macOS show their own prompt.
  * Created by main() and published to QML as a singleton (contextsingletons_qml.h).
@@ -44,6 +44,9 @@ signals:
 
 private:
     void requestOnOwnThread(Feature feature);
+#ifdef Q_OS_ANDROID
+    void ask(Feature feature);
+#endif
     void onResult(bool granted);
     void reportDenied(Feature feature);
 

@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "locationprovider.h"
 #include "core/appsettings.h"
+#include "core/permissionrequests.h"
 
 #include <QGeoPositionInfo>
 #include <QNetworkReply>
@@ -152,7 +153,7 @@ void LocationProvider::requestUpdate()
         }
         m_permissionRequested = true;
         DIAG_DEBUG(APP, "LocationProvider") << "Requesting location permission...";
-        qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
+        PermissionRequests::request(locationPermission, this, [this](const QPermission& permission) {
             m_permissionRequested = false;
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 DIAG_DEBUG(APP, "LocationProvider") << "Location permission granted";

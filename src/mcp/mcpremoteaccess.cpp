@@ -231,6 +231,9 @@ void McpRemoteAccess::startTunnel()
         connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &McpRemoteAccess::loginUrlChanged);
         // HTTPS-off arrives while the tunnel stays Starting, so no stateChanged follows.
         connect(m_tunnel, &McpTunnelTsnet::funnelGrantChanged, this, [this] {
+            // The probe windows are per grant: one granted after minutes in the admin console
+            // starts its wait from now, not from when probing began.
+            m_probeFailCount = 0;
             if (m_tunnel->state() == McpTunnelTsnet::Starting)
                 onTunnelStateChanged();
             updateTailscaleSetupNeeded();

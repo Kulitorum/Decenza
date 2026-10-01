@@ -300,8 +300,9 @@ after and a reviewer summing all three across the two sweeps will find a phantom
 Not a styling concern, and not visible to the compiler, qmllint or the test suite. Under a
 style, `QtQuick.Controls.Page` is the style's `Page.qml` — a **composite** type — and a
 composite matches only instances whose own metaobject chain contains it. Qt says so in
-`qqmltypewrapper.cpp:518-521`: *"a composite type cannot be equal to a non-composite object
-instance (Rectangle{} is never an instance of CustomRectangle)"*. `as` is `doInstanceof`,
+`qqmltypewrapper.cpp:509-511`: *"If the target type is a composite type, we can cut
+instanceof short if the object is not of a composite type (e.g. Rectangle{} is never an
+instance of CustomRectangle)"*. `as` is `doInstanceof`,
 and a failed **object** cast returns `null`, not `undefined` (`qv4runtime.cpp:394-406`).
 
 So re-rooting a page at `T.Page` drops the style composite out of its chain, and every

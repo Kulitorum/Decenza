@@ -7,6 +7,7 @@
 #include "../network/localnetworkaccess.h"
 #include "core/deviceinfo.h"
 #include "core/fileshare.h"
+#include "core/permissionrequests.h"
 #include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
 #include "de1logging.h"
@@ -1214,7 +1215,7 @@ void BLEManager::requestBluetoothPermission() {
         // the part that generates the support question.
         de1Info(QStringLiteral("Requesting location permission — Android requires it to scan "
                                "for BLE devices"));
-        qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
+        PermissionRequests::request(locationPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 // DEBUG: granted is the non-event. "Scanning for devices..."
                 // follows within milliseconds and says it louder.
@@ -1246,7 +1247,7 @@ void BLEManager::requestBluetoothPermission() {
     switch (qApp->checkPermission(bluetoothPermission)) {
     case Qt::PermissionStatus::Undetermined:
         de1Info(QStringLiteral("Requesting Bluetooth permission — needed to reach the DE1"));
-        qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
+        PermissionRequests::request(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 // This line is back at INFO, and the reason is a mistake worth
                 // recording. It was deleted as a non-event on the grounds that

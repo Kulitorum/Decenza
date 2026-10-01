@@ -1234,7 +1234,7 @@ T.ApplicationWindow {
     //
     // `as T.Page`, NOT `as Page`. QtQuick.Controls.Page resolves to the active style's
     // Page.qml — a COMPOSITE type — and a composite can only match an instance whose own
-    // metaobject chain contains it (`qqmltypewrapper.cpp:518-521`: "Rectangle{} is never an
+    // metaobject chain contains it (`qqmltypewrapper.cpp:509-511`: "Rectangle{} is never an
     // instance of CustomRectangle"). `as` is doInstanceof, and a failed object cast yields
     // null (`qv4runtime.cpp:394-406`). Pages root at QtQuick.Templates.Page now, so the
     // style composite is no longer in their chain and `as Page` would return null on every
