@@ -438,10 +438,14 @@ DecenzaDialog {
                     Layout.fillWidth: true
                     spacing: Theme.spacingMedium
 
-                    Tr {
+                    Text {
                         Layout.fillWidth: true
-                        key: root.formMode === "edit" ? "equipment.dialog.editTitle" : "equipment.dialog.addTitle"
-                        fallback: root.formMode === "edit" ? "Edit Equipment" : "Add Equipment"
+                        // One translate() per branch, not a Tr with a switched key: Tr's key and
+                        // fallback update separately, and the pair in between rewrote the string
+                        // registry.
+                        text: root.formMode === "edit"
+                              ? TranslationManager.translate("equipment.dialog.editTitle", "Edit Equipment")
+                              : TranslationManager.translate("equipment.dialog.addTitle", "Add Equipment")
                         font: Theme.titleFont
                         color: Theme.textColor
                         elide: Text.ElideRight

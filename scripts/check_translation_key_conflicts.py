@@ -29,11 +29,29 @@ DIRECT = re.compile(r'translate\s*\(\s*"([^"]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)'
 KEY_ANY = re.compile(r'\b(?:labelKey|translationKey|key)\s*:\s*"([^"]+)"')
 FB_ANY = re.compile(r'\b(?:labelFallback|translationFallback|fallback)\s*:\s*"((?:[^"\\]|\\.)*)"')
 
+# A Tr whose key is switched by a condition. Tr's key and fallback are separate bindings, so on
+# every flip its text evaluates once with the new key and the old fallback, which the registry
+# reads as a reworded string. Use one translate() call per branch instead.
+TR_OPEN = re.compile(r'\bTr\s*\{')
+SWITCHED_KEY = re.compile(r'\bkey\s*:(?!\s*")[^\n;]*(\?|\n\s*\?)')
+
+def switched_tr_keys(text, line_of):
+    for m in TR_OPEN.finditer(text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        k = SWITCHED_KEY.search(text, m.end(), i)
+        if k:
+            yield line_of(k.start())
+
 def main() -> int:
     seen = collections.defaultdict(lambda: collections.defaultdict(list))
+    switched = []
     for path in sorted(glob.glob("qml/**/*.qml", recursive=True)):
         text = io.open(path, encoding="utf-8").read()
         line_of = lambda pos: text.count("\n", 0, pos) + 1
+        switched += [f"{path}:{n}" for n in switched_tr_keys(text, line_of)]
 
         for m in DIRECT.finditer(text):
             seen[m.group(1)][m.group(2)].append(f"{path}:{line_of(m.start())}")
@@ -48,9 +66,14 @@ def main() -> int:
 
     conflicts = {k: v for k, v in seen.items() if len(v) > 1}
     print(f"Checked {len(seen)} translation keys across QML.")
+    if switched:
+        print(f"\n{len(switched)} Tr with a condition-switched key (use one translate() per "
+              "branch; Tr's key and fallback update separately):")
+        for w in switched:
+            print(f"      {w}")
     if not conflicts:
         print("No key is used with more than one English string.")
-        return 0
+        return 1 if switched else 0
 
     print(f"\n{len(conflicts)} key(s) used with more than one English string:\n")
     for key, variants in sorted(conflicts.items()):
