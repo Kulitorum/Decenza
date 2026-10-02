@@ -56,21 +56,31 @@ Rectangle {
     color: Qt.darker(Theme.surfaceColor, 1.2)
     radius: Theme.scaled(4)
 
+    // Rebuilds the whole TextArea: backfill, trim and clear only.
     function _render() {
         logText.text = root._lines.join("\n")
-        // Follow the tail. Assigning position directly rather than animating: this
-        // runs on every appended line.
+        root._followTail()
+    }
+
+    // Assigning position directly rather than animating: this runs on every appended line.
+    function _followTail() {
         logScroll.ScrollBar.vertical.position =
             1.0 - logScroll.ScrollBar.vertical.size
     }
 
+    // A new line appends one paragraph. Re-rendering here re-laid-out up to maxLines
+    // lines per log line for as long as the page was open (#1976).
     function _append(line) {
         var next = root._lines
         next.push(line)
-        if (next.length > root.maxLines)
-            next = next.slice(root.trimChunk)
+        if (next.length > root.maxLines) {
+            root._lines = next.slice(root.trimChunk)
+            root._render()
+            return
+        }
         root._lines = next
-        root._render()
+        logText.append(line)
+        root._followTail()
     }
 
     // Discards what is DISPLAYED and nothing else: the system log is untouched, the
@@ -97,9 +107,7 @@ Rectangle {
             return
         // Backfill the session so opening the page after activity shows what
         // happened, instead of only what happens next.
-        root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel)
-        if (root._lines.length > root.maxLines)
-            root._lines = root._lines.slice(root._lines.length - root.maxLines)
+        root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel, root.maxLines)
         root._render()
     }
 

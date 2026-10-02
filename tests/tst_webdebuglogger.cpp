@@ -641,6 +641,31 @@ private slots:
     // DECENZA_TESTING constructor and a debug.log carried over from a build
     // predating the markers produce this, and answering "no lines" would be
     // indistinguishable from "this subsystem never logged".
+    // The read runs backwards in 64 KB blocks, so a line straddling a block boundary
+    // has to be reassembled, and a cap has to keep the NEWEST lines in their order.
+    // ~160 KB of numbered lines crosses two boundaries.
+    void sessionLines_readsBackwardsAcrossBlocksAndCapsToNewest()
+    {
+        QString content = QStringLiteral("[   0.000] INFO  [Scale][BLEManager] previous session\n"
+                                         "========== SESSION START: 2026-01-01T09:00:00 ==========\n");
+        constexpr int kLines = 2000;
+        for (int i = 0; i < kLines; ++i)
+            content += QStringLiteral("[%1.000] INFO  [Scale][BLEManager] line %2 padding padding padding padding\n")
+                           .arg(i, 4).arg(i, 4, 10, QChar('0'));
+        writeFile(logPath(), content);
+
+        WebDebugLogger logger(logPath());
+        const auto all = logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
+        QCOMPARE(all.size(), kLines);
+        for (int i = 0; i < kLines; ++i)
+            QVERIFY2(all[i].endsWith(QStringLiteral("line %1 padding padding padding padding")
+                                         .arg(i, 4, 10, QChar('0'))),
+                     qPrintable(all[i]));
+
+        const auto tail = logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 5);
+        QCOMPARE(tail, all.mid(kLines - 5));
+    }
+
     void sessionLines_withNoSessionMarkerReadsWholeFile()
     {
         writeFile(logPath(),

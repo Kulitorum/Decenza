@@ -22,7 +22,6 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
-        _refreshBaristaHistory()
         if (editShotId > 0) {
             loadShotForEditing()
         }
@@ -34,8 +33,15 @@ T.Page {
     // ran a live SELECT DISTINCT per keystroke (1.1 ms median, 35 ms worst on a
     // real database). That is the "repeating path" case CLAUDE.md says to keep
     // main-thread queries off; hoisting is the fix, not threading.
+    //
+    // And not at page load either: the page opens after every shot, the field is
+    // advanced-only, and the query cost ~32 ms of the review page's open on a
+    // Galaxy Tab A9+ (#1976). Read on the field's first focus; a write refreshes it
+    // only once it has been read.
     property var _baristaHistory: []
+    property bool _baristaHistoryLoaded: false
     function _refreshBaristaHistory() {
+        _baristaHistoryLoaded = true
         _baristaHistory = MainController.shotHistory
             ? MainController.shotHistory.getDistinctBaristas().slice() : []
     }
@@ -440,7 +446,10 @@ T.Page {
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
         }
-        function onHistoryDataChanged() { postShotReviewPage._refreshBaristaHistory() }
+        function onHistoryDataChanged() {
+            if (postShotReviewPage._baristaHistoryLoaded)
+                postShotReviewPage._refreshBaristaHistory()
+        }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             // No reload: a full loadShotForEditing() here would re-run
@@ -1940,6 +1949,7 @@ T.Page {
                         if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
                         return list
                     }
+                    onInputFocused: if (!postShotReviewPage._baristaHistoryLoaded) postShotReviewPage._refreshBaristaHistory()
                     onTextEdited: function(t) { postShotReviewPage.editBarista = t }
                     onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
@@ -2492,7 +2502,8 @@ T.Page {
                 shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
                 shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody
                 shotForAdvisor.enjoyment0to100 = postShotReviewPage.editEnjoyment
-                conversationOverlay.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
+                conversationOverlayLoader.active = true
+                (conversationOverlayLoader.item as ConversationOverlay).openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
             }
         }
 
@@ -2557,35 +2568,44 @@ T.Page {
         }
     }
 
-    ConversationOverlay {
-        id: conversationOverlay
+    // Built on first use: the advisor overlay was created with every open of this page
+    // whether or not the advisor was opened (#1976).
+    Loader {
+        id: conversationOverlayLoader
         anchors.fill: parent
-        overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
+        z: 200  // the overlay's own z only orders it inside this Loader
+        active: false
+        sourceComponent: Component {
+            ConversationOverlay {
+                anchors.fill: parent
+                overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
 
-        // Taste tapped in the advisor's intake flows back to this page at once so
-        // the rating slider + taste chips reflect it. The overlay already
-        // persisted the taps to the DB (and synced Visualizer via
-        // requestUpdateShotMetadata), so mirror them in without re-saving — the
-        // same external-flow pattern as ChangeBeansDialog.onBagSelected. That
-        // means advancing BOTH baselines: editShotData (what hasUnsavedChanges
-        // compares against) as well as _committedState (the undo baseline). If we
-        // only advanced _committedState, hasUnsavedChanges would stay stuck true
-        // and the next lifecycle flush (backing out) would redundantly re-save,
-        // re-PATCH Visualizer, and push a phantom undo frame. No
-        // pendingVisualizerUpdate here — the overlay already synced. Empty axes
-        // are left untouched.
-        onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
-            var s = postShotReviewPage.captureEditState()
-            if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
-            if (tasteBody.length > 0) s.tasteBody = tasteBody
-            if (overall > 0) s.enjoyment = overall
-            postShotReviewPage.applyEditState(s)
-            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
-            nb.tasteBalance = postShotReviewPage.editTasteBalance
-            nb.tasteBody = postShotReviewPage.editTasteBody
-            nb.enjoyment0to100 = postShotReviewPage.editEnjoyment
-            postShotReviewPage.editShotData = nb
-            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                // Taste tapped in the advisor's intake flows back to this page at once so
+                // the rating slider + taste chips reflect it. The overlay already
+                // persisted the taps to the DB (and synced Visualizer via
+                // requestUpdateShotMetadata), so mirror them in without re-saving — the
+                // same external-flow pattern as ChangeBeansDialog.onBagSelected. That
+                // means advancing BOTH baselines: editShotData (what hasUnsavedChanges
+                // compares against) as well as _committedState (the undo baseline). If we
+                // only advanced _committedState, hasUnsavedChanges would stay stuck true
+                // and the next lifecycle flush (backing out) would redundantly re-save,
+                // re-PATCH Visualizer, and push a phantom undo frame. No
+                // pendingVisualizerUpdate here — the overlay already synced. Empty axes
+                // are left untouched.
+                onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
+                    var s = postShotReviewPage.captureEditState()
+                    if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
+                    if (tasteBody.length > 0) s.tasteBody = tasteBody
+                    if (overall > 0) s.enjoyment = overall
+                    postShotReviewPage.applyEditState(s)
+                    var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                    nb.tasteBalance = postShotReviewPage.editTasteBalance
+                    nb.tasteBody = postShotReviewPage.editTasteBody
+                    nb.enjoyment0to100 = postShotReviewPage.editEnjoyment
+                    postShotReviewPage.editShotData = nb
+                    postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                }
+            }
         }
     }
 

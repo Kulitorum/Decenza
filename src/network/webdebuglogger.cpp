@@ -5,6 +5,7 @@
 #include "core/logtags.h"
 #include "mcp/mcplogfilter.h"
 
+#include <algorithm>
 #include <QDebug>
 #include <QQmlEngine>
 #include <QStandardPaths>
@@ -607,7 +608,8 @@ QString WebDebugLogger::logFilePath() const
 }
 
 QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
-                                                 const QString& minLevel) const
+                                                 const QString& minLevel,
+                                                 int maxLines) const
 {
     // No subsystem asked for means no lines, not every line. A view built with an
     // empty marker list is a wiring mistake, and answering it with the unfiltered
@@ -620,31 +622,58 @@ QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
         return {};
     }
 
-    qsizetype totalLines = 0;
-    const QList<SessionBoundary> sessions = sessionIndex(&totalLines);
-
-    // The current session is the LAST boundary: install() writes one marker at
-    // startup and nothing writes another, so the newest is always ours.
-    //
-    // With no boundary at all, read the whole file. That is not a hypothetical
-    // branch to be defensive: the DECENZA_TESTING constructor deliberately writes
-    // no session marker, and a debug.log carried over from a build predating the
-    // markers has none either. Returning nothing in those cases would look exactly
-    // like "this subsystem logged nothing", which is the one answer a log reader
-    // must never be given falsely.
-    const qsizetype start = sessions.isEmpty() ? 0 : sessions.last().startLine;
-    const qsizetype count = sessions.isEmpty() ? totalLines : sessions.last().lineCount;
-    if (count <= 0) {
+    QFile file(m_logFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        DIAG_WARN(RUNTIME, "WebDebugLogger") << "failed to open persisted log for reading:"
+                   << m_logFilePath << file.errorString();
         return {};
     }
 
-    QStringList result;
-    for (const QString& line : getPersistedLogChunk(start, count)) {
-        if (lineMatches(line, markers, minLevel)) {
-            result.append(line);
+    // Backwards in blocks, newest line first. The current session is the one after
+    // the LAST marker, so the first marker met ends the read. With no marker at all
+    // (the DECENZA_TESTING constructor, or a log predating markers) the read reaches
+    // the start of the file, which reads it as one session rather than as nothing.
+    constexpr qint64 kBlock = 64 * 1024;
+    const QByteArray marker = kSessionMarker.toUtf8();
+    QStringList newestFirst;
+    QByteArray carry;  // a line split across the block boundary, completed by the next read
+    qint64 pos = file.size();
+    bool done = false;
+    while (!done && pos > 0) {
+        const qint64 from = qMax<qint64>(0, pos - kBlock);
+        file.seek(from);
+        QByteArray chunk = file.read(pos - from) + carry;
+        carry.clear();
+        pos = from;
+        qsizetype end = chunk.size();
+        while (end >= 0) {
+            const qsizetype nl = end > 0 ? chunk.lastIndexOf('\n', end - 1) : -1;
+            if (nl < 0 && pos > 0) {
+                carry = chunk.left(end);
+                break;
+            }
+            QByteArray raw = chunk.mid(nl + 1, end - nl - 1);
+            if (raw.endsWith('\r'))
+                raw.chop(1);
+            if (raw.startsWith(marker)) {
+                done = true;
+                break;
+            }
+            const QString line = QString::fromUtf8(raw);
+            if (lineMatches(line, markers, minLevel)) {
+                newestFirst.append(line);
+                if (maxLines > 0 && newestFirst.size() >= maxLines) {
+                    done = true;
+                    break;
+                }
+            }
+            if (nl < 0)
+                break;
+            end = nl;
         }
     }
-    return result;
+    std::reverse(newestFirst.begin(), newestFirst.end());
+    return newestFirst;
 }
 
 bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers,
