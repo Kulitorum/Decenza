@@ -139,6 +139,12 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
 
     auto* gnode = static_cast<QSGGeometryNode*>(node);
 
+    // Qt calls this for a dirty item whether or not it is visible (qquickwindow.cpp:2421-2425),
+    // so a series switched off in the legend would rebuild and upload every vertex each
+    // flush. Leave the geometry dirty; itemChange() rebuilds it when the item is shown.
+    if (gnode && !isVisible())
+        return gnode;
+
     if (!gnode) {
         gnode = new QSGGeometryNode();
 
