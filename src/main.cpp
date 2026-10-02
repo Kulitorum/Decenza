@@ -2469,7 +2469,16 @@ int main(int argc, char *argv[])
 
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer,
-                      &reconnectDelays]() {   // the two const tail constants need no capture
+                      &reconnectDelays, &screensaverManager]() {   // the two const tail constants need no capture
+        // The screensaver handler stops this timer, but a scan already in flight
+        // then times out and scaleRetryNeeded re-arms it, so the pause was lost
+        // and the scan ran all night (#1976). Every arming path ends here, so this
+        // is the one gate; returning without re-arming leaves the restart to the
+        // screensaver-exit handler.
+        if (screensaverManager.screensaverActive()) {
+            DIAG_DEBUG(SCALE, "main") << "Screensaver active - scale reconnect stays paused";
+            return;
+        }
         if (settings.scaleAddress().isEmpty()) {
             // scaleReconnectTimer is single-shot (see its setSingleShot(true) at
             // construction), so this return does not re-arm — the ladder is
