@@ -72,6 +72,9 @@ extern "C" const char* __ubsan_default_options()
 
 #include <QApplication>
 #include <QQmlApplicationEngine>
+#ifdef DECENZA_QML_PROFILING_PORT
+#include <QQmlDebuggingEnabler>
+#endif
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -2270,6 +2273,20 @@ int main(int argc, char *argv[])
     // exists, ~1750 lines below.
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     GHCSimulator ghcSimulator;
+#endif
+
+#ifdef DECENZA_QML_PROFILING_PORT
+    // QML-profiling build only (android-release.yml qml_profiling). Must precede the engine:
+    // the server serves engines created after it starts (qqmldebug.cpp:186-189). Localhost
+    // only — reach it with `adb forward tcp:3768 tcp:3768`.
+    QQmlDebuggingEnabler::setServices(QQmlDebuggingEnabler::profilerServices());
+    if (QQmlDebuggingEnabler::startTcpDebugServer(DECENZA_QML_PROFILING_PORT,
+            QQmlDebuggingEnabler::DoNotWaitForClient, QStringLiteral("127.0.0.1")))
+        DIAG_WARN(APP, "main") << "QML profiling build: debug server listening on 127.0.0.1:"
+                               << DECENZA_QML_PROFILING_PORT;
+    else
+        DIAG_WARN(APP, "main") << "QML profiling build: debug server failed to start on port"
+                               << DECENZA_QML_PROFILING_PORT;
 #endif
 
     // Set up QML engine

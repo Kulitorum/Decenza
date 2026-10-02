@@ -195,6 +195,11 @@ option(DECENZA_QML_DEBUG "Compile in the QML debugging/profiling services (opens
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DECENZA_QML_DEBUG)
     add_compile_definitions(QT_QML_DEBUG)
 endif()
+# A signed release APK is not debuggable, so Qt ignores -qmljsdebugger passed at launch
+# (QtLoader.java:121-125); the profiling build opens the port itself (main.cpp).
+if(DECENZA_QML_DEBUG)
+    add_compile_definitions(DECENZA_QML_PROFILING_PORT=3768)
+endif()
 
 # Platform-specific settings
 if(ANDROID)
