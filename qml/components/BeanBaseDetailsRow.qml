@@ -1,3 +1,5 @@
+// Bound: the details popup's inline Component reads `root`, and unbound ids resolve only in
+// their own component (qtdeclarative qqmljsscopesbyid_p.h:326-333). No delegates here.
 pragma ComponentBehavior: Bound
 
 import QtQuick
