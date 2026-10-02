@@ -210,11 +210,11 @@ private slots:
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
     }
 
-    // Only the first connect of a run wakes the machine. A reconnect to one last
-    // seen asleep leaves it asleep: in #1976 an overnight link drop (or the
-    // liveness watchdog's teardown) reconnected and switched the machine on with
-    // nobody there. A wake asked for during that reconnect must still go out.
-    void reconnectLeavesAMachineLastSeenAsleepAsleep() {
+    // #1976: the liveness watchdog tore down a sleeping machine's link and the
+    // reconnect woke it, overnight. That reconnect now leaves it asleep — but
+    // only that one: a wake asked for while the link is down (auto-wake, MQTT,
+    // a screensaver tap) is sent, and a teardown of an awake machine still wakes.
+    void reconnectAfterTeardownWhileAsleepLeavesItAsleep() {
         const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
         // Not brace-initialised: QByteArray{a, b} is the (size, fill) constructor.
         const auto stateInfo = [](DE1::State s) {
@@ -223,36 +223,29 @@ private slots:
             d.append(static_cast<char>(DE1::SubState::Ready));
             return d;
         };
-        const QByteArray reportsSleep = stateInfo(DE1::State::Sleep);
-        const QByteArray reportsIdle = stateInfo(DE1::State::Idle);
+        const auto tearDown = [](TestFixture& t) {
+            emit t.transport.livenessTeardown();
+            t.transport.setConnectedSim(false);
+            t.transport.clearWrites();
+        };
 
-        // Default Sleep is not "seen asleep": the first connect wakes.
         TestFixture f;
-        f.transport.m_connected = false;
-        f.transport.setConnectedSim(true);
-        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
-
-        // Last seen asleep: the reconnect sends nothing.
-        f.device.parseStateInfo(reportsSleep);
-        f.transport.setConnectedSim(false);
-        f.transport.clearWrites();
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("last seen asleep")));
+        f.device.parseStateInfo(stateInfo(DE1::State::Sleep));
+        tearDown(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("leaving the machine asleep")));
         f.transport.setConnectedSim(true);
         QVERIFY(requestedStates(f.transport).isEmpty());
 
-        // A wake asked for while that reconnect is in flight is sent by it.
-        f.transport.setConnectedSim(false);
-        f.transport.clearWrites();
-        f.device.m_connecting = true;
+        tearDown(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("the reconnect will wake it")));
         f.device.wakeUp();
-        QVERIFY(requestedStates(f.transport).isEmpty());
+        QVERIFY(requestedStates(f.transport).isEmpty());  // nothing written to a dead link
         f.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
 
-        // Last seen awake: the reconnect wakes, as before.
         TestFixture g;
-        g.transport.m_connected = false;
-        g.device.parseStateInfo(reportsIdle);
+        g.device.parseStateInfo(stateInfo(DE1::State::Idle));
+        tearDown(g);
         g.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
     }

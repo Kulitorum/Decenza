@@ -489,6 +489,7 @@ private:
     // Transport signal handlers
     void onTransportConnected();
     void onTransportDisconnected();
+    void onTransportLivenessTeardown();
     void onTransportDataReceived(const QBluetoothUuid& uuid, const QByteArray& data);
     void onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data);
 
@@ -792,19 +793,19 @@ private:
     SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
-    // A sleep or wake asked for while the connect was still in flight. SleepOwed
-    // and SleepSent differ because the characteristics can go ready while
-    // m_connecting is still true: there goToSleep() writes at once, and a
-    // connect that re-sent anyway put a second Sleep on the wire (SM-X210,
-    // 2026-09-19). WakeOwed exists because None no longer always wakes: a
-    // reconnect to a machine last seen asleep leaves it asleep (#1976). One
-    // value rather than a bool per fact, so impossible combinations cannot be
-    // written down.
-    enum class ConnectRequest { None, SleepOwed, SleepSent, WakeOwed };
-    ConnectRequest m_connectRequest = ConnectRequest::None;
-    // m_state starts as Sleep before the machine has said anything, so "last
-    // seen asleep" needs to know the value was reported, not defaulted.
-    bool m_stateReported = false;
+    // A sleep asked for while the connect was still in flight. Owed and Sent
+    // differ because the characteristics can go ready while m_connecting is
+    // still true: there goToSleep() writes at once, and a connect that re-sent
+    // anyway put a second Sleep on the wire (SM-X210, 2026-09-19). Either way
+    // the connect must not send its usual wake. One value rather than a bool
+    // per fact, so the fourth combination cannot be written down.
+    enum class ConnectSleep { None, Owed, Sent };
+    ConnectSleep m_connectSleep = ConnectSleep::None;
+    // Set when the transport tore down a dead link while the machine was
+    // asleep; the reconnect then skips its usual wake (#1976). Not cleared by
+    // disconnect(), which every reconnect attempt calls via connectToDevice().
+    // Any wake request clears it, connected or not.
+    bool m_reconnectLeavesAsleep = false;
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading

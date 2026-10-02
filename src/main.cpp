@@ -2470,11 +2470,10 @@ int main(int argc, char *argv[])
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer,
                       &reconnectDelays, &screensaverManager]() {   // the two const tail constants need no capture
-        // The screensaver handler stops this timer, but a scan already in flight
-        // then times out and scaleRetryNeeded re-arms it, so the pause was lost
-        // and the scan ran all night (#1976). Every arming path ends here, so this
-        // is the one gate; returning without re-arming leaves the restart to the
-        // screensaver-exit handler.
+        // Stopping the timer on screensaver entry was not enough: a scan already
+        // in flight re-armed it on failure and scanned all night (#1976). Every
+        // arming of this timer lands in this tick, so it is the backstop; the
+        // screensaver-exit handler restarts the ramp.
         if (screensaverManager.screensaverActive()) {
             DIAG_DEBUG(SCALE, "main") << "Screensaver active - scale reconnect stays paused";
             return;
@@ -2622,10 +2621,17 @@ int main(int argc, char *argv[])
     // hammering harder would just churn the WiFi radio.
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
-                      &reconnectDelays, &scaleAutoReconnectSuppressed]() {
+                      &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager]() {
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
         if (scaleReconnectTimer.isActive()) return;
+        // A scan that was in flight when the screensaver started ends here.
+        if (screensaverManager.screensaverActive()) {
+            bleManager.scaleInfo(QStringLiteral("Scale not found; reconnect paused until the "
+                                                "screensaver closes"),
+                                 QStringLiteral("main"));
+            return;
+        }
         // Move the counter UP to the end of the ramp, never down. It doubles as
         // the slow-tail budget (see kScaleFastTailAttempts), and a connection
         // failure is not evidence the scale is coming back — so a plain
@@ -4541,8 +4547,10 @@ int main(int argc, char *argv[])
     // The screensaver doesn't suspend the app (we're still Qt::ApplicationActive),
     // so the existing applicationStateChanged path above doesn't catch it. We
     // mirror that path here, stopping both timers on entry and restarting them
-    // on exit. Resume gates differ between the two: scale checks saved address,
-    // not connected, not suppressed, not USB; refractometer checks saved address
+    // on exit. Stopping alone does not hold the scale timer (a failing scan
+    // re-arms it), so its tick and scaleRetryNeeded check the flag too. Resume
+    // gates differ: scale goes through requestScaleReconnectRampRestart's
+    // gates; refractometer checks saved address
     // and not connected (no suppression flag or USB-routing for it). Note the
     // refractometer restart only does real work while the review-page hunt is
     // active — off that page its tick fires once and self-stops.
@@ -4617,8 +4625,10 @@ int main(int argc, char *argv[])
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
+            // wasInSleep survives: a link that drops while asleep can reconnect
+            // still asleep, and the eventual wake must still clear
+            // scaleAutoReconnectSuppressed below.
             de1EverAwake = false;
-            wasInSleep = false;
         } else if (phase == MachineState::Phase::Sleep) {
             // Only treat this as a real sleep event if DE1 was previously
             // awake — otherwise it's the initial-connect-while-sleeping case

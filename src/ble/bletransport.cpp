@@ -1043,6 +1043,7 @@ void BleTransport::evaluateLinkLiveness() {
                                "away on its own"));
             return;
         }
+        emit livenessTeardown();
         disconnect();
         // No "the link recovered" counterpart is logged here. One was written
         // and removed: DE1Device::connectToDevice() builds a NEW BleTransport

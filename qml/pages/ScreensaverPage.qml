@@ -885,14 +885,12 @@ T.Page {
         mediaPlayerLoader.active = false
         mediaPlaying = false
 
-        // Wake up the DE1, or try to reconnect if disconnected. While it is
-        // still connecting, wakeUp() cancels a sleep requested during the
-        // connect, which would otherwise be sent once it completes.
-        if (DE1Device.connected || DE1Device.connecting) {
-            DE1Device.wakeUp()
-        } else {
+        // wakeUp() first in every case: connected it wakes the machine, and
+        // otherwise it records the wake so the reconnect sends it, even one
+        // that would have left the machine asleep after a dead-link teardown.
+        DE1Device.wakeUp()
+        if (!DE1Device.connected && !DE1Device.connecting)
             BLEManager.tryDirectConnectToDE1()
-        }
 
         // Wake the scale (enable LCD) or try to reconnect
         if (ScaleDevice.connected) {
@@ -919,6 +917,10 @@ T.Page {
         dimBehavior.enabled = false
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
+        // Several routes replace this page without goToIdleFromScreensaver()
+        // (goToIdle, phase handlers), and a flag left set keeps the scale
+        // reconnect paused for the session. No-op when already cleared.
+        ScreensaverManager.screensaverActive = false
         // Restore screen brightness and keep-screen-on when leaving screensaver
         ScreensaverManager.restoreScreenBrightness()
         ScreensaverManager.setKeepScreenOn(true)
