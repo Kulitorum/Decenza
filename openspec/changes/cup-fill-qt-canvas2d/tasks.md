@@ -7,6 +7,6 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Build and full test suite green
-- [ ] 2.2 macOS (Metal): simulated shot — liquid, crema, waves, stream, steam and glow match the previous rendering
+- [x] 2.1 Build and full test suite green (118/118, macOS, 2026-10-02)
+- [x] 2.2 macOS (Metal): simulated shot — liquid, crema, waves, stream, steam and glow match the previous rendering (2026-10-02)
 - [ ] 2.3 Android tablet (profiling build): same visual check, and a simpleperf capture of a shot to measure the main-thread cost
