@@ -64,15 +64,6 @@ T.ApplicationWindow {
         id: globalBrewDialog
     }
 
-    // Track page to return to after steam/flush/water operations complete
-    // This allows returning to postShotReviewPage instead of always going to idlePage
-    property string returnToPageName: ""
-    // The props to push that page back with. One value, not a field per
-    // destination: clearing is spread across several sites, and a per-destination
-    // field has to be remembered at every one of them.
-    property var returnToProps: ({})
-    // Separate because the capture below reads it back while building props.
-    property int returnToShotId: 0
 
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
@@ -652,11 +643,8 @@ T.ApplicationWindow {
                         AccessibilityManager.announce(trSteamHeaterOffSteaming.text)
                 }
                 // Navigate to SteamPage immediately so user sees heating progress
-                let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-                if (currentPage !== "steamPage" && !pageStack.busy) {
-                    root.saveReturnToPage(currentPage)
-                    pageStack.replace(null, steamPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(steamPage, "steamPage")
             }
         }
         function onSubStateChanged() {
@@ -1177,9 +1165,8 @@ T.ApplicationWindow {
                 // Retry deferred disconnect navigation (#575)
                 if (root.pendingDisconnectNavigation) {
                     root.pendingDisconnectNavigation = false
-                    WebDebugLogger.debug("App", "main", ["Retrying deferred disconnect navigation to idle"].map(String).join(" "))
-                    pageStack.replace(null, idlePage)
-                    root.clearReturnTo()
+                    WebDebugLogger.debug("App", "main", ["Retrying deferred disconnect navigation off the operation page"].map(String).join(" "))
+                    root.leaveOperationPage()
                 }
             }
         }
@@ -1420,7 +1407,7 @@ T.ApplicationWindow {
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
             // Every route off the screensaver ends here, not only
-            // goToIdleFromScreensaver(): goToIdle() and the phase handlers replace
+            // goToIdleFromScreensaver(): goToIdle() and the phase handlers leave
             // it directly, and a flag left set keeps auto-sleep stopped and the
             // scale reconnect paused.
             if (root.screensaverActive && pageStack.currentItem
@@ -2408,60 +2395,11 @@ T.ApplicationWindow {
         completionOverlay.opacity = 0
     }
 
-    // Push the saved page back and forget it. False when nothing was saved.
-    function restoreSavedPage() {
-        const component = root.returnToPageName === "postShotReviewPage" ? postShotReviewPage
-                        : null
-        if (!component) {
-            root.clearReturnTo()
-            return false
-        }
-        pageStack.replace(null, idlePage)
-        pageStack.push(component, root.returnToProps)
-        root.clearReturnTo()
-        return true
-    }
-
-    function clearReturnTo() {
-        root.returnToPageName = ""
-        root.returnToProps = ({})
-        root.returnToShotId = 0
-    }
-
     function finishCompletion() {
         _completionSuspendedForDialog = false
         completionPending = false
         completionOverlay.opacity = 0
-
-        // Return to saved page if set, otherwise go to idlePage
-        if (!root.restoreSavedPage()
-                && pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
-            pageStack.replace(null, idlePage)
-        }
-    }
-
-    // Save current page info before navigating to operation pages (steam/flush/water)
-    // so we can return there after the operation completes
-    function saveReturnToPage(pageName) {
-        // Only save if we're on a "return-worthy" page
-        // If we're on an operation page (steam/flush/water), preserve any existing return tracking
-        // This handles chained operations like: postShotReview → steam → flush → postShotReview
-        if (pageName === "postShotReviewPage") {
-            root.returnToPageName = pageName
-            // Get the editShotId from the current page, fallback to lastSavedShotId
-            let currentReview = pageStack.currentItem as PostShotReviewPage
-            if (currentReview && currentReview.editShotId > 0) {
-                root.returnToShotId = currentReview.editShotId
-            } else {
-                root.returnToShotId = MainController.lastSavedShotId
-            }
-            root.returnToProps = { editShotId: root.returnToShotId }
-        } else if (pageName === "steamPage" || pageName === "hotWaterPage" || pageName === "flushPage") {
-            // On an operation page - preserve existing return tracking (if any)
-        } else {
-            // For other pages (like idlePage), clear the return tracking
-            root.clearReturnTo()
-        }
+        root.leaveOperationPage()
     }
 
     // CRT / Pip-Boy shader overlay (renders above all content including status bar)
@@ -2623,12 +2561,10 @@ T.ApplicationWindow {
             // A calibration run is maintenance against a blind portafilter, not a
             // shot to dial in — it goes back to the wizard to have its gauge reading
             // entered, rather than to the post-shot review a finished shot would
-            // otherwise pick. Checked before pendingMetadataNavigation, which is set
-            // for any shot that saved and would win here.
-            if (pageStack.depth > 1 && pageStack.currentItem
-                    && pageStack.currentItem.objectName === "espressoPage") {
+            // otherwise pick.
+            if (root.isCalibrationShot()) {
                 root.pendingMetadataNavigation = false
-                root.goBack()
+                root.leaveOperationPage()
                 return
             }
             if (root.pendingMetadataNavigation) {
@@ -2637,26 +2573,21 @@ T.ApplicationWindow {
                 let timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
                     WebDebugLogger.debug("Shot", "main", ["Post-shot review timeout is Instant, skipping review page"].map(String).join(" "))
-                    root.goToIdle()
+                    root.leaveOperationPage()
                     return
                 }
                 if (root.pendingShotId > 0) {
                     root.goToShotMetadata(root.pendingShotId)
                 } else {
-                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId, going to idle"].map(String).join(" "))
-                    root.goToIdle()
+                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId, leaving the shot page"].map(String).join(" "))
+                    root.leaveOperationPage()
                 }
-            } else if (pageStack.currentItem
-                       && pageStack.currentItem.objectName === "espressoPage") {
+            } else {
                 // pendingMetadataNavigation is set by onShotEndedShowMetadata only when
                 // the overlay was still visible at signal time. False here means either
                 // Edit After Shot is OFF, or the shot save arrived after the overlay
                 // expired (SAW settling outlasted 3s) and was handled directly.
-                //
-                // Only while still on the operation page: a stop already navigates on
-                // its own, and this firing 3 s later would drag the user back off
-                // wherever that put them.
-                root.goToIdle()
+                root.leaveOperationPage()
             }
         }
     }
@@ -3750,11 +3681,11 @@ T.ApplicationWindow {
             // Reset on disconnect so reconnections are also protected.
             if (phase === MachineState.Phase.Disconnected) {
                 root.startupGracePeriod = true
-                // If we're on an operation page, navigate to idle (#575)
-                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage" || currentPage === "transportPage") {
-                    WebDebugLogger.debug("App", "main", ["Disconnected while on operation page (" + currentPage + ") - navigating to idle"].map(String).join(" "))
+                // An operation page cannot run without the machine (#575)
+                if (root.operationPages.includes(currentPage)) {
+                    WebDebugLogger.debug("App", "main", ["Disconnected while on operation page (" + currentPage + ") - leaving it"].map(String).join(" "))
                     if (!pageStack.busy) {
-                        pageStack.replace(null, idlePage)
+                        root.leaveOperationPage()
                     } else {
                         root.pendingDisconnectNavigation = true
                     }
@@ -3844,40 +3775,23 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Preinfusion ||
                 phase === MachineState.Phase.Pouring ||
                 phase === MachineState.Phase.Ending) {
-                if (currentPage !== "espressoPage" && !pageStack.busy) {
-                    if (currentPage === "sensorCalibrationPage") {
-                        // PUSH, not replace: the calibration wizard is where the run
-                        // came from and where its reading gets typed, so it stays on
-                        // the stack underneath and the shot ending is a pop. Every
-                        // other page still yields the stack entirely.
-                        pageStack.push(espressoPage)
-                    } else {
-                        pageStack.replace(null, espressoPage)
-                    }
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(espressoPage, "espressoPage")
             } else if (phase === MachineState.Phase.Steaming) {
-                if (currentPage !== "steamPage" && !pageStack.busy) {
-                    root.saveReturnToPage(currentPage)
-                    pageStack.replace(null, steamPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(steamPage, "steamPage")
             } else if (phase === MachineState.Phase.HotWater) {
-                if (currentPage !== "hotWaterPage" && !pageStack.busy) {
-                    root.saveReturnToPage(currentPage)
-                    pageStack.replace(null, hotWaterPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(hotWaterPage, "hotWaterPage")
             } else if (phase === MachineState.Phase.Flushing) {
-                if (currentPage !== "flushPage" && !pageStack.busy) {
-                    root.saveReturnToPage(currentPage)
-                    pageStack.replace(null, flushPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(flushPage, "flushPage")
             } else if (phase === MachineState.Phase.Descaling) {
-                if (currentPage !== "descalingPage" && !pageStack.busy) {
-                    pageStack.replace(null, descalingPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(descalingPage, "descalingPage")
             } else if (phase === MachineState.Phase.Transport) {
-                if (currentPage !== "transportPage" && !pageStack.busy) {
-                    pageStack.replace(null, transportPage)
-                }
+                if (!pageStack.busy)
+                    root.showOperationPage(transportPage, "transportPage")
             } else if (phase === MachineState.Phase.Cleaning) {
                 // For now, cleaning uses the built-in machine routine
                 // Could navigate to a cleaning page in the future
@@ -3919,15 +3833,12 @@ T.ApplicationWindow {
         }
     }
 
-    // The shell side of the AppShell contract. Every navigation function below is
-    // unchanged — the guard, the return-to-page handling, the operation-page replace
-    // all still live here, because this object owns pageStack. All that moved is how
-    // a page asks: it emits a request on a declared type instead of finding `root` by
-    // name through the context it happened to be created in.
+    // The shell side of the AppShell contract. The navigation functions live here
+    // because this object owns pageStack; a page asks by emitting a request on a
+    // declared type instead of finding `root` by name through its context.
     Connections {
         target: AppShell
         function onBackRequested() { root.goBack() }
-        function onIdleRequested() { root.goToIdle() }
         function onIdleFromScreensaverRequested() { root.goToIdleFromScreensaver() }
         function onProfileEditorRequested() { root.goToProfileEditor() }
         function onProfileSelectorRequested() { root.goToProfileSelector() }
@@ -3961,9 +3872,8 @@ T.ApplicationWindow {
         function onAiSettingsRequested() { root.goToAISettings() }
         function onStringBrowserRequested() { root.goToStringBrowser() }
         function onAddLanguageRequested() { root.goToAddLanguage() }
-        // Back where there is somewhere to go back to, idle otherwise. Which applies depends on
-        // whether the page was pushed or replaced, and that is the shell's business, not the
-        // page's.
+        // Back where there is somewhere to go back to, home otherwise: a page entered from
+        // the screensaver replaced it and sits at depth 1.
         function onDismissRequested() {
             if (pageStack.depth > 1)
                 root.goBack()
@@ -3977,35 +3887,55 @@ T.ApplicationWindow {
     // Helper functions for navigation
     // Note: startNavigation() guard prevents double-taps on user-initiated navigation
     // Note: Page announcements are handled centrally by announceCurrentPage() on page change
+    // The one way to land on the home screen. Reuses the instance still in the stack (any
+    // page the user pushed sits on it) rather than rebuilding it, which cost ~150 ms per Back
+    // on a Galaxy Tab A9+ (#1976). Only a stack the machine replaced has no home screen left.
+    function showHome() {
+        const home = pageStack.find(item => item.objectName === "idlePage")
+        if (home)
+            pageStack.popToItem(home)
+        else
+            pageStack.replace(null, idlePage)
+    }
+
     function goToIdle() {
         if (!startNavigation()) return
-        var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        if (!pageStack.currentItem || pageStack.currentItem.objectName !== "idlePage")
+            root.showHome()
+    }
 
-        // A calibration shot stopped by hand lands here rather than in
-        // finishCompletion(), which only runs for a shot that ended on its own. Both
-        // ways out of that shot have to return to the wizard, or stopping early
-        // strands the user on idle with the test profile still loaded.
-        // Depth > 1 here means the shot was PUSHED over the page it was started from
-        // — only the calibration wizard does that; every other route replaces the
-        // stack. Clearing the metadata flag stops stopOverlayTimer sending us to the
-        // post-shot review on top of it 3 s from now.
-        if (currentPage === "espressoPage" && pageStack.depth > 1) {
-            root.pendingMetadataNavigation = false
-            root.goBack()
+    readonly property var operationPages: ["espressoPage", "steamPage", "hotWaterPage",
+                                           "flushPage", "descalingPage", "transportPage"]
+
+    // Operation pages are pushed whoever started them — the app, the group head or a
+    // timer — so leaving one is a pop back to wherever the user was. Two exceptions
+    // keep that true: one operation starting from another takes its place rather
+    // than stacking (steam → flush leaves no idle steam page to back into), and the
+    // screensaver is replaced, not returned to.
+    function showOperationPage(component, pageObjectName) {
+        const current = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        if (current === pageObjectName)
             return
-        }
+        if (current === "screensaverPage" || root.operationPages.includes(current))
+            pageStack.replaceCurrentItem(component)
+        else
+            pageStack.push(component)
+    }
 
-        if ((currentPage === "steamPage" || currentPage === "hotWaterPage"
-             || currentPage === "flushPage")
-                && root.returnToPageName === "postShotReviewPage"
-                && root.restoreSavedPage()) {
+    function leaveOperationPage() {
+        const current = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        if (!root.operationPages.includes(current))
             return
-        }
+        if (pageStack.depth > 1)
+            pageStack.pop()
+        else
+            root.showHome()
+    }
 
-        if (currentPage !== "idlePage") {
-            pageStack.replace(null, idlePage)
-        }
-        root.clearReturnTo()
+    // The sensor-calibration wizard runs a shot from its own page; that shot goes back
+    // to the wizard for its reading, never on to the post-shot review.
+    function isCalibrationShot() {
+        return pageStack.find(item => item.objectName === "sensorCalibrationPage") !== null
     }
 
     // Push `component` unless that page is already on top of the stack.
@@ -4036,17 +3966,17 @@ T.ApplicationWindow {
 
     function goToEspresso() {
         if (!startNavigation()) return
-        pushUnlessCurrent(espressoPage, "espressoPage")
+        showOperationPage(espressoPage, "espressoPage")
     }
 
     function goToSteam() {
         if (!startNavigation()) return
-        pushUnlessCurrent(steamPage, "steamPage")
+        showOperationPage(steamPage, "steamPage")
     }
 
     function goToHotWater() {
         if (!startNavigation()) return
-        pushUnlessCurrent(hotWaterPage, "hotWaterPage")
+        showOperationPage(hotWaterPage, "hotWaterPage")
     }
 
     function goToSettings(tabId) {
@@ -4130,12 +4060,12 @@ T.ApplicationWindow {
 
     function goToDescaling() {
         if (!startNavigation()) return
-        pageStack.push(descalingPage)
+        showOperationPage(descalingPage, "descalingPage")
     }
 
     function goToTransport() {
         if (!startNavigation()) return
-        pageStack.push(transportPage)
+        showOperationPage(transportPage, "transportPage")
     }
 
     // Pushed rather than replaced: the USER asked for it (QML_NAVIGATION.md).
@@ -4148,19 +4078,14 @@ T.ApplicationWindow {
 
     function goToFlush() {
         if (!startNavigation()) return
-        pushUnlessCurrent(flushPage, "flushPage")
+        showOperationPage(flushPage, "flushPage")
     }
 
     // Destinations reached from widgets and other pages. Each is the ONE implementation of
     // "go here": the caller states intent through an AppShell signal, this decides how.
     //
-    // They all push rather than replace, including the operation pages above. The rule is not
-    // "operation pages replace" — it is REPLACE WHEN THE MACHINE DROVE THE CHANGE, PUSH WHEN THE
-    // USER DID. The phase handler still replaces, because there the user did not navigate and
-    // there is no meaningful back. A user tapping a widget did navigate, and back to idle must
-    // work. CustomItem used to replace here by copying the phase handler's line rather than its
-    // reason, which also left pageStack.depth at 1 — so goBack()'s `depth > 1` test silently made
-    // the back control dead.
+    // They all push rather than replace. A replace leaves pageStack.depth at 1, so goBack()'s
+    // `depth > 1` test makes the back control dead.
 
     function goToRecipes() {
         if (!startNavigation()) return
@@ -4287,9 +4212,15 @@ T.ApplicationWindow {
 
     function goToShotMetadata(shotId) {
         if (!startNavigation()) return
-        // Put idlePage on the stack so back button returns to idle, not the mid-shot graph
-        pageStack.replace(null, idlePage)
-        pageStack.push(postShotReviewPage, { editShotId: shotId || 0 })
+        // The review takes the shot page's place, so Back returns to where the shot was
+        // started from. Started from another review, it replaces that one too, so
+        // back-to-back shots do not pile reviews up.
+        const props = { editShotId: shotId || 0 }
+        root.leaveOperationPage()
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "postShotReviewPage")
+            pageStack.replaceCurrentItem(postShotReviewPage, props)
+        else
+            pageStack.push(postShotReviewPage, props)
     }
 
     // Helper to announce arbitrary text for accessibility (used for non-page announcements)
@@ -4381,7 +4312,7 @@ T.ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         leaveScreensaverState()
-        pageStack.replace(null, idlePage)
+        root.showHome()
     }
 
     Component {
@@ -4616,12 +4547,9 @@ T.ApplicationWindow {
                     // never worked, and it only runs with a screen reader active, which is why
                     // nobody hit it.
                     //
-                    // Both branches are needed. `pageStack.replace(null, X)` CLEARS the stack, and
-                    // that is how every machine-driven page is entered (espresso, steam, hot water,
-                    // flush, descaling, transport) plus the screensaver — so those pages sit at
-                    // depth 1 with a non-idle currentItem, and goBack() alone would do nothing
-                    // there while the announcement above had already said it went back. This is the
-                    // same idiom onDismissRequested uses, for the same reason.
+                    // Both branches are needed: the screensaver and a page entered from it sit
+                    // at depth 1, where goBack() alone would do nothing after the announcement
+                    // above had already said it went back. Same idiom as onDismissRequested.
                     if (pageStack.depth > 1)
                         root.goBack()
                     else
@@ -4675,10 +4603,10 @@ T.ApplicationWindow {
                     return
                 }
 
+                // The shot page is already gone; the user is wherever leaving it put them.
                 let timeout = Number(Settings.value("postShotReviewTimeout", 31))
-                if (timeout === 0) {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: Instant timeout, going to idle"].map(String).join(" "))
-                    root.goToIdle()
+                if (timeout === 0 || root.isCalibrationShot()) {
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped (Instant timeout or calibration run)"].map(String).join(" "))
                 } else if (root.pendingShotId > 0) {
                     root.goToShotMetadata(root.pendingShotId)
                 } else {

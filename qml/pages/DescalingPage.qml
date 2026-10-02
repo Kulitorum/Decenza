@@ -492,7 +492,7 @@ T.Page {
                             // release the hold as surely as Back does — it used to leave the
                             // steam heater vetoed off for the rest of the session.
                             descalingPage.leaveDescaling()
-                            AppShell.idleRequested()
+                            AppShell.dismissRequested()
                         }
                     }
                 }

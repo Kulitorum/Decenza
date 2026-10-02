@@ -13,8 +13,8 @@
 //
 // NAVIGATION IS SIGNALS, NOT FUNCTIONS. main.qml owns the StackView and keeps
 // every line of the navigation logic — the `startNavigation()` re-entrancy guard,
-// `returnToPageName`/`returnToShotId`, the operation-page `replace` — because that
-// is the most delicate code in the app and moving it here would buy nothing. A page
+// how operation pages are entered and left — because that is the most delicate
+// code in the app and moving it here would buy nothing. A page
 // states what it wants; the shell decides how. That also means a page can be loaded
 // and reasoned about without main.qml existing at all.
 //
@@ -38,9 +38,6 @@ QtObject {
     // action, because the page is not the thing that performs it.
 
     signal backRequested()
-    signal idleRequested()
-    // Distinct from idleRequested: leaving the screensaver restores the page the
-    // user was on rather than replacing the stack with idle.
     signal idleFromScreensaverRequested()
     signal profileEditorRequested()
     signal profileSelectorRequested()
@@ -89,10 +86,8 @@ QtObject {
     signal stringBrowserRequested()
     signal addLanguageRequested()
 
-    // "Leave this page, however you can." Operation pages can be arrived at two ways — pushed
-    // when the user navigated, replaced when the machine drove a phase change — so back is
-    // available in one case and not the other. The page should not have to inspect the stack to
-    // find out; it says it wants out and the shell picks.
+    // "Leave this page, however you can." Usually a pop; home when nothing is underneath (a
+    // page entered from the screensaver). The page says it wants out and the shell picks.
     signal dismissRequested()
 
     // ---- Operation-completion handshake --------------------------------------

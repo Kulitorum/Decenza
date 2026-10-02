@@ -233,8 +233,8 @@ T.Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
-                Keys.onSpacePressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onReturnPressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
+                Keys.onSpacePressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -262,7 +262,7 @@ T.Page {
                     onAccessibleClicked: {
                         AppShell.userExitedFlush = true
                         DE1Device.stopOperation()
-                        AppShell.idleRequested()
+                        AppShell.dismissRequested()
                     }
                 }
             }
@@ -639,7 +639,6 @@ T.Page {
             } else {
                 MainController.applyFlushSettings()
             }
-            // Pushed (user nav) or replaced (auto nav) — the shell knows which, this page does not.
             AppShell.dismissRequested()
         }
 

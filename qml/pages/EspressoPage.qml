@@ -117,7 +117,7 @@ T.Page {
     function stopAndGoBack() {
         AppShell.stopReason = "manual"
         DE1Device.stopOperation()
-        AppShell.idleRequested()
+        AppShell.dismissRequested()
     }
 
     // Keyboard shortcuts to stop and go back

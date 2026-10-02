@@ -282,14 +282,7 @@ QtObject {
             // user picked — so a string key is inherent here, unlike the call sites that had one
             // only because nobody had declared a name. It is dispatched to a named AppShell signal
             // rather than mapped to a page FILENAME: a bad key now warns below instead of
-            // resolving to a 404 URL, and the shell decides push-vs-replace.
-            //
-            // The operation pages used to `replace(null, ...)` here, copying main.qml's phase
-            // handler. That copied the line and not the reason: the phase handler replaces because
-            // the MACHINE drove the change and there is no meaningful back, whereas this is the
-            // user tapping a widget. It also left pageStack.depth at 1, which makes goBack()'s
-            // `depth > 1` test fail and the back control silently dead. They push now, like the
-            // dedicated Steam/HotWater/Flush widgets always did.
+            // resolving to a 404 URL, and the shell decides how the page is entered.
             switch (target) {
             case "settings":        AppShell.settingsRequested(""); break
             case "history":         AppShell.shotHistoryRequested({}); break

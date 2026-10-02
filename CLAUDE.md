@@ -180,8 +180,8 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   types and **shadows the singleton registration**, so `DrinkType.shortLabel` and
   `SettingsTabs.indexOf` read as missing members while being plainly declared. 106 were deleted.
 - **A page never touches `pageStack` or main.qml's `root`.** It emits an `AppShell` signal and the
-  shell decides. Navigation policy: replace when the MACHINE drove the change, push when the USER
-  did. See `QML_NAVIGATION.md`. Status-bar widgets are tappable from their own destination, so a
+  shell decides. Every page is pushed and left with a pop, including operation pages the machine
+  or group head started. See `QML_NAVIGATION.md`. Status-bar widgets are tappable from their own destination, so a
   destination pushes through `pushUnlessCurrent()` rather than `pageStack.push()` directly.
 - **A `QML_SINGLETON` whose constructor has a defaulted `parent` never calls its own `create()`.**
   Qt tests `is_default_constructible` BEFORE the factory (`qqmlprivate.h:195-198`), so it does
