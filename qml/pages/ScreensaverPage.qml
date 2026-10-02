@@ -917,10 +917,6 @@ T.Page {
         dimBehavior.enabled = false
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
-        // Several routes replace this page without goToIdleFromScreensaver()
-        // (goToIdle, phase handlers), and a flag left set keeps the scale
-        // reconnect paused for the session. No-op when already cleared.
-        ScreensaverManager.screensaverActive = false
         // Restore screen brightness and keep-screen-on when leaving screensaver
         ScreensaverManager.restoreScreenBrightness()
         ScreensaverManager.setKeepScreenOn(true)

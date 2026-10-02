@@ -237,6 +237,11 @@ public:
     // Hardware settings (heater calibration sent to firmware)
     void setSettings(SettingsHardware* settings);
 
+    // The next connect wakes the machine again. Called when the reconnect
+    // after a dead-link teardown stops being that immediate recovery: the
+    // machine stayed absent (power cut) or the user asked for a connect.
+    void cancelReconnectSkip(const QString& reason);
+
 public slots:
     void connectToDevice(const QString& address);
     void connectToDevice(const QBluetoothDeviceInfo& device);
@@ -801,11 +806,16 @@ private:
     // per fact, so the fourth combination cannot be written down.
     enum class ConnectSleep { None, Owed, Sent };
     ConnectSleep m_connectSleep = ConnectSleep::None;
-    // Set when the transport tore down a dead link while the machine was
-    // asleep; the reconnect then skips its usual wake (#1976). Not cleared by
-    // disconnect(), which every reconnect attempt calls via connectToDevice().
-    // Any wake request clears it, connected or not.
+    // Set when the transport tore down a dead link to a machine that had
+    // reported Sleep; the immediate reconnect then skips its usual wake
+    // (#1976). Survives both teardown paths, which every reconnect attempt
+    // runs. Cleared by any wake request, an explicit connect, or the reconnect
+    // ladder passing its first attempt (cancelReconnectSkip()).
     bool m_reconnectLeavesAsleep = false;
+    // m_state starts as Sleep before the machine reports anything.
+    bool m_stateReported = false;
+    // A wake supersedes any sleep held for the connect and any skipped wake.
+    void clearConnectIntents(const QString& reason);
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading

@@ -2618,7 +2618,8 @@ int main(int argc, char *argv[])
     // timer's own slot self-perpetuates once running, so we just need to start
     // it once per failure cycle — the slot will keep it going. Uses the long-
     // tail delay (60 s) because the immediate failure has already happened;
-    // hammering harder would just churn the WiFi radio.
+    // hammering harder would just churn the WiFi radio. The exception is the
+    // screensaver: no re-arm while it is up, and its exit restarts the ramp.
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager]() {
@@ -2776,6 +2777,12 @@ int main(int argc, char *argv[])
         bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
                                  .arg(de1ReconnectAttempt).arg(kDE1MaxReconnectAttempts),
                              QStringLiteral("main"));
+        // A wedged link is back on the first attempt (every #1976 case). Still
+        // absent after it means the machine went away — a power cut — and the
+        // connect that finds it again should wake it.
+        if (de1ReconnectAttempt >= 2)
+            de1Device.cancelReconnectSkip(QStringLiteral("the DE1 was absent past the first "
+                                                         "reconnect attempt"));
         bleManager.tryDirectConnectToDE1();
 
         if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {

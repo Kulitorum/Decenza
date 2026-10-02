@@ -237,17 +237,23 @@ private slots:
         QVERIFY(requestedStates(f.transport).isEmpty());
 
         tearDown(f);
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("the reconnect will wake it")));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; nothing sent")));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("wake the machine as usual")));
         f.device.wakeUp();
         QVERIFY(requestedStates(f.transport).isEmpty());  // nothing written to a dead link
         f.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
 
-        TestFixture g;
-        g.device.parseStateInfo(stateInfo(DE1::State::Idle));
-        tearDown(g);
-        g.transport.setConnectedSim(true);
-        QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
+        // A machine last seen awake, or one that never reported (m_state's
+        // default is Sleep), is woken as before.
+        for (const bool reported : {true, false}) {
+            TestFixture g;
+            if (reported)
+                g.device.parseStateInfo(stateInfo(DE1::State::Idle));
+            tearDown(g);
+            g.transport.setConnectedSim(true);
+            QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
+        }
     }
 
     void disconnectIsANoOpWhenSubStateAlreadyReady() {

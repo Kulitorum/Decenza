@@ -169,15 +169,13 @@ void DE1Device::onTransportConnected() {
     emit guiEnabledChanged();
 
     // Send Idle to wake the machine (same as de1app on connect), unless a sleep
-    // was asked for while connecting. One already Sent needs nothing further;
-    // one still Owed goes through goToSleep() rather than a plain write, so its
+    // was asked for while connecting, or this is the immediate reconnect after
+    // the transport tore down a dead link to a sleeping machine (#1976; see
+    // m_reconnectLeavesAsleep). A sleep already Sent needs nothing further; one
+    // still Owed goes through goToSleep() rather than a plain write, so its
     // urgent write jumps the initial reads queued behind the setup and the
     // machine is asleep before its state is read. Read first, the screensaver
     // saw the pre-sleep state and bounced to the idle page.
-    //
-    // Nor after the transport tore down a dead link to a sleeping machine:
-    // nobody asked for that reconnect, and waking on it switched the machine on
-    // overnight (#1976).
     const ConnectSleep pendingSleep = m_connectSleep;
     m_connectSleep = ConnectSleep::None;
     const bool leaveAsleep = m_reconnectLeavesAsleep;
@@ -367,10 +365,12 @@ void DE1Device::onTransportDisconnected() {
         emit subStateChanged();
     }
 
-    // Both teardown paths clear these, not just disconnect(): BleTransport
-    // retries on the same object (bletransport.cpp:113-137), so a failed attempt
-    // reaches here and nowhere else. Left set, they suppress the NEXT connect's
-    // wake on behalf of a connection that is already dead.
+    // Both teardown paths clear the held sleep, not just disconnect():
+    // BleTransport retries on the same object (bletransport.cpp:113-137), so a
+    // failed attempt reaches here and nowhere else. Left set, it would suppress
+    // the NEXT connect's wake on behalf of a connection that is already dead.
+    // m_reconnectLeavesAsleep deliberately survives: the teardown that arms it
+    // runs through here.
     m_connectSleep = ConnectSleep::None;
 
     m_connecting = false;
@@ -380,8 +380,20 @@ void DE1Device::onTransportDisconnected() {
 }
 
 void DE1Device::onTransportLivenessTeardown() {
-    if (m_state == DE1::State::Sleep || m_state == DE1::State::GoingToSleep)
+    if (m_stateReported
+        && (m_state == DE1::State::Sleep || m_state == DE1::State::GoingToSleep))
         m_reconnectLeavesAsleep = true;
+}
+
+void DE1Device::cancelReconnectSkip(const QString& reason) {
+    if (!m_reconnectLeavesAsleep) return;
+    m_reconnectLeavesAsleep = false;
+    DEVICE_INFO(QStringLiteral("Reconnect will wake the machine as usual: %1").arg(reason));
+}
+
+void DE1Device::clearConnectIntents(const QString& reason) {
+    m_connectSleep = ConnectSleep::None;
+    cancelReconnectSkip(reason);
 }
 
 void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteArray& data) {
@@ -599,6 +611,9 @@ void DE1Device::emitSimulatedShotSample(const ShotSample& sample) {
 // -- Connection management --
 
 void DE1Device::connectToDevice(const QString& address) {
+    // Only explicit requests use this overload (connections page, MCP); the
+    // automatic reconnect passes a QBluetoothDeviceInfo.
+    cancelReconnectSkip(QStringLiteral("connect requested for %1").arg(address));
     QBluetoothDeviceInfo info(QBluetoothAddress(address), QString(), 0);
     connectToDevice(info);
 }
@@ -820,6 +835,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     }
 
     m_state = newState;
+    m_stateReported = true;
     m_subState = newSubState;
 
     // After the new substate is committed, so the progress reflects the step the
@@ -1293,11 +1309,8 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-    // A wake supersedes that sleep, Sent or merely Owed, and any skipped wake.
-    if (state == DE1::State::Idle) {
-        m_connectSleep = ConnectSleep::None;
-        m_reconnectLeavesAsleep = false;
-    }
+    if (state == DE1::State::Idle)
+        clearConnectIntents(QStringLiteral("Idle requested"));
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -1650,8 +1663,9 @@ bool DE1Device::goToSleep() {
 }
 
 void DE1Device::wakeUp() {
-    // Mirror of goToSleep(): before the characteristics are ready, dropping a
-    // pending sleep is the whole wake, since the connect then sends Idle.
+    // Mirror of goToSleep(): before the characteristics are ready, clearing a
+    // pending sleep (and any skipped wake) is the whole wake, since the connect
+    // then sends Idle.
     if (m_connecting && !isConnected()) {
         if (m_connectSleep == ConnectSleep::Owed) {
             // The other half of goToSleep()'s "it will be sent once the
@@ -1661,18 +1675,15 @@ void DE1Device::wakeUp() {
             DEVICE_INFO(QStringLiteral("Wake requested while still connecting; the sleep "
                                        "requested earlier will not be sent"));
         }
-        m_connectSleep = ConnectSleep::None;
-        m_reconnectLeavesAsleep = false;
+        clearConnectIntents(QStringLiteral("wake requested while connecting"));
         return;
     }
-    // No link at all: a write could only be dropped. The reconnect sends the
-    // Idle, so clearing the skip is the whole wake (auto-wake, MQTT, REST and a
-    // screensaver tap all land here while the link is down).
+    // No link at all: a write could only be dropped. A connect sends the Idle
+    // unless a skip is armed, so clearing it is all that can be done here
+    // (auto-wake, MQTT, REST and a screensaver tap all land here).
     if (!m_connecting && !isConnected()) {
-        DEVICE_INFO(QStringLiteral("Wake requested while the DE1 is disconnected; "
-                                   "the reconnect will wake it"));
-        m_connectSleep = ConnectSleep::None;
-        m_reconnectLeavesAsleep = false;
+        DEVICE_INFO(QStringLiteral("Wake requested while the DE1 is disconnected; nothing sent"));
+        clearConnectIntents(QStringLiteral("wake requested while disconnected"));
         return;
     }
     requestState(DE1::State::Idle);
