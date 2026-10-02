@@ -188,8 +188,11 @@ if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
     qt_policy(SET QTP0004 NEW)
 endif()
 
-# Enable QML debugging in debug builds
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
+# (android-release.yml's qml_profiling input): the QML profiler needs the debug services,
+# not unoptimised C++, which distorts the timings being measured. Never on for a shipped build.
+option(DECENZA_QML_DEBUG "Compile in the QML debugging/profiling services (opens a debug port when launched with -qmljsdebugger)" OFF)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DECENZA_QML_DEBUG)
     add_compile_definitions(QT_QML_DEBUG)
 endif()
 

@@ -14,6 +14,11 @@ on:
         required: false
         default: true
         type: boolean
+      qml_profiling:
+        description: 'Compile in QML debugging so Qt Creator''s QML Profiler can attach (optimised build; never for release)'
+        required: false
+        default: false
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -149,7 +154,9 @@ jobs:
         uses: ./.github/actions/setup-compiler-cache
         with:
           key: 'android-arm64'
-          use_cache: ${{ inputs.use_cache }}
+          # A profiling build's global QT_QML_DEBUG define misses every cached object, and
+          # saving it would hand the next release build a cache of the wrong objects.
+          use_cache: ${{ inputs.qml_profiling && 'false' || inputs.use_cache }}
           # At 500M the cache sat at 99.8% full and evicted at save time
           # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
           # repo cache budget now that prune-caches.yml keeps 1 copy/group.
@@ -218,6 +225,12 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "QT_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
 
+      - name: Refuse to release a QML-profiling build
+        if: ${{ inputs.qml_profiling && inputs.upload_to_release }}
+        run: |
+          echo "::error::qml_profiling opens a QML debug port when launched with -qmljsdebugger; it must not be uploaded to a release."
+          exit 1
+
       - name: Configure CMake
         run: |
           mkdir -p build
@@ -228,6 +241,7 @@ jobs:
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_QML_DEBUG=${{ inputs.qml_profiling && 'ON' || 'OFF' }} \
             -DQT_ANDROID_SIGN_APK=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
@@ -260,7 +274,7 @@ jobs:
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza-Android-arm64
+          name: ${{ inputs.qml_profiling && 'Decenza-Android-arm64-qmlprofiling' || 'Decenza-Android-arm64' }}
           path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 1
           overwrite: true
