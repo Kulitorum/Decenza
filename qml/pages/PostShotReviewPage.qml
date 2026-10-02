@@ -1174,7 +1174,7 @@ T.Page {
                             // been brewed with. Everything else the dialog needs
                             // still comes from the one function that knows every
                             // field — hand-setting properties leaves them stale.
-                            shotKnowledgeDialog.openForShot(
+                            (postShotReviewPage.lazyDialog(knowledgeDialogLoader) as ProfileKnowledgeDialog).openForShot(
                                 postShotReviewPage.editShotData.profileName || "",
                                 postShotReviewPage.editShotData.profileJson || "")
                         }
@@ -1868,7 +1868,7 @@ T.Page {
                         ? TranslationManager.translate("beans.button.change", "Change Beans")
                         : TranslationManager.translate("beans.button.select", "Select Beans")
                     accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
-                    onClicked: reviewChangeBeansDialog.open()
+                    onClicked: (postShotReviewPage.lazyDialog(changeBeansLoader) as ChangeBeansDialog).open()
                 }
             }
 
@@ -2074,7 +2074,7 @@ T.Page {
                                         ? TranslationManager.translate("beans.button.change", "Change Beans")
                                         : TranslationManager.translate("beans.button.select", "Select Beans")
                                     accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
-                                    onClicked: reviewChangeBeansDialog.open()
+                                    onClicked: (postShotReviewPage.lazyDialog(changeBeansLoader) as ChangeBeansDialog).open()
                                 }
                             }
                             BeanBaseDetailsRow {
@@ -2131,7 +2131,7 @@ T.Page {
                                       ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                       : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                                 accessibleName: text
-                                onClicked: shotEquipmentDialog.openPicker()
+                                onClicked: (postShotReviewPage.lazyDialog(equipmentDialogLoader) as SwitchEquipmentDialog).openPicker()
                             }
                         }
                     }
@@ -2205,7 +2205,7 @@ T.Page {
                                   ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                   : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                             accessibleName: text
-                            onClicked: shotEquipmentDialog.openPicker()
+                            onClicked: (postShotReviewPage.lazyDialog(equipmentDialogLoader) as SwitchEquipmentDialog).openPicker()
                         }
                     }
                 }
@@ -2225,11 +2225,19 @@ T.Page {
     // just-pulled one) links lightweight — attach the canonical record to THIS
     // shot only, no bag created. The most-recent shot keeps the full Change
     // Beans path, where linking the active bag is the intended "wrong bag" fix.
+    // The page's dialogs are built on first open, not with the page. Built eagerly they were
+    // ~14k objects (ChangeBeansDialog alone carries date pickers, Bean Base details and an
+    // equipment picker) created after every shot and destroyed again on Back (#1976).
+    function lazyDialog(loader: Loader): QtObject {
+        loader.active = true
+        return loader.item
+    }
+
     function requestBeanLink() {
         if (editShotId === MainController.lastSavedShotId) {
-            reviewChangeBeansDialog.open()
+            (postShotReviewPage.lazyDialog(changeBeansLoader) as ChangeBeansDialog).open()
         } else {
-            reviewLinkBeanBaseDialog.openWith(
+            (postShotReviewPage.lazyDialog(linkBeanBaseLoader) as LinkBeanBaseDialog).openWith(
                 [editBeanBrand, editBeanType].filter(function(s) { return s && s.length > 0 }).join(" "))
         }
     }
@@ -2251,48 +2259,63 @@ T.Page {
         MainController.beanbase.fetchCanonicalDetails(entry)
     }
 
-    LinkBeanBaseDialog {
-        id: reviewLinkBeanBaseDialog
-        onEntryPicked: function(entry) { postShotReviewPage.applyCanonicalLinkToShot(entry) }
+    Loader {
+        id: linkBeanBaseLoader
+        active: false
+        sourceComponent: Component {
+            LinkBeanBaseDialog {
+                onEntryPicked: function(entry) { postShotReviewPage.applyCanonicalLinkToShot(entry) }
+            }
+        }
     }
 
-    ChangeBeansDialog {
-        id: reviewChangeBeansDialog
-        // Only the most recent shot is the "post-shot" fix path (sets
-        // activeBagId too); older shots opened through this page are historical
-        // — retag the shot only.
-        context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
-        shotId: postShotReviewPage.editShotId
-        onBagSelected: function(bagId, bag) {
-            // The dialog already wrote the snapshot to the DB — mirror it into
-            // the edit fields and advance the autosave baseline so a later
-            // autosave doesn't clobber the new bag with stale values.
-            postShotReviewPage.editBeanBrand = bag.roasterName || ""
-            postShotReviewPage.editBeanType = bag.coffeeName || ""
-            postShotReviewPage.editRoastDate = bag.roastDate || ""
-            postShotReviewPage.editRoastLevel = bag.roastLevel || ""
-            postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
-            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
-            nb.beanBrand = postShotReviewPage.editBeanBrand
-            nb.beanType = postShotReviewPage.editBeanType
-            nb.roastDate = postShotReviewPage.editRoastDate
-            nb.roastLevel = postShotReviewPage.editRoastLevel
-            nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
-            postShotReviewPage.editShotData = nb
-            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
-            postShotReviewPage.pendingVisualizerUpdate = true
+    Loader {
+        id: changeBeansLoader
+        active: false
+        sourceComponent: Component {
+            ChangeBeansDialog {
+                // Only the most recent shot is the "post-shot" fix path (sets
+                // activeBagId too); older shots opened through this page are historical
+                // — retag the shot only.
+                context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+                shotId: postShotReviewPage.editShotId
+                onBagSelected: function(bagId, bag) {
+                    // The dialog already wrote the snapshot to the DB — mirror it into
+                    // the edit fields and advance the autosave baseline so a later
+                    // autosave doesn't clobber the new bag with stale values.
+                    postShotReviewPage.editBeanBrand = bag.roasterName || ""
+                    postShotReviewPage.editBeanType = bag.coffeeName || ""
+                    postShotReviewPage.editRoastDate = bag.roastDate || ""
+                    postShotReviewPage.editRoastLevel = bag.roastLevel || ""
+                    postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
+                    var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                    nb.beanBrand = postShotReviewPage.editBeanBrand
+                    nb.beanType = postShotReviewPage.editBeanType
+                    nb.roastDate = postShotReviewPage.editRoastDate
+                    nb.roastLevel = postShotReviewPage.editRoastLevel
+                    nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
+                    postShotReviewPage.editShotData = nb
+                    postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                    postShotReviewPage.pendingVisualizerUpdate = true
+                }
+            }
         }
     }
     // Re-point this shot's grinder to a different/new package. The picker
     // doesn't touch the active bag (applyToActiveBag:false); we resolve the
     // chosen package and persist equipmentId here. On the most recent shot the
     // save's runStickySync then makes it the active (and active bag's) package.
-    SwitchEquipmentDialog {
-        id: shotEquipmentDialog
-        applyToActiveBag: false
-        onPackageSaved: function(packageId) {
-            postShotReviewPage._pendingEquipmentId = packageId
-            MainController.equipmentStorage.requestPackage(packageId)
+    Loader {
+        id: equipmentDialogLoader
+        active: false
+        sourceComponent: Component {
+            SwitchEquipmentDialog {
+                applyToActiveBag: false
+                onPackageSaved: function(packageId) {
+                    postShotReviewPage._pendingEquipmentId = packageId
+                    MainController.equipmentStorage.requestPackage(packageId)
+                }
+            }
         }
     }
     Connections {
@@ -2406,12 +2429,13 @@ T.Page {
         }
 
         // Uploading/Updating indicator
-        Tr {
+        Text {
             visible: MainController.visualizer.uploading
-            key: postShotReviewPage._visualizerId
-                 ? "postshotreview.status.updating"
-                 : "postshotreview.status.uploading"
-            fallback: postShotReviewPage._visualizerId ? "Updating..." : "Uploading..."
+            // One translate() per branch: a Tr with a switched key passes through a
+            // mismatched key/fallback pair, which rewrote the string registry every upload.
+            text: postShotReviewPage._visualizerId
+                  ? TranslationManager.translate("postshotreview.status.updating", "Updating...")
+                  : TranslationManager.translate("postshotreview.status.uploading", "Uploading...")
             color: Theme.textSecondaryColor
             font: Theme.labelFont
         }
@@ -2523,8 +2547,14 @@ T.Page {
 
     // Profile AI knowledge base dialog
     // Shared KB popup (qml/components/ProfileKnowledgeDialog.qml).
-    ProfileKnowledgeDialog {
-        id: shotKnowledgeDialog
+    Loader {
+        id: knowledgeDialogLoader
+        active: false
+        anchors.fill: parent  // the dialog centres on and sizes from its parent
+        sourceComponent: Component {
+            ProfileKnowledgeDialog {
+            }
+        }
     }
 
     ConversationOverlay {

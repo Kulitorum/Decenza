@@ -239,6 +239,19 @@ QtObject {
     // dedicated item's goToX(), and in gestureReservedDestination() — three copies free to
     // drift, with nothing failing if they did. Now the C++ table is the only declaration
     // and both render formats resolve through here.
+    // Whether the gesture resolves to an action, by the same rule as runGestureOrReserved.
+    // supportDoubleClick binds to it: double-tap detection holds every single tap for the
+    // double-click interval (300 ms), which a widget whose double-tap does nothing should
+    // not pay (#1976). A type absent from the reserved table (history, settings, a custom
+    // widget) has no default, so only a stored action counts.
+    function hasGesture(modelData, gestureKey) {
+        if (!modelData) return false
+        var stored = modelData[gestureKey]
+        if (stored)
+            return stored !== layoutActions.kNoAction
+        return Settings.network.gestureReservedActionForType(modelData.type || "") !== ""
+    }
+
     function runGestureOrReserved(modelData, gestureKey, widgetType, ctx) {
         if (runGesture(modelData, gestureKey, ctx))
             return

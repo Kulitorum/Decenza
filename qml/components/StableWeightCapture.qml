@@ -10,9 +10,9 @@ import QtQuick
 // (cupWeight > 0); the virtual zero keeps tracking even before then so a "weigh
 // the cup" action can subtract the same baseline.
 //
-// Detection is driven by `rawWeight` changes; a 150 ms poll also re-runs the check
-// while active and uncaptured, so a perfectly constant (non-jittering) stream still
-// advances through both baseline seeding and load stabilization.
+// Detection is driven by `rawWeight` changes. A constant (non-jittering) reading emits no
+// change, so while a candidate is still short of its dwell a single-shot timer re-checks
+// when the dwell would end; nothing runs in a steady state.
 Item {
     id: root
 
@@ -50,6 +50,7 @@ Item {
         _captured = false
         _capturedNet = 0
         _cand = NaN
+        settleTimer.stop()
     }
 
     onActiveChanged: if (!active) reset()
@@ -61,9 +62,13 @@ Item {
         if (isNaN(_cand) || Math.abs(rawWeight - _cand) > tolerance) {
             _cand = rawWeight
             _candSince = now
-            return false
         }
-        return (now - _candSince) >= dwell
+        var remaining = dwell - (now - _candSince)
+        if (remaining <= 0)
+            return true
+        settleTimer.interval = remaining
+        settleTimer.restart()
+        return false
     }
 
     function _evaluate() {
@@ -110,11 +115,11 @@ Item {
         }
     }
 
-    // Periodic re-check so a constant (non-jittering) stream still graduates.
+    // Re-checks when the current candidate's dwell ends; a reading that does not change
+    // never re-evaluates otherwise. Armed only by _settled().
     Timer {
-        interval: 150
-        repeat: true
-        running: root.active && !root._captured
+        id: settleTimer
+        repeat: false
         onTriggered: root._evaluate()
     }
 }

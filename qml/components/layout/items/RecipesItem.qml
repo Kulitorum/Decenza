@@ -204,7 +204,7 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             anchors.fill: parent
             supportLongPress: true
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             accessibleName: TranslationManager.translate("idle.button.recipes", "Recipes")
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.recipes.hint", "Tap to toggle recipe pills. Double-tap or long-press for the recipe list.")

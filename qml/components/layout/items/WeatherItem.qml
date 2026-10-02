@@ -12,6 +12,10 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
+    // Read once: each read of hourlyForecast converts every forecast hour to JS, and this item
+    // read it in eight places (22-70 ms per weather update on an M-series Mac debug build, #1976).
+    readonly property var forecast: WeatherManager.hourlyForecast
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -19,7 +23,7 @@ LayoutWidgetItem {
     Accessible.name: {
         if (!WeatherManager.valid)
             return TranslationManager.translate("weather.accessible.unavailable", "Weather: not available")
-        var forecast = WeatherManager.hourlyForecast
+        var forecast = root.forecast
         if (forecast.length > 0) {
             let rawTemp = forecast[0].temperature || 0
             let temp = WeatherManager.useImperialUnits
@@ -113,7 +117,7 @@ LayoutWidgetItem {
             boundsBehavior: Flickable.StopAtBounds
             visible: WeatherManager.valid
 
-            model: WeatherManager.hourlyForecast
+            model: root.forecast
 
             delegate: Item {
                 id: compactHour
@@ -195,7 +199,7 @@ LayoutWidgetItem {
 
                 Image {
                     source: {
-                        var forecast = WeatherManager.hourlyForecast
+                        var forecast = root.forecast
                         if (forecast.length > 0)
                             return Theme.emojiToImage(root.weatherEmoji(forecast[0].weatherIcon || "", forecast[0].isDaytime, forecast[0].time || ""))
                         return ""
@@ -206,7 +210,7 @@ LayoutWidgetItem {
 
                 Text {
                     text: {
-                        var forecast = WeatherManager.hourlyForecast
+                        var forecast = root.forecast
                         if (forecast.length > 0)
                             return root.formatTemp(forecast[0].temperature || 0)
                         return "--"
@@ -222,7 +226,7 @@ LayoutWidgetItem {
 
                     Text {
                         text: {
-                            var forecast = WeatherManager.hourlyForecast
+                            var forecast = root.forecast
                             if (forecast.length > 0)
                                 return forecast[0].weatherDescription || ""
                             return ""
@@ -233,7 +237,7 @@ LayoutWidgetItem {
 
                     Text {
                         text: {
-                            var forecast = WeatherManager.hourlyForecast
+                            var forecast = root.forecast
                             if (forecast.length > 0) {
                                 let f = forecast[0]
                                 let parts = []
@@ -266,7 +270,7 @@ LayoutWidgetItem {
                 boundsBehavior: Flickable.StopAtBounds
                 visible: WeatherManager.valid
 
-                model: WeatherManager.hourlyForecast
+                model: root.forecast
 
                 delegate: Item {
                     id: hourlyCell
@@ -386,7 +390,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             onClicked: {
-                var forecast = WeatherManager.hourlyForecast
+                var forecast = root.forecast
                 if (forecast.length > 0) {
                     let f = forecast[0]
                     let imperial = WeatherManager.useImperialUnits

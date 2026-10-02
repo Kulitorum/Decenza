@@ -48,7 +48,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("layout.settings.accessible.open", "Settings. Open application settings")
             accessibleDescription: LayoutActions.gestureHint(root.modelData)
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             onAccessibleClicked: root.goToSettings()
             // Tap already opens the page, so BOTH gestures are free to override.
             //

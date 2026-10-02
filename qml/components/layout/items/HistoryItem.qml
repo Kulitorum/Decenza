@@ -60,7 +60,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.history.description", "View and compare past shots")
             accessibleDescription: LayoutActions.gestureHint(root.modelData)
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             onAccessibleClicked: root.goToHistory()
             // Tap already opens the page, so BOTH gestures are free to override.
             //
