@@ -1402,7 +1402,7 @@ set(QML_FILES
     qml/pages/settings/StringBrowserPage.qml
     qml/components/graphs/AutoRangingAxis.qml
     qml/components/graphs/CustomLegend.qml
-    qml/components/graphs/DashedLineSeries.qml
+    qml/components/graphs/GraphSeriesInstantiator.qml
     qml/components/graphs/DecenzaGraphsTheme.qml
     qml/components/ActionButton.qml
 	qml/components/BrewDialog.qml

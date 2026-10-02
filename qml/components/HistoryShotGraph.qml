@@ -10,16 +10,15 @@ import QtGraphs
 import Decenza
 import "GraphUtils.js" as GraphUtils
 
-// Outer Item wraps the GraphsView so dashed overlays, right-axis-mapped traces,
-// inspect crosshair, marker labels, and the right-axis label column render as
-// siblings on top of the chart. GraphsView's scene-graph paints over any direct
-// QQuickItem children — overlays must be siblings, not children.
+// Outer Item wraps the GraphsView so the inspect crosshair, marker labels, and the
+// right-axis label column render as siblings on top of the chart. GraphsView's
+// scene-graph paints over any direct QQuickItem children — overlays must be siblings.
+// Every line, dashed or solid, is a native series inside the GraphsView.
 Item {
     id: chart
 
-    // Alias so DashedLineSeries delegates can reach the GraphsView without
-    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
-    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    // Alias so PortalGraphOverlay and the series instantiators can reach the GraphsView:
+    // `graphsView: graphsView` would resolve the RHS to their own `graphsView` property.
     readonly property alias graphsViewRef: graphsView
 
     // Re-export the GraphsView's plot rect so parent pages can hit-test against
@@ -82,34 +81,27 @@ Item {
     // consistent snapshot rather than N times with mixed old/new arrays.
     function doReload() {
         dismissInspect()
-        loadMainSeries()
+        loadSeries()
         updateTimeAxis()
-        // Goal-segment arrays + right-axis-mapped traces bind directly to QML
-        // properties — no imperative load step needed.
     }
 
-    // Load only the main-axis Qt Graphs LineSeries (pressure, flow, weight-flow,
-    // resistance, conductance, darcy). Right-axis-mapped traces (temperature,
-    // mix temp, weight, dC/dt) are rendered as DashedLineSeries overlays whose
-    // `points` property binds straight to the data arrays.
-    function loadMainSeries() {
+    // Every fixed series; the per-segment goal series load themselves on creation.
+    function loadSeries() {
         // One replace() per series; per-point append() cost ~27 ms per graph on a Galaxy
         // Tab A9+. {x, y} objects convert to QPointF since point is a structured value type
         // (qqmlvaluetype_p.h:118).
-        //
-        // The flow family carries the multiplier: these LineSeries share one axis, so the
-        // factor is applied to a copy. The source arrays keep true values for
-        // pressureAxisMax and the readouts.
-        var flowScale = chart.flowMultiplier
-        function scaled(data) {
-            return flowScale === 1 ? data : data.map(p => ({ x: p.x, y: p.y * flowScale }))
-        }
         pressureSeries.replace(pressureData)
-        flowSeries.replace(scaled(flowData))
-        weightFlowRateSeries.replace(scaled(weightFlowRateData))
+        flowSeries.replace(flowData)
+        weightFlowRateSeries.replace(weightFlowRateData)
         resistanceSeries.replace(resistanceData)
         conductanceSeries.replace(conductanceData)
         darcyResistanceSeries.replace(darcyResistanceData)
+        temperatureSeries.replace(temperatureData)
+        temperatureMixSeries.replace(temperatureMixData)
+        weightSeries.replace(weightData)
+        conductanceDerivativeSeries.replace(conductanceDerivativeData)
+        temperatureGoalSeries.replace(temperatureGoalData)
+        temperatureMixGoalSeries.replace(temperatureMixGoalData)
     }
 
     function updateTimeAxis() {
@@ -305,10 +297,13 @@ Item {
     onResistanceDataChanged: Qt.callLater(doReload)
     onConductanceDataChanged: Qt.callLater(doReload)
     onDarcyResistanceDataChanged: Qt.callLater(doReload)
+    onTemperatureDataChanged: Qt.callLater(doReload)
+    onTemperatureMixDataChanged: Qt.callLater(doReload)
+    onWeightDataChanged: Qt.callLater(doReload)
+    onConductanceDerivativeDataChanged: Qt.callLater(doReload)
+    onTemperatureGoalDataChanged: Qt.callLater(doReload)
+    onTemperatureMixGoalDataChanged: Qt.callLater(doReload)
     onPhaseMarkersChanged: Qt.callLater(doReload)
-    // The multiplier is baked into the appended points, so a change has to re-append them.
-    // The live graph needs no equivalent — its renderers are re-mapped by binding alone.
-    onFlowMultiplierChanged: Qt.callLater(doReload)
     Component.onCompleted: doReload()
 
     // Dynamic max for pressure/flow axis based on all data (ignores visibility
@@ -356,30 +351,33 @@ Item {
         return Math.ceil(padded / 5) * 5
     }
 
-    // === HIDDEN RIGHT-AXIS HOLDERS ===
-    // Plain QtObjects (not Qt Graphs ValueAxis) — Qt Graphs has no sanctioned
-    // dual-Y-axis path here. DashedLineSeries reads `min`/`max` for its data→
-    // pixel mapping, so a value-holder QObject is enough.
+    // === HIDDEN RIGHT-AXIS RANGES ===
+    // Invisible axes the right-axis series map through (a series may carry its own axisY
+    // since Qt 6.10); GraphRightAxisLabels draws the visible labels. A hidden axis
+    // reserves no plot space (axisrenderer.cpp:1082).
 
-    // Flow-family mapping for the right-axis label column. The traces themselves carry the
-    // factor in their appended points (see loadMainSeries), so this object exists to give
-    // the labels the same numbers the plot is drawn against.
-    QtObject {
+    // Flow-family mapping: the multiplier shrinks this range, so the flow traces and their
+    // goal grow without touching the data, and the right-axis label column reads the same
+    // numbers.
+    ValueAxis {
         id: flowRange
-        property real min: 0
-        property real max: chart.pressureAxisMax / chart.flowMultiplier
+        visible: false
+        min: 0
+        max: chart.pressureAxisMax / chart.flowMultiplier
     }
 
-    QtObject {
+    ValueAxis {
         id: tempRange
-        property real min: 40
-        property real max: 100
+        visible: false
+        min: 40
+        max: 100
     }
 
-    QtObject {
+    ValueAxis {
         id: weightRange
-        property real min: 0
-        property real max: {
+        visible: false
+        min: 0
+        max: {
             var maxW = 0
             for (let i = 0; i < chart.weightData.length; i++) {
                 if (chart.weightData[i].y > maxW) maxW = chart.weightData[i].y
@@ -388,16 +386,17 @@ Item {
         }
     }
 
-    QtObject {
+    ValueAxis {
         id: dCdtAxis
-        property real min: {
+        visible: false
+        min: {
             var minV = 0
             for (let i = 0; i < chart.conductanceDerivativeData.length; i++) {
                 if (chart.conductanceDerivativeData[i].y < minV) minV = chart.conductanceDerivativeData[i].y
             }
             return minV < 0 ? -Math.abs(minV) * 1.15 : 0
         }
-        property real max: {
+        max: {
             var maxV = 0
             for (let i = 0; i < chart.conductanceDerivativeData.length; i++) {
                 if (chart.conductanceDerivativeData[i].y > maxV) maxV = chart.conductanceDerivativeData[i].y
@@ -478,6 +477,7 @@ Item {
 
         LineSeries {
             id: flowSeries
+            axisY: flowRange
             color: Theme.flowColor
             width: Theme.scaled(3)
             visible: Settings.graph.showFlow
@@ -485,6 +485,7 @@ Item {
 
         LineSeries {
             id: weightFlowRateSeries
+            axisY: flowRange
             color: Theme.weightFlowColor
             width: Theme.scaled(2)
             visible: Settings.graph.showWeightFlow
@@ -510,126 +511,114 @@ Item {
             width: Theme.scaled(2)
             visible: Settings.graph.showDarcyResistance && chart.advancedMode
         }
+
+        // === RIGHT-AXIS DATA LINES (each on its own hidden axis) ===
+
+        LineSeries {
+            id: temperatureSeries
+            axisY: tempRange
+            color: Theme.temperatureColor
+            width: Theme.scaled(3)
+            visible: Settings.graph.showTemperature
+        }
+
+        LineSeries {
+            id: temperatureMixSeries
+            axisY: tempRange
+            color: Theme.temperatureMixColor
+            width: Theme.scaled(2)
+            visible: Settings.graph.showTemperatureMix && chart.advancedMode
+        }
+
+        LineSeries {
+            id: weightSeries
+            axisY: weightRange
+            color: Theme.weightColor
+            width: Theme.scaled(3)
+            visible: Settings.graph.showWeight
+        }
+
+        LineSeries {
+            id: conductanceDerivativeSeries
+            axisY: dCdtAxis
+            color: Theme.conductanceDerivativeColor
+            width: Theme.scaled(2)
+            visible: Settings.graph.showConductanceDerivative && chart.advancedMode
+        }
+
+        // === DASHED GOAL CURVES ===
+
+        LineSeries {
+            id: temperatureGoalSeries
+            axisY: tempRange
+            color: Theme.temperatureGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showTemperature
+        }
+
+        // Mix temperature goal (SetMixTemp) — advanced. Shots recorded before this
+        // series existed carry an empty array, so the line is hidden, not drawn at zero.
+        LineSeries {
+            id: temperatureMixGoalSeries
+            axisY: tempRange
+            color: Theme.temperatureMixGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && chart.temperatureMixGoalData.length > 0
+        }
     }
 
-    // === RIGHT-AXIS DATA LINES (DashedLineSeries with solid stroke) ===
-    // Qt Graphs has no axisYRight for these in our setup, so they render as
-    // bridge overlays mapped against their own min/max value holders.
-
-    DashedLineSeries {
+    // Goal segments: one series per segment, loaded when the reload rebuilds the model.
+    GraphSeriesInstantiator {
         graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: chart.temperatureData
-        strokeColor: Theme.temperatureColor
-        strokeWidth: Theme.scaled(3)
-        dashed: false
-        visible: Settings.graph.showTemperature
-    }
-
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: chart.temperatureMixData
-        strokeColor: Theme.temperatureMixColor
-        strokeWidth: Theme.scaled(2)
-        dashed: false
-        visible: Settings.graph.showTemperatureMix && chart.advancedMode
-    }
-
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: weightRange
-        points: chart.weightData
-        strokeColor: Theme.weightColor
-        strokeWidth: Theme.scaled(3)
-        dashed: false
-        visible: Settings.graph.showWeight
-    }
-
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: dCdtAxis
-        points: chart.conductanceDerivativeData
-        strokeColor: Theme.conductanceDerivativeColor
-        strokeWidth: Theme.scaled(2)
-        dashed: false
-        visible: Settings.graph.showConductanceDerivative && chart.advancedMode
-    }
-
-    // === DASHED GOAL CURVES ===
-
-    Repeater {
         model: chart.pressureGoalSegments
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
+            id: pressureGoalSegment
             required property var modelData
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
-            axisY: pressureAxis
-            points: modelData
-            strokeColor: Theme.pressureGoalColor
-            strokeWidth: Theme.scaled(2)
+            color: Theme.pressureGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
             visible: Settings.graph.showPressure
+            Component.onCompleted: pressureGoalSegment.replace(modelData)
         }
     }
 
-    Repeater {
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
         model: chart.flowGoalSegments
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
+            id: flowGoalSegment
             required property var modelData
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
             // Mapped through flowRange so the dashed target moves with the trace chasing it.
-            // DashedLineSeries only reads min/max, so a value holder is enough.
             axisY: flowRange
-            points: modelData
-            strokeColor: Theme.flowGoalColor
-            strokeWidth: Theme.scaled(2)
+            color: Theme.flowGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
             visible: Settings.graph.showFlow
+            Component.onCompleted: flowGoalSegment.replace(modelData)
         }
-    }
-
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: chart.temperatureGoalData
-        strokeColor: Theme.temperatureGoalColor
-        strokeWidth: Theme.scaled(2)
-        visible: Settings.graph.showTemperature
-    }
-
-    // Mix temperature goal (SetMixTemp) — advanced. Shots recorded before this
-    // series existed carry an empty array, so the line is hidden, not drawn at zero.
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: chart.temperatureMixGoalData
-        strokeColor: Theme.temperatureMixGoalColor
-        strokeWidth: Theme.scaled(2)
-        visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && chart.temperatureMixGoalData.length > 0
     }
 
     // === VERTICAL PHASE / FRAME MARKER LINES ===
 
-    Repeater {
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
         model: chart.phaseMarkers
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
             required property var modelData
             readonly property string markerLabel: modelData.label
             readonly property bool isStart: markerLabel === "Start"
             readonly property bool isEnd: markerLabel === "End"
 
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
-            axisY: pressureAxis
-            points: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 100)]
-            strokeColor: isStart ? Theme.accentColor : Theme.frameMarkerColor
-            strokeWidth: isStart ? Theme.scaled(2) : Theme.scaled(1)
+            values: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 100)]
+            color: isStart ? Theme.accentColor : Theme.frameMarkerColor
+            width: isStart ? Theme.scaled(2) : Theme.scaled(1)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
             dashPattern: isStart ? [4, 2, 1, 2] : [1, 3]
             // "End" markers were inconsistently emitted in older history rows; the
             // last frame-transition marker already signals end of extraction.

@@ -10,22 +10,25 @@ import QtGraphs
 import Decenza
 import "GraphUtils.js" as GraphUtils
 
-// Outer Item wraps GraphsView so all overlays — FastLineRenderer traces, dashed
-// goal curves, phase-marker vertical lines, manual right-axis labels — render as
-// siblings on top of the chart. GraphsView's scene-graph paints over any direct
-// QQuickItem children, so overlays must be siblings, not children.
+// Outer Item wraps GraphsView so the overlays — FastLineRenderer traces, marker labels,
+// manual right-axis labels — render as siblings on top of the chart. GraphsView's
+// scene-graph paints over any direct QQuickItem children, so overlays must be siblings.
+// Goal curves and phase-marker lines are native series inside the GraphsView.
 Item {
     id: chart
 
-    // Alias so DashedLineSeries delegates can reach the GraphsView without
-    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
-    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    // Alias so PortalGraphOverlay and the series instantiators can reach the GraphsView:
+    // `graphsView: graphsView` would resolve the RHS to their own `graphsView` property.
     readonly property alias graphsViewRef: graphsView
 
-    // Re-export the GraphsView's plot rect for parent pages that hit-test
-    // against it (e.g. right-axis toggle overlays). Matches the legacy
-    // Qt Charts ChartView.plotArea API.
-    readonly property rect plotArea: graphsView.plotArea
+    // The plot rect in THIS item's coordinates, which every sibling overlay below is
+    // positioned in. GraphsView.plotArea is in the view's own coordinates, and the view
+    // sits below a top margin, so overlays placed from it were drawn that margin too high
+    // while the native series were not.
+    readonly property rect plotArea: Qt.rect(graphsView.x + graphsView.plotArea.x,
+                                             graphsView.y + graphsView.plotArea.y,
+                                             graphsView.plotArea.width,
+                                             graphsView.plotArea.height)
 
     // Series visibility is read straight off Settings.graph, which is a real binding: a
     // change anywhere — the legend, the options menu, the comparison table — reaches this
@@ -75,6 +78,10 @@ Item {
         target: ShotDataModel
         function onRawTimeChanged() { chart.recalcMax() }
     }
+
+    // Read once per change: the pump-mode bars each look up their neighbour, and every read
+    // of ShotDataModel.phaseMarkers rebuilds the list in C++.
+    readonly property var _phaseMarkers: ShotDataModel.phaseMarkers
 
     Component.onCompleted: {
         ShotDataModel.registerFastSeries(
@@ -139,6 +146,29 @@ Item {
             // how graphs arrive in bug reports.
             titleText: chart.flowMultiplier === 1 ? "bar / mL·g/s" : "bar"
         }
+
+        // Temperature goal, on the hidden temperature axis.
+        LineSeries {
+            axisY: tempRange
+            values: ShotDataModel.temperatureGoalPoints
+            color: Theme.temperatureGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showTemperature
+        }
+
+        // Mix temperature goal (SetMixTemp) — advanced, reads against the Mix temp line.
+        LineSeries {
+            id: mixGoalSeries
+            axisY: tempRange
+            values: ShotDataModel.temperatureMixGoalPoints
+            color: Theme.temperatureMixGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && mixGoalSeries.count > 0
+        }
     }
 
     PortalGraphOverlay {
@@ -150,113 +180,96 @@ Item {
         advancedMode: chart.advancedMode
     }
 
-    // === HIDDEN RIGHT-AXIS HOLDERS ===
-    // QtObject value holders that DashedLineSeries / FastLineRenderer can read for
-    // coordinate mapping. Qt Graphs has no sanctioned dual-Y-axis path here.
-    QtObject {
+    // === HIDDEN RIGHT-AXIS RANGES ===
+    // Invisible axes: native series map through them (a series may carry its own axisY
+    // since Qt 6.10), FastLineRenderer reads their min/max, and GraphRightAxisLabels
+    // draws the visible labels. A hidden axis reserves no plot space
+    // (axisrenderer.cpp:1082).
+    ValueAxis {
         id: tempRange
-        property real min: 40
-        property real max: 100
+        visible: false
+        min: 40
+        max: 100
     }
 
     // Flow-family mapping. Shrinking the range is what makes the trace grow: at 3x the
     // traces map 0-4 mL/s across the full plot height while the left axis still reads
     // 0-12 bar for pressure. The right-axis label column reads this object in flow mode,
     // so what it prints and what is drawn cannot drift apart.
-    QtObject {
+    ValueAxis {
         id: flowRange
-        property real min: pressureAxis.min
-        property real max: pressureAxis.max / chart.flowMultiplier
+        visible: false
+        min: pressureAxis.min
+        max: pressureAxis.max / chart.flowMultiplier
     }
 
-    QtObject {
+    ValueAxis {
         id: weightRange
-        property real min: 0
+        visible: false
+        min: 0
         // Live shots may bump SAW past the configured target (#792 +10g button), so
         // take the larger of profile target and current MachineState target. Each
         // source uses an explicit > 0 check because targetWeight == 0 means SAW
         // disabled, and JS `||` would conflate that with "no data".
-        property real max: Math.max(10, Math.max(
+        max: Math.max(10, Math.max(
             ProfileManager.targetWeight > 0 ? ProfileManager.targetWeight : 0,
             MachineState.targetWeight > 0 ? MachineState.targetWeight : 0,
             36) * 1.1)
     }
 
-    // === DASHED GOAL CURVES (bridge overlays) ===
+    // === DASHED GOAL CURVES ===
+    // One series per segment, keyed on the segment count so a flush that only extends a
+    // segment updates its points instead of rebuilding the series.
 
-    // Pressure goal segments
-    Repeater {
-        model: ShotDataModel.pressureGoalSegments
-        delegate: DashedLineSeries {
-            required property var modelData
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
-            axisY: pressureAxis
-            points: modelData
-            strokeColor: Theme.pressureGoalColor
-            strokeWidth: Theme.scaled(2)
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
+        model: ShotDataModel.pressureGoalSegmentCount
+        delegate: LineSeries {
+            required property int index
+            values: ShotDataModel.pressureGoalSegments[index]
+            color: Theme.pressureGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
             visible: Settings.graph.showPressure
         }
     }
 
-    // Flow goal segments
-    Repeater {
-        model: ShotDataModel.flowGoalSegments
-        delegate: DashedLineSeries {
-            required property var modelData
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
+        model: ShotDataModel.flowGoalSegmentCount
+        delegate: LineSeries {
+            required property int index
             // Same multiplier as the flow trace it is the target for — a goal drawn at a
             // different scale than the curve chasing it would be worse than no goal.
             axisY: flowRange
-            points: modelData
-            strokeColor: Theme.flowGoalColor
-            strokeWidth: Theme.scaled(2)
+            values: ShotDataModel.flowGoalSegments[index]
+            color: Theme.flowGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
             visible: Settings.graph.showFlow
         }
     }
 
-    // Temperature goal — mapped to the right tempRange.
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: ShotDataModel.temperatureGoalPoints
-        strokeColor: Theme.temperatureGoalColor
-        strokeWidth: Theme.scaled(2)
-        visible: Settings.graph.showTemperature
-    }
-
-    // Mix temperature goal (SetMixTemp) — advanced, reads against the Mix temp line.
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempRange
-        points: ShotDataModel.temperatureMixGoalPoints
-        strokeColor: Theme.temperatureMixGoalColor
-        strokeWidth: Theme.scaled(2)
-        visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && points.length > 0
-    }
-
     // === VERTICAL PHASE / FRAME MARKER LINES ===
 
-    Repeater {
-        model: ShotDataModel.phaseMarkers
-        delegate: DashedLineSeries {
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
+        model: chart._phaseMarkers
+        delegate: LineSeries {
             required property var modelData
             readonly property string markerLabel: modelData.label
             readonly property bool isStart: markerLabel === "Start"
             readonly property bool isEnd: markerLabel === "End"
 
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
-            axisY: pressureAxis
-            points: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 12)]
-            strokeColor: isStart ? Theme.accentColor
-                                 : (isEnd ? Theme.stopMarkerColor : Theme.frameMarkerColor)
-            strokeWidth: (isStart || isEnd) ? Theme.scaled(2) : Theme.scaled(1)
+            values: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 12)]
+            color: isStart ? Theme.accentColor
+                           : (isEnd ? Theme.stopMarkerColor : Theme.frameMarkerColor)
+            width: (isStart || isEnd) ? Theme.scaled(2) : Theme.scaled(1)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
             // DashDot for phase markers, Dot for inter-frame markers — closest equivalents
-            // to Qt Charts' Qt.DashDotLine / Qt.DotLine on a ShapePath dash pattern.
+            // to Qt Charts' Qt.DashDotLine / Qt.DotLine.
             dashPattern: (isStart || isEnd) ? [4, 2, 1, 2] : [1, 3]
         }
     }
@@ -266,8 +279,8 @@ Item {
 
     FastLineRenderer {
         id: pressureRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.pressureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -277,8 +290,8 @@ Item {
 
     FastLineRenderer {
         id: flowRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.flowColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -290,8 +303,8 @@ Item {
         // sample above maxY paints as geometry ABOVE the plot area, out over the page. At
         // 1x the ceiling was 12 and pump flow never reached it; at the 2x default it is
         // 6.0 mL/s, which the puck-fill spike clears on most shots. The dashed flow goal
-        // beside it already clips (DashedLineSeries.qml), so without this the goal and the
-        // trace disagree exactly where the trace escapes.
+        // is a native series, clipped to the plot area (GraphsView.clipPlotArea), so
+        // without this the goal and the trace disagree exactly where the trace escapes.
         clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
         visible: Settings.graph.showFlow
@@ -299,8 +312,8 @@ Item {
 
     FastLineRenderer {
         id: temperatureRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.temperatureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -310,8 +323,8 @@ Item {
 
     FastLineRenderer {
         id: weightFlowRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.weightFlowColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -323,8 +336,8 @@ Item {
         // sample above maxY paints as geometry ABOVE the plot area, out over the page. At
         // 1x the ceiling was 12 and pump flow never reached it; at the 2x default it is
         // 6.0 mL/s, which the puck-fill spike clears on most shots. The dashed flow goal
-        // beside it already clips (DashedLineSeries.qml), so without this the goal and the
-        // trace disagree exactly where the trace escapes.
+        // is a native series, clipped to the plot area (GraphsView.clipPlotArea), so
+        // without this the goal and the trace disagree exactly where the trace escapes.
         clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
         visible: Settings.graph.showWeightFlow
@@ -332,8 +345,8 @@ Item {
 
     FastLineRenderer {
         id: resistanceRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.resistanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -343,8 +356,8 @@ Item {
 
     FastLineRenderer {
         id: conductanceRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.conductanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -354,8 +367,8 @@ Item {
 
     FastLineRenderer {
         id: darcyResistanceRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.darcyResistanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -365,8 +378,8 @@ Item {
 
     FastLineRenderer {
         id: temperatureMixRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.temperatureMixColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -376,8 +389,8 @@ Item {
 
     FastLineRenderer {
         id: weightRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.weightColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -388,7 +401,7 @@ Item {
     // Frame marker labels (rotated text)
     Repeater {
         id: markerLabels
-        model: ShotDataModel.phaseMarkers
+        model: chart._phaseMarkers
 
         delegate: Item {
             id: markerDelegate
@@ -400,9 +413,9 @@ Item {
             property bool isStart: modelData.label === "Start"
             property bool isEnd: modelData.label === "End"
 
-            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
-            y: graphsView.plotArea.y
-            height: graphsView.plotArea.height
+            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
+            y: chart.plotArea.y
+            height: chart.plotArea.height
             visible: markerTime <= timeAxis.max && markerTime >= 0
 
             Text {
@@ -467,7 +480,7 @@ Item {
     // Pump mode indicator bars at bottom of chart
     Repeater {
         id: pumpModeIndicators
-        model: ShotDataModel.phaseMarkers
+        model: chart._phaseMarkers
 
         delegate: Rectangle {
             required property int index
@@ -476,16 +489,16 @@ Item {
             property bool isFlowMode: modelData.isFlowMode || false
             // Next marker time (or current rawTime if last marker, capped at visible area)
             property double nextTime: {
-                var markers = ShotDataModel.phaseMarkers
+                var markers = chart._phaseMarkers
                 if (index < markers.length - 1) {
                     return markers[index + 1].time
                 }
                 return Math.min(ShotDataModel.rawTime, timeAxis.max)
             }
 
-            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
-            y: graphsView.plotArea.y + graphsView.plotArea.height - Theme.scaled(4)
-            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * graphsView.plotArea.width)
+            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
+            y: chart.plotArea.y + chart.plotArea.height - Theme.scaled(4)
+            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * chart.plotArea.width)
             height: Theme.scaled(4)
             color: isFlowMode ? Theme.flowColor : Theme.pressureColor
             opacity: 0.8
@@ -496,10 +509,10 @@ Item {
     // Right-axis label column. Shared with the history graph — see GraphRightAxisLabels
     // for why the right axis is hand-drawn rather than a second ValueAxis.
     GraphRightAxisLabels {
-        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
-        y: graphsView.plotArea.y
+        x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
+        y: chart.plotArea.y
         width: chart.width - x
-        height: graphsView.plotArea.height
+        height: chart.plotArea.height
 
         mode: chart.rightAxisMode
         weightAxis: weightRange

@@ -14,11 +14,6 @@ import Decenza
 Item {
     id: chart
 
-    // Alias so DashedLineSeries delegates can reach the GraphsView without
-    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
-    // `graphsView` property (which defaults to `parent`) and resolves to null.
-    readonly property alias graphsViewRef: graphsView
-
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backed strings to real booleans; see Settings.h.
     property bool showPressure: Settings.boolValue("steamGraph/showPressure", true)
@@ -38,8 +33,14 @@ Item {
     property double _lastAxisMax: 5.0
     property bool _recalcInProgress: false  // Re-entry guard: axis changes trigger plotArea updates
 
-    // Convenience pass-through for overlays that need the GraphsView's plot rect.
-    readonly property rect plotArea: graphsView.plotArea
+    // The plot rect in THIS item's coordinates, which every sibling overlay below is
+    // positioned in. GraphsView.plotArea is in the view's own coordinates, and the view
+    // sits below a top margin, so overlays placed from it were drawn that margin too high
+    // while the native series were not.
+    readonly property rect plotArea: Qt.rect(graphsView.x + graphsView.plotArea.x,
+                                             graphsView.y + graphsView.plotArea.y,
+                                             graphsView.plotArea.width,
+                                             graphsView.plotArea.height)
 
     Component.onCompleted: {
         SteamDataModel.registerFastSeries(pressureRenderer, flowRenderer, temperatureRenderer)
@@ -135,25 +136,24 @@ Item {
             labelFormat: "%.0f"
             titleText: "bar / mL/s"
         }
-    }
 
-    // Flow goal (dashed line) — bridge overlay; Qt Graphs LineSeries has no dash style.
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: pressureAxis
-        points: SteamDataModel.flowGoalPoints
-        strokeColor: Theme.flowGoalColor
-        strokeWidth: Theme.scaled(2)
-        visible: chart.showFlow
+        // Flow goal
+        LineSeries {
+            values: SteamDataModel.flowGoalPoints
+            color: Theme.flowGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: chart.showFlow
+        }
     }
 
     // === LIVE DATA — FastLineRenderer (pre-allocated VBO) ===
 
     FastLineRenderer {
         id: pressureRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.pressureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -163,8 +163,8 @@ Item {
 
     FastLineRenderer {
         id: flowRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.flowColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -174,8 +174,8 @@ Item {
 
     FastLineRenderer {
         id: temperatureRenderer
-        x: graphsView.plotArea.x; y: graphsView.plotArea.y
-        width: graphsView.plotArea.width; height: graphsView.plotArea.height
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
         color: Theme.temperatureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -186,10 +186,10 @@ Item {
     // Manual right-axis labels for temperature (Qt Graphs has no second Y axis here)
     Item {
         id: rightAxisLabels
-        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
-        y: graphsView.plotArea.y
+        x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
+        y: chart.plotArea.y
         width: chart.width - x
-        height: graphsView.plotArea.height
+        height: chart.plotArea.height
 
         Accessible.role: Accessible.StaticText
         Accessible.name: TranslationManager.translate("steamGraph.rightAxis", "Temperature axis")
@@ -225,11 +225,11 @@ Item {
 
     CustomLegend {
         id: legend
-        x: graphsView.plotArea.x
-        y: graphsView.plotArea.y + Theme.scaled(4)
+        x: chart.plotArea.x
+        y: chart.plotArea.y + Theme.scaled(4)
         // Content-width (and left-aligned at the plot edge) when it fits; bounded
         // to the plot width so it wraps instead of overflowing when it doesn't.
-        width: Math.min(implicitWidth, graphsView.plotArea.width)
+        width: Math.min(implicitWidth, chart.plotArea.width)
 
         readonly property var _keys: ["steamGraph/showPressure", "steamGraph/showFlow", "steamGraph/showTemperature"]
 

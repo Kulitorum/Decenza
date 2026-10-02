@@ -101,7 +101,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
 
     DIAG_DEBUG(SHOT, "ShotDataModel") << "Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
 
-    // Replay any goal-curve data we already accumulated so DashedLineSeries
+    // Replay any goal-curve data we already accumulated so the goal series'
     // bindings see the current state immediately (e.g., returning to the
     // espresso page after a shot completes).
     if (!m_pressureGoalSegments.isEmpty() && !m_pressureGoalSegments[0].isEmpty()) {
@@ -583,9 +583,8 @@ void ShotDataModel::onFlushTimerTick() {
         m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
-    // Goal-curve points republished as QML-bindable properties — DashedLineSeries
-    // Repeaters re-read pressureGoalSegments / flowGoalSegments / temperatureGoalPoints
-    // and the per-axis bridge overlays re-draw against the current axis range.
+    // Goal-curve points republished as QML-bindable properties — the live graph's goal
+    // series re-read pressureGoalSegments / flowGoalSegments / temperatureGoalPoints.
     if (m_goalCurvesDirty) {
         m_goalCurvesDirty = false;
         emit goalCurvesChanged();
@@ -643,14 +642,20 @@ QVector<QPointF> ShotDataModel::flowGoalData() const {
     return combined;
 }
 
-// Variant-list accessors for QML — DashedLineSeries Repeaters bind to these.
-// Each segment becomes a JS array of Qt.point(x, y); the outer list is the segments.
-
+// Variant-list accessors for the live graph's goal series, which bind to these. Each
+// segment becomes a list of QPointF; the outer list is the segments.
+//
+// Display only: a point in the middle of a flat run is dropped, since the line through
+// its neighbours is the same line. Goals hold one value per frame, and these lists are
+// rebuilt and redrawn on every flush.
 static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
     QVariantList out;
     out.reserve(pts.size());
-    for (const QPointF& p : pts) {
-        out.append(QVariant::fromValue(p));
+    for (qsizetype i = 0; i < pts.size(); ++i) {
+        const bool midRun = i > 0 && i + 1 < pts.size()
+            && pts[i - 1].y() == pts[i].y() && pts[i].y() == pts[i + 1].y();
+        if (!midRun)
+            out.append(QVariant::fromValue(pts[i]));
     }
     return out;
 }

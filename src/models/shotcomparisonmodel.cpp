@@ -298,15 +298,14 @@ void ShotComparisonModel::calculateMaxValues()
     }
 }
 
+// QPointF, not {x, y} maps: ComparisonGraph binds these straight to LineSeries.values,
+// which reads points and would treat maps as bare numbers (qxyseries.cpp:735-738).
 QVariantList ShotComparisonModel::pointsToVariant(const QVector<QPointF>& points) const
 {
     QVariantList result;
-    for (const auto& pt : points) {
-        QVariantMap p;
-        p["x"] = pt.x();
-        p["y"] = pt.y();
-        result.append(p);
-    }
+    result.reserve(points.size());
+    for (const auto& pt : points)
+        result.append(QVariant::fromValue(pt));
     return result;
 }
 

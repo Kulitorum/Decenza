@@ -895,7 +895,9 @@ int main(int argc, char *argv[])
         }
     }
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+// Q_OS_LINUX is also defined on Android (qsystemdetection.h:46), so Android is excluded
+// explicitly — from v2.0.0 to 2.0.8 it ran curve text, the mobile cost described below.
+#if (defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)) && !defined(Q_OS_ANDROID)
     // Use CurveTextRendering (Qt 6.7+) on all resizable desktop platforms. It
     // renders every glyph as bezier curves on the GPU, so it needs neither the
     // distance-field glyph cache nor the native bitmap path. Two problems it avoids:
@@ -929,16 +931,17 @@ int main(int argc, char *argv[])
     // CoreText/Apple Color Emoji stack, but the CopyEmojiImage crash has only ever
     // been observed on macOS, so iOS is intentionally left on the default too.
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
+#endif
     {
+        // Every platform, so a field log says which text renderer is active.
         auto actual = QQuickWindow::textRenderType();
         FONT_LOG_STDERR("TextRender",
-            QStringLiteral("Requested CurveTextRendering, active type: %1 (%2)")
+            QStringLiteral("Text render type: %1 (%2)")
                 .arg(actual == QQuickWindow::CurveTextRendering ? QStringLiteral("Curve")
                      : actual == QQuickWindow::QtTextRendering  ? QStringLiteral("QtText")
                                                                 : QStringLiteral("Native"))
                 .arg(static_cast<int>(actual)));
     }
-#endif
 
 #ifdef Q_OS_MACOS
     // Probe which characters CoreText routes to Apple Color Emoji — diagnostic

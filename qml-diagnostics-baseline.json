@@ -116,7 +116,6 @@
     "qml/components/ValueInput.qml",
     "qml/components/graphs/AutoRangingAxis.qml",
     "qml/components/graphs/CustomLegend.qml",
-    "qml/components/graphs/DashedLineSeries.qml",
     "qml/components/graphs/DecenzaGraphsTheme.qml",
     "qml/components/layout/CustomEditorPopup.qml",
     "qml/components/layout/EmojiData.js",

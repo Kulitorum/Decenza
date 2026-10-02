@@ -8,10 +8,10 @@ import Decenza
 
 // The right-hand axis label column, shared by the live and history shot graphs.
 //
-// Qt Graphs has no sanctioned second Y axis, so the right axis is drawn by hand: the traces
-// mapped to it read plain value-holder QObjects for their own data→pixel mapping, and this
-// column paints the matching tick labels at a fixed position beside the plot. Adding a real
-// axis would resize the plot area and shift everything under it.
+// Drawn by hand, though Qt Graphs has per-series axes since 6.10: this one column cycles
+// through three ranges on tap and announces itself, and in the live graph the weight and
+// temperature lines are FastLineRenderer items, not series, so Qt Graphs would have no
+// series to draw their axes for. The ranges themselves are hidden ValueAxis objects.
 //
 // It lived twice, copied verbatim into ShotGraph.qml and HistoryShotGraph.qml, differing only
 // in a `visible` binding. Both copies would have needed the same third mode added by hand.
@@ -21,7 +21,7 @@ Item {
     // "weight", "temperature" or "flow" — the vocabulary is SettingsGraph's.
     required property string mode
 
-    // Value holders supplying min/max for each mode. Plain QtObjects, not ValueAxis.
+    // Hidden ValueAxis objects supplying min/max for each mode.
     required property var weightAxis
     required property var tempAxis
     required property var flowAxis

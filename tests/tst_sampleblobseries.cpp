@@ -165,6 +165,21 @@ private slots:
         QCOMPARE(valid.first().ecRaw, 0.073);
     }
 
+    // The live graph's goal lists drop mid-run points; the recorded goal data must not.
+    void goalDisplayListsDropOnlyMidRunPoints() {
+        ShotDataModel model;
+        const double tempGoals[] = {92, 92, 92, 92, 88, 88};
+        for (int i = 0; i < 6; ++i)
+            model.addSample(i * 0.2, 9.0, 2.0, 92.0, 90.0, 9.0, 0.0, tempGoals[i], 94.0);
+
+        const QVariantList shown = model.temperatureGoalPointsVariant();
+        QList<QPointF> pts;
+        for (const QVariant& v : shown) pts.append(v.toPointF());
+        // First and last of each run survive, so the step and the live end are both drawn.
+        QCOMPARE(pts, (QList<QPointF>{{0.0, 92}, {0.6, 92}, {0.8, 88}, {1.0, 88}}));
+        QCOMPARE(model.temperatureGoalData().size(), 6);
+    }
+
     void mixGoalRoundTripsThroughBlob() {
         ShotHistoryStorage storage;
         ShotDataModel model;

@@ -25,8 +25,7 @@ public:
     double rawTime() const { return m_rawTime; }
     int sampleCount() const { return static_cast<int>(m_pressurePoints.size()); }
 
-    // Goal-curve points exposed as Qt.point()-compatible variant list so
-    // DashedLineSeries can bind directly without a C++/QML series handshake.
+    // Goal-curve points as a list of QPointF, bound straight to LineSeries.values.
     QVariantList flowGoalPoints() const;
 
     // Register fast renderers for live data series (QSGGeometryNode, pre-allocated VBO)
