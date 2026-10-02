@@ -62,7 +62,8 @@ android {
         minSdk = qtMinSdkVersion.toInteger()
         targetSdk = qtTargetSdkVersion.toInteger()
         ndk {
-            abiFilters += qtTargetAbiList.split(',')
+            // A List, not split()'s String[]: AGP 9 adds an array as one element.
+            abiFilters.addAll(qtTargetAbiList.split(',').toList())
         }
     }
 }
