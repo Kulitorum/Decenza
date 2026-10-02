@@ -1418,6 +1418,13 @@ T.ApplicationWindow {
             pageColorTimer.restart()  // Detect colors after page settles
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
+            // Every route off the screensaver ends here, not only
+            // goToIdleFromScreensaver(): goToIdle() and the phase handlers replace
+            // it directly, and a flag left set keeps auto-sleep stopped and the
+            // scale reconnect paused.
+            if (root.screensaverActive && pageStack.currentItem
+                    && pageStack.currentItem.objectName !== "screensaverPage")
+                root.leaveScreensaverState()
         }
     }
 
@@ -4287,6 +4294,10 @@ T.ApplicationWindow {
     property bool screensaverActive: false
 
     function goToScreensaver() {
+        // Already showing (the P shortcut is unguarded): replacing the page with
+        // itself would only restart the video, and nothing here needs redoing.
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage")
+            return
         WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
         screensaverActive = true
         // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
@@ -4341,21 +4352,26 @@ T.ApplicationWindow {
         pageStack.replace(null, screensaverPage)
     }
 
-    function goToIdleFromScreensaver() {
+    // Both screensaver flags, the auto-sleep countdown and queued popups, cleared
+    // together. Brightness is restored in ScreensaverPage.StackView.onRemoved.
+    // The scheduled stay-awake window is evaluated live, so waking here
+    // (manually or via auto-wake) needs no separate arming.
+    function leaveScreensaverState() {
         screensaverActive = false
         ScreensaverManager.screensaverActive = false
-        // Brightness is restored in ScreensaverPage.StackView.onRemoved.
-        // The scheduled stay-awake window is evaluated live, so waking here
-        // (manually or via auto-wake) needs no separate arming.
         root.sleepCountdownNormal = root.autoSleepMinutes
         root.stayAwakeSuppressionLogged = false
         WebDebugLogger.debug("Screensaver", "main", ["Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
                     " pendingPopups=" + pendingPopups.length].map(String).join(" "))
-        pageStack.replace(null, idlePage)
         // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
             Qt.callLater(root.showNextPendingPopup)
         }
+    }
+
+    function goToIdleFromScreensaver() {
+        leaveScreensaverState()
+        pageStack.replace(null, idlePage)
     }
 
     Component {

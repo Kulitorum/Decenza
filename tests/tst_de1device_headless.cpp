@@ -210,6 +210,52 @@ private slots:
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
     }
 
+    // #1976: the liveness watchdog tore down a sleeping machine's link and the
+    // reconnect woke it, overnight. That reconnect now leaves it asleep — but
+    // only that one: a wake asked for while the link is down (auto-wake, MQTT,
+    // a screensaver tap) is sent, and a teardown of an awake machine still wakes.
+    void reconnectAfterTeardownWhileAsleepLeavesItAsleep() {
+        const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
+        // Not brace-initialised: QByteArray{a, b} is the (size, fill) constructor.
+        const auto stateInfo = [](DE1::State s) {
+            QByteArray d;
+            d.append(static_cast<char>(s));
+            d.append(static_cast<char>(DE1::SubState::Ready));
+            return d;
+        };
+        const auto tearDown = [](TestFixture& t) {
+            emit t.transport.livenessTeardown();
+            t.transport.setConnectedSim(false);
+            t.transport.clearWrites();
+        };
+
+        TestFixture f;
+        f.device.parseStateInfo(stateInfo(DE1::State::Sleep));
+        tearDown(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("leaving the machine asleep")));
+        f.transport.setConnectedSim(true);
+        QVERIFY(requestedStates(f.transport).isEmpty());
+
+        tearDown(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; nothing sent")));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("wake the machine as usual")));
+        f.device.wakeUp();
+        QVERIFY(requestedStates(f.transport).isEmpty());  // nothing written to a dead link
+        f.transport.setConnectedSim(true);
+        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
+
+        // A machine last seen awake, or one that never reported (m_state's
+        // default is Sleep), is woken as before.
+        for (const bool reported : {true, false}) {
+            TestFixture g;
+            if (reported)
+                g.device.parseStateInfo(stateInfo(DE1::State::Idle));
+            tearDown(g);
+            g.transport.setConnectedSim(true);
+            QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
+        }
+    }
+
     void disconnectIsANoOpWhenSubStateAlreadyReady() {
         // onTransportDisconnected() guards the reset on a value check, so an
         // already-quiet disconnect (the overwhelmingly common case) does not spam

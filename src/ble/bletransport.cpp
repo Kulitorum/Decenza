@@ -1043,6 +1043,7 @@ void BleTransport::evaluateLinkLiveness() {
                                "away on its own"));
             return;
         }
+        emit livenessTeardown();
         disconnect();
         // No "the link recovered" counterpart is logged here. One was written
         // and removed: DE1Device::connectToDevice() builds a NEW BleTransport
@@ -1058,8 +1059,9 @@ void BleTransport::evaluateLinkLiveness() {
         // its own comment marks KNOWN OVER-EAGER (#1691: one keepalive
         // exhaustion latched it on a desktop). Raising a new fault kind off a
         // threshold whose cadence is unmeasured would let this permanently
-        // demote every scale to BALANCED. The teardown's own disconnected()
-        // already drives everything this recovery needs.
+        // demote every scale to BALANCED. livenessTeardown() above plus the
+        // teardown's own disconnected() drive everything this recovery needs;
+        // it is emitted first so DE1Device reads the pre-teardown state.
     }, Qt::QueuedConnection);
 }
 

@@ -2432,7 +2432,7 @@ void ProfileManager::acknowledgeDe1CommunicationFailure() {
 
 void ProfileManager::uploadCurrentProfileOnConnect() {
     // Sleep is not the hazard — writing INTO a wake we just triggered is.
-    // DE1Device::onTransportConnected() sends requestState(Idle) and this
+    // DE1Device::onTransportConnected() can send requestState(Idle) and this
     // upload follows ~120 ms later, so the frames land mid-transition: every
     // frame ACKs and telemetry streams, but the GHC blinks red and never picks
     // the profile up. Re-uploading with the machine awake clears it, which is

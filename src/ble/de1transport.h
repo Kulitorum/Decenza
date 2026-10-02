@@ -183,6 +183,14 @@ signals:
     void de1LinkFault(const QString& kind);
 
     /**
+     * Emitted just before the transport tears down a link it judged dead
+     * (BleTransport's liveness check). Nobody asked for this disconnect, so
+     * DE1Device must not treat the reconnect as a reason to wake a machine
+     * that was asleep (#1976).
+     */
+    void livenessTeardown();
+
+    /**
      * Emitted for debug/diagnostic logging.
      * @param message Log text to be captured by ShotDebugLogger.
      */

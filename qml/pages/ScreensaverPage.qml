@@ -885,14 +885,12 @@ T.Page {
         mediaPlayerLoader.active = false
         mediaPlaying = false
 
-        // Wake up the DE1, or try to reconnect if disconnected. While it is
-        // still connecting, wakeUp() cancels a sleep requested during the
-        // connect, which would otherwise be sent once it completes.
-        if (DE1Device.connected || DE1Device.connecting) {
-            DE1Device.wakeUp()
-        } else {
+        // wakeUp() first in every case: connected it wakes the machine, and
+        // otherwise it records the wake so the reconnect sends it, even one
+        // that would have left the machine asleep after a dead-link teardown.
+        DE1Device.wakeUp()
+        if (!DE1Device.connected && !DE1Device.connecting)
             BLEManager.tryDirectConnectToDE1()
-        }
 
         // Wake the scale (enable LCD) or try to reconnect
         if (ScaleDevice.connected) {
