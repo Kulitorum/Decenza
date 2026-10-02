@@ -15,8 +15,8 @@
 namespace McpLogFilter {
 
 // The prefix of the line WebDebugLogger writes at the start of every session.
-// One spelling for the writer and its readers (sessionIndex(), and CrashHandler
-// isolating the crashed run).
+// One spelling for the writer and its readers (sessionIndex(), sessionLinesMatching()'s
+// backward scan, and CrashHandler isolating the crashed run).
 inline const QString& sessionStartMarker()
 {
     static const QString marker = QStringLiteral("========== SESSION START:");

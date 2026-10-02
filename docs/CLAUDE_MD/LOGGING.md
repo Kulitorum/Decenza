@@ -312,7 +312,7 @@ keeps an in-memory ring buffer for the web poller, and appends every line to
 `debug.log` (capped at `MAX_LOG_FILE_SIZE`, trimmed from the front, with a
 `========== SESSION START` marker per run).
 
-There is **one** log. The connections page's two views are filtered reads of it via
+There is **one** log. The connections page's three views are filtered reads of it via
 `WebDebugLogger::sessionLinesMatching()`, and Share sends the same file. If you find
 yourself building a second buffer so some screen can show something, you are
 recreating the private `scale_debug_log.txt` channel that was deleted: it was capped,

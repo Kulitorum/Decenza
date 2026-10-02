@@ -209,8 +209,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.recipes.hint", "Tap to toggle recipe pills. Double-tap or long-press for the recipe list.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "recipes", { idlePage: root.idlePage })
-            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "recipes", { idlePage: root.idlePage })
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", { idlePage: root.idlePage })
         }
     }
 

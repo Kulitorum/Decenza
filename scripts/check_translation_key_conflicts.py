@@ -12,6 +12,9 @@ value: whichever QML site is scanned or rendered last wins. Consequences, all si
 and common.accessibility.dismissDialog across eleven files. Most were a visible label and an
 Accessible.name sharing a key, which is a reasonable thing to want and needs two keys.
 
+It also fails on a Tr whose key is switched by a condition (see switched_tr_keys), and
+`--self-test` runs that check against inline fixtures.
+
 Two ways to fix a report from this script:
   * The difference is noise (a trailing colon, casing) -- unify on the variant the existing
     translations were made from, or you silently invalidate them.
@@ -33,17 +36,46 @@ FB_ANY = re.compile(r'\b(?:labelFallback|translationFallback|fallback)\s*:\s*"((
 # every flip its text evaluates once with the new key and the old fallback, which the registry
 # reads as a reworded string. Use one translate() call per branch instead.
 TR_OPEN = re.compile(r'\bTr\s*\{')
-SWITCHED_KEY = re.compile(r'\bkey\s*:(?!\s*")[^\n;]*(\?|\n\s*\?)')
+# The key's expression: to the end of the line, plus continuation lines opening with ? or :.
+KEY_EXPR = re.compile(r'\bkey\s*:((?:[^\n;]|\n\s*[?:])*)')
+# A conditional operator, not `??` or `?.`.
+TERNARY = re.compile(r'(?<!\?)\?(?![?.])')
+STRING = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
+
+def blank_strings(text):
+    """Same length, string contents blanked: braces and ? inside a string literal are text."""
+    return STRING.sub(lambda m: '"' + " " * (len(m.group()) - 2) + '"', text)
 
 def switched_tr_keys(text, line_of):
-    for m in TR_OPEN.finditer(text):
+    code = blank_strings(text)
+    for m in TR_OPEN.finditer(code):
         depth, i = 1, m.end()
-        while i < len(text) and depth:
-            depth += {"{": 1, "}": -1}.get(text[i], 0)
+        while i < len(code) and depth:
+            depth += {"{": 1, "}": -1}.get(code[i], 0)
             i += 1
-        k = SWITCHED_KEY.search(text, m.end(), i)
-        if k:
+        k = KEY_EXPR.search(code, m.end(), i)
+        if k and TERNARY.search(k.group(1)):
             yield line_of(k.start())
+
+SELF_TEST = [
+    ('Tr { key: c ? "a.on" : "a.off"; fallback: "x" }', True),
+    ('Tr {\n    key: c\n         ? "a.on"\n         : "a.off"\n    fallback: "x"\n}', True),
+    ('Tr { key: "d." + (c ? "on" : "off"); fallback: "x" }', True),
+    ('Tr { key: "a.b"; fallback: "Is it on?" }', False),
+    ('Tr { key: modelData.key ?? "c.none"; fallback: "x" }', False),
+    ('Tr { key: item?.key; fallback: "x" }', False),
+    ('Tr { key: "a.b"; fallback: "Use {braces" }\nFoo { key: x ? 1 : 2 }', False),
+]
+
+def self_test() -> int:
+    failed = 0
+    for qml, expected in SELF_TEST:
+        got = bool(list(switched_tr_keys(qml, lambda pos: 1)))
+        if got != expected:
+            failed += 1
+            print(f"self-test FAILED: expected {expected}, got {got}: {qml!r}")
+    print(f"self-test: {len(SELF_TEST) - failed}/{len(SELF_TEST)} passed")
+    return 1 if failed else 0
 
 def main() -> int:
     seen = collections.defaultdict(lambda: collections.defaultdict(list))
@@ -85,4 +117,4 @@ def main() -> int:
     return 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(self_test() if "--self-test" in sys.argv[1:] else main())

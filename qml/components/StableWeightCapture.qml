@@ -63,8 +63,9 @@ Item {
     onCupWeightChanged: _evaluate()
     onRawWeightChanged: _evaluate()
 
-    // True once rawWeight has held within tolerance for `dwell` ms; otherwise it
-    // (re)seeds the candidate run and returns false.
+    // True once rawWeight has held within tolerance for `dwell` ms. Otherwise it starts a
+    // new candidate run if the reading moved, arms settleTimer for the rest of the dwell,
+    // and returns false.
     function _settled(now, dwell) {
         if (isNaN(_cand) || Math.abs(rawWeight - _cand) > tolerance) {
             _cand = rawWeight

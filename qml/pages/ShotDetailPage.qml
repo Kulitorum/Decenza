@@ -1562,11 +1562,10 @@ T.Page {
 
     // Built on first use: the advisor overlay was created with every open of this page
     // whether or not the advisor was opened (#1976).
-    Loader {
+    OnDemandLoader {
         id: conversationOverlayLoader
         anchors.fill: parent
         z: 200  // the overlay's own z only orders it inside this Loader
-        active: false
         sourceComponent: Component {
             ConversationOverlay {
                 anchors.fill: parent
@@ -1603,8 +1602,7 @@ T.Page {
             text: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             accessibleName: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             onClicked: {
-                conversationOverlayLoader.active = true
-                (conversationOverlayLoader.item as ConversationOverlay).openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
+                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
             }
         }
 

@@ -163,8 +163,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.espresso.hint", "Tap to toggle presets. Double-tap or long-press to select profile.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "espresso", { idlePage: root.idlePage })
-            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "espresso", { idlePage: root.idlePage })
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", { idlePage: root.idlePage })
         }
     }
 

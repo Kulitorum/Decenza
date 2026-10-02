@@ -102,17 +102,23 @@ Rectangle {
     readonly property bool _loggerReady:
         WebDebugLogger.sessionLinesMatching !== undefined
 
-    Component.onCompleted: {
-        if (!root._loggerReady)
+    // Backfill the session so opening the page after activity shows what happened, instead of
+    // only what happens next. Not until the view is shown: the connections tab holds a USB and
+    // a Bluetooth view of which only one is visible, and a backfill was ~40 ms of the tab's
+    // open on a Galaxy Tab A9+ (#1976). Live lines start with it, so none is shown twice.
+    property bool _filled: false
+    function _fill() {
+        if (root._filled || !root._loggerReady || !root.visible)
             return
-        // Backfill the session so opening the page after activity shows what
-        // happened, instead of only what happens next.
+        root._filled = true
         root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel, root.maxLines)
         root._render()
     }
+    Component.onCompleted: root._fill()
+    onVisibleChanged: root._fill()
 
     Connections {
-        target: root._loggerReady ? WebDebugLogger : null
+        target: root._filled ? WebDebugLogger : null
 
         // MUST NOT LOG. Anything logged here re-enters the global message handler
         // from inside its own emit. WebDebugLogger's per-thread guard stops the

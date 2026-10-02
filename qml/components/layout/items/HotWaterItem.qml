@@ -138,8 +138,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.hotwater.hint", "Tap to toggle presets. Double-tap or long-press to configure hot water.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "hotwater", { idlePage: root.idlePage })
-            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "hotwater", { idlePage: root.idlePage })
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", { idlePage: root.idlePage })
         }
     }
 

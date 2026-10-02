@@ -622,11 +622,15 @@ QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
         return {};
     }
 
+    // Held for the whole read: a trim rewrites the file under this lock (see its declaration),
+    // and the read's offsets would point into the old file. Bounded by MAX_LOG_FILE_SIZE.
+    QMutexLocker fileLocker(&m_fileMutex);
     QFile file(m_logFilePath);
     if (!file.open(QIODevice::ReadOnly)) {
         DIAG_WARN(RUNTIME, "WebDebugLogger") << "failed to open persisted log for reading:"
                    << m_logFilePath << file.errorString();
-        return {};
+        // Said in the view itself: an empty list reads as "this subsystem logged nothing".
+        return {QStringLiteral("(debug log unavailable: %1)").arg(file.errorString())};
     }
 
     // Backwards in blocks, newest line first. The current session is the one after
@@ -641,8 +645,14 @@ QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
     bool done = false;
     while (!done && pos > 0) {
         const qint64 from = qMax<qint64>(0, pos - kBlock);
-        file.seek(from);
-        QByteArray chunk = file.read(pos - from) + carry;
+        QByteArray chunk = file.seek(from) ? file.read(pos - from) : QByteArray();
+        if (chunk.size() != pos - from) {
+            DIAG_WARN(RUNTIME, "WebDebugLogger") << "persisted log read failed at" << from
+                       << file.errorString() << "- returning the" << newestFirst.size()
+                       << "newer lines already read";
+            break;
+        }
+        chunk += carry;
         carry.clear();
         pos = from;
         qsizetype end = chunk.size();

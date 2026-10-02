@@ -59,8 +59,8 @@ QtObject {
     // codebase had four different spellings of the same path plus one built by concatenation
     // (`"../../../pages/" + page`). A signal name is checked at build time.
     //
-    // These carry INTENT, not policy: main.qml decides push vs replace. See the note on its
-    // navigation functions for the rule (machine-driven replaces, user-driven pushes).
+    // These carry INTENT, not policy: main.qml decides how the page is entered
+    // (QML_NAVIGATION.md).
     signal espressoRequested()
     signal steamRequested()
     signal hotWaterRequested()
@@ -86,8 +86,8 @@ QtObject {
     signal stringBrowserRequested()
     signal addLanguageRequested()
 
-    // "Leave this page, however you can." Usually a pop; home when nothing is underneath (a
-    // page entered from the screensaver). The page says it wants out and the shell picks.
+    // "Leave this page, however you can." A pop, or home when nothing is underneath. The page
+    // says it wants out and the shell picks.
     signal dismissRequested()
 
     // ---- Operation-completion handshake --------------------------------------

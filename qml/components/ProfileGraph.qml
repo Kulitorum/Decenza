@@ -116,8 +116,8 @@ Item {
         // Reserve room for the bottom legend; tracks its (possibly wrapped) height
         // so a second line pushes the plot up instead of overlapping it.
         anchors.bottomMargin: legendRow.height + Theme.scaled(6)
-        // Reserve room on the right for the manual temperature labels; Qt Graphs
-        // has no axisYRight in this setup so we render them ourselves below.
+        // Reserve room on the right for the temperature labels drawn below. The temperature
+        // series maps through a hidden axis, so Qt Graphs reserves no space for one.
         anchors.rightMargin: Theme.scaled(28)
         theme: DecenzaGraphsTheme {}
 

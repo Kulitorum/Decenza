@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -94,11 +96,16 @@ Item {
         enabled: root.hasData   // no dead tap target when there's nothing to open
         accessibleName: TranslationManager.translate("beanbase.row.accessible", "Bean details from Bean Base. Opens details dialog")
         accessibleItem: root
-        onAccessibleClicked: detailsPopup.open()
+        onAccessibleClicked: (detailsLoader.ensure() as BeanBaseDetailsPopup)?.open()
     }
 
-    BeanBaseDetailsPopup {
-        id: detailsPopup
-        beanBaseJson: root.beanBaseJson
+    // Built on first open: the row is on every shot review, the details rarely opened (#1976).
+    OnDemandLoader {
+        id: detailsLoader
+        sourceComponent: Component {
+            BeanBaseDetailsPopup {
+                beanBaseJson: root.beanBaseJson
+            }
+        }
     }
 }

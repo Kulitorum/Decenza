@@ -13,12 +13,10 @@ name: Text invariants
 #
 # What each one protects:
 #
-#   check_translation_key_conflicts.py — one English string per translation key. This is not
-#     cosmetic. TranslationManager::noteSourceString persists the registry INLINE, on the render
-#     path, and its justification for doing so is that a key's English changes rarely. If a key
-#     regains two spellings, the two call sites alternate on every render and each flip triggers
-#     a full registry write plus a warning. The symptom is a stutter, not a failure, so nothing
-#     else would catch it.
+#   check_translation_key_conflicts.py — one English string per translation key, and no Tr whose
+#     key is switched by a condition. Either makes TranslationManager::noteSourceString see the
+#     key's English change on every render: a warning, a dirty registry, a recount and a 5 s
+#     batch write each time. The symptom is churn, not a failure, so nothing else would catch it.
 #
 #   check_translated_richtext.py — no translated string reaches a StyledText/RichText renderer
 #     unescaped. Community translations are fetched from the backend and uploading one is
@@ -138,7 +136,9 @@ jobs:
 
       # Blocking: a conflict here silently degrades the running app.
       - name: One English string per translation key
-        run: python3 scripts/check_translation_key_conflicts.py
+        run: |
+          python3 scripts/check_translation_key_conflicts.py --self-test
+          python3 scripts/check_translation_key_conflicts.py
 
       # Blocking: this one is a security property, not a style preference.
       - name: No unescaped translated text in rich-text renderers

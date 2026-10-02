@@ -231,14 +231,6 @@ QtObject {
         return true
     }
 
-    // What a gesture does, all in: the user's override if they set one, otherwise the
-    // widget type's RESERVED destination — the action that keeps its page reachable.
-    //
-    // The reserved destination is read from the C++ table and nowhere else. It used to be
-    // stated three times for every widget — in compileToCustom's longPressAction, in the
-    // dedicated item's goToX(), and in gestureReservedDestination() — three copies free to
-    // drift, with nothing failing if they did. Now the C++ table is the only declaration
-    // and both render formats resolve through here.
     // Whether the gesture resolves to an action, by the same rule as runGestureOrReserved.
     // supportDoubleClick binds to it: double-tap detection holds every single tap for the
     // double-click interval (300 ms), which a widget whose double-tap does nothing should
@@ -252,10 +244,18 @@ QtObject {
         return Settings.network.gestureReservedActionForType(modelData.type || "") !== ""
     }
 
-    function runGestureOrReserved(modelData, gestureKey, widgetType, ctx) {
+    // What a gesture does, all in: the user's override if they set one, otherwise the
+    // widget type's RESERVED destination — the action that keeps its page reachable.
+    //
+    // The reserved destination is read from the C++ table and nowhere else. It used to be
+    // stated three times for every widget — in compileToCustom's longPressAction, in the
+    // dedicated item's goToX(), and in gestureReservedDestination() — three copies free to
+    // drift, with nothing failing if they did. Now the C++ table is the only declaration
+    // and both render formats resolve through here.
+    function runGestureOrReserved(modelData, gestureKey, ctx) {
         if (runGesture(modelData, gestureKey, ctx))
             return
-        var reserved = Settings.network.gestureReservedActionForType(widgetType)
+        var reserved = Settings.network.gestureReservedActionForType(modelData.type || "")
         if (reserved)
             execute(reserved, ctx)
     }

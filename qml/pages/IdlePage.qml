@@ -536,7 +536,10 @@ T.Page {
         id: beanCapture
         rawWeight: (ScaleDevice && ScaleDevice.connected) ? MachineState.scaleWeight : 0
         cupWeight: Settings.brew.doseCupTareWeight
-        active: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        // Only while this page is showing: the page stays alive under a shot, and the
+        // settled yield in the cup would otherwise be captured as the next dose.
+        active: idlePage.StackView.status === StackView.Active
+                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                 && idlePage.activePresetFunction !== "steam"
                 && idlePage.activePresetFunction !== "hotwater"
                 && idlePage.activePresetFunction !== "flush"
@@ -1262,7 +1265,7 @@ T.Page {
                             id: weighBeansText
                             horizontalAlignment: Text.AlignHCenter
                             // True while prompting the user to place beans (no load on
-                            // the scale yet) — this state gently blinks.
+                            // the scale yet) — this state pulses (PromptPulse).
                             readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
                                 && !beanCapture.loadPresent
                             text: {

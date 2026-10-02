@@ -152,9 +152,13 @@ Item {
     Keys.onLeftPressed: adjustValue(-1)
     Keys.onRightPressed: adjustValue(1)
 
-    Keys.onReturnPressed: scrubberPopup.open()
-    Keys.onEnterPressed: scrubberPopup.open()
-    Keys.onSpacePressed: scrubberPopup.open()
+    Keys.onReturnPressed: root.openEditor()
+    Keys.onEnterPressed: root.openEditor()
+    Keys.onSpacePressed: root.openEditor()
+
+    function openEditor() {
+        (scrubberLoader.ensure() as DecenzaDialog)?.open()
+    }
 
     // Page up/down for larger steps
     Keys.onPressed: function(event) {
@@ -381,7 +385,7 @@ Item {
                         // set for any 5px movement; now vertical-only swipes
                         // leave isDragging false, so we also check hasMoved.
                         if (!isDragging && !hasMoved) {
-                            scrubberPopup.open()
+                            root.openEditor()
                         }
                         // Commit on drag release. PR #782 added the
                         // valueCommitted contract for the +/- buttons but
@@ -580,505 +584,515 @@ Item {
         }
     }
 
-    // Full-width dialog with blur - same as compact but bigger
-    DecenzaDialog {
-        id: scrubberPopup
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: parent.width
-        height: parent.height
-        modal: true
-        dim: false
-        closePolicy: Dialog.CloseOnPressOutside
-        header: null
-        footer: null
-        padding: 0
+    // Full-width dialog with blur - same as compact but bigger. Built on first open: every
+    // ValueInput on a page carried one, built with the page (#1976).
+    OnDemandLoader {
+        id: scrubberLoader
+        sourceComponent: Component {
+            DecenzaDialog {
+                id: scrubberPopup
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                width: parent.width
+                height: parent.height
+                modal: true
+                dim: false
+                closePolicy: Dialog.CloseOnPressOutside
+                header: null
+                footer: null
+                padding: 0
 
-        onOpened: {
-            root._dropPending()
-            popupContent.currentGear = 0
-            popupContent.editMode = false
-            popupValueContainer.forceActiveFocus()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                let announcement = root.accessibleName ? root.accessibleName + ". " : ""
-                let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
-                announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
-                AccessibilityManager.announce(announcement, true)
-            }
-        }
-
-        background: Rectangle {
-            color: "#80000000"
-        }
-
-        // Content
-        Item {
-            id: popupContent
-            anchors.fill: parent
-            property int currentGear: 0
-            property bool editMode: false
-
-            Accessible.name: TranslationManager.translate("valueinput.editor.title", "Value editor")
-
-            // Tap outside to close (exit edit mode first). When the TextInput
-            // is in edit mode, commit the typed value instead of silently
-            // discarding it — tapping elsewhere is a common tablet "done"
-            // gesture. Escape in the TextInput remains an explicit discard.
-            MouseArea {
-                anchors.fill: parent
-                onClicked: {
-                    if (popupContent.editMode) {
-                        popupTextInput.commitText()
-                    } else {
-                        scrubberPopup.close()
+                onOpened: {
+                    root._dropPending()
+                    popupContent.currentGear = 0
+                    popupContent.editMode = false
+                    popupValueContainer.forceActiveFocus()
+                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
+                        let announcement = root.accessibleName ? root.accessibleName + ". " : ""
+                        let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
+                        announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
+                        AccessibilityManager.announce(announcement, true)
                     }
                 }
-            }
 
-            // Full-width value control - same as compact but larger
-            Rectangle {
-                id: popupControl
-                anchors.centerIn: parent
-                width: parent.width - root.sc(40)
-                height: root.sc(80)
-                radius: root.sc(16)
-                color: Theme.surfaceColor
-                border.width: 1
-                border.color: Theme.textSecondaryColor
+                background: Rectangle {
+                    color: "#80000000"
+                }
 
-                RowLayout {
+                // Content
+                Item {
+                    id: popupContent
                     anchors.fill: parent
-                    anchors.margins: root.sc(6)
-                    spacing: root.sc(4)
+                    property int currentGear: 0
+                    property bool editMode: false
+                    // Popup +/- and keyboard: honor the persisted gear
+                    function adjust(steps) {
+                        root.adjustValueWithStep(steps, root.gearToStep(currentGear))
+                    }
 
-                    // Minus button
-                    Rectangle {
-                        Layout.preferredWidth: root.sc(70)
-                        Layout.fillHeight: true
-                        radius: root.sc(12)
-                        color: popupMinusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
+                    Accessible.name: TranslationManager.translate("valueinput.editor.title", "Value editor")
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("valueinput.button.decrease", "Decrease")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: popupMinusArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "\u2212"
-                            font.pixelSize: root.sc(32)
-                            font.bold: true
-                            color: root.effectiveValue <= root.from ? Theme.textSecondaryColor : Theme.textColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: popupMinusArea
-                            anchors.fill: parent
-                            onClicked: { root.popupAdjust(-1); root.commitValue() }
-                            onPressAndHold: popupDecrementTimer.start()
-                            onReleased: {
-                                if (popupDecrementTimer.running) {
-                                    popupDecrementTimer.stop()
-                                    root.commitValue()
-                                }
+                    // Tap outside to close (exit edit mode first). When the TextInput
+                    // is in edit mode, commit the typed value instead of silently
+                    // discarding it — tapping elsewhere is a common tablet "done"
+                    // gesture. Escape in the TextInput remains an explicit discard.
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (popupContent.editMode) {
+                                popupTextInput.commitText()
+                            } else {
+                                scrubberPopup.close()
                             }
-                            onCanceled: { popupDecrementTimer.stop(); root._dropPending() }
-                        }
-
-                        Timer {
-                            id: popupDecrementTimer
-                            interval: 80
-                            repeat: true
-                            onTriggered: root.popupAdjust(-1)
                         }
                     }
 
-                    // Value display - draggable, double-tap to type
-                    Item {
-                        id: popupValueContainer
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        focus: !popupContent.editMode
+                    // Full-width value control - same as compact but larger
+                    Rectangle {
+                        id: popupControl
+                        anchors.centerIn: parent
+                        width: parent.width - root.sc(40)
+                        height: root.sc(80)
+                        radius: root.sc(16)
+                        color: Theme.surfaceColor
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
 
-                        Accessible.role: Accessible.Slider
-                        Accessible.name: root.accessibleName || (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
-                        Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
-                        Accessible.focusable: true
-
-                        // Keyboard navigation — honors the selected gear.
-                        // Release fires commitValue once when the key lifts,
-                        // mirroring the +/- button contract.
-                        Keys.onEscapePressed: scrubberPopup.close()
-                        Keys.onUpPressed: root.popupAdjust(1)
-                        Keys.onDownPressed: root.popupAdjust(-1)
-                        Keys.onLeftPressed: root.popupAdjust(-1)
-                        Keys.onRightPressed: root.popupAdjust(1)
-                        Keys.onReturnPressed: scrubberPopup.close()
-                        Keys.onEnterPressed: scrubberPopup.close()
-                        Keys.onReleased: function(event) {
-                            if (event.isAutoRepeat) return
-                            switch (event.key) {
-                                case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
-                                    root.commitValue()
-                                    event.accepted = true
-                                    break
-                            }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            visible: !popupContent.editMode
-                            text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
-                            font.pixelSize: root.sc(40)
-                            font.bold: true
-                            color: root.valueColor
-                        }
-
-                        // Keyboard entry field — shown on double-tap
-                        TextInput {
-                            id: popupTextInput
-                            anchors.centerIn: parent
-                            width: parent.width - root.sc(12)
-                            visible: popupContent.editMode
-                            font.pixelSize: root.sc(40)
-                            font.bold: true
-                            color: root.valueColor
-                            horizontalAlignment: Text.AlignHCenter
-                            inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            selectByMouse: true
-
-                            // Rename from commitValue to commitText to avoid clashing
-                            // with root.commitValue() used by release handlers above.
-                            function commitText() {
-                                var parsed = parseFloat(text)
-                                if (!isNaN(parsed)) {
-                                    if (parsed === 0 && root.snapZeroTo > 0) parsed = root.snapZeroTo
-                                    parsed = Math.max(root.from, Math.min(root.to, parsed))
-                                    let roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
-                                    parsed = Math.round(parsed / roundTo) * roundTo
-                                    if (parsed !== root.effectiveValue) {
-                                        root._emitValueModified(parsed)
-                                    }
-                                    // Typing a number is a deliberate, final adjustment.
-                                    // commitValue() only fires valueCommitted if the
-                                    // typed value differed from the prior value — typing
-                                    // the same number back is a no-op.
-                                    root.commitValue()
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                        AccessibilityManager.announce(root.effectiveDisplayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
-                                    }
-                                }
-                                popupContent.editMode = false
-                                popupValueContainer.forceActiveFocus()
-                            }
-
-                            Keys.onReturnPressed: commitText()
-                            Keys.onEnterPressed: commitText()
-                            Keys.onEscapePressed: {
-                                popupContent.editMode = false
-                                popupValueContainer.forceActiveFocus()
-                            }
-
-                            Accessible.role: Accessible.EditableText
-                            Accessible.name: root.accessibleName || TranslationManager.translate("valueinput.editor.title", "Value editor")
-                            Accessible.description: text
-                            Accessible.focusable: true
-                        }
-
-                        // Underline cursor for text input
-                        Rectangle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.top: popupTextInput.bottom
-                            anchors.topMargin: root.sc(2)
-                            width: popupTextInput.contentWidth + root.sc(20)
-                            height: root.sc(2)
-                            color: root.valueColor
-                            visible: popupContent.editMode
-                        }
-
-                        MouseArea {
-                            id: popupDragArea
+                        RowLayout {
                             anchors.fill: parent
-                            visible: !popupContent.editMode
-                            preventStealing: isDragging
+                            anchors.margins: root.sc(6)
+                            spacing: root.sc(4)
 
-                            property real startX: 0
-                            property real startY: 0
-                            property bool isDragging: false
+                            // Minus button
+                            Rectangle {
+                                Layout.preferredWidth: root.sc(70)
+                                Layout.fillHeight: true
+                                radius: root.sc(12)
+                                color: popupMinusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
-                            onPressed: function(mouse) {
-                                startX = mouse.x
-                                // Offset startY so the current gear is preserved when drag begins.
-                                // Works for all gears: gear=0 → mouse.y, gear=1 → mouse.y-50,
-                                // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
-                                startY = mouse.y - popupContent.currentGear * root.sc(50)
-                                isDragging = false
-                                root._dropPending()
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("valueinput.button.decrease", "Decrease")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: popupMinusArea.clicked(null)
 
-                                // Announce parameter name when bubble appears (accessibility)
-                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                    let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
-                                    AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u2212"
+                                    font.pixelSize: root.sc(32)
+                                    font.bold: true
+                                    color: root.effectiveValue <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                                    Accessible.ignored: true
+                                }
+
+                                MouseArea {
+                                    id: popupMinusArea
+                                    anchors.fill: parent
+                                    onClicked: { popupContent.adjust(-1); root.commitValue() }
+                                    onPressAndHold: popupDecrementTimer.start()
+                                    onReleased: {
+                                        if (popupDecrementTimer.running) {
+                                            popupDecrementTimer.stop()
+                                            root.commitValue()
+                                        }
+                                    }
+                                    onCanceled: { popupDecrementTimer.stop(); root._dropPending() }
+                                }
+
+                                Timer {
+                                    id: popupDecrementTimer
+                                    interval: 80
+                                    repeat: true
+                                    onTriggered: popupContent.adjust(-1)
                                 }
                             }
 
-                            onPositionChanged: function(mouse) {
-                                var deltaX = mouse.x - startX
+                            // Value display - draggable, double-tap to type
+                            Item {
+                                id: popupValueContainer
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                focus: !popupContent.editMode
 
-                                if (!isDragging && (Math.abs(deltaX) > root.sc(5) || Math.abs(mouse.y - startY) > root.sc(5))) {
-                                    isDragging = true
+                                Accessible.role: Accessible.Slider
+                                Accessible.name: root.accessibleName || (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
+                                Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
+                                Accessible.focusable: true
+
+                                // Keyboard navigation — honors the selected gear.
+                                // Release fires commitValue once when the key lifts,
+                                // mirroring the +/- button contract.
+                                Keys.onEscapePressed: scrubberPopup.close()
+                                Keys.onUpPressed: popupContent.adjust(1)
+                                Keys.onDownPressed: popupContent.adjust(-1)
+                                Keys.onLeftPressed: popupContent.adjust(-1)
+                                Keys.onRightPressed: popupContent.adjust(1)
+                                Keys.onReturnPressed: scrubberPopup.close()
+                                Keys.onEnterPressed: scrubberPopup.close()
+                                Keys.onReleased: function(event) {
+                                    if (event.isAutoRepeat) return
+                                    switch (event.key) {
+                                        case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
+                                            root.commitValue()
+                                            event.accepted = true
+                                            break
+                                    }
                                 }
 
-                                if (isDragging) {
-                                    let vertDist = mouse.y - startY
-                                    let gear
-                                    if (root.hasFineGear && vertDist < -root.sc(50)) {
-                                        gear = -1
-                                    } else {
-                                        gear = Math.min(2, Math.floor(Math.max(0, vertDist) / root.sc(50)))
-                                    }
-                                    if (gear !== popupContent.currentGear) {
-                                        popupContent.currentGear = gear
-                                        root.announceGearChange(gear)
-                                    }
-
-                                    let effectiveStep = root.gearToStep(gear)
-                                    let steps = Math.round(deltaX / root.sc(20))
-                                    if (steps !== 0) {
-                                        root.adjustValueWithStep(steps, effectiveStep)
-                                        startX = mouse.x
-                                        // Do NOT reset startY — it is the gear reference point
-                                    }
-                                }
-                            }
-
-                            onReleased: {
-                                isDragging = false
-                                // Keep currentGear — it persists so +/- buttons
-                                // and subsequent drags use the selected gear.
-                                // Drag is always a real adjustment, so always commit.
-                                root.commitValue()
-                            }
-
-                            onCanceled: {
-                                isDragging = false
-                                root._dropPending()
-                            }
-
-                            onDoubleClicked: {
-                                popupContent.editMode = true
-                                popupTextInput.text = root.effectiveValue.toFixed(root.decimals)
-                                popupTextInput.forceActiveFocus()
-                                popupTextInput.selectAll()
-                            }
-                        }
-
-                        // Anchor for popup bubble
-                        Item {
-                            id: popupBubbleAnchor
-                            anchors.centerIn: parent
-                            width: root.sc(1)
-                            height: root.sc(1)
-                        }
-
-                        // Speech bubble for popup
-                        Loader {
-                            active: popupDragArea.pressed
-                            sourceComponent: Item {
-                                id: dragBubble
-
-                                parent: Overlay.overlay
-                                visible: popupDragArea.pressed
-
-                                property point anchorPos: popupBubbleAnchor.mapToItem(Overlay.overlay, 0, 0)
-                                x: anchorPos.x - width / 2
-                                y: anchorPos.y - height - root.sc(15)
-                                width: popupBubbleRect.width
-                                height: popupBubbleRect.height + popupBubbleTail.height - root.sc(3)
-
-                                scale: popupDragArea.pressed ? 1.0 : 0.5
-                                opacity: popupDragArea.pressed ? 1.0 : 0
-                                transformOrigin: Item.Bottom
-                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 2 } }
-                                Behavior on opacity { NumberAnimation { duration: 100 } }
-
-                                Rectangle {
-                                    id: popupBubbleRect
-                                    width: popupBubbleText.width + root.sc(36)
-                                    height: root.sc(66)
-                                    radius: height / 2
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: !popupContent.editMode
+                                    text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
+                                    font.pixelSize: root.sc(40)
+                                    font.bold: true
                                     color: root.valueColor
+                                }
 
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        anchors.margins: root.sc(3)
-                                        radius: parent.radius - root.sc(3)
-                                        gradient: Gradient {
-                                            GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
-                                            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
+                                // Keyboard entry field — shown on double-tap
+                                TextInput {
+                                    id: popupTextInput
+                                    anchors.centerIn: parent
+                                    width: parent.width - root.sc(12)
+                                    visible: popupContent.editMode
+                                    font.pixelSize: root.sc(40)
+                                    font.bold: true
+                                    color: root.valueColor
+                                    horizontalAlignment: Text.AlignHCenter
+                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                    selectByMouse: true
+
+                                    // Rename from commitValue to commitText to avoid clashing
+                                    // with root.commitValue() used by release handlers above.
+                                    function commitText() {
+                                        var parsed = parseFloat(text)
+                                        if (!isNaN(parsed)) {
+                                            if (parsed === 0 && root.snapZeroTo > 0) parsed = root.snapZeroTo
+                                            parsed = Math.max(root.from, Math.min(root.to, parsed))
+                                            let roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
+                                            parsed = Math.round(parsed / roundTo) * roundTo
+                                            if (parsed !== root.effectiveValue) {
+                                                root._emitValueModified(parsed)
+                                            }
+                                            // Typing a number is a deliberate, final adjustment.
+                                            // commitValue() only fires valueCommitted if the
+                                            // typed value differed from the prior value — typing
+                                            // the same number back is a no-op.
+                                            root.commitValue()
+                                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
+                                                AccessibilityManager.announce(root.effectiveDisplayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
+                                            }
+                                        }
+                                        popupContent.editMode = false
+                                        popupValueContainer.forceActiveFocus()
+                                    }
+
+                                    Keys.onReturnPressed: commitText()
+                                    Keys.onEnterPressed: commitText()
+                                    Keys.onEscapePressed: {
+                                        popupContent.editMode = false
+                                        popupValueContainer.forceActiveFocus()
+                                    }
+
+                                    Accessible.role: Accessible.EditableText
+                                    Accessible.name: root.accessibleName || TranslationManager.translate("valueinput.editor.title", "Value editor")
+                                    Accessible.description: text
+                                    Accessible.focusable: true
+                                }
+
+                                // Underline cursor for text input
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.top: popupTextInput.bottom
+                                    anchors.topMargin: root.sc(2)
+                                    width: popupTextInput.contentWidth + root.sc(20)
+                                    height: root.sc(2)
+                                    color: root.valueColor
+                                    visible: popupContent.editMode
+                                }
+
+                                MouseArea {
+                                    id: popupDragArea
+                                    anchors.fill: parent
+                                    visible: !popupContent.editMode
+                                    preventStealing: isDragging
+
+                                    property real startX: 0
+                                    property real startY: 0
+                                    property bool isDragging: false
+
+                                    onPressed: function(mouse) {
+                                        startX = mouse.x
+                                        // Offset startY so the current gear is preserved when drag begins.
+                                        // Works for all gears: gear=0 → mouse.y, gear=1 → mouse.y-50,
+                                        // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
+                                        startY = mouse.y - popupContent.currentGear * root.sc(50)
+                                        isDragging = false
+                                        root._dropPending()
+
+                                        // Announce parameter name when bubble appears (accessibility)
+                                        if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
+                                            let valueStr = root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + " " + root.suffix.trim())
+                                            AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                                         }
                                     }
 
-                                    Text {
-                                        id: popupBubbleText
-                                        anchors.centerIn: parent
-                                        text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
-                                        font.pixelSize: root.sc(30)
-                                        font.bold: true
-                                        color: Theme.contrastColorFor(root.valueColor)
+                                    onPositionChanged: function(mouse) {
+                                        var deltaX = mouse.x - startX
+
+                                        if (!isDragging && (Math.abs(deltaX) > root.sc(5) || Math.abs(mouse.y - startY) > root.sc(5))) {
+                                            isDragging = true
+                                        }
+
+                                        if (isDragging) {
+                                            let vertDist = mouse.y - startY
+                                            let gear
+                                            if (root.hasFineGear && vertDist < -root.sc(50)) {
+                                                gear = -1
+                                            } else {
+                                                gear = Math.min(2, Math.floor(Math.max(0, vertDist) / root.sc(50)))
+                                            }
+                                            if (gear !== popupContent.currentGear) {
+                                                popupContent.currentGear = gear
+                                                root.announceGearChange(gear)
+                                            }
+
+                                            let effectiveStep = root.gearToStep(gear)
+                                            let steps = Math.round(deltaX / root.sc(20))
+                                            if (steps !== 0) {
+                                                root.adjustValueWithStep(steps, effectiveStep)
+                                                startX = mouse.x
+                                                // Do NOT reset startY — it is the gear reference point
+                                            }
+                                        }
+                                    }
+
+                                    onReleased: {
+                                        isDragging = false
+                                        // Keep currentGear — it persists so +/- buttons
+                                        // and subsequent drags use the selected gear.
+                                        // Drag is always a real adjustment, so always commit.
+                                        root.commitValue()
+                                    }
+
+                                    onCanceled: {
+                                        isDragging = false
+                                        root._dropPending()
+                                    }
+
+                                    onDoubleClicked: {
+                                        popupContent.editMode = true
+                                        popupTextInput.text = root.effectiveValue.toFixed(root.decimals)
+                                        popupTextInput.forceActiveFocus()
+                                        popupTextInput.selectAll()
                                     }
                                 }
 
-                                Canvas {
-                                    id: popupBubbleTail
-                                    anchors.horizontalCenter: popupBubbleRect.horizontalCenter
-                                    anchors.top: popupBubbleRect.bottom
-                                    anchors.topMargin: -root.sc(3)
-                                    width: root.sc(30)
-                                    height: root.sc(21)
+                                // Anchor for popup bubble
+                                Item {
+                                    id: popupBubbleAnchor
+                                    anchors.centerIn: parent
+                                    width: root.sc(1)
+                                    height: root.sc(1)
+                                }
 
-                                    onPaint: {
-                                        var ctx = getContext("2d")
-                                        ctx.reset()
-                                        ctx.fillStyle = root.valueColor
-                                        ctx.beginPath()
-                                        ctx.moveTo(0, 0)
-                                        ctx.lineTo(width, 0)
-                                        ctx.lineTo(width / 2, height)
-                                        ctx.closePath()
-                                        ctx.fill()
+                                // Speech bubble for popup
+                                Loader {
+                                    active: popupDragArea.pressed
+                                    sourceComponent: Item {
+                                        id: dragBubble
+
+                                        parent: Overlay.overlay
+                                        visible: popupDragArea.pressed
+
+                                        property point anchorPos: popupBubbleAnchor.mapToItem(Overlay.overlay, 0, 0)
+                                        x: anchorPos.x - width / 2
+                                        y: anchorPos.y - height - root.sc(15)
+                                        width: popupBubbleRect.width
+                                        height: popupBubbleRect.height + popupBubbleTail.height - root.sc(3)
+
+                                        scale: popupDragArea.pressed ? 1.0 : 0.5
+                                        opacity: popupDragArea.pressed ? 1.0 : 0
+                                        transformOrigin: Item.Bottom
+                                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 2 } }
+                                        Behavior on opacity { NumberAnimation { duration: 100 } }
+
+                                        Rectangle {
+                                            id: popupBubbleRect
+                                            width: popupBubbleText.width + root.sc(36)
+                                            height: root.sc(66)
+                                            radius: height / 2
+                                            color: root.valueColor
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                anchors.margins: root.sc(3)
+                                                radius: parent.radius - root.sc(3)
+                                                gradient: Gradient {
+                                                    GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
+                                                    GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
+                                                }
+                                            }
+
+                                            Text {
+                                                id: popupBubbleText
+                                                anchors.centerIn: parent
+                                                text: root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix)
+                                                font.pixelSize: root.sc(30)
+                                                font.bold: true
+                                                color: Theme.contrastColorFor(root.valueColor)
+                                            }
+                                        }
+
+                                        Canvas {
+                                            id: popupBubbleTail
+                                            anchors.horizontalCenter: popupBubbleRect.horizontalCenter
+                                            anchors.top: popupBubbleRect.bottom
+                                            anchors.topMargin: -root.sc(3)
+                                            width: root.sc(30)
+                                            height: root.sc(21)
+
+                                            onPaint: {
+                                                var ctx = getContext("2d")
+                                                ctx.reset()
+                                                ctx.fillStyle = root.valueColor
+                                                ctx.beginPath()
+                                                ctx.moveTo(0, 0)
+                                                ctx.lineTo(width, 0)
+                                                ctx.lineTo(width / 2, height)
+                                                ctx.closePath()
+                                                ctx.fill()
+                                            }
+
+                                            Component.onCompleted: requestPaint()
+                                            Connections {
+                                                target: root
+                                                function onValueColorChanged() { popupBubbleTail.requestPaint() }
+                                            }
+                                        }
                                     }
+                                }
+                            }
 
-                                    Component.onCompleted: requestPaint()
-                                    Connections {
-                                        target: root
-                                        function onValueColorChanged() { popupBubbleTail.requestPaint() }
+                            // Plus button
+                            Rectangle {
+                                Layout.preferredWidth: root.sc(70)
+                                Layout.fillHeight: true
+                                radius: root.sc(12)
+                                color: popupPlusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("valueinput.button.increase", "Increase")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: popupPlusArea.clicked(null)
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "+"
+                                    font.pixelSize: root.sc(32)
+                                    font.bold: true
+                                    color: root.effectiveValue >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                                    Accessible.ignored: true
+                                }
+
+                                MouseArea {
+                                    id: popupPlusArea
+                                    anchors.fill: parent
+                                    onClicked: { popupContent.adjust(1); root.commitValue() }
+                                    onPressAndHold: popupIncrementTimer.start()
+                                    onReleased: {
+                                        if (popupIncrementTimer.running) {
+                                            popupIncrementTimer.stop()
+                                            root.commitValue()
+                                        }
+                                    }
+                                    onCanceled: { popupIncrementTimer.stop(); root._dropPending() }
+                                }
+
+                                Timer {
+                                    id: popupIncrementTimer
+                                    interval: 80
+                                    repeat: true
+                                    onTriggered: popupContent.adjust(1)
+                                }
+                            }
+                        }
+                    }
+
+                    // Gear selector — tappable column of multipliers to the left of the control
+                    Column {
+                        anchors.right: popupControl.left
+                        anchors.rightMargin: root.sc(12)
+                        anchors.verticalCenter: popupControl.verticalCenter
+                        spacing: root.sc(8)
+
+                        Repeater {
+                            model: root.gearLabels()
+                            Text {
+                                id: gearLabel
+
+                                required property int index
+                                required property string modelData
+                                property int gear: root.labelIndexToGear(gearLabel.index)
+                                text: modelData
+                                font.pixelSize: root.sc(16)
+                                font.bold: popupContent.currentGear === gear
+                                color: popupContent.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
+                                opacity: popupContent.currentGear === gear ? 1.0 : 0.35
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: modelData + " " + TranslationManager.translate("valueinput.gear.label", "step multiplier")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: gearArea.clicked(null)
+
+                                MouseArea {
+                                    id: gearArea
+                                    anchors.fill: parent
+                                    anchors.margins: -root.sc(4)
+                                    onClicked: {
+                                        popupContent.currentGear = gearLabel.gear
+                                        root.announceGearChange(gearLabel.gear)
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Plus button
-                    Rectangle {
-                        Layout.preferredWidth: root.sc(70)
-                        Layout.fillHeight: true
-                        radius: root.sc(12)
-                        color: popupPlusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
-
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("valueinput.button.increase", "Increase")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: popupPlusArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "+"
-                            font.pixelSize: root.sc(32)
-                            font.bold: true
-                            color: root.effectiveValue >= root.to ? Theme.textSecondaryColor : Theme.textColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: popupPlusArea
-                            anchors.fill: parent
-                            onClicked: { root.popupAdjust(1); root.commitValue() }
-                            onPressAndHold: popupIncrementTimer.start()
-                            onReleased: {
-                                if (popupIncrementTimer.running) {
-                                    popupIncrementTimer.stop()
-                                    root.commitValue()
-                                }
-                            }
-                            onCanceled: { popupIncrementTimer.stop(); root._dropPending() }
-                        }
-
-                        Timer {
-                            id: popupIncrementTimer
-                            interval: 80
-                            repeat: true
-                            onTriggered: root.popupAdjust(1)
-                        }
-                    }
-                }
-            }
-
-            // Gear selector — tappable column of multipliers to the left of the control
-            Column {
-                anchors.right: popupControl.left
-                anchors.rightMargin: root.sc(12)
-                anchors.verticalCenter: popupControl.verticalCenter
-                spacing: root.sc(8)
-
-                Repeater {
-                    model: root.gearLabels()
+                    // Step size indicator — shown while dragging or when a non-default gear is selected
                     Text {
-                        id: gearLabel
-
-                        required property int index
-                        required property string modelData
-                        property int gear: root.labelIndexToGear(gearLabel.index)
-                        text: modelData
-                        font.pixelSize: root.sc(16)
-                        font.bold: popupContent.currentGear === gear
-                        color: popupContent.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
-                        opacity: popupContent.currentGear === gear ? 1.0 : 0.35
-
-                        Accessible.role: Accessible.Button
-                        Accessible.name: modelData + " " + TranslationManager.translate("valueinput.gear.label", "step multiplier")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: gearArea.clicked(null)
-
-                        MouseArea {
-                            id: gearArea
-                            anchors.fill: parent
-                            anchors.margins: -root.sc(4)
-                            onClicked: {
-                                popupContent.currentGear = gearLabel.gear
-                                root.announceGearChange(gearLabel.gear)
-                            }
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: popupControl.y + popupControl.height + root.sc(20)
+                        visible: popupDragArea.isDragging || popupContent.currentGear !== 0
+                        text: {
+                            var effectiveStep = root.gearToStep(popupContent.currentGear)
+                            var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
+                            return TranslationManager.translate("valueinput.step", "step") + ": " + effectiveStep.toFixed(d)
                         }
+                        font.pixelSize: root.sc(24)
+                        font.bold: true
+                        color: Theme.primaryColor
+                    }
+
+                    // Usage hint — shown when not dragging and at default gear
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: popupControl.y + popupControl.height + root.sc(20)
+                        visible: !popupDragArea.isDragging && popupContent.currentGear === 0 && !popupContent.editMode
+                        text: TranslationManager.translate("valueinput.hint.full", "← drag  ↕ gear  ×2 type")
+                        font.pixelSize: root.sc(16)
+                        color: Theme.textSecondaryColor
+                    }
+
+                    // Range display — positioned below the step indicator / hint text to avoid overlap.
+                    // The step/hint sits at popupControl.bottom + sc(20) with up to sc(30) height,
+                    // so sc(56) keeps a clear gap below the tallest element.
+                    Text {
+                        anchors.top: popupControl.bottom
+                        anchors.topMargin: root.sc(56)
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.rangeText || (root.from.toFixed(root.decimals) + root.suffix + " \u2014 " + root.to.toFixed(root.decimals) + root.suffix)
+                        font: Theme.bodyFont
+                        color: Theme.textSecondaryColor
                     }
                 }
-            }
-
-            // Step size indicator — shown while dragging or when a non-default gear is selected
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: popupControl.y + popupControl.height + root.sc(20)
-                visible: popupDragArea.isDragging || popupContent.currentGear !== 0
-                text: {
-                    var effectiveStep = root.gearToStep(popupContent.currentGear)
-                    var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
-                    return TranslationManager.translate("valueinput.step", "step") + ": " + effectiveStep.toFixed(d)
-                }
-                font.pixelSize: root.sc(24)
-                font.bold: true
-                color: Theme.primaryColor
-            }
-
-            // Usage hint — shown when not dragging and at default gear
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: popupControl.y + popupControl.height + root.sc(20)
-                visible: !popupDragArea.isDragging && popupContent.currentGear === 0 && !popupContent.editMode
-                text: TranslationManager.translate("valueinput.hint.full", "← drag  ↕ gear  ×2 type")
-                font.pixelSize: root.sc(16)
-                color: Theme.textSecondaryColor
-            }
-
-            // Range display — positioned below the step indicator / hint text to avoid overlap.
-            // The step/hint sits at popupControl.bottom + sc(20) with up to sc(30) height,
-            // so sc(56) keeps a clear gap below the tallest element.
-            Text {
-                anchors.top: popupControl.bottom
-                anchors.topMargin: root.sc(56)
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.rangeText || (root.from.toFixed(root.decimals) + root.suffix + " \u2014 " + root.to.toFixed(root.decimals) + root.suffix)
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
             }
         }
     }
@@ -1120,12 +1134,6 @@ Item {
 
     function adjustValue(steps) {
         adjustValueWithStep(steps, root.stepSize)
-    }
-
-    // Popup +/- and keyboard: honor the persisted gear
-    function popupAdjust(steps) {
-        var effectiveStep = gearToStep(popupContent.currentGear)
-        adjustValueWithStep(steps, effectiveStep)
     }
 
     function adjustValueWithStep(steps, effectiveStep) {

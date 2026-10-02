@@ -113,6 +113,14 @@ class tst_McpRemoteAccess : public QObject {
     Q_OBJECT
 
     // Parsed HTTP response from the loopback listener.
+    // A failed status says whether the connect or the response never arrived.
+#define QCOMPARE_STATUS(respExpr, expected) \
+    do { \
+        const Resp r_ = (respExpr); \
+        QVERIFY2(r_.status == (expected), qPrintable(QStringLiteral("status %1, expected %2: %3") \
+                     .arg(r_.status).arg(expected).arg(r_.failure))); \
+    } while (0)
+
     struct Resp {
         int status = 0;
         QString failure;   // why status is 0, for a failure message
@@ -524,13 +532,13 @@ private slots:
         const QByteArray malformedFromHolder =
             "POST /mcp/" + settings.remoteMcpToken().toUtf8()
             + " HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
-        QCOMPARE(fetch(port, malformedFromHolder).status, 404);
+        QCOMPARE_STATUS(fetch(port, malformedFromHolder), 404);
 
         // A valid token still works through the same listener — the silence is
         // for failed authorization only, not for the route itself.
         Resp ok = fetch(port, httpRequest("POST", "/mcp/" + settings.remoteMcpToken().toUtf8(),
                                           rpc("initialize", initParams())));
-        QCOMPARE(ok.status, 200);
+        QCOMPARE_STATUS(ok, 200);
     }
 
     // ── A rejected caller cannot keep writing to the log ──────────────────
@@ -610,7 +618,7 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected unauthorized request"));
         Resp favicon = fetch(port, httpRequest("GET", "/favicon.ico", {}));
-        QCOMPARE(favicon.status, 404);
+        QCOMPARE_STATUS(favicon, 404);
         QVERIFY(favicon.rawBody.isEmpty());
 
         // Wrong token → bare 404.
@@ -618,7 +626,7 @@ private slots:
             QRegularExpression("rejected unauthorized request"));
         Resp wrong = fetch(port, httpRequest("POST", "/mcp/not-the-real-token",
                                              rpc("initialize")));
-        QCOMPARE(wrong.status, 404);
+        QCOMPARE_STATUS(wrong, 404);
 
         // Valid token, initialize → dispatched to McpServer (200 JSON-RPC).
         const QJsonObject params{
@@ -626,7 +634,7 @@ private slots:
             {"capabilities", QJsonObject{}},
             {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1.0"}}}};
         Resp ok = fetch(port, httpRequest("POST", "/mcp/" + token, rpc("initialize", params)));
-        QCOMPARE(ok.status, 200);
+        QCOMPARE_STATUS(ok, 200);
         QVERIFY(ok.json.contains("result"));
         QVERIFY(!ok.sessionId.isEmpty());
     }
@@ -647,7 +655,7 @@ private slots:
 
         // tools/list surfaces the registered read tool.
         Resp list = fetch(port, httpRequest("POST", path, rpc("tools/list", {}, 2), sid));
-        QCOMPARE(list.status, 200);
+        QCOMPARE_STATUS(list, 200);
         const QJsonArray tools = list.json["result"].toObject()["tools"].toArray();
         QVERIFY(tools.size() >= 1);
 
@@ -655,7 +663,7 @@ private slots:
         Resp call = fetch(port, httpRequest("POST", path,
             rpc("tools/call", QJsonObject{{"name", "shots_get_detail"},
                                           {"arguments", QJsonObject{}}}, 3), sid));
-        QCOMPARE(call.status, 200);
+        QCOMPARE_STATUS(call, 200);
         const QJsonObject result = call.json["result"].toObject();
         QVERIFY(!result.isEmpty());
         QVERIFY(!result.contains("error"));
@@ -681,7 +689,7 @@ private slots:
         Resp call = fetch(port, httpRequest("POST", path,
             rpc("tools/call", QJsonObject{{"name", "machine_start_espresso"},
                                           {"arguments", QJsonObject{}}}, 4), sid));
-        QCOMPARE(call.status, 200);
+        QCOMPARE_STATUS(call, 200);
         QVERIFY2(call.json.contains("error"), call.rawBody.constData());
         QVERIFY(call.json["error"].toObject()["message"].toString().contains("Access level"));
     }
@@ -699,7 +707,7 @@ private slots:
         // Open a live connection and complete a request on the old token.
         QTcpSocket live;
         Resp init = fetch(port, httpRequest("POST", "/mcp/" + oldToken, rpc("initialize")), &live);
-        QCOMPARE(init.status, 200);
+        QCOMPARE_STATUS(init, 200);
         QCOMPARE(live.state(), QAbstractSocket::ConnectedState);
 
         // Rotate: the live socket must be dropped and the URL must change.
@@ -712,7 +720,7 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected unauthorized request"));
         Resp stale = fetch(port, httpRequest("POST", "/mcp/" + oldToken, rpc("initialize")));
-        QCOMPARE(stale.status, 404);
+        QCOMPARE_STATUS(stale, 404);
 
         // The new token works.
         const QByteArray newToken = settings.remoteMcpToken().toUtf8();
@@ -722,7 +730,7 @@ private slots:
             {"capabilities", QJsonObject{}},
             {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1.0"}}}};
         Resp fresh = fetch(port, httpRequest("POST", "/mcp/" + newToken, rpc("initialize", params)));
-        QCOMPARE(fresh.status, 200);
+        QCOMPARE_STATUS(fresh, 200);
     }
 
     // ── connectorUrl composition (Mode C) ─────────────────────────────────
@@ -779,17 +787,13 @@ private slots:
         // Content-Length beyond the 1 MB body cap → bare 404, connection closed.
         const QByteArray oversized = "POST /mcp/" + token +
             " HTTP/1.1\r\nHost: x\r\nContent-Length: 5000000\r\n\r\n";
-        // Failed once with status 0 after a ~3 s wait and has not reproduced since; the
-        // message says whether the connect or the response was what never arrived.
-        const Resp oversizedResp = fetch(port, oversized);
-        QVERIFY2(oversizedResp.status == 404,
-                 qPrintable(QStringLiteral("status %1: %2").arg(oversizedResp.status).arg(oversizedResp.failure)));
+        QCOMPARE_STATUS(fetch(port, oversized), 404);
 
         // Non-numeric Content-Length must be rejected, not silently parsed as 0
         // (which would desync keep-alive framing).
         const QByteArray malformed = "POST /mcp/" + token +
             " HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
-        QCOMPARE(fetch(port, malformed).status, 404);
+        QCOMPARE_STATUS(fetch(port, malformed), 404);
     }
 
     // ── Path boundary: trailing segment rejected, query string stripped ───
@@ -805,13 +809,13 @@ private slots:
         // A trailing segment after the token is not the exact route → 404.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected unauthorized request"));
-        QCOMPARE(fetch(port, httpRequest("POST", "/mcp/" + token + "/extra",
-                                         rpc("initialize", initParams()))).status, 404);
+        QCOMPARE_STATUS(fetch(port, httpRequest("POST", "/mcp/" + token + "/extra",
+                                         rpc("initialize", initParams()))), 404);
 
         // A query string after the token is stripped → authorized.
         Resp ok = fetch(port, httpRequest("POST", "/mcp/" + token + "?src=claude",
                                           rpc("initialize", initParams())));
-        QCOMPARE(ok.status, 200);
+        QCOMPARE_STATUS(ok, 200);
         QVERIFY(ok.json.contains("result"));
     }
 
@@ -831,7 +835,7 @@ private slots:
         // find the header terminator / complete the body.
         const int mid = static_cast<int>(full.size() / 2);
         Resp r = fetchChunked(port, {full.left(mid), full.mid(mid)});
-        QCOMPARE(r.status, 200);
+        QCOMPARE_STATUS(r, 200);
         QVERIFY(r.json.contains("result"));
     }
 

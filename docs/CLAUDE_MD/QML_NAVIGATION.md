@@ -45,9 +45,15 @@ add a signal to `AppShell.qml` and one line to the `Connections` block. All four
 
 Espresso, steam, hot water, flush, descaling and transport go through `showOperationPage()`,
 whether the user tapped a widget or the machine changed phase (group head, GHC, timer). Leaving
-one — Stop, Back, completion, disconnect — is `leaveOperationPage()`: a pop back to wherever the
-user was. Two exceptions, both in `showOperationPage()`: an operation started from another takes
-its place, and the screensaver is replaced rather than returned to.
+one is a pop back to wherever the user was: Stop and Back emit `AppShell.dismissRequested()`;
+completion, disconnect, the shot-end timer and Space call `leaveOperationPage()`.
+
+An operation started from another takes its place, the post-shot review replaces the shot page
+and any review it was started from, and an operation the machine starts while the screensaver is
+up replaces it rather than returning to it. The screensaver itself is pushed over the home screen,
+so waking is a pop.
+Pushing over a page closes its open popups (`PopupCloser`): Qt only closes a popup when its
+parent is destroyed, not when it is covered.
 
 This replaced a rule that the machine's phase change cleared the stack with `replace(null, ...)`.
 That needed a return-to-page side channel to get back to the shot review, rebuilt the home screen

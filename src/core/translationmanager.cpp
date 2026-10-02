@@ -139,6 +139,10 @@ TranslationManager::~TranslationManager()
             (void)m_scanThread->wait();
         }
     }
+    // Strings registered in the last batch interval. Tolerable discard: rendering
+    // re-registers them next launch. The helper has warned.
+    if (m_registryDirty)
+        (void)saveStringRegistry();
 }
 
 // Merge community translations for the active language, once per launch, as soon as there is

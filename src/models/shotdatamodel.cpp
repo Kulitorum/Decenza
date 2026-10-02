@@ -641,10 +641,7 @@ QVector<QPointF> ShotDataModel::flowGoalData() const {
     return combined;
 }
 
-// Variant-list accessors for the live graph's goal series, which bind to these. Each
-// segment becomes a list of QPointF; the outer list is the segments.
-//
-// Display only: a point in the middle of a flat run is dropped, since the line through
+// Point lists for the live graph's goal series, which bind to these. Display only: a point in the middle of a flat run is dropped, since the line through
 // its neighbours is the same line. Goals hold one value per frame, and these lists are
 // rebuilt and redrawn on every flush.
 static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
@@ -660,7 +657,7 @@ static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
 }
 
 // All segments in one list, a NaN point between them: Qt Graphs starts a new subpath after
-// an invalid point (pointrenderer.cpp:554-556), so one series draws every segment. Series
+// an invalid point (pointrenderer.cpp:555-557), so one series draws every segment. Series
 // count is what matters: any series change re-renders all of them.
 static QVariantList segmentsToVariantList(const QVector<QVector<QPointF>>& segments) {
     QVariantList out;

@@ -3799,12 +3799,17 @@ T.ApplicationWindow {
                 // Machine was put to sleep (e.g. via GHC stop button hold) - show screensaver
                 // Skip if machine has never been awake since connecting (initial connect reports
                 // Sleep before the wake command takes effect)
-                if (!root.screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
+                if (root.wakePending) {
+                    // Woken before the machine got there: this is the sleep request finishing,
+                    // and the wake already queued behind it brings it back to Idle.
+                    WebDebugLogger.debug("Screensaver", "main", ["Machine entered Sleep after the screensaver was woken - not showing it"].map(String).join(" "))
+                } else if (!root.screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
                     WebDebugLogger.debug("Screensaver", "main", ["Machine entered Sleep - showing screensaver"].map(String).join(" "))
                     // Scale LCD disable is handled by C++ phaseChanged handler in main.cpp
                     root.goToScreensaver()
                 }
             } else if (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready) {
+                root.wakePending = false
                 // DE1 went to idle - if we're on an operation page, show completion.
                 // Don't check pageStack.busy: completion must be handled, except when
                 // the user explicitly exited a flush (userExitedFlush below).
@@ -3872,8 +3877,7 @@ T.ApplicationWindow {
         function onAiSettingsRequested() { root.goToAISettings() }
         function onStringBrowserRequested() { root.goToStringBrowser() }
         function onAddLanguageRequested() { root.goToAddLanguage() }
-        // Back where there is somewhere to go back to, home otherwise: a page entered from
-        // the screensaver replaced it and sits at depth 1.
+        // Back where there is somewhere to go back to, home otherwise.
         function onDismissRequested() {
             if (pageStack.depth > 1)
                 root.goBack()
@@ -3889,7 +3893,8 @@ T.ApplicationWindow {
     // Note: Page announcements are handled centrally by announceCurrentPage() on page change
     // The one way to land on the home screen. Reuses the instance still in the stack (any
     // page the user pushed sits on it) rather than rebuilding it, which cost ~150 ms per Back
-    // on a Galaxy Tab A9+ (#1976). Only a stack the machine replaced has no home screen left.
+    // on a Galaxy Tab A9+ (#1976). The stack starts on the home screen and nothing removes
+    // it, so the rebuild is only a fallback.
     function showHome() {
         const home = pageStack.find(item => item.objectName === "idlePage")
         if (home)
@@ -3908,18 +3913,21 @@ T.ApplicationWindow {
                                            "flushPage", "descalingPage", "transportPage"]
 
     // Operation pages are pushed whoever started them — the app, the group head or a
-    // timer — so leaving one is a pop back to wherever the user was. Two exceptions
-    // keep that true: one operation starting from another takes its place rather
-    // than stacking (steam → flush leaves no idle steam page to back into), and the
-    // screensaver is replaced, not returned to.
+    // timer — so leaving one is a pop back to wherever the user was. One operation starting
+    // from another takes its place rather than stacking (steam → flush leaves no idle steam
+    // page to back into), and the screensaver is replaced, not returned to.
     function showOperationPage(component, pageObjectName) {
-        const current = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-        if (current === pageObjectName)
+        const current = pageStack.currentItem
+        const name = current ? current.objectName : ""
+        if (name === pageObjectName)
             return
-        if (current === "screensaverPage" || root.operationPages.includes(current))
+        if (name === "screensaverPage" || root.operationPages.includes(name)) {
             pageStack.replaceCurrentItem(component)
-        else
-            pageStack.push(component)
+            return
+        }
+        // A dialog open on the page being covered would stay on top of the operation page.
+        PopupCloser.closeAllUnder(current)
+        pageStack.push(component)
     }
 
     function leaveOperationPage() {
@@ -4068,8 +4076,8 @@ T.ApplicationWindow {
         showOperationPage(transportPage, "transportPage")
     }
 
-    // Pushed rather than replaced: the USER asked for it (QML_NAVIGATION.md).
-    // The sensor index is handed to the page as an initial property, so one page
+    // Pushed: a calibration shot finds this page beneath it (isCalibrationShot) and
+    // returns to it. The sensor index is handed to the page as an initial property, so one page
     // component serves both calibration operations.
     function goToSensorCalibration(sensor) {
         if (!startNavigation()) return
@@ -4084,7 +4092,7 @@ T.ApplicationWindow {
     // Destinations reached from widgets and other pages. Each is the ONE implementation of
     // "go here": the caller states intent through an AppShell signal, this decides how.
     //
-    // They all push rather than replace. A replace leaves pageStack.depth at 1, so goBack()'s
+    // They all push. A replace(null, ...) leaves pageStack.depth at 1, so goBack()'s
     // `depth > 1` test makes the back control dead.
 
     function goToRecipes() {
@@ -4290,7 +4298,12 @@ T.ApplicationWindow {
         // For "disabled" mode, ScreensaverPage dims the backlight to minimum
         // and shows a black overlay. We keep FLAG_KEEP_SCREEN_ON set to avoid
         // potential EGL surface issues (QTBUG-45019 class of bugs).
-        pageStack.replace(null, screensaverPage)
+        // Pushed over the home screen, not replacing the stack, so waking is a pop rather
+        // than a rebuild (~190 ms per wake on a Galaxy Tab A9+, #1976). The home screen's
+        // own popups would stay above the screensaver, so they are closed too.
+        root.showHome()
+        PopupCloser.closeAllUnder(pageStack.currentItem)
+        pageStack.push(screensaverPage)
     }
 
     // Both screensaver flags, the auto-sleep countdown and queued popups, cleared
@@ -4310,7 +4323,12 @@ T.ApplicationWindow {
         }
     }
 
+    // Set when the screensaver is woken, cleared when the machine reports Idle. See the
+    // Sleep phase handler.
+    property bool wakePending: false
+
     function goToIdleFromScreensaver() {
+        root.wakePending = true
         leaveScreensaverState()
         root.showHome()
     }
@@ -4488,13 +4506,17 @@ T.ApplicationWindow {
         }
     }
 
-    // Space = Stop / Go to Idle
+    // Space = Stop: leaves an operation page the way its Stop does, else goes home. The
+    // window-level shortcut takes the key before any page's own Keys handler.
     Shortcut {
         sequence: "Space"
         onActivated: {
             WebDebugLogger.info("Keyboard", "main", ["Stop/Idle via Space key, phase:", MachineState.phase].map(String).join(" "))
             DE1Device.stopOperation()
-            root.goToIdle()
+            if (root.operationPages.includes(pageStack.currentItem ? pageStack.currentItem.objectName : ""))
+                root.leaveOperationPage()
+            else
+                root.goToIdle()
         }
     }
 
@@ -4547,9 +4569,8 @@ T.ApplicationWindow {
                     // never worked, and it only runs with a screen reader active, which is why
                     // nobody hit it.
                     //
-                    // Both branches are needed: the screensaver and a page entered from it sit
-                    // at depth 1, where goBack() alone would do nothing after the announcement
-                    // above had already said it went back. Same idiom as onDismissRequested.
+                    // Same idiom as onDismissRequested: at depth 1 goBack() alone would do
+                    // nothing after the announcement above had already said it went back.
                     if (pageStack.depth > 1)
                         root.goBack()
                     else
@@ -4605,8 +4626,10 @@ T.ApplicationWindow {
 
                 // The shot page is already gone; the user is wherever leaving it put them.
                 let timeout = Number(Settings.value("postShotReviewTimeout", 31))
-                if (timeout === 0 || root.isCalibrationShot()) {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped (Instant timeout or calibration run)"].map(String).join(" "))
+                if (root.isCalibrationShot()) {
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped, calibration run"].map(String).join(" "))
+                } else if (timeout === 0) {
+                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped, Instant timeout"].map(String).join(" "))
                 } else if (root.pendingShotId > 0) {
                     root.goToShotMetadata(root.pendingShotId)
                 } else {

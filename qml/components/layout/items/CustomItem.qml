@@ -329,8 +329,7 @@ LayoutWidgetItem {
     }
 
     function _runGesture(gestureKey) {
-        LayoutActions.runGestureOrReserved(root.modelData, gestureKey, root.modelData.type || "custom",
-                                           { idlePage: root.idlePage })
+        LayoutActions.runGestureOrReserved(root.modelData, gestureKey, { idlePage: root.idlePage })
     }
 
     // The malformed-HTML path below is the one diagnostic this file still owns.

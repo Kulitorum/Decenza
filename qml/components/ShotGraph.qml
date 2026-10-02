@@ -1,8 +1,5 @@
-// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
-// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightRange`, `tempRange`,
-// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
-// declares each injected role it uses required, so Bound cannot break role injection
-// here.
+// The delegates below read this file's ids; Bound makes them statically resolvable. Each
+// declares every injected role it uses required, so Bound cannot break role injection.
 pragma ComponentBehavior: Bound
 
 import QtQuick

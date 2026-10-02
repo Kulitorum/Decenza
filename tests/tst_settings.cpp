@@ -1111,6 +1111,8 @@ private slots:
         // On fresh state (key absent) the getter default must be "celsius". The unit is
         // read once at construction, so a fresh SettingsApp is what sees the absent key.
         m_settings.app()->setTemperatureUnit("fahrenheit");
+        // The setter still writes through the cache: a fresh instance reads it back.
+        QCOMPARE(SettingsApp().temperatureUnit(), QString("fahrenheit"));
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.remove("display/temperatureUnit");
           raw.sync(); }

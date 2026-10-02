@@ -47,6 +47,13 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # First, before the tag-only version bump: a tag ref releases whatever upload_to_release says.
+      - name: Refuse to release a QML-profiling build
+        if: ${{ inputs.qml_profiling && (inputs.upload_to_release || startsWith(github.ref, 'refs/tags/v')) }}
+        run: |
+          echo "::error::qml_profiling opens a QML debug port and makes the APK profileable; it must not be uploaded to a release."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
@@ -224,12 +231,6 @@ jobs:
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "QT_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
-
-      - name: Refuse to release a QML-profiling build
-        if: ${{ inputs.qml_profiling && inputs.upload_to_release }}
-        run: |
-          echo "::error::qml_profiling opens a QML debug port and makes the APK profileable; it must not be uploaded to a release."
-          exit 1
 
       - name: Configure CMake
         run: |

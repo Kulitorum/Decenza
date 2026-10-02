@@ -595,6 +595,11 @@ private slots:
         QCOMPARE(scale.size(), 2);
         QVERIFY(scale[0].contains(QStringLiteral("AcaiaScale")));
         QVERIFY(scale[1].contains(QStringLiteral("DiFluidR2")));
+
+        // The cap counts MATCHES: a cap of 2 counting scanned lines would stop at the
+        // unmarked and DiFluid lines and return one.
+        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]"), QStringLiteral("[Refractometer]")},
+                                             QStringLiteral("INFO"), 2), scale);
     }
 
     // DEBUG is developer detail and the views show INFO+. If the threshold leaks,
@@ -637,10 +642,6 @@ private slots:
         QVERIFY(lines[0].contains(QStringLiteral("current session")));
     }
 
-    // A log with no session marker reads as one session, not as nothing. Both the
-    // DECENZA_TESTING constructor and a debug.log carried over from a build
-    // predating the markers produce this, and answering "no lines" would be
-    // indistinguishable from "this subsystem never logged".
     // The read runs backwards in 64 KB blocks, so a line straddling a block boundary
     // has to be reassembled, and a cap has to keep the NEWEST lines in their order.
     // ~160 KB of numbered lines crosses two boundaries.
@@ -653,6 +654,7 @@ private slots:
             content += QStringLiteral("[%1.000] INFO  [Scale][BLEManager] line %2 padding padding padding padding\n")
                            .arg(i, 4).arg(i, 4, 10, QChar('0'));
         writeFile(logPath(), content);
+        QVERIFY(content.size() > 2 * 64 * 1024);  // the reader's block size; keep the fixture crossing two
 
         WebDebugLogger logger(logPath());
         const auto all = logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
@@ -666,6 +668,10 @@ private slots:
         QCOMPARE(tail, all.mid(kLines - 5));
     }
 
+    // A log with no session marker reads as one session, not as nothing. Both the
+    // DECENZA_TESTING constructor and a debug.log carried over from a build
+    // predating the markers produce this, and answering "no lines" would be
+    // indistinguishable from "this subsystem never logged".
     void sessionLines_withNoSessionMarkerReadsWholeFile()
     {
         writeFile(logPath(),
@@ -675,6 +681,22 @@ private slots:
         WebDebugLogger logger(logPath());
         QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]")},
                                               QStringLiteral("INFO")).size(), 2);
+    }
+
+    // The writer opens the log in Text mode, so on Windows its lines end in CRLF while the
+    // backward reader opens it raw: without stripping the \r, backfilled lines would carry
+    // one that lines arriving live do not. Written raw here so it is exercised everywhere.
+    void sessionLines_stripsCarriageReturns()
+    {
+        QFile f(logPath());
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        f.write("========== SESSION START: 2026-01-01T09:00:00 ==========\r\n"
+                "[   0.100] INFO  [Scale][BLEManager] crlf line\r\n");
+        f.close();
+
+        WebDebugLogger logger(logPath());
+        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO")),
+                 QStringList{QStringLiteral("[   0.100] INFO  [Scale][BLEManager] crlf line")});
     }
 
     // No marker requested returns nothing, never everything. A view wired up with

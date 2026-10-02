@@ -863,6 +863,7 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
+    src/core/popupcloser.cpp
     src/weather/weathermanager.cpp
 )
 
@@ -1416,6 +1417,7 @@ set(QML_FILES
     qml/components/layout/LayoutWidgetItem.qml
     qml/components/PresetPillRow.qml
     qml/components/PromptPulse.qml
+    qml/components/OnDemandLoader.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/TastePicker.qml

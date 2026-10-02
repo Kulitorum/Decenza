@@ -52,12 +52,11 @@ T.Page {
     // The heater-off state is owned by MainController, not by this page. It has to outlive
     // the page: waiting for the boiler to reach 60 °C can take an hour, and in that hour
     // auto-sleep replaces the page with the screensaver (the phase is Idle while waiting,
-    // so the shell does not consider an operation active), while a descale started from the
-    // GHC replaces it with a fresh instance. A restore hung on Component.onDestruction fires
-    // for both of those and switches the heater back on.
+    // so the shell does not consider an operation active). A restore hung on
+    // Component.onDestruction fires then and switches the heater back on.
     //
-    // The second case is also a race, not just a mistimed release: StackView creates the
-    // incoming page synchronously but destroys the outgoing one with deleteLater
+    // It would also race any replacing instance: StackView creates the incoming page
+    // synchronously but destroys the outgoing one with deleteLater
     // (qtdeclarative/src/quicktemplates/qquickstackelement.cpp:75, and the Synchronous
     // QQmlIncubator at :30-37), so onDestruction runs an event loop pass AFTER the new
     // instance's onCompleted has already read the state it is about to overwrite.

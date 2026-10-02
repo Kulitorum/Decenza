@@ -265,8 +265,10 @@ Item {
                 alphaBlending: true
 
                 onPaint: function() {
-                    // null until the scene graph is up (qcanvas2ditem.cpp:242-254)
-                    const ctx = liquidCanvas.context
+                    // getContext(), not .context: it recreates the context a scene-graph
+                    // invalidation deleted (qcanvas2ditem.cpp:294-302, 410-445). Unavailable
+                    // until the scene graph is up (qcanvas2ditem.cpp:242-254).
+                    const ctx = liquidCanvas.available ? liquidCanvas.getContext("2d") : null
                     if (!ctx) return
                     var w = width, h = height
                     ctx.reset()
@@ -489,7 +491,7 @@ Item {
         height: root.cupDisplayH + root.effectsExtra
 
             onPaint: function() {
-                const ctx = effectsCanvas.context
+                const ctx = effectsCanvas.available ? effectsCanvas.getContext("2d") : null  // as liquidCanvas
                 if (!ctx) return
                 var w = width
                 var canvasH = height

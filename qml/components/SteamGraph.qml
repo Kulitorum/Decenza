@@ -7,8 +7,8 @@ import QtQuick
 import QtGraphs
 import Decenza
 
-// Outer Item wraps the GraphsView so the FastLineRenderer / dashed overlay
-// can render as siblings on top of the chart. GraphsView swallows scene-graph
+// Outer Item wraps the GraphsView so the FastLineRenderer traces can render as
+// siblings on top of the chart. GraphsView swallows scene-graph
 // children that aren't its own series/axes — overlays must be siblings, not
 // children, to draw above its plot-area background and grid.
 Item {
@@ -20,9 +20,9 @@ Item {
     property bool showFlow: Settings.boolValue("steamGraph/showFlow", true)
     property bool showTemperature: Settings.boolValue("steamGraph/showTemperature", true)
 
-    // Right-axis temperature range. Qt Graphs lacks a sanctioned dual-Y-axis path;
-    // temperature labels are drawn manually on the right margin, and FastLineRenderer
-    // maps coordinates against these scalars directly — no ValueAxis needed.
+    // Right-axis temperature range. Temperature is a FastLineRenderer, not a series, so
+    // there is no series to carry an axis: it maps against these scalars directly and its
+    // labels are drawn on the right margin.
     property real tempMin: 100
     property real tempMax: 180
 
@@ -183,7 +183,7 @@ Item {
         visible: chart.showTemperature
     }
 
-    // Manual right-axis labels for temperature (Qt Graphs has no second Y axis here)
+    // Manual right-axis labels for temperature (see tempMin/tempMax)
     Item {
         id: rightAxisLabels
         x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)

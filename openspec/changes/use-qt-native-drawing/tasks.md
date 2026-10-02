@@ -8,7 +8,7 @@
 ## 2. Graphs (native series)
 
 - [x] 2.1 Replace every `DashedLineSeries` with a native `LineSeries`; range holders become hidden `ValueAxis` objects
-- [x] 2.2 `GraphSeriesInstantiator` for variable-count series; live goal series keyed on segment count
+- [x] 2.2 `GraphSeriesInstantiator` for variable-count series; each live goal one NaN-separated series, live markers three series
 - [x] 2.3 Goal display lists drop mid-run points (test: `goalDisplayListsDropOnlyMidRunPoints`)
 - [x] 2.4 Delete `DashedLineSeries.qml`
 - [x] 2.5 Live, steam and Portal overlays position from the plot rect in the outer item's coordinates. They used GraphsView.plotArea, which ignores the view's top margin, so every FastLineRenderer trace, the pump bars and the right-axis labels sat that margin too high. The native goal series exposed it.

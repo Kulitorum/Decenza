@@ -2295,7 +2295,7 @@ int main(int argc, char *argv[])
 
 #ifdef DECENZA_QML_PROFILING_PORT
     // QML-profiling build only (android-release.yml qml_profiling). Must precede the engine:
-    // the server serves engines created after it starts (qqmldebug.cpp:186-189). Localhost
+    // the server serves engines created after it starts (qqmldebug.cpp:167-174). Localhost
     // only — reach it with `adb forward tcp:3768 tcp:3768`.
     QQmlDebuggingEnabler::setServices(QQmlDebuggingEnabler::profilerServices());
     if (QQmlDebuggingEnabler::startTcpDebugServer(DECENZA_QML_PROFILING_PORT,
@@ -4103,8 +4103,7 @@ int main(int argc, char *argv[])
     // CoffeeBagStorageType, EquipmentStorageType and UnifiedBeanSearchModelType were NOT. No
     // context property of those names ever existed — `git log -S 'setContextProperty("CoffeeBagStorage"'`
     // finds nothing. They simply copied the ...Type suffix from the neighbours above, and moved
-    // for the unrelated reason in the next paragraph. An earlier draft of this comment lumped all
-    // six together as context-property workarounds, which contradicted its own next sentence.
+    // for the unrelated reason in the next paragraph.
     //
     // DE1DeviceType was the last runtime qmlRegisterUncreatableType in that shape and is removed
     // here; nothing in qml/ or tests/ referenced it. AIConversation, CoffeeBagStorage,
@@ -4121,10 +4120,8 @@ int main(int argc, char *argv[])
     // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
     // 19 warnings across six QML files, none of them a real missing import.
     //
-    // Safe in their headers, and the reason is per-TARGET, not per-base-class. An earlier draft
-    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter
-    // derives from plain QObject. What actually holds is that documentformatter.cpp is
-    // compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
+    // Safe in their headers, and the reason is per-TARGET, not per-base-class (DocumentFormatter
+    // derives from plain QObject): documentformatter.cpp is compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
     // fastlinerenderer.cpp, goes into decenza_shotlib, which links Qt6::Quick. Apply that test to
     // the next header, not the inheritance one.
 
@@ -4169,12 +4166,17 @@ int main(int argc, char *argv[])
         if (window) {
             relayClient.setWindow(window);
             // Which backend the device picked (Vulkan/GL/Metal/D3D) — for field reports of
-            // rendering faults. Queued: the signal comes from the render thread.
-            QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, [window]() {
+            // rendering faults. Queued: the signal comes from the render thread. Logged now if
+            // the first expose already initialised it.
+            const auto logRhi = [window]() {
                 const QSGRendererInterface* rif = window->rendererInterface();
                 DIAG_INFO(APP, "main") << "Scene graph ready, RHI ="
                     << (rif ? graphicsApiName(rif->graphicsApi()) : "unknown");
-            }, Qt::QueuedConnection);
+            };
+            QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, logRhi,
+                             Qt::QueuedConnection);
+            if (window->isSceneGraphInitialized())
+                logRhi();
         }
     }
 

@@ -1,8 +1,5 @@
-// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
-// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightRange`, `tempRange`,
-// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
-// declares each injected role it uses required, so Bound cannot break role injection
-// here.
+// The delegates below read this file's ids; Bound makes them statically resolvable. Each
+// declares every injected role it uses required, so Bound cannot break role injection.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -135,7 +132,7 @@ Item {
         return segments
     }
 
-    // Computed goal segments — bound by the dashed-overlay Repeaters below.
+    // Computed goal segments — the models of the goal series instantiators below.
     readonly property var pressureGoalSegments: segmentGoalData(pressureGoalData, 5)
     readonly property var flowGoalSegments: segmentGoalData(flowGoalData, 5)
 
@@ -571,7 +568,8 @@ Item {
         }
     }
 
-    // Goal segments: one series per segment, loaded when the reload rebuilds the model.
+    // Goal segments: one series per segment. The model follows the goal data, and each
+    // series loads its segment when it is created.
     GraphSeriesInstantiator {
         graphsView: chart.graphsViewRef
         model: chart.pressureGoalSegments

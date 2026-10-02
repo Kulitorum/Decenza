@@ -6,7 +6,7 @@ Goal curves, frame-boundary markers, and phase-transition indicators SHALL suppo
 
 #### Scenario: Dashed goal curve
 - **WHEN** a goal curve, frame-boundary marker or phase marker is drawn
-- **THEN** it SHALL be a native Qt Graphs `LineSeries` with `strokeStyle: LineSeries.DashLine` and a `dashPattern`
+- **THEN** it SHALL be a native Qt Graphs `LineSeries` with `strokeStyle: LineSeries.StrokeStyle.DashLine` and a `dashPattern`
 - **AND** a series read against a range other than the graph's own Y axis SHALL map through a hidden `ValueAxis` set as its `axisY`
 - **AND** Qt Graphs SHALL do the data-to-pixel mapping, so an axis range change, data change or view resize SHALL NOT remap points in JavaScript
 

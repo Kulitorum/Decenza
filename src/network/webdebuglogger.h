@@ -91,10 +91,12 @@ public:
     QString logFilePath() const;
 
     // The current session's lines matching ANY of `markers` at or above
-    // `minLevel` — the query the connections-page views are built from, so a
-    // subsystem's on-screen narrative and `debug_get_log`'s answer for the same
-    // marker and level are the same set by construction rather than by two
-    // implementations agreeing.
+    // `minLevel` — the query the connections-page views are built from. Each line is
+    // tested by lineMatches(), the same predicate `debug_get_log` filters with; the
+    // session boundary is found by this function's own backward scan for the marker,
+    // which must agree with sessionIndex() (tst_webdebuglogger compares the two).
+    // `maxLines` > 0 keeps only the newest matches. An unreadable log returns one line
+    // saying so, not an empty list.
     //
     // `markers` are BRACKETED and matched as SUBSTRINGS, not regexes: pass
     // "[Scale]", and note that treating it as a pattern would make it a character

@@ -515,27 +515,13 @@ T.Page {
 
             // Phase dot
             Rectangle {
-                id: phaseDot
                 width: Theme.scaled(8)
                 height: Theme.scaled(8)
                 radius: Theme.scaled(4)
                 color: Theme.textColor
                 anchors.verticalCenter: parent.verticalCenter
-                opacity: 1.0
-
-                property bool animating: MachineState.phase === MachineState.Phase.EspressoPreheating ||
-                                         MachineState.phase === MachineState.Phase.Pouring
-
-                onAnimatingChanged: {
-                    if (!animating) phaseDot.opacity = 1.0
-                }
-
-                SequentialAnimation on opacity {
-                    running: phaseDot.animating
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 0.3; duration: 600 }
-                    NumberAnimation { to: 1.0; duration: 600 }
-                }
+                // Steady, not pulsing: a running animation redraws the whole window every
+                // frame, ~270 ms/s of the render thread through preheat on a Galaxy Tab A9+.
             }
 
             Text {
