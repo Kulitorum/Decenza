@@ -583,8 +583,7 @@ void ShotDataModel::onFlushTimerTick() {
         m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
-    // Goal-curve points republished as QML-bindable properties — the live graph's goal
-    // series re-read pressureGoalSegments / flowGoalSegments / temperatureGoalPoints.
+    // Goal-curve points republished as QML-bindable properties for the live graph's goal series.
     if (m_goalCurvesDirty) {
         m_goalCurvesDirty = false;
         emit goalCurvesChanged();
@@ -660,22 +659,25 @@ static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
     return out;
 }
 
-QVariantList ShotDataModel::pressureGoalSegmentsVariant() const {
+// All segments in one list, a NaN point between them: Qt Graphs starts a new subpath after
+// an invalid point (pointrenderer.cpp:554-556), so one series draws every segment. Series
+// count is what matters: any series change re-renders all of them.
+static QVariantList segmentsToVariantList(const QVector<QVector<QPointF>>& segments) {
     QVariantList out;
-    out.reserve(m_pressureGoalSegments.size());
-    for (const auto& segment : m_pressureGoalSegments) {
-        out.append(QVariant::fromValue(pointsToVariantList(segment)));
+    for (const auto& segment : segments) {
+        if (segment.isEmpty()) continue;
+        if (!out.isEmpty()) out.append(QVariant::fromValue(QPointF(qQNaN(), qQNaN())));
+        out.append(pointsToVariantList(segment));
     }
     return out;
 }
 
-QVariantList ShotDataModel::flowGoalSegmentsVariant() const {
-    QVariantList out;
-    out.reserve(m_flowGoalSegments.size());
-    for (const auto& segment : m_flowGoalSegments) {
-        out.append(QVariant::fromValue(pointsToVariantList(segment)));
-    }
-    return out;
+QVariantList ShotDataModel::pressureGoalPointsVariant() const {
+    return segmentsToVariantList(m_pressureGoalSegments);
+}
+
+QVariantList ShotDataModel::flowGoalPointsVariant() const {
+    return segmentsToVariantList(m_flowGoalSegments);
 }
 
 QVariantList ShotDataModel::temperatureGoalPointsVariant() const {

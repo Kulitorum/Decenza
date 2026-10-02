@@ -83,6 +83,19 @@ Item {
     // of ShotDataModel.phaseMarkers rebuilds the list in C++.
     readonly property var _phaseMarkers: ShotDataModel.phaseMarkers
 
+    // Vertical lines for the markers labelled `label` ("" = every frame transition), as one
+    // series' points with a NaN between lines.
+    function _markerLines(label: string): var {
+        var pts = []
+        for (const m of chart._phaseMarkers) {
+            const edge = m.label === "Start" || m.label === "End"
+            if (label ? m.label !== label : edge) continue
+            if (pts.length) pts.push(Qt.point(NaN, NaN))
+            pts.push(Qt.point(m.time, 0), Qt.point(m.time, 12))
+        }
+        return pts
+    }
+
     Component.onCompleted: {
         ShotDataModel.registerFastSeries(
             pressureRenderer, flowRenderer, temperatureRenderer,
@@ -147,10 +160,39 @@ Item {
             titleText: chart.flowMultiplier === 1 ? "bar / mL·g/s" : "bar"
         }
 
-        // Temperature goal, on the hidden temperature axis.
+        // === DASHED GOAL CURVES AND MARKER LINES ===
+        // As few series as possible: any series change makes Qt Graphs re-render every
+        // series, and goals change with each sample during a shot. A hidden series gets no
+        // points, so it triggers nothing.
+
+        // Each goal is one series; its segments are separated by a NaN point.
         LineSeries {
+            id: pressureGoalSeries
+            values: pressureGoalSeries.visible ? ShotDataModel.pressureGoalPoints : []
+            color: Theme.pressureGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showPressure
+        }
+
+        LineSeries {
+            id: flowGoalSeries
+            // Same multiplier as the flow trace it is the target for — a goal drawn at a
+            // different scale than the curve chasing it would be worse than no goal.
+            axisY: flowRange
+            values: flowGoalSeries.visible ? ShotDataModel.flowGoalPoints : []
+            color: Theme.flowGoalColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 4]
+            visible: Settings.graph.showFlow
+        }
+
+        LineSeries {
+            id: temperatureGoalSeries
             axisY: tempRange
-            values: ShotDataModel.temperatureGoalPoints
+            values: temperatureGoalSeries.visible ? ShotDataModel.temperatureGoalPoints : []
             color: Theme.temperatureGoalColor
             width: Theme.scaled(2)
             strokeStyle: LineSeries.StrokeStyle.DashLine
@@ -162,12 +204,38 @@ Item {
         LineSeries {
             id: mixGoalSeries
             axisY: tempRange
-            values: ShotDataModel.temperatureMixGoalPoints
+            values: mixGoalSeries.visible ? ShotDataModel.temperatureMixGoalPoints : []
             color: Theme.temperatureMixGoalColor
             width: Theme.scaled(2)
             strokeStyle: LineSeries.StrokeStyle.DashLine
             dashPattern: [4, 4]
-            visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && mixGoalSeries.count > 0
+            visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode
+        }
+
+        // Phase markers: Start and End dash-dot, frame transitions dotted — the closest
+        // equivalents to Qt Charts' Qt.DashDotLine / Qt.DotLine.
+        LineSeries {
+            values: chart._markerLines("Start")
+            color: Theme.accentColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 2, 1, 2]
+        }
+
+        LineSeries {
+            values: chart._markerLines("End")
+            color: Theme.stopMarkerColor
+            width: Theme.scaled(2)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [4, 2, 1, 2]
+        }
+
+        LineSeries {
+            values: chart._markerLines("")
+            color: Theme.frameMarkerColor
+            width: Theme.scaled(1)
+            strokeStyle: LineSeries.StrokeStyle.DashLine
+            dashPattern: [1, 3]
         }
     }
 
@@ -215,63 +283,6 @@ Item {
             ProfileManager.targetWeight > 0 ? ProfileManager.targetWeight : 0,
             MachineState.targetWeight > 0 ? MachineState.targetWeight : 0,
             36) * 1.1)
-    }
-
-    // === DASHED GOAL CURVES ===
-    // One series per segment, keyed on the segment count so a flush that only extends a
-    // segment updates its points instead of rebuilding the series.
-
-    GraphSeriesInstantiator {
-        graphsView: chart.graphsViewRef
-        model: ShotDataModel.pressureGoalSegmentCount
-        delegate: LineSeries {
-            required property int index
-            values: ShotDataModel.pressureGoalSegments[index]
-            color: Theme.pressureGoalColor
-            width: Theme.scaled(2)
-            strokeStyle: LineSeries.StrokeStyle.DashLine
-            dashPattern: [4, 4]
-            visible: Settings.graph.showPressure
-        }
-    }
-
-    GraphSeriesInstantiator {
-        graphsView: chart.graphsViewRef
-        model: ShotDataModel.flowGoalSegmentCount
-        delegate: LineSeries {
-            required property int index
-            // Same multiplier as the flow trace it is the target for — a goal drawn at a
-            // different scale than the curve chasing it would be worse than no goal.
-            axisY: flowRange
-            values: ShotDataModel.flowGoalSegments[index]
-            color: Theme.flowGoalColor
-            width: Theme.scaled(2)
-            strokeStyle: LineSeries.StrokeStyle.DashLine
-            dashPattern: [4, 4]
-            visible: Settings.graph.showFlow
-        }
-    }
-
-    // === VERTICAL PHASE / FRAME MARKER LINES ===
-
-    GraphSeriesInstantiator {
-        graphsView: chart.graphsViewRef
-        model: chart._phaseMarkers
-        delegate: LineSeries {
-            required property var modelData
-            readonly property string markerLabel: modelData.label
-            readonly property bool isStart: markerLabel === "Start"
-            readonly property bool isEnd: markerLabel === "End"
-
-            values: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 12)]
-            color: isStart ? Theme.accentColor
-                           : (isEnd ? Theme.stopMarkerColor : Theme.frameMarkerColor)
-            width: (isStart || isEnd) ? Theme.scaled(2) : Theme.scaled(1)
-            strokeStyle: LineSeries.StrokeStyle.DashLine
-            // DashDot for phase markers, Dot for inter-frame markers — closest equivalents
-            // to Qt Charts' Qt.DashDotLine / Qt.DotLine.
-            dashPattern: (isStart || isEnd) ? [4, 2, 1, 2] : [1, 3]
-        }
     }
 
     // === ACTUAL LINES (solid) - FastLineRenderer with pre-allocated VBO ===

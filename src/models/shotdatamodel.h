@@ -33,14 +33,10 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(double portalEcMin READ portalEcMin NOTIFY portalSamplesChanged)
     Q_PROPERTY(double portalEcMax READ portalEcMax NOTIFY portalSamplesChanged)
     // Goal curves as lists of QPointF, bound straight to LineSeries.values.
-    Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
-    Q_PROPERTY(QVariantList flowGoalSegments READ flowGoalSegmentsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList pressureGoalPoints READ pressureGoalPointsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPointsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPointsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList temperatureMixGoalPoints READ temperatureMixGoalPointsVariant NOTIFY goalCurvesChanged)
-    // Segment counts, for the graph's per-segment series: they change only at a pump-mode
-    // switch, where the lists above change every flush.
-    Q_PROPERTY(qsizetype pressureGoalSegmentCount READ pressureGoalSegmentCount NOTIFY goalCurvesChanged)
-    Q_PROPERTY(qsizetype flowGoalSegmentCount READ flowGoalSegmentCount NOTIFY goalCurvesChanged)
 
 public:
     explicit ShotDataModel(QObject* parent = nullptr);
@@ -60,12 +56,10 @@ public:
     QVariantList portalSamplesVariant() const { return PortalSamples::toVariant(m_portalSamples); }
     const QVector<PortalSample>& portalSamples() const { return m_portalSamples; }
     QVariantList phaseMarkersVariant() const;
-    QVariantList pressureGoalSegmentsVariant() const;
-    QVariantList flowGoalSegmentsVariant() const;
+    QVariantList pressureGoalPointsVariant() const;
+    QVariantList flowGoalPointsVariant() const;
     QVariantList temperatureGoalPointsVariant() const;
     QVariantList temperatureMixGoalPointsVariant() const;
-    qsizetype pressureGoalSegmentCount() const { return m_pressureGoalSegments.size(); }
-    qsizetype flowGoalSegmentCount() const { return m_flowGoalSegments.size(); }
 
     // Register fast renderers for live data series (QSGGeometryNode - pre-allocated VBO)
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,

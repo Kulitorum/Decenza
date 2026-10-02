@@ -178,6 +178,21 @@ private slots:
         // First and last of each run survive, so the step and the live end are both drawn.
         QCOMPARE(pts, (QList<QPointF>{{0.0, 92}, {0.6, 92}, {0.8, 88}, {1.0, 88}}));
         QCOMPARE(model.temperatureGoalData().size(), 6);
+
+        // Pressure segments split at a flow-mode stretch share one list, with a NaN point
+        // between them so the series breaks the line there.
+        ShotDataModel segmented;
+        const double pressureGoals[] = {6, 6, 0, 0, 8, 8};
+        const bool flowMode[] = {false, false, true, true, false, false};
+        for (int i = 0; i < 6; ++i)
+            segmented.addSample(i * 0.2, 9.0, 2.0, 92.0, 90.0, pressureGoals[i], flowMode[i] ? 2.0 : 0.0,
+                                92.0, 94.0, -1, flowMode[i]);
+        QList<QPointF> seg;
+        for (const QVariant& v : segmented.pressureGoalPointsVariant()) seg.append(v.toPointF());
+        QCOMPARE(seg.size(), 5);
+        QVERIFY(qIsNaN(seg[2].x()) && qIsNaN(seg[2].y()));
+        QCOMPARE(seg.mid(0, 2), (QList<QPointF>{{0.0, 6}, {0.2, 6}}));
+        QCOMPARE(seg.mid(3), (QList<QPointF>{{0.8, 8}, {1.0, 8}}));
     }
 
     void mixGoalRoundTripsThroughBlob() {
