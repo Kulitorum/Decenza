@@ -15,7 +15,7 @@ on:
         default: true
         type: boolean
       qml_profiling:
-        description: 'Compile in QML debugging so Qt Creator''s QML Profiler can attach (optimised build; never for release)'
+        description: 'Profiling build: QML Profiler port, simpleperf-profileable APK, unstripped library artifact (optimised; never for release)'
         required: false
         default: false
         type: boolean
@@ -228,7 +228,7 @@ jobs:
       - name: Refuse to release a QML-profiling build
         if: ${{ inputs.qml_profiling && inputs.upload_to_release }}
         run: |
-          echo "::error::qml_profiling opens a QML debug port when launched with -qmljsdebugger; it must not be uploaded to a release."
+          echo "::error::qml_profiling opens a QML debug port and makes the APK profileable; it must not be uploaded to a release."
           exit 1
 
       - name: Configure CMake
@@ -276,6 +276,18 @@ jobs:
         with:
           name: ${{ inputs.qml_profiling && 'Decenza-Android-arm64-qmlprofiling' || 'Decenza-Android-arm64' }}
           path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 1
+          overwrite: true
+
+      # The link output, before packaging: simpleperf names C++ frames from it
+      # (app_profiler.py -lib <dir containing it>).
+      - name: Upload unstripped library for simpleperf
+        if: ${{ inputs.qml_profiling }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: Decenza-Android-arm64-symbols
+          path: build/libDecenza_arm64-v8a.so
+          if-no-files-found: error
           retention-days: 1
           overwrite: true
 

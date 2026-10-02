@@ -1415,7 +1415,8 @@ T.ApplicationWindow {
         function onCurrentItemChanged() {
             root.updateCurrentPageScale()
             root.announceCurrentPage()
-            pageColorTimer.restart()  // Detect colors after page settles
+            if (MainController.shotServer && MainController.shotServer.themeEditorOpen)
+                pageColorTimer.restart()  // Detect colors after page settles
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
             // Every route off the screensaver ends here, not only
@@ -1428,11 +1429,20 @@ T.ApplicationWindow {
         }
     }
 
-    // Delay color detection slightly so page content is fully loaded
+    // Delay color detection slightly so page content is fully loaded. The scan walks the
+    // whole page tree (~9 ms per page change on a Galaxy Tab A9+), so it runs only while
+    // the web theme editor, its sole reader, is open.
     Timer {
         id: pageColorTimer
         interval: 300
         onTriggered: root.updatePageColors()
+    }
+    Connections {
+        target: MainController.shotServer
+        function onThemeEditorOpenChanged() {
+            if (MainController.shotServer.themeEditorOpen)
+                pageColorTimer.restart()
+        }
     }
 
     // Announce page name for accessibility when page changes

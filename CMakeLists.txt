@@ -191,7 +191,7 @@ endif()
 # Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
 # (android-release.yml's qml_profiling input): the QML profiler needs the debug services,
 # not unoptimised C++, which distorts the timings being measured. Never on for a shipped build.
-option(DECENZA_QML_DEBUG "Compile in the QML debugging/profiling services (opens a debug port when launched with -qmljsdebugger)" OFF)
+option(DECENZA_QML_DEBUG "Profiling build: QML debug services on port 3768, and an Android APK profileable by simpleperf" OFF)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DECENZA_QML_DEBUG)
     add_compile_definitions(QT_QML_DEBUG)
 endif()
@@ -1782,6 +1782,7 @@ add_custom_target(apply_version_code ALL
         -DVERSION_CODE_FILE=${VERSION_CODE_FILE}
         -DMANIFEST_FILE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
         -DMANIFEST_TEMPLATE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml.in
+        -DDECENZA_PROFILEABLE=${DECENZA_QML_DEBUG}
         -DVERSION_STRING=${PROJECT_VERSION}
         -DCMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DVERSION_CODE_CPP=${VERSION_CODE_CPP}

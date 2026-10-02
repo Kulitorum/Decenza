@@ -93,31 +93,23 @@ Item {
     // mix temp, weight, dC/dt) are rendered as DashedLineSeries overlays whose
     // `points` property binds straight to the data arrays.
     function loadMainSeries() {
-        pressureSeries.clear()
-        flowSeries.clear()
-        weightFlowRateSeries.clear()
-        resistanceSeries.clear()
-        conductanceSeries.clear()
-        darcyResistanceSeries.clear()
-
-        for (let i = 0; i < pressureData.length; i++)
-            pressureSeries.append(pressureData[i].x, pressureData[i].y)
-        // Flow family carries the multiplier. These are native Qt Graphs LineSeries bound to
-        // the view's shared axis, so unlike the live graph's renderers there is no per-series
-        // range to shrink — the factor is applied as the points are appended. The source
-        // arrays are NOT touched: pressureAxisMax and every readout still read true values
-        // from them, and doReload() re-appends from scratch whenever the factor changes.
+        // One replace() per series; per-point append() cost ~27 ms per graph on a Galaxy
+        // Tab A9+. {x, y} objects convert to QPointF since point is a structured value type
+        // (qqmlvaluetype_p.h:118).
+        //
+        // The flow family carries the multiplier: these LineSeries share one axis, so the
+        // factor is applied to a copy. The source arrays keep true values for
+        // pressureAxisMax and the readouts.
         var flowScale = chart.flowMultiplier
-        for (let i = 0; i < flowData.length; i++)
-            flowSeries.append(flowData[i].x, flowData[i].y * flowScale)
-        for (let i = 0; i < weightFlowRateData.length; i++)
-            weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y * flowScale)
-        for (let i = 0; i < resistanceData.length; i++)
-            resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
-        for (let i = 0; i < conductanceData.length; i++)
-            conductanceSeries.append(conductanceData[i].x, conductanceData[i].y)
-        for (let i = 0; i < darcyResistanceData.length; i++)
-            darcyResistanceSeries.append(darcyResistanceData[i].x, darcyResistanceData[i].y)
+        function scaled(data) {
+            return flowScale === 1 ? data : data.map(p => ({ x: p.x, y: p.y * flowScale }))
+        }
+        pressureSeries.replace(pressureData)
+        flowSeries.replace(scaled(flowData))
+        weightFlowRateSeries.replace(scaled(weightFlowRateData))
+        resistanceSeries.replace(resistanceData)
+        conductanceSeries.replace(conductanceData)
+        darcyResistanceSeries.replace(darcyResistanceData)
     }
 
     function updateTimeAxis() {
