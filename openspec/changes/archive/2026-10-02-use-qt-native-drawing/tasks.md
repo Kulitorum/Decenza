@@ -19,4 +19,4 @@
 - [x] 3.2 macOS (Metal): simulated shot — liquid, crema, waves, stream, steam and glow match the previous rendering (2026-10-02)
 - [x] 3.3 Build and full test suite green — graph change (118/118, qmllint gate clean, macOS, 2026-10-02)
 - [x] 3.4 macOS (2026-10-02): live shot graph (goals, markers, temperature on its goal after the offset fix, pump bars on the axis), shot review (flow multiplier 3x, right-axis weight), comparison (three line styles, temperature axis), steam flow goal, profile editor preview. Portal overlay not checked (no Portal data)
-- [ ] 3.5 Android tablet: cup draws, graphs as 3.4, and a simpleperf capture
+- [x] 3.5 Android tablet (Galaxy Tab A9+, ece12cc0 build, 2026-10-02): cup draws during a shot, live shot graph and shot review graph render; simpleperf captures of idle, navigation, a graph shot and a cup shot. Comparison, steam and profile-editor graphs not checked on Android

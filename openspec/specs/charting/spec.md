@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Decenza renders live and historical espresso/steam graphs (pressure, flow, temperature, weight, dC/dt) through Qt Graphs on a GPU-backed RHI path. The capability covers the rendering backend, axis ranging, legend, dashed overlays, pixel↔data coordinate mapping for crosshair/inspect, performance targets on the Decent tablet (Samsung SM-X210), the `FastLineRenderer` direct scene-graph path used for high-frequency (~5 Hz) live traces, and the project-owned bridge components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close feature gaps between Qt Graphs and the predecessor Qt Charts backend.
+Decenza renders live and historical espresso/steam graphs (pressure, flow, temperature, weight, dC/dt) through Qt Graphs on a GPU-backed RHI path. The capability covers the rendering backend, axis ranging, legend, dashed overlays, pixel↔data coordinate mapping for crosshair/inspect, performance targets on the Decent tablet (Samsung SM-X210), the `FastLineRenderer` direct scene-graph path used for high-frequency (~5 Hz) live traces, and the project-owned bridge components (`AutoRangingAxis`, `CustomLegend`, `GraphSeriesInstantiator`) that close feature gaps in Qt Graphs. Dashed lines are native `LineSeries`.
 
 ## Requirements
 
@@ -106,10 +106,10 @@ Any graph that displays two or more user-distinguishable series SHALL provide a 
 Goal curves, frame-boundary markers, and phase-transition indicators SHALL support dashed and dotted stroke patterns.
 
 #### Scenario: Dashed goal curve
-- **WHEN** a `DashedLineSeries` is configured with `stroke: DashedLineSeries.DashLine`, `axisX`, `axisY`, and a `points` array
-- **THEN** it SHALL render a `ShapePath` with `strokeStyle: ShapePath.DashLine`
-- **AND** each point SHALL map from data space to pixel space using the attached axes' current ranges and the parent `GraphsView.plotArea` geometry
-- **AND** the pattern SHALL re-map on axis range changes, series changes, and view resize
+- **WHEN** a goal curve, frame-boundary marker or phase marker is drawn
+- **THEN** it SHALL be a native Qt Graphs `LineSeries` with `strokeStyle: LineSeries.StrokeStyle.DashLine` and a `dashPattern`
+- **AND** a series read against a range other than the graph's own Y axis SHALL map through a hidden `ValueAxis` set as its `axisY`
+- **AND** Qt Graphs SHALL do the data-to-pixel mapping, so an axis range change, data change or view resize SHALL NOT remap points in JavaScript
 
 ### Requirement: Pixel-to-Data Coordinate Mapping
 
@@ -151,16 +151,16 @@ The existing `FastLineRenderer` pattern (custom `QSGGeometryNode` subclass for h
 - **WHEN** the app is built and run post-migration
 - **THEN** live pressure/flow/temperature/weight traces on `ShotGraph` and `SteamGraph` SHALL render via `FastLineRenderer`
 - **AND** no measurable performance change SHALL occur in live-trace rendering vs the pre-migration state
-- **AND** goal curves and historical traces SHALL render via standard `QtGraphs.LineSeries` or `DashedLineSeries`
+- **AND** goal curves and historical traces SHALL render via standard `QtGraphs.LineSeries`
 
 ### Requirement: Bridge Components Location
 
-Reusable QML components that close feature gaps between Qt Charts and Qt Graphs SHALL live under `qml/components/graphs/` and be registered in `CMakeLists.txt`'s `qt_add_qml_module` file list.
+Reusable QML components that close feature gaps in Qt Graphs SHALL live under `qml/components/graphs/` and be registered in `CMakeLists.txt`'s `qt_add_qml_module` file list.
 
 #### Scenario: Bridge components discoverable
 - **WHEN** a developer opens `qml/components/graphs/`
-- **THEN** they SHALL find at minimum: `AutoRangingAxis.qml`, `CustomLegend.qml`, `DashedLineSeries.qml`
-- **AND** each SHALL be documented at the top of the file with usage notes and the Charts feature it replaces
+- **THEN** they SHALL find at minimum: `AutoRangingAxis.qml`, `CustomLegend.qml`, `GraphSeriesInstantiator.qml`
+- **AND** each SHALL be documented at the top of the file with what it supplies that Qt Graphs does not
 
 ### Requirement: Mix Temperature Goal Series
 
