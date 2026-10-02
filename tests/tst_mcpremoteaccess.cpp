@@ -115,6 +115,7 @@ class tst_McpRemoteAccess : public QObject {
     // Parsed HTTP response from the loopback listener.
     struct Resp {
         int status = 0;
+        QString failure;   // why status is 0, for a failure message
         QByteArray rawBody;
         QJsonObject json;
         QString sessionId;
@@ -130,7 +131,9 @@ class tst_McpRemoteAccess : public QObject {
         sock.connectToHost(QHostAddress::LocalHost, port);
         QElapsedTimer ct;
         ct.start();
-        while (sock.state() != QAbstractSocket::ConnectedState && ct.elapsed() < 3000)
+        // A refused connect returns to Unconnected; waiting out the budget would only hide it.
+        while (sock.state() != QAbstractSocket::ConnectedState
+               && sock.state() != QAbstractSocket::UnconnectedState && ct.elapsed() < 3000)
             QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
         return sock.state() == QAbstractSocket::ConnectedState;
     }
@@ -193,11 +196,24 @@ class tst_McpRemoteAccess : public QObject {
     {
         QTcpSocket local;
         QTcpSocket* sock = reuse ? reuse : &local;
-        if (sock->state() != QAbstractSocket::ConnectedState && !pumpConnected(*sock, port))
-            return Resp{};
+        QElapsedTimer t;
+        t.start();
+        const auto describe = [&](const char* what) {
+            return QStringLiteral("%1 after %2 ms, socket state %3, error %4 (%5)")
+                .arg(QLatin1String(what)).arg(t.elapsed()).arg(int(sock->state()))
+                .arg(int(sock->error())).arg(sock->errorString());
+        };
+        if (sock->state() != QAbstractSocket::ConnectedState && !pumpConnected(*sock, port)) {
+            Resp r;
+            r.failure = describe("connect failed");
+            return r;
+        }
         sock->write(request);
         sock->flush();
-        return readResponse(*sock);
+        Resp r = readResponse(*sock);
+        if (r.status == 0)
+            r.failure = describe("no response");
+        return r;
     }
 
     // Send a request split into chunks, pumping the event loop between each so the
@@ -763,7 +779,11 @@ private slots:
         // Content-Length beyond the 1 MB body cap → bare 404, connection closed.
         const QByteArray oversized = "POST /mcp/" + token +
             " HTTP/1.1\r\nHost: x\r\nContent-Length: 5000000\r\n\r\n";
-        QCOMPARE(fetch(port, oversized).status, 404);
+        // Failed once with status 0 after a ~3 s wait and has not reproduced since; the
+        // message says whether the connect or the response was what never arrived.
+        const Resp oversizedResp = fetch(port, oversized);
+        QVERIFY2(oversizedResp.status == 404,
+                 qPrintable(QStringLiteral("status %1: %2").arg(oversizedResp.status).arg(oversizedResp.failure)));
 
         // Non-numeric Content-Length must be rejected, not silently parsed as 0
         // (which would desync keep-alive framing).
