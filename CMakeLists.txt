@@ -1415,6 +1415,7 @@ set(QML_FILES
     qml/components/StatusToast.qml
     qml/components/layout/LayoutWidgetItem.qml
     qml/components/PresetPillRow.qml
+    qml/components/PromptPulse.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/TastePicker.qml

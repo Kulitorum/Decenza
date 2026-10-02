@@ -1090,7 +1090,7 @@ T.Page {
 
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
-                    // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
+                    // steam selected, scale connected) and nothing is on the scale yet. Blinks three times.
                     // "or lift and replace": selecting steam auto-tares the scale, so a pitcher that was
                     // ALREADY sitting there reads as 0 and won't register until it's lifted and set back
                     // — without the hedge the prompt would assert something false.
@@ -1109,11 +1109,8 @@ T.Page {
                         font: Theme.labelFont
                         Accessible.role: Accessible.StaticText
                         Accessible.name: text
-                        SequentialAnimation on opacity {
+                        PromptPulse on opacity {
                             running: steamPlacePrompt.visible
-                            loops: Animation.Infinite
-                            NumberAnimation { to: 0.45; duration: 800 }
-                            NumberAnimation { to: 1.0; duration: 800 }
                         }
                     }
                 }
@@ -1285,11 +1282,8 @@ T.Page {
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
                             onShowingPlacePromptChanged: if (!showingPlacePrompt) opacity = 1.0
-                            SequentialAnimation on opacity {
+                            PromptPulse on opacity {
                                 running: weighBeansText.showingPlacePrompt
-                                loops: Animation.Infinite
-                                NumberAnimation { to: 0.45; duration: 800 }
-                                NumberAnimation { to: 1.0; duration: 800 }
                             }
                         }
                     }
