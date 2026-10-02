@@ -7,6 +7,9 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickItem>
 #include <QRegularExpression>
 #include <QSet>
 
@@ -198,7 +201,86 @@ int MemoryMonitor::countQObjects()
         m_baselineCaptured = true;
     }
 
+    collectRunningAnimations(all);
+
     return static_cast<int>(all.size());
+}
+
+namespace {
+// "Foo.qml" for an object declared in QML, else its C++ class.
+QString qmlFileOf(const QObject* obj)
+{
+    if (const QQmlContext* ctx = qmlContext(obj)) {
+        const QString file = ctx->baseUrl().fileName();
+        if (!file.isEmpty())
+            return file;
+    }
+    return QString::fromLatin1(obj->metaObject()->className());
+}
+
+// "id" when the object has one in its own file, else its type.
+QString nameOf(const QObject* obj)
+{
+    if (const QQmlContext* ctx = qmlContext(obj)) {
+        const QString id = ctx->nameForObject(obj);
+        if (!id.isEmpty())
+            return id;
+    }
+    return QString::fromLatin1(obj->metaObject()->className());
+}
+} // namespace
+
+void MemoryMonitor::collectRunningAnimations(const QSet<QObject*>& all)
+{
+    QStringList running;
+    for (QObject* obj : all) {
+        // Timer is listed because it IS an animation job (QPauseAnimationJob, qqmltimer.cpp:40):
+        // the QML profiler counts running Timers as running animations.
+        const bool timer = obj->inherits("QQmlTimer");
+        const bool busy = !timer && obj->inherits("QQuickBusyIndicator");
+        const bool anim = !timer && !busy && (obj->inherits("QQuickAbstractAnimation")
+                                              || obj->inherits("QQuickFrameAnimation"));
+        if (!timer && !anim && !busy)
+            continue;
+        if (!obj->property("running").toBool())
+            continue;
+        // A group's children report the group's state; the group is the one entry.
+        if (anim && obj->parent() && obj->parent()->inherits("QQuickAnimationGroup"))
+            continue;
+
+        // An "on <property>" animation targets its parent. The file that USES a reusable
+        // component (FocusIndicator, a widget) is the one that locates it, so walk up to the
+        // first ancestor declared somewhere else.
+        const QString ownFile = qmlFileOf(obj);
+        QString usedIn;
+        for (QObject* p = obj->parent(); p && usedIn.isEmpty(); p = p->parent()) {
+            const QString f = qmlFileOf(p);
+            if (f != ownFile && f.endsWith(QLatin1String(".qml")))
+                usedIn = f;
+        }
+        QString entry = QStringLiteral("%1 %2").arg(ownFile, nameOf(obj));
+        if (timer) {
+            entry += QStringLiteral(" Timer %1 ms%2").arg(obj->property("interval").toInt())
+                         .arg(obj->property("repeat").toBool() ? QStringLiteral(" repeating") : QString());
+        } else if (anim) {
+            const QString prop = obj->property("property").toString();
+            if (!prop.isEmpty())
+                entry += QStringLiteral(" on ") + prop;
+        } else if (const auto* item = qobject_cast<const QQuickItem*>(obj); item && !item->isVisible()) {
+            entry += QStringLiteral(" (hidden)");
+        }
+        if (!usedIn.isEmpty())
+            entry += QStringLiteral(" in ") + usedIn;
+        running << entry;
+    }
+    running.sort();
+
+    if (running != m_runningAnimations) {
+        DIAG_DEBUG(MEMORY, "MemoryMonitor").noquote()
+            << QStringLiteral("Running animations and timers: %1%2").arg(running.size())
+               .arg(running.isEmpty() ? QString() : QStringLiteral(" — ") + running.join(QStringLiteral("; ")));
+        m_runningAnimations = running;
+    }
 }
 
 double MemoryMonitor::currentRssMB() const
@@ -268,6 +350,10 @@ QString MemoryMonitor::toSummaryString() const
                      .arg(sorted[i].first);
         }
     }
+
+    s << QString("Running animations and timers (last sample): %1\n").arg(m_runningAnimations.size());
+    for (const QString& a : m_runningAnimations)
+        s << "  " << a << "\n";
 
     // Last 20 samples
     if (!m_samples.isEmpty()) {
