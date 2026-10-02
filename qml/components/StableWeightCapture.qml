@@ -51,9 +51,16 @@ Item {
         _capturedNet = 0
         _cand = NaN
         settleTimer.stop()
+        // A tare calls this, and an empty scale's reading then never changes: start the
+        // baseline run now, or the pitcher placed next is the first steady reading and
+        // becomes the zero.
+        _evaluate()
     }
 
-    onActiveChanged: if (!active) reset()
+    // A reading already on the scale emits no change, so turning on or changing the cup
+    // weight evaluates it directly.
+    onActiveChanged: if (active) _evaluate(); else reset()
+    onCupWeightChanged: _evaluate()
     onRawWeightChanged: _evaluate()
 
     // True once rawWeight has held within tolerance for `dwell` ms; otherwise it
@@ -92,12 +99,11 @@ Item {
         var net = rawWeight - _virtualZero - cupWeight
 
         if (_captured) {                                   // re-arm: removed OR materially changed
-            if ((rawWeight - _virtualZero) < loadThreshold
-                || Math.abs(net - _capturedNet) > rearmDelta) {
-                _captured = false
-                _cand = NaN
-            }
-            return
+            if ((rawWeight - _virtualZero) >= loadThreshold
+                && Math.abs(net - _capturedNet) <= rearmDelta)
+                return
+            _captured = false                              // and start the new run below
+            _cand = NaN
         }
 
         if ((rawWeight - _virtualZero) < loadThreshold) {  // empty: re-adopt the zero (baselineMs)
@@ -115,8 +121,7 @@ Item {
         }
     }
 
-    // Re-checks when the current candidate's dwell ends; a reading that does not change
-    // never re-evaluates otherwise. Armed only by _settled().
+    // Re-checks when the current candidate's dwell ends. Armed only by _settled().
     Timer {
         id: settleTimer
         repeat: false
