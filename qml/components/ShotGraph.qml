@@ -49,11 +49,6 @@ Item {
     // graph exists to show, and scaling only one of them would fake it.
     property int flowMultiplier: Settings.graph.flowMultiplier
 
-    // EXPERIMENT (#1976): native Qt Graphs series instead of FastLineRenderer for the live
-    // traces. Set over MCP (settings_set experimentNativeLiveLines); read when the graph is
-    // created.
-    readonly property bool nativeLines: Settings.boolValue("experiment/nativeLiveLines", false)
-
     // Auto-expanding time axis. timeAxis.max is set imperatively by recalcMax() to
     // avoid the binding-loop chain max → relayout → plotArea → cachedPlotWidth → recalcMax.
     property double minTime: 5.0
@@ -150,68 +145,6 @@ Item {
             // and this title is the only marker of that visible in a screenshot, which is
             // how graphs arrive in bug reports.
             titleText: chart.flowMultiplier === 1 ? "bar / mL·g/s" : "bar"
-        }
-
-        // EXPERIMENT (#1976): native series fed through each FastLineRenderer's
-        // mirrorSeries, to measure them against it on a real shot.
-        LineSeries {
-            id: pressureNative
-            color: Theme.pressureColor
-            width: Theme.scaled(3)
-            visible: (Settings.graph.showPressure) && chart.nativeLines
-        }
-        LineSeries {
-            id: flowNative
-            axisY: flowRange
-            color: Theme.flowColor
-            width: Theme.scaled(3)
-            visible: (Settings.graph.showFlow) && chart.nativeLines
-        }
-        LineSeries {
-            id: temperatureNative
-            axisY: tempRange
-            color: Theme.temperatureColor
-            width: Theme.scaled(3)
-            visible: (Settings.graph.showTemperature) && chart.nativeLines
-        }
-        LineSeries {
-            id: weightFlowNative
-            axisY: flowRange
-            color: Theme.weightFlowColor
-            width: Theme.scaled(2)
-            visible: (Settings.graph.showWeightFlow) && chart.nativeLines
-        }
-        LineSeries {
-            id: resistanceNative
-            color: Theme.resistanceColor
-            width: Theme.scaled(2)
-            visible: (Settings.graph.showResistance && chart.advancedMode) && chart.nativeLines
-        }
-        LineSeries {
-            id: conductanceNative
-            color: Theme.conductanceColor
-            width: Theme.scaled(2)
-            visible: (Settings.graph.showConductance && chart.advancedMode) && chart.nativeLines
-        }
-        LineSeries {
-            id: darcyResistanceNative
-            color: Theme.darcyResistanceColor
-            width: Theme.scaled(2)
-            visible: (Settings.graph.showDarcyResistance && chart.advancedMode) && chart.nativeLines
-        }
-        LineSeries {
-            id: temperatureMixNative
-            axisY: tempRange
-            color: Theme.temperatureMixColor
-            width: Theme.scaled(2)
-            visible: (Settings.graph.showTemperatureMix && chart.advancedMode) && chart.nativeLines
-        }
-        LineSeries {
-            id: weightNative
-            axisY: weightRange
-            color: Theme.weightColor
-            width: Theme.scaled(3)
-            visible: (Settings.graph.showWeight) && chart.nativeLines
         }
 
         // Temperature goal, on the hidden temperature axis.
@@ -352,8 +285,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: (Settings.graph.showPressure) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? pressureNative : null
+        visible: Settings.graph.showPressure
     }
 
     FastLineRenderer {
@@ -375,8 +307,7 @@ Item {
         // without this the goal and the trace disagree exactly where the trace escapes.
         clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
-        visible: (Settings.graph.showFlow) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? flowNative : null
+        visible: Settings.graph.showFlow
     }
 
     FastLineRenderer {
@@ -387,8 +318,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempRange.min; maxY: tempRange.max
-        visible: (Settings.graph.showTemperature) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? temperatureNative : null
+        visible: Settings.graph.showTemperature
     }
 
     FastLineRenderer {
@@ -410,8 +340,7 @@ Item {
         // without this the goal and the trace disagree exactly where the trace escapes.
         clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
-        visible: (Settings.graph.showWeightFlow) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? weightFlowNative : null
+        visible: Settings.graph.showWeightFlow
     }
 
     FastLineRenderer {
@@ -422,8 +351,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: (Settings.graph.showResistance && chart.advancedMode) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? resistanceNative : null
+        visible: Settings.graph.showResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -434,8 +362,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: (Settings.graph.showConductance && chart.advancedMode) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? conductanceNative : null
+        visible: Settings.graph.showConductance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -446,8 +373,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: (Settings.graph.showDarcyResistance && chart.advancedMode) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? darcyResistanceNative : null
+        visible: Settings.graph.showDarcyResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -458,8 +384,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempRange.min; maxY: tempRange.max
-        visible: (Settings.graph.showTemperatureMix && chart.advancedMode) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? temperatureMixNative : null
+        visible: Settings.graph.showTemperatureMix && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -470,8 +395,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: weightRange.min; maxY: weightRange.max
-        visible: (Settings.graph.showWeight) && !chart.nativeLines
-        mirrorSeries: chart.nativeLines ? weightNative : null
+        visible: Settings.graph.showWeight
     }
 
     // Frame marker labels (rotated text)

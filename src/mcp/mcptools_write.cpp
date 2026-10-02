@@ -735,8 +735,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"simulationMode", QJsonObject{{"type", "boolean"}, {"description",
                     "Enable DE1 simulator. Rejected on builds without a simulator - check "
                     "simulatorAvailable from settings_get first."}}},
-                {"experimentNativeLiveLines", QJsonObject{{"type", "boolean"}, {"description",
-                    "Experiment: draw live shot lines with Qt Graphs series. Applies to the next graph opened."}}},
                 // Battery
                 {"chargingMode", QJsonObject{{"type", "integer"}, {"description", "Smart charging mode"}}},
                 // Heater calibration (values in display units — same as QML sliders)
@@ -1494,12 +1492,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 addSetter([settings, v]() { settings->app()->setSimulationMode(v); });
                 updated << "simulationMode";
-            }
-            // EXPERIMENT (#1976): remove with the native-series measurement.
-            if (args.contains("experimentNativeLiveLines")) {
-                bool v = args["experimentNativeLiveLines"].toBool();
-                addSetter([settings, v]() { settings->setValue("experiment/nativeLiveLines", v); });
-                updated << "experimentNativeLiveLines";
             }
 
             // === Battery ===

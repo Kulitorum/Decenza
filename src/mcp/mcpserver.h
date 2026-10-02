@@ -110,8 +110,7 @@ struct PendingConfirmation {
 // brew arguments.
 // 1.9.1: settings_set drops dyeGrinderBrand/Model/Burrs, which never changed the grinder
 // (the equipment package owns it); sending one now errors with a pointer to `equipment`.
-// 1.9.2: settings_get/settings_set add experimentNativeLiveLines (temporary, #1976).
-inline constexpr const char* McpSurfaceVersion = "1.9.2";
+inline constexpr const char* McpSurfaceVersion = "1.9.1";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";

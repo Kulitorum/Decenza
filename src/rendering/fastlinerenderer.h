@@ -3,7 +3,6 @@
 #include <QQuickItem>
 #include <QColor>
 #include <QPointF>
-#include <QPointer>
 #include <QVector>
 #include <QSGGeometryNode>
 #include <QSGFlatColorMaterial>
@@ -24,10 +23,6 @@ class FastLineRenderer : public QQuickItem {
     Q_PROPERTY(double maxX READ maxX WRITE setMaxX NOTIFY maxXChanged)
     Q_PROPERTY(double minY READ minY WRITE setMinY NOTIFY minYChanged)
     Q_PROPERTY(double maxY READ maxY WRITE setMaxY NOTIFY maxYChanged)
-    // EXPERIMENT (#1976): a Qt Graphs XYSeries fed the same points, to measure native
-    // series against this renderer. Typed QObject* and driven by method name so the
-    // libraries compiling this file need no Qt Graphs link. Remove with the experiment.
-    Q_PROPERTY(QObject* mirrorSeries READ mirrorSeries WRITE setMirrorSeries NOTIFY mirrorSeriesChanged)
 
 public:
     static constexpr int MAX_POINTS = 6000;  // 10 min at 10Hz (WiFi scale rate; BLE scale ~5Hz in practice) — covers espresso and filter profiles
@@ -48,8 +43,6 @@ public:
     void setMinY(double v);
     double maxY() const { return m_maxY; }
     void setMaxY(double v);
-    QObject* mirrorSeries() const { return m_mirrorSeries; }
-    void setMirrorSeries(QObject* series);
 
     // Called by ShotDataModel - fast, just appends to internal vector
     Q_INVOKABLE void appendPoint(double x, double y);
@@ -64,7 +57,6 @@ signals:
     void maxXChanged();
     void minYChanged();
     void maxYChanged();
-    void mirrorSeriesChanged();
 
 protected:
     QSGNode* updatePaintNode(QSGNode* node, UpdatePaintNodeData*) override;
@@ -79,7 +71,5 @@ private:
     bool m_geometryDirty = true;
     bool m_materialDirty = true;
     bool m_overflowLogged = false;
-    QPointer<QObject> m_mirrorSeries;
-    void replayToMirror();
 
 };

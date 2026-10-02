@@ -337,9 +337,6 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // that settings_set refuses.
             if (include("simulatorAvailable", "debug")) result["simulatorAvailable"] = settings->app()->simulatorAvailable();
             if (include("hideGhcSimulator", "debug")) result["hideGhcSimulator"] = settings->app()->hideGhcSimulator();
-            // EXPERIMENT (#1976): remove with the native-series measurement.
-            if (include("experimentNativeLiveLines", "debug"))
-                result["experimentNativeLiveLines"] = settings->boolValue("experiment/nativeLiveLines", false);
 
             // === Battery ===
             if (battery) {

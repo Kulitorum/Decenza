@@ -58,22 +58,7 @@ void FastLineRenderer::setMaxY(double v) {
     emit maxYChanged();
 }
 
-void FastLineRenderer::setMirrorSeries(QObject* series) {
-    if (m_mirrorSeries == series) return;
-    m_mirrorSeries = series;
-    replayToMirror();
-    emit mirrorSeriesChanged();
-}
-
-void FastLineRenderer::replayToMirror() {
-    if (!m_mirrorSeries) return;
-    const QList<QPointF> pts(m_points.constBegin(), m_points.constBegin() + m_pointCount);
-    QMetaObject::invokeMethod(m_mirrorSeries, "replace", Q_ARG(QList<QPointF>, pts));
-}
-
 void FastLineRenderer::appendPoint(double x, double y) {
-    if (m_mirrorSeries && m_pointCount < MAX_POINTS)
-        QMetaObject::invokeMethod(m_mirrorSeries, "append", Q_ARG(qreal, x), Q_ARG(qreal, y));
     if (m_pointCount < MAX_POINTS) {
         if (m_pointCount < m_points.size()) {
             m_points[m_pointCount] = QPointF(x, y);
@@ -96,8 +81,6 @@ void FastLineRenderer::clear() {
     m_overflowLogged = false;
     m_geometryDirty = true;
     update();
-    if (m_mirrorSeries)
-        QMetaObject::invokeMethod(m_mirrorSeries, "clear");
 }
 
 void FastLineRenderer::setPoints(const QVector<QPointF>& points) {
@@ -111,7 +94,6 @@ void FastLineRenderer::setPoints(const QVector<QPointF>& points) {
         m_points.resize(MAX_POINTS);
     m_geometryDirty = true;
     update();
-    replayToMirror();
 }
 
 void FastLineRenderer::itemChange(ItemChange change, const ItemChangeData& data) {
