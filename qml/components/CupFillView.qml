@@ -1,4 +1,5 @@
 import QtQuick
+import QtCanvas2D
 import Decenza
 
 // Animated cup-fill visualization for espresso extraction.
@@ -148,8 +149,9 @@ Item {
     // Repaint on displayWeight, not currentWeight: the two are the same value
     // whenever the view is not holding, and during the hold this repaints only
     // when late drip actually raises the held peak rather than on every sample
-    // the scale sends.
-    onDisplayWeightChanged: { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
+    // the scale sends. While animTimer runs, its next tick (<= 33 ms) draws the
+    // new weight anyway.
+    onDisplayWeightChanged: { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
     // Redraw once when the hold begins, so the frame comes from the held state
     // rather than whatever the last live paint left behind.
     onHoldingChanged:       { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
@@ -255,12 +257,17 @@ Item {
                 fragmentShader: "qrc:/shaders/cup_mask.frag.qsb"
             }
 
-            JsCanvasPainterItem {
+            Canvas2D {
                 id: liquidCanvas
-                objectName: "liquid"
                 anchors.fill: parent
+                contextType: "2d"
+                fillColor: "transparent"
+                alphaBlending: true
 
-                onPaint: function(ctx) {
+                onPaint: function() {
+                    // null until the scene graph is up (qcanvas2ditem.cpp:242-254)
+                    const ctx = liquidCanvas.context
+                    if (!ctx) return
                     var w = width, h = height
                     ctx.reset()
                     ctx.clearRect(0, 0, w, h)
@@ -368,7 +375,7 @@ Item {
                         cremaGrad.addColorStop(0.8, Qt.rgba(0.68, 0.45, 0.22, 0.2 * cremaFade))
                         cremaGrad.addColorStop(1, Qt.rgba(0.55, 0.35, 0.15, 0))
                         ctx.beginPath()
-                        ctx.ellipse(g.cx - cremaRx, effectiveFillTopY - cremaRy, cremaRx * 2, cremaRy * 2)
+                        ctx.ellipseRect(g.cx - cremaRx, effectiveFillTopY - cremaRy, cremaRx * 2, cremaRy * 2)
                         ctx.fillStyle = cremaGrad
                         ctx.fill()
 
@@ -418,7 +425,7 @@ Item {
                         centerSpot.addColorStop(0.5, Qt.rgba(1, 0.9, 0.7, 0.08 * cremaFade))
                         centerSpot.addColorStop(1, Qt.rgba(1, 0.85, 0.6, 0))
                         ctx.beginPath()
-                        ctx.ellipse(g.cx - cremaRx * 0.5, effectiveFillTopY - cremaRy * 0.45,
+                        ctx.ellipseRect(g.cx - cremaRx * 0.5, effectiveFillTopY - cremaRy * 0.45,
                                     cremaRx * 0.7, cremaRy * 0.7)
                         ctx.fillStyle = centerSpot
                         ctx.fill()
@@ -471,15 +478,19 @@ Item {
     // Extended above the cup so the stream can enter from off-screen
     // ================================================================
     readonly property real effectsExtra: root.cupY  // extra space above cup
-    JsCanvasPainterItem {
+    Canvas2D {
         id: effectsCanvas
-        objectName: "effects"
+        contextType: "2d"
+        fillColor: "transparent"
+        alphaBlending: true
         x: root.cupX
         y: 0
         width: root.cupDisplayW
         height: root.cupDisplayH + root.effectsExtra
 
-            onPaint: function(ctx) {
+            onPaint: function() {
+                const ctx = effectsCanvas.context
+                if (!ctx) return
                 var w = width
                 var canvasH = height
                 var cupH = root.cupDisplayH

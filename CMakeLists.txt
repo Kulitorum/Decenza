@@ -154,7 +154,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Positioning
     WebSockets
     WebSocketsPrivate
-    CanvasPainter
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -786,8 +785,6 @@ set(SOURCES
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
-    src/ui/jscanvaspainteritem.cpp
-    src/ui/jscanvascontext.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
@@ -1033,8 +1030,6 @@ set(HEADERS
     src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
-    src/ui/jscanvaspainteritem.h
-    src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/network/visualizershotlist.h
@@ -1167,7 +1162,6 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Positioning
     Qt6::WebSockets
     Qt6::WebSocketsPrivate
-    Qt6::CanvasPainter
 )
 
 # Embedded Tailscale (Remote MCP Mode A). mcptunnel_tsnet.cpp is always compiled
@@ -1313,10 +1307,9 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/network
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profile
     # Added when the last runtime qmlRegisterType<> calls became QML_ELEMENT: fastlinerenderer.h,
-    # jscanvaspainteritem.h, strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
+    # strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
     # by the command above before adding.
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rendering
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/screensaver
 )
 if(NOT IOS)

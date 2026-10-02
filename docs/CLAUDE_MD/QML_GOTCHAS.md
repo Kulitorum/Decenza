@@ -312,7 +312,7 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
    the #1680 stale-baseline correction (three files' `unqualified` rose), and the `CupFillView`
    case below (`missing-property` 322 -> 388). Diff the per-file and per-category sets before
    concluding anything — totals alone will mislead you.
-2. **An unresolvable type hides every defect behind it.** Fixing `JsCanvasPainterItem`'s
+2. **An unresolvable type hides every defect behind it.** Fixing `JsCanvasPainterItem`'s (since replaced by Qt's `Canvas2D`)
    registration surfaced 66 warnings in `CupFillView.qml` that had never been reachable: the
    `paint()` signal declared `QObject *ctx` while emitting a `JsCanvasContext*`, and the gradient
    factories returned `QObject*` instead of `JsCanvasGradient*`. qmllint was right and useless —

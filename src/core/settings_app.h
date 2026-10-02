@@ -181,6 +181,8 @@ public:
     // Temperature display unit ("celsius" or "fahrenheit"). Storage stays Celsius;
     // this only affects display/entry.
     QString temperatureUnit() const;
+    // Called by Settings::factoryReset() after wiping the store.
+    void invalidateCache();
     void setTemperatureUnit(const QString& unit);
     int waterRefillPoint() const;
     void setWaterRefillPoint(int mm);
@@ -256,6 +258,9 @@ private:
 
     mutable AppSettings m_settings;
     bool m_use12HourTime = false;
+    // Cached: Theme's temperature helpers read it on every readout update, and
+    // QSettings::value() is a CFPreferences lookup on macOS.
+    QString m_temperatureUnit;
 
     // Runtime-only flag — not persisted, resets to false on app restart
     bool m_developerTranslationUpload = false;

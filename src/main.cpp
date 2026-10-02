@@ -78,6 +78,7 @@ extern "C" const char* __ubsan_default_options()
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QScreen>
 #include <QSettings>
 #include <QIcon>
@@ -228,6 +229,20 @@ using namespace Qt::StringLiterals;
 extern void qml_register_types_Decenza();
 
 namespace {
+
+const char* graphicsApiName(QSGRendererInterface::GraphicsApi api)
+{
+    switch (api) {
+    case QSGRendererInterface::Software:   return "Software";
+    case QSGRendererInterface::OpenGL:     return "OpenGL";
+    case QSGRendererInterface::Direct3D11: return "D3D11";
+    case QSGRendererInterface::Direct3D12: return "D3D12";
+    case QSGRendererInterface::Vulkan:     return "Vulkan";
+    case QSGRendererInterface::Metal:      return "Metal";
+    case QSGRendererInterface::Null:       return "Null";
+    default:                               return "Unknown";
+    }
+}
 
 // True when the saved scale address is one the BLE/WiFi reconnect ladder can
 // actually dial. Two prefixes are excluded, for the same reason in both cases —
@@ -4095,8 +4110,8 @@ int main(int argc, char *argv[])
     // reaches Decenza.qmltypes and qmllint cannot resolve the type behind the properties that
     // return it. QML reaches those four through MainController properties, never by type name.
 
-    // The CREATABLE types that used to be registered here — JsCanvasPainterItem,
-    // StrangeAttractorRenderer, FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
+    // The CREATABLE types that used to be registered here — StrangeAttractorRenderer,
+    // FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
     // now carry QML_ELEMENT in their own headers. Same QML names, same creatable
     // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
     // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
@@ -4104,9 +4119,8 @@ int main(int argc, char *argv[])
     // 19 warnings across six QML files, none of them a real missing import.
     //
     // Safe in their headers, and the reason is per-TARGET, not per-base-class. An earlier draft
-    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter,
-    // and the JsCanvasContext/JsCanvasGradient pair registered alongside them, all derive from
-    // plain QObject. What actually holds is that documentformatter.cpp and jscanvas*.cpp are
+    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter
+    // derives from plain QObject. What actually holds is that documentformatter.cpp is
     // compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
     // fastlinerenderer.cpp, goes into decenza_shotlib, which links Qt6::Quick. Apply that test to
     // the next header, not the inheritance one.
@@ -4151,6 +4165,13 @@ int main(int argc, char *argv[])
         QQuickWindow* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
         if (window) {
             relayClient.setWindow(window);
+            // Which backend the device picked (Vulkan/GL/Metal/D3D) — for field reports of
+            // rendering faults. Queued: the signal comes from the render thread.
+            QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, [window]() {
+                const QSGRendererInterface* rif = window->rendererInterface();
+                DIAG_INFO(APP, "main") << "Scene graph ready, RHI ="
+                    << (rif ? graphicsApiName(rif->graphicsApi()) : "unknown");
+            }, Qt::QueuedConnection);
         }
     }
 

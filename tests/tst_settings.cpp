@@ -1108,11 +1108,14 @@ private slots:
     }
 
     void temperatureUnitDefaultIsCelsius() {
-        // On fresh state (key absent) the getter default must be "celsius".
+        // On fresh state (key absent) the getter default must be "celsius". The unit is
+        // read once at construction, so a fresh SettingsApp is what sees the absent key.
+        m_settings.app()->setTemperatureUnit("fahrenheit");
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.remove("display/temperatureUnit");
           raw.sync(); }
-        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+        SettingsApp fresh;
+        QCOMPARE(fresh.temperatureUnit(), QString("celsius"));
         // cleanup() restores the original via m_origTemperatureUnit.
     }
 

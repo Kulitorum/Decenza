@@ -878,6 +878,7 @@ void Settings::factoryReset()
     // Invalidate in-memory caches so getters re-read from (now-empty) QSettings
     m_dye->invalidateCache();
     m_calibration->invalidateCache();
+    m_app->invalidateCache();
 
     // 2. Clear every legacy store the app has ever written. Each one's migration
     // guard lives in the store cleared above, so a reset that leaves a legacy
