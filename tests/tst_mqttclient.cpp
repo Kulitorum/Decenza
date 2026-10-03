@@ -1,10 +1,12 @@
 #include <QtTest>
+#include <algorithm>
 #include <QSignalSpy>
 #include <QJsonArray>
 #include <QSslError>
 #include <QtMqtt/qmqttclient.h>
 
 #include "ble/de1device.h"
+#include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_mqtt.h"
 #include "machine/machinestate.h"
@@ -38,13 +40,23 @@ private:
     static QJsonObject configFor(MqttClient* c, const QString& objectId) {
         for (const auto& entry : c->discoveryEntries()) {
             if (entry.objectId == objectId)
-                return c->discoveryConfig(entry);
+                return c->componentConfig(entry);
         }
         return {};
     }
 
+    // The test store is shared by every function in this process; identity and discovery
+    // bookkeeping would otherwise leak from one test into the next.
+    static void clearMqttIdentity() {
+        AppSettings raw;
+        for (const char* key : {"mqtt/clientId", "mqtt/deviceId", "mqtt/discoveryMigrated",
+                                "mqtt/publishedDiscoveryComponents", "mqtt/publishedDiscoveryTopics",
+                                "mqtt/homeAssistantDiscovery"})
+            raw.remove(QString::fromLatin1(key));
+    }
+
 private slots:
-    void init() { QTest::failOnWarning(); }
+    void init() { QTest::failOnWarning(); clearMqttIdentity(); }
 
     // ===== The regression this file was created for =====
 
@@ -329,8 +341,8 @@ private slots:
         // Upgrading must not create a second set of entities in Home Assistant: every
         // config topic and unique_id shipped before the Qt MQTT move stays exactly as was.
         Settings settings;
+        settings.mqtt()->importMqttDeviceId(QStringLiteral("cid"));
         QScopedPointer<MqttClient> c(makeClient(settings));
-        c->m_clientId = QStringLiteral("cid");
 
         const QList<std::tuple<QString, QString, QString>> shipped = {
             {"sensor", "state", "state"}, {"sensor", "phase", "phase"}, {"sensor", "substate", "substate"},
@@ -350,7 +362,7 @@ private slots:
             for (const auto& entry : entries) {
                 if (entry.component == component && entry.objectId == objectId) {
                     found = true;
-                    QCOMPARE(c->discoveryConfig(entry).value("unique_id").toString(),
+                    QCOMPARE(c->componentConfig(entry).value("unique_id").toString(),
                              QStringLiteral("de1_cid_") + suffix);
                 }
             }
@@ -390,6 +402,114 @@ private slots:
         const QJsonObject select = configFor(c.data(), "profile_select");
         QCOMPARE(select.value("options").toArray().size(), 2);
         QCOMPARE(select.value("command_topic").toString(), QStringLiteral("decenza/profile/select"));
+    }
+
+    void upgradeKeepsTheHomeAssistantIdentityAndRenewsTheClientId() {
+        // The old client ID built every unique_id, so it becomes the device ID; the client
+        // ID itself is renewed, which also separates installs a backup gave the same ID.
+        Settings settings;
+        settings.mqtt()->setMqttClientId(QStringLiteral("decenza_localhost_45d999b4"));
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        QCOMPARE(settings.mqtt()->mqttDeviceId(), QStringLiteral("decenza_localhost_45d999b4"));
+        QVERIFY(settings.mqtt()->mqttClientId() != QStringLiteral("decenza_localhost_45d999b4"));
+        QVERIFY2(!settings.mqtt()->mqttDiscoveryMigrated(), "an upgraded install has per-entity topics to move");
+        QCOMPARE(configFor(c.data(), "temperature_head").value("unique_id").toString(),
+                 QStringLiteral("de1_decenza_localhost_45d999b4_temp_head"));
+    }
+
+    void devicePayloadFollowsHomeAssistantsShape() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        c->setProfileTitles({QStringLiteral("D-Flow / Q")});
+
+        const QJsonObject payload = c->deviceDiscoveryPayload();
+        QVERIFY(payload.value("device").toObject().contains("identifiers"));
+        QVERIFY2(payload.value("origin").toObject().contains("name"), "origin is mandatory for device discovery");
+        const QJsonObject components = payload.value("components").toObject();
+        QCOMPARE(components.size(), c->discoveryEntries().size());
+        for (auto it = components.begin(); it != components.end(); ++it) {
+            const QJsonObject component = it.value().toObject();
+            QVERIFY2(component.contains("platform") && component.contains("unique_id"), qPrintable(it.key()));
+            QVERIFY2(!component.contains("device"), "device belongs at the root, once");
+        }
+        QVERIFY(c->deviceDiscoveryTopic().startsWith(QStringLiteral("homeassistant/device/decenza_")));
+    }
+
+    void migrationFollowsHomeAssistantsOrder() {
+        Settings settings;
+        settings.mqtt()->setMqttClientId(QStringLiteral("old_client"));   // an upgraded install
+        settings.mqtt()->setMqttHomeAssistantDiscovery(true);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+
+        c->publishHomeAssistantDiscovery();
+
+        const QStringList legacy = MqttClient::legacyDiscoveryTopics();
+        QCOMPARE(sent.size(), legacy.size() * 2 + 1);
+        for (int i = 0; i < legacy.size(); ++i) {
+            QCOMPARE(sent[i].topic, legacy[i]);
+            QVERIFY(sent[i].payload.contains(QStringLiteral("migrate_discovery")));
+            QVERIFY2(!sent[i].retain, "the migrate message is not retained");
+        }
+        QCOMPARE(sent[legacy.size()].topic, c->deviceDiscoveryTopic());
+        for (int i = 0; i < legacy.size(); ++i) {
+            const auto& clear = sent[legacy.size() + 1 + i];
+            QCOMPARE(clear.topic, legacy[i]);
+            QVERIFY(clear.payload.isEmpty() && clear.retain);
+        }
+        QVERIFY(settings.mqtt()->mqttDiscoveryMigrated());
+
+        sent.clear();
+        c->publishHomeAssistantDiscovery();
+        QCOMPARE(sent.size(), 1);   // once migrated, only the device message
+    }
+
+    void aComponentThatLeavesIsSentOnceWithOnlyItsPlatform() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+
+        c->setProfileTitles({QStringLiteral("Londinium")});
+        c->publishHomeAssistantDiscovery();
+        c->setProfileTitles({});
+
+        sent.clear();
+        c->publishHomeAssistantDiscovery();
+        QJsonObject select = QJsonDocument::fromJson(sent.last().payload.toUtf8())
+                                 .object().value("components").toObject().value("profile_select").toObject();
+        QCOMPARE(select, (QJsonObject{{"platform", "select"}}));
+
+        sent.clear();
+        c->publishHomeAssistantDiscovery();
+        QVERIFY(!QJsonDocument::fromJson(sent.last().payload.toUtf8())
+                     .object().value("components").toObject().contains("profile_select"));
+    }
+
+    void newDeviceIdLeavesThePreviousIdentityAlone() {
+        // Its use is a second install restored from the same backup: the previous identity
+        // is the other install's, so nothing published under it may be cleared or migrated.
+        Settings settings;
+        settings.mqtt()->setMqttClientId(QStringLiteral("shared_with_the_tablet"));
+        settings.mqtt()->setMqttHomeAssistantDiscovery(true);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        const QString previousTopic = c->deviceDiscoveryTopic();
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+        c->m_sessionUp = true;
+
+        c->newDeviceId();
+
+        QVERIFY(settings.mqtt()->mqttDeviceId() != QStringLiteral("shared_with_the_tablet"));
+        const QStringList legacy = MqttClient::legacyDiscoveryTopics();
+        for (const auto& message : sent) {
+            QVERIFY2(message.topic != previousTopic, "the shared device message must not be touched");
+            QVERIFY2(!legacy.contains(message.topic), "the shared per-entity topics must not be touched");
+        }
+        QVERIFY(std::any_of(sent.cbegin(), sent.cend(),
+                            [&](const auto& m) { return m.topic == c->deviceDiscoveryTopic(); }));
     }
 
     // ===== Last shot and shot events =====

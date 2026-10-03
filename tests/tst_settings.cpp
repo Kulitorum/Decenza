@@ -324,6 +324,37 @@ private slots:
         m_settings.dye()->setAutoLoadRecipeId(m_origAutoLoadRecipeId);
     }
 
+    void mqttBackupCarriesDeviceIdNeverClientId() {
+        // The client ID is the broker's session key: a restored backup that copied it made
+        // two live installs disconnect each other. The device ID is the Home Assistant
+        // identity a replacement tablet must keep.
+        AppSettings raw;
+        const QStringList keys{"mqtt/clientId", "mqtt/deviceId", "mqtt/discoveryMigrated"};
+        QVariantMap original;
+        for (const auto& key : keys) original[key] = raw.value(key);
+        const auto restore = qScopeGuard([&] {
+            for (const auto& key : keys) {
+                if (original[key].isValid()) raw.setValue(key, original[key]);
+                else raw.remove(key);
+            }
+        });
+        raw.setValue("mqtt/clientId", "decenza_here_1");
+        raw.setValue("mqtt/deviceId", "decenza_ha_1");
+
+        const auto mqtt = SettingsSerializer::exportToJson(&m_settings, false)["mqtt"].toObject();
+        QVERIFY2(!mqtt.contains("clientId"), "the client ID must never leave the install");
+        QCOMPARE(mqtt.value("deviceId").toString(), QString("decenza_ha_1"));
+
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"mqtt", QJsonObject{{"deviceId", "decenza_ha_2"}}}});
+        QCOMPARE(raw.value("mqtt/deviceId").toString(), QString("decenza_ha_2"));
+
+        // A backup from before the device ID: its client ID built that install's unique_ids,
+        // so it becomes the device ID — and this install keeps its own client ID.
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"mqtt", QJsonObject{{"clientId", "decenza_old_tablet"}}}});
+        QCOMPARE(raw.value("mqtt/deviceId").toString(), QString("decenza_old_tablet"));
+        QCOMPARE(raw.value("mqtt/clientId").toString(), QString("decenza_here_1"));
+    }
+
     void portalSelectionAndDisplayPreferenceSurviveBackup() {
         AppSettings raw;
         const QStringList keys{"portal/address", "portal/name", "portal/syncDisplay"};

@@ -3,6 +3,7 @@
 
 #include <QDate>
 #include <QJsonObject>
+#include <QUuid>
 #include <QtNetwork/qtnetworkglobal.h>   // defines the ssl feature for QT_CONFIG
 #if QT_CONFIG(ssl)
 #include <QSslCertificate>
@@ -185,4 +186,63 @@ QStringList SettingsMqtt::passwordExposingChanges(const QJsonObject& changes) co
         && changes.value("mqttCaCertificate").toString().trimmed() != mqttCaCertificate())
         keys << QStringLiteral("mqttCaCertificate");
     return keys;
+}
+
+QString SettingsMqtt::newMqttId() {
+    // [a-zA-Z0-9_] only: the device ID becomes a discovery topic level, which Home
+    // Assistant restricts to [a-zA-Z0-9_-].
+    return QStringLiteral("decenza_") + QUuid::createUuid().toString(QUuid::Id128).left(12);
+}
+
+QString SettingsMqtt::mqttDeviceId() const {
+    return m_settings.value("mqtt/deviceId", "").toString();
+}
+
+void SettingsMqtt::importMqttDeviceId(const QString& deviceId) {
+    if (deviceId.isEmpty() || deviceId == mqttDeviceId())
+        return;
+    m_settings.setValue("mqtt/deviceId", deviceId);
+    // The adopted identity may still have per-entity topics from an earlier version.
+    // Moving them again when there are none is harmless: Home Assistant ignores a
+    // migrate message for a topic it holds nothing on.
+    setMqttDiscoveryMigrated(false);
+    setMqttPublishedDiscoveryComponents({});
+    emit mqttDeviceIdChanged();
+}
+
+void SettingsMqtt::regenerateMqttDeviceId() {
+    m_settings.setValue("mqtt/deviceId", newMqttId());
+    setMqttDiscoveryMigrated(true);
+    setMqttPublishedDiscoveryTopics({});
+    setMqttPublishedDiscoveryComponents({});
+    emit mqttDeviceIdChanged();
+}
+
+void SettingsMqtt::ensureMqttIdentity() {
+    if (!mqttDeviceId().isEmpty())
+        return;
+    const QString previousClientId = mqttClientId();
+    const bool fresh = previousClientId.isEmpty();
+    m_settings.setValue("mqtt/deviceId", fresh ? newMqttId() : previousClientId);
+    // A fresh install has nothing to migrate; an upgraded one may have per-entity topics.
+    if (fresh)
+        setMqttDiscoveryMigrated(true);
+    setMqttClientId(newMqttId());
+    emit mqttDeviceIdChanged();
+}
+
+QStringList SettingsMqtt::mqttPublishedDiscoveryComponents() const {
+    return m_settings.value("mqtt/publishedDiscoveryComponents").toStringList();
+}
+
+void SettingsMqtt::setMqttPublishedDiscoveryComponents(const QStringList& components) {
+    m_settings.setValue("mqtt/publishedDiscoveryComponents", components);
+}
+
+bool SettingsMqtt::mqttDiscoveryMigrated() const {
+    return m_settings.value("mqtt/discoveryMigrated", false).toBool();
+}
+
+void SettingsMqtt::setMqttDiscoveryMigrated(bool migrated) {
+    m_settings.setValue("mqtt/discoveryMigrated", migrated);
 }

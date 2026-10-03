@@ -745,6 +745,17 @@ QString ShotServer::generateSettingsPage() const
                         </div>
                     </div>
                     <div class="form-group">
+                        <label class="form-label" for="mqttDeviceId">Home Assistant device ID</label>
+                        <div style="display:flex; gap:0.5rem;">
+                            <input type="text" class="form-input" id="mqttDeviceId" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="newMqttDeviceId()">New device ID</button>
+                        </div>
+                        <div style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            Only for a second device restored from the same backup: it then shows up in Home Assistant as its own device.
+                            The client ID must be unique on the broker.
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label class="form-checkbox">
                             <input type="checkbox" id="mqttRetainMessages">
                             <span>Retain messages</span>
@@ -916,6 +927,7 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('mqttRetainMessages').checked = data.mqttRetainMessages || false;
                 document.getElementById('mqttHomeAssistantDiscovery').checked = data.mqttHomeAssistantDiscovery || false;
                 document.getElementById('mqttUseTls').checked = data.mqttUseTls || false;
+                document.getElementById('mqttDeviceId').value = data.mqttDeviceId || '';
                 document.getElementById('mqttCaCertificate').value = data.mqttCaCertificate || '';
                 document.getElementById('mqttCaSummary').textContent = data.mqttCaCertificateSummary
                     ? 'Trusting: ' + data.mqttCaCertificateSummary
@@ -1376,6 +1388,17 @@ QString ShotServer::generateSettingsPage() const
             pollMqttStatus();
         }
 
+        async function newMqttDeviceId() {
+            if (!confirm('Give this device a new Home Assistant device ID? It will appear in Home Assistant as a separate device.')) return;
+            try {
+                const resp = await fetch('/api/settings/mqtt/new-device-id', { method: 'POST' });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+                const r = await resp.json();
+                if (r.success) document.getElementById('mqttDeviceId').value = r.deviceId || '';
+                else showSectionStatus('mqttStatusText', r.message || 'Failed', true);
+            } catch (e) { showSectionStatus('mqttStatusText', e.message || 'Network error', true); }
+        }
+
         async function publishDiscovery() {
             const btn = document.getElementById('mqttDiscoveryBtn');
             btn.disabled = true; btn.textContent = 'Publishing...';
@@ -1533,6 +1556,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["mqttRetainMessages"] = mqttSettings->mqttRetainMessages();
     obj["mqttHomeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
     obj["mqttUseTls"] = mqttSettings->mqttUseTls();
+    obj["mqttDeviceId"] = mqttSettings->mqttDeviceId();
     // A CA certificate is public, not a secret; sent so the page can show what is trusted.
     obj["mqttCaCertificate"] = mqttSettings->mqttCaCertificate();
     obj["mqttCaCertificateSummary"] = SettingsMqtt::describeCaCertificate(mqttSettings->mqttCaCertificate());
@@ -1934,5 +1958,18 @@ void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
     // publishDiscovery() is fire-and-forget: QoS 0 publishes have no acknowledgement to
     // report. The isConnected() check above is our best guard.
     sendJson(socket, R"({"success": true})");
+}
+
+void ShotServer::handleMqttNewDeviceId(QTcpSocket* socket)
+{
+    if (!m_mqttClient || !m_settings) {
+        sendJson(socket, R"({"success": false, "message": "MQTT client not available"})");
+        return;
+    }
+    m_mqttClient->newDeviceId();
+    QJsonObject result;
+    result["success"] = true;
+    result["deviceId"] = m_settings->mqtt()->mqttDeviceId();
+    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
 }
 

@@ -4,7 +4,7 @@ import Decenza
 
 KeyboardAwareContainer {
     id: homeAutomationTab
-    textFields: [hostField, portField, usernameField, passwordField, baseTopicField]
+    textFields: [hostField, portField, usernameField, passwordField, baseTopicField, clientIdField]
     targetFlickable: mqttFlickable
 
     RowLayout {
@@ -85,6 +85,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: hostField
+                        accessibleName: TranslationManager.translate("mqtt.brokerHost", "Broker Host")
                         Layout.fillWidth: true
                         text: Settings.mqtt.mqttBrokerHost
                         onEditingFinished: Settings.mqtt.mqttBrokerHost = text
@@ -100,6 +101,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: portField
+                        accessibleName: TranslationManager.translate("mqtt.port", "Port")
                         Layout.fillWidth: true
                         text: Settings.mqtt.mqttBrokerPort
                         inputMethodHints: Qt.ImhDigitsOnly
@@ -214,6 +216,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: usernameField
+                        accessibleName: TranslationManager.translate("mqtt.username", "Username (optional)")
                         Layout.fillWidth: true
                         text: Settings.mqtt.mqttUsername
                         onEditingFinished: Settings.mqtt.mqttUsername = text
@@ -229,6 +232,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: passwordField
+                        accessibleName: TranslationManager.translate("mqtt.password", "Password (optional)")
                         Layout.fillWidth: true
                         text: Settings.mqtt.mqttPassword
                         echoMode: TextInput.Password
@@ -245,9 +249,65 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: baseTopicField
+                        accessibleName: TranslationManager.translate("mqtt.baseTopic", "Base Topic")
                         Layout.fillWidth: true
                         text: Settings.mqtt.mqttBaseTopic
                         onEditingFinished: Settings.mqtt.mqttBaseTopic = text
+                    }
+
+                    // Client ID
+                    Tr {
+                        key: "mqtt.clientId"
+                        fallback: "Client ID"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                    }
+
+                    StyledTextField {
+                        id: clientIdField
+                        Layout.fillWidth: true
+                        text: Settings.mqtt.mqttClientId
+                        // Empty would only regenerate a random one on the next connect.
+                        onEditingFinished: if (text.trim().length > 0) Settings.mqtt.mqttClientId = text.trim()
+                        accessibleName: TranslationManager.translate("mqtt.clientId", "Client ID")
+                    }
+
+                    // Home Assistant device ID
+                    Tr {
+                        key: "mqtt.deviceId"
+                        fallback: "Home Assistant device ID"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: Settings.mqtt.mqttDeviceId
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(11)
+                            elide: Text.ElideMiddle
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: TranslationManager.translate("mqtt.deviceId", "Home Assistant device ID") + ": " + text
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("mqtt.newDeviceId", "New device ID")
+                            accessibleName: TranslationManager.translate("mqtt.newDeviceIdAccessible", "Give this device a new Home Assistant device ID")
+                            onClicked: MainController.mqttClient.newDeviceId()
+                        }
+                    }
+
+                    Tr {
+                        key: "mqtt.clientIdHint"
+                        fallback: "The client ID must be unique on the broker. Use New device ID only on a second device restored from the same backup, so it shows up in Home Assistant as its own device."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(10)
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
 
                     // Connection status

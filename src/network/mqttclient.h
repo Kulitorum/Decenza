@@ -68,6 +68,9 @@ public:
     Q_INVOKABLE void connectToBroker();
     Q_INVOKABLE void disconnectFromBroker();
     Q_INVOKABLE void publishDiscovery();
+    // A new Home Assistant device ID (SettingsMqtt::regenerateMqttDeviceId()), re-announced
+    // if connected. For a second install restored from the same backup; works offline.
+    Q_INVOKABLE void newDeviceId();
 
     // For QML; see SettingsMqtt::describeCaCertificate().
     Q_INVOKABLE QString describeCaCertificate(const QString& pem) const;
@@ -170,12 +173,18 @@ private:
     void scheduleReconnect(const QString& reason);
     bool stopAllowedInCurrentPhase() const;
 
+    QString deviceId() const;
     QJsonObject buildDeviceInfo() const;
     QList<DiscoveryEntry> discoveryEntries() const;
-    QJsonObject discoveryConfig(const DiscoveryEntry& entry) const;
-    static QString discoveryTopic(const QString& component, const QString& objectId);
+    QJsonObject componentConfig(const DiscoveryEntry& entry) const;
+    // The device-based discovery message; `publishedComponents` receives the component
+    // keys it describes, for SettingsMqtt's bookkeeping.
+    QJsonObject deviceDiscoveryPayload(QStringList* publishedComponents = nullptr) const;
+    QString deviceDiscoveryTopic() const;
+    static QString legacyDiscoveryTopic(const QString& component, const QString& objectId);
+    static QStringList legacyDiscoveryTopics();
     void publishHomeAssistantDiscovery();
-    void retractDiscoveryTopics(const QStringList& topics);
+    void retractDiscovery();
 
     static QJsonObject lastShotSummary(const LastShot& shot);
     void publishLastShot();
@@ -191,6 +200,11 @@ private:
     // DESTROYED before the sockets below: its destructor writes DISCONNECT to the
     // transport (qmqttconnection.cpp:85-90). ~MqttClient deletes it explicitly first.
     QMqttClient* m_client = nullptr;
+#ifdef DECENZA_TESTING
+    struct Published { QString topic; QString payload; bool retain; quint8 qos; };
+    // When set, publishRaw() records here instead of sending (tests only).
+    QList<Published>* m_publishRecorder = nullptr;
+#endif
     // The attempt in flight, not yet handed to m_client.
     QPointer<QTcpSocket> m_pendingSocket;
     // The socket m_client holds. Kept alive until the NEXT hand-over replaces it:

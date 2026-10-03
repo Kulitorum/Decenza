@@ -17,11 +17,9 @@
 
 #include <QJsonDocument>
 #include <QJsonArray>
-#include <QHostInfo>
 #include <QMetaEnum>
 #include <QNetworkInformation>
 #include <QTcpSocket>
-#include <QUuid>
 #if QT_CONFIG(ssl)
 #include <QSslCertificate>
 #include <QSslConfiguration>
@@ -66,6 +64,7 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     }
 
     if (m_settingsMqtt) {
+        m_settingsMqtt->ensureMqttIdentity();
         connect(m_settingsMqtt, &SettingsMqtt::mqttEnabledChanged, this, &MqttClient::onSettingsChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttBrokerHostChanged, this, &MqttClient::onSettingsChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttBrokerPortChanged, this, &MqttClient::onSettingsChanged);
@@ -73,6 +72,10 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
         connect(m_settingsMqtt, &SettingsMqtt::mqttPasswordChanged, this, &MqttClient::onSettingsChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttUseTlsChanged, this, &MqttClient::onSettingsChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttCaCertificateChanged, this, &MqttClient::onSettingsChanged);
+        // Both are part of the session itself (CONNECT, the will, the subscriptions), so
+        // they only take effect on a new one.
+        connect(m_settingsMqtt, &SettingsMqtt::mqttClientIdChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttBaseTopicChanged, this, &MqttClient::onSettingsChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttHomeAssistantDiscoveryChanged,
                 this, &MqttClient::onDiscoverySettingChanged);
         connect(m_settingsMqtt, &SettingsMqtt::mqttPublishIntervalChanged, this, [this]() {
@@ -151,21 +154,33 @@ QString MqttClient::generateClientId()
 {
     QString clientId = m_settingsMqtt ? m_settingsMqtt->mqttClientId() : "";
     if (clientId.isEmpty()) {
-        QString hostname = QHostInfo::localHostName();
-        if (hostname.isEmpty()) {
-            hostname = "decenza";
-        }
-        clientId = QString("decenza_%1_%2")
-            .arg(hostname)
-            .arg(QUuid::createUuid().toString(QUuid::Id128).left(8));
-        // Persisted so the broker and Home Assistant see the same client across restarts,
-        // updates and library changes.
+        // Only after the user cleared it: ensureMqttIdentity() set one at startup.
+        clientId = SettingsMqtt::newMqttId();
         if (m_settingsMqtt) {
             m_settingsMqtt->setMqttClientId(clientId);
             DIAG_DEBUG(NETWORK, "MqttClient") << "Generated and saved new client ID:" << clientId;
         }
     }
     return clientId;
+}
+
+QString MqttClient::deviceId() const
+{
+    return m_settingsMqtt ? m_settingsMqtt->mqttDeviceId() : QString();
+}
+
+void MqttClient::newDeviceId()
+{
+    if (!m_settingsMqtt)
+        return;
+    // Nothing published under the previous ID is cleared: another install restored from
+    // the same backup may share it.
+    m_settingsMqtt->regenerateMqttDeviceId();
+    DIAG_INFO(NETWORK, "MqttClient") << "New Home Assistant device ID:" << m_settingsMqtt->mqttDeviceId();
+    if (m_sessionUp && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
+        publishHomeAssistantDiscovery();
+        republishAll();
+    }
 }
 
 QString MqttClient::failureReason(int clientError, QAbstractSocket::SocketError socketError,
@@ -479,8 +494,10 @@ void MqttClient::onSessionUp()
             line += QStringLiteral(" (%1 collapsed, never printed)").arg(unprinted.suppressed);
         DIAG_INFO(NETWORK, "mqttclient").noquote() << line;
     } else {
-        DIAG_DEBUG(NETWORK, "MqttClient") << "Connected to broker"
-                 << (m_useMqtt31 ? "(MQTT 3.1)" : "") << (m_attemptTls ? "(TLS)" : "");
+        QString line = QStringLiteral("Connected to broker");
+        if (m_useMqtt31) line += QStringLiteral(" (MQTT 3.1)");
+        if (m_attemptTls) line += QStringLiteral(" (TLS)");
+        DIAG_DEBUG(NETWORK, "MqttClient").noquote() << line;
     }
 
     m_sessionUp = true;
@@ -495,10 +512,9 @@ void MqttClient::onSessionUp()
 
     if (m_settingsMqtt && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
         publishHomeAssistantDiscovery();
-    } else if (m_settingsMqtt && !m_settingsMqtt->mqttPublishedDiscoveryTopics().isEmpty()) {
+    } else if (m_settingsMqtt && !m_settingsMqtt->mqttPublishedDiscoveryComponents().isEmpty()) {
         // Discovery was turned off while we were not connected.
-        retractDiscoveryTopics(m_settingsMqtt->mqttPublishedDiscoveryTopics());
-        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
+        retractDiscovery();
     }
 
     const int interval = m_settingsMqtt ? m_settingsMqtt->mqttPublishInterval() : 1000;
@@ -960,8 +976,7 @@ void MqttClient::onDiscoverySettingChanged()
         publishHomeAssistantDiscovery();
         republishAll();
     } else {
-        retractDiscoveryTopics(m_settingsMqtt->mqttPublishedDiscoveryTopics());
-        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
+        retractDiscovery();
     }
 }
 
@@ -978,6 +993,12 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
 
 void MqttClient::publishRaw(const QString& topic, const QString& payload, bool retain, quint8 qos)
 {
+#ifdef DECENZA_TESTING
+    if (m_publishRecorder) {
+        m_publishRecorder->append({topic, payload, retain, qos});
+        return;
+    }
+#endif
     if (!m_sessionUp)
         return;
     if (m_client->publish(QMqttTopicName(topic), payload.toUtf8(), qos, retain) < 0) {
@@ -1217,6 +1238,11 @@ void MqttClient::publishLastShot()
 }
 
 // ===== Home Assistant discovery =====
+//
+// One device-based discovery message (Home Assistant 2024.11+) at
+// homeassistant/device/<device ID>/config. Builds before it published one message per
+// entity at homeassistant/<component>/de1_<object>/config; those move over once
+// (publishHomeAssistantDiscovery()) by Home Assistant's documented migrate_discovery steps.
 
 void MqttClient::publishDiscovery()
 {
@@ -1228,7 +1254,7 @@ void MqttClient::publishDiscovery()
 QJsonObject MqttClient::buildDeviceInfo() const
 {
     QJsonObject device;
-    device["identifiers"] = QJsonArray{QString("decenza_de1_%1").arg(m_clientId)};
+    device["identifiers"] = QJsonArray{QString("decenza_de1_%1").arg(deviceId())};
     device["name"] = "DE1 Espresso Machine";
     device["manufacturer"] = "Decent Espresso";
     device["model"] = "DE1";
@@ -1236,9 +1262,40 @@ QJsonObject MqttClient::buildDeviceInfo() const
     return device;
 }
 
-QString MqttClient::discoveryTopic(const QString& component, const QString& objectId)
+QString MqttClient::legacyDiscoveryTopic(const QString& component, const QString& objectId)
 {
     return QString("homeassistant/%1/de1_%2/config").arg(component, objectId);
+}
+
+QStringList MqttClient::legacyDiscoveryTopics()
+{
+    // Exactly what builds before device discovery published; frozen, not derived from
+    // discoveryEntries(), which grows.
+    static const QList<std::pair<const char*, const char*>> shipped = {
+        {"sensor", "state"}, {"sensor", "phase"}, {"sensor", "substate"},
+        {"sensor", "temperature_head"}, {"sensor", "temperature_mix"}, {"sensor", "temperature_steam"},
+        {"sensor", "pressure"}, {"sensor", "flow"}, {"sensor", "weight"}, {"sensor", "target_weight"},
+        {"sensor", "water_level"}, {"sensor", "water_level_ml"}, {"sensor", "shot_time"},
+        {"text", "profile"}, {"switch", "power"}, {"binary_sensor", "connected"},
+        {"binary_sensor", "scale_connected"}, {"sensor", "steam_mode"}, {"switch", "steam"},
+        {"sensor", "espresso_count"}, {"sensor", "profile_filename"},
+    };
+    QStringList topics;
+    for (const auto& [component, objectId] : shipped)
+        topics << legacyDiscoveryTopic(QString::fromLatin1(component), QString::fromLatin1(objectId));
+    return topics;
+}
+
+QString MqttClient::deviceDiscoveryTopic() const
+{
+    // Home Assistant allows [a-zA-Z0-9_-] in a topic's object ID; a device ID seeded from a
+    // hand-typed client ID may hold anything else.
+    QString objectId = deviceId();
+    for (QChar& c : objectId) {
+        if (!(c.isLetterOrNumber() && c.unicode() < 128) && c != '_' && c != '-')
+            c = '_';
+    }
+    return QStringLiteral("homeassistant/device/%1/config").arg(objectId);
 }
 
 QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
@@ -1251,7 +1308,7 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
     // Assistant would see new entities.
     auto add = [&e](const QString& component, const QString& objectId, const QString& uniqueSuffix,
                     Source source, QJsonObject config) {
-        config["unique_id"] = uniqueSuffix;   // completed with the client ID in discoveryConfig()
+        config["unique_id"] = uniqueSuffix;   // completed with the device ID in componentConfig()
         e.append({component, objectId, config, source});
     };
     auto sensor = [&](const QString& objectId, const QString& uniqueSuffix, Source source,
@@ -1357,13 +1414,15 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
     return e;
 }
 
-QJsonObject MqttClient::discoveryConfig(const DiscoveryEntry& entry) const
+QJsonObject MqttClient::componentConfig(const DiscoveryEntry& entry) const
 {
     const QString base = m_settingsMqtt ? m_settingsMqtt->mqttBaseTopic() : QStringLiteral("decenza");
     QJsonObject config = entry.config;
-    config["unique_id"] = QString("de1_%1_%2").arg(m_clientId, entry.config.value("unique_id").toString());
-    config["device"] = buildDeviceInfo();
+    config["platform"] = entry.component;
+    config["unique_id"] = QString("de1_%1_%2").arg(deviceId(), entry.config.value("unique_id").toString());
 
+    // Per component, not shared at device level: Home Assistant rejects a config with both
+    // availability_topic and an availability list.
     if (entry.source == Source::App) {
         config["availability_topic"] = base + "/availability";
     } else {
@@ -1379,41 +1438,87 @@ QJsonObject MqttClient::discoveryConfig(const DiscoveryEntry& entry) const
     return config;
 }
 
+QJsonObject MqttClient::deviceDiscoveryPayload(QStringList* publishedComponents) const
+{
+    QJsonObject components;
+    QStringList current;
+    for (const DiscoveryEntry& entry : discoveryEntries()) {
+        components[entry.objectId] = componentConfig(entry);
+        current << entry.objectId + "=" + entry.component;
+    }
+    // One that has left the set goes out once with only its platform; Home Assistant
+    // needs that before the key may be omitted.
+    if (m_settingsMqtt) {
+        for (const QString& previous : m_settingsMqtt->mqttPublishedDiscoveryComponents()) {
+            const QString key = previous.section('=', 0, 0);
+            if (!components.contains(key))
+                components[key] = QJsonObject{{"platform", previous.section('=', 1)}};
+        }
+    }
+    if (publishedComponents)
+        *publishedComponents = current;
+
+    return QJsonObject{
+        {"device", buildDeviceInfo()},
+        {"origin", QJsonObject{{"name", "Decenza"}, {"sw_version", VERSION_STRING},
+                               {"support_url", "https://github.com/Kulitorum/Decenza"}}},
+        {"components", components},
+    };
+}
+
 void MqttClient::publishHomeAssistantDiscovery()
 {
     if (!m_settingsMqtt) return;
 
-    // Counted, not logged per entity: the set is fixed, so a line per member says nothing
-    // the count does not, and a failed publish already warns in publishRaw().
-    m_discoveryEntityCount = 0;
-    QStringList topics;
-    for (const DiscoveryEntry& entry : discoveryEntries()) {
-        const QString topic = discoveryTopic(entry.component, entry.objectId);
-        publish(topic, QString::fromUtf8(QJsonDocument(discoveryConfig(entry)).toJson(QJsonDocument::Compact)), true);
-        topics.append(topic);
-        ++m_discoveryEntityCount;
+    // Once per identity: move the per-entity topics of earlier builds. Order is Home
+    // Assistant's: migrate_discovery (not retained) on each old topic, then the device
+    // message, then empty retained payloads on the old topics. QoS 1 on one connection
+    // keeps that order at the broker.
+    const bool migrating = !m_settingsMqtt->mqttDiscoveryMigrated();
+    QStringList legacy;
+    if (migrating) {
+        legacy = legacyDiscoveryTopics();
+        for (const QString& topic : m_settingsMqtt->mqttPublishedDiscoveryTopics()) {
+            if (!legacy.contains(topic))
+                legacy << topic;
+        }
+        for (const QString& topic : legacy)
+            publishRaw(topic, QStringLiteral("{\"migrate_discovery\":true}"), false, 1);
     }
 
-    // Anything published before and not now (e.g. the profile select once the last
-    // profile is gone) is cleared, so Home Assistant does not keep a dead entity.
-    QStringList stale;
-    for (const QString& previous : m_settingsMqtt->mqttPublishedDiscoveryTopics()) {
-        if (!topics.contains(previous))
-            stale.append(previous);
+    QStringList components;
+    const QJsonObject payload = deviceDiscoveryPayload(&components);
+    publishRaw(deviceDiscoveryTopic(), QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)),
+               m_settingsMqtt->mqttRetainMessages(), 1);
+    m_settingsMqtt->setMqttPublishedDiscoveryComponents(components);
+    m_discoveryEntityCount = static_cast<int>(components.size());
+
+    if (migrating) {
+        for (const QString& topic : legacy)
+            publishRaw(topic, QString(), true, 1);
+        m_settingsMqtt->setMqttDiscoveryMigrated(true);
+        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
+        DIAG_INFO(NETWORK, "MqttClient") << "Moved Home Assistant discovery to one device message ("
+                  << legacy.size() << "per-entity topics cleared)";
     }
-    retractDiscoveryTopics(stale);
-    m_settingsMqtt->setMqttPublishedDiscoveryTopics(topics);
 
     DIAG_DEBUG(NETWORK, "MqttClient") << "Home Assistant discovery published —"
              << m_discoveryEntityCount << "entities";
 }
 
-void MqttClient::retractDiscoveryTopics(const QStringList& topics)
+void MqttClient::retractDiscovery()
 {
-    // An empty RETAINED payload is what removes the entity, and clears any retained
-    // config whatever the retain setting was when it was published.
-    for (const QString& topic : topics)
-        publishRaw(topic, QString(), true, 1);
-    if (!topics.isEmpty())
-        DIAG_INFO(NETWORK, "MqttClient") << "Removed" << topics.size() << "Home Assistant entities";
+    if (!m_settingsMqtt) return;
+    // Only this install's own topics. An empty RETAINED payload is what removes the
+    // device, whatever the retain setting was when it was published.
+    publishRaw(deviceDiscoveryTopic(), QString(), true, 1);
+    if (!m_settingsMqtt->mqttDiscoveryMigrated()) {
+        // Never moved: this identity's entities still live on the per-entity topics.
+        for (const QString& topic : legacyDiscoveryTopics())
+            publishRaw(topic, QString(), true, 1);
+        m_settingsMqtt->setMqttDiscoveryMigrated(true);
+        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
+    }
+    m_settingsMqtt->setMqttPublishedDiscoveryComponents({});
+    DIAG_INFO(NETWORK, "MqttClient") << "Removed this device from Home Assistant discovery";
 }

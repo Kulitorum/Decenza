@@ -379,7 +379,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     mqtt["publishInterval"] = mqttSettings->mqttPublishInterval();
     mqtt["retainMessages"] = mqttSettings->mqttRetainMessages();
     mqtt["homeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
-    mqtt["clientId"] = mqttSettings->mqttClientId();
+    // Not the client ID: it is the broker's session key and must stay unique to each
+    // install. The device ID is the Home Assistant identity a replacement tablet keeps.
+    mqtt["deviceId"] = mqttSettings->mqttDeviceId();
     mqtt["useTls"] = mqttSettings->mqttUseTls();
     mqtt["caCertificate"] = mqttSettings->mqttCaCertificate();
     root["mqtt"] = mqtt;
@@ -965,7 +967,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mqtt.contains("publishInterval")) mqttSettings->setMqttPublishInterval(mqtt["publishInterval"].toInt());
         if (mqtt.contains("retainMessages")) mqttSettings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
         if (mqtt.contains("homeAssistantDiscovery")) mqttSettings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
-        if (mqtt.contains("clientId")) mqttSettings->setMqttClientId(mqtt["clientId"].toString());
+        // A backup from before the device ID carries only the client ID, which is what built
+        // that install's Home Assistant unique_ids: it becomes the device ID, never this
+        // install's client ID.
+        if (mqtt.contains("deviceId"))
+            mqttSettings->importMqttDeviceId(mqtt["deviceId"].toString());
+        else if (mqtt.contains("clientId"))
+            mqttSettings->importMqttDeviceId(mqtt["clientId"].toString());
         if (mqtt.contains("useTls")) mqttSettings->setMqttUseTls(mqtt["useTls"].toBool());
         if (mqtt.contains("caCertificate")) mqttSettings->setMqttCaCertificate(mqtt["caCertificate"].toString());
     }

@@ -16,7 +16,7 @@ The app SHALL connect with a client ID that belongs to this install alone: gener
 - **THEN** each SHALL generate its own client ID and stop disconnecting the other
 
 ### Requirement: Stable Home Assistant Identity
-Every Home Assistant entity `unique_id` and the device identifier SHALL be built from a Home Assistant device ID, not from the client ID. The device ID SHALL be generated once, saved, carried by backup, restore and device migration, and reused across restarts and updates. An install upgrading from a version before this change SHALL take its device ID from its previous client ID, so its `unique_id`s and device identifier do not change. The user SHALL be able to replace the device ID with a new random one from the app and from the web settings page; doing so SHALL remove this install's previous device from Home Assistant.
+Every Home Assistant entity `unique_id` and the device identifier SHALL be built from a Home Assistant device ID, not from the client ID. The device ID SHALL be generated once, saved, carried by backup, restore and device migration, and reused across restarts and updates. An install upgrading from a version before this change SHALL take its device ID from its previous client ID, so its `unique_id`s and device identifier do not change. The user SHALL be able to replace the device ID with a new random one from the app and from the web settings page, connected or not. Doing so SHALL NOT clear any discovery message published under the previous device ID, because another install restored from the same backup may share it; a previous device used by this install alone stays in Home Assistant as unavailable until the user deletes it there. A new device ID has no earlier per-entity topics, so the move to device-based discovery SHALL NOT run for it. A backup made before this change carries only a client ID; restoring it SHALL use that client ID as the device ID, because it built that install's `unique_id`s, and SHALL NOT use it as the client ID.
 
 #### Scenario: Upgrading an existing install
 - **WHEN** a user who already uses MQTT discovery installs this version
@@ -27,8 +27,12 @@ Every Home Assistant entity `unique_id` and the device identifier SHALL be built
 - **THEN** Home Assistant SHALL keep showing the same device and entities, now fed by the new tablet
 
 #### Scenario: Second live install from the same backup
-- **WHEN** a second install restored from the same backup chooses "New device ID"
+- **WHEN** a second install restored from the same backup chooses "New device ID", before or after connecting
 - **THEN** it SHALL appear in Home Assistant as a separate device, and the first install's device and entities SHALL be unaffected
+
+#### Scenario: Replacing a tablet from a backup made before this change
+- **WHEN** a backup made by an earlier version is restored onto a new tablet that replaces the old one
+- **THEN** the new tablet SHALL take the backup's client ID as its device ID, keep its own client ID, and Home Assistant SHALL keep showing the same device and entities
 
 ### Requirement: Broker Message Contract
 The app SHALL publish and subscribe as follows:
