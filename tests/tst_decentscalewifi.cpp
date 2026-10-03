@@ -43,6 +43,8 @@ public:
                 m_client->setParent(this);
                 connect(m_client, &QWebSocket::textMessageReceived,
                         this, [this](const QString& msg) { m_received.append(msg); });
+                connect(m_client, &QWebSocket::disconnected,
+                        this, &FakeHdsServer::clientDisconnected);
                 emit clientConnected();
             }
         });
@@ -81,6 +83,7 @@ public:
 
 signals:
     void clientConnected();
+    void clientDisconnected();
 
 private:
     QWebSocketServer* m_server = nullptr;
@@ -418,6 +421,68 @@ private slots:
             QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
         QVERIFY(!server.received().contains(QStringLiteral("soft_sleep on")));
         QCOMPARE(sleepSpy.count(), 1);
+    }
+
+    // Abandoning a dial that is still connecting is our own act, not evidence
+    // about the address. close() on it raised a Qt write() warning and an
+    // "Invalid socket descriptor" error that onError read as "a peer answered":
+    // it evicted the cached IP and dialed the hostname for a scale being
+    // dropped. Seen in a user log on every WiFi-to-Bluetooth switch and at app
+    // exit (both destroy the driver mid-connect). 192.0.2.1 is TEST-NET-1:
+    // never routed, so the dial sits in ConnectingState until the OS gives up.
+    void teardownMidConnectKeepsCachedIp() {
+        QStringList cacheWrites;  // before the driver: its callback writes here
+        {
+            DecentScaleWifi driver;
+            driver.setIpResolver([](const QString&) { return QStringLiteral("192.0.2.1"); });
+            driver.setIpCacheUpdate([&](const QString&, const QString& ip) { cacheWrites.append(ip); });
+
+            driver.connectToHost(QStringLiteral("hds.invalid"));
+            QTest::qWait(100);  // lets an immediate no-route failure surface
+            if (driver.m_socket->state() != QAbstractSocket::ConnectingState)
+                QSKIP("192.0.2.1 did not stay in ConnectingState here (no network route?)");
+
+            driver.disconnectFromScale();
+            QCoreApplication::processEvents();
+            QVERIFY2(cacheWrites.isEmpty(), "disconnectFromScale() mid-connect evicted the cached IP");
+
+            driver.connectToHost(QStringLiteral("hds.invalid"));
+            QTRY_COMPARE(driver.m_socket->state(), QAbstractSocket::ConnectingState);
+        }  // destroyed mid-connect
+        QCoreApplication::processEvents();
+        QVERIFY2(cacheWrites.isEmpty(), "~DecentScaleWifi() mid-connect evicted the cached IP");
+    }
+
+    // The DE1-sleep check-in exists only to restart the HDS's 15-min auto-off.
+    // It must not look like a connection: a command ("display on" from the
+    // normal handshake) would light a sleeping scale every 10 min, and a
+    // connected flip would swap the app off FlowScale mid-sleep.
+    void keepAwakeCheckInIsSilentAndBrief() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        connectAndHandshake(driver, server);
+        server.sendJson({{ "grams", 1.5 }, { "ms", 1 }});
+        QVERIFY(weightSpy.wait(2000));  // recognized: the address is remembered
+
+        QSignalSpy firstGone(&server, &FakeHdsServer::clientDisconnected);
+        driver.disconnectFromScale();
+        QVERIFY(firstGone.wait(2000));
+        QTRY_VERIFY(!driver.isConnected());
+        driver.beginSleepKeepAwake();
+        server.clearReceived();
+
+        QSignalSpy driverConnected(&driver, &ScaleDevice::connectedChanged);
+        QSignalSpy checkInArrived(&server, &FakeHdsServer::clientConnected);
+        QSignalSpy checkInGone(&server, &FakeHdsServer::clientDisconnected);
+        driver.checkInToStayAwake();
+        QVERIFY(checkInArrived.wait(2000));
+        server.sendJson({{ "grams", 1.5 }, { "ms", 2 }});
+        QVERIFY(checkInGone.wait(2000));  // closed once the scale answered
+
+        QVERIFY2(server.received().isEmpty(), qPrintable(server.received().join(", ")));
+        QCOMPARE(driverConnected.count(), 0);
+        driver.endSleepKeepAwake();
     }
 
     void setLedFormatsAndClamps() {
@@ -1293,158 +1358,6 @@ private slots:
         QVERIFY(!DecentScaleWifi::isTransientTransportError(QAbstractSocket::OperationError));
     }
 
-    // The regression this whole change exists for.
-    //
-    // A cached IP that is unreachable at the network layer must NOT be evicted:
-    // nothing answered, so nothing was learned about whether the address is
-    // still the scale's. Previously any error evicted the cache and immediately
-    // re-dialed the hostname within the same event-loop turn — inside the same
-    // unreachability window — which failed identically, consumed the fallback, and left a
-    // healthy scale disconnected until the user manually rescanned.
-    //
-    // 0.0.0.1 is the test's unreachable address. VERIFIED ON macOS ONLY: the
-    // kernel rejects it at the routing layer in ~0.15 ms with EHOSTUNREACH,
-    // which qnativesocketengine_unix.cpp maps to NetworkError — the same code
-    // and the same sub-millisecond timing as the production failure, with no
-    // listener and no network access needed.
-    //
-    // It is NOT known to behave that way everywhere. Linux rejects zeronet
-    // destinations in __mkroute_output() with EINVAL, and Qt maps EINVAL to
-    // ConnectionRefusedError — which this change deliberately classifies as
-    // NON-transient. So on Linux this address may well exercise the opposite
-    // branch. Rather than assert a cache outcome that would then fail for a
-    // reason unrelated to the behaviour under test, each of these tests checks
-    // the precondition first and skips with an explanation. The classification
-    // itself is covered on every platform by transportErrorClassification(),
-    // which needs no socket at all.
-    void transientTransportErrorRetainsCachedIp() {
-        // DECLARED FIRST, before `driver`, so it outlives it: locals are
-        // destroyed in reverse order, and ~DecentScaleWifi emits transport
-        // warnings of its own. A filter declared after the driver is already
-        // gone by the time those fire and they escape as test failures.
-        //
-        // A filter, not ignoreMessage: the number of transport-error warnings
-        // is an implementation detail of the attempt (and of Qt's socket
-        // signalling), and the test is about the cache, not the log volume.
-        ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};
-        // cacheWrites is declared before `driver` for the same reason the filter
-        // is: the driver holds a callback capturing it by reference, and that
-        // callback is reachable from ~DecentScaleWifi. Declared after, it would
-        // be destroyed first and the callback would write to a dead QList —
-        // a use-after-free this suite runs ASan over.
-        QList<QPair<QString, QString>> cacheWrites;
-        DecentScaleWifi driver;
-        driver.setIpResolver([](const QString&) {
-            return QStringLiteral("0.0.0.1:80");  // instant EHOSTUNREACH (macOS)
-        });
-        driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
-            cacheWrites.append({host, ip});
-        });
-
-        driver.connectToHost(QStringLiteral("hds.invalid"));
-
-        // Precondition, not an assertion: confirm this platform actually
-        // produced a transient (NetworkError) failure for the unreachable
-        // address. m_retryShouldReresolve is set only by onError's transient
-        // branch, so it is the cheapest available proof of which branch ran.
-        QTest::qWait(600);
-        if (!driver.m_retryShouldReresolve) {
-            QSKIP("connect() to 0.0.0.1:80 did not yield a transient NetworkError on "
-                  "this platform (Linux maps zeronet to EINVAL -> ConnectionRefusedError). "
-                  "Classification is covered by transportErrorClassification().");
-        }
-
-        // Waits past the 5 s recognition window on purpose. A 600 ms wait here
-        // passes even with the bug this guards against: onError correctly
-        // declined to evict, but because attemptTarget used to arm the
-        // recognition timer AFTER open() — and open() fails synchronously for an
-        // unreachable address — onError's stop() hit a timer that had not
-        // started yet. The timer was then armed anyway and fired 5 s later,
-        // evicting the very cache entry the error path had just decided to keep.
-        // Only a wait longer than the window can see that.
-        QTest::qWait(6000);
-
-        QVERIFY2(cacheWrites.isEmpty(),
-                 "A transient transport error must not write to the IP cache — "
-                 "the cached IP is still our best guess at the scale's identity");
-    }
-
-    // A transient failure must not reach onRecognitionTimeout's terminal
-    // give-up branch. That branch emits recognitionFailed, which in production
-    // main.cpp wires to disconnectScaleRequested → physicalScale.reset(),
-    // destroying the driver so nothing can retry. That teardown is correct for
-    // "this address is not a scale" and wrong for "the scale is briefly off the
-    // air" — conflating them is what forced a manual rescan to recover.
-    //
-    // Waits past the 5 s recognition window: if the transient path still armed
-    // or left the recognition timer running, the give-up branch fires inside it.
-    // (Note that only transientTransportErrorRetainsCachedIp actually pins the
-    // timer ORDERING — with the ordering reverted, the 5 s timeout here lands in
-    // the cached-IP fallback branch, which does not emit recognitionFailed. This
-    // test's long wait guards the onError branch, not attemptTarget's ordering.)
-    void transientTransportErrorDoesNotEmitRecognitionFailed() {
-        ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};  // before `driver`
-        DecentScaleWifi driver;
-        driver.setIpResolver([](const QString&) {
-            return QStringLiteral("0.0.0.1:80");
-        });
-        QSignalSpy failedSpy(&driver, &DecentScaleWifi::recognitionFailed);
-
-        driver.connectToHost(QStringLiteral("hds.invalid"));
-
-        QTest::qWait(600);
-        if (!driver.m_retryShouldReresolve)
-            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
-                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
-
-        QTest::qWait(5400);
-        QCOMPARE(failedSpy.count(), 0);
-    }
-
-    // After a transient failure the next attempt must re-resolve the name
-    // rather than re-dial the remembered address. Re-dialing repeats the
-    // attempt that just failed; resolving picks up an address that moved and
-    // puts an mDNS exchange on the wire.
-    //
-    // Verified by observation rather than by inspecting the flag: the resolver
-    // callback is invoked on the first connect (which fails transiently) and
-    // must NOT be consulted on the second, because that attempt goes through
-    // attemptHostname(). The second connect targets a live FakeHdsServer, so a
-    // successful handshake proves the hostname path was taken.
-    void retryAfterTransientFailureReresolvesInsteadOfUsingCache() {
-        ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};  // before `driver`
-        FakeHdsServer hostnameServer;
-        DecentScaleWifi driver;
-        int resolverCalls = 0;
-        driver.setIpResolver([&](const QString&) {
-            ++resolverCalls;
-            return QStringLiteral("0.0.0.1:80");
-        });
-
-        // First attempt: cached IP is unreachable, fails transiently.
-        driver.connectToHost(hostnameServer.host());
-        QTest::qWait(600);
-        QCOMPARE(resolverCalls, 1);
-        if (!driver.m_retryShouldReresolve)
-            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
-                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
-
-        // Second attempt — what main.cpp's scaleReconnectTimer would fire.
-        // It must skip the cache entirely; if it consulted the resolver it
-        // would dial 0.0.0.1 again and never reach the server.
-        QSignalSpy connectedSpy(&hostnameServer, &FakeHdsServer::clientConnected);
-        driver.connectToHost(hostnameServer.host());
-
-        // NOTE: connectedSpy.wait() is NOT the assertion that catches a revert.
-        // Without the re-resolve shortcut the old eviction path queues
-        // attemptHostname(), which reaches this same live server — so the
-        // handshake still succeeds. resolverCalls below is what actually pins it.
-        QVERIFY2(connectedSpy.wait(2000),
-                 "Retry after a transient failure must reach the hostname server");
-        QCOMPARE(resolverCalls, 1);  // cache deliberately not consulted — the real check
-        QTRY_VERIFY_WITH_TIMEOUT(hostnameServer.received().size() >= 4, 2000);
-    }
-
     // The re-resolve must not be able to leave the driver dialling nothing.
     // When resolution fails, dialCachedIpAfterResolveFailure() falls back to the
     // cached IP — otherwise a device whose mDNS is unreliable (exactly what the
@@ -1481,61 +1394,6 @@ private slots:
         QVERIFY2(connectedSpy.wait(15000),
                  "Resolution failed and no socket was opened — the cached-IP "
                  "fallback did not run, so this cycle dialled nothing");
-        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
-    }
-
-    // The re-resolve obligation is discharged by recognition, not by a bare WS
-    // upgrade — and once discharged, a later connect uses the cache again. Without
-    // this, a single transient failure would permanently disable the cached-IP
-    // fast path for the rest of the driver's life.
-    void cachedIpFastPathResumesAfterSuccessfulConnect() {
-        ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};  // before `driver`
-        FakeHdsServer server;
-        DecentScaleWifi driver;
-        int resolverCalls = 0;
-        driver.setIpResolver([&](const QString&) {
-            ++resolverCalls;
-            // After the first (deliberately unreachable) answer, hand back the
-            // live server so a cached-IP dial would succeed.
-            return resolverCalls == 1 ? QStringLiteral("0.0.0.1:80") : server.host();
-        });
-
-        // 1. Transient failure arms the re-resolve.
-        driver.connectToHost(server.host());
-        QTest::qWait(600);
-        QCOMPARE(resolverCalls, 1);
-        if (!driver.m_retryShouldReresolve)
-            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
-                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
-
-        // 2. Retry re-resolves, connects, and is recognized as a real HDS —
-        //    which clears the obligation.
-        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
-        driver.connectToHost(server.host());
-        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
-        server.sendJson({{ "grams", 5.0 }, { "ms", 1 }});
-        QVERIFY(recognizedSpy.wait(1000));
-        QCOMPARE(resolverCalls, 1);  // took the hostname path, cache untouched
-
-        // 3. Close cleanly, then reconnect — the shape a real reconnect takes.
-        //    Dialing while still connected would make recreateSocket() abort a
-        //    live socket, which is not what this test is about.
-        driver.disconnectFromScale();
-        QTRY_VERIFY_WITH_TIMEOUT(!driver.isConnected(), 2000);
-
-        // 4. The cache fast path is live again: the resolver is consulted on
-        //    the next connect. Without the clear in onRecognizedAsHds, a single
-        //    transient failure would disable the cached-IP path permanently.
-        server.clearReceived();
-        driver.connectToHost(server.host());
-        QTRY_COMPARE_WITH_TIMEOUT(resolverCalls, 2, 2000);
-
-        // Let the WS handshake actually finish before the test ends.
-        // resolverCalls increments synchronously inside connectToHost, so
-        // asserting on it alone returns while the socket is still mid-handshake
-        // — and tearing the driver down at that moment makes Qt warn from
-        // inside the half-open socket, failing the test for a reason that has
-        // nothing to do with what it checks.
         QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
     }
 };

@@ -14,6 +14,7 @@
 #include <QThread>
 #include <QPointer>
 #include <algorithm>
+#include <utility>
 
 // Private headers — reach the QTcpSocket inside QWebSocket so we can set DSCP
 // and TCP_NODELAY (see applyTcpQos). Project already uses Qt private headers
@@ -59,10 +60,18 @@ DecentScaleWifi::DecentScaleWifi(QObject* parent)
     : ScaleDevice(parent)
     , m_socket(nullptr)
     , m_recognitionTimer(new QTimer(this))
+    , m_keepAwakeTimer(new QTimer(this))
+    , m_checkInTimeout(new QTimer(this))
 {
     m_recognitionTimer->setSingleShot(true);
     connect(m_recognitionTimer, &QTimer::timeout,
             this, &DecentScaleWifi::onRecognitionTimeout);
+    connect(m_keepAwakeTimer, &QTimer::timeout,
+            this, &DecentScaleWifi::checkInToStayAwake);
+    m_checkInTimeout->setSingleShot(true);
+    connect(m_checkInTimeout, &QTimer::timeout, this, [this]() {
+        finishCheckIn(false, QStringLiteral("no frame within %1 ms").arg(kRecognitionTimeoutMs));
+    });
 
     // Initial socket — recreateSocket() will swap it on every connect attempt.
     // Called here rather than deferring to the first attemptTarget() because
@@ -75,9 +84,16 @@ DecentScaleWifi::DecentScaleWifi(QObject* parent)
 }
 
 DecentScaleWifi::~DecentScaleWifi() {
-    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return;
+    if (m_socket->state() == QAbstractSocket::ConnectedState) {
         m_socket->close();
+        return;
     }
+    // Mid-connect: same hazard as disconnectFromScale(), with no replacement
+    // socket needed.
+    m_socket->disconnect(this);
+    m_socket->abort();
 }
 
 void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
@@ -103,6 +119,7 @@ QString DecentScaleWifi::name() const {
 }
 
 void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {
+    endSleepKeepAwake();
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
@@ -501,9 +518,101 @@ void DecentScaleWifi::disconnectFromScale() {
     // Invalidate any in-flight mDNS resolve so its late callback can't reopen
     // the socket after the user has asked to disconnect.
     ++m_resolveGeneration;
-    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+    endSleepKeepAwake();
+    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return;
+    if (m_socket->state() == QAbstractSocket::ConnectedState) {
         m_socket->close();
+        return;
     }
+    // Still connecting. close() would flush a close frame onto the unconnected
+    // socket (Qt warns "QNativeSocketEngine::write() was not called in
+    // ConnectedState"), and the error that follows reaches onError as "a peer
+    // answered", which evicted the cached IP and dialed the hostname for a
+    // connection we were abandoning. recreateSocket() detaches and aborts it.
+    m_pendingHostnameFallback = false;
+    recreateSocket();
+}
+
+void DecentScaleWifi::beginSleepKeepAwake() {
+    if (m_lastRecognizedUrl.isEmpty()) {
+        WIFI_WARN(QString("No recognized address for %1 — cannot keep it awake while the DE1 sleeps; "
+                          "it will power itself off after 15 min unless it is on USB power")
+                      .arg(m_hostname));
+        return;
+    }
+    m_checkInsReached = 0;
+    m_checkInsFailed = 0;
+    m_lastCheckInFailed = false;
+    m_keepAwakeTimer->start(kKeepAwakeIntervalMs);
+    WIFI_INFO(QString("Checking in with %1 every %2 min while the DE1 sleeps, so the scale's "
+                      "15-min auto-off does not fire")
+                  .arg(m_lastRecognizedUrl.host())
+                  .arg(kKeepAwakeIntervalMs / 60000));
+}
+
+void DecentScaleWifi::endSleepKeepAwake() {
+    if (!m_keepAwakeTimer->isActive())
+        return;
+    m_keepAwakeTimer->stop();
+    dropCheckInSocket();
+    WIFI_INFO(QString("Stopped keep-awake check-ins: %1 reached the scale, %2 failed")
+                  .arg(m_checkInsReached)
+                  .arg(m_checkInsFailed));
+}
+
+void DecentScaleWifi::checkInToStayAwake() {
+    // A previous check-in still in flight is bounded by m_checkInTimeout.
+    if (m_checkInSocket)
+        return;
+    m_checkInSocket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+    QWebSocket* socket = m_checkInSocket;
+    connect(socket, &QWebSocket::textMessageReceived, this, [this]() {
+        finishCheckIn(true, QString());
+    });
+    connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+            this, [this, socket]() { finishCheckIn(false, socket->errorString()); });
+    // Armed before open(): open() can fail synchronously (see attemptTarget).
+    m_checkInTimeout->start(kRecognitionTimeoutMs);
+    socket->open(m_lastRecognizedUrl);
+}
+
+void DecentScaleWifi::finishCheckIn(bool reached, const QString& failure) {
+    if (!m_checkInSocket)
+        return;
+    dropCheckInSocket(/*graceful=*/reached);
+    if (reached) {
+        ++m_checkInsReached;
+        if (m_lastCheckInFailed)
+            WIFI_INFO(QString("Keep-awake check-in reached %1 again").arg(m_lastRecognizedUrl.host()));
+    } else {
+        ++m_checkInsFailed;
+        // First failure of a run only; the end-of-sleep line carries the count.
+        if (!m_lastCheckInFailed)
+            WIFI_WARN(QString("Keep-awake check-in to %1 failed: %2 — the scale may have powered off")
+                          .arg(m_lastRecognizedUrl.host(), failure));
+    }
+    m_lastCheckInFailed = !reached;
+}
+
+void DecentScaleWifi::dropCheckInSocket(bool graceful) {
+    m_checkInTimeout->stop();
+    if (!m_checkInSocket)
+        return;
+    QWebSocket* socket = std::exchange(m_checkInSocket, nullptr);
+    // Detach first so a queued signal from the dying socket cannot re-enter.
+    socket->disconnect(this);
+    if (graceful && socket->state() == QAbstractSocket::ConnectedState) {
+        // close() flushes the close frame behind any pending data and waits
+        // at most 3 s for the peer's reply (qtwebsockets
+        // src/websockets/qwebsocket_p.cpp, doClose), so this delete is bounded.
+        connect(socket, &QWebSocket::disconnected, socket, &QObject::deleteLater);
+        socket->close();
+        return;
+    }
+    if (socket->state() != QAbstractSocket::UnconnectedState)
+        socket->abort();
+    socket->deleteLater();
 }
 
 void DecentScaleWifi::onConnected() {
@@ -845,6 +954,11 @@ void DecentScaleWifi::onRecognizedAsHds() {
     // upgrade doesn't prove we reached the scale — only a recognized HDS frame
     // does, and that is the same bar the rest of this driver uses.
     m_retryShouldReresolve = false;
+
+    if (m_socket) {
+        m_lastRecognizedUrl = m_socket->requestUrl();
+        m_lastRecognizedUrl.setHost(m_socket->peerAddress().toString());
+    }
 
     // Cache the peer IP after a hostname connect succeeds, so the next
     // connect can skip the OS resolver entirely. A cached-IP hit or a

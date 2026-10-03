@@ -113,6 +113,17 @@ public:
     using RepeatFailureSink = std::function<void(const QString& message, bool warn)>;
     void setRepeatFailureSink(RepeatFailureSink sink) { m_repeatFailureSink = std::move(sink); }
 
+    // Keeps the scale powered while main.cpp holds the WS closed for a DE1
+    // sleep (keepScaleOn=true). The HDS switches itself off after 15 min with
+    // no BLE or WebSocket client unless it is on USB power (openscale v3.1.14
+    // src/hds.ino:2296-2306, include/power.h:410-416), so every
+    // kKeepAwakeIntervalMs this opens a separate, short-lived WS to the last
+    // recognized address and closes it on the first frame. It sends no command
+    // and never reports the scale connected. Ended by endSleepKeepAwake(),
+    // connectToHost() and disconnectFromScale().
+    void beginSleepKeepAwake();
+    void endSleepKeepAwake();
+
 signals:
     // Emitted on the first valid HDS frame (snapshot or status) after a
     // connect attempt — confirms the WS endpoint is actually an HDS scale,
@@ -219,6 +230,14 @@ private:
     // First snapshot or status frame — confirms we're talking to the HDS.
     void onRecognizedAsHds();
 
+    void checkInToStayAwake();
+    // Any frame proves the firmware loop ran with our client counted: we send
+    // no command, so the only thing it streams is the 2 Hz weight snapshot,
+    // and that is sent from the same loop that resets the auto-off countdown
+    // (openscale v3.1.14 src/hds.ino:2443).
+    void finishCheckIn(bool reached, const QString& failure);
+    void dropCheckInSocket(bool graceful = false);
+
     // Button encoding: 0x1000 high bit flags WiFi-encoded buttons so they
     // cannot collide with the BLE driver's 0..0xFF single-byte values.
     static int encodeButton(int buttonNumber, int pressCode);
@@ -253,9 +272,21 @@ private:
     // BT driver's effective ~4 min battery poll (kBatteryPollHeartbeatTicks =
     // 240 × 1 s heartbeat). Reset on each connect cycle.
     static constexpr int kBatteryPollKeepAliveTicks = 8;
+    // Margin under the firmware's fixed 15 min (the status frame's
+    // auto_sleep_minutes), so one late or failed check-in is survivable.
+    static constexpr int kKeepAwakeIntervalMs = 10 * 60 * 1000;
 
     QWebSocket* m_socket = nullptr;
     QTimer* m_recognitionTimer = nullptr;
+    QTimer* m_keepAwakeTimer = nullptr;
+    QTimer* m_checkInTimeout = nullptr;
+    QWebSocket* m_checkInSocket = nullptr;
+    // Full endpoint of the last connection that was recognized as an HDS,
+    // with the host replaced by the peer IP so no resolve is needed.
+    QUrl m_lastRecognizedUrl;
+    int m_checkInsReached = 0;
+    int m_checkInsFailed = 0;
+    bool m_lastCheckInFailed = false;
     // WebSocket endpoint. Defaults are the firmware's current advertisement;
     // setEndpoint() replaces them with what a DNS-SD browse actually reported.
     quint16 m_wsPort = 80;

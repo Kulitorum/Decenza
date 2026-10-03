@@ -135,7 +135,6 @@ signals:
     void hasTotpSecretChanged();
     void themeEditorOpenChanged();
     void clientConnected(const QString& address);
-    void sleepRequested();  // Emitted when sleep command received via REST API
 
     /// Emitted on the main thread immediately before installApk() invokes the
     /// Android PackageInstaller JNI dispatch. Mirror of UpdateChecker's signal
