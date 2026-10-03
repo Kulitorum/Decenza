@@ -4654,13 +4654,6 @@ T.ApplicationWindow {
             // after the wake minute, manual wake, process suspended) — #1203.
         }
 
-        function onRemoteSleepRequested() {
-            WebDebugLogger.info("AutoSleep", "main", ["Remote sleep requested via MQTT/REST API"].map(String).join(" "))
-            if (!root.screensaverActive) {
-                root.goToScreensaver()
-            }
-        }
-
         function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
             root.flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
                 "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))

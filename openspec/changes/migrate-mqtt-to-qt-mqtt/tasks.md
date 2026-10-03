@@ -43,7 +43,7 @@
 - [x] 4.11 "New device ID" in the app tab and on the web page, connected or not: set a new random device ID and the migrated marker, clear nothing, and republish if connected. Verify: a `tst_mqttclient` case asserts no message reaches the previous identity's topics; on the Mac (restored from the tablet's backup), pressing it before connecting makes it a separate Home Assistant device while the tablet's device and entities are untouched.
 
 - [ ] 4.12 Recipe select: options are the non-archived recipe names (`RecipeStorage::requestInventory()`, re-read on `recipesChanged`), state on `base/recipe` (`None` when no recipe is active), command on `base/recipe/select`, which `MainController` resolves by name to `activateRecipe(id)`. Verify: a `tst_mqttclient` case asserts the entity and that it is omitted with no recipes; picking a recipe in Home Assistant activates it on the Mac, and archiving one removes it from the dropdown.
-- [ ] 4.13 Profile select order: move the profile page's "Recently used" sort (`ProfilePicker.sortedAllList`) into one `ProfileManager` function that the page and the select both use. Verify: a test asserts the order (current first, then most recent use, then never-used A–Z); the profile page's grid order is unchanged on screen, and the Home Assistant dropdown matches it.
+- [x] 4.13 Profile select order: move the profile page's "Recently used" sort (`ProfilePicker.sortedAllList`) into one `ProfileManager` function that the page and the select both use. Verify: a test asserts the order (current first, then most recent use, then never-used A–Z); the profile page's grid order is unchanged on screen, and the Home Assistant dropdown matches it.
 
 ## 5. Verification on device
 
