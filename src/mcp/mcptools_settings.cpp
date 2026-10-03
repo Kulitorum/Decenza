@@ -293,6 +293,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 if (include("mqttRetainMessages", "mqtt")) result["mqttRetainMessages"] = m->mqttRetainMessages();
                 if (include("mqttHomeAssistantDiscovery", "mqtt")) result["mqttHomeAssistantDiscovery"] = m->mqttHomeAssistantDiscovery();
                 if (include("mqttClientId", "mqtt")) result["mqttClientId"] = m->mqttClientId();
+                if (include("mqttUseTls", "mqtt")) result["mqttUseTls"] = m->mqttUseTls();
+                if (include("mqttCaCertificate", "mqtt")) result["mqttCaCertificate"] = m->mqttCaCertificate();
                 // mqttPassword excluded — sensitive
             }
 

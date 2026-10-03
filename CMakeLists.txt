@@ -240,30 +240,10 @@ if(NOT ANDROID AND NOT IOS)
     find_package(OpenSSL REQUIRED)
 endif()
 
-# Fetch Eclipse Paho MQTT C library (industry-standard, works with FetchContent)
-# OpenSSL must be found BEFORE this block so Paho can link against it.
-# PAHO_WITH_SSL ON makes Paho use OpenSSL's SHA1 instead of bundling its own,
-# which avoids duplicate SHA1_Init/Final/Update symbols on macOS when both
-# Paho and OpenSSL are linked as static libraries.
 include(FetchContent)
-FetchContent_Declare(
-    paho_mqtt_c
-    GIT_REPOSITORY https://github.com/eclipse/paho.mqtt.c.git
-    GIT_TAG        v1.3.16
-)
-set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(PAHO_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(PAHO_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-if(NOT ANDROID AND NOT IOS)
-    # Desktop: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
-    set(PAHO_WITH_SSL ON CACHE BOOL "" FORCE)
-else()
-    # Android/iOS: no OpenSSL linked with Paho (Android uses KDAB separately,
-    # iOS uses Apple Security.framework for TLS cert generation)
-    set(PAHO_WITH_SSL OFF CACHE BOOL "" FORCE)
-endif()
-set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(paho_mqtt_c)
+
+# Qt MQTT, built from source at the tag matching this Qt. Defines decenza_qtmqtt.
+include(cmake/qtmqtt.cmake)
 
 # mjansson/mdns: header-only mDNS library. Two jobs:
 #  - resolving .local hostnames on Android (Android's getaddrinfo doesn't
@@ -534,7 +514,7 @@ endif()
 # had the identical shape — a bool-returning save whose refusal a caller silently dropped, then
 # reported success over — and the last two were written while fixing the previous ones, so a
 # convention demonstrably did not hold. Scoped to exactly this diagnostic (not a general
-# -Werror), and placed AFTER the third-party FetchContent blocks so Paho does not inherit it;
+# -Werror), and placed AFTER the third-party FetchContent blocks so Qt MQTT does not inherit it;
 # it applies to the app target and tests, which are created below. A deliberate discard is
 # written `(void)call();` with a comment saying why the failure is tolerable.
 if(MSVC)
@@ -548,7 +528,7 @@ endif()
 # the ONLY place diagnostics are enforced. There is no CI warning job: a count
 # in a log has no forcing function, and a red build does.
 #
-# Placed after the FetchContent blocks so third-party code (Paho, mdns, tsnet)
+# Placed after the FetchContent blocks so third-party code (Qt MQTT, mdns, tsnet)
 # never inherits it; it applies to the app target and tests, created below.
 #
 # The extra flags beyond -Wall -Wextra were chosen by MEASUREMENT, not taste:
@@ -1225,13 +1205,7 @@ if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE Qt6::SerialPort)
 endif()
 
-# Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
-# statically linked (avoids duplicate SHA1 symbols), non-SSL on Android/iOS
-if(NOT ANDROID AND NOT IOS)
-    target_link_libraries(Decenza PRIVATE paho-mqtt3as-static)
-else()
-    target_link_libraries(Decenza PRIVATE paho-mqtt3a-static)
-endif()
+target_link_libraries(Decenza PRIVATE decenza_qtmqtt)
 
 # Link OpenSSL on desktop only (Android uses KDAB add_android_openssl_libraries,
 # iOS uses Apple Security.framework for cert generation)

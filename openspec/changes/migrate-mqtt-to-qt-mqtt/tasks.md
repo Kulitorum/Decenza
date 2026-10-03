@@ -1,0 +1,54 @@
+## 1. Build Qt MQTT in-tree
+
+- [x] 1.1 Add `cmake/qtmqtt.cmake`: FetchContent `https://github.com/qt/qtmqtt.git` at `GIT_TAG v${Qt6_VERSION}` (shallow, `SOURCE_SUBDIR` set to a non-existent path), with a wrapper error naming the Qt version and module when the clone fails. Verify: configure succeeds on the macOS kit, and `_deps/qtmqtt-src/.cmake.conf` reads `6.12.0`.
+- [ ] 1.2 Add the version guard comparing the fetched `QT_REPO_MODULE_VERSION` with `Qt6_VERSION`, ignoring the prerelease segment. Verify: pointing `FETCHCONTENT_SOURCE_DIR_QTMQTT` at a tree with an edited version fails configure with both versions named, and restoring it configures cleanly.
+- [x] 1.3 Add the `decenza_qtmqtt` static library: the 13 `src/mqtt/*.cpp` files, a build-dir `QtMqtt/` header tree, a generated `qtmqttexports.h`, `AUTOMOC`, upstream's internal defines, no WebSocket sources, linking `Qt6::Core`, `Qt6::CorePrivate` and `Qt6::Network`. Verify: the target builds cleanly through the Qt Creator MCP with no new warnings.
+- [x] 1.4 Remove the Paho FetchContent block, `PAHO_*` cache settings and every `paho-mqtt3a(s)-static` link from `CMakeLists.txt` and `tests/CMakeLists.txt` (including the `decenza_profilelib` include-only link and its comment). Link `decenza_qtmqtt` only into the app and `tst_mqttclient`. Verify: `grep -ri paho CMakeLists.txt tests/CMakeLists.txt cmake/` is empty and a full build succeeds.
+
+## 2. Port MqttClient to QMqttClient
+
+- [x] 2.1 Replace the `<MQTTAsync.h>` include in `mqttclient.h` with forward declarations, so `maincontroller.h` consumers no longer see MQTT headers. Remove the Paho static callbacks and the `internal*` signals and slots. Verify: the targets that previously linked Paho only for the include build without any MQTT link.
+- [ ] 2.2 Hold one `QMqttClient` for the client's lifetime, configured with the persisted client ID, credentials, keepalive 60, clean session, MQTT 3.1.1, and the will (`availability` = `offline`, QoS 1, retained). Verify: against the Home Assistant broker, Home Assistant shows the existing device with no new device or entity.
+- [x] 2.3 Implement the owned-socket attempt (design decision 2): a fresh `QTcpSocket` per attempt, handed over via `setTransport()` on `connected()`, closed and `deleteLater()`'d on failure. Handle a synchronous `errorOccurred` from `connectToHost()` without re-entering `connectToBroker()`. Verify: the existing reconnect and backoff tests in `tst_mqttclient` pass unchanged.
+- [ ] 2.4 Port publish, subscribe and message dispatch (`command`, `profile/set`) onto `QMqttClient`, keeping each call's QoS and retain flag. Verify: wake, sleep, steam_on, steam_off and a profile change sent from Home Assistant all act on the machine.
+- [x] 2.5 Add the MQTT 3.1 fallback on `InvalidProtocolVersion` (one immediate retry, not counted against the budget). Verify: a `tst_mqttclient` case driving the error slot asserts the protocol switch and an unchanged attempt count.
+- [x] 2.6 Replace `connackReasonText()` with the single status mapper over client error, socket error and TLS errors, keeping today's CONNACK wordings verbatim. Re-express the Paho-callback test cases against it. Verify: `tst_mqttclient` covers each CONNACK reason, host unreachable, connection refused, timed out, name not resolved and certificate rejected, and none yields a bare number.
+- [ ] 2.7 Set "connected" only after both command subscriptions report `Subscribed`, and name a refused topic on `Error`. Verify: a broker ACL that denies `decenza/command` shows the refused-topic status in the app and on the web page.
+- [ ] 2.8 Implement clean exit (design decision 5). Verify: quitting the app with the broker connected flips Home Assistant to unavailable within seconds.
+- [x] 2.9 Route every new log line through the registered `[Network]` helpers per `docs/CLAUDE_MD/LOGGING.md`. Verify: `python3 scripts/check_log_markers.py` passes.
+
+## 3. TLS
+
+- [x] 3.1 Add `mqttUseTls` (default false) and `mqttCaCertificate` (default empty) to `SettingsMqtt`, wired to `onSettingsChanged()`. Verify: the defaults leave an upgraded install unencrypted (`settings_mqtt.cpp`), and both survive export/import (`settingsserializer.cpp`). A getter/setter round-trip test would catch nothing the build does not, so none was added; the upgrade check in 5.2 covers the default on a real install.
+- [ ] 3.2 TLS attempt: `QSslSocket::connectToHostEncrypted(address, port, configuredHostName)` with the system CAs plus the user CA. Verify: TLS to a broker with a self-signed CA connects once the CA is supplied, is rejected with a certificate reason without it, and a `.local` broker on Android verifies against the `.local` name.
+- [ ] 3.3 App Home Automation tab: TLS switch (offer 8883 when switching on with 1883), CA certificate paste or file pick, validated with `QSslCertificate::fromData()`. All strings via `TranslationManager`; accessibility roles and names per `docs/CLAUDE_MD/ACCESSIBILITY.md`. Verify: open the tab on the tablet, set and clear both, and navigate the new controls with TalkBack.
+- [ ] 3.4 ShotServer settings page: the same TLS switch and a CA textarea or upload, sharing the existing page helpers. Verify: settings saved on the web appear in the app and the reverse.
+- [x] 3.5 Expose both settings through MCP `settings_get`/`settings_set`, and bump `McpSurfaceVersion`. Verify: `python3 scripts/check_mcp_tool_budget.py` passes.
+
+## 4. Home Assistant additions
+
+- [ ] 4.1 Move entity definitions into one table that `publishHomeAssistantDiscovery()` iterates, and add per-entity availability (machine entities: `availability` + `connected`; scale entities: `availability` + `scale_connected`; `availability_mode: all`). Verify: a `tst_mqttclient` case asserts the availability lists for one machine, one scale and one connection entity; in Home Assistant, switching the DE1 off turns temperatures unavailable while the DE1 connected entity shows off.
+- [ ] 4.2 Persist the published discovery topics, and on discovery-off or set change publish empty retained payloads to removed topics. Verify: turning discovery off removes every entity, and they stay gone after a Home Assistant restart.
+- [ ] 4.3 Subscribe to `homeassistant/status` and on `online` re-publish discovery and force-publish all state. Verify: with retained messages off, restart Home Assistant and see entities return with live values without the app reconnecting.
+- [ ] 4.4 Profile select entity from `installedProfileTitles()`, re-published on `profilesChanged`, commanding `profile/set`. Verify: pick a profile from Home Assistant and see it activate; add a profile in the app and see it in the dropdown.
+- [ ] 4.5 Last-shot summary on `base/last_shot` from `shotPersisted` plus `requestShot()`, also published on connect for the newest shot, omitting missing fields, with matching sensors. Verify: pull a shot and see duration, dose, yield, ratio, profile and time in Home Assistant; a `tst_mqttclient` case asserts a shot without yield omits yield and ratio.
+- [ ] 4.6 Shot events on `base/event/shot` with an `event` entity: `started` from `espressoCycleStarted`, `finished` from `shotPersisted`, `aborted` from `shotDiscarded`/`shotAbortedNoScale`, nothing for maintenance profiles, at most one terminal event per cycle. Verify: a `tst_mqttclient` case drives each sequence including a maintenance profile; a real shot fires one `started` and one `finished` in Home Assistant.
+- [ ] 4.7 `stop` command and Home Assistant button: `stopRequested()` only in the espresso (including preheating), steam, hot-water and flush phases; `MainController` calls `requestIdle()` for steam and `stopOperation()` otherwise, as the app's Stop buttons do. Verify: a `tst_mqttclient` case asserts the command reaches the signal; on Jeff's GHC-equipped DE1, Stop ends a shot and a steam, and is ignored during a clean cycle and while idle.
+
+## 5. Verification on device
+
+- [ ] 5.1 Descriptor stability: on the tablet, take a `debug_get_fds` baseline, point MQTT at an unreachable `.local` host for at least 5 retries, then save MQTT settings 5 times while connected. Verify: the socket count returns to baseline, with no consecutive-inode pairs left behind.
+- [ ] 5.2 Upgrade check: install over the current release with MQTT already configured. Verify: same Home Assistant device, the existing 21 entities intact, and only the new entities added.
+- [ ] 5.3 Build and run on macOS and Android, and build for iOS, through Qt Creator. Verify: all three build and MQTT connects on macOS and Android. (Windows and the two Linux builds are first compiled by the release workflows, which matters for the in-tree Qt MQTT library under MSVC.)
+
+## 6. Docs
+
+- [x] 6.1 Update `openspec/config.yaml` (tech stack: Qt MQTT built in-tree), `docs/CPP_COMPLIANCE_AUDIT.md` (MQTT conventions line) and the Paho comment in `src/network/shotserver_settings.cpp`. Verify: `grep -ri paho` over the repo, excluding archived changes, returns nothing stale.
+- [ ] 6.2 Wiki manual Home Automation page: short entries for TLS (with the CA certificate), the profile dropdown, last shot, shot events and Stop, and one sentence that entities now go unavailable while the DE1 or scale is disconnected. Keep it to 3-5 sentences per feature, then cut it in half. Verify: the page is reviewed with Jeff before pushing (wiki edits are held for release).
+
+## 7. Tests, review and merge
+
+- [ ] 7.1 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`). Verify: all pass, with no new WARN lines from MQTT tests.
+- [ ] 7.2 `openspec validate migrate-mqtt-to-qt-mqtt --strict` passes.
+- [ ] 7.3 Open the PR, read the `text-invariants.yml` run for it, then run `/pr-review-toolkit:review-pr` and address the findings.
+- [ ] 7.4 Archive with `openspec archive migrate-mqtt-to-qt-mqtt --yes` as the PR's final commit, push, read that commit's checks, then merge.

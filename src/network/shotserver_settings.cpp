@@ -155,10 +155,11 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
 
 // Apply MQTT-related fields from a JSON object to Settings. Only keys present
 // in obj are updated; missing keys leave the current setting unchanged.
-// Returns true if a broker host/port retarget was refused for security (see below),
-// so callers can surface an error and/or decline to connect.
-static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
+// Returns the user-facing reasons for anything refused (see the guard below), so
+// callers can surface them and/or decline to connect. Empty = all applied.
+static QStringList applyMqttSettings(Settings* s, const QJsonObject& obj)
 {
+    QStringList errors;
     auto* m = s->mqtt();
     if (obj.contains("mqttEnabled"))
         m->setMqttEnabled(obj["mqttEnabled"].toBool());
@@ -177,10 +178,17 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
         && obj.value("mqttBrokerHost").toString() != m->mqttBrokerHost();
     const bool portChanging = obj.contains("mqttBrokerPort")
         && obj.value("mqttBrokerPort").toInt() != m->mqttBrokerPort();
+    // TLS turned off sends the stored password in plaintext; a different CA lets
+    // whoever holds it read the session. Same exposure as a retarget, same rule.
+    const bool tlsDowngrading = obj.contains("mqttUseTls")
+        && !obj.value("mqttUseTls").toBool() && m->mqttUseTls();
+    const QString postedCa = obj.value("mqttCaCertificate").toString().trimmed();
+    const bool caChanging = obj.contains("mqttCaCertificate") && postedCa != m->mqttCaCertificate();
     const QString postedPassword = obj.value("mqttPassword").toString();
     const bool passwordReentered = !postedPassword.isEmpty() && postedPassword != kSecretMask;
     const bool brokerRedirectBlocked =
-        (hostChanging || portChanging) && !m->mqttPassword().isEmpty() && !passwordReentered;
+        (hostChanging || portChanging || tlsDowngrading || caChanging)
+        && !m->mqttPassword().isEmpty() && !passwordReentered;
 
     // Apply the credentials FIRST, before the host/port. Every mqtt* setter here fires
     // a *Changed signal wired to MqttClient::onSettingsChanged() (mqttclient.cpp
@@ -198,13 +206,22 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
     applySecretString(obj, "mqttPassword", [m](const QString& v){ m->setMqttPassword(v); });
 
     if (brokerRedirectBlocked) {
-        DIAG_WARN(NETWORK, "ShotServer") << "refused MQTT broker host/port change without password"
+        DIAG_WARN(NETWORK, "ShotServer") << "refused MQTT broker host/port/TLS/CA change without password"
                       " re-entry (broker-redirect guard)";
+        errors << QStringLiteral("Re-enter the MQTT password when changing the broker host, port, TLS or CA certificate.");
     } else {
         if (obj.contains("mqttBrokerHost"))
             m->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
         if (obj.contains("mqttBrokerPort"))
             m->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
+        if (obj.contains("mqttUseTls"))
+            m->setMqttUseTls(obj["mqttUseTls"].toBool());
+        if (caChanging) {
+            if (!postedCa.isEmpty() && SettingsMqtt::describeCaCertificate(postedCa).isEmpty())
+                errors << QStringLiteral("The MQTT CA certificate is not a PEM certificate, so it was not saved.");
+            else
+                m->setMqttCaCertificate(postedCa);
+        }
     }
     if (obj.contains("mqttBaseTopic"))
         m->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
@@ -216,7 +233,7 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
         m->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
     if (obj.contains("mqttHomeAssistantDiscovery"))
         m->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
-    return brokerRedirectBlocked;
+    return errors;
 }
 
 // Apply MCP-related fields (local server + remote connector) from a JSON object
@@ -692,6 +709,21 @@ QString ShotServer::generateSettingsPage() const
                             <input type="number" class="form-input" id="mqttBrokerPort" placeholder="1883">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-checkbox">
+                            <input type="checkbox" id="mqttUseTls" onchange="onMqttTlsToggled()">
+                            <span>Encrypted connection (TLS)</span>
+                        </label>
+                    </div>
+                    <div class="form-group" id="mqttCaGroup" style="display:none;">
+                        <label class="form-label" for="mqttCaCertificate">CA certificate (optional, for a self-signed broker)</label>
+                        <textarea class="form-input" id="mqttCaCertificate" rows="4" spellcheck="false"
+                                  style="font-family: monospace; font-size: 0.75rem;"
+                                  placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+                        <input type="file" id="mqttCaFile" accept=".pem,.crt,.cer,text/plain" onchange="loadMqttCaFile(this)"
+                               aria-label="Load CA certificate from a file" style="margin-top: 0.5rem;">
+                        <div id="mqttCaSummary" style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.25rem;"></div>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Username (optional)</label>
@@ -712,7 +744,7 @@ QString ShotServer::generateSettingsPage() const
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Publish Interval (seconds)</label>
-                            <input type="number" class="form-input" id="mqttPublishInterval" placeholder="5">
+                            <input type="number" class="form-input" id="mqttPublishInterval" placeholder="1" min="0.1" step="0.1">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Client ID (optional)</label>
@@ -886,10 +918,16 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('mqttUsername').value = data.mqttUsername || '';
                 document.getElementById('mqttPassword').value = data.mqttPassword || '';
                 document.getElementById('mqttBaseTopic').value = data.mqttBaseTopic || 'decenza';
-                document.getElementById('mqttPublishInterval').value = data.mqttPublishInterval || 5;
+                document.getElementById('mqttPublishInterval').value = (data.mqttPublishInterval || 1000) / 1000;
                 document.getElementById('mqttClientId').value = data.mqttClientId || '';
                 document.getElementById('mqttRetainMessages').checked = data.mqttRetainMessages || false;
                 document.getElementById('mqttHomeAssistantDiscovery').checked = data.mqttHomeAssistantDiscovery || false;
+                document.getElementById('mqttUseTls').checked = data.mqttUseTls || false;
+                document.getElementById('mqttCaCertificate').value = data.mqttCaCertificate || '';
+                document.getElementById('mqttCaSummary').textContent = data.mqttCaCertificateSummary
+                    ? 'Trusting: ' + data.mqttCaCertificateSummary
+                    : "Using the system's trusted certificates.";
+                document.getElementById('mqttCaGroup').style.display = data.mqttUseTls ? 'block' : 'none';
                 updateMqttFields();
 
                 // MCP — local server
@@ -1198,6 +1236,46 @@ QString ShotServer::generateSettingsPage() const
         }
 )HTML" R"HTML(
         // --- MQTT ---
+        // The one place the form is read: Save and Connect both post exactly this.
+        // The interval is shown in seconds but stored in milliseconds.
+        function mqttFormValues() {
+            const seconds = parseFloat(document.getElementById('mqttPublishInterval').value);
+            return {
+                mqttEnabled: document.getElementById('mqttEnabled').checked,
+                mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
+                mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
+                mqttUsername: document.getElementById('mqttUsername').value,
+                mqttPassword: document.getElementById('mqttPassword').value,
+                mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
+                mqttPublishInterval: seconds > 0 ? Math.max(100, Math.round(seconds * 1000)) : 1000,
+                mqttClientId: document.getElementById('mqttClientId').value,
+                mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
+                mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked,
+                mqttUseTls: document.getElementById('mqttUseTls').checked,
+                mqttCaCertificate: document.getElementById('mqttCaCertificate').value.trim()
+            };
+        }
+
+        // Follow the checkbox to the standard port, but leave a custom one alone (as the app does).
+        function onMqttTlsToggled() {
+            const tls = document.getElementById('mqttUseTls').checked;
+            const port = document.getElementById('mqttBrokerPort');
+            if (tls && port.value === '1883') port.value = '8883';
+            else if (!tls && port.value === '8883') port.value = '1883';
+            document.getElementById('mqttCaGroup').style.display = tls ? 'block' : 'none';
+        }
+
+        function loadMqttCaFile(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                document.getElementById('mqttCaCertificate').value = String(reader.result).trim();
+                document.getElementById('mqttCaSummary').textContent = 'Loaded ' + file.name + ' - Save to apply.';
+            };
+            reader.readAsText(file);
+        }
+
         async function saveMqtt() {
             const btn = document.getElementById('mqttSaveBtn');
             btn.disabled = true; btn.textContent = 'Saving...';
@@ -1205,18 +1283,7 @@ QString ShotServer::generateSettingsPage() const
                 const resp = await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        mqttEnabled: document.getElementById('mqttEnabled').checked,
-                        mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
-                        mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
-                        mqttUsername: document.getElementById('mqttUsername').value,
-                        mqttPassword: document.getElementById('mqttPassword').value,
-                        mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
-                        mqttPublishInterval: parseInt(document.getElementById('mqttPublishInterval').value) || 5,
-                        mqttClientId: document.getElementById('mqttClientId').value,
-                        mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
-                        mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
-                    })
+                    body: JSON.stringify(mqttFormValues())
                 });
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
@@ -1296,18 +1363,7 @@ QString ShotServer::generateSettingsPage() const
             try {
                 let body = {};
                 if (wasConnect) {
-                    body = {
-                        mqttEnabled: document.getElementById('mqttEnabled').checked,
-                        mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
-                        mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
-                        mqttUsername: document.getElementById('mqttUsername').value,
-                        mqttPassword: document.getElementById('mqttPassword').value,
-                        mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
-                        mqttPublishInterval: parseInt(document.getElementById('mqttPublishInterval').value) || 5,
-                        mqttClientId: document.getElementById('mqttClientId').value,
-                        mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
-                        mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
-                    };
+                    body = mqttFormValues();
                 }
                 const resp = await fetch(endpoint, {
                     method: 'POST',
@@ -1483,6 +1539,10 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["mqttClientId"] = mqttSettings->mqttClientId();
     obj["mqttRetainMessages"] = mqttSettings->mqttRetainMessages();
     obj["mqttHomeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
+    obj["mqttUseTls"] = mqttSettings->mqttUseTls();
+    // A CA certificate is public, not a secret; sent so the page can show what is trusted.
+    obj["mqttCaCertificate"] = mqttSettings->mqttCaCertificate();
+    obj["mqttCaCertificateSummary"] = SettingsMqtt::describeCaCertificate(mqttSettings->mqttCaCertificate());
 
     // MCP — local server config + live remote-access status. The local API key
     // is NOT emitted: the app hides it (the /mcp/setup page handles local client
@@ -1545,11 +1605,10 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     // AI
     const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
 
-    // MQTT — applyMqttSettings enforces the broker-redirect guard and returns true if
-    // it refused a host/port change (mask/empty password). Surface that the same way
-    // handleMqttConnect does, so the user isn't told the save succeeded when part of
-    // it was dropped.
-    const bool mqttBrokerRedirectBlocked = applyMqttSettings(m_settings, obj);
+    // MQTT — applyMqttSettings enforces the broker-redirect guard and validates the CA.
+    // Surfaced the same way handleMqttConnect does, so the user isn't told the save
+    // succeeded when part of it was dropped.
+    const QStringList mqttErrors = applyMqttSettings(m_settings, obj);
 
     // MCP (local server + remote connector). Setters fire signals that
     // McpRemoteAccess reacts to, so a web toggle starts/stops the tunnel.
@@ -1558,9 +1617,7 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     // Valid fields (including valid providerModels entries) are applied even
     // when some entries were rejected; the error tells the client which
     // selections did not take.
-    QStringList saveErrors = aiErrors + mcpErrors;
-    if (mqttBrokerRedirectBlocked)
-        saveErrors << QStringLiteral("Re-enter the MQTT password when changing the broker host or port.");
+    QStringList saveErrors = aiErrors + mqttErrors + mcpErrors;
     if (!saveErrors.isEmpty()) {
         QJsonObject resp;
         resp["success"] = false;
@@ -1783,11 +1840,13 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         sendJson(socket, R"({"success": false, "message": "Invalid request body"})");
         return;
     }
-    // applyMqttSettings enforces the broker-redirect guard and returns true if it
-    // refused a host/port retarget (mask/empty password). Decline to connect in that
-    // case so the stored password is never sent to a newly-supplied broker.
-    if (applyMqttSettings(m_settings, doc.object())) {
-        sendJson(socket, R"({"success": false, "message": "Re-enter the MQTT password when changing the broker host or port."})");
+    // applyMqttSettings enforces the broker-redirect guard. Decline to connect when it
+    // refused anything, so the stored password is never sent to a newly-supplied broker.
+    if (const QStringList errors = applyMqttSettings(m_settings, doc.object()); !errors.isEmpty()) {
+        QJsonObject resp;
+        resp["success"] = false;
+        resp["message"] = errors.join(QStringLiteral("; "));
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
 
@@ -1879,8 +1938,8 @@ void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
     }
 
     m_mqttClient->publishDiscovery();
-    // publishDiscovery() is fire-and-forget -- Paho async publish failures
-    // are not propagated back. The isConnected() check above is our best guard.
+    // publishDiscovery() is fire-and-forget: QoS 0 publishes have no acknowledgement to
+    // report. The isConnected() check above is our best guard.
     sendJson(socket, R"({"success": true})");
 }
 

@@ -1,6 +1,12 @@
 #include "settings_mqtt.h"
 #include "settings.h"
 
+#include <QDate>
+#include <QtNetwork/qtnetworkglobal.h>   // defines the ssl feature for QT_CONFIG
+#if QT_CONFIG(ssl)
+#include <QSslCertificate>
+#endif
+
 SettingsMqtt::SettingsMqtt(QObject* parent)
     : QObject(parent)
 {
@@ -114,4 +120,51 @@ void SettingsMqtt::setMqttClientId(const QString& clientId) {
         m_settings.setValue("mqtt/clientId", clientId);
         emit mqttClientIdChanged();
     }
+}
+
+bool SettingsMqtt::mqttUseTls() const {
+    return m_settings.value("mqtt/useTls", false).toBool();
+}
+
+void SettingsMqtt::setMqttUseTls(bool useTls) {
+    if (mqttUseTls() != useTls) {
+        m_settings.setValue("mqtt/useTls", useTls);
+        emit mqttUseTlsChanged();
+    }
+}
+
+QString SettingsMqtt::mqttCaCertificate() const {
+    return m_settings.value("mqtt/caCertificate", "").toString();
+}
+
+void SettingsMqtt::setMqttCaCertificate(const QString& pem) {
+    if (mqttCaCertificate() != pem) {
+        m_settings.setValue("mqtt/caCertificate", pem);
+        emit mqttCaCertificateChanged();
+    }
+}
+
+QStringList SettingsMqtt::mqttPublishedDiscoveryTopics() const {
+    return m_settings.value("mqtt/publishedDiscoveryTopics").toStringList();
+}
+
+void SettingsMqtt::setMqttPublishedDiscoveryTopics(const QStringList& topics) {
+    m_settings.setValue("mqtt/publishedDiscoveryTopics", topics);
+}
+
+QString SettingsMqtt::describeCaCertificate(const QString& pem)
+{
+#if QT_CONFIG(ssl)
+    const QList<QSslCertificate> certs = QSslCertificate::fromData(pem.trimmed().toUtf8(), QSsl::Pem);
+    if (certs.isEmpty() || certs.first().isNull())
+        return {};
+    const QSslCertificate& cert = certs.first();
+    QString subject = cert.subjectInfo(QSslCertificate::CommonName).join(", ");
+    if (subject.isEmpty())
+        subject = cert.subjectInfo(QSslCertificate::Organization).join(", ");
+    return QStringLiteral("%1, expires %2").arg(subject, cert.expiryDate().date().toString(Qt::ISODate));
+#else
+    Q_UNUSED(pem);
+    return {};
+#endif
 }

@@ -1055,15 +1055,10 @@ add_library(decenza_profilelib STATIC
     ${CMAKE_SOURCE_DIR}/src/profile/profilesavehelper.cpp
 )
 set_target_properties(decenza_profilelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
-# paho for its INCLUDE dir, not its symbols: profilesavehelper.cpp includes
-# maincontroller.h, which includes network/mqttclient.h, which includes
-# <MQTTAsync.h>. Every one of the nine consumers already linked paho, so this
-# requirement was invisible while the sources were pasted into them; hoisting
-# them into a library is what surfaced it.
 # ProfileManager's catalog scan resolves each profile by shape when its title
 # misses; profileshapeindex.cpp is compiled into decenza_testlib, so that
 # comes with the testlib link.
-target_link_libraries(decenza_profilelib PUBLIC decenza_testlib paho-mqtt3a-static)
+target_link_libraries(decenza_profilelib PUBLIC decenza_testlib)
 
 # --- The rest of the narrow libraries, same rule: consumer set no wider than
 # the targets that need the sources. Each replaced a source list pasted into
@@ -1430,7 +1425,7 @@ add_decenza_test(tst_mqttclient
     ${CMAKE_SOURCE_DIR}/src/network/localnetworkaccess.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mqttclient PRIVATE paho-mqtt3a-static)
+target_link_libraries(tst_mqttclient PRIVATE decenza_qtmqtt)
 # mqttclient.cpp includes the generated version.h (sw_version in the HA discovery payload).
 target_include_directories(tst_mqttclient PRIVATE ${CMAKE_BINARY_DIR})
 
@@ -1551,7 +1546,7 @@ add_decenza_test(tst_profilemanager
     ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml paho-mqtt3a-static)
+target_link_libraries(tst_profilemanager PRIVATE decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
 
 # --- tst_recipeeditorapppath: recipe editing through the path a USER takes ---
 # Companion to tst_recipeeditorparity, which exercises RecipeGenerator and
@@ -1564,7 +1559,7 @@ add_decenza_test(tst_recipeeditorapppath
     ${MCP_MOC_HEADERS}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_recipeeditorapppath PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_recipeeditorapppath PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_recipeeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_recipeeditorapppath PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
@@ -1609,7 +1604,7 @@ add_decenza_test(tst_mcptools_profiles
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_profiles.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_profiles PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_profiles PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 # Built-in profiles QRC, as tst_profilemanager and tst_tclimport already do.
 # Without it ProfileManager cannot open ":/profiles/default.json" and falls
@@ -1628,7 +1623,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_write.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_write PRIVATE decenza_beanbaselib decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_write PRIVATE decenza_beanbaselib decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
 # Same missing built-in profiles QRC as tst_mcptools_profiles above.
 target_sources(tst_mcptools_write PRIVATE ${PROFILES_QRC})
@@ -1643,7 +1638,7 @@ add_decenza_test(tst_mcptools_presets
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_presets.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_presets PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_presets PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia)
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search),
@@ -1672,7 +1667,7 @@ add_decenza_test(tst_mcptools_shots_debuglog
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_shots.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_shots_debuglog PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_shots_debuglog PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia)
 target_include_directories(tst_mcptools_shots_debuglog PRIVATE ${CMAKE_BINARY_DIR})
 # Same missing built-in profiles QRC as tst_mcptools_profiles above — McpTestFixture's
 # ProfileManager falls back to "default" at construction and warns without it.
@@ -1687,7 +1682,7 @@ add_decenza_test(tst_mcpserver_session
     ${MCP_MOC_HEADERS}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_session PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_session PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcpserver_protocol: 2025-11-25 spec compliance (version negotiation,
@@ -1700,7 +1695,7 @@ add_decenza_test(tst_mcpserver_protocol
     ${MCP_MOC_HEADERS}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib)
 target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 
 # Compile the production qrc so :/icons/* paths resolve at runtime — the
@@ -1724,7 +1719,7 @@ add_decenza_test(tst_mcpremoteaccess
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.h
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib paho-mqtt3a-static)
+target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib)
 target_include_directories(tst_mcpremoteaccess PRIVATE ${CMAKE_BINARY_DIR})
 target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_testresources)
 

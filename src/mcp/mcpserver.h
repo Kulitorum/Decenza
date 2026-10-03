@@ -110,7 +110,10 @@ struct PendingConfirmation {
 // brew arguments.
 // 1.9.1: settings_set drops dyeGrinderBrand/Model/Burrs, which never changed the grinder
 // (the equipment package owns it); sending one now errors with a pointer to `equipment`.
-inline constexpr const char* McpSurfaceVersion = "1.9.1";
+// 1.10.0: settings_get/settings_set gain mqttUseTls and mqttCaCertificate (Qt MQTT move);
+// mqttPublishInterval's description corrected to milliseconds. Property-level only, so the
+// fingerprint below does not move.
+inline constexpr const char* McpSurfaceVersion = "1.10.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";

@@ -704,10 +704,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"mqttBrokerPort", QJsonObject{{"type", "integer"}, {"description", "MQTT broker port"}}},
                 {"mqttUsername", QJsonObject{{"type", "string"}, {"description", "MQTT username"}}},
                 {"mqttBaseTopic", QJsonObject{{"type", "string"}, {"description", "MQTT base topic"}}},
-                {"mqttPublishInterval", QJsonObject{{"type", "integer"}, {"description", "MQTT publish interval in seconds"}}},
+                {"mqttPublishInterval", QJsonObject{{"type", "integer"}, {"description", "MQTT publish interval in milliseconds"}}},
                 {"mqttRetainMessages", QJsonObject{{"type", "boolean"}, {"description", "Retain MQTT messages"}}},
                 {"mqttHomeAssistantDiscovery", QJsonObject{{"type", "boolean"}, {"description", "Enable Home Assistant MQTT discovery"}}},
                 {"mqttClientId", QJsonObject{{"type", "string"}, {"description", "MQTT client ID"}}},
+                {"mqttUseTls", QJsonObject{{"type", "boolean"}, {"description", "Encrypt the MQTT connection (TLS); certificate is always verified"}}},
+                {"mqttCaCertificate", QJsonObject{{"type", "string"}, {"description", "PEM CA certificate to trust for a self-signed broker; empty for system CAs only"}}},
                 // Themes
                 {"activeThemeName", QJsonObject{{"type", "string"}, {"description", "Active theme name"}}},
                 {"activeShader", QJsonObject{{"type", "string"}, {"description", "Active screen shader (empty for none, 'crt' for CRT)"}}},
@@ -883,6 +885,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 && (!mainController || mainController->activeRecipe().isEmpty())) {
                 respond(QJsonObject{{"error", "The active recipe is still loading; retry clearBrewOverrides in a moment."}});
                 return;
+            }
+            if (args.contains("mqttCaCertificate")) {
+                const QString pem = args.value("mqttCaCertificate").toString().trimmed();
+                if (!pem.isEmpty() && SettingsMqtt::describeCaCertificate(pem).isEmpty()) {
+                    respond(QJsonObject{{"error", "'mqttCaCertificate' is not a PEM certificate."}});
+                    return;
+                }
             }
             const bool applyBrew = setYieldG || setYieldRatio || setBrewTemp || clearBrew;
             if (applyBrew && !profileManager) {
@@ -1375,6 +1384,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QString v = args["mqttClientId"].toString();
                     addSetter([m, v]() { m->setMqttClientId(v); });
                     updated << "mqttClientId";
+                }
+                if (args.contains("mqttUseTls")) {
+                    bool v = args["mqttUseTls"].toBool();
+                    addSetter([m, v]() { m->setMqttUseTls(v); });
+                    updated << "mqttUseTls";
+                }
+                if (args.contains("mqttCaCertificate")) {
+                    QString v = args["mqttCaCertificate"].toString().trimmed();
+                    addSetter([m, v]() { m->setMqttCaCertificate(v); });
+                    updated << "mqttCaCertificate";
                 }
                 // mqttPassword excluded — sensitive
             }

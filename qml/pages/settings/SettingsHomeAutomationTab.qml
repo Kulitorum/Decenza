@@ -53,6 +53,7 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
+                            accessibleName: TranslationManager.translate("mqtt.enableMqtt", "Enable MQTT")
                             checked: Settings.mqtt.mqttEnabled
                             onCheckedChanged: Settings.mqtt.mqttEnabled = checked
                         }
@@ -106,6 +107,99 @@ KeyboardAwareContainer {
                             var port = parseInt(text)
                             if (!isNaN(port) && port > 0 && port <= 65535) {
                                 Settings.mqtt.mqttBrokerPort = port
+                            }
+                        }
+                    }
+
+                    // Encrypted connection (TLS)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.rightMargin: Theme.scaled(5)
+
+                        Tr {
+                            key: "mqtt.useTls"
+                            fallback: "Encrypted connection (TLS)"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                            Layout.fillWidth: true
+                        }
+
+                        StyledSwitch {
+                            accessibleName: TranslationManager.translate("mqtt.useTls", "Encrypted connection (TLS)")
+                            checked: Settings.mqtt.mqttUseTls
+                            onToggled: {
+                                // Follow the switch to the standard port, but leave a custom one alone.
+                                if (checked && Settings.mqtt.mqttBrokerPort === 1883)
+                                    Settings.mqtt.mqttBrokerPort = 8883
+                                else if (!checked && Settings.mqtt.mqttBrokerPort === 8883)
+                                    Settings.mqtt.mqttBrokerPort = 1883
+                                Settings.mqtt.mqttUseTls = checked
+                            }
+                        }
+                    }
+
+                    // CA certificate, for brokers with a self-signed certificate
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: Settings.mqtt.mqttUseTls
+                        spacing: Theme.scaled(4)
+
+                        Tr {
+                            key: "mqtt.caCertificate"
+                            fallback: "CA certificate (optional)"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                        }
+
+                        Tr {
+                            key: "mqtt.caCertificateHint"
+                            fallback: "Only needed if your broker uses a self-signed certificate. Paste the CA certificate (PEM)."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        ExpandableTextArea {
+                            id: caField
+                            Layout.fillWidth: true
+                            accessibleName: TranslationManager.translate("mqtt.caCertificate", "CA certificate (optional)")
+                            placeholderText: "-----BEGIN CERTIFICATE-----"
+                            text: Settings.mqtt.mqttCaCertificate
+                            property bool rejected: false
+                            onEditingFinished: {
+                                const pem = text.trim()
+                                rejected = pem.length > 0 && MainController.mqttClient.describeCaCertificate(pem).length === 0
+                                if (!rejected)
+                                    Settings.mqtt.mqttCaCertificate = pem
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: Theme.scaled(10)
+                            color: caField.rejected ? Theme.errorColor : Theme.textSecondaryColor
+                            text: {
+                                if (caField.rejected)
+                                    return TranslationManager.translate("mqtt.caCertificateInvalid", "Not a PEM certificate, so it was not saved.")
+                                const summary = MainController.mqttClient.describeCaCertificate(Settings.mqtt.mqttCaCertificate)
+                                return summary.length > 0
+                                    ? TranslationManager.translate("mqtt.caCertificateLoaded", "Trusting: %1").arg(summary)
+                                    : TranslationManager.translate("mqtt.caCertificateNone", "Using the system's trusted certificates.")
+                            }
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+
+                        AccessibleButton {
+                            visible: Settings.mqtt.mqttCaCertificate.length > 0
+                            text: TranslationManager.translate("mqtt.caCertificateClear", "Clear certificate")
+                            accessibleName: TranslationManager.translate("mqtt.caCertificateClearAccessible", "Clear the MQTT CA certificate")
+                            onClicked: {
+                                caField.rejected = false
+                                caField.text = ""   // its text binding is gone once the user has typed
+                                Settings.mqtt.mqttCaCertificate = ""
                             }
                         }
                     }
@@ -178,7 +272,10 @@ KeyboardAwareContainer {
                                 text: MainController.mqttClient.status
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
                             }
                         }
                     }
@@ -199,7 +296,10 @@ KeyboardAwareContainer {
                         AccessibleButton {
                             text: TranslationManager.translate("mqtt.disconnect", "Disconnect")
                             accessibleName: TranslationManager.translate("settings.homeAutomation.disconnectMqtt", "Disconnect from MQTT broker")
-                            enabled: MainController.mqttClient.connected
+                            // Also while connecting, retrying, or connected with a refused
+                            // subscription — none of which reads as `connected`.
+                            enabled: MainController.mqttClient.status !== "Disconnected"
+                                     && MainController.mqttClient.status !== "Disabled"
                             onClicked: MainController.mqttClient.disconnectFromBroker()
                         }
 
@@ -290,6 +390,7 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
+                            accessibleName: TranslationManager.translate("mqtt.retainMessages", "Retain Messages")
                             checked: Settings.mqtt.mqttRetainMessages
                             onCheckedChanged: Settings.mqtt.mqttRetainMessages = checked
                         }
@@ -335,6 +436,7 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
+                            accessibleName: TranslationManager.translate("mqtt.autoDiscovery", "Auto-Discovery")
                             checked: Settings.mqtt.mqttHomeAssistantDiscovery
                             onCheckedChanged: Settings.mqtt.mqttHomeAssistantDiscovery = checked
                         }

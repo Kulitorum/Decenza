@@ -380,6 +380,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     mqtt["retainMessages"] = mqttSettings->mqttRetainMessages();
     mqtt["homeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
     mqtt["clientId"] = mqttSettings->mqttClientId();
+    mqtt["useTls"] = mqttSettings->mqttUseTls();
+    mqtt["caCertificate"] = mqttSettings->mqttCaCertificate();
     root["mqtt"] = mqtt;
 
     // Layout configuration
@@ -964,6 +966,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mqtt.contains("retainMessages")) mqttSettings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
         if (mqtt.contains("homeAssistantDiscovery")) mqttSettings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
         if (mqtt.contains("clientId")) mqttSettings->setMqttClientId(mqtt["clientId"].toString());
+        if (mqtt.contains("useTls")) mqttSettings->setMqttUseTls(mqtt["useTls"].toBool());
+        if (mqtt.contains("caCertificate")) mqttSettings->setMqttCaCertificate(mqtt["caCertificate"].toString());
     }
 
     // Layout configuration

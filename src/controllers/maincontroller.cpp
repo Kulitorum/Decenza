@@ -827,6 +827,85 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         turnOffSteamHeater();
     });
 
+    // Remote stop (MqttClient only emits it in a beverage/rinse phase). Same calls as the
+    // app's own Stop buttons: requestIdle() for steam (stop + purge, the single-tap
+    // SteamPage path), stopOperation() otherwise, with "manual" recorded for an espresso
+    // the way EspressoPage.stopAndGoBack() does.
+    connect(m_mqttClient, &MqttClient::stopRequested, this, [this]() {
+        if (!m_device)
+            return;
+        using Phase = MachineState::Phase;
+        const Phase phase = m_machineState ? m_machineState->phase() : Phase::Disconnected;
+        if (phase == Phase::Steaming) {
+            m_device->requestIdle();
+            return;
+        }
+        if (phase == Phase::EspressoPreheating || phase == Phase::Preinfusion
+            || phase == Phase::Pouring || phase == Phase::Ending)
+            reportShotStopReason(QStringLiteral("manual"));
+        m_device->stopOperation();
+    });
+
+    // Profile picked by title in the Home Assistant select.
+    connect(m_mqttClient, &MqttClient::profileTitleSelectRequested, this, [this](const QString& title) {
+        const QString filename = m_profileManager->findProfileByTitle(title);
+        if (filename.isEmpty()) {
+            DIAG_WARN(NETWORK, "MainController") << "MQTT profile select: no profile titled" << title;
+            return;
+        }
+        m_profileManager->loadProfile(filename);
+    });
+    m_mqttClient->setProfileTitles(m_profileManager->installedProfileTitles());
+    connect(m_profileManager, &ProfileManager::profilesChanged, m_mqttClient, [this]() {
+        m_mqttClient->setProfileTitles(m_profileManager->installedProfileTitles());
+    });
+
+    // Shot events. Maintenance runs (cleaning/descale/calibrate) are never saved, so the
+    // client reports nothing for them.
+    connect(m_machineState, &MachineState::espressoCycleStarted, m_mqttClient, [this]() {
+        m_mqttClient->onEspressoCycleStarted(
+            Profile::isMaintenanceBeverageType(m_profileManager->currentProfile().beverageType()));
+    });
+    connect(this, &MainController::shotDiscarded, m_mqttClient, [this]() { m_mqttClient->onShotNotSaved(); });
+    connect(this, &MainController::shotAbortedNoScale, m_mqttClient, &MqttClient::onShotNotSaved);
+
+    // Last-shot summary: read the saved row back so dose and profile are what history holds.
+    // shotReady and mostRecentShotIdReady are broadcasts — answer only our own requests.
+    connect(this, &MainController::shotPersisted, m_mqttClient,
+            [this](qint64 shotId, double durationSec, double yieldG) {
+                m_mqttClient->onShotPersisted(durationSec, yieldG);
+                if (shotId > 0) {
+                    m_mqttLastShotRequestId = shotId;
+                    m_shotHistory->requestShot(shotId);
+                }
+            });
+    connect(m_mqttClient, &MqttClient::lastShotRequested, this, [this]() {
+        m_mqttWantsMostRecentShot = true;
+        m_shotHistory->requestMostRecentShotId();
+    });
+    connect(m_shotHistory, &ShotHistoryStorage::mostRecentShotIdReady, this, [this](qint64 shotId) {
+        if (!m_mqttWantsMostRecentShot)
+            return;
+        m_mqttWantsMostRecentShot = false;
+        if (shotId > 0) {
+            m_mqttLastShotRequestId = shotId;
+            m_shotHistory->requestShot(shotId);
+        }
+    });
+    connect(m_shotHistory, &ShotHistoryStorage::shotReady, this,
+            [this](qint64 shotId, const ShotProjection& shot) {
+                if (shotId != m_mqttLastShotRequestId || shot.id == 0)
+                    return;
+                m_mqttLastShotRequestId = 0;
+                MqttClient::LastShot last;
+                last.startEpochSec = shot.timestamp;
+                last.durationSec = shot.durationSec;
+                last.doseG = shot.doseWeightG;
+                last.yieldG = shot.finalWeightG;
+                last.profile = shot.profileName;
+                m_mqttClient->setLastShot(last);
+            });
+
     // Steam settings changes -> republish state
     connect(m_settings->brew(), &SettingsBrew::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
     connect(m_settings->brew(), &SettingsBrew::keepWarmWhenIdleChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);

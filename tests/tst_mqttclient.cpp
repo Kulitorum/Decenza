@@ -1,48 +1,46 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QJsonArray>
+#include <QSslError>
+#include <QtMqtt/qmqttclient.h>
 
+#include "ble/de1device.h"
 #include "core/settings.h"
 #include "core/settings_mqtt.h"
+#include "machine/machinestate.h"
 #include "network/mqttclient.h"
 
-// Reconnect state machine for MqttClient.
+// MqttClient's own logic: the reconnect state machine, status text, Home Assistant
+// discovery, remote stop gating and shot-event bookkeeping.
 //
-// Why this file exists: mqttclient.cpp was in NO test target at all, and a change whose
-// entire purpose was to stop MQTT reconnection from dying permanently shipped a latched
-// m_userRequestedDisconnect that reintroduced exactly that death — silently, with no
-// warning and no status change. Nothing in a 101-test suite could have caught it.
+// Why this file exists: mqttclient.cpp was in NO test target, and a change whose entire
+// purpose was to stop MQTT reconnection dying permanently shipped a latched
+// m_userRequestedDisconnect that reintroduced exactly that death.
 //
-// Everything here drives the private slots directly through the DECENZA_TESTING friend
-// declaration and asserts on QTimer state. No broker, no sockets, no waiting: the state
-// machine is pure logic over a timer and a handful of flags, and the Paho callbacks it
-// reacts to are already marshalled onto these slots via queued connections.
+// Everything here drives private members through the DECENZA_TESTING friend declaration.
+// No broker and no waiting: QMqttClient's setState()/setError() are public slots
+// (qmqttclient.h:173-180), so the client's reaction to a broker outcome can be driven
+// directly.
 class tst_MqttClient : public QObject {
     Q_OBJECT
 
 private:
-    // device and machineState are only used to wire telemetry signals; the reconnect
-    // machine touches neither, so nullptr keeps the fixture to Settings alone.
-    static MqttClient* makeClient(Settings& settings) {
-        return new MqttClient(nullptr, nullptr, &settings, settings.mqtt());
+    static MqttClient* makeClient(Settings& settings, DE1Device* device = nullptr,
+                                  MachineState* state = nullptr) {
+        return new MqttClient(device, state, &settings, settings.mqtt());
     }
 
-    // Put the client in the state the app is in with MQTT switched on and a host set,
-    // which is what every reconnect path assumes.
     static void enableMqtt(Settings& settings) {
         settings.mqtt()->setMqttEnabled(true);
         settings.mqtt()->setMqttBrokerHost(QStringLiteral("192.0.2.1"));  // TEST-NET-1
     }
 
-    // Runs the real Paho failure callback and returns the error string it emitted.
-    // Reads the signal argument rather than status(): internalConnectionFailed is a
-    // QueuedConnection, so the slot that sets the status has not run yet. Lives here
-    // and not in `private slots:` — moc would register it as a test function.
-    static QString failureStringFor(MqttClient* c, MQTTAsync_failureData* data) {
-        QSignalSpy spy(c, &MqttClient::internalConnectionFailed);
-        MqttClient::onConnectFailure(c, data);
-        if (spy.count() != 1)
-            return QString();
-        return spy.at(0).at(0).toString();
+    static QJsonObject configFor(MqttClient* c, const QString& objectId) {
+        for (const auto& entry : c->discoveryEntries()) {
+            if (entry.objectId == objectId)
+                return c->discoveryConfig(entry);
+        }
+        return {};
     }
 
 private slots:
@@ -51,72 +49,47 @@ private slots:
     // ===== The regression this file was created for =====
 
     void disconnectWhileNotConnectedDoesNotStrandTheNextRealDrop() {
-        // THE bug. disconnectFromBroker() used to set m_userRequestedDisconnect
-        // unconditionally, but only the connected branch produces the callback that
-        // consumes it. Disconnecting while already disconnected therefore latched the
-        // flag forever, and the next GENUINE broker drop was read as user-requested:
-        // timer stopped, nothing armed, MQTT dead until app restart.
-        //
-        // Reachable from the Home Automation tab's Disconnect button and from
-        // ShotServer::handleMqttDisconnect, neither of which checks isConnected() —
-        // and tapping Disconnect while the status reads "reconnecting (3/10)..." is
-        // the obvious thing to do.
+        // disconnectFromBroker() used to arm m_userRequestedDisconnect even when no
+        // callback would consume it, so the next GENUINE drop was read as user-requested
+        // and nothing re-armed — MQTT dead until app restart.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         QVERIFY2(!c->isConnected(), "precondition: never connected");
-        c->disconnectFromBroker();          // the else branch — no Paho callback follows
+        c->disconnectFromBroker();          // client Disconnected — no callback follows
         QVERIFY2(!c->m_reconnectTimer.isActive(), "an explicit disconnect must not retry");
 
-        // Now a real broker-initiated drop, exactly as Paho would deliver it.
-        c->onInternalDisconnected();
-
+        c->onSessionDown();                 // a real broker-initiated drop
         QVERIFY2(c->m_reconnectTimer.isActive(),
-                 "a genuine broker drop after a no-op disconnect must still re-arm — "
-                 "this is the terminal death the slow-retry change exists to remove");
+                 "a genuine broker drop after a no-op disconnect must still re-arm");
     }
 
     void userDisconnectIsConsumedExactlyOnce() {
-        // The flag must suppress the disconnect the user asked for and nothing after it.
-        //
-        // Set directly rather than via disconnectFromBroker(): that only arms the flag on
-        // the `m_client && m_connected` branch, and m_client is null here because there is
-        // no broker to have created one. Faking a non-null m_client would hand a garbage
-        // pointer to MQTTAsync_disconnect(). So this covers the CONSUMER's contract, and
-        // disconnectWhileNotConnectedDoesNotStrandTheNextRealDrop above covers the
-        // producer's — together they pin both halves of the bug.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         c->m_userRequestedDisconnect = true;
-        c->onInternalDisconnected();        // the callback the user's disconnect caused
+        c->onSessionDown();                 // the drop the user's disconnect caused
         QVERIFY2(!c->m_reconnectTimer.isActive(), "user disconnect must not re-arm");
         QCOMPARE(c->status(), QStringLiteral("Disconnected"));
 
-        c->onInternalDisconnected();        // a later, genuine drop
+        c->onSessionDown();                 // a later, genuine drop
         QVERIFY2(c->m_reconnectTimer.isActive(), "flag must be one-shot, not sticky");
     }
 
     void reconnectingClearsAStrandedUserDisconnectFlag() {
-        // Second, independent guard: onSettingsChanged() disconnects then immediately
-        // reconnects, and connectWithHost() destroys the client whose disconnect callback
-        // is still in flight (opts.onFailure is never set, so Paho's teardown loses it).
-        // connectToBroker() clears the flag unconditionally so that cannot strand it.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
-        // Set directly for the same reason as above — and note this test was vacuous
-        // when it went through disconnectFromBroker(): with m_client null the flag was
-        // never armed, so the "must be cleared" assertion passed without testing anything.
-        c->m_userRequestedDisconnect = true;   // as if the callback never arrived
+        c->m_userRequestedDisconnect = true;   // as if its callback never arrived
         c->connectToBroker();                  // must clear it
         QVERIFY2(!c->m_userRequestedDisconnect,
                  "a new connect attempt means the prior user-disconnect is meaningless");
 
-        c->onInternalDisconnected();
+        c->onSessionDown();
         QVERIFY2(c->m_reconnectTimer.isActive(),
                  "a drop after reconnecting must re-arm, not read as user-requested");
     }
@@ -124,8 +97,6 @@ private slots:
     // ===== Backoff cadence =====
 
     void backoffWalksUpThenSettlesOnTheSlowCadence() {
-        // The point of the change: the fast budget stops being terminal. After it is
-        // spent the client keeps trying forever, just rarely.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
@@ -135,13 +106,11 @@ private slots:
             c->m_reconnectAttempts = i;
             intervals << c->reconnectDelayMs();
         }
-        // Monotonic non-decreasing, capped.
         for (int i = 1; i < intervals.size(); ++i)
             QVERIFY2(intervals[i] >= intervals[i - 1], "backoff must not go backwards");
         QCOMPARE(intervals.first(), MqttClient::INITIAL_RECONNECT_DELAY_MS);
         QVERIFY(intervals.last() <= MqttClient::MAX_RECONNECT_DELAY_MS);
 
-        // Past the budget: the slow cadence, forever.
         c->m_reconnectAttempts = MqttClient::MAX_FAST_RECONNECT_ATTEMPTS;
         QCOMPARE(c->reconnectDelayMs(), MqttClient::IDLE_RECONNECT_DELAY_MS);
         c->m_reconnectAttempts = MqttClient::MAX_FAST_RECONNECT_ATTEMPTS + 500;
@@ -149,15 +118,12 @@ private slots:
     }
 
     void slowCadenceIsAnnouncedOnceNotEveryCycle() {
-        // A warning every 15 minutes forever is log spam that hides real faults; none at
-        // all leaves a silent 15-minute-cadence loop nobody can see. Exactly one.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         c->m_reconnectAttempts = MqttClient::MAX_FAST_RECONNECT_ATTEMPTS;
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("broker unreachable after"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("broker unreachable after"));
         c->scheduleReconnect(QStringLiteral("test"));
 
         // A second pass must be silent — init()'s failOnWarning() is the assertion.
@@ -181,15 +147,12 @@ private slots:
         QCOMPARE(c->status(), QStringLiteral("Waiting for network..."));
 
         c->onNetworkReachabilityChanged(true);
-        QCOMPARE(c->m_reconnectAttempts, 0);   // a regained network gets a fresh budget
+        QCOMPARE(c->m_reconnectAttempts, 0);
         QVERIFY2(c->status() != QStringLiteral("Waiting for network..."),
                  "the waiting status describes a condition that has ended");
     }
 
     void aDeferredTickDoesNotSpendAnAttempt() {
-        // The whole reason reachability is watched: an outage must not burn the fast
-        // budget, because an attempt against a down interface says nothing about the
-        // broker. Observed on-device 2026-07-25.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
@@ -201,21 +164,17 @@ private slots:
     }
 
     void connectedNetworkUnreachableStatusDoesNotLatch() {
-        // A reachability blip the TCP session survives (well inside the 60 s keepalive)
-        // used to leave "Connected - network unreachable" on the Home Automation tab
-        // indefinitely: the resume path cleared only the waiting-for-network string and
-        // then early-returned on isConnected(), so nothing ever rewrote it.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
+        c->m_sessionUp = true;
         c->m_connected = true;
         c->onNetworkReachabilityChanged(false);
         QCOMPARE(c->status(), QStringLiteral("Connected - network unreachable"));
 
         c->onNetworkReachabilityChanged(true);
-        QVERIFY2(c->status() != QStringLiteral("Connected - network unreachable"),
-                 "status must not outlive the condition it describes");
+        QCOMPARE(c->status(), QStringLiteral("Connected"));
     }
 
     // ===== Enable/disable =====
@@ -234,11 +193,6 @@ private slots:
     }
 
     void failureWhileDisabledIsReportedRatherThanSwallowed() {
-        // scheduleReconnect() returns early when MQTT is off — correctly, it must not
-        // retry. But the three synchronous connectWithHost() exits lost their own
-        // "Error: …" status when they were consolidated here, so returning silently left
-        // the tab reading "Connecting..." forever with the Paho rc discarded. A connect
-        // CAN be initiated while disabled: the Connect button gates only on host-non-empty.
         Settings settings;
         settings.mqtt()->setMqttEnabled(false);
         settings.mqtt()->setMqttBrokerHost(QStringLiteral("192.0.2.1"));
@@ -246,11 +200,11 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression("connect attempt failed while MQTT is disabled"));
-        c->scheduleReconnect(QStringLiteral("Connect failed (-3)"));
+        c->scheduleReconnect(QStringLiteral("connection refused"));
 
         QVERIFY2(!c->m_reconnectTimer.isActive(), "still must not retry while disabled");
-        QVERIFY2(c->status().contains(QStringLiteral("Connect failed (-3)")),
-                 "the broker's own reason must survive to the UI, not be discarded");
+        QVERIFY2(c->status().contains(QStringLiteral("connection refused")),
+                 "the reason must survive to the UI, not be discarded");
     }
 
     // ===== Status text =====
@@ -258,92 +212,218 @@ private slots:
     void brokerReasonSurvivesIntoTheStatus() {
         // "bad username or password" is the whole diagnosis; a bare
         // "reconnecting (3/10)..." that overwrites it makes the fault unfindable.
-        // Uses the string onConnectFailure actually produces for CONNACK 4 (see
-        // connackReasonTextIsUsedInsteadOfARawCode below) — the previous literal
-        // here, "Bad user name or password", was reachable from no code path, so
-        // this test passed while the raw "(code 4)" went unnoticed.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Connection failed"));
-        c->onInternalConnectionFailed(QStringLiteral("bad username or password"));
+        c->onConnectionFailed(QStringLiteral("bad username or password"));
 
-        QVERIFY2(c->status().contains(QStringLiteral("bad username or password")),
-                 "the broker's reason must reach the Home Automation tab");
+        QVERIFY(c->status().contains(QStringLiteral("bad username or password")));
         QVERIFY(c->m_reconnectTimer.isActive());
     }
 
-    // ===== CONNACK decoding =====
-    //
-    // These drive the real Paho callback (onConnectFailure) rather than the slot,
-    // because the string construction under test lives there. internalConnectionFailed
-    // reaches onInternalConnectionFailed via a QueuedConnection, so the assertions read
-    // the signal argument through QSignalSpy — which records synchronously — instead of
-    // status(), which would need the event loop to turn. Each test then pumps once so
-    // the queued slot (and its qWarning) is consumed inside the test that caused it.
+    void failureReasonIsWordsNeverABareCode_data() {
+        QTest::addColumn<int>("clientError");
+        QTest::addColumn<int>("socketError");
+        QTest::addColumn<bool>("sslFailure");
+        QTest::addColumn<QString>("expected");
 
-    void connackReasonIsDecodedInsteadOfShownAsARawCode() {
-        // A broker that answers and rejects gives Paho the constant message
-        // "CONNACK return code"; the reason is only in `code`. The string reaches
-        // the user verbatim on the Home Automation tab, so it must carry words.
-        Settings settings;
-        enableMqtt(settings);
-        QScopedPointer<MqttClient> c(makeClient(settings));
-
-        char message[] = "CONNACK return code";
-        MQTTAsync_failureData data{};
-        data.code = 4;
-        data.message = message;
-
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("bad username or password"));
-        const QString error = failureStringFor(c.data(), &data);
-
-        QCOMPARE(error, QStringLiteral("bad username or password"));
-        QVERIFY2(!error.contains(QStringLiteral("code 4")),
-                 "the raw number adds nothing once the reason is spelled out");
-        QVERIFY2(!error.contains(QStringLiteral("CONNACK")),
-                 "Paho's placeholder message carries no information and must not survive");
-        QCoreApplication::processEvents();
+        const int none = QAbstractSocket::UnknownSocketError;
+        QTest::newRow("connack 1") << int(QMqttClient::InvalidProtocolVersion) << none << false << QStringLiteral("protocol version");
+        QTest::newRow("connack 2") << int(QMqttClient::IdRejected) << none << false << QStringLiteral("client ID");
+        QTest::newRow("connack 3") << int(QMqttClient::ServerUnavailable) << none << false << QStringLiteral("broker unavailable");
+        QTest::newRow("connack 4") << int(QMqttClient::BadUsernameOrPassword) << none << false << QStringLiteral("bad username or password");
+        QTest::newRow("connack 5") << int(QMqttClient::NotAuthorized) << none << false << QStringLiteral("not authorized");
+        QTest::newRow("unreachable") << int(QMqttClient::NoError) << int(QAbstractSocket::NetworkError) << false << QStringLiteral("unreachable");
+        QTest::newRow("refused") << int(QMqttClient::NoError) << int(QAbstractSocket::ConnectionRefusedError) << false << QStringLiteral("refused");
+        QTest::newRow("timeout") << int(QMqttClient::NoError) << int(QAbstractSocket::SocketTimeoutError) << false << QStringLiteral("timed out");
+        QTest::newRow("no dns") << int(QMqttClient::NoError) << int(QAbstractSocket::HostNotFoundError) << false << QStringLiteral("not resolved");
+        QTest::newRow("cert") << int(QMqttClient::NoError) << int(QAbstractSocket::SslHandshakeFailedError) << true << QStringLiteral("certificate rejected");
+        // An error with no dedicated wording still names itself.
+        QTest::newRow("other") << int(QMqttClient::NoError) << int(QAbstractSocket::ProxyNotFoundError) << false << QStringLiteral("ProxyNotFoundError");
     }
 
-    void transportErrorKeepsPahosMessageAndAppendsTheUnknownCode() {
-        // Negative codes are MQTTASYNC_* transport errors, not CONNACK values —
-        // and these are the common "broker unreachable" failures. Paho's message
-        // is self-describing there, so it is kept, and the unrecognised code is
-        // appended rather than swallowed.
-        Settings settings;
-        enableMqtt(settings);
-        QScopedPointer<MqttClient> c(makeClient(settings));
+    void failureReasonIsWordsNeverABareCode() {
+        QFETCH(int, clientError);
+        QFETCH(int, socketError);
+        QFETCH(bool, sslFailure);
+        QFETCH(QString, expected);
 
-        char message[] = "TCP/TLS connect failure";
-        MQTTAsync_failureData data{};
-        data.code = -1;
-        data.message = message;
+        QList<QSslError> ssl;
+        if (sslFailure)
+            ssl << QSslError(QSslError::SelfSignedCertificate);
+        const QString reason = MqttClient::failureReason(
+            clientError, static_cast<QAbstractSocket::SocketError>(socketError), ssl);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("TCP/TLS connect failure"));
-        const QString error = failureStringFor(c.data(), &data);
-
-        QVERIFY(error.contains(QStringLiteral("TCP/TLS connect failure")));
-        QVERIFY2(error.contains(QStringLiteral("(code -1)")),
-                 "an unrecognised code must still be visible");
-        QCoreApplication::processEvents();
+        QVERIFY2(reason.contains(expected, Qt::CaseInsensitive), qPrintable(reason));
+        QVERIFY2(!QRegularExpression(QStringLiteral("^\\(?-?\\d+\\)?$")).match(reason).hasMatch(),
+                 "a bare number is not a reason");
     }
 
-    void aNullFailureDataStillYieldsTheGenericMessage() {
-        // Paho can invoke onFailure with no failureData at all; that must not
-        // read any member, and must not append a bogus code.
+    void refusedSubscriptionIsNamedAndNotConnected() {
+        // An account that may not read the command topic must not look healthy: every
+        // Home Assistant command would silently go nowhere.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Connection failed"));
-        const QString error = failureStringFor(c.data(), nullptr);
+        c->m_sessionUp = true;
+        c->m_refusedSubscription = QStringLiteral("decenza/command");
+        c->updateVerifiedState();
 
-        QCOMPARE(error, QStringLiteral("Connection failed"));
-        QVERIFY2(!error.contains(QStringLiteral("code")),
-                 "no response means no code to report");
-        QCoreApplication::processEvents();
+        QVERIFY(!c->isConnected());
+        QVERIFY(c->status().contains(QStringLiteral("decenza/command")));
+        QVERIFY(c->status().contains(QStringLiteral("permission")));
+    }
+
+    void brokerRejectingMqtt311FallsBackTo31WithoutSpendingAnAttempt() {
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        c->m_attemptAddress = QStringLiteral("192.0.2.1");
+        c->m_reconnectAttempts = 3;
+
+        c->m_client->setState(QMqttClient::Connecting);
+        c->m_client->setError(QMqttClient::InvalidProtocolVersion);
+        c->m_client->setState(QMqttClient::Disconnected);
+
+        QVERIFY(c->m_useMqtt31);
+        QCOMPARE(c->m_reconnectAttempts, 3);
+        QVERIFY2(!c->status().startsWith(QStringLiteral("Error")), "a fallback is not a failure");
+
+        // A second rejection, already on 3.1, is a real failure.
+        c->m_client->setState(QMqttClient::Connecting);
+        c->m_client->setError(QMqttClient::NoError);
+        c->m_client->setError(QMqttClient::InvalidProtocolVersion);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("protocol version"));
+        c->m_client->setState(QMqttClient::Disconnected);
+        QVERIFY(c->status().contains(QStringLiteral("protocol version")));
+    }
+
+    // ===== Home Assistant discovery =====
+
+    void existingEntitiesKeepTheirTopicsAndIds() {
+        // Upgrading must not create a second set of entities in Home Assistant: every
+        // config topic and unique_id shipped before the Qt MQTT move stays exactly as was.
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        c->m_clientId = QStringLiteral("cid");
+
+        const QList<std::tuple<QString, QString, QString>> shipped = {
+            {"sensor", "state", "state"}, {"sensor", "phase", "phase"}, {"sensor", "substate", "substate"},
+            {"sensor", "temperature_head", "temp_head"}, {"sensor", "temperature_mix", "temp_mix"},
+            {"sensor", "temperature_steam", "temp_steam"}, {"sensor", "pressure", "pressure"},
+            {"sensor", "flow", "flow"}, {"sensor", "weight", "weight"},
+            {"sensor", "target_weight", "target_weight"}, {"sensor", "water_level", "water_level"},
+            {"sensor", "water_level_ml", "water_level_ml"}, {"sensor", "shot_time", "shot_time"},
+            {"text", "profile", "profile"}, {"switch", "power", "power"},
+            {"binary_sensor", "connected", "connected"}, {"binary_sensor", "scale_connected", "scale_connected"},
+            {"sensor", "steam_mode", "steam_mode"}, {"switch", "steam", "steam"},
+            {"sensor", "espresso_count", "espresso_count"}, {"sensor", "profile_filename", "profile_filename"},
+        };
+        const auto entries = c->discoveryEntries();
+        for (const auto& [component, objectId, suffix] : shipped) {
+            bool found = false;
+            for (const auto& entry : entries) {
+                if (entry.component == component && entry.objectId == objectId) {
+                    found = true;
+                    QCOMPARE(c->discoveryConfig(entry).value("unique_id").toString(),
+                             QStringLiteral("de1_cid_") + suffix);
+                }
+            }
+            QVERIFY2(found, qPrintable(component + "/" + objectId + " missing"));
+        }
+    }
+
+    void entityAvailabilityFollowsTheDeviceItReads() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        auto deviceTopicOf = [](const QJsonObject& config) {
+            const QJsonArray list = config.value("availability").toArray();
+            return list.size() == 2 ? list.at(1).toObject().value("topic").toString() : QString();
+        };
+
+        const QJsonObject temp = configFor(c.data(), "temperature_head");
+        QCOMPARE(deviceTopicOf(temp), QStringLiteral("decenza/connected"));
+        QCOMPARE(temp.value("availability_mode").toString(), QStringLiteral("all"));
+
+        QCOMPARE(deviceTopicOf(configFor(c.data(), "weight")), QStringLiteral("decenza/scale_connected"));
+
+        // The connection entities themselves must stay readable while the device is gone.
+        const QJsonObject link = configFor(c.data(), "connected");
+        QVERIFY(!link.contains("availability"));
+        QCOMPARE(link.value("availability_topic").toString(), QStringLiteral("decenza/availability"));
+    }
+
+    void profileSelectListsTheInstalledTitles() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        QVERIFY2(configFor(c.data(), "profile_select").isEmpty(),
+                 "Home Assistant rejects a select with no options");
+
+        c->setProfileTitles({QStringLiteral("D-Flow / Q"), QStringLiteral("Londinium")});
+        const QJsonObject select = configFor(c.data(), "profile_select");
+        QCOMPARE(select.value("options").toArray().size(), 2);
+        QCOMPARE(select.value("command_topic").toString(), QStringLiteral("decenza/profile/select"));
+    }
+
+    // ===== Last shot and shot events =====
+
+    void lastShotOmitsWhatTheShotDoesNotHave() {
+        MqttClient::LastShot noScale;
+        noScale.startEpochSec = 1790000000;
+        noScale.durationSec = 28.04;
+        noScale.doseG = 18.0;
+        noScale.profile = QStringLiteral("D-Flow / Q");
+        const QJsonObject summary = MqttClient::lastShotSummary(noScale);
+        QVERIFY2(!summary.contains("yield_g") && !summary.contains("ratio"),
+                 "a 0 g yield would read as a measurement");
+        QCOMPARE(summary.value("duration_s").toDouble(), 28.0);
+        QVERIFY(summary.value("finished_at").toString().contains('T'));
+
+        MqttClient::LastShot full = noScale;
+        full.yieldG = 36.0;
+        QCOMPARE(MqttClient::lastShotSummary(full).value("ratio").toDouble(), 2.0);
+    }
+
+    void eachEspressoGetsAtMostOneOutcomeAndMaintenanceNone() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        c->onEspressoCycleStarted(false);
+        QVERIFY(c->m_shotCycleOpen);
+        c->onShotPersisted(28.0, 36.0);
+        QVERIFY2(!c->m_shotCycleOpen, "finished closes the cycle");
+        c->onShotNotSaved();   // must not add an aborted to a finished shot
+        QVERIFY(!c->m_shotCycleOpen);
+
+        c->onEspressoCycleStarted(true);   // cleaning profile
+        QVERIFY2(!c->m_shotCycleOpen, "maintenance runs report nothing");
+    }
+
+    // ===== Remote stop =====
+
+    void stopActsOnlyDuringBeverageAndRinsePhases() {
+        Settings settings;
+        DE1Device device;
+        device.m_simulationMode = true;    // isConnected() -> true
+        MachineState state(&device);
+        QScopedPointer<MqttClient> c(makeClient(settings, &device, &state));
+        QSignalSpy stops(c.data(), &MqttClient::stopRequested);
+
+        state.m_phase = MachineState::Phase::Pouring;
+        c->handleCommand(QStringLiteral("stop"));
+        QCOMPARE(stops.count(), 1);
+
+        for (auto phase : {MachineState::Phase::Cleaning, MachineState::Phase::Descaling,
+                           MachineState::Phase::Idle, MachineState::Phase::Sleep}) {
+            state.m_phase = phase;
+            c->handleCommand(QStringLiteral("stop"));
+        }
+        QCOMPARE(stops.count(), 1);
     }
 };
 

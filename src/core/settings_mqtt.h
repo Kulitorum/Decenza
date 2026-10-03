@@ -3,6 +3,7 @@
 #include <QObject>
 #include "appsettings.h"
 #include <QString>
+#include <QStringList>
 
 class SettingsMqtt : public QObject {
     Q_OBJECT
@@ -17,6 +18,8 @@ class SettingsMqtt : public QObject {
     Q_PROPERTY(bool mqttRetainMessages READ mqttRetainMessages WRITE setMqttRetainMessages NOTIFY mqttRetainMessagesChanged FINAL)
     Q_PROPERTY(bool mqttHomeAssistantDiscovery READ mqttHomeAssistantDiscovery WRITE setMqttHomeAssistantDiscovery NOTIFY mqttHomeAssistantDiscoveryChanged FINAL)
     Q_PROPERTY(QString mqttClientId READ mqttClientId WRITE setMqttClientId NOTIFY mqttClientIdChanged FINAL)
+    Q_PROPERTY(bool mqttUseTls READ mqttUseTls WRITE setMqttUseTls NOTIFY mqttUseTlsChanged FINAL)
+    Q_PROPERTY(QString mqttCaCertificate READ mqttCaCertificate WRITE setMqttCaCertificate NOTIFY mqttCaCertificateChanged FINAL)
 
 public:
     explicit SettingsMqtt(QObject* parent = nullptr);
@@ -51,6 +54,23 @@ public:
     QString mqttClientId() const;
     void setMqttClientId(const QString& clientId);
 
+    bool mqttUseTls() const;
+    void setMqttUseTls(bool useTls);
+
+    // PEM text of a CA the user trusts in addition to the platform's, for brokers with
+    // self-signed certificates. Empty = platform CAs only.
+    QString mqttCaCertificate() const;
+    void setMqttCaCertificate(const QString& pem);
+    // "<subject>, expires <date>" for a PEM CA certificate, or empty when it is not one.
+    // The one validity check for every surface that sets mqttCaCertificate.
+    static QString describeCaCertificate(const QString& pem);
+
+    // Bookkeeping, not a user setting: the Home Assistant discovery config topics last
+    // published, so ones that leave the set (or all, when discovery is turned off) can be
+    // cleared from the broker. No property and no signal — nothing displays it.
+    QStringList mqttPublishedDiscoveryTopics() const;
+    void setMqttPublishedDiscoveryTopics(const QStringList& topics);
+
 signals:
     void mqttEnabledChanged();
     void mqttBrokerHostChanged();
@@ -62,6 +82,8 @@ signals:
     void mqttRetainMessagesChanged();
     void mqttHomeAssistantDiscoveryChanged();
     void mqttClientIdChanged();
+    void mqttUseTlsChanged();
+    void mqttCaCertificateChanged();
 
 private:
     mutable AppSettings m_settings;
