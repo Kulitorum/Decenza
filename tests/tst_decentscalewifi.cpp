@@ -43,6 +43,8 @@ public:
                 m_client->setParent(this);
                 connect(m_client, &QWebSocket::textMessageReceived,
                         this, [this](const QString& msg) { m_received.append(msg); });
+                connect(m_client, &QWebSocket::disconnected,
+                        this, &FakeHdsServer::clientDisconnected);
                 emit clientConnected();
             }
         });
@@ -81,6 +83,7 @@ public:
 
 signals:
     void clientConnected();
+    void clientDisconnected();
 
 private:
     QWebSocketServer* m_server = nullptr;
@@ -418,6 +421,38 @@ private slots:
             QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
         QVERIFY(!server.received().contains(QStringLiteral("soft_sleep on")));
         QCOMPARE(sleepSpy.count(), 1);
+    }
+
+    // The DE1-sleep check-in exists only to restart the HDS's 15-min auto-off.
+    // It must not look like a connection: a command ("display on" from the
+    // normal handshake) would light a sleeping scale every 10 min, and a
+    // connected flip would swap the app off FlowScale mid-sleep.
+    void keepAwakeCheckInIsSilentAndBrief() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        connectAndHandshake(driver, server);
+        server.sendJson({{ "grams", 1.5 }, { "ms", 1 }});
+        QVERIFY(weightSpy.wait(2000));  // recognized: the address is remembered
+
+        QSignalSpy firstGone(&server, &FakeHdsServer::clientDisconnected);
+        driver.disconnectFromScale();
+        QVERIFY(firstGone.wait(2000));
+        QTRY_VERIFY(!driver.isConnected());
+        driver.beginSleepKeepAwake();
+        server.clearReceived();
+
+        QSignalSpy driverConnected(&driver, &ScaleDevice::connectedChanged);
+        QSignalSpy checkInArrived(&server, &FakeHdsServer::clientConnected);
+        QSignalSpy checkInGone(&server, &FakeHdsServer::clientDisconnected);
+        driver.checkInToStayAwake();
+        QVERIFY(checkInArrived.wait(2000));
+        server.sendJson({{ "grams", 1.5 }, { "ms", 2 }});
+        QVERIFY(checkInGone.wait(2000));  // closed once the scale answered
+
+        QVERIFY2(server.received().isEmpty(), qPrintable(server.received().join(", ")));
+        QCOMPARE(driverConnected.count(), 0);
+        driver.endSleepKeepAwake();
     }
 
     void setLedFormatsAndClamps() {

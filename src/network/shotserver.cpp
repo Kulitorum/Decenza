@@ -2379,7 +2379,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             m_device->goToSleep();
             DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via web";
         }
-        emit sleepRequested();
         sendJson(socket, R"({"success":true,"action":"sleep"})");
     }
     // Home Automation API endpoints
@@ -2449,7 +2448,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     m_device->goToSleep();
                     DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via /api/command";
                 }
-                emit sleepRequested();
                 sendJson(socket, R"({"success":true,"command":"sleep"})");
             } else {
                 sendResponse(socket, 400, "application/json",

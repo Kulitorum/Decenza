@@ -796,20 +796,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // MainController for the recipes/bags/equipment web surfaces (add-recipes)
     m_shotServer->setMainController(this);
 
-    // Emit remoteSleepRequested when sleep command received via REST API
-    connect(m_shotServer, &ShotServer::sleepRequested, this, &MainController::remoteSleepRequested);
     // Create MQTT client for home automation
     m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, m_settings->mqtt(), this);
 
     // Pass MainController reference for shot history access
     m_mqttClient->setMainController(this);
-
-    // Emit remoteSleepRequested when sleep command received via MQTT
-    connect(m_mqttClient, &MqttClient::commandReceived, this, [this](const QString& command) {
-        if (command == "sleep") {
-            emit remoteSleepRequested();
-        }
-    });
 
     // Handle profile selection via MQTT
     connect(m_mqttClient, &MqttClient::profileSelectRequested, this, [this](const QString& profileName) {
