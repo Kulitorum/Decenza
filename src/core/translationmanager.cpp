@@ -139,6 +139,10 @@ TranslationManager::~TranslationManager()
             (void)m_scanThread->wait();
         }
     }
+    // Strings registered in the last batch interval. Tolerable discard: rendering
+    // re-registers them next launch. The helper has warned.
+    if (m_registryDirty)
+        (void)saveStringRegistry();
 }
 
 // Merge community translations for the active language, once per launch, as soon as there is
@@ -571,11 +575,10 @@ void TranslationManager::registerString(const QString& key, const QString& fallb
     }
 
     if (noteSourceString(key, fallback)) {
-        // Tolerable discard: a lost registry write is rediscovered the next time the string
-        // renders (this very function re-runs). The helper has warned.
-        (void)saveStringRegistry();
-        recalculateUntranslatedCount();
-        emit totalStringCountChanged();
+        // Batched like translateString(): every Tr calls this from Component.onCompleted, so a
+        // synchronous write here ran once per new key on the main thread. The batch also
+        // recounts and emits.
+        m_registryDirty = true;
     }
 }
 
@@ -2337,13 +2340,10 @@ bool TranslationManager::noteSourceString(const QString& key, const QString& fal
 
     m_stringRegistry[key] = fallback;
 
-    // Persist immediately rather than leaving it to the batched save. translateString() is one
-    // of the callers and only marks the registry dirty, so on that path the new English could
-    // be lost if the process ended first, and the next launch would rediscover the same change.
-    // A change here is rare by construction, so the write is cheap. Tolerable discard: if it
-    // fails, the next launch rediscovers the same change — exactly the situation this write
-    // exists to shorten, not to guarantee. The helper has warned.
-    (void)saveStringRegistry();
+    // No save here: callers mark the registry dirty for the 5 s batch. This runs inside text
+    // bindings, a full registry write measured 14 ms on an M-series Mac debug build, and a
+    // change is not rare: a Tr whose key and fallback switched on one condition passed a
+    // mismatched pair through here on every flip (#1976 follow-up).
 
     // Report, do NOT touch the translation.
     //

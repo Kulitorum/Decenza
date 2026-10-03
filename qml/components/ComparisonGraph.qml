@@ -1,4 +1,4 @@
-// The 30-trace and phase-label Repeater delegates read this file's ids (`chart`,
+// The 30-trace and phase-label delegates read this file's ids (`chart`,
 // `timeAxis`, `graphsView`); Bound makes them statically resolvable. Both already
 // declare their one injected role, `modelData`, required, so Bound cannot break role
 // injection here.
@@ -54,9 +54,8 @@ Item {
         : 0
     property var inspectShotValues: []
 
-    // Alias so DashedLineSeries delegates can reach the GraphsView without
-    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
-    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    // Alias so the series instantiator can reach the GraphsView: `graphsView: graphsView`
+    // would resolve the RHS to its own `graphsView` property.
     readonly property alias graphsViewRef: graphsView
 
     // Re-export the GraphsView's plot rect for parent pages that hit-test
@@ -137,7 +136,7 @@ Item {
         if (key === "weight") {
             let scaled = []
             for (let i = 0; i < data.length; i++) {
-                scaled.push({ x: data[i].x, y: data[i].y / 5.0 })
+                scaled.push(Qt.point(data[i].x, data[i].y / 5.0))
             }
             return scaled
         }
@@ -362,49 +361,50 @@ Item {
         }
     }
 
-    // === HIDDEN RIGHT-AXIS HOLDERS ===
-    // DashedLineSeries reads min/max for its data→pixel mapping; QtObject
-    // suffices — no Qt Graphs ValueAxis needed.
+    // === HIDDEN RIGHT-AXIS RANGES ===
+    // Invisible axes the series map through (a series may carry its own axisY since
+    // Qt 6.10). A hidden axis reserves no plot space (axisrenderer.cpp:1082).
 
     // Flow-family mapping, tracking the pressure axis so one multiplier drives both.
     //
     // Note this axis also inherits the pressure axis's expansion to 20 under advanced
     // curves, which shrinks the flow trace by 40% — inherited behaviour from when flow was
     // plotted on the pressure axis directly, not something the multiplier introduces.
-    QtObject {
+    ValueAxis {
         id: flowAxis
-        property real min: pressureAxis.min
-        property real max: pressureAxis.max / chart.flowMultiplier
+        visible: false
+        min: pressureAxis.min
+        max: pressureAxis.max / chart.flowMultiplier
     }
 
-    QtObject {
+    ValueAxis {
         id: tempAxis
-        property real min: 40
-        property real max: 100
+        visible: false
+        min: 40
+        max: 100
     }
 
-    QtObject {
+    ValueAxis {
         id: weightAxis
-        property real min: 0
+        visible: false
+        min: 0
         // Weight points are pre-divided by 5 in _curvePoints() (so 60 g → 12),
         // then mapped against this 0–12 axis so 60 g lands at the top — same
         // visual height as 12 bar on the left axis. Matches the legacy
         // weightAxis range in the Qt Charts comparison view.
-        property real max: 12
+        max: 12
     }
 
     // Initial values only — _updateDCdtAxis() rewrites min/max from the actual
     // data range every time shotsChanged fires.
-    QtObject {
+    ValueAxis {
         id: dCdtAxis
-        property real min: 0
-        property real max: 20
+        visible: false
+        min: 0
+        max: 20
     }
 
-    // === 30 trace overlays via a flat Repeater (3 shots × 10 curves) ===
-    // Nested Repeaters inside a wrapper Item appear to confuse the scene-graph
-    // parenting for Shape items inside DashedLineSeries — flattening to a
-    // single Repeater with a pre-built model gets reliable rendering.
+    // === 30 traces (3 shots × 10 curves), one native series each ===
 
     readonly property var _allTraces: {
         var out = []
@@ -422,20 +422,19 @@ Item {
                              : showShot2
     }
 
-    Repeater {
+    GraphSeriesInstantiator {
+        graphsView: chart.graphsViewRef
         model: chart._allTraces
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
             required property var modelData
             readonly property var curveDef: chart._curves[modelData.curveIdx]
             readonly property var shotStyle: chart._shotStyles[modelData.shotIdx]
 
-            graphsView: chart.graphsViewRef
-            axisX: timeAxis
             axisY: chart._axisFor(curveDef.axisKey)
-            points: chart._curvePoints(modelData.shotIdx, curveDef.key)
-            strokeColor: curveDef.color
-            strokeWidth: curveDef.width
-            dashed: shotStyle.dashed
+            values: chart._curvePoints(modelData.shotIdx, curveDef.key)
+            color: curveDef.color
+            width: curveDef.width
+            strokeStyle: shotStyle.dashed ? LineSeries.StrokeStyle.DashLine : LineSeries.StrokeStyle.SolidLine
             dashPattern: shotStyle.pattern
             visible: chart._shotVisibleAt(modelData.shotIdx)
                      && Settings.graph[curveDef.showFlag]

@@ -9,21 +9,15 @@ import QtGraphs
 import Decenza
 
 // Profile editor preview. Pressure / flow live on the GraphsView's native left
-// axis; temperature is overlaid as a solid DashedLineSeries against a QtObject
-// value holder because Qt Graphs has no sanctioned right-Y axis in this setup.
+// axis; temperature is a series on its own hidden axis, labelled by hand on the right.
 //
-// Outer Item wraps the GraphsView so the temperature overlay, frame-region
-// rectangles, and the custom legend render as siblings — children of GraphsView
-// would be swallowed by its scene-graph paint.
+// Outer Item wraps the GraphsView so the frame-region rectangles and the custom
+// legend render as siblings — children of GraphsView would be swallowed by its
+// scene-graph paint.
 Item {
     id: chart
     Accessible.role: Accessible.Graphic
     Accessible.name: TranslationManager.translate("profileGraph.accessibleName", "Profile graph")
-
-    // Alias so DashedLineSeries delegates can reach the GraphsView without
-    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
-    // `graphsView` property (which defaults to `parent`) and resolves to null.
-    readonly property alias graphsViewRef: graphsView
 
     // Re-export the GraphsView's plot rect for parent pages that hit-test
     // against it. Matches the legacy Qt Charts ChartView.plotArea API.
@@ -65,10 +59,6 @@ Item {
     // Using a plain property (not a binding) avoids QML binding-loop issues
     // with var arrays that can fail to re-evaluate on frames assignment.
     property var frameDurations: []
-
-    // Computed temperature points consumed by the right-axis overlay. updateCurves()
-    // assigns this in a single shot so the DashedLineSeries binding fires once.
-    property var _temperaturePoints: []
 
     function recomputeFrameDurations() {
         var durations = []
@@ -126,8 +116,8 @@ Item {
         // Reserve room for the bottom legend; tracks its (possibly wrapped) height
         // so a second line pushes the plot up instead of overlapping it.
         anchors.bottomMargin: legendRow.height + Theme.scaled(6)
-        // Reserve room on the right for the manual temperature labels; Qt Graphs
-        // has no axisYRight in this setup so we render them ourselves below.
+        // Reserve room on the right for the temperature labels drawn below. The temperature
+        // series maps through a hidden axis, so Qt Graphs reserves no space for one.
         anchors.rightMargin: Theme.scaled(28)
         theme: DecenzaGraphsTheme {}
 
@@ -167,25 +157,23 @@ Item {
             color: Theme.flowGoalColor
             width: Theme.graphLineWidth * 3
         }
+
+        // Temperature curve
+        LineSeries {
+            id: temperatureSeries0
+            axisY: tempAxis
+            color: Theme.temperatureGoalColor
+            width: Theme.graphLineWidth * 2
+        }
     }
 
-    // Temperature axis holder — Qt Graphs has no axisYRight in this setup, so
-    // temperature is plotted as a DashedLineSeries against this min/max range.
-    QtObject {
+    // Temperature range, hidden: the right-axis labels below are drawn by hand. A hidden
+    // axis reserves no plot space (axisrenderer.cpp:1082).
+    ValueAxis {
         id: tempAxis
-        property real min: 80
-        property real max: 100
-    }
-
-    // Temperature curve — solid stroke via the dashed-overlay bridge.
-    DashedLineSeries {
-        graphsView: chart.graphsViewRef
-        axisX: timeAxis
-        axisY: tempAxis
-        points: chart._temperaturePoints
-        strokeColor: Theme.temperatureGoalColor
-        strokeWidth: Theme.graphLineWidth * 2
-        dashed: false
+        visible: false
+        min: 80
+        max: 100
     }
 
     // Manual right-axis temperature labels — replaces what Qt Charts' axisYRight
@@ -328,7 +316,7 @@ Item {
         var tempPts = []
 
         if (frames.length === 0) {
-            _temperaturePoints = []
+            temperatureSeries0.clear()
             return
         }
 
@@ -510,7 +498,7 @@ Item {
             time = endTime
         }
 
-        _temperaturePoints = tempPts
+        temperatureSeries0.replace(tempPts)
     }
 
     onFramesChanged: { recomputeFrameDurations(); updateCurves() }

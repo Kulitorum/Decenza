@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QHash>
 #include <QSet>
+#include <QStringList>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QElapsedTimer>
@@ -80,6 +81,12 @@ private:
     QHash<QString, int> m_prevClassCounts;       // On-demand comparison before engine baseline
     QHash<QString, int> m_baselineClassCounts;   // First snapshot after engine set (for growth-since-startup)
     bool m_baselineCaptured = false;
+
+    // Running animations, BusyIndicators and Timers found by the same walk: the work that keeps
+    // waking the main thread or the render loop while nothing changes on screen (#1976: the
+    // profiler counted three through idle screens and could not name them; they were Timers).
+    void collectRunningAnimations(const QSet<QObject*>& all);
+    QStringList m_runningAnimations;
 
 #ifndef QT_NO_DEBUG
     // Scan visible QML Text items for emoji codepoints that trigger CopyEmojiImage crash on macOS

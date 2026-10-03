@@ -257,6 +257,12 @@ post-shot completion timer.
 Intentionally **not** changed: `switchToRecipeEditor()` and `switchToAdvancedEditor()` —
 these are deliberate sibling swaps at the same stack level, not root navigations.
 
+**Superseded (#1976).** Operation pages are now pushed and popped (`QML_NAVIGATION.md`), so a
+phase change no longer clears the stack. The leak above does not come back: what stays under an
+operation page is the stack the user built and returns to with Back, not pages nothing can reach.
+Leaving an operation page pops to where it was entered, and a post-shot review replaces the
+review a shot was started from, so repeated shots do not grow it.
+
 ### 7. PipesScreensaver null-parent instance cleanup
 
 `PipesScreensaver.qml` builds the pipes scene using `InstanceListEntry` objects created

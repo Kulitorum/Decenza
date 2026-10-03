@@ -72,9 +72,13 @@ extern "C" const char* __ubsan_default_options()
 
 #include <QApplication>
 #include <QQmlApplicationEngine>
+#ifdef DECENZA_QML_PROFILING_PORT
+#include <QQmlDebuggingEnabler>
+#endif
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QScreen>
 #include <QSettings>
 #include <QIcon>
@@ -225,6 +229,20 @@ using namespace Qt::StringLiterals;
 extern void qml_register_types_Decenza();
 
 namespace {
+
+const char* graphicsApiName(QSGRendererInterface::GraphicsApi api)
+{
+    switch (api) {
+    case QSGRendererInterface::Software:   return "Software";
+    case QSGRendererInterface::OpenGL:     return "OpenGL";
+    case QSGRendererInterface::Direct3D11: return "D3D11";
+    case QSGRendererInterface::Direct3D12: return "D3D12";
+    case QSGRendererInterface::Vulkan:     return "Vulkan";
+    case QSGRendererInterface::Metal:      return "Metal";
+    case QSGRendererInterface::Null:       return "Null";
+    default:                               return "Unknown";
+    }
+}
 
 // True when the saved scale address is one the BLE/WiFi reconnect ladder can
 // actually dial. Two prefixes are excluded, for the same reason in both cases —
@@ -877,7 +895,9 @@ int main(int argc, char *argv[])
         }
     }
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+// Q_OS_LINUX is also defined on Android (qsystemdetection.h:46), so Android is excluded
+// explicitly — from v2.0.0 to 2.0.8 it ran curve text, the mobile cost described below.
+#if (defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)) && !defined(Q_OS_ANDROID)
     // Use CurveTextRendering (Qt 6.7+) on all resizable desktop platforms. It
     // renders every glyph as bezier curves on the GPU, so it needs neither the
     // distance-field glyph cache nor the native bitmap path. Two problems it avoids:
@@ -911,16 +931,17 @@ int main(int argc, char *argv[])
     // CoreText/Apple Color Emoji stack, but the CopyEmojiImage crash has only ever
     // been observed on macOS, so iOS is intentionally left on the default too.
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
+#endif
     {
+        // Every platform, so a field log says which text renderer is active.
         auto actual = QQuickWindow::textRenderType();
         FONT_LOG_STDERR("TextRender",
-            QStringLiteral("Requested CurveTextRendering, active type: %1 (%2)")
+            QStringLiteral("Text render type: %1 (%2)")
                 .arg(actual == QQuickWindow::CurveTextRendering ? QStringLiteral("Curve")
                      : actual == QQuickWindow::QtTextRendering  ? QStringLiteral("QtText")
                                                                 : QStringLiteral("Native"))
                 .arg(static_cast<int>(actual)));
     }
-#endif
 
 #ifdef Q_OS_MACOS
     // Probe which characters CoreText routes to Apple Color Emoji — diagnostic
@@ -2270,6 +2291,20 @@ int main(int argc, char *argv[])
     // exists, ~1750 lines below.
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     GHCSimulator ghcSimulator;
+#endif
+
+#ifdef DECENZA_QML_PROFILING_PORT
+    // QML-profiling build only (android-release.yml qml_profiling). Must precede the engine:
+    // the server serves engines created after it starts (qqmldebug.cpp:167-174). Localhost
+    // only — reach it with `adb forward tcp:3768 tcp:3768`.
+    QQmlDebuggingEnabler::setServices(QQmlDebuggingEnabler::profilerServices());
+    if (QQmlDebuggingEnabler::startTcpDebugServer(DECENZA_QML_PROFILING_PORT,
+            QQmlDebuggingEnabler::DoNotWaitForClient, QStringLiteral("127.0.0.1")))
+        DIAG_WARN(APP, "main") << "QML profiling build: debug server listening on 127.0.0.1:"
+                               << DECENZA_QML_PROFILING_PORT;
+    else
+        DIAG_WARN(APP, "main") << "QML profiling build: debug server failed to start on port"
+                               << DECENZA_QML_PROFILING_PORT;
 #endif
 
     // Set up QML engine
@@ -4068,8 +4103,7 @@ int main(int argc, char *argv[])
     // CoffeeBagStorageType, EquipmentStorageType and UnifiedBeanSearchModelType were NOT. No
     // context property of those names ever existed — `git log -S 'setContextProperty("CoffeeBagStorage"'`
     // finds nothing. They simply copied the ...Type suffix from the neighbours above, and moved
-    // for the unrelated reason in the next paragraph. An earlier draft of this comment lumped all
-    // six together as context-property workarounds, which contradicted its own next sentence.
+    // for the unrelated reason in the next paragraph.
     //
     // DE1DeviceType was the last runtime qmlRegisterUncreatableType in that shape and is removed
     // here; nothing in qml/ or tests/ referenced it. AIConversation, CoffeeBagStorage,
@@ -4078,19 +4112,16 @@ int main(int argc, char *argv[])
     // reaches Decenza.qmltypes and qmllint cannot resolve the type behind the properties that
     // return it. QML reaches those four through MainController properties, never by type name.
 
-    // The CREATABLE types that used to be registered here — JsCanvasPainterItem,
-    // StrangeAttractorRenderer, FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
+    // The CREATABLE types that used to be registered here — StrangeAttractorRenderer,
+    // FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
     // now carry QML_ELEMENT in their own headers. Same QML names, same creatable
     // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
     // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
     // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
     // 19 warnings across six QML files, none of them a real missing import.
     //
-    // Safe in their headers, and the reason is per-TARGET, not per-base-class. An earlier draft
-    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter,
-    // and the JsCanvasContext/JsCanvasGradient pair registered alongside them, all derive from
-    // plain QObject. What actually holds is that documentformatter.cpp and jscanvas*.cpp are
-    // compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
+    // Safe in their headers, and the reason is per-TARGET, not per-base-class (DocumentFormatter
+    // derives from plain QObject): documentformatter.cpp is compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
     // fastlinerenderer.cpp, goes into decenza_shotlib, which links Qt6::Quick. Apply that test to
     // the next header, not the inheritance one.
 
@@ -4134,6 +4165,18 @@ int main(int argc, char *argv[])
         QQuickWindow* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
         if (window) {
             relayClient.setWindow(window);
+            // Which backend the device picked (Vulkan/GL/Metal/D3D) — for field reports of
+            // rendering faults. Queued: the signal comes from the render thread. Logged now if
+            // the first expose already initialised it.
+            const auto logRhi = [window]() {
+                const QSGRendererInterface* rif = window->rendererInterface();
+                DIAG_INFO(APP, "main") << "Scene graph ready, RHI ="
+                    << (rif ? graphicsApiName(rif->graphicsApi()) : "unknown");
+            };
+            QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, logRhi,
+                             Qt::QueuedConnection);
+            if (window->isSceneGraphInitialized())
+                logRhi();
         }
     }
 

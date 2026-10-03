@@ -1560,10 +1560,18 @@ T.Page {
         id: shotKnowledgeDialog
     }
 
-    ConversationOverlay {
-        id: conversationOverlay
+    // Built on first use: the advisor overlay was created with every open of this page
+    // whether or not the advisor was opened (#1976).
+    OnDemandLoader {
+        id: conversationOverlayLoader
         anchors.fill: parent
-        overlayTitle: TranslationManager.translate("shotdetail.conversation.title", "AI Conversation")
+        z: 200  // the overlay's own z only orders it inside this Loader
+        sourceComponent: Component {
+            ConversationOverlay {
+                anchors.fill: parent
+                overlayTitle: TranslationManager.translate("shotdetail.conversation.title", "AI Conversation")
+            }
+        }
     }
 
     // Bottom bar
@@ -1594,7 +1602,7 @@ T.Page {
             text: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             accessibleName: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             onClicked: {
-                conversationOverlay.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
+                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
             }
         }
 

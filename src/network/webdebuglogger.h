@@ -91,10 +91,12 @@ public:
     QString logFilePath() const;
 
     // The current session's lines matching ANY of `markers` at or above
-    // `minLevel` — the query the connections-page views are built from, so a
-    // subsystem's on-screen narrative and `debug_get_log`'s answer for the same
-    // marker and level are the same set by construction rather than by two
-    // implementations agreeing.
+    // `minLevel` — the query the connections-page views are built from. Each line is
+    // tested by lineMatches(), the same predicate `debug_get_log` filters with; the
+    // session boundary is found by this function's own backward scan for the marker,
+    // which must agree with sessionIndex() (tst_webdebuglogger compares the two).
+    // `maxLines` > 0 keeps only the newest matches. An unreadable log returns one line
+    // saying so, not an empty list.
     //
     // `markers` are BRACKETED and matched as SUBSTRINGS, not regexes: pass
     // "[Scale]", and note that treating it as a pattern would make it a character
@@ -108,25 +110,15 @@ public:
     // supposed to be readable apart from. The buffer is the right size for the web
     // poller and the wrong source for "what happened this session".
     //
-    // Cost, stated honestly because it runs on the GUI thread: a cold call reads
-    // the whole file TWICE. sessionIndex() rebuilds by reading every line whenever
-    // the file's size or mtime changed, materialising up to 100,000 QStrings, and
-    // getPersistedLogChunk() then streams from line 0 again regardless of `offset`
-    // (webdebuglogger.cpp:254-260 — the loop visits every line and only appends
-    // those in range). A warm call skips the first read. The file is bounded by
-    // MAX_LOG_FILE_SIZE (2 MB), which is what keeps this tolerable.
-    //
-    // So: a one-shot at page open, with live lines arriving via lineAppended()
-    // afterwards. Never per line, and never in a loop. CLAUDE.md forbids disk I/O
-    // on the main thread and grants no exemption for this; it is here because a
-    // bounded 2 MB read at page open is a hitch rather than a hang. If it ever
-    // needs to run anywhere hotter, move it to a worker first.
-    //
-    // (An earlier version of this comment said "one pass over the current
-    // session's slice", which understated the work by two full passes. Left on the
-    // record because an understated cost is what licenses the call that hangs.)
+    // Cost: it runs on the GUI thread at page open, three times for the connections tab.
+    // It reads the file BACKWARDS from the end and stops at the current session's marker,
+    // or once `maxLines` (> 0) lines have matched — never earlier sessions, never the
+    // whole file twice as the forward read through sessionIndex() did (95 ms for three
+    // views on a Galaxy Tab A9+ with a minutes-old session, #1976). Live lines arrive
+    // via lineAppended() afterwards; never call this per line.
     Q_INVOKABLE QStringList sessionLinesMatching(const QStringList& markers,
-                                                 const QString& minLevel) const;
+                                                 const QString& minLevel,
+                                                 int maxLines = 0) const;
 
     // Whether one line belongs to any of `markers` at or above `minLevel` — the
     // same test sessionLinesMatching() applies to each line, exposed so the live

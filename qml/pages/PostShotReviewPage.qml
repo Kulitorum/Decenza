@@ -22,20 +22,23 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
-        _refreshBaristaHistory()
+        if (Settings.graph.advancedMode)
+            _refreshBaristaHistory()
         if (editShotId > 0) {
             loadShotForEditing()
         }
     }
 
-    // Barista names from history, read ONCE per page load and on a write, not per
-    // keystroke. The suggestions binding below reads `editBarista`, which
-    // onTextEdited rewrites on every character — so calling the getter inside it
-    // ran a live SELECT DISTINCT per keystroke (1.1 ms median, 35 ms worst on a
-    // real database). That is the "repeating path" case CLAUDE.md says to keep
-    // main-thread queries off; hoisting is the fix, not threading.
+    // Barista names from history, read only when the advanced-only field is shown: at page
+    // open in advanced mode, else when advanced mode is switched on. The query cost ~32 ms of
+    // this page's open on a Galaxy Tab A9+ (#1976), and the page opens after every shot.
+    // Refreshed on a write once read, never per keystroke: the suggestions binding below reads
+    // `editBarista`, which onTextEdited rewrites on every character, and calling the getter
+    // there ran a SELECT DISTINCT each time (1.1 ms median, 35 ms worst on a real database).
     property var _baristaHistory: []
+    property bool _baristaHistoryLoaded: false
     function _refreshBaristaHistory() {
+        _baristaHistoryLoaded = true
         _baristaHistory = MainController.shotHistory
             ? MainController.shotHistory.getDistinctBaristas().slice() : []
     }
@@ -43,7 +46,16 @@ T.Page {
         // Hunt for the refractometer while this page is open: activation kicks
         // an immediate scan, and BLEManager keeps scans back-to-back until the
         // refractometer connects (C++ guards handle not-configured/connected).
-        if (Settings.savedRefractometerAddress !== "") {
+        // After the page's first frame, not before it: starting the scan held up
+        // the page's open by ~27 ms on a Galaxy Tab A9+ (#1976).
+        if (Settings.savedRefractometerAddress !== "")
+            _huntAfterFrame = true
+    }
+    property bool _huntAfterFrame: false
+    Connections {
+        target: postShotReviewPage._huntAfterFrame ? postShotReviewPage.Window.window : null
+        function onFrameSwapped() {
+            postShotReviewPage._huntAfterFrame = false
             BLEManager.setRefractometerHunt(true)
         }
     }
@@ -84,6 +96,7 @@ T.Page {
         // The R2 is only used to capture TDS/EY on this page. Leaving it ends the
         // hunt AND disconnects, so it isn't holding a BLE link (contending with
         // the DE1/scale) while we're off the page. The hunt reconnects on return.
+        _huntAfterFrame = false
         BLEManager.setRefractometerHunt(false)
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
@@ -440,7 +453,10 @@ T.Page {
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
         }
-        function onHistoryDataChanged() { postShotReviewPage._refreshBaristaHistory() }
+        function onHistoryDataChanged() {
+            if (postShotReviewPage._baristaHistoryLoaded)
+                postShotReviewPage._refreshBaristaHistory()
+        }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             // No reload: a full loadShotForEditing() here would re-run
@@ -1174,7 +1190,7 @@ T.Page {
                             // been brewed with. Everything else the dialog needs
                             // still comes from the one function that knows every
                             // field — hand-setting properties leaves them stale.
-                            shotKnowledgeDialog.openForShot(
+                            (knowledgeDialogLoader.ensure() as ProfileKnowledgeDialog)?.openForShot(
                                 postShotReviewPage.editShotData.profileName || "",
                                 postShotReviewPage.editShotData.profileJson || "")
                         }
@@ -1868,7 +1884,7 @@ T.Page {
                         ? TranslationManager.translate("beans.button.change", "Change Beans")
                         : TranslationManager.translate("beans.button.select", "Select Beans")
                     accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
-                    onClicked: reviewChangeBeansDialog.open()
+                    onClicked: (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
                 }
             }
 
@@ -1940,6 +1956,7 @@ T.Page {
                         if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
                         return list
                     }
+                    onVisibleChanged: if (visible && !postShotReviewPage._baristaHistoryLoaded) postShotReviewPage._refreshBaristaHistory()
                     onTextEdited: function(t) { postShotReviewPage.editBarista = t }
                     onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
@@ -2074,7 +2091,7 @@ T.Page {
                                         ? TranslationManager.translate("beans.button.change", "Change Beans")
                                         : TranslationManager.translate("beans.button.select", "Select Beans")
                                     accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
-                                    onClicked: reviewChangeBeansDialog.open()
+                                    onClicked: (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
                                 }
                             }
                             BeanBaseDetailsRow {
@@ -2131,7 +2148,7 @@ T.Page {
                                       ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                       : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                                 accessibleName: text
-                                onClicked: shotEquipmentDialog.openPicker()
+                                onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
                             }
                         }
                     }
@@ -2205,7 +2222,7 @@ T.Page {
                                   ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                   : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                             accessibleName: text
-                            onClicked: shotEquipmentDialog.openPicker()
+                            onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
                         }
                     }
                 }
@@ -2218,18 +2235,15 @@ T.Page {
 
     } // KeyboardAwareContainer
 
-    // Change Beans + Change Equipment — page-scoped so both the recipe card and
-    // the standalone bean/equipment rows share one instance regardless of which
-    // is visible.
     // "Link to Bean Base" nudge action. A historical shot (anything but the
     // just-pulled one) links lightweight — attach the canonical record to THIS
     // shot only, no bag created. The most-recent shot keeps the full Change
     // Beans path, where linking the active bag is the intended "wrong bag" fix.
     function requestBeanLink() {
         if (editShotId === MainController.lastSavedShotId) {
-            reviewChangeBeansDialog.open()
+            (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
         } else {
-            reviewLinkBeanBaseDialog.openWith(
+            (linkBeanBaseLoader.ensure() as LinkBeanBaseDialog)?.openWith(
                 [editBeanBrand, editBeanType].filter(function(s) { return s && s.length > 0 }).join(" "))
         }
     }
@@ -2251,48 +2265,65 @@ T.Page {
         MainController.beanbase.fetchCanonicalDetails(entry)
     }
 
-    LinkBeanBaseDialog {
-        id: reviewLinkBeanBaseDialog
-        onEntryPicked: function(entry) { postShotReviewPage.applyCanonicalLinkToShot(entry) }
+    // Link, Change Beans and Change Equipment dialogs — page-scoped so both the recipe card and
+    // the standalone bean/equipment rows share one instance regardless of which
+    // is visible. Built on first open, not with the page: eagerly they were ~14k
+    // objects (ChangeBeansDialog alone carries date pickers, Bean Base details and an
+    // equipment picker) created after every shot and destroyed again on Back (#1976).
+    OnDemandLoader {
+        id: linkBeanBaseLoader
+        sourceComponent: Component {
+            LinkBeanBaseDialog {
+                onEntryPicked: function(entry) { postShotReviewPage.applyCanonicalLinkToShot(entry) }
+            }
+        }
     }
 
-    ChangeBeansDialog {
-        id: reviewChangeBeansDialog
-        // Only the most recent shot is the "post-shot" fix path (sets
-        // activeBagId too); older shots opened through this page are historical
-        // — retag the shot only.
-        context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
-        shotId: postShotReviewPage.editShotId
-        onBagSelected: function(bagId, bag) {
-            // The dialog already wrote the snapshot to the DB — mirror it into
-            // the edit fields and advance the autosave baseline so a later
-            // autosave doesn't clobber the new bag with stale values.
-            postShotReviewPage.editBeanBrand = bag.roasterName || ""
-            postShotReviewPage.editBeanType = bag.coffeeName || ""
-            postShotReviewPage.editRoastDate = bag.roastDate || ""
-            postShotReviewPage.editRoastLevel = bag.roastLevel || ""
-            postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
-            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
-            nb.beanBrand = postShotReviewPage.editBeanBrand
-            nb.beanType = postShotReviewPage.editBeanType
-            nb.roastDate = postShotReviewPage.editRoastDate
-            nb.roastLevel = postShotReviewPage.editRoastLevel
-            nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
-            postShotReviewPage.editShotData = nb
-            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
-            postShotReviewPage.pendingVisualizerUpdate = true
+    OnDemandLoader {
+        id: changeBeansLoader
+        sourceComponent: Component {
+            ChangeBeansDialog {
+                // Only the most recent shot is the "post-shot" fix path (sets
+                // activeBagId too); older shots opened through this page are historical
+                // — retag the shot only.
+                context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+                shotId: postShotReviewPage.editShotId
+                onBagSelected: function(bagId, bag) {
+                    // The dialog already wrote the snapshot to the DB — mirror it into
+                    // the edit fields and advance the autosave baseline so a later
+                    // autosave doesn't clobber the new bag with stale values.
+                    postShotReviewPage.editBeanBrand = bag.roasterName || ""
+                    postShotReviewPage.editBeanType = bag.coffeeName || ""
+                    postShotReviewPage.editRoastDate = bag.roastDate || ""
+                    postShotReviewPage.editRoastLevel = bag.roastLevel || ""
+                    postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
+                    var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                    nb.beanBrand = postShotReviewPage.editBeanBrand
+                    nb.beanType = postShotReviewPage.editBeanType
+                    nb.roastDate = postShotReviewPage.editRoastDate
+                    nb.roastLevel = postShotReviewPage.editRoastLevel
+                    nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
+                    postShotReviewPage.editShotData = nb
+                    postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                    postShotReviewPage.pendingVisualizerUpdate = true
+                }
+            }
         }
     }
     // Re-point this shot's grinder to a different/new package. The picker
     // doesn't touch the active bag (applyToActiveBag:false); we resolve the
     // chosen package and persist equipmentId here. On the most recent shot the
     // save's runStickySync then makes it the active (and active bag's) package.
-    SwitchEquipmentDialog {
-        id: shotEquipmentDialog
-        applyToActiveBag: false
-        onPackageSaved: function(packageId) {
-            postShotReviewPage._pendingEquipmentId = packageId
-            MainController.equipmentStorage.requestPackage(packageId)
+    OnDemandLoader {
+        id: equipmentDialogLoader
+        sourceComponent: Component {
+            SwitchEquipmentDialog {
+                applyToActiveBag: false
+                onPackageSaved: function(packageId) {
+                    postShotReviewPage._pendingEquipmentId = packageId
+                    MainController.equipmentStorage.requestPackage(packageId)
+                }
+            }
         }
     }
     Connections {
@@ -2406,12 +2437,13 @@ T.Page {
         }
 
         // Uploading/Updating indicator
-        Tr {
+        Text {
             visible: MainController.visualizer.uploading
-            key: postShotReviewPage._visualizerId
-                 ? "postshotreview.status.updating"
-                 : "postshotreview.status.uploading"
-            fallback: postShotReviewPage._visualizerId ? "Updating..." : "Uploading..."
+            // One translate() per branch: a Tr with a switched key passes through a
+            // mismatched key/fallback pair, which rewrote the string registry every upload.
+            text: postShotReviewPage._visualizerId
+                  ? TranslationManager.translate("postshotreview.status.updating", "Updating...")
+                  : TranslationManager.translate("postshotreview.status.uploading", "Uploading...")
             color: Theme.textSecondaryColor
             font: Theme.labelFont
         }
@@ -2468,7 +2500,7 @@ T.Page {
                 shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
                 shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody
                 shotForAdvisor.enjoyment0to100 = postShotReviewPage.editEnjoyment
-                conversationOverlay.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
+                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
             }
         }
 
@@ -2523,39 +2555,52 @@ T.Page {
 
     // Profile AI knowledge base dialog
     // Shared KB popup (qml/components/ProfileKnowledgeDialog.qml).
-    ProfileKnowledgeDialog {
-        id: shotKnowledgeDialog
+    OnDemandLoader {
+        id: knowledgeDialogLoader
+        anchors.fill: parent  // the dialog centres on and sizes from its parent
+        sourceComponent: Component {
+            ProfileKnowledgeDialog {
+            }
+        }
     }
 
-    ConversationOverlay {
-        id: conversationOverlay
+    // Built on first use: the advisor overlay was created with every open of this page
+    // whether or not the advisor was opened (#1976).
+    OnDemandLoader {
+        id: conversationOverlayLoader
         anchors.fill: parent
-        overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
+        z: 200  // the overlay's own z only orders it inside this Loader
+        sourceComponent: Component {
+            ConversationOverlay {
+                anchors.fill: parent
+                overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
 
-        // Taste tapped in the advisor's intake flows back to this page at once so
-        // the rating slider + taste chips reflect it. The overlay already
-        // persisted the taps to the DB (and synced Visualizer via
-        // requestUpdateShotMetadata), so mirror them in without re-saving — the
-        // same external-flow pattern as ChangeBeansDialog.onBagSelected. That
-        // means advancing BOTH baselines: editShotData (what hasUnsavedChanges
-        // compares against) as well as _committedState (the undo baseline). If we
-        // only advanced _committedState, hasUnsavedChanges would stay stuck true
-        // and the next lifecycle flush (backing out) would redundantly re-save,
-        // re-PATCH Visualizer, and push a phantom undo frame. No
-        // pendingVisualizerUpdate here — the overlay already synced. Empty axes
-        // are left untouched.
-        onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
-            var s = postShotReviewPage.captureEditState()
-            if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
-            if (tasteBody.length > 0) s.tasteBody = tasteBody
-            if (overall > 0) s.enjoyment = overall
-            postShotReviewPage.applyEditState(s)
-            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
-            nb.tasteBalance = postShotReviewPage.editTasteBalance
-            nb.tasteBody = postShotReviewPage.editTasteBody
-            nb.enjoyment0to100 = postShotReviewPage.editEnjoyment
-            postShotReviewPage.editShotData = nb
-            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                // Taste tapped in the advisor's intake flows back to this page at once so
+                // the rating slider + taste chips reflect it. The overlay already
+                // persisted the taps to the DB (and synced Visualizer via
+                // requestUpdateShotMetadata), so mirror them in without re-saving — the
+                // same external-flow pattern as ChangeBeansDialog.onBagSelected. That
+                // means advancing BOTH baselines: editShotData (what hasUnsavedChanges
+                // compares against) as well as _committedState (the undo baseline). If we
+                // only advanced _committedState, hasUnsavedChanges would stay stuck true
+                // and the next lifecycle flush (backing out) would redundantly re-save,
+                // re-PATCH Visualizer, and push a phantom undo frame. No
+                // pendingVisualizerUpdate here — the overlay already synced. Empty axes
+                // are left untouched.
+                onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
+                    var s = postShotReviewPage.captureEditState()
+                    if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
+                    if (tasteBody.length > 0) s.tasteBody = tasteBody
+                    if (overall > 0) s.enjoyment = overall
+                    postShotReviewPage.applyEditState(s)
+                    var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                    nb.tasteBalance = postShotReviewPage.editTasteBalance
+                    nb.tasteBody = postShotReviewPage.editTasteBody
+                    nb.enjoyment0to100 = postShotReviewPage.editEnjoyment
+                    postShotReviewPage.editShotData = nb
+                    postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                }
+            }
         }
     }
 

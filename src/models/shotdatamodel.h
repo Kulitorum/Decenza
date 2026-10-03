@@ -32,10 +32,9 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(qsizetype portalSampleCount READ portalSampleCount NOTIFY portalSamplesChanged)
     Q_PROPERTY(double portalEcMin READ portalEcMin NOTIFY portalSamplesChanged)
     Q_PROPERTY(double portalEcMax READ portalEcMax NOTIFY portalSamplesChanged)
-    // Goal curves exposed as Qt.point()-compatible variant lists so DashedLineSeries
-    // Repeaters can bind directly — replaces the QLineSeries handshake.
-    Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
-    Q_PROPERTY(QVariantList flowGoalSegments READ flowGoalSegmentsVariant NOTIFY goalCurvesChanged)
+    // Goal curves as lists of QPointF, bound straight to LineSeries.values.
+    Q_PROPERTY(QVariantList pressureGoalPoints READ pressureGoalPointsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPointsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPointsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList temperatureMixGoalPoints READ temperatureMixGoalPointsVariant NOTIFY goalCurvesChanged)
 
@@ -57,8 +56,8 @@ public:
     QVariantList portalSamplesVariant() const { return PortalSamples::toVariant(m_portalSamples); }
     const QVector<PortalSample>& portalSamples() const { return m_portalSamples; }
     QVariantList phaseMarkersVariant() const;
-    QVariantList pressureGoalSegmentsVariant() const;
-    QVariantList flowGoalSegmentsVariant() const;
+    QVariantList pressureGoalPointsVariant() const;
+    QVariantList flowGoalPointsVariant() const;
     QVariantList temperatureGoalPointsVariant() const;
     QVariantList temperatureMixGoalPointsVariant() const;
 

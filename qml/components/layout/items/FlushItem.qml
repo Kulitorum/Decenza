@@ -133,13 +133,13 @@ LayoutWidgetItem {
             anchors.fill: parent
             enabled: DE1Device.guiEnabled
             supportLongPress: true
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             accessibleName: TranslationManager.translate("idle.button.flush", "Flush")
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.flush.hint", "Tap to toggle presets. Double-tap or long-press to configure flush.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "flush", { idlePage: root.idlePage })
-            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "flush", { idlePage: root.idlePage })
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", { idlePage: root.idlePage })
         }
     }
 

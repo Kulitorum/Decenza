@@ -81,6 +81,8 @@
         android:gwpAsanMode="always"
         android:enableOnBackInvokedCallback="true">
 
+        @ANDROID_PROFILEABLE_ELEMENT@
+
         <activity
             android:name="io.github.kulitorum.decenza_de1.DecenzaActivity"
             android:configChanges="orientation|screenSize|screenLayout|uiMode|keyboard|keyboardHidden"

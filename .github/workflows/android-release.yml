@@ -14,6 +14,11 @@ on:
         required: false
         default: true
         type: boolean
+      qml_profiling:
+        description: 'Profiling build: QML Profiler port, simpleperf-profileable APK, unstripped library artifact (optimised; never for release)'
+        required: false
+        default: false
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -42,6 +47,13 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # First, before the tag-only version bump: a tag ref releases whatever upload_to_release says.
+      - name: Refuse to release a QML-profiling build
+        if: ${{ inputs.qml_profiling && (inputs.upload_to_release || startsWith(github.ref, 'refs/tags/v')) }}
+        run: |
+          echo "::error::qml_profiling opens a QML debug port and makes the APK profileable; it must not be uploaded to a release."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
@@ -149,7 +161,9 @@ jobs:
         uses: ./.github/actions/setup-compiler-cache
         with:
           key: 'android-arm64'
-          use_cache: ${{ inputs.use_cache }}
+          # A profiling build's global QT_QML_DEBUG define misses every cached object, and
+          # saving it would hand the next release build a cache of the wrong objects.
+          use_cache: ${{ inputs.qml_profiling && 'false' || inputs.use_cache }}
           # At 500M the cache sat at 99.8% full and evicted at save time
           # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
           # repo cache budget now that prune-caches.yml keeps 1 copy/group.
@@ -228,6 +242,7 @@ jobs:
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_QML_DEBUG=${{ inputs.qml_profiling && 'ON' || 'OFF' }} \
             -DQT_ANDROID_SIGN_APK=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
@@ -260,8 +275,20 @@ jobs:
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza-Android-arm64
+          name: ${{ inputs.qml_profiling && 'Decenza-Android-arm64-qmlprofiling' || 'Decenza-Android-arm64' }}
           path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 1
+          overwrite: true
+
+      # The link output, before packaging: simpleperf names C++ frames from it
+      # (app_profiler.py -lib <dir containing it>).
+      - name: Upload unstripped library for simpleperf
+        if: ${{ inputs.qml_profiling }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: Decenza-Android-arm64-symbols
+          path: build/libDecenza_arm64-v8a.so
+          if-no-files-found: error
           retention-days: 1
           overwrite: true
 

@@ -221,82 +221,94 @@ LayoutWidgetItem {
     function substituteVariables(text) {
         if (!text) return ""
         var result = sanitizeHtml(text)
-        // Machine
-        result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
-        // "Off" when the heater is off — same rule as SteamTemperatureItem, and for
-        // the same reason: the measured boiler temperature cannot tell a hot
-        // boiler from one that is cooling because the heater was switched off.
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null
-            ? (root._steamHeaterOff
-                ? SteamLabels.offReadout
-                : Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0")
-            : "—")
-        result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.pressure.toFixed(1) : "—")
-        result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.flow.toFixed(1) : "—")
-        result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevel.toFixed(0) : "—")
-        result = result.replace(/%WATER_ML%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevelMl.toFixed(0) : "—")
-        result = result.replace(/%STATE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.stateString : "—")
-        // Scale / Shot
-        result = result.replace(/%WEIGHT%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.scaleWeight.toFixed(1) : "—")
-        result = result.replace(/%SHOT_TIME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.shotTime.toFixed(1) : "—")
-        result = result.replace(/%VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.cumulativeVolume.toFixed(0) : "—")
-        result = result.replace(/%POUR_VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.pourVolume.toFixed(0) : "—")
-        result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.preinfusionVolume.toFixed(0) : "—")
-        // Profile (ProfileManager)
-        result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.targetWeight.toFixed(1) : "—")
-        result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.currentProfileName : "—")
-        // The EFFECTIVE brew temp — the per-brew override when set (which, with a
-        // recipe active, is the recipe's own temp), else the profile default. This
-        // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
-        // so temp and yield stay aligned (recipe-baseline-not-override, #1485).
-        result = result.replace(/%TARGET_TEMP%/g, typeof Settings !== "undefined" && Settings !== null
-            ? Theme.cToDisplay(Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature).toFixed(1)
-            : "—")
-        result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatio.toFixed(1) : "—")
-        result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
-        // Scale device
-        result = result.replace(/%SCALE%/g, ScaleDevice.name || "—")
-        // Grinder
-        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
-        result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
-        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
-        // Machine ready status
-        var machineReady = typeof MachineState !== "undefined" && MachineState !== null && MachineState.isReady
-        result = result.replace(/%MACHINE_READY%/g, machineReady ? TranslationManager.translate("customitem.status.ready", "Ready") : TranslationManager.translate("customitem.status.notReady", "Not ready"))
-        if (result.indexOf("%MACHINE_READY_COLOR%") >= 0)
-            result = result.replace(/%MACHINE_READY_COLOR%/g, machineReady ? Theme.successColor : Theme.errorColor)
-        // Connection status
-        var machineOn = typeof DE1Device !== "undefined" && DE1Device !== null && DE1Device.connected
-        var scaleOn = ScaleDevice.connected
-        var flowScale = ScaleDevice.isFlowScale
-        result = result.replace(/%CONNECTED%/g, machineOn ? TranslationManager.translate("customitem.status.online", "Online") : TranslationManager.translate("customitem.status.offline", "Offline"))
-        if (result.indexOf("%CONNECTED_COLOR%") >= 0)
-            result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
-        if (machineOn && scaleOn && !flowScale)
-            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machineScale", "Machine + Scale"))
-        else if (machineOn && flowScale)
-            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machineSimScale", "Machine + Simulated Scale"))
-        else
-            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machine", "Machine"))
-        // Individual connection indicators (✅ = emoji/2705, ❌ = icons/cross-filled)
-        var statusIconSize = Theme.bodyFont.pixelSize
-        var statusConnected = "qrc:/emoji/2705.svg"
-        var statusDisconnected = "qrc:/icons/cross-filled.svg"
-        var statusImg = function(src) {
+        // One pass, and a value is computed only for a token the text contains. This runs at
+        // telemetry rate for a widget showing a live value; a replace() per known token cost
+        // ~350 µs per evaluation on an M-series Mac debug build (#1976 profile).
+        if (result.indexOf("%") < 0)
+            return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize, true)
+        var hasDevice = typeof DE1Device !== "undefined" && DE1Device !== null
+        var hasState = typeof MachineState !== "undefined" && MachineState !== null
+        var hasProfiles = typeof ProfileManager !== "undefined" && ProfileManager !== null
+        var hasSettings = typeof Settings !== "undefined" && Settings !== null
+        var machineReady = function() { return hasState && MachineState.isReady }
+        var machineOn = function() { return hasDevice && DE1Device.connected }
+        var statusImg = function(connected) {
+            var size = Theme.bodyFont.pixelSize
             // align="middle" centres the icon in Text.StyledText (which ignores the
             // CSS style= attribute); style keeps it centred under any RichText caller.
-            return "<img src=\"" + src + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\" align=\"middle\" style=\"vertical-align: middle\">"
+            return "<img src=\"" + (connected ? "qrc:/emoji/2705.svg" : "qrc:/icons/cross-filled.svg")
+                + "\" width=\"" + size + "\" height=\"" + size + "\" align=\"middle\" style=\"vertical-align: middle\">"
         }
-        if (result.indexOf("%MACHINE_CONNECTED%") >= 0)
-            result = result.replace(/%MACHINE_CONNECTED%/g,
-                statusImg(machineOn ? statusConnected : statusDisconnected))
-        if (result.indexOf("%SCALE_CONNECTED%") >= 0)
-            result = result.replace(/%SCALE_CONNECTED%/g,
-                statusImg((scaleOn && !flowScale) ? statusConnected : statusDisconnected))
-        // Time
-        var now = new Date()
-        result = result.replace(/%TIME%/g, Qt.formatTime(now, Settings.app.use12HourTime ? "h:mmap" : "hh:mm"))
-        result = result.replace(/%DATE%/g, Qt.formatDate(now, "yyyy-MM-dd"))
+        var values = {
+            // Machine
+            TEMP: function() { return hasDevice ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—" },
+            // "Off" when the heater is off — same rule as SteamTemperatureItem, and for
+            // the same reason: the measured boiler temperature cannot tell a hot
+            // boiler from one that is cooling because the heater was switched off.
+            STEAM_TEMP: function() {
+                return hasDevice ? (root._steamHeaterOff ? SteamLabels.offReadout
+                                    : Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0") : "—"
+            },
+            PRESSURE: function() { return hasDevice ? DE1Device.pressure.toFixed(1) : "—" },
+            FLOW: function() { return hasDevice ? DE1Device.flow.toFixed(1) : "—" },
+            WATER: function() { return hasDevice ? DE1Device.waterLevel.toFixed(0) : "—" },
+            WATER_ML: function() { return hasDevice ? DE1Device.waterLevelMl.toFixed(0) : "—" },
+            STATE: function() { return hasDevice ? DE1Device.stateString : "—" },
+            // Scale / Shot
+            WEIGHT: function() { return hasState ? MachineState.scaleWeight.toFixed(1) : "—" },
+            SHOT_TIME: function() { return hasState ? MachineState.shotTime.toFixed(1) : "—" },
+            VOLUME: function() { return hasState ? MachineState.cumulativeVolume.toFixed(0) : "—" },
+            POUR_VOLUME: function() { return hasState ? MachineState.pourVolume.toFixed(0) : "—" },
+            PREINFUSION_VOLUME: function() { return hasState ? MachineState.preinfusionVolume.toFixed(0) : "—" },
+            // Profile (ProfileManager)
+            TARGET_WEIGHT: function() { return hasProfiles ? ProfileManager.targetWeight.toFixed(1) : "—" },
+            PROFILE: function() { return hasProfiles ? ProfileManager.currentProfileName : "—" },
+            // The EFFECTIVE brew temp — the per-brew override when set (which, with a
+            // recipe active, is the recipe's own temp), else the profile default. This
+            // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
+            // so temp and yield stay aligned (recipe-baseline-not-override, #1485).
+            TARGET_TEMP: function() {
+                return hasSettings ? Theme.cToDisplay(Settings.brew.hasTemperatureOverride
+                    ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature).toFixed(1) : "—"
+            },
+            RATIO: function() { return hasProfiles ? ProfileManager.brewByRatio.toFixed(1) : "—" },
+            DOSE: function() { return hasProfiles ? ProfileManager.brewByRatioDose.toFixed(1) : "—" },
+            // Scale device
+            SCALE: function() { return ScaleDevice.name || "—" },
+            // Grinder
+            GRIND: function() { return hasSettings && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—" },
+            RPM: function() { return hasSettings && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—" },
+            GRINDER: function() { return hasSettings && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—" },
+            // Machine ready status
+            MACHINE_READY: function() {
+                return machineReady() ? TranslationManager.translate("customitem.status.ready", "Ready")
+                                      : TranslationManager.translate("customitem.status.notReady", "Not ready")
+            },
+            MACHINE_READY_COLOR: function() { return machineReady() ? Theme.successColor : Theme.errorColor },
+            // Connection status
+            CONNECTED: function() {
+                return machineOn() ? TranslationManager.translate("customitem.status.online", "Online")
+                                   : TranslationManager.translate("customitem.status.offline", "Offline")
+            },
+            CONNECTED_COLOR: function() { return machineOn() ? Theme.successColor : Theme.errorColor },
+            DEVICES: function() {
+                if (machineOn() && ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                    return TranslationManager.translate("customitem.devices.machineScale", "Machine + Scale")
+                if (machineOn() && ScaleDevice.isFlowScale)
+                    return TranslationManager.translate("customitem.devices.machineSimScale", "Machine + Simulated Scale")
+                return TranslationManager.translate("customitem.devices.machine", "Machine")
+            },
+            // Individual connection indicators (✅ = emoji/2705, ❌ = icons/cross-filled)
+            MACHINE_CONNECTED: function() { return statusImg(machineOn()) },
+            SCALE_CONNECTED: function() { return statusImg(ScaleDevice.connected && !ScaleDevice.isFlowScale) },
+            // Time
+            TIME: function() { return Qt.formatTime(new Date(), Settings.app.use12HourTime ? "h:mmap" : "hh:mm") },
+            DATE: function() { return Qt.formatDate(new Date(), "yyyy-MM-dd") }
+        }
+        result = result.replace(/%([A-Z_]+)%/g, function(token, name) {
+            var value = values[name]
+            return value ? value() : token
+        })
         // Convert any emoji Unicode in the result to <img> tags to avoid
         // CoreText/ImageIO crash from Apple Color Emoji PNG decoding on render thread
         // allowMarkup: user-authored widget templates may deliberately contain formatting.
@@ -317,8 +329,7 @@ LayoutWidgetItem {
     }
 
     function _runGesture(gestureKey) {
-        LayoutActions.runGestureOrReserved(root.modelData, gestureKey, root.modelData.type || "custom",
-                                           { idlePage: root.idlePage })
+        LayoutActions.runGestureOrReserved(root.modelData, gestureKey, { idlePage: root.idlePage })
     }
 
     // The malformed-HTML path below is the one diagnostic this file still owns.
@@ -399,7 +410,7 @@ LayoutWidgetItem {
             accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             onAccessibleClicked: root._runGesture("action")
             onAccessibleLongPressed: root._runGesture("longPressAction")
             onAccessibleDoubleClicked: root._runGesture("doubleclickAction")
@@ -487,7 +498,7 @@ LayoutWidgetItem {
             accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             onAccessibleClicked: root._runGesture("action")
             onAccessibleLongPressed: root._runGesture("longPressAction")
             onAccessibleDoubleClicked: root._runGesture("doubleclickAction")

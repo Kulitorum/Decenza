@@ -165,13 +165,13 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             anchors.fill: parent
             supportLongPress: true
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             accessibleName: TranslationManager.translate("idle.button.equipment", "Equipment")
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.equipment.hint", "Tap to switch equipment. Double-tap or long-press for the equipment inventory.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "equipment", { idlePage: root.idlePage })
-            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "equipment", { idlePage: root.idlePage })
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", { idlePage: root.idlePage })
         }
     }
 

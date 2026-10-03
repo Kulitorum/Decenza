@@ -251,7 +251,7 @@ T.Page {
                     _customFontWeight: Font.Bold
                     onClicked: {
                         transportPage.showComplete = false
-                        AppShell.idleRequested()
+                        AppShell.dismissRequested()
                     }
                 }
             }

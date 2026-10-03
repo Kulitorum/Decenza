@@ -12,6 +12,8 @@ The espresso extraction cup visualization (`qml/components/CupFillView.qml`) use
 5. Weight text overlay
 ```
 
+Both canvases are Qt's `Canvas2D` (`import QtCanvas2D`), GPU-rendered through Qt Canvas Painter. It is marked preliminary in Qt 6.12, so re-check the cup on every Qt upgrade. Its `ellipse()` takes a centre and radii; the bounding-box form is `ellipseRect()`. Paint through `getContext("2d")`, not `.context`: a scene-graph invalidation deletes the context and only `getContext()` recreates it.
+
 ## GPU Shaders (require Qt6 ShaderTools)
 
 - **cup_mask.frag**: Masks coffee to cup interior using Mask.png (black = coffee visible, inverted in shader)

@@ -1,10 +1,11 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtGraphs
 import Decenza
 
 Item {
     id: portalGraph
-    property var graphsView: null
+    property GraphsView graphsView: null
     property var axisX: null
     property var samples: []
     property bool showLabels: true
@@ -16,6 +17,10 @@ Item {
     readonly property bool hasData: live ? ShotDataModel.portalSampleCount > 0 : samples.length > 0
     readonly property bool hasVisibleData: hasData && (ecVisible || temperatureVisible)
     readonly property real labelWidth: hasVisibleData && showLabels ? Theme.scaled(125) : 0
+    // Plot origin in this item's coordinates (it fills the graph's outer item, where the
+    // GraphsView may sit below a margin); plotArea alone is in the view's coordinates.
+    readonly property real plotX: graphsView ? graphsView.x + graphsView.plotArea.x : 0
+    readonly property real plotY: graphsView ? graphsView.y + graphsView.plotArea.y : 0
     readonly property real lastTime: live ? ShotDataModel.rawTime : (hasData ? samples[samples.length - 1].time : 0)
 
     function segments(field) {
@@ -39,42 +44,43 @@ Item {
                           : ShotDataModel.portalEcBounds(samples)
         return [bounds[0] * ShotDataModel.portalEcAxisPadding, bounds[1] * ShotDataModel.portalEcAxisPadding]
     }
-    QtObject {
+    // Hidden axes: the saved-shot series map through them, the live renderers and the
+    // label column read their min/max. A hidden axis reserves no plot space
+    // (axisrenderer.cpp:1082).
+    ValueAxis {
         id: ecAxis
-        property real min: portalGraph.ecRange[0]
-        property real max: portalGraph.ecRange[1]
+        visible: false
+        min: portalGraph.ecRange[0]
+        max: portalGraph.ecRange[1]
     }
-    QtObject {
+    ValueAxis {
         id: outletAxis
-        property real min: 0
-        property real max: 100
+        visible: false
+        min: 0
+        max: 100
     }
-    Repeater {
+    GraphSeriesInstantiator {
+        graphsView: portalGraph.graphsView
         model: portalGraph.ecSegments
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
             required property var modelData
-            graphsView: portalGraph.graphsView
-            axisX: portalGraph.axisX
             axisY: ecAxis
-            points: modelData
-            dashed: false
-            strokeColor: Theme.portalEcColor
-            strokeWidth: Theme.graphLineWidth
-            visible: portalGraph.ecVisible && points.length >= 2
+            values: modelData
+            color: Theme.portalEcColor
+            width: Theme.graphLineWidth
+            visible: portalGraph.ecVisible
         }
     }
-    Repeater {
+    GraphSeriesInstantiator {
+        graphsView: portalGraph.graphsView
         model: portalGraph.temperatureSegments
-        delegate: DashedLineSeries {
+        delegate: LineSeries {
             required property var modelData
-            graphsView: portalGraph.graphsView
-            axisX: portalGraph.axisX
             axisY: outletAxis
-            points: modelData
-            dashed: false
-            strokeColor: Theme.portalTemperatureColor
-            strokeWidth: Theme.graphLineWidth
-            visible: portalGraph.temperatureVisible && points.length >= 2
+            values: modelData
+            color: Theme.portalTemperatureColor
+            width: Theme.graphLineWidth
+            visible: portalGraph.temperatureVisible
         }
     }
     // Live capture appends directly to persistent native renderers. Only page entry
@@ -115,8 +121,8 @@ Item {
         Item {
             readonly property alias ec: liveEc
             readonly property alias temperature: liveTemperature
-            x: portalGraph.graphsView ? portalGraph.graphsView.plotArea.x : 0
-            y: portalGraph.graphsView ? portalGraph.graphsView.plotArea.y : 0
+            x: portalGraph.plotX
+            y: portalGraph.plotY
             width: portalGraph.graphsView ? portalGraph.graphsView.plotArea.width : 0
             height: portalGraph.graphsView ? portalGraph.graphsView.plotArea.height : 0
             clip: true
@@ -147,8 +153,8 @@ Item {
     Item {
         id: axes
         visible: portalGraph.hasVisibleData && portalGraph.showLabels
-        x: portalGraph.graphsView ? portalGraph.graphsView.plotArea.x + portalGraph.graphsView.plotArea.width + Theme.scaled(55) : 0
-        y: portalGraph.graphsView ? portalGraph.graphsView.plotArea.y : 0
+        x: portalGraph.graphsView ? portalGraph.plotX + portalGraph.graphsView.plotArea.width + Theme.scaled(55) : 0
+        y: portalGraph.plotY
         width: Theme.scaled(120)
         height: portalGraph.graphsView ? portalGraph.graphsView.plotArea.height : 0
         Repeater {

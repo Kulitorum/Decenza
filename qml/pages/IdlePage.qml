@@ -536,7 +536,10 @@ T.Page {
         id: beanCapture
         rawWeight: (ScaleDevice && ScaleDevice.connected) ? MachineState.scaleWeight : 0
         cupWeight: Settings.brew.doseCupTareWeight
-        active: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        // Only while this page is showing: the page stays alive under a shot, and the
+        // settled yield in the cup would otherwise be captured as the next dose.
+        active: idlePage.StackView.status === StackView.Active
+                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                 && idlePage.activePresetFunction !== "steam"
                 && idlePage.activePresetFunction !== "hotwater"
                 && idlePage.activePresetFunction !== "flush"
@@ -1090,7 +1093,7 @@ T.Page {
 
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
-                    // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
+                    // steam selected, scale connected) and nothing is on the scale yet. Blinks three times.
                     // "or lift and replace": selecting steam auto-tares the scale, so a pitcher that was
                     // ALREADY sitting there reads as 0 and won't register until it's lifted and set back
                     // — without the hedge the prompt would assert something false.
@@ -1109,11 +1112,8 @@ T.Page {
                         font: Theme.labelFont
                         Accessible.role: Accessible.StaticText
                         Accessible.name: text
-                        SequentialAnimation on opacity {
+                        PromptPulse on opacity {
                             running: steamPlacePrompt.visible
-                            loops: Animation.Infinite
-                            NumberAnimation { to: 0.45; duration: 800 }
-                            NumberAnimation { to: 1.0; duration: 800 }
                         }
                     }
                 }
@@ -1265,7 +1265,7 @@ T.Page {
                             id: weighBeansText
                             horizontalAlignment: Text.AlignHCenter
                             // True while prompting the user to place beans (no load on
-                            // the scale yet) — this state gently blinks.
+                            // the scale yet) — this state pulses (PromptPulse).
                             readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
                                 && !beanCapture.loadPresent
                             text: {
@@ -1285,11 +1285,8 @@ T.Page {
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
                             onShowingPlacePromptChanged: if (!showingPlacePrompt) opacity = 1.0
-                            SequentialAnimation on opacity {
+                            PromptPulse on opacity {
                                 running: weighBeansText.showingPlacePrompt
-                                loops: Animation.Infinite
-                                NumberAnimation { to: 0.45; duration: 800 }
-                                NumberAnimation { to: 1.0; duration: 800 }
                             }
                         }
                     }

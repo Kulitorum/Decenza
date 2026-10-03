@@ -67,12 +67,15 @@ class ShotServer : public QObject {
     Q_PROPERTY(QString url READ url NOTIFY urlChanged)
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(bool hasTotpSecret READ hasStoredTotpSecret NOTIFY hasTotpSecretChanged)
+    // A browser has the web theme editor open; only it reads the page-colour scan.
+    Q_PROPERTY(bool themeEditorOpen READ isThemeEditorOpen NOTIFY themeEditorOpenChanged FINAL)
 
 public:
     explicit ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent = nullptr);
     ~ShotServer();
 
     bool isRunning() const { return m_server && m_server->isListening(); }
+    bool isThemeEditorOpen() const { return !m_sseThemeClients.isEmpty(); }
     QString url() const;
     int port() const { return m_port; }
     void setPort(int port);
@@ -130,6 +133,7 @@ signals:
     void urlChanged();
     void portChanged();
     void hasTotpSecretChanged();
+    void themeEditorOpenChanged();
     void clientConnected(const QString& address);
     void sleepRequested();  // Emitted when sleep command received via REST API
 

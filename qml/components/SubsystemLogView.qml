@@ -56,21 +56,31 @@ Rectangle {
     color: Qt.darker(Theme.surfaceColor, 1.2)
     radius: Theme.scaled(4)
 
+    // Rebuilds the whole TextArea: backfill, trim and clear only.
     function _render() {
         logText.text = root._lines.join("\n")
-        // Follow the tail. Assigning position directly rather than animating: this
-        // runs on every appended line.
+        root._followTail()
+    }
+
+    // Assigning position directly rather than animating: this runs on every appended line.
+    function _followTail() {
         logScroll.ScrollBar.vertical.position =
             1.0 - logScroll.ScrollBar.vertical.size
     }
 
+    // A new line appends one paragraph. Re-rendering here re-laid-out up to maxLines
+    // lines per log line for as long as the page was open (#1976).
     function _append(line) {
         var next = root._lines
         next.push(line)
-        if (next.length > root.maxLines)
-            next = next.slice(root.trimChunk)
+        if (next.length > root.maxLines) {
+            root._lines = next.slice(root.trimChunk)
+            root._render()
+            return
+        }
         root._lines = next
-        root._render()
+        logText.append(line)
+        root._followTail()
     }
 
     // Discards what is DISPLAYED and nothing else: the system log is untouched, the
@@ -92,19 +102,23 @@ Rectangle {
     readonly property bool _loggerReady:
         WebDebugLogger.sessionLinesMatching !== undefined
 
-    Component.onCompleted: {
-        if (!root._loggerReady)
+    // Backfill the session so opening the page after activity shows what happened, instead of
+    // only what happens next. Not until the view is shown: the connections tab holds a USB and
+    // a Bluetooth view of which only one is visible, and a backfill was ~40 ms of the tab's
+    // open on a Galaxy Tab A9+ (#1976). Live lines start with it, so none is shown twice.
+    property bool _filled: false
+    function _fill() {
+        if (root._filled || !root._loggerReady || !root.visible)
             return
-        // Backfill the session so opening the page after activity shows what
-        // happened, instead of only what happens next.
-        root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel)
-        if (root._lines.length > root.maxLines)
-            root._lines = root._lines.slice(root._lines.length - root.maxLines)
+        root._filled = true
+        root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel, root.maxLines)
         root._render()
     }
+    Component.onCompleted: root._fill()
+    onVisibleChanged: root._fill()
 
     Connections {
-        target: root._loggerReady ? WebDebugLogger : null
+        target: root._filled ? WebDebugLogger : null
 
         // MUST NOT LOG. Anything logged here re-enters the global message handler
         // from inside its own emit. WebDebugLogger's per-thread guard stops the

@@ -18,6 +18,7 @@
 SettingsApp::SettingsApp(QObject* parent)
     : QObject(parent)
     , m_use12HourTime(QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive))
+    , m_temperatureUnit(m_settings.value("display/temperatureUnit", "celsius").toString())
 {
 }
 
@@ -446,7 +447,15 @@ void SettingsApp::setWaterLevelDisplayUnit(const QString& unit) {
 
 // Temperature display unit. Default Celsius; all internal storage stays Celsius.
 QString SettingsApp::temperatureUnit() const {
-    return m_settings.value("display/temperatureUnit", "celsius").toString();
+    return m_temperatureUnit;
+}
+
+void SettingsApp::invalidateCache() {
+    const QString unit = m_settings.value("display/temperatureUnit", "celsius").toString();
+    if (unit != m_temperatureUnit) {
+        m_temperatureUnit = unit;
+        emit temperatureUnitChanged();
+    }
 }
 
 void SettingsApp::setTemperatureUnit(const QString& unit) {
@@ -459,7 +468,8 @@ void SettingsApp::setTemperatureUnit(const QString& unit) {
         DIAG_WARN(APP, "SettingsApp") << "invalid temperatureUnit" << unit << "- coercing to celsius";
         normalized = QStringLiteral("celsius");
     }
-    if (temperatureUnit() != normalized) {
+    if (m_temperatureUnit != normalized) {
+        m_temperatureUnit = normalized;
         m_settings.setValue("display/temperatureUnit", normalized);
         emit temperatureUnitChanged();
     }

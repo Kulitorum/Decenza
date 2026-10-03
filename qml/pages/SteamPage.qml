@@ -1258,12 +1258,12 @@ T.Page {
                         if (!Settings.hardware.steamTwoTapStop) {
                             // Single-tap mode: stop immediately and trigger auto-purge
                             DE1Device.requestIdle()
-                            AppShell.idleRequested()
+                            AppShell.dismissRequested()
                         } else if (steamPage.steamSoftStopped) {
                             // Two-tap mode, second tap: request Idle to trigger purge
                             steamPage.steamSoftStopped = false  // Reset before navigating
                             DE1Device.requestIdle()
-                            AppShell.idleRequested()
+                            AppShell.dismissRequested()
                         } else {
                             // Two-tap mode, first tap: soft stop steam without purge
                             // Sends 1-second timeout which triggers elapsed > target stop
@@ -2416,7 +2416,7 @@ T.Page {
             // Leaving the steam page ends the steam event; what happens to the
             // boiler is the policy's call, not this button's.
             MainController.releaseSteamEventPermission()
-            AppShell.idleRequested()
+            AppShell.dismissRequested()
         }
 
         // The built-in "Heater off" entry carries no duration, flow or

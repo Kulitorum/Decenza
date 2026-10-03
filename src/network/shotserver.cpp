@@ -392,7 +392,8 @@ void ShotServer::retireSocket(QTcpSocket* socket)
 
     m_clients.remove(socket);
     m_sseLayoutClients.remove(socket);
-    m_sseThemeClients.remove(socket);
+    if (m_sseThemeClients.remove(socket) && m_sseThemeClients.isEmpty())
+        emit themeEditorOpenChanged();
     m_uploadProgressLog.remove(socket);
 
     // The timer is a child of `socket` and dies with it; stopping it here keeps
@@ -619,7 +620,10 @@ void ShotServer::stop()
         // start().
         m_keepAliveTimers.clear();
         m_sseLayoutClients.clear();
-        m_sseThemeClients.clear();
+        if (!m_sseThemeClients.isEmpty()) {
+            m_sseThemeClients.clear();
+            emit themeEditorOpenChanged();
+        }
         m_pendingRequests.clear();
         m_clients.clear();
         m_server->close();
@@ -2734,6 +2738,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         socket->write(sseHeaders);
         socket->flush();
         m_sseThemeClients.insert(socket);
+        if (m_sseThemeClients.size() == 1)
+            emit themeEditorOpenChanged();
         if (QTimer* t = m_keepAliveTimers.take(socket))
             t->stop();
     }

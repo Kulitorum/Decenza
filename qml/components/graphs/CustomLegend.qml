@@ -200,26 +200,37 @@ Item {
                     onTriggered: entryDelegate.longPressShowing = false
                 }
 
-                ToolTip {
-                    id: entryTipPopup
-                    text: entryDelegate.entryTip
-                    visible: entryDelegate.entryTip !== ""
-                             && ((entryArea.containsMouse && entryArea.pressedButtons === 0) || entryDelegate.longPressShowing)
-                    delay: entryDelegate.longPressShowing ? 0 : 500
-                    width: Math.min(Theme.scaled(280), Theme.windowWidth * 0.7)
+                // Built the first time it is shown: one per legend entry on every graph, and
+                // rarely shown (#1976). Kept once built, so later shows behave as before.
+                Loader {
+                    id: entryTipLoader
+                    anchors.fill: parent
+                    readonly property bool tipShown: entryDelegate.entryTip !== ""
+                        && ((entryArea.containsMouse && entryArea.pressedButtons === 0) || entryDelegate.longPressShowing)
+                    active: false
+                    onTipShownChanged: if (tipShown) active = true
+                    sourceComponent: Component {
+                        ToolTip {
+                            id: entryTipPopup
+                            text: entryDelegate.entryTip
+                            visible: entryTipLoader.tipShown
+                            delay: entryDelegate.longPressShowing ? 0 : 500
+                            width: Math.min(Theme.scaled(280), Theme.windowWidth * 0.7)
 
-                    contentItem: Text {
-                        text: entryTipPopup.text
-                        font: Theme.captionFont
-                        color: Theme.textColor
-                        wrapMode: Text.Wrap
-                    }
+                            contentItem: Text {
+                                text: entryTipPopup.text
+                                font: Theme.captionFont
+                                color: Theme.textColor
+                                wrapMode: Text.Wrap
+                            }
 
-                    background: Rectangle {
-                        color: Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: Theme.scaled(1)
-                        radius: Theme.cardRadius
+                            background: Rectangle {
+                                color: Theme.surfaceColor
+                                border.color: Theme.borderColor
+                                border.width: Theme.scaled(1)
+                                radius: Theme.cardRadius
+                            }
+                        }
                     }
                 }
             }

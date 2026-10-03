@@ -101,7 +101,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
 
     DIAG_DEBUG(SHOT, "ShotDataModel") << "Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
 
-    // Replay any goal-curve data we already accumulated so DashedLineSeries
+    // Replay any goal-curve data we already accumulated so the goal series'
     // bindings see the current state immediately (e.g., returning to the
     // espresso page after a shot completes).
     if (!m_pressureGoalSegments.isEmpty() && !m_pressureGoalSegments[0].isEmpty()) {
@@ -583,9 +583,7 @@ void ShotDataModel::onFlushTimerTick() {
         m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
-    // Goal-curve points republished as QML-bindable properties — DashedLineSeries
-    // Repeaters re-read pressureGoalSegments / flowGoalSegments / temperatureGoalPoints
-    // and the per-axis bridge overlays re-draw against the current axis range.
+    // Goal-curve points republished as QML-bindable properties for the live graph's goal series.
     if (m_goalCurvesDirty) {
         m_goalCurvesDirty = false;
         emit goalCurvesChanged();
@@ -643,34 +641,40 @@ QVector<QPointF> ShotDataModel::flowGoalData() const {
     return combined;
 }
 
-// Variant-list accessors for QML — DashedLineSeries Repeaters bind to these.
-// Each segment becomes a JS array of Qt.point(x, y); the outer list is the segments.
-
+// Point lists for the live graph's goal series, which bind to these. Display only: a point in the middle of a flat run is dropped, since the line through
+// its neighbours is the same line. Goals hold one value per frame, and these lists are
+// rebuilt and redrawn on every flush.
 static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
     QVariantList out;
     out.reserve(pts.size());
-    for (const QPointF& p : pts) {
-        out.append(QVariant::fromValue(p));
+    for (qsizetype i = 0; i < pts.size(); ++i) {
+        const bool midRun = i > 0 && i + 1 < pts.size()
+            && pts[i - 1].y() == pts[i].y() && pts[i].y() == pts[i + 1].y();
+        if (!midRun)
+            out.append(QVariant::fromValue(pts[i]));
     }
     return out;
 }
 
-QVariantList ShotDataModel::pressureGoalSegmentsVariant() const {
+// All segments in one list, a NaN point between them: Qt Graphs starts a new subpath after
+// an invalid point (pointrenderer.cpp:555-557), so one series draws every segment. Series
+// count is what matters: any series change re-renders all of them.
+static QVariantList segmentsToVariantList(const QVector<QVector<QPointF>>& segments) {
     QVariantList out;
-    out.reserve(m_pressureGoalSegments.size());
-    for (const auto& segment : m_pressureGoalSegments) {
-        out.append(QVariant::fromValue(pointsToVariantList(segment)));
+    for (const auto& segment : segments) {
+        if (segment.isEmpty()) continue;
+        if (!out.isEmpty()) out.append(QVariant::fromValue(QPointF(qQNaN(), qQNaN())));
+        out.append(pointsToVariantList(segment));
     }
     return out;
 }
 
-QVariantList ShotDataModel::flowGoalSegmentsVariant() const {
-    QVariantList out;
-    out.reserve(m_flowGoalSegments.size());
-    for (const auto& segment : m_flowGoalSegments) {
-        out.append(QVariant::fromValue(pointsToVariantList(segment)));
-    }
-    return out;
+QVariantList ShotDataModel::pressureGoalPointsVariant() const {
+    return segmentsToVariantList(m_pressureGoalSegments);
+}
+
+QVariantList ShotDataModel::flowGoalPointsVariant() const {
+    return segmentsToVariantList(m_flowGoalSegments);
 }
 
 QVariantList ShotDataModel::temperatureGoalPointsVariant() const {

@@ -231,6 +231,19 @@ QtObject {
         return true
     }
 
+    // Whether the gesture resolves to an action, by the same rule as runGestureOrReserved.
+    // supportDoubleClick binds to it: double-tap detection holds every single tap for the
+    // double-click interval (300 ms), which a widget whose double-tap does nothing should
+    // not pay (#1976). A type absent from the reserved table (history, settings, a custom
+    // widget) has no default, so only a stored action counts.
+    function hasGesture(modelData, gestureKey) {
+        if (!modelData) return false
+        var stored = modelData[gestureKey]
+        if (stored)
+            return stored !== layoutActions.kNoAction
+        return Settings.network.gestureReservedActionForType(modelData.type || "") !== ""
+    }
+
     // What a gesture does, all in: the user's override if they set one, otherwise the
     // widget type's RESERVED destination — the action that keeps its page reachable.
     //
@@ -239,10 +252,10 @@ QtObject {
     // dedicated item's goToX(), and in gestureReservedDestination() — three copies free to
     // drift, with nothing failing if they did. Now the C++ table is the only declaration
     // and both render formats resolve through here.
-    function runGestureOrReserved(modelData, gestureKey, widgetType, ctx) {
+    function runGestureOrReserved(modelData, gestureKey, ctx) {
         if (runGesture(modelData, gestureKey, ctx))
             return
-        var reserved = Settings.network.gestureReservedActionForType(widgetType)
+        var reserved = Settings.network.gestureReservedActionForType(modelData.type || "")
         if (reserved)
             execute(reserved, ctx)
     }
@@ -269,14 +282,7 @@ QtObject {
             // user picked — so a string key is inherent here, unlike the call sites that had one
             // only because nobody had declared a name. It is dispatched to a named AppShell signal
             // rather than mapped to a page FILENAME: a bad key now warns below instead of
-            // resolving to a 404 URL, and the shell decides push-vs-replace.
-            //
-            // The operation pages used to `replace(null, ...)` here, copying main.qml's phase
-            // handler. That copied the line and not the reason: the phase handler replaces because
-            // the MACHINE drove the change and there is no meaningful back, whereas this is the
-            // user tapping a widget. It also left pageStack.depth at 1, which makes goBack()'s
-            // `depth > 1` test fail and the back control silently dead. They push now, like the
-            // dedicated Steam/HotWater/Flush widgets always did.
+            // resolving to a 404 URL, and the shell decides how the page is entered.
             switch (target) {
             case "settings":        AppShell.settingsRequested(""); break
             case "history":         AppShell.shotHistoryRequested({}); break

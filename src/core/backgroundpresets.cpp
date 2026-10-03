@@ -253,17 +253,25 @@ QVariantMap patternToVariantMap(const Pattern& p) {
     return map;
 }
 
+// Built once: the catalogue is constant, and BackgroundSurface reads it from a binding
+// on every page and on every tile of the background picker.
 QVariantList coloursAsVariantList() {
-    QVariantList list;
-    for (const Colour& c : colours())
-        list.append(colourToVariantMap(c));
+    static const QVariantList list = [] {
+        QVariantList l;
+        for (const Colour& c : colours())
+            l.append(colourToVariantMap(c));
+        return l;
+    }();
     return list;
 }
 
 QVariantList patternsAsVariantList() {
-    QVariantList list;
-    for (const Pattern& p : patterns())
-        list.append(patternToVariantMap(p));
+    static const QVariantList list = [] {
+        QVariantList l;
+        for (const Pattern& p : patterns())
+            l.append(patternToVariantMap(p));
+        return l;
+    }();
     return list;
 }
 

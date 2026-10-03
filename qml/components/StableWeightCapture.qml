@@ -10,9 +10,9 @@ import QtQuick
 // (cupWeight > 0); the virtual zero keeps tracking even before then so a "weigh
 // the cup" action can subtract the same baseline.
 //
-// Detection is driven by `rawWeight` changes; a 150 ms poll also re-runs the check
-// while active and uncaptured, so a perfectly constant (non-jittering) stream still
-// advances through both baseline seeding and load stabilization.
+// Detection is driven by `rawWeight` changes. A constant (non-jittering) reading emits no
+// change, so while a candidate is still short of its dwell a single-shot timer re-checks
+// when the dwell would end; nothing runs in a steady state.
 Item {
     id: root
 
@@ -50,20 +50,33 @@ Item {
         _captured = false
         _capturedNet = 0
         _cand = NaN
+        settleTimer.stop()
+        // A tare calls this, and an empty scale's reading then never changes: start the
+        // baseline run now, or the pitcher placed next is the first steady reading and
+        // becomes the zero.
+        _evaluate()
     }
 
-    onActiveChanged: if (!active) reset()
+    // A reading already on the scale emits no change, so turning on or changing the cup
+    // weight evaluates it directly.
+    onActiveChanged: if (active) _evaluate(); else reset()
+    onCupWeightChanged: _evaluate()
     onRawWeightChanged: _evaluate()
 
-    // True once rawWeight has held within tolerance for `dwell` ms; otherwise it
-    // (re)seeds the candidate run and returns false.
+    // True once rawWeight has held within tolerance for `dwell` ms. Otherwise it starts a
+    // new candidate run if the reading moved, arms settleTimer for the rest of the dwell,
+    // and returns false.
     function _settled(now, dwell) {
         if (isNaN(_cand) || Math.abs(rawWeight - _cand) > tolerance) {
             _cand = rawWeight
             _candSince = now
-            return false
         }
-        return (now - _candSince) >= dwell
+        var remaining = dwell - (now - _candSince)
+        if (remaining <= 0)
+            return true
+        settleTimer.interval = remaining
+        settleTimer.restart()
+        return false
     }
 
     function _evaluate() {
@@ -87,12 +100,11 @@ Item {
         var net = rawWeight - _virtualZero - cupWeight
 
         if (_captured) {                                   // re-arm: removed OR materially changed
-            if ((rawWeight - _virtualZero) < loadThreshold
-                || Math.abs(net - _capturedNet) > rearmDelta) {
-                _captured = false
-                _cand = NaN
-            }
-            return
+            if ((rawWeight - _virtualZero) >= loadThreshold
+                && Math.abs(net - _capturedNet) <= rearmDelta)
+                return
+            _captured = false                              // and start the new run below
+            _cand = NaN
         }
 
         if ((rawWeight - _virtualZero) < loadThreshold) {  // empty: re-adopt the zero (baselineMs)
@@ -110,11 +122,10 @@ Item {
         }
     }
 
-    // Periodic re-check so a constant (non-jittering) stream still graduates.
+    // Re-checks when the current candidate's dwell ends. Armed only by _settled().
     Timer {
-        interval: 150
-        repeat: true
-        running: root.active && !root._captured
+        id: settleTimer
+        repeat: false
         onTriggered: root._evaluate()
     }
 }

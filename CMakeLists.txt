@@ -154,7 +154,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Positioning
     WebSockets
     WebSocketsPrivate
-    CanvasPainter
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -188,9 +187,17 @@ if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
     qt_policy(SET QTP0004 NEW)
 endif()
 
-# Enable QML debugging in debug builds
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
+# (android-release.yml's qml_profiling input): the QML profiler needs the debug services,
+# not unoptimised C++, which distorts the timings being measured. Never on for a shipped build.
+option(DECENZA_QML_DEBUG "Profiling build: QML debug services on port 3768, and an Android APK profileable by simpleperf" OFF)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DECENZA_QML_DEBUG)
     add_compile_definitions(QT_QML_DEBUG)
+endif()
+# A signed release APK is not debuggable, so Qt ignores -qmljsdebugger passed at launch
+# (QtLoader.java:121-125); the profiling build opens the port itself (main.cpp).
+if(DECENZA_QML_DEBUG)
+    add_compile_definitions(DECENZA_QML_PROFILING_PORT=3768)
 endif()
 
 # Platform-specific settings
@@ -778,8 +785,6 @@ set(SOURCES
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
-    src/ui/jscanvaspainteritem.cpp
-    src/ui/jscanvascontext.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
@@ -858,6 +863,7 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
+    src/core/popupcloser.cpp
     src/weather/weathermanager.cpp
 )
 
@@ -1025,8 +1031,6 @@ set(HEADERS
     src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
-    src/ui/jscanvaspainteritem.h
-    src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/network/visualizershotlist.h
@@ -1159,7 +1163,6 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Positioning
     Qt6::WebSockets
     Qt6::WebSocketsPrivate
-    Qt6::CanvasPainter
 )
 
 # Embedded Tailscale (Remote MCP Mode A). mcptunnel_tsnet.cpp is always compiled
@@ -1305,10 +1308,9 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/network
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profile
     # Added when the last runtime qmlRegisterType<> calls became QML_ELEMENT: fastlinerenderer.h,
-    # jscanvaspainteritem.h, strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
+    # strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
     # by the command above before adding.
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rendering
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/screensaver
 )
 if(NOT IOS)
@@ -1401,7 +1403,7 @@ set(QML_FILES
     qml/pages/settings/StringBrowserPage.qml
     qml/components/graphs/AutoRangingAxis.qml
     qml/components/graphs/CustomLegend.qml
-    qml/components/graphs/DashedLineSeries.qml
+    qml/components/graphs/GraphSeriesInstantiator.qml
     qml/components/graphs/DecenzaGraphsTheme.qml
     qml/components/ActionButton.qml
 	qml/components/BrewDialog.qml
@@ -1414,6 +1416,8 @@ set(QML_FILES
     qml/components/StatusToast.qml
     qml/components/layout/LayoutWidgetItem.qml
     qml/components/PresetPillRow.qml
+    qml/components/PromptPulse.qml
+    qml/components/OnDemandLoader.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/TastePicker.qml
@@ -1501,7 +1505,6 @@ set(QML_FILES
     qml/components/PhaseSummaryPanel.qml
     qml/components/ShotAnalysisDialog.qml
     qml/components/CupFillView.qml
-    qml/components/PhaseTimelineView.qml
     qml/components/ExtractionViewSelector.qml
     qml/components/StyledSwitch.qml
     qml/components/StyledComboBox.qml
@@ -1775,6 +1778,7 @@ add_custom_target(apply_version_code ALL
         -DVERSION_CODE_FILE=${VERSION_CODE_FILE}
         -DMANIFEST_FILE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
         -DMANIFEST_TEMPLATE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml.in
+        -DDECENZA_PROFILEABLE=${DECENZA_QML_DEBUG}
         -DVERSION_STRING=${PROJECT_VERSION}
         -DCMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DVERSION_CODE_CPP=${VERSION_CODE_CPP}

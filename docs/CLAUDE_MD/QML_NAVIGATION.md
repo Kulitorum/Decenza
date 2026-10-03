@@ -41,35 +41,40 @@ Connections {
 Adding a destination: declare a `Component` in `main.qml`, add one `goToX()` beside the others,
 add a signal to `AppShell.qml` and one line to the `Connections` block. All four, or none.
 
-## Push vs replace: the rule is the CAUSE, not the destination
+## Operation pages are pushed, whoever started them
 
-**Replace when the machine drove the change. Push when the user did.**
+Espresso, steam, hot water, flush, descaling and transport go through `showOperationPage()`,
+whether the user tapped a widget or the machine changed phase (group head, GHC, timer). Leaving
+one is a pop back to wherever the user was: Stop and Back emit `AppShell.dismissRequested()`;
+completion, disconnect, the shot-end timer and Space call `leaveOperationPage()`.
 
-- `MachineState.phaseChanged` → `pageStack.replace(null, steamPage)`. The user did not navigate,
-  and there is no meaningful "back" mid-operation.
-- `AppShell.steamRequested()` → `pageStack.push(steamPage)`. The user tapped something, and back
-  to idle must work.
+An operation started from another takes its place, the post-shot review replaces the shot page
+and any review it was started from, and an operation the machine starts while the screensaver is
+up replaces it rather than returning to it. The screensaver itself is pushed over the home screen,
+so waking is a pop.
+Pushing over a page closes its open popups (`PopupCloser`): Qt only closes a popup when its
+parent is destroyed, not when it is covered.
 
-`CustomItem` used to replace for operation pages, with a comment saying it was "consistent with
-main.qml phase handler". It had copied the line and not the reason. That also left
-`pageStack.depth` at 1, so `goBack()`'s `depth > 1` test failed and the back control was silently
-dead.
+This replaced a rule that the machine's phase change cleared the stack with `replace(null, ...)`.
+That needed a return-to-page side channel to get back to the shot review, rebuilt the home screen
+on every Back (~150 ms on a Galaxy Tab A9+, #1976), and made a GHC-started steam different from
+a tapped one for no reason the user could see.
 
-If a page genuinely does not know how it was reached — `FlushPage` can arrive either way — it
-emits `AppShell.dismissRequested()` and lets the shell pick back-or-idle. It must not inspect
-`pageStack.depth` to decide; that is the shell's business.
+A page that wants to leave emits `AppShell.dismissRequested()`. It must not inspect
+`pageStack.depth`; that is the shell's business. Landing on the home screen deliberately is
+`showHome()`, which pops to the existing instance instead of rebuilding it.
 
 ## Phase Change Handler Pattern
 
 ```qml
 // In main.qml onPhaseChanged handler:
 // 1. Check pageStack.busy ONLY for navigation calls, not completion handling
-// 2. Navigation TO operation pages: check !pageStack.busy before replace()
+// 2. Navigation TO operation pages: check !pageStack.busy before showOperationPage()
 // 3. Completion handling (Idle/Ready): NEVER skip - always show completion overlay
 ```
 
 **Common bug**: an early `return` in `onPhaseChanged` skips completion handling. Only check
-`pageStack.busy` before `replace()` calls, never at the top of the handler.
+`pageStack.busy` before navigating, never at the top of the handler.
 
 ## Operation Page Structure
 

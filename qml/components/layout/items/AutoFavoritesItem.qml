@@ -59,7 +59,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.autofavorites.description", "Open auto-favorites list of recent bean and profile combinations")
             accessibleDescription: LayoutActions.gestureHint(root.modelData)
-            supportDoubleClick: true
+            supportDoubleClick: LayoutActions.hasGesture(root.modelData, "doubleclickAction")
             onAccessibleClicked: root.goToAutoFavorites()
             // Tap already opens the page, so BOTH gestures are free to override.
             //

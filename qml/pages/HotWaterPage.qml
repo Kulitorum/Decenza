@@ -328,8 +328,8 @@ T.Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
-                Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
+                Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
                     if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -356,7 +356,7 @@ T.Page {
                     accessibleItem: hotWaterStopButton
                     onAccessibleClicked: {
                         DE1Device.stopOperation()
-                        AppShell.idleRequested()
+                        AppShell.dismissRequested()
                     }
                 }
             }
@@ -839,7 +839,7 @@ T.Page {
         title: page.getCurrentVesselName() || noVesselText.text
         onBackClicked: {
             MainController.applyHotWaterSettings()
-            AppShell.idleRequested()
+            AppShell.dismissRequested()
         }
 
         Text {
