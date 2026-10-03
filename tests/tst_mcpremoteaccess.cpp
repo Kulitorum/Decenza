@@ -25,6 +25,12 @@
 #include <QElapsedTimer>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTcpServer>
+#include <QPointer>
+#ifdef Q_OS_UNIX
+#include <poll.h>
+#include <sys/ioctl.h>
+#endif
 
 #include "mcp/mcpremoteaccess.h"
 #include "mcp/mcpserver.h"
@@ -200,6 +206,45 @@ class tst_McpRemoteAccess : public QObject {
         return r;
     }
 
+    // The listener startRemote() last stood up, for describing a stalled request.
+    // A QPointer because each test function's instance dies with that function.
+    static inline QPointer<McpRemoteAccess> s_listenerUnderTest;
+
+    // Where a request with no answer stopped. Connected-with-no-reply has three
+    // causes that look identical from the client: the connection is still in
+    // the kernel's accept queue (Qt never accepted it, or the QTcpServer paused
+    // itself after an accept error, which nothing in McpRemoteAccess handles),
+    // it was accepted but its bytes were never read, or the reply is sitting
+    // unread in the client's kernel buffer. Those are three different bugs.
+    static QString describeStall(const QTcpSocket& client)
+    {
+        QString out;
+#ifdef Q_OS_UNIX
+        int clientUnread = -1;
+        if (client.socketDescriptor() >= 0)
+            ::ioctl(int(client.socketDescriptor()), FIONREAD, &clientUnread);
+        out += QStringLiteral("; client kernel has %1 unread bytes").arg(clientUnread);
+#endif
+        const McpRemoteAccess* remote = s_listenerUnderTest.data();
+        if (!remote || !remote->m_listener)
+            return out + QStringLiteral("; listener state unknown");
+        const QTcpServer* listener = remote->m_listener;
+        out += QStringLiteral("; listener listening=%1 serverError=%2 (%3)")
+                   .arg(listener->isListening()).arg(int(listener->serverError()))
+                   .arg(listener->errorString());
+#ifdef Q_OS_UNIX
+        pollfd pfd{int(listener->socketDescriptor()), POLLIN, 0};
+        if (pfd.fd >= 0 && ::poll(&pfd, 1, 0) >= 0)
+            out += QStringLiteral(", connection waiting in accept queue=%1")
+                       .arg((pfd.revents & POLLIN) != 0);
+#endif
+        qsizetype buffered = 0;
+        for (const auto& pending : remote->m_pending)
+            buffered += pending.buffer.size();
+        return out + QStringLiteral(", accepted sockets open=%1, server bytes buffered=%2")
+                         .arg(remote->m_sockets.size()).arg(buffered);
+    }
+
     static Resp fetch(quint16 port, const QByteArray& request, QTcpSocket* reuse = nullptr)
     {
         QTcpSocket local;
@@ -207,9 +252,9 @@ class tst_McpRemoteAccess : public QObject {
         QElapsedTimer t;
         t.start();
         const auto describe = [&](const char* what) {
-            return QStringLiteral("%1 after %2 ms, socket state %3, error %4 (%5)")
+            return QStringLiteral("%1 after %2 ms, socket state %3, error %4 (%5)%6")
                 .arg(QLatin1String(what)).arg(t.elapsed()).arg(int(sock->state()))
-                .arg(int(sock->error())).arg(sock->errorString());
+                .arg(int(sock->error())).arg(sock->errorString(), describeStall(*sock));
         };
         if (sock->state() != QAbstractSocket::ConnectedState && !pumpConnected(*sock, port)) {
             Resp r;
@@ -299,6 +344,7 @@ class tst_McpRemoteAccess : public QObject {
         remote.setMcpServer(&server);
         remote.setSettings(&settings);
         remote.refresh();
+        s_listenerUnderTest = &remote;
         return static_cast<quint16>(remote.listenPort());
     }
 
@@ -504,6 +550,7 @@ private slots:
         remote.setMcpServer(&server);
         remote.setSettings(&settings);
         remote.startListener(/*bindLoopbackOnly=*/true);
+        s_listenerUnderTest = &remote;
         const quint16 port = static_cast<quint16>(remote.listenPort());
         QVERIFY(port != 0);
 
@@ -637,6 +684,30 @@ private slots:
         QCOMPARE_STATUS(ok, 200);
         QVERIFY(ok.json.contains("result"));
         QVERIFY(!ok.sessionId.isEmpty());
+    }
+
+    // ── An accept() failure must not wedge the listener ───────────────────
+    // QTcpServer answers any accept() failure but EAGAIN by pausing itself while
+    // still reporting isListening(), so the reaper's rebind never fired and
+    // every later client connected and hung. Driven by what Qt does on that
+    // failure (qtcpserver.cpp:188-191), since a real EMFILE cannot be arranged.
+    void acceptErrorDoesNotWedgeTheListener()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        QVERIFY(startRemote(settings, server, remote) != 0);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("listener stopped accepting"));
+        remote.m_listener->pauseAccepting();
+        emit remote.m_listener->acceptError(QAbstractSocket::SocketResourceError);
+        remote.onReaperTick();
+
+        const quint16 port = static_cast<quint16>(remote.listenPort());
+        QVERIFY(port != 0);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        QCOMPARE_STATUS(fetch(port, httpRequest("GET", "/favicon.ico", {})), 404);
+        QCOMPARE(remote.statusString(), QStringLiteral("active"));
     }
 
     // ── End-to-end: initialize → tools/call through the listener ──────────
