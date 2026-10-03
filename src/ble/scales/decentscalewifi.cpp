@@ -84,9 +84,16 @@ DecentScaleWifi::DecentScaleWifi(QObject* parent)
 }
 
 DecentScaleWifi::~DecentScaleWifi() {
-    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return;
+    if (m_socket->state() == QAbstractSocket::ConnectedState) {
         m_socket->close();
+        return;
     }
+    // Mid-connect: same hazard as disconnectFromScale(), with no replacement
+    // socket needed.
+    m_socket->disconnect(this);
+    m_socket->abort();
 }
 
 void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
@@ -512,9 +519,19 @@ void DecentScaleWifi::disconnectFromScale() {
     // the socket after the user has asked to disconnect.
     ++m_resolveGeneration;
     endSleepKeepAwake();
-    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return;
+    if (m_socket->state() == QAbstractSocket::ConnectedState) {
         m_socket->close();
+        return;
     }
+    // Still connecting. close() would flush a close frame onto the unconnected
+    // socket (Qt warns "QNativeSocketEngine::write() was not called in
+    // ConnectedState"), and the error that follows reaches onError as "a peer
+    // answered", which evicted the cached IP and dialed the hostname for a
+    // connection we were abandoning. recreateSocket() detaches and aborts it.
+    m_pendingHostnameFallback = false;
+    recreateSocket();
 }
 
 void DecentScaleWifi::beginSleepKeepAwake() {

@@ -423,6 +423,36 @@ private slots:
         QCOMPARE(sleepSpy.count(), 1);
     }
 
+    // Abandoning a dial that is still connecting is our own act, not evidence
+    // about the address. close() on it raised a Qt write() warning and an
+    // "Invalid socket descriptor" error that onError read as "a peer answered":
+    // it evicted the cached IP and dialed the hostname for a scale being
+    // dropped. Seen in a user log on every WiFi-to-Bluetooth switch and at app
+    // exit (both destroy the driver mid-connect). 192.0.2.1 is TEST-NET-1:
+    // never routed, so the dial sits in ConnectingState until the OS gives up.
+    void teardownMidConnectKeepsCachedIp() {
+        QStringList cacheWrites;  // before the driver: its callback writes here
+        {
+            DecentScaleWifi driver;
+            driver.setIpResolver([](const QString&) { return QStringLiteral("192.0.2.1"); });
+            driver.setIpCacheUpdate([&](const QString&, const QString& ip) { cacheWrites.append(ip); });
+
+            driver.connectToHost(QStringLiteral("hds.invalid"));
+            QTest::qWait(100);  // lets an immediate no-route failure surface
+            if (driver.m_socket->state() != QAbstractSocket::ConnectingState)
+                QSKIP("192.0.2.1 did not stay in ConnectingState here (no network route?)");
+
+            driver.disconnectFromScale();
+            QCoreApplication::processEvents();
+            QVERIFY2(cacheWrites.isEmpty(), "disconnectFromScale() mid-connect evicted the cached IP");
+
+            driver.connectToHost(QStringLiteral("hds.invalid"));
+            QTRY_COMPARE(driver.m_socket->state(), QAbstractSocket::ConnectingState);
+        }  // destroyed mid-connect
+        QCoreApplication::processEvents();
+        QVERIFY2(cacheWrites.isEmpty(), "~DecentScaleWifi() mid-connect evicted the cached IP");
+    }
+
     // The DE1-sleep check-in exists only to restart the HDS's 15-min auto-off.
     // It must not look like a connection: a command ("display on" from the
     // normal handshake) would light a sleeping scale every 10 min, and a
