@@ -1,16 +1,34 @@
 ## Purpose
 
-Defines what Decenza's MQTT integration guarantees to a user's broker and to Home Assistant (identity, availability, message delivery, reconnect behaviour, status reporting, encryption, and the entities and controls it offers) and that it can run indefinitely without consuming system resources.
+Defines what Decenza's MQTT integration guarantees to a user's broker and to Home Assistant (client and device identity, device-based discovery, availability, message delivery, reconnect behaviour, status reporting, encryption, and the entities and controls it offers) and that it can run indefinitely without consuming system resources.
 
 ## ADDED Requirements
 
-### Requirement: Stable Client Identity
-The app SHALL connect with a client ID that is generated once, saved in the MQTT settings, and reused on every later connection, including across app restarts, app updates and changes of MQTT client library.
+### Requirement: Unique Client Identity
+The app SHALL connect with a client ID that belongs to this install alone: generated from a random value, saved in the MQTT settings and reused across restarts. Backup, restore and device-to-device migration SHALL NOT export or import it. An install upgrading from a version before this change SHALL generate a fresh client ID once. The user MAY set a client ID by hand in the app or on the web settings page.
+
+#### Scenario: Backup restored onto a second device
+- **WHEN** a backup from one tablet is restored onto another device and both connect to the same broker
+- **THEN** the two SHALL connect with different client IDs, and neither SHALL be disconnected by the other
+
+#### Scenario: Two installs that already share an ID are upgraded
+- **WHEN** two installs that were given the same client ID by an earlier backup both upgrade to this version
+- **THEN** each SHALL generate its own client ID and stop disconnecting the other
+
+### Requirement: Stable Home Assistant Identity
+Every Home Assistant entity `unique_id` and the device identifier SHALL be built from a Home Assistant device ID, not from the client ID. The device ID SHALL be generated once, saved, carried by backup, restore and device migration, and reused across restarts and updates. An install upgrading from a version before this change SHALL take its device ID from its previous client ID, so its `unique_id`s and device identifier do not change. The user SHALL be able to replace the device ID with a new random one from the app and from the web settings page; doing so SHALL remove this install's previous device from Home Assistant.
 
 #### Scenario: Upgrading an existing install
-- **WHEN** a user who already uses MQTT installs a version with a different MQTT client library
-- **THEN** the app SHALL connect with the client ID it used before the upgrade
-- **AND** Home Assistant SHALL show the same device with the same entities, with no duplicate device or entity created
+- **WHEN** a user who already uses MQTT discovery installs this version
+- **THEN** Home Assistant SHALL show the same device with the same entities and entity IDs, with no duplicate device or entity created
+
+#### Scenario: Replacing a tablet
+- **WHEN** a user migrates settings to a new tablet and retires the old one
+- **THEN** Home Assistant SHALL keep showing the same device and entities, now fed by the new tablet
+
+#### Scenario: Second live install from the same backup
+- **WHEN** a second install restored from the same backup chooses "New device ID"
+- **THEN** it SHALL appear in Home Assistant as a separate device, and the first install's device and entities SHALL be unaffected
 
 ### Requirement: Broker Message Contract
 The app SHALL publish and subscribe as follows:
@@ -18,7 +36,7 @@ The app SHALL publish and subscribe as follows:
 - The command and profile-select topics are subscribed at QoS 1.
 - The availability topic carries `online` after connecting.
 - A last-will message of `offline` is registered on the availability topic, at QoS 1 and retained.
-- Home Assistant discovery is published to `homeassistant/<component>/de1_<object>/config` when discovery is enabled.
+- Home Assistant discovery is published as one retained device-based discovery message at `homeassistant/device/<device ID>/config` when discovery is enabled. It carries the device and origin information and one component per entity, each with its platform and `unique_id`. This requires Home Assistant 2024.11 or newer.
 
 The connection SHALL use a clean session and a 60-second keepalive. It SHALL use MQTT 3.1.1, and SHALL retry once with MQTT 3.1 if the broker rejects the protocol version.
 
@@ -134,12 +152,23 @@ The app SHALL subscribe to Home Assistant's status topic (`homeassistant/status`
 - **WHEN** Home Assistant restarts while the app stays connected and retained messages are off
 - **THEN** the DE1 device and its entities SHALL reappear in Home Assistant with current values, without the app reconnecting
 
+### Requirement: Existing Entities Move To Device Discovery
+An install that published per-entity discovery topics (`homeassistant/<component>/de1_<object>/config`) under an earlier version SHALL move to device-based discovery once, following Home Assistant's documented procedure: publish `{"migrate_discovery": true}` to each earlier topic, then publish the device-based discovery message, then publish an empty retained payload to each earlier topic. Entity IDs, names and user customizations SHALL survive the move. Once it has completed, the app SHALL NOT publish to the per-entity topics again.
+
+#### Scenario: Upgrade with a customised entity
+- **WHEN** a user who renamed a DE1 entity in Home Assistant and uses it in a dashboard upgrades to this version
+- **THEN** after the move the entity SHALL keep its entity ID, name and dashboard use, and no per-entity discovery topic SHALL remain retained on the broker
+
 ### Requirement: Discovery Cleanup
-The app SHALL remember the discovery configuration topics it has published. When the user turns discovery off, or a topic it previously published is no longer part of its discovery set, the app SHALL publish an empty retained message to each such topic so Home Assistant removes the entity.
+The app SHALL only ever clear discovery messages belonging to its own device ID. When the user turns discovery off, it SHALL publish an empty retained payload to its device-based discovery topic so Home Assistant removes the device. When an entity leaves the device's set (for example, the profile select when no profiles remain), the app SHALL publish that component once with only its platform, as Home Assistant's procedure requires, before leaving it out.
 
 #### Scenario: User turns discovery off
 - **WHEN** the user disables Home Assistant discovery while connected
-- **THEN** Decenza's entities SHALL disappear from Home Assistant, and SHALL NOT come back after a broker or Home Assistant restart
+- **THEN** this install's device and entities SHALL disappear from Home Assistant, and SHALL NOT come back after a broker or Home Assistant restart
+
+#### Scenario: Another install shares the broker
+- **WHEN** a second install with a different device ID is connected to the same broker and this install turns discovery off
+- **THEN** the second install's device and entities SHALL be unaffected
 
 ### Requirement: Entity Availability Follows Device Connections
 Home Assistant entities whose values come from the DE1 SHALL be available only while the app is online AND the DE1 is connected. Entities whose values come from the scale SHALL be available only while the app is online AND the scale is connected. Entities that report the connections themselves SHALL depend only on the app being online.
