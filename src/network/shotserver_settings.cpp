@@ -453,6 +453,9 @@ QString ShotServer::generateSettingsPage() const
             padding: 0.375rem 0.625rem;
             border-radius: 4px;
         }
+        /* Own row under the actions: the MQTT row's live status and three buttons leave no room. */
+        .status-line { display: block; margin-top: 0.5rem; }
+        .status-line:empty { display: none; }
         .status-success {
             background: rgba(24, 195, 126, 0.15);
             color: var(--success);
@@ -777,6 +780,7 @@ QString ShotServer::generateSettingsPage() const
                     <button class="btn btn-secondary" id="mqttConnectBtn" onclick="connectMqtt()">Connect</button>
                     <button class="btn btn-primary" id="mqttSaveBtn" onclick="saveMqtt()">Save</button>
                 </div>
+                <span id="mqttSaveStatus" class="status-msg status-line"></span>
             </div>
         </div>
 
@@ -961,7 +965,7 @@ QString ShotServer::generateSettingsPage() const
             } catch (e) {
                 showSectionStatus('visualizerStatus', 'Failed to load settings', true);
                 showSectionStatus('aiStatus', 'Failed to load settings', true);
-                showSectionStatus('mqttStatusText', 'Failed to load settings', true);
+                showSectionStatus('mqttSaveStatus', 'Failed to load settings', true);
             }
         }
 
@@ -1140,8 +1144,13 @@ QString ShotServer::generateSettingsPage() const
         function showSectionStatus(id, msg, isError) {
             const el = document.getElementById(id);
             el.textContent = msg;
-            el.className = 'status-msg ' + (isError ? 'status-error' : 'status-success');
-            setTimeout(() => { el.textContent = ''; el.className = 'status-msg'; }, 4000);
+            el.classList.remove('status-error', 'status-success');
+            el.classList.add(isError ? 'status-error' : 'status-success');
+            clearTimeout(el.clearTimer);
+            el.clearTimer = setTimeout(() => {
+                el.textContent = '';
+                el.classList.remove('status-error', 'status-success');
+            }, 4000);
         }
 )HTML" R"HTML(
         // --- Visualizer ---
@@ -1292,8 +1301,8 @@ QString ShotServer::generateSettingsPage() const
                 });
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
-                showSectionStatus('mqttStatusText', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
-            } catch (e) { showSectionStatus('mqttStatusText', e.message || 'Network error', true); }
+                showSectionStatus('mqttSaveStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+            } catch (e) { showSectionStatus('mqttSaveStatus', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Save';
         }
 
@@ -1395,8 +1404,8 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 if (r.success) document.getElementById('mqttDeviceId').value = r.deviceId || '';
-                else showSectionStatus('mqttStatusText', r.message || 'Failed', true);
-            } catch (e) { showSectionStatus('mqttStatusText', e.message || 'Network error', true); }
+                else showSectionStatus('mqttSaveStatus', r.message || 'Failed', true);
+            } catch (e) { showSectionStatus('mqttSaveStatus', e.message || 'Network error', true); }
         }
 
         async function publishDiscovery() {

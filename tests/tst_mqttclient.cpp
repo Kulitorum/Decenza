@@ -281,10 +281,18 @@ private slots:
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         c->m_sessionUp = true;
+        c->m_connected = true;
+        c->m_status = QStringLiteral("Connected");
+        // ShotServer's connect endpoint reads isConnected() inside statusChanged.
+        bool connectedSeenByStatusHandler = true;
+        connect(c.data(), &MqttClient::statusChanged, c.data(),
+                [&]() { connectedSeenByStatusHandler = c->isConnected(); });
+
         c->m_refusedSubscription = QStringLiteral("decenza/command");
         c->updateVerifiedState();
 
         QVERIFY(!c->isConnected());
+        QVERIFY2(!connectedSeenByStatusHandler, "statusChanged fired before isConnected() was updated");
         QVERIFY(c->status().contains(QStringLiteral("decenza/command")));
         QVERIFY(c->status().contains(QStringLiteral("permission")));
     }

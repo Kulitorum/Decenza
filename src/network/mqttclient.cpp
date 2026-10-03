@@ -731,16 +731,18 @@ void MqttClient::updateVerifiedState()
         status = QString::fromLatin1(kConnecting);
     }
 
-    if (status != m_status) {
-        m_status = status;
+    // Both fields before either signal: ShotServer's connect endpoint reads isConnected()
+    // inside statusChanged, and saw "Connected" with false.
+    const bool statusChangedNow = status != m_status;
+    const bool connectedChangedNow = verified != m_connected;
+    m_status = status;
+    m_connected = verified;
+    if (connectedChangedNow && verified)
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Subscriptions acknowledged - connection verified";
+    if (statusChangedNow)
         emit statusChanged();
-    }
-    if (verified != m_connected) {
-        m_connected = verified;
-        if (verified)
-            DIAG_DEBUG(NETWORK, "MqttClient") << "Subscriptions acknowledged - connection verified";
+    if (connectedChangedNow)
         emit connectedChanged();
-    }
 }
 
 void MqttClient::onMessageReceived(const QByteArray& message, const QString& topic)
@@ -825,8 +827,9 @@ void MqttClient::handleCommand(const QString& command)
         DIAG_DEBUG(NETWORK, "MqttClient") << "Steam off command executed";
     } else if (command == "stop") {
         if (!stopAllowedInCurrentPhase()) {
-            DIAG_INFO(NETWORK, "MqttClient") << "Stop command ignored - no espresso, steam, hot water or flush running (phase:"
-                      << (m_machineState ? m_machineState->phaseString() : QStringLiteral("unknown")) << ")";
+            DIAG_INFO(NETWORK, "MqttClient").noquote()
+                << "Stop command ignored - no espresso, steam, hot water or flush running (phase: "
+                   + (m_machineState ? m_machineState->phaseString() : QStringLiteral("unknown")) + ")";
             return;
         }
         DIAG_INFO(NETWORK, "MqttClient") << "Stop command accepted in phase" << m_machineState->phaseString();
