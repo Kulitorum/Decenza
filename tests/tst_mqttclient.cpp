@@ -402,6 +402,11 @@ private slots:
         const QJsonObject select = configFor(c.data(), "profile_select");
         QCOMPARE(select.value("options").toArray().size(), 2);
         QCOMPARE(select.value("command_topic").toString(), QStringLiteral("decenza/profile/select"));
+
+        // The older text entity stays for existing users but is not offered to new ones.
+        const QJsonObject text = configFor(c.data(), "profile");
+        QVERIFY(text.contains("enabled_by_default"));
+        QVERIFY(!text.value("enabled_by_default").toBool(true));
     }
 
     void upgradeKeepsTheHomeAssistantIdentityAndRenewsTheClientId() {

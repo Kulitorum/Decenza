@@ -183,11 +183,15 @@ Home Assistant entities whose values come from the DE1 SHALL be available only w
 - **AND** the DE1 connected entity SHALL show disconnected
 
 ### Requirement: Profile Selection From Home Assistant
-When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are the titles of the installed profiles and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the existing profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain.
+When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are the titles of the installed profiles and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the existing profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain, still working for anyone who has it, but SHALL be marked disabled by default, so a device Home Assistant creates from now on shows the dropdown as its profile control and the text entity only if the user enables it.
 
 #### Scenario: Pick a profile from a dashboard
 - **WHEN** the user picks a profile in the Home Assistant dropdown while the machine is idle
 - **THEN** the app SHALL activate that profile and the dropdown SHALL show it as current
+
+#### Scenario: Text entity on an existing and a new device
+- **WHEN** an existing user upgrades, and separately a new user sets up discovery for the first time
+- **THEN** the existing user's profile text entity SHALL stay enabled and keep working, and the new user's device SHALL show only the dropdown until the text entity is enabled in Home Assistant
 
 #### Scenario: New profile added
 - **WHEN** the user adds a profile in the app

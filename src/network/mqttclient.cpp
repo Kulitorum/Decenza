@@ -1343,9 +1343,13 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
     sensor("shot_time", "shot_time", Source::Machine, "DE1 Shot Time", "shot_time",
            {{"unit_of_measurement", "s"}, {"icon", "mdi:timer"}});
 
+    // Superseded by the profile select below (it shows the title but takes a filename).
+    // Home Assistant applies enabled_by_default only when it first creates the entity, so
+    // existing users keep theirs; new devices show only the select.
     add("text", "profile", "profile", Source::App,
         {{"name", "DE1 Profile"}, {"state_topic", base + "/profile"},
-         {"command_topic", base + "/profile/set"}, {"icon", "mdi:coffee"}});
+         {"command_topic", base + "/profile/set"}, {"icon", "mdi:coffee"},
+         {"enabled_by_default", false}});
 
     // Only Sleep and GoingToSleep are "off".
     add("switch", "power", "power", Source::Machine,
