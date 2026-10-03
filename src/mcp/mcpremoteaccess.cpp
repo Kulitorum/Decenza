@@ -195,6 +195,7 @@ void McpRemoteAccess::startListener(bool bindLoopbackOnly)
     if (!m_listener) {
         m_listener = new QTcpServer(this);
         connect(m_listener, &QTcpServer::newConnection, this, &McpRemoteAccess::onNewConnection);
+        connect(m_listener, &QTcpServer::acceptError, this, &McpRemoteAccess::onAcceptError);
     }
 
     // Start the reaper before attempting to bind: if the bind fails now (e.g. the
@@ -568,6 +569,20 @@ void McpRemoteAccess::onNewConnection()
         if (socket->bytesAvailable() > 0)
             readFromSocket(socket);
     }
+}
+
+void McpRemoteAccess::onAcceptError(QAbstractSocket::SocketError error)
+{
+    // QTcpServer pauses itself on any accept() failure but EAGAIN and stays
+    // isListening() (qtcpserver.cpp:185-193), so every later client would connect
+    // and hang. Closing it hands recovery to the reaper's rebind.
+    if (!m_listener)
+        return;
+    MCP_WARN_TAGGED("RemoteAccess",
+                    QStringLiteral("listener stopped accepting connections (error %1: %2) — "
+                                   "rebinding").arg(int(error)).arg(m_listener->errorString()));
+    m_listener->close();
+    setStatus(Reconnecting);
 }
 
 void McpRemoteAccess::onSocketDisconnected()
@@ -963,6 +978,9 @@ void McpRemoteAccess::onReaperTick()
         if (loopback || mode == QString::fromLatin1(SettingsMcp::ModeCustom)) {
             setStatus(Reconnecting);
             startListener(loopback);
+            if (m_listener->isListening())
+                MCP_INFO_TAGGED("RemoteAccess", QStringLiteral("listener rebound on port %1")
+                                                    .arg(m_listener->serverPort()));
         }
     }
 }

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QAbstractSocket>
 
 #include "mcpratewindow.h"
 #include "mcptunnel_tsnet.h"
@@ -117,6 +118,7 @@ private slots:
     void onSocketDisconnected();
     void onReaperTick();
     void onTunnelStateChanged();
+    void onAcceptError(QAbstractSocket::SocketError error);
 
 private:
     // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
