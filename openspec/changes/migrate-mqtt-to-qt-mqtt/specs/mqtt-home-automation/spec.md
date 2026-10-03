@@ -183,7 +183,7 @@ Home Assistant entities whose values come from the DE1 SHALL be available only w
 - **AND** the DE1 connected entity SHALL show disconnected
 
 ### Requirement: Profile Selection From Home Assistant
-When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are the titles of the installed profiles and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the existing profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain, still working for anyone who has it, but SHALL be marked disabled by default, so a device Home Assistant creates from now on shows the dropdown as its profile control and the text entity only if the user enables it.
+When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are the titles of the installed profiles, in the profile page's default order (the current profile, then most recently used, then never-used profiles alphabetically), and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the existing profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain, still working for anyone who has it, but SHALL be marked disabled by default, so a device Home Assistant creates from now on shows the dropdown as its profile control and the text entity only if the user enables it.
 
 #### Scenario: Pick a profile from a dashboard
 - **WHEN** the user picks a profile in the Home Assistant dropdown while the machine is idle
@@ -196,6 +196,21 @@ When discovery is enabled, the app SHALL publish a Home Assistant select entity 
 #### Scenario: New profile added
 - **WHEN** the user adds a profile in the app
 - **THEN** the dropdown SHALL list it without the app reconnecting
+
+### Requirement: Recipe Selection From Home Assistant
+When discovery is enabled and at least one recipe exists, the app SHALL publish a Home Assistant select entity whose options are the names of the non-archived recipes, and whose state is the active recipe's name, or unknown when no recipe is active. Choosing an option SHALL activate that recipe through the app's own recipe activation. The options SHALL be re-published whenever recipes are added, renamed, archived or restored.
+
+#### Scenario: Pick a recipe from a dashboard
+- **WHEN** the user picks a recipe in the Home Assistant dropdown
+- **THEN** the app SHALL activate that recipe, exactly as tapping it in the app does, and the dropdown SHALL show it as current
+
+#### Scenario: No recipe active
+- **WHEN** the user switches to a profile directly, so no recipe is active
+- **THEN** the dropdown SHALL show no current recipe, and its options SHALL still be the non-archived recipes
+
+#### Scenario: Recipe archived
+- **WHEN** the user archives a recipe
+- **THEN** it SHALL disappear from the dropdown without the app reconnecting
 
 ### Requirement: Last Shot Summary
 After each espresso shot is saved to history, the app SHALL publish a retained summary of that shot: finish time (ISO 8601 with time zone), duration in seconds, dose in grams, yield in grams, ratio, and the profile it was pulled with. Fields the shot does not have SHALL be omitted, never sent as zero. When discovery is enabled, each field SHALL have a Home Assistant sensor. After connecting, the summary SHALL reflect the most recent saved shot.

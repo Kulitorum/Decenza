@@ -517,6 +517,26 @@ private slots:
                             [&](const auto& m) { return m.topic == c->deviceDiscoveryTopic(); }));
     }
 
+    void recipeSelectListsRecipesAndSaysNoneWhenInactive() {
+        Settings settings;
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        QVERIFY2(configFor(c.data(), "recipe_select").isEmpty(), "no recipes, no select");
+
+        c->setRecipeTitles({QStringLiteral("Morning Latte"), QStringLiteral("Cortado")});
+        const QJsonObject select = configFor(c.data(), "recipe_select");
+        QCOMPARE(select.value("options").toArray().size(), 2);
+        QCOMPARE(select.value("command_topic").toString(), QStringLiteral("decenza/recipe/select"));
+
+        // An MQTT select has no current option only when told "None".
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+        c->setActiveRecipe(QStringLiteral("Cortado"));
+        c->setActiveRecipe(QString());
+        QCOMPARE(sent.size(), 2);
+        QCOMPARE(sent[0].payload, QStringLiteral("Cortado"));
+        QCOMPARE(sent[1].payload, QStringLiteral("None"));
+    }
+
     // ===== Last shot and shot events =====
 
     void lastShotOmitsWhatTheShotDoesNotHave() {

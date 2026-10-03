@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
@@ -919,6 +920,7 @@ private:
     MqttClient* m_mqttClient = nullptr;
     // The MQTT last-shot reads, matched against ShotHistoryStorage's broadcast replies.
     qint64 m_mqttLastShotRequestId = 0;
+    QHash<QString, qint64> m_mqttRecipeIds;   // recipe select: name -> id
     bool m_mqttWantsMostRecentShot = false;
     UpdateChecker* m_updateChecker = nullptr;
     HdsFirmwareUpdateController* m_hdsFirmwareUpdate = nullptr;

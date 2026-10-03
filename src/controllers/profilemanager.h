@@ -439,6 +439,16 @@ public:
     Q_INVOKABLE QVariantList filterProfiles(const QVariantMap& chips, const QString& search,
                                             const QStringList& allowedBeverageTypes = {}) const;
 
+    // The profile page's "Recently used" order, the one definition of it (the picker and
+    // the Home Assistant profile select both use it): `pinnedFilename` first, then most
+    // recent shot, then never-used A–Z. Entries are allProfilesList()-shaped rows.
+    // QML callers must also read `profileUsage` in the binding: an invokable records no
+    // dependency on it.
+    Q_INVOKABLE QVariantList sortedByRecentUse(const QVariantList& entries,
+                                               const QString& pinnedFilename) const;
+    // Every installed profile's title in that order.
+    QStringList titlesByRecentUse(const QString& pinnedFilename) const;
+
     // Faceted count per chip id ("favorites", "builtin",
     // "downloaded", "mine", "espresso", "filter", "tea", "maintenance"): how many
     // profiles would match if THAT chip were also on, given the chips already

@@ -677,7 +677,7 @@ void MqttClient::setupSubscriptions()
     // Required: a broker account that may not read these looks connected while every
     // Home Assistant command silently goes nowhere.
     for (const QString& sub : {QStringLiteral("command"), QStringLiteral("profile/set"),
-                               QStringLiteral("profile/select")}) {
+                               QStringLiteral("profile/select"), QStringLiteral("recipe/select")}) {
         QMqttSubscription* subscription = m_client->subscribe(QMqttTopicFilter(topicPath(sub)), 1);
         if (!subscription) {
             DIAG_WARN(NETWORK, "MqttClient") << "Failed to subscribe to" << topicPath(sub);
@@ -763,6 +763,12 @@ void MqttClient::onMessageReceived(const QByteArray& message, const QString& top
         if (!profileName.isEmpty()) {
             DIAG_DEBUG(NETWORK, "MqttClient") << "Profile selection requested:" << profileName;
             emit profileSelectRequested(profileName);
+        }
+    } else if (topic == topicPath("recipe/select")) {
+        const QString name = payload.trimmed();
+        if (!name.isEmpty()) {
+            DIAG_DEBUG(NETWORK, "MqttClient") << "Recipe selection requested:" << name;
+            emit recipeTitleSelectRequested(name);
         }
     } else if (topic == topicPath("profile/select")) {
         // Profile title, from the Home Assistant select entity
@@ -860,6 +866,30 @@ void MqttClient::setCurrentProfileFilename(const QString& filename)
 void MqttClient::setMainController(MainController* controller)
 {
     m_mainController = controller;
+}
+
+void MqttClient::setRecipeTitles(const QStringList& titles)
+{
+    if (titles == m_recipeTitles)
+        return;
+    m_recipeTitles = titles;
+    if (m_sessionUp && m_settingsMqtt && m_settingsMqtt->mqttHomeAssistantDiscovery())
+        publishHomeAssistantDiscovery();
+}
+
+void MqttClient::setActiveRecipe(const QString& name)
+{
+    if (name == m_activeRecipe)
+        return;
+    m_activeRecipe = name;
+    publishActiveRecipe();
+}
+
+void MqttClient::publishActiveRecipe()
+{
+    // "None" is how an MQTT select is told it has no current option; an empty or
+    // unknown value would be logged by Home Assistant as an invalid option.
+    publish(topicPath("recipe"), m_activeRecipe.isEmpty() ? QStringLiteral("None") : m_activeRecipe, true);
 }
 
 void MqttClient::setProfileTitles(const QStringList& titles)
@@ -1028,6 +1058,7 @@ void MqttClient::republishAll()
     publish(topicPath("scale_connected"), m_scaleConnected ? "true" : "false", true);
     m_lastPublishedScaleConnected = m_scaleConnected;
     publishState();
+    publishActiveRecipe();
     onPublishTimerTick();
     onWaterLevelChanged();
 
@@ -1389,6 +1420,16 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
             {{"name", "DE1 Profile Select"}, {"state_topic", base + "/profile"},
              {"command_topic", base + "/profile/select"}, {"options", options},
              {"icon", "mdi:coffee"}});
+    }
+
+    QJsonArray recipes;
+    for (const QString& name : m_recipeTitles)
+        recipes.append(name);
+    if (!recipes.isEmpty()) {
+        add("select", "recipe_select", "recipe_select", Source::App,
+            {{"name", "DE1 Recipe"}, {"state_topic", base + "/recipe"},
+             {"command_topic", base + "/recipe/select"}, {"options", recipes},
+             {"icon", "mdi:clipboard-list-outline"}});
     }
 
     auto lastShot = [&](const QString& key, const QString& name, QJsonObject extra) {

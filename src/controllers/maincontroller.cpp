@@ -855,9 +855,49 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         }
         m_profileManager->loadProfile(filename);
     });
-    m_mqttClient->setProfileTitles(m_profileManager->installedProfileTitles());
-    connect(m_profileManager, &ProfileManager::profilesChanged, m_mqttClient, [this]() {
-        m_mqttClient->setProfileTitles(m_profileManager->installedProfileTitles());
+    // In the profile page's "Recently used" order, which moves with the profile list,
+    // the current profile and every saved shot.
+    auto pushProfileTitles = [this]() {
+        m_mqttClient->setProfileTitles(
+            m_profileManager->titlesByRecentUse(m_profileManager->baseProfileName()));
+    };
+    pushProfileTitles();
+    connect(m_profileManager, &ProfileManager::profilesChanged, m_mqttClient, pushProfileTitles);
+    connect(m_profileManager, &ProfileManager::profileUsageChanged, m_mqttClient, pushProfileTitles);
+    connect(m_profileManager, &ProfileManager::currentProfileChanged, m_mqttClient, pushProfileTitles);
+
+    // Recipe select: the non-archived recipes. inventoryReady is a broadcast, but every
+    // answer is the same full list, so whoever asked, it is the right one.
+    connect(m_recipeStorage, &RecipeStorage::inventoryReady, m_mqttClient,
+            [this](const QVariantList& recipes) {
+                m_mqttRecipeIds.clear();
+                QStringList names;
+                for (const QVariant& r : recipes) {
+                    const QVariantMap recipe = r.toMap();
+                    const QString name = recipe.value("name").toString();
+                    names << name;
+                    m_mqttRecipeIds.insert(name, recipe.value("id").toLongLong());
+                }
+                m_mqttClient->setRecipeTitles(names);
+            });
+    connect(m_recipeStorage, &RecipeStorage::recipesChanged, m_recipeStorage, &RecipeStorage::requestInventory);
+    // Not before the startup migrations are done: ShotHistoryStorage reports ready only then.
+    if (m_shotHistory->isReady())
+        m_recipeStorage->requestInventory();
+    connect(m_shotHistory, &ShotHistoryStorage::readyChanged, m_recipeStorage, [this]() {
+        if (m_shotHistory->isReady())
+            m_recipeStorage->requestInventory();
+    });
+    connect(this, &MainController::activeRecipeChanged, m_mqttClient, [this]() {
+        m_mqttClient->setActiveRecipe(m_activeRecipe.value("name").toString());
+    });
+    connect(m_mqttClient, &MqttClient::recipeTitleSelectRequested, this, [this](const QString& name) {
+        const qint64 id = m_mqttRecipeIds.value(name, 0);
+        if (id <= 0) {
+            DIAG_WARN(NETWORK, "MainController") << "MQTT recipe select: no recipe named" << name;
+            return;
+        }
+        activateRecipe(id);
     });
 
     // Shot events. Maintenance runs (cleaning/descale/calibrate) are never saved, so the

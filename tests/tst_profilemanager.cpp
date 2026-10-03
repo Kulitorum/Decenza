@@ -190,6 +190,27 @@ private slots:
 
     void init() { QTest::failOnWarning(); }
 
+    void recentUseOrderMatchesTheProfilePage() {
+        // One definition for the profile page's "Recently used" sort and the Home
+        // Assistant profile select: pinned first, then newest use, then never-used A–Z.
+        McpTestFixture f;
+        f.profileManager.setProfileUsage(QVariantMap{
+            {"Old", QVariantMap{{"lastTimestamp", 100}}},
+            {"Newest", QVariantMap{{"lastTimestamp", 300}}},
+        });
+        const QVariantList entries{
+            QVariantMap{{"name", "zebra"}, {"title", "Zebra"}},
+            QVariantMap{{"name", "old"}, {"title", "Old"}},
+            QVariantMap{{"name", "apple"}, {"title", "Apple"}},
+            QVariantMap{{"name", "newest"}, {"title", "Newest"}},
+            QVariantMap{{"name", "current"}, {"title", "Current"}},
+        };
+        QStringList order;
+        for (const QVariant& e : f.profileManager.sortedByRecentUse(entries, "current"))
+            order << e.toMap().value("title").toString();
+        QCOMPARE(order, (QStringList{"Current", "Newest", "Old", "Apple", "Zebra"}));
+    }
+
     // The dye store is PID-scoped but shared across every test in this file, and
     // the active bag/recipe ids persist into it. The dose-ladder tests set them,
     // and restoring on the last line of each only works when the test reaches

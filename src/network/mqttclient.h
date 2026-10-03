@@ -92,6 +92,9 @@ public:
     // Plain-data inputs from MainController, so this class needs neither ProfileManager
     // nor ShotHistoryStorage.
     void setProfileTitles(const QStringList& titles);
+    // Non-archived recipe names, and the active one ("" when none).
+    void setRecipeTitles(const QStringList& titles);
+    void setActiveRecipe(const QString& name);
     void setLastShot(const LastShot& shot);
 
 public slots:
@@ -112,6 +115,8 @@ signals:
     void profileSelectRequested(const QString& profileFilename);
     // From the Home Assistant select, which shows titles; MainController resolves it.
     void profileTitleSelectRequested(const QString& profileTitle);
+    // From the Home Assistant recipe select; MainController resolves the name.
+    void recipeTitleSelectRequested(const QString& recipeName);
     // Asks MainController for the most recent saved shot (answered via setLastShot()).
     void lastShotRequested();
     void currentProfileChanged();
@@ -277,4 +282,7 @@ private:
     bool m_haveLastShot = false;
     LastShot m_lastShot;
     QStringList m_profileTitles;
+    QStringList m_recipeTitles;
+    QString m_activeRecipe;
+    void publishActiveRecipe();
 };

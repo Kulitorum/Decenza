@@ -982,6 +982,42 @@ bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVaria
     return true;
 }
 
+QVariantList ProfileManager::sortedByRecentUse(const QVariantList& entries,
+                                               const QString& pinnedFilename) const
+{
+    auto lastUse = [this](const QString& title) {
+        return m_profileUsage.value(title).toMap().value("lastTimestamp").toLongLong();
+    };
+    QVariantList sorted = entries;
+    std::stable_sort(sorted.begin(), sorted.end(), [&](const QVariant& av, const QVariant& bv) {
+        const QVariantMap a = av.toMap();
+        const QVariantMap b = bv.toMap();
+        const bool aPinned = a.value("name").toString() == pinnedFilename;
+        const bool bPinned = b.value("name").toString() == pinnedFilename;
+        if (aPinned != bPinned) return aPinned;
+        const QString aTitle = a.value("title").toString();
+        const QString bTitle = b.value("title").toString();
+        const qint64 ta = lastUse(aTitle);
+        const qint64 tb = lastUse(bTitle);
+        if ((ta != 0) != (tb != 0)) return ta != 0;
+        if (ta != tb) return ta > tb;
+        return QString::localeAwareCompare(aTitle, bTitle) < 0;
+    });
+    return sorted;
+}
+
+QStringList ProfileManager::titlesByRecentUse(const QString& pinnedFilename) const
+{
+    QVariantList entries;
+    entries.reserve(m_allProfiles.size());
+    for (const ProfileInfo& info : m_allProfiles)
+        entries.append(QVariantMap{{"name", info.filename}, {"title", info.title}});
+    QStringList titles;
+    for (const QVariant& entry : sortedByRecentUse(entries, pinnedFilename))
+        titles.append(entry.toMap().value("title").toString());
+    return titles;
+}
+
 QVariantList ProfileManager::filterProfiles(const QVariantMap& chips, const QString& search,
                                             const QStringList& allowedBeverageTypes) const
 {
