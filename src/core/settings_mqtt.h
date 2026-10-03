@@ -87,15 +87,11 @@ public:
     // stored client ID (what built this install's unique_ids), and the client ID becomes a
     // fresh one, which also separates installs that a restored backup gave the same ID.
     void ensureMqttIdentity();
-    // Imports a device ID from a backup; also the path for a pre-change backup's client ID.
+    // Imports a device ID from a backup; also the path for a client ID from a backup made before device IDs.
     void importMqttDeviceId(const QString& deviceId);
     static QString newMqttId();
 
     // Bookkeeping, not user settings; no property and no signal — nothing displays them.
-    // Per-entity discovery topics published by builds before device discovery: read once
-    // by the migration, then cleared.
-    QStringList mqttPublishedDiscoveryTopics() const;
-    void setMqttPublishedDiscoveryTopics(const QStringList& topics);
     // The device message's components as last published ("<objectId>=<platform>"), so one
     // that leaves the set can be sent once with only its platform, as Home Assistant requires.
     QStringList mqttPublishedDiscoveryComponents() const;

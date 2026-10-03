@@ -33,10 +33,10 @@ class QTcpSocket;
  * Topics under <base> (default "decenza"):
  *   availability (online/offline, LWT), state, phase, substate, connected, scale_connected,
  *   temperature/{head,mix,steam}, pressure, flow, weight, shot_time, target_weight,
- *   water_level, water_level_ml, profile, profile_filename, steam_mode, steam_state,
- *   espresso_count, last_shot (JSON), event/shot (JSON, not retained)
+ *   water_level, water_level_ml, profile, profile_filename, recipe, steam_mode,
+ *   steam_state, espresso_count, last_shot (JSON), event/shot (JSON, not retained)
  * Subscribed: command (wake/sleep/steam_on/steam_off/stop), profile/set (filename),
- *   profile/select (title, from the HA select), and homeassistant/status.
+ *   profile/select and recipe/select (titles, from the HA selects), and homeassistant/status.
  */
 class MqttClient : public QObject {
     Q_OBJECT
@@ -62,22 +62,20 @@ public:
     void setCurrentProfile(const QString& profile);
     void setCurrentProfileFilename(const QString& filename);
 
-    // Set reference to MainController for shot history, steam policy and profile lookup
+    // For the steam heater policy and the espresso count.
     void setMainController(MainController* controller);
 
     Q_INVOKABLE void connectToBroker();
     Q_INVOKABLE void disconnectFromBroker();
     Q_INVOKABLE void publishDiscovery();
-    // A new Home Assistant device ID (SettingsMqtt::regenerateMqttDeviceId()), re-announced
-    // if connected. For a second install restored from the same backup; works offline.
+    // SettingsMqtt::regenerateMqttDeviceId(), re-announced if connected.
     Q_INVOKABLE void newDeviceId();
 
     // For QML; see SettingsMqtt::describeCaCertificate().
     Q_INVOKABLE QString describeCaCertificate(const QString& pem) const;
 
-    // User-facing reason for a failed attempt. Exactly one of the three inputs describes
-    // the failure: a CONNACK/protocol error from the broker, a socket error before it, or
-    // the TLS errors behind a SslHandshakeFailedError.
+    // User-facing reason for a failed attempt. Precedence: the broker's CONNACK/protocol
+    // error, then the TLS errors, then the socket error.
     static QString failureReason(int clientError, QAbstractSocket::SocketError socketError,
                                  const QList<QSslError>& sslErrors);
 
@@ -89,8 +87,8 @@ public:
         double yieldG = 0.0;
         QString profile;
     };
-    // Plain-data inputs from MainController, so this class needs neither ProfileManager
-    // nor ShotHistoryStorage.
+    // Plain-data inputs from MainController, so this class never queries ProfileManager
+    // or reads shots from history itself.
     void setProfileTitles(const QStringList& titles);
     // Non-archived recipe names, and the active one ("" when none).
     void setRecipeTitles(const QStringList& titles);
@@ -101,8 +99,8 @@ public slots:
     void onScaleConnectedChanged(bool connected);
     void onSteamSettingsChanged();
 
-    // Shot lifecycle, wired by MainController (shot events). `maintenance` = a cleaning,
-    // descale or calibration profile, which history never saves.
+    // Shot lifecycle, wired by MainController. `maintenance`: a cleaning, descale or
+    // calibration profile.
     void onEspressoCycleStarted(bool maintenance);
     void onShotPersisted(double durationSec, double yieldG);
     void onShotNotSaved();
@@ -142,7 +140,7 @@ private slots:
     void onDiscoverySettingChanged();
 
 private:
-    // Availability class of a Home Assistant entity (see discoveryEntries()).
+    // Availability class of a Home Assistant entity (applied in componentConfig()).
     enum class Source { App, Machine, Scale };
     struct DiscoveryEntry {
         QString component;
@@ -157,6 +155,7 @@ private:
     void abandonSocket(QTcpSocket* socket);
     void onSessionUp();
     void onSessionDown();
+    void endSession();
     void onConnectionFailed(const QString& reason);
     void onSubscriptionState(QMqttSubscription* subscription);
     void updateVerifiedState();
@@ -167,12 +166,10 @@ private:
     QString topicPath(const QString& subtopic) const;
     // Retained only if `retain` AND the user's retain setting; QoS 0. The ordinary path.
     void publish(const QString& topic, const QString& payload, bool retain = true);
-    // Flags exactly as given — for the LWT-like and event messages whose retain
-    // semantics must not follow the user setting.
+    // Flags exactly as given, for messages whose retain/QoS must not follow publish()'s rule.
     void publishRaw(const QString& topic, const QString& payload, bool retain, quint8 qos);
     void publishAvailability(bool online);
     void republishAll();
-    QString generateClientId();
     void onNetworkReachabilityChanged(bool reachable);
     QString reconnectStatusText() const;
     void scheduleReconnect(const QString& reason);
@@ -201,9 +198,7 @@ private:
     SettingsMqtt* m_settingsMqtt = nullptr;
     MainController* m_mainController = nullptr;
 
-    // Declared, and therefore created, after nothing it depends on — but it must be
-    // DESTROYED before the sockets below: its destructor writes DISCONNECT to the
-    // transport (qmqttconnection.cpp:85-90). ~MqttClient deletes it explicitly first.
+    // Deleted explicitly in ~MqttClient, before the socket children (see there).
     QMqttClient* m_client = nullptr;
 #ifdef DECENZA_TESTING
     struct Published { QString topic; QString payload; bool retain; quint8 qos; };
@@ -227,7 +222,7 @@ private:
     QTimer m_publishTimer;
     QTimer m_reconnectTimer;
     // Deadline from dial to CONNACK. QTcpSocket has none (the OS SYN timeout runs to
-    // minutes) and Qt MQTT none for CONNACK; Paho's connectTimeout was 30 s.
+    // minutes) and Qt MQTT none for CONNACK (it has only a ping timer).
     QTimer m_attemptDeadline;
     static constexpr int ATTEMPT_DEADLINE_MS = 30000;
 
@@ -252,6 +247,8 @@ private:
     // One-shot: suppresses the reconnect that would otherwise follow the disconnect the
     // user asked for. Armed only when a session is up (see disconnectFromBroker()).
     bool m_userRequestedDisconnect = false;
+    // Set only around connectWithHost()'s abort of the session it is replacing.
+    bool m_replacingSession = false;
 
     static constexpr auto kWaitingForNetwork = "Waiting for network...";
     static constexpr auto kConnectedNetworkUnreachable = "Connected - network unreachable";
@@ -261,6 +258,7 @@ private:
     bool m_sessionUp = false;     // CONNACK accepted — publishing works
     bool m_connected = false;     // session up AND command subscriptions acknowledged
     QList<QPointer<QMqttSubscription>> m_requiredSubscriptions;
+    QList<QPointer<QMqttSubscription>> m_sessionSubscriptions;   // all of them, to delete
     QString m_refusedSubscription;
 
     int m_discoveryEntityCount = 0;
@@ -275,7 +273,6 @@ private:
     bool m_scaleConnected = false;
     int m_lastPublishedEspressoCount = -1;
 
-    QString m_clientId;
 
     // Shot lifecycle: one terminal event per espresso cycle, none for maintenance runs.
     bool m_shotCycleOpen = false;

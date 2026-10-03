@@ -15,13 +15,9 @@
 // MqttClient's own logic: the reconnect state machine, status text, Home Assistant
 // discovery, remote stop gating and shot-event bookkeeping.
 //
-// Why this file exists: mqttclient.cpp was in NO test target, and a change whose entire
-// purpose was to stop MQTT reconnection dying permanently shipped a latched
-// m_userRequestedDisconnect that reintroduced exactly that death.
-//
 // Everything here drives private members through the DECENZA_TESTING friend declaration.
 // No broker and no waiting: QMqttClient's setState()/setError() are public slots
-// (qmqttclient.h:173-180), so the client's reaction to a broker outcome can be driven
+// (qmqttclient.h:179-180), so the client's reaction to a broker outcome can be driven
 // directly.
 class tst_MqttClient : public QObject {
     Q_OBJECT
@@ -45,18 +41,15 @@ private:
         return {};
     }
 
-    // The test store is shared by every function in this process; identity and discovery
-    // bookkeeping would otherwise leak from one test into the next.
-    static void clearMqttIdentity() {
+    // The test store is shared by every function in this process; a password, TLS or
+    // identity left by one test would otherwise shape the next.
+    static void clearMqttSettings() {
         AppSettings raw;
-        for (const char* key : {"mqtt/clientId", "mqtt/deviceId", "mqtt/discoveryMigrated",
-                                "mqtt/publishedDiscoveryComponents", "mqtt/publishedDiscoveryTopics",
-                                "mqtt/homeAssistantDiscovery"})
-            raw.remove(QString::fromLatin1(key));
+        raw.remove(QStringLiteral("mqtt"));
     }
 
 private slots:
-    void init() { QTest::failOnWarning(); clearMqttIdentity(); }
+    void init() { QTest::failOnWarning(); clearMqttSettings(); }
 
     // ===== The regression this file was created for =====
 
@@ -104,6 +97,20 @@ private slots:
         c->onSessionDown();
         QVERIFY2(c->m_reconnectTimer.isActive(),
                  "a drop after reconnecting must re-arm, not read as user-requested");
+    }
+
+    void aNewAttemptCancelsTheScheduledRetry() {
+        // Connect pressed while a retry was armed: the retry fired after the session came
+        // up and aborted it, then re-armed — a drop every cycle, forever.
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        c->scheduleReconnect(QStringLiteral("bad username or password"));
+        QVERIFY(c->m_reconnectTimer.isActive());
+        c->connectToBroker();
+        QVERIFY2(!c->m_reconnectTimer.isActive(),
+                 "a retry left armed aborts the session this attempt opens");
     }
 
     // ===== Backoff cadence =====
@@ -180,13 +187,26 @@ private slots:
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
+        // A live session whose subscription was refused: recovery must restore that, not
+        // guess "Connected"/"Disconnected" from the connected flag.
         c->m_sessionUp = true;
-        c->m_connected = true;
+        c->m_refusedSubscription = QStringLiteral("decenza/command");
         c->onNetworkReachabilityChanged(false);
         QCOMPARE(c->status(), QStringLiteral("Connected - network unreachable"));
 
         c->onNetworkReachabilityChanged(true);
-        QCOMPARE(c->status(), QStringLiteral("Connected"));
+        QVERIFY2(c->status().contains(QStringLiteral("decenza/command")), qPrintable(c->status()));
+    }
+
+    void wildcardBaseTopicIsRefusedUpFront() {
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        settings.mqtt()->setMqttBaseTopic(QStringLiteral("decenza/#"));   // reconnects
+        QVERIFY2(c->status().contains(QStringLiteral("base topic")), qPrintable(c->status()));
+        QVERIFY2(!c->m_pendingSocket, "no attempt with topics that can never be valid");
+        settings.mqtt()->setMqttBaseTopic(QStringLiteral("decenza"));
     }
 
     // ===== Enable/disable =====
@@ -345,9 +365,9 @@ private slots:
 
     // ===== Home Assistant discovery =====
 
-    void existingEntitiesKeepTheirTopicsAndIds() {
-        // Upgrading must not create a second set of entities in Home Assistant: every
-        // config topic and unique_id shipped before the Qt MQTT move stays exactly as was.
+    void existingEntitiesKeepTheirIds() {
+        // Upgrading must not create a second device or set of entities: Home Assistant
+        // matches on these, so each is spelled out here, never read back from the code.
         Settings settings;
         settings.mqtt()->importMqttDeviceId(QStringLiteral("cid"));
         QScopedPointer<MqttClient> c(makeClient(settings));
@@ -376,6 +396,16 @@ private slots:
             }
             QVERIFY2(found, qPrintable(component + "/" + objectId + " missing"));
         }
+
+        // Every topic the migration must clear, or a stale entity outlives the move.
+        QSet<QString> topics;
+        for (const auto& [component, objectId, suffix] : shipped)
+            topics << QStringLiteral("homeassistant/%1/de1_%2/config").arg(component, objectId);
+        const QStringList legacy = MqttClient::legacyDiscoveryTopics();
+        QCOMPARE(QSet<QString>(legacy.cbegin(), legacy.cend()), topics);
+
+        QCOMPARE(c->deviceDiscoveryPayload().value("device").toObject().value("identifiers").toArray(),
+                 (QJsonArray{QStringLiteral("decenza_de1_cid")}));
     }
 
     void entityAvailabilityFollowsTheDeviceItReads() {
@@ -501,6 +531,29 @@ private slots:
                      .object().value("components").toObject().contains("profile_select"));
     }
 
+    void turningDiscoveryOffClearsOnlyThisDevice() {
+        // Retained regardless of the retain setting: a non-retained empty payload leaves the
+        // retained device message behind, and the device returns on the next restart.
+        Settings settings;
+        settings.mqtt()->setMqttHomeAssistantDiscovery(true);
+        settings.mqtt()->setMqttRetainMessages(false);
+        QScopedPointer<MqttClient> c(makeClient(settings));   // fresh install: migrated
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+        c->m_sessionUp = true;
+        c->publishHomeAssistantDiscovery();
+        sent.clear();
+
+        settings.mqtt()->setMqttHomeAssistantDiscovery(false);
+
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(sent[0].topic, c->deviceDiscoveryTopic());
+        QVERIFY(sent[0].payload.isEmpty());
+        QVERIFY(sent[0].retain);
+        QCOMPARE(sent[0].qos, quint8(1));
+        QVERIFY(settings.mqtt()->mqttPublishedDiscoveryComponents().isEmpty());
+    }
+
     void newDeviceIdLeavesThePreviousIdentityAlone() {
         // Its use is a second install restored from the same backup: the previous identity
         // is the other install's, so nothing published under it may be cleared or migrated.
@@ -566,17 +619,27 @@ private slots:
 
     void eachEspressoGetsAtMostOneOutcomeAndMaintenanceNone() {
         Settings settings;
+        settings.mqtt()->setMqttRetainMessages(true);
         QScopedPointer<MqttClient> c(makeClient(settings));
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
 
         c->onEspressoCycleStarted(false);
-        QVERIFY(c->m_shotCycleOpen);
         c->onShotPersisted(28.0, 36.0);
-        QVERIFY2(!c->m_shotCycleOpen, "finished closes the cycle");
-        c->onShotNotSaved();   // must not add an aborted to a finished shot
-        QVERIFY(!c->m_shotCycleOpen);
-
+        c->onShotNotSaved();               // must not add an aborted to a finished shot
+        c->onEspressoCycleStarted(false);
+        c->onShotNotSaved();
         c->onEspressoCycleStarted(true);   // cleaning profile
-        QVERIFY2(!c->m_shotCycleOpen, "maintenance runs report nothing");
+        c->onShotPersisted(10.0, 0.0);
+
+        QStringList events;
+        for (const auto& m : sent) {
+            QCOMPARE(m.topic, QStringLiteral("decenza/event/shot"));
+            // A retained event would fire automations again on every Home Assistant restart.
+            QVERIFY2(!m.retain, "events are never retained, whatever the setting");
+            events << QJsonDocument::fromJson(m.payload.toUtf8()).object().value("event_type").toString();
+        }
+        QCOMPARE(events, (QStringList{"started", "finished", "started", "aborted"}));
     }
 
     // ===== Remote stop =====
@@ -589,16 +652,23 @@ private slots:
         QScopedPointer<MqttClient> c(makeClient(settings, &device, &state));
         QSignalSpy stops(c.data(), &MqttClient::stopRequested);
 
-        state.m_phase = MachineState::Phase::Pouring;
-        c->handleCommand(QStringLiteral("stop"));
-        QCOMPARE(stops.count(), 1);
-
-        for (auto phase : {MachineState::Phase::Cleaning, MachineState::Phase::Descaling,
-                           MachineState::Phase::Idle, MachineState::Phase::Sleep}) {
+        using Phase = MachineState::Phase;
+        const QList<Phase> allowed{Phase::EspressoPreheating, Phase::Preinfusion, Phase::Pouring,
+                                   Phase::Ending, Phase::Steaming, Phase::HotWater, Phase::Flushing};
+        for (auto phase : allowed) {
             state.m_phase = phase;
             c->handleCommand(QStringLiteral("stop"));
         }
-        QCOMPARE(stops.count(), 1);
+        QCOMPARE(stops.count(), allowed.size());
+
+        for (auto phase : {Phase::Cleaning, Phase::Descaling, Phase::Idle, Phase::Sleep}) {
+            state.m_phase = phase;
+            c->handleCommand(QStringLiteral("stop"));
+        }
+        state.m_phase = Phase::Pouring;
+        device.m_simulationMode = false;   // DE1 gone: nothing to stop
+        c->handleCommand(QStringLiteral("stop"));
+        QCOMPARE(stops.count(), allowed.size());
     }
 };
 

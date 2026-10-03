@@ -131,6 +131,9 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
 
 MqttClient::~MqttClient()
 {
+    // The disconnect below reaches onClientStateChanged() synchronously, which would
+    // emit and arm a reconnect from inside the destructor.
+    disconnect(m_client, nullptr, this, nullptr);
     if (m_sessionUp) {
         // The broker publishes the LWT only for an unclean drop, so a clean exit says
         // "offline" itself. disconnectFromHost() then writes DISCONNECT and flushes both
@@ -144,24 +147,11 @@ MqttClient::~MqttClient()
             m_activeSocket->abort();
         }
     }
-    // Before the sockets: ~QMqttConnection writes DISCONNECT to the transport it holds
-    // (qmqttconnection.cpp:85-90). Sockets are children and go after.
+    // Before the sockets, which are children: ~QMqttClient dereferences the transport it
+    // was given, sending DISCONNECT if connected and then always disconnect()ing from it
+    // (qmqttclient.cpp:339-348).
     delete m_client;
     m_client = nullptr;
-}
-
-QString MqttClient::generateClientId()
-{
-    QString clientId = m_settingsMqtt ? m_settingsMqtt->mqttClientId() : "";
-    if (clientId.isEmpty()) {
-        // Only after the user cleared it: ensureMqttIdentity() set one at startup.
-        clientId = SettingsMqtt::newMqttId();
-        if (m_settingsMqtt) {
-            m_settingsMqtt->setMqttClientId(clientId);
-            DIAG_DEBUG(NETWORK, "MqttClient") << "Generated and saved new client ID:" << clientId;
-        }
-    }
-    return clientId;
 }
 
 QString MqttClient::deviceId() const
@@ -173,8 +163,6 @@ void MqttClient::newDeviceId()
 {
     if (!m_settingsMqtt)
         return;
-    // Nothing published under the previous ID is cleared: another install restored from
-    // the same backup may share it.
     m_settingsMqtt->regenerateMqttDeviceId();
     DIAG_INFO(NETWORK, "MqttClient") << "New Home Assistant device ID:" << m_settingsMqtt->mqttDeviceId();
     if (m_sessionUp && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
@@ -186,7 +174,6 @@ void MqttClient::newDeviceId()
 QString MqttClient::failureReason(int clientError, QAbstractSocket::SocketError socketError,
                                   const QList<QSslError>& sslErrors)
 {
-    // The CONNACK wordings are shown to users already; kept verbatim.
     switch (clientError) {
     case QMqttClient::InvalidProtocolVersion: return QStringLiteral("broker rejected the MQTT protocol version");
     case QMqttClient::IdRejected:             return QStringLiteral("broker rejected this client ID");
@@ -239,6 +226,13 @@ void MqttClient::connectToBroker()
         emit statusChanged();
         return;
     }
+    // A wildcard makes every topic invalid (qmqtttopicname.cpp:100-108): publishes fail
+    // and subscriptions never exist, so nothing would ever say why.
+    if (!QMqttTopicName(topicPath(QStringLiteral("state"))).isValid()) {
+        m_status = "Error: the base topic cannot contain + or #";
+        emit statusChanged();
+        return;
+    }
     LocalNetworkAccess::request(LocalNetworkAccess::Feature::Mqtt);
     m_attemptHost = host;
 
@@ -283,12 +277,21 @@ void MqttClient::connectToBroker()
 
 void MqttClient::connectWithHost(const QString& address)
 {
-    // Close whatever is open. A session still up here belongs to settings that just
-    // changed; onSettingsChanged() normally ends it first.
+    // Close whatever is open: a session still up here is being replaced (settings
+    // changed, or Connect pressed again).
     if (m_pendingSocket)
         abandonSocket(m_pendingSocket);
-    if (m_client->state() != QMqttClient::Disconnected && m_activeSocket)
+    if (m_client->state() != QMqttClient::Disconnected && m_activeSocket) {
+        // Replacing a session is not a fault, and the status belongs to the new attempt.
+        // abort() reaches onClientStateChanged() before it returns (QIODevice::aboutToClose
+        // -> transportConnectionClosed, qmqttconnection.cpp:139,803-815).
+        m_replacingSession = true;
         m_activeSocket->abort();
+        m_replacingSession = false;
+    }
+    // This attempt replaces any scheduled one; a retry left armed would fire later and
+    // abort the session this attempt opens, every cycle.
+    m_reconnectTimer.stop();
 
     if (!m_isReconnecting) {
         m_reconnectAttempts = 0;
@@ -303,8 +306,7 @@ void MqttClient::connectWithHost(const QString& address)
     const int port = m_settingsMqtt ? m_settingsMqtt->mqttBrokerPort() : 1883;
     m_attemptTls = m_settingsMqtt && m_settingsMqtt->mqttUseTls();
 
-    m_clientId = generateClientId();
-    m_client->setClientId(m_clientId);
+    m_client->setClientId(m_settingsMqtt->mqttClientId());
     m_client->setUsername(m_settingsMqtt->mqttUsername());
     m_client->setPassword(m_settingsMqtt->mqttPassword());
     m_client->setProtocolVersion(m_useMqtt31 ? QMqttClient::MQTT_3_1 : QMqttClient::MQTT_3_1_1);
@@ -326,9 +328,10 @@ void MqttClient::connectWithHost(const QString& address)
             if (extra.isEmpty()) {
                 DIAG_WARN(NETWORK, "MqttClient") << "CA certificate setting is not a readable PEM certificate - ignoring it";
             } else {
-                QList<QSslCertificate> cas = config.caCertificates();
-                cas += extra;
-                config.setCaCertificates(cas);
+                // From the full system store: setting CAs turns off on-demand root loading
+                // (qsslconfiguration.cpp:650-654), and where that is on (Linux OpenSSL)
+                // caCertificates() holds none, so public brokers would stop verifying.
+                config.setCaCertificates(QSslConfiguration::systemCaCertificates() + extra);
             }
         }
         config.setPeerVerifyMode(QSslSocket::VerifyPeer);
@@ -437,6 +440,12 @@ void MqttClient::onClientStateChanged()
     if (state != QMqttClient::Disconnected)
         return;
 
+    if (m_replacingSession) {
+        m_attemptDeadline.stop();
+        endSession();
+        return;
+    }
+
     if (m_sessionUp) {
         onSessionDown();
         return;
@@ -454,9 +463,9 @@ void MqttClient::onClientStateChanged()
 
     const QMqttClient::ClientError error = m_client->error();
     if (error == QMqttClient::InvalidProtocolVersion && !m_useMqtt31) {
-        // What Paho's MQTTVERSION_DEFAULT did: a broker that only speaks 3.1 gets 3.1.
-        // Not counted against the retry budget, and queued — we are inside Qt MQTT's
-        // closeConnection().
+        // A 3.1-only broker refuses a 3.1.1 CONNECT: retry once with 3.1. Not counted
+        // against the retry budget, and queued — we are inside Qt MQTT's closeConnection()
+        // (qmqttconnection.cpp:862-873).
         m_useMqtt31 = true;
         DIAG_INFO(NETWORK, "MqttClient") << "broker rejected MQTT 3.1.1 - retrying with MQTT 3.1";
         QMetaObject::invokeMethod(this, [this]() {
@@ -501,6 +510,7 @@ void MqttClient::onSessionUp()
     }
 
     m_sessionUp = true;
+    m_reconnectTimer.stop();
     m_reconnectAttempts = 0;
     m_slowRetryAnnounced = false;
     emit reconnectAttemptsChanged();
@@ -525,16 +535,7 @@ void MqttClient::onSessionUp()
 
 void MqttClient::onSessionDown()
 {
-    DIAG_DEBUG(NETWORK, "MqttClient") << "Disconnected from broker";
-
-    m_sessionUp = false;
-    const bool wasConnected = m_connected;
-    m_connected = false;
-    m_requiredSubscriptions.clear();
-    m_refusedSubscription.clear();
-    m_publishTimer.stop();
-    if (wasConnected)
-        emit connectedChanged();
+    endSession();
 
     // A disconnect the USER asked for is not a fault to recover from.
     if (m_userRequestedDisconnect) {
@@ -545,16 +546,37 @@ void MqttClient::onSessionDown()
         return;
     }
 
+    // Qt MQTT reports a missed keepalive as ServerUnavailable (qmqttconnection.cpp:702-703);
+    // anything else is the socket's own story.
+    const QString reason = m_client->error() == QMqttClient::ServerUnavailable
+        ? QStringLiteral("broker stopped answering")
+        : failureReason(QMqttClient::NoError,
+                        m_activeSocket ? m_activeSocket->error() : QAbstractSocket::UnknownSocketError, {});
+    DIAG_INFO(NETWORK, "MqttClient").noquote() << "Disconnected from broker - " + reason;
+
     // Otherwise keep trying while enabled. A broker that accepts TCP and then drops the
     // session (stale ACL, duplicate client ID) only ever reaches here, so this path must
     // announce the fast->slow transition too — scheduleReconnect() does.
     if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
-        scheduleReconnect(QStringLiteral("broker closed the connection"));
+        scheduleReconnect(reason);
         return;
     }
 
     m_status = "Disconnected";
     emit statusChanged();
+}
+
+// The session's own state; status and any retry are the caller's.
+void MqttClient::endSession()
+{
+    m_sessionUp = false;
+    const bool wasConnected = m_connected;
+    m_connected = false;
+    m_requiredSubscriptions.clear();
+    m_refusedSubscription.clear();
+    m_publishTimer.stop();
+    if (wasConnected)
+        emit connectedChanged();
 }
 
 void MqttClient::onConnectionFailed(const QString& reason)
@@ -570,13 +592,9 @@ void MqttClient::onConnectionFailed(const QString& reason)
         }
     }
 
-    m_sessionUp = false;
-    const bool wasConnected = m_connected;
-    m_connected = false;
+    endSession();
     m_status = "Error: " + reason;
     emit statusChanged();
-    if (wasConnected)
-        emit connectedChanged();
 
     scheduleReconnect(reason);
 }
@@ -594,9 +612,8 @@ void MqttClient::disconnectFromBroker()
         abandonSocket(m_pendingSocket);   // never reached Qt MQTT: no callback follows
 
     if (m_client->state() != QMqttClient::Disconnected) {
-        // Armed ONLY here, where a state-change callback is guaranteed to consume it.
-        // Arming it on the else branch latched it forever and misread the next genuine
-        // drop as user-requested — the terminal reconnect death this flag exists to avoid.
+        // Armed only where a state change is expected to consume it; connectToBroker()
+        // clears it regardless (tst_mqttclient covers the latch this prevents).
         m_userRequestedDisconnect = true;
         if (m_sessionUp && m_activeSocket && m_activeSocket->bytesToWrite() == 0) {
             publishAvailability(false);
@@ -609,13 +626,9 @@ void MqttClient::disconnectFromBroker()
         return;
     }
 
-    const bool wasConnected = m_connected;
-    m_sessionUp = false;
-    m_connected = false;
+    endSession();
     m_status = "Disconnected";
     emit statusChanged();
-    if (wasConnected)
-        emit connectedChanged();
 }
 
 // Single arming point for every failure that should be RETRIED. connectToBroker()'s two
@@ -671,6 +684,12 @@ QString MqttClient::reconnectStatusText() const
 
 void MqttClient::setupSubscriptions()
 {
+    // Qt MQTT never deletes a subscription; closing a connection only forgets it
+    // (qmqttconnection.cpp:784, 868). Here, before the new ones exist, none of ours is in
+    // its active map, so a destructor's unsubscribe() finds nothing to send.
+    for (const auto& previous : std::as_const(m_sessionSubscriptions))
+        delete previous.data();
+    m_sessionSubscriptions.clear();
     m_requiredSubscriptions.clear();
     m_refusedSubscription.clear();
 
@@ -684,12 +703,14 @@ void MqttClient::setupSubscriptions()
             continue;
         }
         m_requiredSubscriptions.append(subscription);
+        m_sessionSubscriptions.append(subscription);
         connect(subscription, &QMqttSubscription::stateChanged, this,
                 [this, subscription]() { onSubscriptionState(subscription); });
     }
 
     // Not required: only drives the Home Assistant restart recovery.
     if (QMqttSubscription* haStatus = m_client->subscribe(QMqttTopicFilter(QString::fromLatin1(kHomeAssistantStatusTopic)), 1)) {
+        m_sessionSubscriptions.append(haStatus);
         connect(haStatus, &QMqttSubscription::stateChanged, this, [haStatus]() {
             if (haStatus->state() == QMqttSubscription::Error)
                 DIAG_INFO(NETWORK, "MqttClient") << "broker refused" << kHomeAssistantStatusTopic
@@ -827,9 +848,13 @@ void MqttClient::handleCommand(const QString& command)
         DIAG_DEBUG(NETWORK, "MqttClient") << "Steam off command executed";
     } else if (command == "stop") {
         if (!stopAllowedInCurrentPhase()) {
-            DIAG_INFO(NETWORK, "MqttClient").noquote()
-                << "Stop command ignored - no espresso, steam, hot water or flush running (phase: "
-                   + (m_machineState ? m_machineState->phaseString() : QStringLiteral("unknown")) + ")";
+            if (!m_device || !m_device->isConnected() || !m_machineState) {
+                DIAG_INFO(NETWORK, "MqttClient") << "Stop command ignored - DE1 not connected";
+            } else {
+                DIAG_INFO(NETWORK, "MqttClient").noquote()
+                    << "Stop command ignored - no espresso, steam, hot water or flush running (phase: "
+                       + m_machineState->phaseString() + ")";
+            }
             return;
         }
         DIAG_INFO(NETWORK, "MqttClient") << "Stop command accepted in phase" << m_machineState->phaseString();
@@ -949,8 +974,9 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
     if (m_networkDown) {
         DIAG_DEBUG(NETWORK, "MqttClient") << "network down - reconnect attempts suspended";
         m_reconnectTimer.stop();
-        // Say so even while the session is nominally up: the keepalive will not notice
-        // for up to 60 s, and publishes meanwhile go nowhere behind a "Connected" dot.
+        // Say so even while the session is nominally up: the keepalive takes two to three
+        // intervals (~2-3 min) to notice (qmqttconnection.cpp:702-703), and publishes
+        // meanwhile go nowhere behind a "Connected" dot.
         m_status = m_sessionUp ? kConnectedNetworkUnreachable : kWaitingForNetwork;
         emit statusChanged();
         return;
@@ -964,8 +990,12 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
         m_status = "Disconnected";
         emit statusChanged();
     } else if (m_status == QLatin1String(kConnectedNetworkUnreachable)) {
-        m_status = m_connected ? QStringLiteral("Connected") : QStringLiteral("Disconnected");
-        emit statusChanged();
+        if (m_sessionUp) {
+            updateVerifiedState();   // also "awaiting acknowledgement" or a refused topic
+        } else {
+            m_status = "Disconnected";
+            emit statusChanged();
+        }
     }
 
     if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled() || m_sessionUp)
@@ -1337,9 +1367,9 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
     const QString base = m_settingsMqtt ? m_settingsMqtt->mqttBaseTopic() : QStringLiteral("decenza");
     QList<DiscoveryEntry> e;
 
-    // objectId names the config topic; uniqueSuffix is the HA unique_id tail. They
-    // differ for a few entities and both must stay exactly as shipped, or Home
-    // Assistant would see new entities.
+    // objectId is the component key in the device message; uniqueSuffix is the unique_id
+    // tail. Both are frozen as shipped: unique_id is how Home Assistant matches an
+    // existing entity.
     auto add = [&e](const QString& component, const QString& objectId, const QString& uniqueSuffix,
                     Source source, QJsonObject config) {
         config["unique_id"] = uniqueSuffix;   // completed with the device ID in componentConfig()
@@ -1385,7 +1415,6 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
          {"command_topic", base + "/profile/set"}, {"icon", "mdi:coffee"},
          {"enabled_by_default", false}});
 
-    // Only Sleep and GoingToSleep are "off".
     add("switch", "power", "power", Source::Machine,
         {{"name", "DE1 Power"}, {"command_topic", base + "/command"}, {"state_topic", base + "/state"},
          {"payload_on", "wake"}, {"payload_off", "sleep"}, {"state_on", "ON"}, {"state_off", "OFF"},
@@ -1412,8 +1441,6 @@ QList<MqttClient::DiscoveryEntry> MqttClient::discoveryEntries() const
            {{"icon", "mdi:counter"}, {"state_class", "total_increasing"}});
     sensor("profile_filename", "profile_filename", Source::App, "DE1 Profile Filename", "profile_filename",
            {{"icon", "mdi:file-document"}});
-
-    // ----- Added with the Qt MQTT move -----
 
     QJsonArray options;
     for (const QString& title : m_profileTitles)
@@ -1520,16 +1547,11 @@ void MqttClient::publishHomeAssistantDiscovery()
 
     // Once per identity: move the per-entity topics of earlier builds. Order is Home
     // Assistant's: migrate_discovery (not retained) on each old topic, then the device
-    // message, then empty retained payloads on the old topics. QoS 1 on one connection
-    // keeps that order at the broker.
+    // message, then empty retained payloads on the old topics, sent in that order on one
+    // connection.
     const bool migrating = !m_settingsMqtt->mqttDiscoveryMigrated();
-    QStringList legacy;
+    const QStringList legacy = migrating ? legacyDiscoveryTopics() : QStringList();
     if (migrating) {
-        legacy = legacyDiscoveryTopics();
-        for (const QString& topic : m_settingsMqtt->mqttPublishedDiscoveryTopics()) {
-            if (!legacy.contains(topic))
-                legacy << topic;
-        }
         for (const QString& topic : legacy)
             publishRaw(topic, QStringLiteral("{\"migrate_discovery\":true}"), false, 1);
     }
@@ -1545,7 +1567,6 @@ void MqttClient::publishHomeAssistantDiscovery()
         for (const QString& topic : legacy)
             publishRaw(topic, QString(), true, 1);
         m_settingsMqtt->setMqttDiscoveryMigrated(true);
-        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
         DIAG_INFO(NETWORK, "MqttClient") << "Moved Home Assistant discovery to one device message ("
                   << legacy.size() << "per-entity topics cleared)";
     }
@@ -1557,15 +1578,15 @@ void MqttClient::publishHomeAssistantDiscovery()
 void MqttClient::retractDiscovery()
 {
     if (!m_settingsMqtt) return;
-    // Only this install's own topics. An empty RETAINED payload is what removes the
+    // This install's own device topic. An empty RETAINED payload is what removes the
     // device, whatever the retain setting was when it was published.
     publishRaw(deviceDiscoveryTopic(), QString(), true, 1);
     if (!m_settingsMqtt->mqttDiscoveryMigrated()) {
-        // Never moved: this identity's entities still live on the per-entity topics.
+        // Never moved: the entities are still on the per-entity topics, which carry no
+        // device ID — shared by any install on this broker that never moved either.
         for (const QString& topic : legacyDiscoveryTopics())
             publishRaw(topic, QString(), true, 1);
         m_settingsMqtt->setMqttDiscoveryMigrated(true);
-        m_settingsMqtt->setMqttPublishedDiscoveryTopics({});
     }
     m_settingsMqtt->setMqttPublishedDiscoveryComponents({});
     DIAG_INFO(NETWORK, "MqttClient") << "Removed this device from Home Assistant discovery";

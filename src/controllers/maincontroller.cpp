@@ -900,8 +900,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         activateRecipe(id);
     });
 
-    // Shot events. Maintenance runs (cleaning/descale/calibrate) are never saved, so the
-    // client reports nothing for them.
+    // Shot events.
     connect(m_machineState, &MachineState::espressoCycleStarted, m_mqttClient, [this]() {
         m_mqttClient->onEspressoCycleStarted(
             Profile::isMaintenanceBeverageType(m_profileManager->currentProfile().beverageType()));

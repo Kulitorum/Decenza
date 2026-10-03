@@ -184,8 +184,8 @@ static QStringList applyMqttSettings(Settings* s, const QJsonObject& obj)
         !m->passwordExposingChanges(obj).isEmpty() && !passwordReentered;
 
     // Apply the credentials FIRST, before the host/port. Every mqtt* setter here fires
-    // a *Changed signal wired to MqttClient::onSettingsChanged() (mqttclient.cpp
-    // ~L51-55), which reconnects synchronously -- the connection is same-thread, so the
+    // a *Changed signal wired to MqttClient::onSettingsChanged() (the SettingsMqtt
+    // connects in the MqttClient constructor), which reconnects synchronously -- the connection is same-thread, so the
     // default AutoConnection resolves to a direct call -- and reads the host and
     // password live out of Settings at connect time. The leak-prevention is purely
     // about ORDER, not about any setter being inert: the credential setters DO trigger
@@ -1866,8 +1866,8 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         sendJson(socket, R"({"success": false, "message": "Invalid request body"})");
         return;
     }
-    // applyMqttSettings enforces the broker-redirect guard. Decline to connect when it
-    // refused anything, so the stored password is never sent to a newly-supplied broker.
+    // applyMqttSettings enforces the broker-redirect guard and rejects an invalid CA.
+    // Decline to connect when it refused anything, so the stored password is never sent to a newly-supplied broker.
     if (const QStringList errors = applyMqttSettings(m_settings, doc.object()); !errors.isEmpty()) {
         QJsonObject resp;
         resp["success"] = false;
@@ -1909,9 +1909,11 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         QString status = m_mqttClient->status();
         bool connected = m_mqttClient->isConnected();
         // Terminal state = connected, or not actively connecting/reconnecting.
-        // MqttClient status strings: "Connecting...", "Disconnected - reconnecting (N/M)..."
+        // MqttClient status strings: "Resolving..." (Android .local), "Connecting...",
+        // "Disconnected - reconnecting (N/M)..."
         if (connected
             || (!status.startsWith("Connecting", Qt::CaseInsensitive)
+                && !status.startsWith("Resolving", Qt::CaseInsensitive)
                 && !status.contains("reconnecting", Qt::CaseInsensitive))) {
             cleanup(connected, status);
         }
@@ -1920,7 +1922,9 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     connect(timer, &QTimer::timeout, this, [cleanup]() {
         cleanup(false, "Connection timed out");
     });
-    timer->start(5000);
+    // Longer than MqttClient's own 30 s attempt deadline, which ends a stalled attempt
+    // with a reason; this only covers a client that never reports at all.
+    timer->start(35000);
 
     m_mqttClient->connectToBroker();
 }
@@ -1964,8 +1968,8 @@ void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
     }
 
     m_mqttClient->publishDiscovery();
-    // publishDiscovery() is fire-and-forget: QoS 0 publishes have no acknowledgement to
-    // report. The isConnected() check above is our best guard.
+    // publishDiscovery() does not wait for the broker's PUBACK, so success means "sent",
+    // not "received". The isConnected() check above is our best guard.
     sendJson(socket, R"({"success": true})");
 }
 

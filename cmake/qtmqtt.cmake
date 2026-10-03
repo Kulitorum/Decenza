@@ -1,15 +1,15 @@
 # Qt MQTT, compiled in-tree from its unmodified upstream source.
 #
-# Qt publishes Qt MQTT binaries only to commercial licensees: qtmqtt is absent from the
-# open-source online repository and from the source tarballs, so neither the installer
-# nor install-qt-action can provide it. Its source is GPL-3.0 (compatible with Decenza).
+# Qt publishes Qt MQTT binaries only to commercial licensees, so neither the open-source
+# installer nor install-qt-action can provide the library. Its source is GPL-3.0
+# (compatible with Decenza).
 #
 # The tag is derived from the Qt this configure found, never written down here, so a Qt
 # bump moves Qt MQTT with it. Upstream's own CMakeLists uses qt_internal_add_module(),
 # which needs Qt's internal build machinery, so the library is compiled directly instead.
 #
-# Offline: -DFETCHCONTENT_SOURCE_DIR_QTMQTT=~/Qt/<ver>/Src/qtmqtt. The version guard
-# below checks whatever tree that points at.
+# Offline: -DFETCHCONTENT_SOURCE_DIR_QTMQTT=$HOME/Qt/<ver>/Src/qtmqtt (the installer's
+# Sources component). The version guard below checks whatever tree that points at.
 
 set(_qtmqtt_repo "https://github.com/qt/qtmqtt.git")
 set(_qtmqtt_tag "v${Qt6_VERSION}")
@@ -29,12 +29,12 @@ if(NOT FETCHCONTENT_SOURCE_DIR_QTMQTT AND NOT FETCHCONTENT_FULLY_DISCONNECTED)
         find_package(Git REQUIRED)
         execute_process(
             COMMAND "${GIT_EXECUTABLE}" ls-remote --exit-code --tags "${_qtmqtt_repo}" "refs/tags/${_qtmqtt_tag}"
-            RESULT_VARIABLE _qtmqtt_rc OUTPUT_QUIET ERROR_QUIET)
+            RESULT_VARIABLE _qtmqtt_rc OUTPUT_QUIET ERROR_VARIABLE _qtmqtt_err)
         if(NOT _qtmqtt_rc EQUAL 0)
             message(FATAL_ERROR
                 "Qt MQTT: no release tag ${_qtmqtt_tag} in ${_qtmqtt_repo} for Qt ${Qt6_VERSION} "
                 "(git ls-remote exit ${_qtmqtt_rc}; 2 = tag missing, other = network). "
-                "Qt MQTT is built from source at the tag matching the Qt version.")
+                "Qt MQTT is built from source at the tag matching the Qt version.\n${_qtmqtt_err}")
         endif()
     endif()
 endif()
@@ -82,7 +82,7 @@ set(_qtmqtt_sources
 file(GLOB _qtmqtt_headers RELATIVE "${_qtmqtt_src}" "${_qtmqtt_src}/*.h")
 
 # <QtMqtt/x.h> forwarding headers point at the one real copy, so a class is never
-# defined from two files. qtmqttexports.h is the one header Qt's module build generates.
+# defined from two files. qtmqttexports.h is the one generated header these sources include.
 set(_qtmqtt_inc "${CMAKE_BINARY_DIR}/qtmqtt_include")
 foreach(_h IN LISTS _qtmqtt_headers)
     file(CONFIGURE OUTPUT "${_qtmqtt_inc}/QtMqtt/${_h}"

@@ -15,6 +15,7 @@
 #include "history/recipestorage.h"
 #include "core/settings_app.h"
 #include "core/settings_dye.h"
+#include "core/settings_mqtt.h"
 #include "core/settings_brew.h"
 #include "core/brewbaseline.h"
 #include "profile/recipeparams.h"
@@ -495,6 +496,35 @@ private slots:
         QVERIFY(result["unknownKeys"].toArray().contains(QJsonValue("dyeGrinderModel")));
         QVERIFY(result["hint"].toString().contains("equipment"));
         QCOMPARE(f.settings.dye()->dyeGrinderModel(), before);
+    }
+
+    // The spec's own scenario: an assistant must not be able to send the stored MQTT
+    // password elsewhere, and a refused request changes nothing at all.
+    void settingsSetRefusesChangesThatWouldExposeTheMqttPassword()
+    {
+        McpTestFixture f;
+        registerTools(f);
+        auto* mqtt = f.settings.mqtt();
+        const QString password = mqtt->mqttPassword();
+        const bool tls = mqtt->mqttUseTls();
+        const QString base = mqtt->mqttBaseTopic();
+        const auto restore = qScopeGuard([&] {
+            mqtt->setMqttPassword(password);
+            mqtt->setMqttUseTls(tls);
+            mqtt->setMqttBaseTopic(base);
+        });
+        mqtt->setMqttPassword(QStringLiteral("secret"));
+        mqtt->setMqttUseTls(true);
+        mqtt->setMqttBaseTopic(QStringLiteral("decenza"));
+
+        QJsonObject args;
+        args["mqttUseTls"] = false;
+        args["mqttBaseTopic"] = QStringLiteral("elsewhere");
+        const QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY(result["error"].toString().contains("mqttUseTls"));
+        QVERIFY(mqtt->mqttUseTls());
+        QCOMPARE(mqtt->mqttBaseTopic(), QStringLiteral("decenza"));
     }
 
     // Verifies that settings_set persists visualizerAutoUpdate through the MCP

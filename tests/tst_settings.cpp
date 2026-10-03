@@ -355,6 +355,34 @@ private slots:
         QCOMPARE(raw.value("mqtt/clientId").toString(), QString("decenza_here_1"));
     }
 
+    void mqttRestoreWithoutPasswordCannotRedirectIt() {
+        // POST /api/backup/restore excludes the password: a crafted backup naming another
+        // host, or TLS off, would otherwise send the stored one there in CONNECT.
+        AppSettings raw;
+        const QStringList keys{"mqtt/password", "mqtt/brokerHost", "mqtt/useTls", "mqtt/baseTopic"};
+        QVariantMap original;
+        for (const auto& key : keys) original[key] = raw.value(key);
+        const auto restore = qScopeGuard([&] {
+            for (const auto& key : keys) {
+                if (original[key].isValid()) raw.setValue(key, original[key]);
+                else raw.remove(key);
+            }
+        });
+        raw.setValue("mqtt/password", "secret");
+        raw.setValue("mqtt/brokerHost", "broker.home");
+        raw.setValue("mqtt/useTls", true);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("kept this device's"));
+        SettingsSerializer::importFromJson(&m_settings,
+            QJsonObject{{"mqtt", QJsonObject{{"brokerHost", "attacker.example"}, {"useTls", false},
+                                             {"baseTopic", "restored"}}}},
+            SettingsSerializer::sensitiveKeys());
+
+        QCOMPARE(raw.value("mqtt/brokerHost").toString(), QString("broker.home"));
+        QVERIFY(raw.value("mqtt/useTls").toBool());
+        QCOMPARE(raw.value("mqtt/baseTopic").toString(), QString("restored"));   // the rest restores
+    }
+
     void portalSelectionAndDisplayPreferenceSurviveBackup() {
         AppSettings raw;
         const QStringList keys{"portal/address", "portal/name", "portal/syncDisplay"};
