@@ -111,8 +111,9 @@ struct PendingConfirmation {
 // 1.9.1: settings_set drops dyeGrinderBrand/Model/Burrs, which never changed the grinder
 // (the equipment package owns it); sending one now errors with a pointer to `equipment`.
 // 1.10.0: settings_get/settings_set gain mqttUseTls and mqttCaCertificate (Qt MQTT move);
-// mqttPublishInterval's description corrected to milliseconds. Property-level only, so the
-// fingerprint below does not move.
+// mqttPublishInterval's description corrected to milliseconds. settings_set now refuses a
+// broker host/port change, TLS off, or a new CA while an MQTT password is stored
+// (SettingsMqtt::passwordExposingChanges). Not visible to the fingerprint below.
 inline constexpr const char* McpSurfaceVersion = "1.10.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.

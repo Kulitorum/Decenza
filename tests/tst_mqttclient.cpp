@@ -301,6 +301,28 @@ private slots:
         QVERIFY(c->status().contains(QStringLiteral("protocol version")));
     }
 
+    void changesThatWouldExposeTheStoredPasswordAreFlagged() {
+        // The web page asks for the password again before these, and MCP refuses them:
+        // either would otherwise hand the stored password to a broker nobody vetted, or
+        // send it in the clear.
+        Settings settings;
+        SettingsMqtt* m = settings.mqtt();
+        m->setMqttBrokerHost(QStringLiteral("broker.lan"));
+        m->setMqttUseTls(true);
+
+        const QJsonObject risky{{"mqttBrokerHost", "evil.lan"}, {"mqttBrokerPort", 1884},
+                                {"mqttUseTls", false}, {"mqttCaCertificate", "x"}};
+        QVERIFY2(m->passwordExposingChanges(risky).isEmpty(), "no stored password, nothing to expose");
+
+        m->setMqttPassword(QStringLiteral("secret"));
+        QCOMPARE(m->passwordExposingChanges(risky).size(), 4);
+
+        // Same values, or turning TLS ON, expose nothing.
+        const QJsonObject harmless{{"mqttBrokerHost", "broker.lan"}, {"mqttBrokerPort", m->mqttBrokerPort()},
+                                   {"mqttUseTls", true}, {"mqttBaseTopic", "elsewhere"}};
+        QVERIFY(m->passwordExposingChanges(harmless).isEmpty());
+    }
+
     // ===== Home Assistant discovery =====
 
     void existingEntitiesKeepTheirTopicsAndIds() {

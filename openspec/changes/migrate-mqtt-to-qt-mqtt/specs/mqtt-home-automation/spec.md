@@ -116,6 +116,17 @@ The TLS setting and CA certificate SHALL be editable both in the app and on the 
 - **WHEN** TLS is on and the broker host is a `.local` name resolved by the app's mDNS lookup
 - **THEN** the certificate SHALL be verified against the `.local` name, not the resolved address
 
+### Requirement: Changes That Would Expose The Stored Password Need It Again
+While a broker password is stored, a change to the broker host, the port, turning TLS off, or a different CA certificate SHALL NOT be applied from the web settings page unless the password is entered again in the same request, and SHALL NOT be applied through MCP, which cannot carry the password. The app's own settings tab, used by someone at the machine, is not restricted. Each refusal SHALL say which change was refused and where it can be made.
+
+#### Scenario: LAN client turns TLS off through MCP
+- **WHEN** an MCP client calls settings_set with mqttUseTls false while a password is stored
+- **THEN** the setting SHALL NOT change, and the error SHALL name mqttUseTls and point to the app or the web settings page
+
+#### Scenario: Web page changes the CA with the password re-entered
+- **WHEN** the web settings page posts a new CA certificate together with the re-entered password
+- **THEN** the change SHALL be applied
+
 ### Requirement: Home Assistant Restart Recovery
 The app SHALL subscribe to Home Assistant's status topic (`homeassistant/status`). When Home Assistant publishes `online` on it, and discovery is enabled, the app SHALL re-publish its discovery configuration and its current state values.
 

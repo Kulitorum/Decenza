@@ -174,21 +174,14 @@ static QStringList applyMqttSettings(Settings* s, const QJsonObject& obj)
     // client could point the broker at an attacker and have the stored password sent
     // there in the CONNECT packet. Compute the decision from the STORED password
     // (m->mqttPassword()) BEFORE applySecretString below overwrites it.
-    const bool hostChanging = obj.contains("mqttBrokerHost")
-        && obj.value("mqttBrokerHost").toString() != m->mqttBrokerHost();
-    const bool portChanging = obj.contains("mqttBrokerPort")
-        && obj.value("mqttBrokerPort").toInt() != m->mqttBrokerPort();
-    // TLS turned off sends the stored password in plaintext; a different CA lets
-    // whoever holds it read the session. Same exposure as a retarget, same rule.
-    const bool tlsDowngrading = obj.contains("mqttUseTls")
-        && !obj.value("mqttUseTls").toBool() && m->mqttUseTls();
+    // TLS turned off and a different CA expose the password the same way a retarget
+    // does; SettingsMqtt::passwordExposingChanges() is the one definition (MCP uses it too).
     const QString postedCa = obj.value("mqttCaCertificate").toString().trimmed();
     const bool caChanging = obj.contains("mqttCaCertificate") && postedCa != m->mqttCaCertificate();
     const QString postedPassword = obj.value("mqttPassword").toString();
     const bool passwordReentered = !postedPassword.isEmpty() && postedPassword != kSecretMask;
     const bool brokerRedirectBlocked =
-        (hostChanging || portChanging || tlsDowngrading || caChanging)
-        && !m->mqttPassword().isEmpty() && !passwordReentered;
+        !m->passwordExposingChanges(obj).isEmpty() && !passwordReentered;
 
     // Apply the credentials FIRST, before the host/port. Every mqtt* setter here fires
     // a *Changed signal wired to MqttClient::onSettingsChanged() (mqttclient.cpp

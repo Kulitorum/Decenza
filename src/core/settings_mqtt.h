@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 
+class QJsonObject;
+
 class SettingsMqtt : public QObject {
     Q_OBJECT
 
@@ -64,6 +66,13 @@ public:
     // "<subject>, expires <date>" for a PEM CA certificate, or empty when it is not one.
     // The one validity check for every surface that sets mqttCaCertificate.
     static QString describeCaCertificate(const QString& pem);
+
+    // Keys in `changes` (settings-key -> new value) that would send the stored password to
+    // a broker the user has not authenticated, or in the clear: a different host or port,
+    // TLS turned off, a different CA. Empty when no password is stored. The web settings
+    // page asks for the password again before applying these; MCP, which cannot supply
+    // it, refuses them.
+    QStringList passwordExposingChanges(const QJsonObject& changes) const;
 
     // Bookkeeping, not a user setting: the Home Assistant discovery config topics last
     // published, so ones that leave the set (or all, when discovery is turned off) can be

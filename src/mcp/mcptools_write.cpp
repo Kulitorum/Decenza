@@ -886,6 +886,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "The active recipe is still loading; retry clearBrewOverrides in a moment."}});
                 return;
             }
+            // The web page re-asks for the MQTT password before these; settings_set cannot
+            // carry it (mqttPassword is excluded), so it may not make them at all.
+            if (const QStringList exposing = settings->mqtt()->passwordExposingChanges(args); !exposing.isEmpty()) {
+                respond(QJsonObject{{"error", QStringLiteral("%1 would send the stored MQTT password to a different broker "
+                                                             "or unencrypted. Change it in the app or the web settings page, "
+                                                             "which ask for the password again.").arg(exposing.join(", "))}});
+                return;
+            }
             if (args.contains("mqttCaCertificate")) {
                 const QString pem = args.value("mqttCaCertificate").toString().trimmed();
                 if (!pem.isEmpty() && SettingsMqtt::describeCaCertificate(pem).isEmpty()) {

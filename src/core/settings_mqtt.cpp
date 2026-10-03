@@ -2,6 +2,7 @@
 #include "settings.h"
 
 #include <QDate>
+#include <QJsonObject>
 #include <QtNetwork/qtnetworkglobal.h>   // defines the ssl feature for QT_CONFIG
 #if QT_CONFIG(ssl)
 #include <QSslCertificate>
@@ -167,4 +168,21 @@ QString SettingsMqtt::describeCaCertificate(const QString& pem)
     Q_UNUSED(pem);
     return {};
 #endif
+}
+
+QStringList SettingsMqtt::passwordExposingChanges(const QJsonObject& changes) const
+{
+    QStringList keys;
+    if (mqttPassword().isEmpty())
+        return keys;
+    if (changes.contains("mqttBrokerHost") && changes.value("mqttBrokerHost").toString() != mqttBrokerHost())
+        keys << QStringLiteral("mqttBrokerHost");
+    if (changes.contains("mqttBrokerPort") && changes.value("mqttBrokerPort").toInt() != mqttBrokerPort())
+        keys << QStringLiteral("mqttBrokerPort");
+    if (changes.contains("mqttUseTls") && !changes.value("mqttUseTls").toBool() && mqttUseTls())
+        keys << QStringLiteral("mqttUseTls");
+    if (changes.contains("mqttCaCertificate")
+        && changes.value("mqttCaCertificate").toString().trimmed() != mqttCaCertificate())
+        keys << QStringLiteral("mqttCaCertificate");
+    return keys;
 }
