@@ -31,8 +31,10 @@ int scaledSettingValue(double realWorldValue, double scale)
 }  // namespace
 #include "../network/beanbaseclient.h"
 #include "../network/visualizeruploader.h"
+#include "../network/shotpayloadhelpers.h"
 #include "../controllers/profilemanager.h"
 #include "../controllers/maincontroller.h"
+#include "../ble/de1device.h"
 #include "../core/brewbaseline.h"
 #include "../ai/aimanager.h"
 #include "../core/settings.h"
@@ -328,7 +330,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     bool willAutoUpdate = false;
                     QString skipReason;
                     if (ok && visualizerUploader && !visualizerId.isEmpty()
-                            && settings && settings->visualizer()->visualizerAutoUpdate()) {
+                            && settings && settings->visualizer()->visualizerActive()
+                            && settings->upload()->autoUpdate()) {
                         if (vizShot.isValid()) {
                             willAutoUpdate = true;
                             MCP_INFO_TAGGED("shots_update",
@@ -454,14 +457,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             if (!profileDoc.isNull())
                                 beverageType = profileDoc.object()["beverage_type"].toString();
                         }
-                        if (Profile::isMaintenanceBeverageType(beverageType)) {
+                        const double minDuration = settings->upload()->minDuration();
+                        const UploadIneligible ineligible = uploadIneligibility(beverageType, shot.durationSec, minDuration);
+                        if (ineligible == UploadIneligible::Maintenance) {
                             respond(QJsonObject{
                                 {"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded").arg(shotId).arg(beverageType)}
                             });
                             return;
                         }
-                        const double minDuration = settings->visualizer()->visualizerMinDuration();
-                        if (shot.durationSec < minDuration) {
+                        if (ineligible == UploadIneligible::TooShort) {
                             respond(QJsonObject{
                                 {"error", QString("Shot %1 too short (%2s < %3s); not uploaded")
                                     .arg(shotId).arg(shot.durationSec, 0, 'f', 1).arg(minDuration, 0, 'f', 0)}
@@ -737,6 +741,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"simulationMode", QJsonObject{{"type", "boolean"}, {"description",
                     "Enable DE1 simulator. Rejected on builds without a simulator - check "
                     "simulatorAvailable from settings_get first."}}},
+                {"simulatorSerialNumber", QJsonObject{{"type", "string"}, {"description",
+                    "Serial the simulator reports until the app restarts; never saved. Empty = SIM-DE1."}}},
                 // Battery
                 {"chargingMode", QJsonObject{{"type", "integer"}, {"description", "Smart charging mode"}}},
                 // Heater calibration (values in display units — same as QML sliders)
@@ -1421,17 +1427,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Visualizer ===
             if (args.contains("visualizerAutoUpload")) {
                 bool v = args["visualizerAutoUpload"].toBool();
-                addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpload(v); });
+                addSetter([settings, v]() { settings->upload()->setAutoUpload(v); });
                 updated << "visualizerAutoUpload";
             }
             if (args.contains("visualizerAutoUpdate")) {
                 bool v = args["visualizerAutoUpdate"].toBool();
-                addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpdate(v); });
+                addSetter([settings, v]() { settings->upload()->setAutoUpdate(v); });
                 updated << "visualizerAutoUpdate";
             }
             if (args.contains("visualizerMinDuration")) {
                 double v = args["visualizerMinDuration"].toDouble();
-                addSetter([settings, v]() { settings->visualizer()->setVisualizerMinDuration(v); });
+                addSetter([settings, v]() { settings->upload()->setMinDuration(v); });
                 updated << "visualizerMinDuration";
             }
             if (args.contains("visualizerExtendedMetadata")) {
@@ -1519,6 +1525,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 addSetter([settings, v]() { settings->app()->setSimulationMode(v); });
                 updated << "simulationMode";
+            }
+            if (args.contains("simulatorSerialNumber")) {
+                DE1Device* device = mainController ? mainController->de1Device() : nullptr;
+                if (!device) {
+                    respond(QJsonObject{{"error", "No DE1 device object - no settings were changed."}});
+                    return;
+                }
+                const QString v = args["simulatorSerialNumber"].toString();
+                addSetter([device, v]() { device->setSimulatedSerialNumber(v); });
+                updated << "simulatorSerialNumber";
             }
 
             // === Battery ===

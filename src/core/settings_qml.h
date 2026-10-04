@@ -116,6 +116,22 @@ struct SettingsVisualizerForeign
     QML_UNCREATABLE("SettingsVisualizer is created in C++")
 };
 
+struct SettingsDecentForeign
+{
+    Q_GADGET
+    QML_FOREIGN(SettingsDecent)
+    QML_NAMED_ELEMENT(SettingsDecentType)
+    QML_UNCREATABLE("SettingsDecent is created in C++")
+};
+
+struct SettingsUploadForeign
+{
+    Q_GADGET
+    QML_FOREIGN(SettingsUpload)
+    QML_NAMED_ELEMENT(SettingsUploadType)
+    QML_UNCREATABLE("SettingsUpload is created in C++")
+};
+
 struct SettingsMcpForeign
 {
     Q_GADGET

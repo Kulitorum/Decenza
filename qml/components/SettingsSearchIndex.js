@@ -71,6 +71,14 @@ function getSearchEntries(tr) {
           title: tr("settings.machine.shotReviewTimer", "Shot Review Timer"),
           description: tr("settings.machine.shotReviewTimerDesc", "Return to idle after reviewing shot"),
           keywords: ["review", "post-shot", "timeout", "close", "auto"] },
+        { tabId: "machine", cardId: "shotReviewTimer",
+          title: tr("settings.visualizer.editAfterShot", "Edit After Shot"),
+          description: tr("settings.machine.editAfterShotDesc", "Open shot review page after each extraction"),
+          keywords: ["review", "post-shot", "edit", "shot info", "after"] },
+        { tabId: "machine", cardId: "shotReviewTimer",
+          title: tr("settings.visualizer.clearNotesOnStart", "Clear Notes on Start"),
+          description: tr("settings.visualizer.clearNotesOnStartDesc", "Clear shot notes when starting a new shot"),
+          keywords: ["notes", "clear", "reset", "start"] },
         { tabId: "machine", cardId: "screenZoom",
           title: tr("settings.machine.screenZoom", "Screen Zoom"),
           description: tr("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability."),
@@ -183,17 +191,19 @@ function getSearchEntries(tr) {
           description: tr("settings.search.layoutDesc", "Customize idle screen widgets and zones"),
           keywords: ["layout", "widget", "zone", "customize", "idle", "home", "editor"] },
 
-        // Visualizer
+        // Shot Upload
         { tabId: "visualizer", cardId: "visualizer",
-          title: tr("settings.visualizer.account", "Visualizer.coffee Account"),
+          title: tr("settings.upload.visualizerTitle", "Visualizer"),
           description: tr("settings.search.visualizerDesc", "Connect to visualizer.coffee for shot sharing"),
           keywords: ["visualizer", "coffee", "upload", "share", "account"] },
-
-        // Bean Base (Loffee Labs) — lives in the Visualizer tab's left card
-        { tabId: "visualizer", cardId: "visualizer",
-          title: tr("settings.beanbase.section", "Bean Base"),
-          description: tr("settings.search.beanBaseDesc", "Look up coffee details from the Loffee Labs Bean Base database"),
-          keywords: ["bean base", "beanbase", "loffee", "loffeelabs", "coffee database", "roaster", "api key"] },
+        { tabId: "visualizer", cardId: "decentAccount",
+          title: tr("decent.account.title", "Decent Account"),
+          description: tr("decent.account.desc", "Upload your shots to your account at decentespresso.com"),
+          keywords: ["decent", "decentespresso", "account", "upload", "shots", "login"] },
+        { tabId: "visualizer", cardId: "uploadSettings",
+          title: tr("settings.upload.settingsTitle", "Upload Settings"),
+          description: tr("settings.upload.settingsDesc", "When shots are uploaded, for every destination that is switched on"),
+          keywords: ["upload", "auto", "automatic", "update", "minimum", "duration"] },
 
         // AI
         { tabId: "ai", cardId: "aiProvider",
@@ -237,7 +247,7 @@ function getSearchEntries(tr) {
         { tabId: "about", cardId: "firmwareUpdate",
           title: tr("firmware.card.title", "DE1 Firmware"),
           description: tr("settings.search.firmwareDesc", "Check, update, or downgrade the DE1 machine firmware"),
-          keywords: ["firmware", "de1", "update", "downgrade", "nightly", "stable", "flash"] },
+          keywords: ["firmware", "de1", "update", "downgrade", "nightly", "stable", "flash", "serial", "serial number"] },
         { tabId: "about", cardId: "releaseNotes",
           title: tr("settings.search.releaseNotesTitle", "Release Notes"),
           description: tr("settings.search.releaseNotesDesc", "What's new in this version"),

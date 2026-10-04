@@ -3,14 +3,15 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
+// Settings → Shot Upload: a card per destination (switch + account), then one
+// Upload settings card shared by both.
 KeyboardAwareContainer {
     id: visualizerTab
-    textFields: [usernameField, passwordField]
-    targetFlickable: visualizerLeftFlick
+    textFields: [visualizerAccount.emailField, visualizerAccount.passwordField,
+                 decentAccount.emailField, decentAccount.passwordField]
+    targetFlickable: uploadFlick
 
-    // Connection test result message
-    property string testResultMessage: ""
-    property bool testResultSuccess: false
+    readonly property bool wide: width >= Theme.scaled(700)
 
     // --- Recover shots from Visualizer (date-range history import) ---
     // Visualizer is "connected" when both credentials are present.
@@ -91,380 +92,71 @@ KeyboardAwareContainer {
         }
     }
 
-    RowLayout {
-        width: parent.width
-        height: parent.height
-        spacing: Theme.scaled(15)
+    Flickable {
+        id: uploadFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: uploadGrid.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-        // Account settings
-        Rectangle {
-            objectName: "visualizer"
-            Layout.preferredWidth: Theme.scaled(350)
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
+        GridLayout {
+            id: uploadGrid
+            width: uploadFlick.width
+            columns: visualizerTab.wide ? 2 : 1
+            columnSpacing: Theme.scaled(15)
+            rowSpacing: Theme.scaled(15)
 
-            // Scrollable so the account card stays usable on short screens —
-            // same pattern as SettingsAITab.
-            Flickable {
-                id: visualizerLeftFlick
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                contentHeight: visualizerLeftColumn.implicitHeight
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
+            UploadDestinationCard {
+                objectName: "visualizer"
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                Layout.alignment: Qt.AlignTop
+                title: TranslationManager.translate("settings.upload.visualizerTitle", "Visualizer")
+                description: TranslationManager.translate("settings.visualizer.accountDesc",
+                                                          "Upload your shots to visualizer.coffee for tracking and analysis")
+                switchedOn: Settings.visualizer.visualizerEnabled
+                onSwitchToggled: function(on) { Settings.visualizer.visualizerEnabled = on }
+                statusText: visualizerAccount.statusText
+                statusColor: visualizerAccount.statusColor
 
-                ColumnLayout {
-                    id: visualizerLeftColumn
-                    width: visualizerLeftFlick.width
-                    spacing: Theme.scaled(12)
-
-                    Tr {
-                        key: "settings.visualizer.account"
-                        fallback: "Visualizer.coffee Account"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
-                    }
-
-                    Tr {
-                        Layout.fillWidth: true
-                        key: "settings.visualizer.accountDesc"
-                        fallback: "Upload your shots to visualizer.coffee for tracking and analysis"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Item { Layout.preferredHeight: 5 }
-
-                    // Username
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.visualizer.username"
-                            fallback: "Username / Email"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        StyledTextField {
-                            id: usernameField
-                            Layout.fillWidth: true
-                            text: Settings.visualizer.visualizerUsername
-                            placeholder: TranslationManager.translate("settings.visualizer.username", "Username / Email")
-                            inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
-                            onTextChanged: Settings.visualizer.visualizerUsername = text
-                            // Enter jumps to password field
-                            Keys.onReturnPressed: function(event) { passwordField.forceActiveFocus() }
-                            Keys.onEnterPressed: function(event) { passwordField.forceActiveFocus() }
-                        }
-                    }
-
-                    // Password
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.visualizer.password"
-                            fallback: "Password"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        StyledTextField {
-                            id: passwordField
-                            Layout.fillWidth: true
-                            text: Settings.visualizer.visualizerPassword
-                            echoMode: TextInput.Password
-                            placeholder: TranslationManager.translate("settings.visualizer.password", "Password")
-                            inputMethodHints: Qt.ImhNoAutoUppercase
-                            onTextChanged: Settings.visualizer.visualizerPassword = text
-                        }
-                    }
-
-                    Item { Layout.preferredHeight: 5 }
-
-                    // Test connection button
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
-                            accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
-                            primary: true
-                            enabled: usernameField.text.length > 0 && passwordField.text.length > 0
-                            onClicked: {
-                                visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
-                                MainController.visualizer.testConnection()
-                            }
-                        }
-
-                        Text {
-                            text: visualizerTab.testResultMessage
-                            color: visualizerTab.testResultSuccess ? Theme.successColor : Theme.errorColor
-                            font.pixelSize: Theme.scaled(12)
-                            visible: visualizerTab.testResultMessage.length > 0
-                        }
-                    }
+                UploadAccountSection {
+                    id: visualizerAccount
+                    Layout.fillWidth: true
+                    identityLabel: TranslationManager.translate("settings.visualizer.username", "Username / Email")
+                    accessibleAccountName: TranslationManager.translate("settings.upload.visualizerTitle", "Visualizer")
+                    connected: visualizerTab.visualizerConnected
+                    connectedName: Settings.visualizer.visualizerUsername
+                    busy: MainController.visualizer.connecting
+                    onConnectRequested: function(identity, password) { MainController.visualizer.connectAccount(identity, password) }
+                    onDisconnectRequested: MainController.visualizer.disconnectAccount()
 
                     Connections {
                         target: MainController.visualizer
-                        function onConnectionTestResult(success, message) {
-                            visualizerTab.testResultSuccess = success
-                            visualizerTab.testResultMessage = message
-                        }
+                        function onAccountConnectFinished(error) { visualizerAccount.connectFinished(error) }
                     }
-
-                    // Sign up link — kept with the Visualizer account block.
-                    Tr {
-                        id: signUpLink
-                        key: "settings.visualizer.signUp"
-                        fallback: "Don't have an account? Sign up at visualizer.coffee"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-
-                        AccessibleMouseArea {
-                            anchors.fill: parent
-                            accessibleName: TranslationManager.translate("settings.visualizer.accessible.signup", "Sign up at visualizer.coffee. Opens web browser")
-                            accessibleItem: signUpLink
-                            onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
-                        }
-                    }
-
                 }
-            }
-        }
 
-        // Upload settings
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
-
-            // Scrollable: this card holds upload + backup + the Recover-shots
-            // section, which together overflow a tablet's height. Without a
-            // Flickable the bottom (recovery) was clipped and unreachable —
-            // matches the left account card's scroll pattern.
-            Flickable {
-                id: visualizerRightFlick
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                contentWidth: width
-                contentHeight: visualizerRightColumn.implicitHeight
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                flickableDirection: Flickable.VerticalFlick
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                ColumnLayout {
-                    id: visualizerRightColumn
-                    width: visualizerRightFlick.width
-                    spacing: Theme.scaled(12)
-
+                // Sign up link — kept with the Visualizer account block.
                 Tr {
-                    key: "settings.visualizer.uploadSettings"
-                    fallback: "Upload Settings"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                // Auto-upload toggle
-                RowLayout {
+                    id: signUpLink
+                    key: "settings.visualizer.signUp"
+                    fallback: "Don't have an account? Sign up at visualizer.coffee"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
+                    wrapMode: Text.WordWrap
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.autoUpload"
-                            fallback: "Auto-upload shots"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.visualizer.autoUploadDesc"
-                            fallback: "Automatically upload espresso shots after completion"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    StyledSwitch {
-                        checked: Settings.visualizer.visualizerAutoUpload
-                        accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                        onToggled: Settings.visualizer.visualizerAutoUpload = checked
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("settings.visualizer.accessible.signup", "Sign up at visualizer.coffee. Opens web browser")
+                        accessibleItem: signUpLink
+                        onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
                     }
                 }
 
-                // Auto-update shots toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
-                    enabled: Settings.visualizer.visualizerAutoUpload
-                    opacity: Settings.visualizer.visualizerAutoUpload ? 1.0 : 0.4
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.autoUpdate"
-                            fallback: "Auto-update shots"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.visualizer.autoUpdateDesc"
-                            fallback: "Automatically sync shot edits back to Visualizer"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    StyledSwitch {
-                        checked: Settings.visualizer.visualizerAutoUpdate
-                        accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
-                        onToggled: Settings.visualizer.visualizerAutoUpdate = checked
-                    }
-                }
-
-                // Minimum duration
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.minDuration"
-                            fallback: "Minimum Duration"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.visualizer.minDurationDesc"
-                            fallback: "Only upload shots longer than this (skip aborted shots)"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    ValueInput {
-                        id: minDurationInput
-                        value: Settings.visualizer.visualizerMinDuration
-                        from: 0
-                        to: 30
-                        stepSize: 1
-                        suffix: " sec"
-                        accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
-
-                        onValueModified: function(newValue) {
-                            Settings.visualizer.visualizerMinDuration = newValue
-                        }
-                    }
-                }
-
-                Item { Layout.preferredHeight: 10 }
-
-                // Show after shot toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.editAfterShot"
-                            fallback: "Edit After Shot"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.visualizer.editAfterShotDesc"
-                            fallback: "Open Shot Info page after each espresso extraction"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    StyledSwitch {
-                        checked: Settings.visualizer.visualizerShowAfterShot
-                        accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
-                        onToggled: Settings.visualizer.visualizerShowAfterShot = checked
-                    }
-                }
-
-                // Clear notes on shot start toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.clearNotesOnStart"
-                            fallback: "Clear Notes on Start"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.visualizer.clearNotesOnStartDesc"
-                            fallback: "Clear shot notes when starting a new shot"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    StyledSwitch {
-                        checked: Settings.visualizer.visualizerClearNotesOnStart
-                        accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
-                        onToggled: Settings.visualizer.visualizerClearNotesOnStart = checked
-                    }
-                }
-
-                // Divider before the recovery section
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.scaled(6)
@@ -586,8 +278,192 @@ KeyboardAwareContainer {
                     wrapMode: Text.WordWrap
                     visible: !visualizerTab.visualizerConnected
                 }
+            }
 
-                    Item { Layout.fillHeight: true }
+            UploadDestinationCard {
+                objectName: "decentAccount"
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                Layout.alignment: Qt.AlignTop
+                title: TranslationManager.translate("decent.account.title", "Decent Account")
+                description: TranslationManager.translate("decent.account.desc",
+                                                          "Upload your shots to your account at decentespresso.com")
+                switchedOn: Settings.decent.enabled
+                onSwitchToggled: function(on) { Settings.decent.enabled = on }
+                statusText: decentAccount.statusText
+                statusColor: decentAccount.statusColor
+
+                UploadAccountSection {
+                    id: decentAccount
+                    Layout.fillWidth: true
+                    identityLabel: TranslationManager.translate("settings.upload.account.email", "Email")
+                    accessibleAccountName: TranslationManager.translate("decent.account.title", "Decent Account")
+                    connected: MainController.decentAccount.state === DecentAccount.State.Linked
+                    needsSignIn: MainController.decentAccount.state === DecentAccount.State.NeedsSignIn
+                    connectedName: MainController.decentAccount.email
+                    busy: MainController.decentAccount.busy
+                    onConnectRequested: function(identity, password) { MainController.decentAccount.link(identity, password) }
+                    onDisconnectRequested: MainController.decentAccount.unlink()
+
+                    Connections {
+                        target: MainController.decentAccount
+                        function onLinkFinished(error) { decentAccount.connectFinished(error) }
+                    }
+                }
+
+                Tr {
+                    id: viewShotsLink
+                    Layout.fillWidth: true
+                    visible: decentAccount.connected
+                    key: "decent.account.viewShots"
+                    fallback: "View my shots on decentespresso.com"
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("decent.account.viewShotsAccessible",
+                                                                     "View my shots on decentespresso.com. Opens web browser")
+                        accessibleItem: viewShotsLink
+                        onAccessibleClicked: MainController.decentAccount.openAccountInBrowser()
+                    }
+                }
+
+                DecentUploadStatus {
+                    Layout.fillWidth: true
+                }
+            }
+
+            // Settings shared by every destination that is switched on.
+            Rectangle {
+                objectName: "uploadSettings"
+                Layout.columnSpan: uploadGrid.columns
+                Layout.fillWidth: true
+                implicitHeight: uploadSettingsColumn.implicitHeight + Theme.scaled(30)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: uploadSettingsColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
+
+                    Tr {
+                        key: "settings.upload.settingsTitle"
+                        fallback: "Upload Settings"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.upload.settingsDesc"
+                        fallback: "When shots are uploaded, for every destination that is switched on"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.visualizer.autoUpload"
+                                fallback: "Auto-upload shots"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.visualizer.autoUploadDesc"
+                                fallback: "Automatically upload espresso shots after completion"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        StyledSwitch {
+                            checked: Settings.upload.autoUpload
+                            accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
+                            onToggled: Settings.upload.autoUpload = checked
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        enabled: Settings.upload.autoUpload
+                        opacity: Settings.upload.autoUpload ? 1.0 : 0.4
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.visualizer.autoUpdate"
+                                fallback: "Auto-update shots"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.upload.autoUpdateDesc"
+                                fallback: "Re-send a shot after you edit it"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        StyledSwitch {
+                            checked: Settings.upload.autoUpdate
+                            accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
+                            onToggled: Settings.upload.autoUpdate = checked
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.visualizer.minDuration"
+                                fallback: "Minimum Duration"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.visualizer.minDurationDesc"
+                                fallback: "Only upload shots longer than this (skip aborted shots)"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        ValueInput {
+                            value: Settings.upload.minDuration
+                            from: 0
+                            to: 30
+                            stepSize: 1
+                            suffix: " sec"
+                            accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
+                            onValueModified: function(newValue) { Settings.upload.minDuration = newValue }
+                        }
+                    }
                 }
             }
         }

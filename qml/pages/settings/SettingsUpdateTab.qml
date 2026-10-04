@@ -369,6 +369,23 @@ Item {
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
                     }
+
+                    // Selectable so the serial can be copied into a support message.
+                    TextEdit {
+                        readonly property string serial: DE1Device && DE1Device.serialNumber !== undefined
+                                                         ? DE1Device.serialNumber : ""
+                        Layout.fillWidth: true
+                        text: serial !== ""
+                              ? TranslationManager.translate("settings.about.serialNumber", "Serial number: %1").arg(serial)
+                              : TranslationManager.translate("settings.about.serialUnknown", "Serial number unknown — connect DE1")
+                        readOnly: true
+                        selectByMouse: true
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: TextEdit.Wrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
                 }
             }
 

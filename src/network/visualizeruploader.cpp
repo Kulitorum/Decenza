@@ -61,6 +61,7 @@
 #include <QFile>
 #include <QDir>
 #include <QBuffer>
+#include "shotpayloadhelpers.h"
 
 namespace {
 // Visualizer has no rpm field, so the grinder rpm dial-in is appended to the
@@ -84,77 +85,6 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
 
 QString VisualizerUploader::tr_(const char* key, const char* fallback) const {
     return translateOrFallback(m_translationManager, key, fallback);
-}
-
-// Helper: Interpolate goal data to match elapsed timestamps
-// Goal data may have different timestamps or gaps; we need to align to the master elapsed array
-// Gaps > 0.5s between goal points indicate mode switches (flow/pressure) - return 0 during gaps
-static QJsonArray interpolateGoalData(const QVector<QPointF>& goalData, const QVector<QPointF>& masterData) {
-    QJsonArray result;
-
-    if (goalData.isEmpty() || masterData.isEmpty()) {
-        // Return zeros for all timestamps if no goal data
-        for (qsizetype i = 0; i < masterData.size(); ++i) {
-            result.append(0.0);
-        }
-        return result;
-    }
-
-    // Gap threshold: if consecutive goal points are more than 0.5s apart, treat as a gap
-    constexpr double GAP_THRESHOLD = 0.5;
-
-    qsizetype goalIdx = 0;
-    for (const auto& masterPt : masterData) {
-        double t = masterPt.x();
-
-        // Find the goal data points surrounding this timestamp
-        while (goalIdx < goalData.size() - 1 && goalData[goalIdx + 1].x() <= t) {
-            goalIdx++;
-        }
-
-        if (goalIdx == 0 && t < goalData[0].x()) {
-            // Before first goal point - use 0
-            result.append(0.0);
-        } else if (goalIdx >= goalData.size() - 1) {
-            // At or past last point
-            double timeSinceLast = t - goalData.last().x();
-            if (timeSinceLast > GAP_THRESHOLD) {
-                // Far past the last goal point - probably in a different mode
-                result.append(0.0);
-            } else {
-                result.append(goalData.last().y());
-            }
-        } else {
-            // Between goalData[goalIdx] and goalData[goalIdx+1]
-            double t0 = goalData[goalIdx].x();
-            double t1 = goalData[goalIdx + 1].x();
-            double v0 = goalData[goalIdx].y();
-            double v1 = goalData[goalIdx + 1].y();
-
-            // Check for gap between goal points
-            if (t1 - t0 > GAP_THRESHOLD) {
-                // Gap detected - check which side of the gap we're on
-                if (t - t0 < GAP_THRESHOLD) {
-                    // Close to the earlier point - use its value
-                    result.append(v0);
-                } else if (t1 - t < GAP_THRESHOLD) {
-                    // Close to the later point - use its value
-                    result.append(v1);
-                } else {
-                    // In the middle of the gap - return 0
-                    result.append(0.0);
-                }
-            } else if (t1 - t0 > 0.001) {
-                // Normal case - interpolate
-                double ratio = (t - t0) / (t1 - t0);
-                result.append(v0 + ratio * (v1 - v0));
-            } else {
-                result.append(v0);
-            }
-        }
-    }
-
-    return result;
 }
 
 void VisualizerUploader::uploadShot(ShotDataModel* shotData,
@@ -510,29 +440,46 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     reply->deleteLater();
 }
 
-void VisualizerUploader::testConnection()
+void VisualizerUploader::connectAccount(const QString& username, const QString& password)
 {
+    if (m_connecting || username.trimmed().isEmpty() || password.isEmpty()) return;
     // Re-detect Coffee Management on the next upload — the user may have
     // toggled it (or switched accounts) since the last probe.
     setCmState(CmState::Unknown);
 
-    QString username = m_settings->value("visualizer/username", "").toString();
-    QString password = m_settings->value("visualizer/password", "").toString();
-
-    if (username.isEmpty() || password.isEmpty()) {
-        emit connectionTestResult(false, tr_("visualizer.test.noUserPass", "Username or password not set"));
-        return;
-    }
-
-    // Try to access the API to verify credentials
-    // We'll use a simple GET to the shots endpoint
     QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
-    request.setRawHeader("Authorization", authHeader().toUtf8());
+    request.setRawHeader("Authorization",
+                         "Basic " + (username.trimmed() + QLatin1Char(':') + password).toUtf8().toBase64());
+    m_connecting = true;
+    emit connectingChanged();
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onTestFinished(reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, username, password]() {
+        reply->deleteLater();
+        m_connecting = false;
+        emit connectingChanged();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() == QNetworkReply::NoError) {
+            m_settings->visualizer()->setVisualizerUsername(username.trimmed());
+            m_settings->visualizer()->setVisualizerPassword(password);
+            m_settings->visualizer()->setVisualizerEnabled(true);
+            DIAG_INFO(VISUALIZER, "VisualizerUploader") << "account connected";
+            emit accountConnectFinished(AccountLink::Error::None);
+        } else if (status == 401 || status == 403) {
+            DIAG_INFO(VISUALIZER, "VisualizerUploader") << "connect rejected: username or password not accepted";
+            emit accountConnectFinished(AccountLink::Error::Rejected);
+        } else {
+            DIAG_WARN(VISUALIZER, "VisualizerUploader") << "connect failed: HTTP" << status << reply->errorString();
+            emit accountConnectFinished(AccountLink::Error::Unreachable);
+        }
     });
+}
+
+void VisualizerUploader::disconnectAccount()
+{
+    m_settings->visualizer()->setVisualizerUsername(QString());
+    m_settings->visualizer()->setVisualizerPassword(QString());
+    DIAG_INFO(VISUALIZER, "VisualizerUploader") << "account disconnected";
 }
 
 void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
@@ -545,11 +492,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray response = reply->readAll();
 
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
-    QString responseFile = debugPath + "/last_upload_response.txt";
+    QString responseFile = uploadDebugFilePath(QStringLiteral("last_upload_response.txt"));
     QFile file(responseFile);
     if (file.open(QIODevice::WriteOnly)) {
         file.write(QString("HTTP Status: %1\n\n").arg(statusCode).toUtf8());
@@ -633,26 +576,6 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
     // m_uploadingDbShotId note in the header) — m_uploading is UI-only,
     // not a concurrency guard.
     m_uploadingDbShotId = 0;
-    reply->deleteLater();
-}
-
-void VisualizerUploader::onTestFinished(QNetworkReply* reply)
-{
-    if (reply->error() == QNetworkReply::NoError) {
-        emit connectionTestResult(true, tr_("visualizer.test.success", "Connection successful!"));
-    } else {
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        QString errorMsg;
-
-        if (statusCode == 401) {
-            errorMsg = tr_("visualizer.test.invalidUserPass", "Invalid username or password");
-        } else {
-            errorMsg = reply->errorString();
-        }
-
-        emit connectionTestResult(false, errorMsg);
-    }
-
     reply->deleteLater();
 }
 
@@ -1418,9 +1341,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
 
     // Grinder info (combine brand+model for visualizer compatibility)
     QJsonObject grinder;
-    QString grinderDisplay = metadata.grinderBrand.isEmpty() ? metadata.grinderModel
-        : (metadata.grinderModel.isEmpty() ? metadata.grinderBrand
-           : metadata.grinderBrand + " " + metadata.grinderModel);
+    QString grinderDisplay = grinderDisplayName(metadata.grinderBrand, metadata.grinderModel);
     if (!grinderDisplay.isEmpty())
         grinder["model"] = grinderDisplay;
     {
@@ -1638,8 +1559,9 @@ QString VisualizerUploader::authHeader() const
 
 bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
 {
-    // Skip maintenance profiles (shared tier — see Profile::isMaintenanceBeverageType)
-    if (Profile::isMaintenanceBeverageType(beverageType)) {
+    const double minDuration = m_settings->upload()->minDuration();
+    const UploadIneligible ineligible = uploadIneligibility(beverageType, duration, minDuration);
+    if (ineligible == UploadIneligible::Maintenance) {
         const QString reason = tr_("visualizer.skip.maintenance", "maintenance profile (%1)").arg(beverageType);
         m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
@@ -1663,9 +1585,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         return false;
     }
 
-    // Check minimum duration
-    double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
-    if (duration < minDuration) {
+    if (ineligible == UploadIneligible::TooShort) {
         const QString reason = tr_("visualizer.skip.tooShort", "shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
         m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
@@ -1686,13 +1606,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
 void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 {
     // Save JSON to file for debugging
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
-    QDir().mkpath(debugPath);
-
-    QString debugFile = debugPath + "/last_upload.json";
+    QString debugFile = uploadDebugFilePath(QStringLiteral("last_upload.json"));
     QFile file(debugFile);
     if (file.open(QIODevice::WriteOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(jsonData);
@@ -1714,24 +1628,16 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     QUrl url(VISUALIZER_API_URL);
     QNetworkRequest request(url);
 
-    QString authHeaderValue = authHeader();
-    request.setRawHeader("Authorization", authHeaderValue.toUtf8());
+    request.setRawHeader("Authorization", authHeader().toUtf8());
     request.setRawHeader("Content-Type", QString("multipart/form-data; boundary=%1").arg(boundary).toUtf8());
     // Prevent Qt from following redirects (which can lose auth headers)
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
 
-    // Save debug auth info to file
-    QString authDebugFile = debugPath + "/last_upload_debug.txt";
-    QFile dbgFile(authDebugFile);
-    if (dbgFile.open(QIODevice::WriteOnly)) {
-        QString username = m_settings->value("visualizer/username", "").toString();
-        dbgFile.write(QString("Username: %1\n").arg(username).toUtf8());
-        dbgFile.write(QString("Auth header: %1\n").arg(authHeaderValue.left(30) + "...").toUtf8());
-        dbgFile.write(QString("URL: %1\n").arg(url.toString()).toUtf8());
-        dbgFile.write(QString("Content-Length: %1\n").arg(multipartData.size()).toUtf8());
-        dbgFile.close();
-    }
+    // Earlier versions wrote last_upload_debug.txt here with the username and the
+    // first 30 characters of the Basic auth header — base64 of username:password.
+    // Remove any copy still on disk.
+    QFile::remove(uploadDebugFilePath(QStringLiteral("last_upload_debug.txt")));
 
     // Send request
     QNetworkReply* reply = m_networkManager->post(request, multipartData);
@@ -1938,9 +1844,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
 
     // Grinder info (combine brand+model for visualizer compatibility)
     QJsonObject grinder;
-    QString grinderDisplay2 = shotData.grinderBrand.isEmpty() ? shotData.grinderModel
-        : (shotData.grinderModel.isEmpty() ? shotData.grinderBrand
-                                           : shotData.grinderBrand + " " + shotData.grinderModel);
+    QString grinderDisplay2 = grinderDisplayName(shotData.grinderBrand, shotData.grinderModel);
     if (!grinderDisplay2.isEmpty()) grinder["model"] = grinderDisplay2;
     { const QString gs = grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm);
       if (!gs.isEmpty()) grinder["setting"] = gs; }
@@ -2074,7 +1978,7 @@ void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString
     if (dbShotId <= 0 || visualizerShotId.isEmpty() || m_localDbPath.isEmpty())
         return;
     // CM-off accounts have no bags to enrich. Cached per session (reset by
-    // testConnection) so toggling Coffee Management converges next upload.
+    // connectAccount) so toggling Coffee Management converges next upload.
     if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
         return;
 

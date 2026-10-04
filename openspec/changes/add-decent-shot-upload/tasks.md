@@ -1,0 +1,87 @@
+# Staged implementation
+
+Each stage lands as its own PR and ends with a verification gate on Jeff's machine against the live decentespresso.com server. The next stage does not start until the gate passes. The change is archived on the Stage 3 PR (its final commit).
+
+- **Stage 1 — Prove the upload.** Account link, serial, payload; the Shot Upload tab with a switch per destination and ONE set of shared upload settings; the review page's single Upload button sending to every active destination. Decent ignores the automatic settings — nothing goes to Decent unless the user taps Upload.
+- **Stage 2 — Automatic upload.** Decent joins the shared automatic upload and auto-update paths; web and MCP parity; Visualizer's live builder is retired so both destinations upload from the saved shot.
+- **Stage 3 — Backlog.** The idle-only drain of existing history.
+
+---
+
+## Stage 1 — Prove the upload
+
+### 1. Machine serial number
+
+- [x] 1.1 (code; the on-device check is part of gate 6.1) `DE1Device`: add the `MMR::SERIAL_NUMBER` (0x803830) read to the post-connect reads, parse the 32-bit value in `parseMMRResponse`, and expose `Q_PROPERTY QString serialNumber` (empty when 0, unread or simulated). Log the raw read once per connect at INFO. Verify: on Jeff's DE1 the log line shows the serial and `serialNumber` matches the machine's label; in simulation mode it is `SIM-DE1`.
+- [x] 1.2 (code; the on-device check is part of gate 6.1) About tab DE1 card: add a selectable "Serial number" line bound to `serialNumber`, with "Serial number unknown — connect DE1" when empty and the accessible name "Serial number: <value>". Verify: visible and copyable connected; shows the unknown text disconnected; TalkBack announces it (spec: settings-ui "About tab shows the machine serial number").
+
+### 2. Settings, account and logging
+
+- [x] 2.1 Add the `SettingsDecent` domain (`decent/email`, `decent/cryptpw`, `decent/needsSignIn`; the switch and shared settings are 5.2) with all three registration edits from `docs/CLAUDE_MD/SETTINGS.md`. `cryptpw` gets a C++-only accessor. Verify: `Settings.decent.email` resolves in QML (not `undefined`), and `tst_qmlregistration` passes.
+- [x] 2.2 Treat `decent/email` and `decent/cryptpw` as sensitive: add them to `SettingsSerializer::sensitiveKeys()`, the `includeSensitive` export gate, and the import exclusions; carry the toggle and minimum length. Verify: a serializer test asserts that export with `includeSensitive=false` omits both keys and that importing a file containing them ignores them (spec: data-transfer-coverage "Decent account credentials never transfer").
+- [x] 2.3 Implement `DecentAccount` (D1): `link` via `login_test` with the Basic header, `unlink`, `state`, `applyAuth`, `reportAuthFailure`, `openAccountInBrowser` via `authenticated_redirect` with the unauthenticated fallback. Expose it as `MainController.decentAccount` (`QML_ELEMENT` + `QML_UNCREATABLE`). Verify: tests with a fake network reply cover success, `0` (wrong password), transport error (distinct message), and 401 → `NeedsSignIn`.
+- [x] 2.4 Register the `DECENT` logging subsystem in `src/core/logtags.h` and use `DIAG_*` throughout, per `docs/CLAUDE_MD/LOGGING.md` tiers (D7). Verify: `scripts/check_log_markers.py` passes.
+
+### 3. Storage
+
+- [x] 3.1 Migration 42 (D4): add `decent_uploaded_at`, `decent_shot_id`, `decent_serial`, `decent_replace_pending`, `decent_rejected_status`, `decent_rejected_at` to `shots`, and bump `kCurrentSchemaVersion`. Verify: the existing migration test reaches 42 from 41 and from a fresh database.
+- [x] 3.2 Carry the new columns through `importDatabaseStatic` and `importShotRecordStatic`. Verify: a merge test asserts an uploaded shot keeps its Decent state on the destination (spec: data-transfer-coverage "Decent upload state travels with the shots").
+- [x] 3.3 Storage methods on worker threads via `withTempDb`: `requestUpdateDecentUploadState(...)` (emits `decentUploadStateUpdated`, never `shotMetadataUpdated`), and a small read of one shot's Decent state for the detail page. Verify: a storage test asserts the state round-trips and that the write does not emit `shotMetadataUpdated`.
+
+### 4. Payload
+
+- [x] 4.1 Move `interpolateGoalData` (and the grinder-model resolution helper) out of `visualizeruploader.cpp` file scope into a shared header, with Visualizer calling the shared copy. Verify: existing Visualizer payload tests pass unchanged.
+- [x] 4.2 Implement `DecentShotRecord::build(const ShotProjection&, const MachineIdentity&)` per D5: `id` = shot uuid, pressure-timeline samples, the channel mapping, the de1app-v2 profile from `buildVisualizerProfileJson`, context/annotations/extras, empty fields omitted, `app`, `schemaVersion` 1. Verify: a new `tst_decentshotupload` asserts that "Café Allongé" survives as UTF-8 encoded once, that an invalid roast date omits `extras.roastDate`, and that the time series all have the same length (the golden-file assertion is added in 6.1).
+
+### 5. Upload path, switches and shared settings
+
+- [x] 5.1 `DecentShotUploader`, single-request core (D6): `uploadNow(shotId)` prepares on the storage's serial DB worker (after any queued edit) and POSTs with `applyAuth`. Retry classes: transport/408/429/5xx up to 3 attempts at 2 s/4 s; 401 → needs sign-in; 403 → message naming the serial; other 4xx → rejected; 2xx/duplicate → uploaded. Connected-device serial for a first upload; `decent_serial` and `?replace=1` for an already-uploaded shot; refuse with no real device. Verify: `tst_decentshotupload` cases with fake replies cover each response class, and a replace using the stored serial while a different serial is connected.
+- [x] 5.2 Shared settings and switches (D2): add `SettingsUpload` (`autoUpload`, `autoUpdate`, `minDuration`) on the existing `visualizer/*` keys and remove them from `SettingsVisualizer`, repointing every C++, QML and test reference. Add `visualizer/enabled` (default on) and `decent/enabled` (default off). Add `SettingsVisualizer::visualizerActive`/`SettingsDecent::active` (switch on + account connected) and gate every automatic Visualizer path on `visualizerActive()` (after-shot upload, auto-update on close, MCP auto-update, bag sync). Serializer: the switches and shared settings transfer, credentials never. Verify: `tst_settings` asserts the shared values read the pre-existing keys and the switches round-trip; with Visualizer switched off no upload or PATCH is sent (log).
+- [x] 5.3 One shot-eligibility function (minimum length, not a maintenance beverage type) used by `VisualizerUploader::validateUpload`, the MCP upload pre-check and the Decent uploader. Verify: existing Visualizer upload and MCP tests pass unchanged; a test covers the function's boundaries.
+- [x] 5.4 Every upload writes its request body to `Documents/last_decent_upload.json` before sending, following Visualizer's `last_upload.json` convention (no credentials in the file, since auth is a header). Verify: after an upload the file holds exactly the body that was POSTed.
+- [x] 5.5 Write the cleanup recipe for test uploads into `docs/CLAUDE_MD/DECENT_UPLOAD.md`: get the encrypted password via `login_test`, list a machine's shots (`shots?sn=`), trash or restore by id (`shot_trash` POST, `action=trash|restore|list`), and the warning that `purge` is permanent. The shot ids come from `decent_shot_id`. Verify: the recipe trashes and then restores one test shot on Jeff's account.
+- [x] 5.6 (code; the on-device check is part of gate 6.1) Shot Upload tab (D8): `UploadDestinationCard.qml` (name + switch header, status line, content slot); a Visualizer card and a Decent account card (`DecentAccountSection.qml`) side by side; one Upload settings card below; stacked at narrow width. Tab id stays `visualizer`, label "Shot Upload". Move Edit After Shot and Clear Notes on Start to Machine → App Behavior (same keys). Update the search index in `SettingsPage.qml`. Add new QML files to `CMakeLists.txt`. Verify: on the tablet and at phone width the cards render in order with every control reachable; TalkBack order is Visualizer, Decent, Upload settings; existing Visualizer values show in the shared card; searching "Decent", "serial" and "Edit After Shot" lands on the right card (spec: settings-ui "Shot Upload tab has a switch per destination and one set of upload settings").
+- [x] 5.7 (code; the on-device check is part of gate 6.1) Review page: the Visualizer button becomes the one Upload button, hidden when no destination is active. One tap runs the existing Visualizer upload/PATCH and `uploadNow` for Decent, for whichever are active. It reads in-sync only when every active destination holds the current edit, and each destination's result is shown (Decent via `DecentUploadStatus`). The detail page's read-only Decent card shows the link or the rejected state. Verify: on Jeff's machine, with both on, one tap updates both; with only Decent on, only Decent is sent; the detail-page link opens the shot in the account.
+
+### 6. Stage 1 gate
+
+- [ ] 6.1 **Gate — live server accepts Decenza shots.** First the on-device checks for 1.1, 1.2, 5.6 and 5.7: the About tab serial matches the machine's label, the Shot Upload tab and Machine-tab move render correctly on the tablet and the Mac, and the Upload button follows the switches. Then, before turning Decent on for real use, link the account, switch Decent on and upload ONE shot with the Upload button, read `last_decent_upload.json`, and check the shot in the account; fix any problem and re-send it with replace (or trash it with the 5.5 recipe) before continuing. Then manually upload at least 4 more real shots: different profiles, one with accented bean text, one edited and re-uploaded (replace). No without-scale case: most profiles need a scale. Verify on decentespresso.com: each shot shows matching profile, bean, roaster, grinder, dose, yield, rating and notes; the chart traces look right; the replaced shot shows the edit. Save one accepted request body as the golden file and add the golden-file assertion to `tst_decentshotupload`.
+  - 2026-10-04, simulator with test serial 1812: the first upload was accepted and shows under machine #1812 (chart, profile family and bean recognised). SIM-DE1 correctly got 403. Further first uploads, all stored: Blooming Espresso, D-Flow / Luca's Italian Style, and a shot whose bean is "Hawai‘i Island Blend Medium-Dark Roast (Kona+ Ka‘ū)". U+2018 and U+016B went out encoded once and display intact, and the 75 rating arrived. The accepted body is saved, anonymised, as `tests/data/decent/accepted_shotrecord.json`, checked by `payloadHasTheShapeTheServerAccepted` (proved able to fail). **Replace is held:** Decent answers `?replace=1` with `"stored":false,"duplicate":true` and keeps the original (confirmed with `shot_get`). Decenza's request matches the API docs and Decaid's proxy, so this is server-side. Reported to John; waiting on his reply. Meanwhile the app reports "Decent kept its earlier copy — the edit was not saved". If the server fix doesn't come, the fallback is to upload the edit under a new id, then trash the old copy (never `purge`, which empties the whole machine trash). The website's "Delete forever" button is not a per-shot delete: its `shot_history.js` calls `shot_trash` `action=purge` with no ids, emptying the whole machine trash. So permanently deleting one shot (and re-uploading under the same id) is not available.
+- [ ] 6.2 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`), with no new WARN lines. Open the Stage 1 PR, read its `text-invariants.yml` run, run `/pr-review-toolkit:review-pr`, address the findings, and merge with Jeff's go-ahead (not archived).
+
+## Stage 2 — Automatic upload
+
+### 7. Automatic upload and replace-on-edit for Decent
+
+- [ ] 7.1 Add `requestMarkDecentReplacePending(shotId)` (only if already uploaded) to storage, and give the uploader a live queue: one in-flight request, with new shots taken in order. Verify: a storage test asserts marking pending on a never-uploaded shot is a no-op; an uploader test asserts a shot saved during an in-flight request is sent next.
+- [ ] 7.2 One `MainController` entry point, "upload this saved shot to the active destinations". `shotSaved` calls it when shared auto-upload is on, and it serves both Visualizer and Decent. The auto-update-on-close path and `shotMetadataUpdated(id, true)` likewise reach Decent (mark pending + replace) when shared auto-update is on. Switching Decent off or unlinking clears its queue. Verify: with Decent on, a shot pulled on Jeff's machine appears in the account; rating it afterwards updates the account copy; a 3-second flush is not uploaded; switching Decent off stops further requests (log).
+- [ ] 7.3 Audit the four `UPDATE shots` writes in `coffeebagstorage.cpp`, and any other shot write that changes uploaded fields without emitting `shotMetadataUpdated`; make each one mark replace-pending. Verify: list the audited sites with their outcome in the PR description.
+
+### 8. Web, MCP and simplification
+
+- [ ] 8.1 ShotServer settings page: mirrors the tab — a switch and account per destination (Decent link with email + password, unlink, status) and the shared Upload settings once, built with the shared page helpers. The password is never echoed, and `cryptpw` is never in a response. Verify: link and switch from a browser and see the app reflect it; a test asserts `handleGetSettings` output contains no `cryptpw`.
+- [ ] 8.2 MCP `settings_get`/`settings_set` (D10): `visualizerEnabled`, `decentEnabled`, `uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec` (replacing the three `visualizer*` names), read-only `decentAccountState` and `decentEmail`; bump `McpSurfaceVersion`. Verify: `scripts/check_mcp_tool_budget.py` passes and an MCP test asserts the encrypted password is absent.
+- [ ] 8.3 Retire Visualizer's live payload builder: live shots upload from the saved row after `shotSaved`, as Decent does. First move what only the live builder sends (`by_weight_raw`, `machine_state`) into `buildHistoryShotJson`, then delete `buildShotJson` and the `ShotDataModel` upload entry point. Verify: for one live shot, `last_upload.json` from the old path and the new path are identical apart from timestamps; existing Visualizer tests pass; `docs/CLAUDE_MD/VISUALIZER.md` no longer describes two builders.
+
+### 9. Stage 2 gate
+
+- [ ] 9.1 **Gate — automatic upload in daily use.** With upload on for several days of Jeff's normal shots, verify:
+  - every eligible shot appears in the account and no flush or cleaning cycle does
+  - edits made on the review page, from ShotServer and through MCP all replace the account copy
+  - a debug log contains no `Authorization` header or encrypted password
+- [ ] 9.2 Run the full suite (scope `all`), with no new WARN lines. Open the Stage 2 PR, read `text-invariants.yml`, run `/pr-review-toolkit:review-pr`, address the findings, and merge with Jeff's go-ahead (not archived).
+
+## Stage 3 — Backlog
+
+### 10. Backlog drain
+
+- [ ] 10.1 Storage `requestDecentBacklog(limit, minDuration)`: replacements first, then never-uploaded, newest first, excluding maintenance beverage types and rejected shots. Verify: a storage test covers the ordering and each filter.
+- [ ] 10.2 Uploader drain (D6): event-based idle gate from `MachineState::phaseChanged`; batches of 5 with ≥30 s between; triggers (upload turned on, account linked or re-linked, app start, machine back to idle or sleep, after a live upload); stop issuing when busy; a transient failure leaves the shot and pauses the drain until the next trigger; a first upload with no real device connected waits. Verify: `tst_decentshotupload` cases with a fake phase source cover the busy gate stopping new requests mid-batch, the batch spacing, and resuming on the idle trigger.
+- [ ] 10.3 Backlog end-to-end on Jeff's history. Verify: turning upload on while idle drains newest first in batches of 5; starting a shot mid-drain stops new requests until idle; restarting the app mid-drain does not re-upload finished shots; WiFi off leaves shots un-rejected and the drain resumes when idle with WiFi back; an edit made while offline is replaced afterwards.
+
+### 11. Docs, review and merge
+
+- [ ] 11.1 Complete `docs/CLAUDE_MD/DECENT_UPLOAD.md`, started in 5.5 (endpoint, auth, payload mapping, retry classes, the replace-pending mechanism, why the serial is taken at upload time, and the staged rollout), and add it to the CLAUDE.md reference table. Verify: the doc names the golden-file test and the live-accepted capture date.
+- [ ] 11.2 Wiki manual: rename the Visualizer section to Shot Upload with one short paragraph per destination, and note the serial on About. Write it short, then cut it by half. Verify: reviewed with Jeff before pushing (wiki edits are held for release).
+- [ ] 11.3 Run the full suite (scope `all`), with no new WARN lines, and confirm `openspec validate add-decent-shot-upload --strict` passes.
+- [ ] 11.4 Open the Stage 3 PR, read `text-invariants.yml`, run `/pr-review-toolkit:review-pr`, and address the findings. Then archive with `openspec archive add-decent-shot-upload --yes` as the PR's final commit, push, read that commit's checks, and merge.

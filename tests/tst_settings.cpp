@@ -248,7 +248,7 @@ private slots:
         // assertion fails mid-test, which is exactly when leaked state does most harm.
         m_origCustomFontSizes = m_settings.theme()->customFontSizes();
         m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
-        m_origAutoUpdate = m_settings.visualizer()->visualizerAutoUpdate();
+        m_origAutoUpdate = m_settings.upload()->autoUpdate();
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
         m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
@@ -291,7 +291,7 @@ private slots:
         m_settings.setScaleAddress(m_origScaleAddress);
         m_settings.theme()->setThemeMode(m_origThemeMode);
         m_settings.brew()->setIgnoreVolumeWithScale(m_origIgnoreVolume);
-        m_settings.visualizer()->setVisualizerAutoUpdate(m_origAutoUpdate);
+        m_settings.upload()->setAutoUpdate(m_origAutoUpdate);
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
         m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
@@ -383,6 +383,63 @@ private slots:
         QCOMPARE(raw.value("mqtt/baseTopic").toString(), QString("restored"));   // the rest restores
     }
 
+    void uploadSwitchesLeaveAnUpgradedInstallUnchanged() {
+        // An install from before the switches has none stored: Visualizer must stay
+        // on (it uploaded before) and Decent off (opt-in, as in Decaid).
+        AppSettings raw;
+        const QStringList keys{"visualizer/enabled", "visualizer/username", "visualizer/password", "decent/enabled"};
+        QVariantMap original;
+        for (const auto& key : keys) original[key] = raw.value(key);
+        const auto restore = qScopeGuard([&] {
+            for (const auto& key : keys) {
+                if (original[key].isValid()) raw.setValue(key, original[key]);
+                else raw.remove(key);
+            }
+        });
+        for (const auto& key : keys) raw.remove(key);
+        raw.sync();
+
+        Settings fresh;
+        QVERIFY(fresh.visualizer()->visualizerEnabled());
+        QVERIFY(!fresh.decent()->enabled());
+        QVERIFY2(!fresh.visualizer()->visualizerActive(), "switched on but no account is not active");
+        fresh.visualizer()->setVisualizerUsername("barista");
+        fresh.visualizer()->setVisualizerPassword("secret");
+        QVERIFY(fresh.visualizer()->visualizerActive());
+        fresh.visualizer()->setVisualizerEnabled(false);
+        QVERIFY(!fresh.visualizer()->visualizerActive());
+
+    }
+
+    void decentAccountNeverTransfers() {
+        AppSettings raw;
+        const QStringList keys{"decent/email", "decent/cryptpw", "decent/enabled"};
+        QVariantMap original;
+        for (const auto& key : keys) original[key] = raw.value(key);
+        const auto restore = qScopeGuard([&] {
+            for (const auto& key : keys) {
+                if (original[key].isValid()) raw.setValue(key, original[key]);
+                else raw.remove(key);
+            }
+        });
+        m_settings.decent()->setAccount("owner@example.com", "cryptpw-token");
+        m_settings.decent()->setEnabled(true);
+
+        // Not even a credential-complete export carries the account.
+        const auto decent = SettingsSerializer::exportToJson(&m_settings, true)["decent"].toObject();
+        QCOMPARE(QJsonDocument(decent).toJson(QJsonDocument::Compact),
+                 QByteArray(R"({"enabled":true})"));
+
+        // A hand-edited backup naming another account must not replace this one.
+        m_settings.decent()->clearAccount();
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"decent", QJsonObject{
+            {"email", "attacker@example.com"}, {"cryptpw", "stolen"}, {"encryptedPassword", "stolen"},
+            {"enabled", false}}}});
+        QVERIFY(!m_settings.decent()->linked());
+        QVERIFY(raw.value("decent/email").toString().isEmpty());
+        QVERIFY(!m_settings.decent()->enabled());   // the switch restores
+    }
+
     void portalSelectionAndDisplayPreferenceSurviveBackup() {
         AppSettings raw;
         const QStringList keys{"portal/address", "portal/name", "portal/syncDisplay"};
@@ -457,26 +514,27 @@ private slots:
         QCOMPARE(m_settings.theme()->themeMode(), QString("light"));
     }
 
-    void visualizerAutoUpdateDefaultIsTrue() {
-        // Default value is true — auto-update is opt-out, not opt-in.
+    void uploadAutoUpdateDefaultIsTrue() {
+        // Default value is true — auto-update is opt-out, not opt-in. It reads the
+        // pre-split visualizer/autoUpdate key, so an existing choice carries over.
         // Strategy: write the opposite (false) so any per-instance or NSUserDefaults
         // cache holds false, then remove the disk key and read through a fresh
         // Settings instance. If the result is true, the hardcoded default actually
         // ran (a stale cache would have returned false).
-        m_settings.visualizer()->setVisualizerAutoUpdate(false);
-        QVERIFY(!m_settings.visualizer()->visualizerAutoUpdate());
+        m_settings.upload()->setAutoUpdate(false);
+        QVERIFY(!m_settings.upload()->autoUpdate());
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.remove("visualizer/autoUpdate");
         raw.sync();
         Settings fresh;
-        QVERIFY(fresh.visualizer()->visualizerAutoUpdate());
+        QVERIFY(fresh.upload()->autoUpdate());
     }
 
-    void visualizerAutoUpdateRoundTrip() {
-        m_settings.visualizer()->setVisualizerAutoUpdate(false);
-        QCOMPARE(m_settings.visualizer()->visualizerAutoUpdate(), false);
-        m_settings.visualizer()->setVisualizerAutoUpdate(true);
-        QCOMPARE(m_settings.visualizer()->visualizerAutoUpdate(), true);
+    void uploadAutoUpdateRoundTrip() {
+        m_settings.upload()->setAutoUpdate(false);
+        QCOMPARE(m_settings.upload()->autoUpdate(), false);
+        m_settings.upload()->setAutoUpdate(true);
+        QCOMPARE(m_settings.upload()->autoUpdate(), true);
     }
 
     void ignoreVolumeWithScaleRoundTrip() {
@@ -566,9 +624,9 @@ private slots:
         QVERIFY(spy.count() >= 1);
     }
 
-    void visualizerAutoUpdateSignalEmitted() {
-        QSignalSpy spy(m_settings.visualizer(), &SettingsVisualizer::visualizerAutoUpdateChanged);
-        m_settings.visualizer()->setVisualizerAutoUpdate(!m_origAutoUpdate);
+    void uploadAutoUpdateSignalEmitted() {
+        QSignalSpy spy(m_settings.upload(), &SettingsUpload::autoUpdateChanged);
+        m_settings.upload()->setAutoUpdate(!m_origAutoUpdate);
         QVERIFY(spy.count() >= 1);
     }
 
@@ -1094,7 +1152,7 @@ private slots:
         raw.setValue("water/vesselPresets", corrupt);
         raw.sync();
 
-        // Read through a FRESH Settings, as visualizerAutoUpdateDefault does: the
+        // Read through a FRESH Settings, as uploadAutoUpdateDefaultIsTrue does: the
         // shared m_settings holds its own QSettings instance and need not observe
         // another instance's write.
         {

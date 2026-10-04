@@ -1,0 +1,224 @@
+{
+ "annotations": {
+  "actualDoseWeight": 18.1,
+  "actualYield": 35.5
+ },
+ "app": {
+  "name": "decenza",
+  "sourceFormat": "decenza",
+  "version": "2.0.8"
+ },
+ "id": "00000000-0000-4000-8000-000000000001",
+ "machine": {
+  "serialNumber": "1234"
+ },
+ "measurements": [
+  {
+   "machine": {
+    "flow": 3.130138646876466,
+    "groupTemperature": 92.97,
+    "mixTemperature": 91.45640851804129,
+    "pressure": 7.296352320389425,
+    "profileFrame": 1,
+    "state": {
+     "state": "espresso",
+     "substate": "pouring"
+    },
+    "steamTemperature": 0,
+    "targetFlow": 0,
+    "targetGroupTemperature": 94,
+    "targetMixTemperature": 95,
+    "targetPressure": 6,
+    "timestamp": "2026-10-04T18:56:06.000Z"
+   },
+   "scale": {
+    "battery": null,
+    "timerValue": null,
+    "timestamp": "2026-10-04T18:56:06.000Z",
+    "weight": 0,
+    "weightFlow": 0
+   }
+  },
+  {
+   "machine": {
+    "flow": 3.067805161436459,
+    "groupTemperature": 93.128208,
+    "mixTemperature": 91.61052901149945,
+    "pressure": 7.1425232271623145,
+    "profileFrame": 1,
+    "state": {
+     "state": "espresso",
+     "substate": "pouring"
+    },
+    "steamTemperature": 0,
+    "targetFlow": 0,
+    "targetGroupTemperature": 94,
+    "targetMixTemperature": 95,
+    "targetPressure": 6,
+    "timestamp": "2026-10-04T18:56:06.199Z"
+   },
+   "scale": {
+    "battery": null,
+    "timerValue": null,
+    "timestamp": "2026-10-04T18:56:06.199Z",
+    "weight": 0,
+    "weightFlow": 0
+   }
+  },
+  {
+   "machine": {
+    "flow": 2.9850247226673163,
+    "groupTemperature": 93.2621152512,
+    "mixTemperature": 91.75006378046541,
+    "pressure": 6.979366900108536,
+    "profileFrame": 1,
+    "state": {
+     "state": "espresso",
+     "substate": "pouring"
+    },
+    "steamTemperature": 0,
+    "targetFlow": 0,
+    "targetGroupTemperature": 94,
+    "targetMixTemperature": 95,
+    "targetPressure": 6,
+    "timestamp": "2026-10-04T18:56:06.399Z"
+   },
+   "scale": {
+    "battery": null,
+    "timerValue": null,
+    "timestamp": "2026-10-04T18:56:06.399Z",
+    "weight": 0,
+    "weightFlow": 0
+   }
+  }
+ ],
+ "schemaVersion": 1,
+ "timestamp": "2026-10-04T18:56:06.000Z",
+ "workflow": {
+  "context": {
+   "baristaName": "Barista",
+   "coffeeName": "House Espresso",
+   "coffeeRoaster": "Roaster",
+   "extras": {
+    "grinderRpm": 1000,
+    "roastDate": "2026-01-01",
+    "roastLevel": "Medium"
+   },
+   "finalBeverageType": "espresso",
+   "grinderModel": "Grinder",
+   "grinderSetting": "10",
+   "targetDoseWeight": 18.1,
+   "targetYield": 36
+  },
+  "description": null,
+  "hotWaterData": {},
+  "id": "decenza-wf-00000000-0000-4000-8000-000000000001",
+  "name": "D-Flow / Q",
+  "profile": {
+   "author": "Damian",
+   "beverage_type": "espresso",
+   "changes_since_last_espresso": "",
+   "espresso_decline_time": "30.00",
+   "espresso_hold_time": "16.00",
+   "espresso_pressure": "6.00",
+   "espresso_temperature": "84.00",
+   "flow_profile_decline": "1.20",
+   "flow_profile_decline_time": "17.00",
+   "flow_profile_hold": "2.00",
+   "flow_profile_hold_time": "8.00",
+   "flow_profile_minimum_pressure": 4,
+   "flow_profile_preinfusion": 4,
+   "flow_profile_preinfusion_time": 5,
+   "has_recommended_dose": false,
+   "hidden": "0",
+   "lang": "en",
+   "legacy_profile_type": "settings_2c",
+   "maximum_flow": "0.00",
+   "maximum_flow_range_advanced": "0.20",
+   "maximum_flow_range_default": "1.00",
+   "maximum_pressure": "0.00",
+   "maximum_pressure_range_advanced": "0.20",
+   "maximum_pressure_range_default": "0.90",
+   "minimum_pressure": "4.00",
+   "mode": "frame_based",
+   "notes": "This is the profile Damian currently uses for every day coffee. Grind 10um coarser than other profiles, more berry flavours from \"Xtraction Blend\" than Slayer V3 or La Marzocco KB90, same creaminess. The goal is to grind for a pressure peak between 6 and 9 bar.",
+   "number_of_preinfuse_frames": "2",
+   "preinfusion_flow_rate": "8.00",
+   "preinfusion_stop_pressure": "4.00",
+   "preinfusion_time": "20.00",
+   "pressure_end": "4.00",
+   "read_only": 1,
+   "recommended_dose": "18.0",
+   "reference_file": "D-Flow / Q",
+   "steps": [
+    {
+     "exit": {
+      "condition": "over",
+      "type": "pressure",
+      "value": "3.00"
+     },
+     "flow": "8.00",
+     "limiter": {
+      "range": "0.20",
+      "value": "8.00"
+     },
+     "name": "Filling",
+     "pressure": "6.00",
+     "pump": "pressure",
+     "seconds": "25.00",
+     "sensor": "coffee",
+     "temperature": "84.00",
+     "transition": "fast",
+     "volume": "60.0"
+    },
+    {
+     "flow": "8.00",
+     "limiter": {
+      "range": "0.20",
+      "value": "8.00"
+     },
+     "name": "Infusing",
+     "pressure": "6.00",
+     "pump": "pressure",
+     "seconds": "1.00",
+     "sensor": "coffee",
+     "temperature": "94.00",
+     "transition": "fast",
+     "volume": "100.0"
+    },
+    {
+     "flow": "1.80",
+     "limiter": {
+      "range": "0.20",
+      "value": "10.00"
+     },
+     "name": "Pouring",
+     "pressure": "4.80",
+     "pump": "flow",
+     "seconds": "127.00",
+     "sensor": "coffee",
+     "temperature": "94.00",
+     "transition": "fast",
+     "volume": "100.0"
+    }
+   ],
+   "tank_desired_water_temperature": "0.0",
+   "tank_temperature": "0.0",
+   "target_volume": "0.0",
+   "target_volume_count_start": "2",
+   "target_weight": "36.0",
+   "temp_steps_enabled": false,
+   "temperature_presets": [
+    "94.00",
+    "94.00",
+    "94.00",
+    "94.00"
+   ],
+   "title": "D-Flow / Q",
+   "type": "advanced",
+   "version": "2"
+  },
+  "rinseData": {},
+  "steamSettings": {}
+ }
+}

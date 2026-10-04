@@ -7,6 +7,8 @@
 #include "settings_ai.h"
 #include "settings_theme.h"
 #include "settings_visualizer.h"
+#include "settings_decent.h"
+#include "settings_upload.h"
 #include "settings_mcp.h"
 #include "settings_brew.h"
 #include "settings_dye.h"
@@ -53,6 +55,8 @@ Settings::Settings(QObject* parent)
     , m_ai(new SettingsAI(this))
     , m_theme(new SettingsTheme(this))
     , m_visualizer(new SettingsVisualizer(this))
+    , m_decent(new SettingsDecent(this))
+    , m_upload(new SettingsUpload(this))
     , m_mcp(new SettingsMcp(this))
     , m_brew(new SettingsBrew(this))
     , m_dye(new SettingsDye(this))

@@ -116,6 +116,8 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/core/backgroundpresets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_visualizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_decent.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_upload.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
@@ -331,6 +333,8 @@ add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+    # Header-only Q_NAMESPACE: listed so AUTOMOC emits its staticMetaObject.
+    ${CMAKE_SOURCE_DIR}/src/network/accountlink.h
 )
 set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
@@ -357,6 +361,13 @@ target_include_directories(decenza_shotlib PUBLIC ${CMAKE_BINARY_DIR})
 add_library(decenza_testresources OBJECT ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 set_target_properties(decenza_testresources PROPERTIES AUTORCC ON)
 target_link_libraries(decenza_testresources PUBLIC Qt6::Core)
+
+# resources/ai.qrc (profile knowledge, dial-in reference), compiled ONCE for the
+# targets whose shot loading reaches ShotSummarizer's KB loaders. OBJECT for the
+# same static-initialiser reason as decenza_testresources above.
+add_library(decenza_testairesources OBJECT ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
+set_target_properties(decenza_testairesources PROPERTIES AUTORCC ON)
+target_link_libraries(decenza_testairesources PUBLIC Qt6::Core)
 
 # FirmwareAssetCache is exercised by exactly these two targets. Keep its
 # Q_OBJECT implementation in one narrow library so it is compiled once.
@@ -838,12 +849,10 @@ find_package(Qt6 REQUIRED COMPONENTS Quick Graphs)
 # find them silently. Without this, calls to shotAnalysisSystemPrompt()
 # emit qWarning lines that violate the "no warnings during test runs"
 # policy in docs/CLAUDE_MD/TESTING.md §Test warnings.
-qt_add_resources(TST_SHOTSUMMARIZER_AI_RESOURCES
-    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_shotsummarizer
     tst_shotsummarizer.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
-    ${TST_SHOTSUMMARIZER_AI_RESOURCES}
+    $<TARGET_OBJECTS:decenza_testairesources>
 )
 target_link_libraries(tst_shotsummarizer PRIVATE decenza_shotlib)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
@@ -854,8 +863,6 @@ target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
 # "Previous Shots" section, and that legacy empty-string identity fields
 # read as "inherit" rather than "different." Friend-class access is via
 # `friend class tst_AIManager` under DECENZA_TESTING in aimanager.h.
-qt_add_resources(TST_AIMANAGER_AI_RESOURCES
-    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_aimanager
     tst_aimanager.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_ai_conversations.cpp
@@ -863,7 +870,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/ai/aimanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
-    ${TST_AIMANAGER_AI_RESOURCES}
+    $<TARGET_OBJECTS:decenza_testairesources>
 )
 target_link_libraries(tst_aimanager PRIVATE decenza_dialingblockslib decenza_aiproviderlib decenza_shotlib)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
@@ -1231,12 +1238,10 @@ add_decenza_test(tst_recipepromotion
 # Compile the AI resource files (profile knowledge, dial-in reference,
 # claude agent) into the test binary so ShotSummarizer's KB loaders
 # find them silently during buildGrinderCalibrationBlock tests.
-qt_add_resources(TST_DIALING_BLOCKS_AI_RESOURCES
-    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_dialing_blocks
     tst_dialing_blocks.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
-    ${TST_DIALING_BLOCKS_AI_RESOURCES}
+    $<TARGET_OBJECTS:decenza_testairesources>
 )
 # The ShotRow fixtures use designated initializers; MSVC requires C++20 for them.
 # The shared PCH is built at the project's C++17, and clang refuses to reuse a PCH
@@ -1272,6 +1277,18 @@ add_decenza_test(tst_shotimportdedupe
 )
 target_link_libraries(tst_shotimportdedupe PRIVATE decenza_shotlib)
 target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_decentshotupload: Decent account link, ShotRecord payload, upload classes ---
+add_decenza_test(tst_decentshotupload
+    tst_decentshotupload.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/decentaccount.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/decentshotrecord.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/decentshotuploader.cpp
+    $<TARGET_OBJECTS:decenza_testairesources>
+)
+target_link_libraries(tst_decentshotupload PRIVATE decenza_shotlib)
+target_include_directories(tst_decentshotupload PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---
 add_decenza_test(tst_scaleprotocol
@@ -1590,9 +1607,7 @@ target_sources(tst_shotsummarizer PRIVATE ${PROFILES_QRC})
 # and a KB-dependent assertion fails for a reason that looks like a logic bug.
 # That has now cost two debugging rounds in this change; the binary carrying
 # ProfileManager should simply have the data ProfileManager reads.
-qt_add_resources(TST_PROFILEMANAGER_AI_RESOURCES
-    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
-target_sources(tst_profilemanager PRIVATE ${TST_PROFILEMANAGER_AI_RESOURCES})
+target_sources(tst_profilemanager PRIVATE $<TARGET_OBJECTS:decenza_testairesources>)
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

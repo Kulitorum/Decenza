@@ -22,7 +22,7 @@ QtObject {
         { id: "themes",         key: "settings.tab.themes",         fallback: "Themes",            source: "settings/SettingsThemesTab.qml",          loadSync: false, debugOnly: false },
         { id: "layout",         key: "settings.tab.layout",         fallback: "Layout",            source: "settings/SettingsLayoutTab.qml",          loadSync: false, debugOnly: false },
         { id: "screensaver",    key: "settings.tab.screensaver",    fallback: "Screensaver",       source: "settings/SettingsScreensaverTab.qml",     loadSync: false, debugOnly: false },
-        { id: "visualizer",     key: "settings.tab.visualizer",     fallback: "Visualizer",        source: "settings/SettingsVisualizerTab.qml",      loadSync: false, debugOnly: false },
+        { id: "visualizer",     key: "settings.tab.shotUpload",     fallback: "Shot Upload",        source: "settings/SettingsVisualizerTab.qml",      loadSync: false, debugOnly: false },
         { id: "ai",             key: "settings.tab.ai",             fallback: "AI",                source: "settings/SettingsAITab.qml",              loadSync: false, debugOnly: false },
         { id: "mqtt",           key: "settings.tab.mqtt",           fallback: "MQTT",              source: "settings/SettingsHomeAutomationTab.qml",  loadSync: false, debugOnly: false },
         { id: "languageAccess", key: "settings.tab.languageAccess.full", fallback: "Language & Access", source: "settings/SettingsLanguageTab.qml",        loadSync: false, debugOnly: false },

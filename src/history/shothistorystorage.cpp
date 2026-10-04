@@ -2275,6 +2275,49 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 42: per-shot Decent account upload state (add-decent-shot-upload).
+    // Nullable and unfilled: every existing shot starts "never uploaded". Schema
+    // facts — the uploader selects these columns by name — so the bump is gated
+    // on all of them being present.
+    if (currentVersion >= 41 && currentVersion < 42) {
+        query.finish();
+        static const QList<QPair<QString, QString>> kColumns = {
+            {QStringLiteral("decent_uploaded_at"), QStringLiteral("INTEGER")},
+            {QStringLiteral("decent_shot_id"), QStringLiteral("TEXT")},
+            {QStringLiteral("decent_serial"), QStringLiteral("TEXT")},
+            {QStringLiteral("decent_replace_pending"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+            {QStringLiteral("decent_rejected_status"), QStringLiteral("INTEGER")},
+            {QStringLiteral("decent_rejected_at"), QStringLiteral("INTEGER")},
+        };
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 42 decent upload columns", 1);
+        if (!txn.ok()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 42 could not start a transaction"
+                          " - will retry next launch";
+        } else {
+            bool ok = true;
+            for (const auto& [name, type] : kColumns) {
+                const std::optional<bool> present = columnPresent("shots", name);
+                if (!present.has_value()) { ok = false; break; }
+                if (!*present && !query.exec(QStringLiteral("ALTER TABLE shots ADD COLUMN %1 %2").arg(name, type))) {
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 42 add shots." << name
+                                                             << "failed -" << query.lastError().text();
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok)
+                ok = query.exec("DELETE FROM schema_version")
+                     && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (42)"));
+            if (ok && txn.commit()) {
+                currentVersion = 42;
+                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 42 complete";
+            } else {
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 42 incomplete - will retry next launch"
+                              " (Decent upload is unavailable until it completes)";
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -2886,6 +2929,101 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             else
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Async visualizer info update FAILED for shot" << shotId;
             emit visualizerInfoUpdated(shotId, success);
+        }, Qt::QueuedConnection);
+    });
+}
+
+// Shared by the two Decent state writes: one UPDATE on the DB thread, reported
+// through decentUploadStateUpdated.
+void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what,
+                                             std::function<bool(QSqlQuery&)> bindAndExec)
+{
+    if (!m_ready) { emit decentUploadStateUpdated(shotId, false); return; }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, destroyed, shotId, what, bindAndExec]() {
+        bool success = false;
+        const bool opened = withTempDb(dbPath, "shs_decent", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            success = bindAndExec(query);
+            if (!success)
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write failed for shot" << shotId
+                                                         << "-" << query.lastError().text();
+        });
+        if (!opened)
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write: could not open DB for shot" << shotId;
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+            if (*destroyed) return;
+            emit decentUploadStateUpdated(shotId, success);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial)
+{
+    runDecentStateWrite(shotId, "upload", [shotId, serverShotId, serial](QSqlQuery& q) {
+        if (!q.prepare("UPDATE shots SET decent_uploaded_at = strftime('%s', 'now'), decent_shot_id = :sid, "
+                       "decent_serial = :sn, decent_replace_pending = 0, decent_rejected_status = NULL, "
+                       "decent_rejected_at = NULL WHERE id = :id"))
+            return false;
+        q.bindValue(":sid", serverShotId);
+        q.bindValue(":sn", serial);
+        q.bindValue(":id", shotId);
+        return q.exec();
+    });
+}
+
+void ShotHistoryStorage::requestRecordDecentRejection(qint64 shotId, int httpStatus)
+{
+    runDecentStateWrite(shotId, "rejection", [shotId, httpStatus](QSqlQuery& q) {
+        if (!q.prepare("UPDATE shots SET decent_rejected_status = :status, decent_rejected_at = strftime('%s', 'now'), "
+                       "decent_replace_pending = 0 WHERE id = :id"))
+            return false;
+        q.bindValue(":status", httpStatus);
+        q.bindValue(":id", shotId);
+        return q.exec();
+    });
+}
+
+bool ShotHistoryStorage::loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out)
+{
+    QSqlQuery q(db);
+    if (!q.prepare("SELECT decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending, "
+                   "decent_rejected_status, decent_rejected_at FROM shots WHERE id = :id"))
+        return false;
+    q.bindValue(":id", shotId);
+    if (!q.exec() || !q.next()) return false;
+    out->uploadedAt = q.value(0).toLongLong();
+    out->serverShotId = q.value(1).toString();
+    out->serial = q.value(2).toString();
+    out->replacePending = q.value(3).toInt() != 0;
+    out->rejectedStatus = q.value(4).toInt();
+    out->rejectedAt = q.value(5).toLongLong();
+    return true;
+}
+
+void ShotHistoryStorage::requestDecentUploadState(qint64 shotId)
+{
+    if (!m_ready || shotId <= 0) return;
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, shotId, destroyed]() {
+        DecentUploadState state;
+        bool found = false;
+        withTempDb(dbPath, "shs_decentread", [&](QSqlDatabase& db) {
+            found = loadDecentUploadStateStatic(db, shotId, &state);
+        });
+        if (*destroyed || !found) return;
+        QMetaObject::invokeMethod(this, [this, shotId, state, destroyed]() {
+            if (*destroyed) return;
+            emit decentUploadStateReady(shotId, QVariantMap{
+                {QStringLiteral("uploaded"), state.uploaded()},
+                {QStringLiteral("serverShotId"), state.serverShotId},
+                {QStringLiteral("serial"), state.serial},
+                {QStringLiteral("rejected"), state.rejected()},
+                {QStringLiteral("rejectedStatus"), state.rejectedStatus},
+            });
         }, Qt::QueuedConnection);
     });
 }
@@ -4655,6 +4793,14 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // Present only on post-migration-39 sources; older ones resolve to
             // NULL, which reads back as "not recorded" rather than 1.0.
             const int idxFlowCalibration = srcRecord.indexOf("flow_calibration");
+            // Decent upload state (migration 42): carried so a migrated history is
+            // not uploaded again. Older sources resolve to NULL = never uploaded.
+            const int idxDecentUploadedAt = srcRecord.indexOf("decent_uploaded_at");
+            const int idxDecentShotId = srcRecord.indexOf("decent_shot_id");
+            const int idxDecentSerial = srcRecord.indexOf("decent_serial");
+            const int idxDecentReplacePending = srcRecord.indexOf("decent_replace_pending");
+            const int idxDecentRejectedStatus = srcRecord.indexOf("decent_rejected_status");
+            const int idxDecentRejectedAt = srcRecord.indexOf("decent_rejected_at");
             auto srcValueOrNull = [&srcShots](int idx) {
                 return idx >= 0 ? srcShots.value(idx) : QVariant();
             };
@@ -4690,8 +4836,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         bag_id, frozen_date, defrost_date, storage_hint, opened_date,
                         taste_balance, taste_body,
                         recipe_id, steam_json, hot_water_json,
-                        flow_calibration)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        flow_calibration,
+                        decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending,
+                        decent_rejected_status, decent_rejected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 // KEEP THE SHOT'S OWN ID wherever it is free.
@@ -4811,6 +4959,12 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxSteamJson));
                 insert.addBindValue(srcValueOrNull(idxHotWaterJson));
                 insert.addBindValue(srcValueOrNull(idxFlowCalibration));
+                insert.addBindValue(srcValueOrNull(idxDecentUploadedAt));
+                insert.addBindValue(srcValueOrNull(idxDecentShotId));
+                insert.addBindValue(srcValueOrNull(idxDecentSerial));
+                insert.addBindValue(srcValueOrNull(idxDecentReplacePending).toInt());
+                insert.addBindValue(srcValueOrNull(idxDecentRejectedStatus));
+                insert.addBindValue(srcValueOrNull(idxDecentRejectedAt));
 
                 if (!insert.exec()) {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import shot:" << insert.lastError().text();

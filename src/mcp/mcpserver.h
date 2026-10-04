@@ -115,7 +115,10 @@ struct PendingConfirmation {
 // broker host/port change, TLS off, or a new CA while an MQTT password is stored
 // (SettingsMqtt::passwordExposingChanges). settings_get adds the read-only mqttDeviceId, the
 // Home Assistant identity (the client ID is now per install). Not visible to the fingerprint below.
-inline constexpr const char* McpSurfaceVersion = "1.10.0";
+// 1.11.0: settings_get/settings_set gain simulatorSerialNumber — the serial the DE1 simulator
+// reports for this app run only (never saved), for testing Decent account uploads.
+// Not visible to the fingerprint below.
+inline constexpr const char* McpSurfaceVersion = "1.11.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";

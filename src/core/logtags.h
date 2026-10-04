@@ -95,6 +95,7 @@
 #define DECENZA_LOG_MARKER_PROFILES     "Profiles"
 #define DECENZA_LOG_MARKER_RECIPES      "Recipes"
 #define DECENZA_LOG_MARKER_VISUALIZER   "Visualizer"
+#define DECENZA_LOG_MARKER_DECENT       "Decent"
 #define DECENZA_LOG_MARKER_RUNTIME      "Runtime"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
@@ -109,6 +110,7 @@
     X(DECENZA_LOG_MARKER_PROFILES, "Profile loading, saving, conversion and import") \
     X(DECENZA_LOG_MARKER_RECIPES, "Recipe storage, activation, overrides and start refusals; scheduled profile reload remains under AutoLoad") \
     X(DECENZA_LOG_MARKER_VISUALIZER, "Visualizer uploads, imports and coffee-management synchronization") \
+    X(DECENZA_LOG_MARKER_DECENT, "Decent account (decentespresso.com): linking, sign-in state and shot uploads to the account. Separate from Visualizer, which is a different service") \
     X(DECENZA_LOG_MARKER_RUNTIME, "Framework and unattributed diagnostics, with supplied category and source location when available. Does not imply first-party source conformance") \
     X(DECENZA_LOG_MARKER_SCALE,                                                \
       "Scales: BLE, WiFi and USB drivers, their transports, and scale "         \

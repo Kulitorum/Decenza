@@ -1023,7 +1023,7 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Post-shot review auto-close
+                // Shot Review: the review page's timer and what happens around it
                 Rectangle {
                     objectName: "shotReviewTimer"
                     Layout.fillWidth: true
@@ -1038,11 +1038,18 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(10)
 
                         Text {
-                            text: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
+                            text: TranslationManager.translate("settings.machine.shotReview", "Shot Review")
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Text {
@@ -1053,8 +1060,6 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
-
-                        Item { Layout.fillHeight: true }
 
                         ValueInput {
                             id: postShotReviewInput
@@ -1077,7 +1082,61 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Item { Layout.fillHeight: true }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(2)
+                                Tr {
+                                    key: "settings.visualizer.editAfterShot"
+                                    fallback: "Edit After Shot"
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(14)
+                                }
+                                Tr {
+                                    Layout.fillWidth: true
+                                    key: "settings.machine.editAfterShotDesc"
+                                    fallback: "Open shot review page after each extraction"
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(12)
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            StyledSwitch {
+                                checked: Settings.visualizer.visualizerShowAfterShot
+                                accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
+                                onToggled: Settings.visualizer.visualizerShowAfterShot = checked
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(2)
+                                Tr {
+                                    key: "settings.visualizer.clearNotesOnStart"
+                                    fallback: "Clear Notes on Start"
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(14)
+                                }
+                                Tr {
+                                    Layout.fillWidth: true
+                                    key: "settings.visualizer.clearNotesOnStartDesc"
+                                    fallback: "Clear shot notes when starting a new shot"
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(12)
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            StyledSwitch {
+                                checked: Settings.visualizer.visualizerClearNotesOnStart
+                                accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
+                                onToggled: Settings.visualizer.visualizerClearNotesOnStart = checked
+                            }
+                        }
                     }
                 }
 

@@ -9,6 +9,7 @@
 
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
+#include "accountlink.h"
 
 #include <QtQmlIntegration/qqmlintegration.h>
 // Profile and ShotDataModel are INCLUDED, not forward-declared, because they appear as pointer
@@ -103,6 +104,7 @@ class VisualizerUploader : public QObject {
     Q_PROPERTY(bool uploading READ isUploading NOTIFY uploadingChanged)
     Q_PROPERTY(QString lastUploadStatus READ lastUploadStatus NOTIFY lastUploadStatusChanged)
     Q_PROPERTY(QString lastShotUrl READ lastShotUrl NOTIFY lastShotUrlChanged)
+    Q_PROPERTY(bool connecting READ connecting NOTIFY connectingChanged)
 
 public:
     explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
@@ -165,14 +167,18 @@ public:
         const QVariant& baseShot,
         const QVariantMap& overrides);
 
-    // Test connection with current credentials
-    Q_INVOKABLE void testConnection();
+    // Checks the credentials against visualizer.coffee and saves them only if
+    // they work; connecting switches Visualizer on. Answers with
+    // accountConnectFinished.
+    Q_INVOKABLE void connectAccount(const QString& username, const QString& password);
+    Q_INVOKABLE void disconnectAccount();
+    bool connecting() const { return m_connecting; }
 
     // --- Visualizer Coffee Management sync (bean-bag-inventory) ---
     // CM state is probed at upload time with a single-field PATCH on our own
     // just-uploaded shot (spike-verified: 200 = CM on, 400 = param dropped =
     // CM off; bag CRUD is premium-gated, not CM-gated). Cached per session;
-    // testConnection() resets it so a toggle on visualizer.coffee converges
+    // connectAccount() resets it so a toggle on visualizer.coffee converges
     // on the next upload.
     enum class CmState { Unknown, Active, NoCoffeeManagement, PremiumNoCm };
     CmState cmState() const { return m_cmState; }
@@ -186,7 +192,7 @@ public:
     // upload). When the bag has a roaster name, re-resolves the roaster by that
     // name so a rename re-points roaster_id; with no roaster name it PATCHes the
     // descriptive fields alone. Caller (MainController) gates on
-    // visualizerAutoUpdate and only invokes this for Visualizer-stored field
+    // visualizerActive + upload autoUpdate and only invokes this for Visualizer-stored field
     // edits (CoffeeBagStorage::bagVisualizerFieldsChanged).
     Q_INVOKABLE void updateBagOnVisualizer(qint64 localBagId);
 
@@ -267,7 +273,8 @@ signals:
     // migration-16 drain is safe by construction: it listens only to the
     // PATCH-correlated updateFailed, which upload-policy skips never emit.
     void uploadSkipped(const QString& reason);
-    void connectionTestResult(bool success, const QString& message);
+    void accountConnectFinished(AccountLink::Error error);
+    void connectingChanged();
     // A bag edit-push was rejected by server validation (HTTP 422 — e.g. the
     // renamed bag collides with an existing roaster+name+roast_date, or the
     // defrost date precedes the frozen date). Definitive: not retried; local
@@ -289,7 +296,6 @@ signals:
 private slots:
     void onUploadFinished(QNetworkReply* reply);
     void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
-    void onTestFinished(QNetworkReply* reply);
 
 private:
     QByteArray buildShotJson(ShotDataModel* shotData,
@@ -456,6 +462,7 @@ private:
     DE1Device* m_device = nullptr;
     TranslationManager* m_translationManager = nullptr;
     bool m_uploading = false;
+    bool m_connecting = false;
     QString m_lastUploadStatus;
     QString m_lastShotUrl;
     // The local shots.id the in-flight upload is for; emitted with
