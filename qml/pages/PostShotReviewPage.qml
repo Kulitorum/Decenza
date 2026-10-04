@@ -2550,7 +2550,11 @@ T.Page {
                 shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
                 shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody
                 shotForAdvisor.enjoyment0to100 = postShotReviewPage.editEnjoyment
-                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
+                // Bound to a local, not a bare `(…)` line: a statement opening
+                // with `(` gets no semicolon inserted, so it called the line
+                // above as a function and the button did nothing.
+                const overlay = conversationOverlayLoader.ensure() as ConversationOverlay
+                overlay?.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
             }
         }
 
