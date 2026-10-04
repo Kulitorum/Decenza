@@ -34,6 +34,10 @@ A shot that a destination already holds SHALL be updated there, never uploaded a
 - **WHEN** a shot's first upload is in flight and the same shot is uploaded again
 - **THEN** the second request is sent after the first completes and updates the copy the first created
 
+#### Scenario: Shot deleted on Visualizer
+- **WHEN** a shot's Visualizer copy was deleted and the user uploads it
+- **THEN** the PATCH's 404 clears the dead link and the shot is uploaded again
+
 ### Requirement: One shot at a time per destination
 
 Each destination SHALL receive one shot at a time; shots arriving while a request is out SHALL wait in that destination's queue and be sent in order.
@@ -44,12 +48,16 @@ Each destination SHALL receive one shot at a time; shots arriving while a reques
 
 ### Requirement: Review-page edits are sent once, on close
 
-While the post-shot review page has a shot open, its field-by-field saves SHALL NOT each be sent; the edits SHALL be sent once when the page closes, if any were made since it opened or since the user last tapped Upload, and only to destinations already holding the shot.
+While the post-shot review page has a shot open, its own field-by-field saves SHALL NOT each be sent; they SHALL be sent once when the page closes, if any were made since it opened or since the user last tapped Upload, and only to destinations already holding the shot. Edits to that shot from anywhere else SHALL still be sent at once.
 
 #### Scenario: Several edits, then close
 - **WHEN** the user changes the rating, notes and dose on the review page and closes it, with automatic update on
 - **THEN** each destination holding the shot receives one update
 
 #### Scenario: Upload, then close without editing
-- **WHEN** the user taps Upload and then closes the page without further edits
+- **WHEN** the user taps Upload (with an unsaved edit or not) and then closes the page without further edits
 - **THEN** nothing more is sent
+
+#### Scenario: Edit from elsewhere while the page is open
+- **WHEN** an MCP tool edits the shot while its review page is open, with automatic update on
+- **THEN** each destination holding the shot is updated at once

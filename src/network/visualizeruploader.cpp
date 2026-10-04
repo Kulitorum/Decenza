@@ -96,8 +96,10 @@ bool VisualizerUploader::isActive() const
 
 void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
 {
-    if (busy() || shotId <= 0 || !m_storage) return;
+    if (busy()) return;
+    if (shotId <= 0 || !m_storage) { notifyIdle(); return; }
     m_jobShotId = shotId;
+    m_jobHow = how;
     const QString dbPath = m_storage->databasePath();
     QPointer<VisualizerUploader> self(this);
     m_storage->runAfterQueuedWrites([self, dbPath, shotId, how]() {
@@ -108,37 +110,54 @@ void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
         });
         QMetaObject::invokeMethod(qApp, [self, shot, shotId, how]() {
             if (!self) return;
+            bool sent = false;
             if (!shot.visualizerId.isEmpty()) {
                 self->m_jobVisualizerId = shot.visualizerId;
-                self->updateShotOnVisualizer(shot.visualizerId, shot);
+                sent = self->updateShotOnVisualizer(shot.visualizerId, shot);
             } else if (how == Send::UploadOrUpdate) {
-                self->uploadShotFromHistory(shot);
+                sent = self->uploadShotFromHistory(shot);
             }
-            // Nothing went out (not on Visualizer yet, ineligible, unreadable).
-            if (!self->m_uploading) self->endJob(shotId);
+            if (!sent) self->endJob(shotId);
         }, Qt::QueuedConnection);
     });
+}
+
+bool VisualizerUploader::holdsShot(QSqlDatabase& db, qint64 shotId) const
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral("SELECT visualizer_id FROM shots WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), shotId);
+    return query.exec() && query.next() && !query.value(0).toString().isEmpty();
+}
+
+void VisualizerUploader::noteJobFailure(const QString& message, const QString& visualizerId)
+{
+    if (m_jobShotId != 0 && (visualizerId.isEmpty() || visualizerId == m_jobVisualizerId))
+        m_jobError = message;
 }
 
 void VisualizerUploader::endJob(qint64 shotId)
 {
     if (m_jobShotId == 0 || m_jobShotId != shotId) return;
+    const QString error = m_jobError, skipReason = m_jobSkipReason;
     m_jobShotId = 0;
     m_jobVisualizerId.clear();
+    m_jobError.clear();
+    m_jobSkipReason.clear();
+    emit savedShotFinished(shotId, error, skipReason);
     notifyIdle();
 }
 
-void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
+bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 {
     if (!shotData.isValid()) {
-        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
-        return;
+        const QString message = tr_("visualizer.upload.noShotData", "No shot data available");
+        noteJobFailure(message);
+        emit uploadFailed(message);
+        return false;
     }
-    QString beverageType;
-    if (!shotData.profileJson.isEmpty())
-        beverageType = QJsonDocument::fromJson(shotData.profileJson.toUtf8()).object()["beverage_type"].toString();
-    if (!validateUpload(beverageType, shotData.durationSec))
-        return;
+    if (!validateUpload(shotData))
+        return false;
 
     // de1app sends its whole ::DE1 array here; these are the key fields, read at upload time.
     QJsonObject machineState;
@@ -152,14 +171,15 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
     sendUpload(buildHistoryShotJson(shotData, false, machineState));
+    return true;
 }
 
-void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
+bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
         emit updateFailed(visualizerId, false, "No visualizer ID for update");
-        return;
+        return false;
     }
 
     // Check credentials
@@ -169,9 +189,10 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     if (username.isEmpty() || password.isEmpty()) {
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
+        noteJobFailure(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"), visualizerId);
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
-        return;
+        return false;
     }
 
     m_uploading = true;
@@ -305,6 +326,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerId]() {
         onUpdateFinished(reply, visualizerId);
     });
+    return true;
 }
 
 void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& visualizerId)
@@ -340,6 +362,7 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        noteJobFailure(errorMsg, visualizerId);
         emit uploadFailed(errorMsg);
         // 404 is the one terminal outcome: the shot is gone from (or was
         // never on) Visualizer, so no retry can ever succeed. Everything
@@ -351,7 +374,21 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     }
 
     reply->deleteLater();
-    if (!m_jobVisualizerId.isEmpty() && visualizerId == m_jobVisualizerId) endJob(m_jobShotId);
+    if (m_jobVisualizerId.isEmpty() || visualizerId != m_jobVisualizerId) return;
+    if (statusCode == 404) {
+        // Deleted on visualizer.coffee: drop the dead link, and upload the shot again
+        // if the job was an upload. The clear is queued before the re-read.
+        const qint64 shotId = m_jobShotId;
+        m_storage->requestClearStaleVisualizerLink(shotId, visualizerId);
+        if (m_jobHow == Send::UploadOrUpdate) {
+            m_jobShotId = 0;
+            m_jobVisualizerId.clear();
+            m_jobError.clear();
+            sendSavedShot(shotId, Send::UploadOrUpdate);
+            return;
+        }
+    }
+    endJob(m_jobShotId);
 }
 
 void VisualizerUploader::connectAccount(const QString& username, const QString& password)
@@ -449,6 +486,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit lastUploadStatusChanged();
             DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
                 .arg(diagnosticShotId).arg(statusCode);
+            noteJobFailure(m_lastUploadStatus);
             emit uploadFailed(m_lastUploadStatus);
         }
     } else {
@@ -485,6 +523,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        noteJobFailure(errorMsg);
         emit uploadFailed(errorMsg);
         DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: shotId=%1 httpStatus=%2 networkError=%3")
             .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()));
@@ -492,9 +531,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
     // Clear the per-upload id on every terminal outcome (success,
     // no-id, or failure) so a subsequent upload can't inherit a stale
-    // correlation. Safe because callers never overlap uploads (see the
-    // m_uploadingDbShotId note in the header) — m_uploading is UI-only,
-    // not a concurrency guard.
+    // correlation. ShotUploads never overlaps uploads; m_uploading is UI-only.
     m_uploadingDbShotId = 0;
     reply->deleteLater();
     endJob(diagnosticShotId);
@@ -1142,10 +1179,12 @@ QString VisualizerUploader::authHeader() const
                                                m_settings->value("visualizer/password", "").toString()));
 }
 
-bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
+bool VisualizerUploader::validateUpload(const ShotProjection& shot)
 {
     const double minDuration = m_settings->upload()->minDuration();
-    const UploadIneligible ineligible = uploadIneligibility(beverageType, duration, minDuration);
+    const QString beverageType = uploadBeverageType(shot);
+    const double duration = shot.durationSec;
+    const UploadIneligible ineligible = uploadIneligibility(shot, minDuration);
     if (ineligible == UploadIneligible::Maintenance) {
         const QString reason = tr_("visualizer.skip.maintenance", "maintenance profile (%1)").arg(beverageType);
         m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
@@ -1155,6 +1194,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         // treat uploadFailed as a real failure. The page wraps the reason
         // with a translated "Upload skipped:" prefix; emit just the reason
         // payload so the C++ "Skipped:" prefix doesn't double up.
+        m_jobSkipReason = reason;
         emit uploadSkipped(reason);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Skipping upload for maintenance profile:" << beverageType;
         return false;
@@ -1166,6 +1206,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     if (username.isEmpty() || password.isEmpty()) {
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
+        noteJobFailure(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         return false;
     }
@@ -1176,6 +1217,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         emit lastUploadStatusChanged();
         // Policy skip, not an error — see uploadSkipped rationale on the
         // maintenance branch above. Emit just the reason payload.
+        m_jobSkipReason = reason;
         emit uploadSkipped(reason);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Shot too short, not uploading";
         return false;
@@ -1446,7 +1488,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
         finalWeight = waterDispensedData.last().y();  // actual ml (normalized at import)
     if (shotData.doseWeightG > 0) meta["in"] = shotData.doseWeightG;
     if (finalWeight > 0) meta["out"] = finalWeight;
-    // The last sample's time, as the live upload sent it.
+    // The last sample's time.
     if (!pressureData.isEmpty()) meta["time"] = pressureData.last().x();
 
     root["meta"] = meta;
@@ -1685,9 +1727,9 @@ void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, cons
 {
     // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
     // Management). The DYE-metadata PATCH (updateShotOnVisualizer) also carries
-    // the canonical, but only fires when there's metadata (rating/notes) to send
-    // — so this guarantees a known coffee links even on a bare, no-bag shot. Same
-    // value as that path, so a double-send is idempotent.
+    // the canonical, but only goes out when the shot is edited — so this
+    // guarantees a known coffee links even on a shot nobody edits. Same value as
+    // that path, so a double-send is idempotent.
     QJsonObject shotObj{{QStringLiteral("canonical_coffee_bag_id"), canonicalId}};
     QJsonObject root{{QStringLiteral("shot"), shotObj}};
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);

@@ -1778,6 +1778,7 @@ QString accountLinkMessage(AccountLink::Error error) {
     case AccountLink::Error::Rejected: return QStringLiteral("Email or password not accepted");
     case AccountLink::Error::Unreachable: return QStringLiteral("Could not reach the server - check the connection");
     case AccountLink::Error::ServerError: return QStringLiteral("The server answered with an error - try again later");
+    case AccountLink::Error::Cancelled: return QStringLiteral("Disconnected while connecting");
     }
     return QString();
 }

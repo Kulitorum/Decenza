@@ -110,6 +110,7 @@ void DecentAccount::unlink() {
         pending->deleteLater();
         emit busyChanged();
         DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled";
+        emit linkFinished(AccountLink::Error::Cancelled);
     }
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();

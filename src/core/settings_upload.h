@@ -4,8 +4,7 @@
 #include "appsettings.h"
 
 // When and what to upload automatically, shared by the upload destinations; each
-// has only its own switch and account. Visualizer reads it today, the Decent
-// account from Stage 2 of add-decent-shot-upload.
+// has only its own switch and account. ShotUploads applies it for both.
 class SettingsUpload : public QObject {
     Q_OBJECT
 

@@ -14,6 +14,7 @@ enum class Error {
     Rejected,     // the server refused the credentials
     Unreachable,  // no answer at all (offline, timeout, DNS)
     ServerError,  // an answer, but an error or not one the API gives
+    Cancelled,    // disconnected while connecting
 };
 Q_ENUM_NS(Error)
 }

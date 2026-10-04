@@ -185,7 +185,7 @@ The post-shot review page (which owns uploading; the shot detail page stays read
 
 ### Requirement: Web and MCP settings parity
 
-The ShotServer settings page SHALL let the user link and unlink the Decent account, switch Decent and Visualizer on and off, change the shared Upload settings, and see the account state. MCP `settings_get` / `settings_set` SHALL expose both destination switches (`visualizerEnabled`, `decentEnabled`), the shared Upload settings (`uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`), and the read-only `decentAccountState` and `decentEmail`. On the web, Connect SHALL verify an account through the same code the app uses before saving it. Neither surface SHALL expose the encrypted password; the web page shows no account names or passwords.
+The ShotServer settings page SHALL let the user link and unlink the Decent account, switch Decent and Visualizer on and off, change the shared Upload settings, and see the account state. MCP `settings_get` / `settings_set` SHALL expose both destination switches (`visualizerEnabled`, `decentEnabled`), the shared Upload settings (`uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`), and the read-only `decentAccountState`. On the web, Connect SHALL verify an account through the same code the app uses before saving it. Neither surface SHALL expose the encrypted password, a password or an account name.
 
 #### Scenario: Switch Decent on from the web
 - **WHEN** the user switches Decent on from the ShotServer settings page

@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+class QSqlDatabase;
 class SettingsUpload;
 class ShotHistoryStorage;
 
@@ -19,8 +20,9 @@ class ShotHistoryStorage;
 //  - an edit (ShotHistoryStorage::shotMetadataUpdated), when automatic update
 //    is on: only destinations already holding the shot are updated.
 //  - uploadNow: the Upload button, the layout action and MCP.
-//  - holdUpdates/releaseUpdates: the review page saves on every field, so
-//    while it is open its edits are collected and sent once when it closes.
+//  - holdUpdates/expectHeldEdit/releaseUpdates: the review page saves on every
+//    field, so while it is open ITS saves are collected and sent once when it
+//    closes. Edits from anywhere else still go out at once.
 class ShotUploads : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -37,10 +39,15 @@ public:
 
     // Names of the destinations switched on and connected.
     QStringList activeDestinations() const;
-    // Those an edit is sent to now: none while automatic update is off.
-    QStringList autoUpdateDestinations() const;
+    // Names of the destinations already holding the shot. Reads only `db`, so it
+    // runs on a worker thread.
+    QStringList destinationsHolding(QSqlDatabase& db, qint64 shotId) const;
+    // Of `holding`, those an edit is sent to now: none while automatic update is off.
+    QStringList autoUpdateDestinations(const QStringList& holding) const;
 
     Q_INVOKABLE void holdUpdates(qint64 shotId);
+    // The holding page is about to save the shot; that save waits for release.
+    Q_INVOKABLE void expectHeldEdit(qint64 shotId);
     Q_INVOKABLE void releaseUpdates(qint64 shotId);
 
 private:
@@ -57,6 +64,10 @@ private:
     SettingsUpload* m_settings;
     QList<ShotUploadDestination*> m_destinations;
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
-    // Held shot -> edited since it was held.
-    QHash<qint64, bool> m_held;
+    struct Held {
+        bool edited = false;   // a page save to send on release
+        int pending = 0;       // page saves whose shotMetadataUpdated is still to come
+        int uploaded = 0;      // of those, how many an uploadNow already took
+    };
+    QHash<qint64, Held> m_held;
 };

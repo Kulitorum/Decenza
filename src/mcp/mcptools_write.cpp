@@ -236,8 +236,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // bad shot id. The old message told the model to "check the id
                 // with shots_list" — against a database shots_list cannot reach
                 // either, so the advice could only send it in a circle.
+                QStringList holding;
                 const bool opened = withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
+                    if (ok && shotUploads) holding = shotUploads->destinationsHolding(db, shotId);
                 });
 
                 QJsonObject result;
@@ -260,7 +262,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                       "Check the id with shots_list.";
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok, shotUploads]() mutable {
+                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok, shotUploads, holding]() mutable {
                     if (ok) {
                         // Same notification the in-process edit path emits. ShotUploads
                         // takes it from here: with automatic update on, every active
@@ -268,7 +270,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         emit shotHistory->historyDataChanged();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
                         if (shotUploads)
-                            result["autoUpdateTo"] = QJsonArray::fromStringList(shotUploads->autoUpdateDestinations());
+                            result["autoUpdateTo"] = QJsonArray::fromStringList(shotUploads->autoUpdateDestinations(holding));
                     }
                     respond(result);
                 }, Qt::QueuedConnection);
@@ -284,8 +286,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "shots_upload",
         "Upload a shot to every upload destination that is switched on and connected "
         "(Visualizer, the Decent account). A shot already uploaded is updated there, never "
-        "duplicated. Rejected upfront for a maintenance profile or a shot shorter than "
-        "uploadMinDurationSec.",
+        "duplicated. A maintenance shot or one shorter than uploadMinDurationSec is refused "
+        "unless a destination already holds it.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -316,25 +318,25 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([dbPath, shotId, respond, settings, shotUploads, destinations]() {
                 ShotProjection shot;
+                QStringList holding;
                 withTempDb(dbPath, "mcp_upload", [&](QSqlDatabase& db) {
                     shot = ShotHistoryStorage::convertShotRecord(
                         ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+                    holding = shotUploads->destinationsHolding(db, shotId);
                 });
-                QMetaObject::invokeMethod(qApp, [respond, shotId, shot, settings, shotUploads, destinations]() {
+                QMetaObject::invokeMethod(qApp, [respond, shotId, shot, settings, shotUploads, destinations, holding]() {
                     if (!shot.isValid()) {
                         respond(QJsonObject{{"error", QString("Shot %1 not found").arg(shotId)}});
                         return;
                     }
                     // The uploaders check this too; checking first lets the caller tell a
-                    // policy refusal from a request that may still fail on the network.
-                    QString beverageType;
-                    if (!shot.profileJson.isEmpty())
-                        beverageType = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object()["beverage_type"].toString();
+                    // policy refusal from a request that may still fail on the network. A
+                    // shot a destination already holds is still sent: it updates there.
                     const double minDuration = settings->upload()->minDuration();
-                    switch (uploadIneligibility(beverageType, shot.durationSec, minDuration)) {
+                    switch (holding.isEmpty() ? uploadIneligibility(shot, minDuration) : UploadIneligible::None) {
                     case UploadIneligible::Maintenance:
                         respond(QJsonObject{{"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded")
-                                                          .arg(shotId).arg(beverageType)}});
+                                                          .arg(shotId).arg(uploadBeverageType(shot))}});
                         return;
                     case UploadIneligible::TooShort:
                         respond(QJsonObject{{"error", QString("Shot %1 too short (%2s < %3s); not uploaded")

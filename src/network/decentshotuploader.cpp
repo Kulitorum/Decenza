@@ -52,12 +52,21 @@ bool DecentShotUploader::isActive() const {
     return m_account->uploadsActive();
 }
 
+bool DecentShotUploader::holdsShot(QSqlDatabase& db, qint64 shotId) const {
+    DecentUploadState state;
+    return ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &state) && state.uploaded();
+}
+
 void DecentShotUploader::noteEdited(qint64 shotId) {
+    // An edit during this shot's own upload may not be in the body that went out.
+    if (m_uploading && m_current.shotId == shotId) m_editedInFlight = true;
     m_storage->requestMarkDecentReplacePending(shotId);
 }
 
 void DecentShotUploader::sendSavedShot(qint64 shotId, Send how) {
-    if (m_uploading || shotId <= 0) return;
+    if (m_uploading) return;
+    if (shotId <= 0) { notifyIdle(); return; }
+    m_editedInFlight = false;
     m_current = Prepared{};
     m_current.shotId = shotId;
     m_uploading = true;
@@ -92,7 +101,7 @@ void DecentShotUploader::sendSavedShot(qint64 shotId, Send how) {
                 return;
             }
             const ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
-            switch (uploadIneligibility(shot.beverageType, shot.durationSec, minDuration)) {
+            switch (uploadIneligibility(shot, minDuration)) {
             case UploadIneligible::Maintenance: p.error = Result::Maintenance; return;
             case UploadIneligible::TooShort: p.error = Result::TooShort; return;
             case UploadIneligible::None: break;
@@ -195,7 +204,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
             finish(Result::NotReplaced, status);
             return;
         }
-        m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial);
+        m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial, m_editedInFlight);
         const QString how = duplicate ? QStringLiteral(" (already on the server)")
                             : m_current.replace ? QStringLiteral(" (replace)") : QString();
         DIAG_INFO(DECENT, "DecentShotUploader") << QStringLiteral("shot %1 uploaded%2, serial %3, server id %4")

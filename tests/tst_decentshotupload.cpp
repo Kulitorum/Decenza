@@ -44,6 +44,7 @@ struct FakeDestination : ShotUploadDestination {
     QString name() const override { return label; }
     bool isActive() const override { return active; }
     bool busy() const override { return inFlight; }
+    bool holdsShot(QSqlDatabase&, qint64) const override { return false; }
     void sendSavedShot(qint64 shotId, Send how) override {
         sent.append({shotId, how});
         inFlight = true;
@@ -328,7 +329,7 @@ private slots:
         Rig rig(m_dir.filePath("upload.db"));
         QVERIFY(rig.shotId > 0);
         rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-1"})"}};
-        // Recording an upload must never read as a user edit (Stage 2 replaces on edits).
+        // Recording an upload must never read as a user edit (ShotUploads re-sends on edits).
         QSignalSpy edits(&rig.storage, &ShotHistoryStorage::shotMetadataUpdated);
 
         QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
@@ -341,6 +342,18 @@ private slots:
         QCOMPARE(rig.nam.requests.at(0).rawHeader("Authorization"), basic("owner@example.com", "token"));
         QCOMPARE(rig.nam.requests.at(0).header(QNetworkRequest::ContentTypeHeader).toString(), QStringLiteral("application/json"));
         QCOMPARE(rig.sentDocument(0)["machine"].toObject()["model"].toString(), QStringLiteral("DE1PRO"));
+
+        // An edit made while an upload is out may not be in it: it stays pending.
+        {
+            rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-1"})"}};
+            QSignalSpy finished(&rig.uploader, &DecentShotUploader::uploadFinished);
+            rig.uploader.sendSavedShot(rig.shotId, ShotUploadDestination::Send::UploadOrUpdate);
+            rig.uploader.noteEdited(rig.shotId);
+            QVERIFY(finished.wait(5000));
+            QVERIFY(rig.state().replacePending);
+            rig.nam.requests.removeLast();
+            rig.nam.bodies.removeLast();
+        }
 
         // Re-sending while another machine is connected replaces under the first serial.
         rig.serial = QStringLiteral("9999");
@@ -486,7 +499,10 @@ private slots:
         QVERIFY(!account.busy());
         QCoreApplication::processEvents();   // the canned reply would finish now
 
-        QVERIFY(finished.isEmpty());
+        // Exactly one answer, the cancel: a caller waiting on it is never left hanging,
+        // and the late reply does not answer again or re-link.
+        QCOMPARE(finished.size(), 1);
+        QCOMPARE(finished.first().at(0).value<AccountLink::Error>(), AccountLink::Error::Cancelled);
         QCOMPARE(account.state(), DecentAccount::State::NotLinked);
         QVERIFY(!settings.enabled());
     }
@@ -569,26 +585,34 @@ private slots:
         FakeDestination destination(QStringLiteral("visualizer"));
         ShotUploads uploads(&upload, &storage, {&destination});
 
+        // The page's own saves are held and go out once, on release.
         uploads.holdUpdates(8);
+        uploads.expectHeldEdit(8);
+        uploads.expectHeldEdit(8);
         emit storage.shotMetadataUpdated(8, true);
         emit storage.shotMetadataUpdated(8, true);
         QVERIFY(destination.sent.isEmpty());
         QCOMPARE(destination.edited.size(), 2);
-        uploads.releaseUpdates(8);
+        // An edit from elsewhere (MCP, ShotServer) is not the page's: it goes out now.
+        emit storage.shotMetadataUpdated(8, true);
         QCOMPARE(destination.sent, QList<Sent>{Sent(8, Send::UpdateOnly)});
+        uploads.releaseUpdates(8);
+        QCOMPARE(destination.sent, (QList<Sent>{Sent(8, Send::UpdateOnly), Sent(8, Send::UpdateOnly)}));
 
-        // Uploading from the page takes the edits so far; closing then sends nothing.
+        // Upload takes the page's saves so far, even one whose write is still out;
+        // closing then sends nothing more.
+        destination.sent.clear();
         uploads.holdUpdates(9);
-        emit storage.shotMetadataUpdated(9, true);
+        uploads.expectHeldEdit(9);
         uploads.uploadNow(9);
+        emit storage.shotMetadataUpdated(9, true);
         uploads.releaseUpdates(9);
-        QCOMPARE(destination.sent.last(), Sent(9, Send::UploadOrUpdate));
-        QCOMPARE(destination.sent.size(), 2);
+        QCOMPARE(destination.sent, QList<Sent>{Sent(9, Send::UploadOrUpdate)});
 
         // Closing without an edit sends nothing.
         uploads.holdUpdates(10);
         uploads.releaseUpdates(10);
-        QCOMPARE(destination.sent.size(), 2);
+        QCOMPARE(destination.sent.size(), 1);
 
         upload.setAutoUpdate(autoUpdate);
     }

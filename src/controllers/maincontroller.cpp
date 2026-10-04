@@ -4542,9 +4542,9 @@ void MainController::onShotEnded() {
     // helper; what follows is what only THIS shot can supply.
     ShotMetadata metadata = buildShotMetadataFromSettings();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
-    // The yield is NOT set here. It reaches the uploader as the finalWeight
-    // argument below — see ShotMetadata in visualizeruploader.h for why the
-    // struct deliberately has no drink-weight field.
+    // The yield is NOT set here: saveShot() takes it as the finalWeight
+    // argument — see ShotMetadata in visualizeruploader.h for why the struct
+    // deliberately has no drink-weight field.
     //
     // No enjoyment: a just-pulled shot has not been tasted, so it saves
     // unrated (ShotMetadata defaults to 0). See settings_dye.h.
@@ -4754,10 +4754,9 @@ void MainController::onShotEnded() {
              << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
-    // Auto-upload is dispatched from the shotSaved callback above (once
-    // the local shots.id is known) so the returned Visualizer id can be
-    // persisted to the right row from C++. Do NOT auto-upload here —
-    // before save the id is unknown and the upload would orphan.
+    // Auto-upload goes through ShotUploads::shotSaved from the shotSaved
+    // callback above, once the row exists. Do NOT upload here — before
+    // save there is no row to upload from or to link.
 
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.

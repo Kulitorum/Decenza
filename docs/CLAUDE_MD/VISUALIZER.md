@@ -25,8 +25,10 @@ Supported metadata fields:
   stored in the sample blob) or the device at upload time (`machine_state`).
 - **When**: decided by `ShotUploads` (`src/network/shotuploads.h`), shared with the Decent account.
   `VisualizerUploader` is a `ShotUploadDestination`: `sendSavedShot()` PATCHes a shot that has a
-  `visualizer_id` and uploads it otherwise, so a shot is never uploaded twice. Requests are one at a
-  time; do not call the upload or PATCH paths around it.
+  `visualizer_id` and uploads it otherwise, so a shot is never uploaded twice; a PATCH answered 404
+  (deleted on visualizer.coffee) clears the link and uploads afresh. Requests are one at a time; do
+  not call the upload or PATCH paths around it. The one exception is the migration-16 back-sync,
+  which PATCHes directly; a job never mistakes that PATCH for its own.
 
 **Optional series are omitted, never zero-filled.** `interpolateGoalData()`
 returns an array of zeros for an empty input vector, so an unguarded

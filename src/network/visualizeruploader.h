@@ -32,8 +32,8 @@ struct ShotMetadata {
     qint64 equipmentId = 0; // Equipment package (add-equipment-packages); 0 = none
     qint64 rpm = 0;         // Grinder rpm dial-in; 0 = unset
     double beanWeight = 0;  // Dose weight in grams
-    // No drinkWeight here on purpose. The yield is a per-shot MEASUREMENT, and
-    // it already travels as an explicit argument to uploadShot()/buildShotJson().
+    // No drinkWeight here on purpose. The yield is a per-shot MEASUREMENT, saved
+    // from saveShot()'s finalWeight argument; uploads read it from the row.
     // Carrying a second copy in this struct — which is otherwise sticky setup
     // state that outlives a shot — is what let the previous shot's yield reach
     // Visualizer. One source only.
@@ -116,6 +116,7 @@ public:
     QString name() const override { return QStringLiteral("visualizer"); }
     bool isActive() const override;
     bool busy() const override { return m_jobShotId != 0; }
+    bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
     void sendSavedShot(qint64 shotId, Send how) override;
 
     // Inject the TranslationManager so user-visible upload/status/error strings
@@ -124,9 +125,9 @@ public:
     // English fallback.
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
-    // PATCH an already-uploaded shot. Outside sendSavedShot only for the
-    // migration-16 back-sync, which carries its own visualizer id.
-    void updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
+    // PATCH an already-uploaded shot; false if nothing was sent. Outside
+    // sendSavedShot only for the migration-16 back-sync, which carries its own id.
+    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
 
     // Checks the credentials against visualizer.coffee and saves them only if
     // they work; connecting switches Visualizer on. Answers with
@@ -209,8 +210,8 @@ signals:
     void uploadSucceededForShot(qint64 dbShotId, const QString& visualizerId, const QString& url);
     void updateSuccess(const QString& visualizerId);
     void uploadFailed(const QString& error);
-    // Correlated failure for the PATCH path (updateShotOnVisualizer and
-    // its WithOverrides wrapper): carries the target visualizerId (empty
+    // Correlated failure for the PATCH path (updateShotOnVisualizer):
+    // carries the target visualizerId (empty
     // only on the no-id guard path) plus whether the failure is permanent
     // (HTTP 404 — the shot does not exist on Visualizer and never will),
     // so queue-drain listeners (MainController's migration16 sync, #1431)
@@ -224,6 +225,9 @@ signals:
     // migration-16 drain is safe by construction: it listens only to the
     // PATCH-correlated updateFailed, which upload-policy skips never emit.
     void uploadSkipped(const QString& reason);
+    // One sendSavedShot job is done: an empty error and skip reason mean it was
+    // uploaded, updated, or had nothing to send.
+    void savedShotFinished(qint64 shotId, const QString& error, const QString& skipReason);
     void accountConnectFinished(AccountLink::Error error);
     void connectingChanged();
     // A bag edit-push was rejected by server validation (HTTP 422 — e.g. the
@@ -249,9 +253,13 @@ private slots:
     void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
 
 private:
-    void uploadShotFromHistory(const ShotProjection& shotData);
+    // False if nothing was sent (unreadable or ineligible shot, no account).
+    bool uploadShotFromHistory(const ShotProjection& shotData);
     // Ends the sendSavedShot job for this shot, if it is the running one.
     void endJob(qint64 shotId);
+    // Records a failure as the running job's result; a PATCH failure only when it
+    // is the job's own (the migration-16 back-sync PATCHes outside jobs).
+    void noteJobFailure(const QString& message, const QString& visualizerId = QString());
 
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);
     QString authHeader() const;
@@ -262,7 +270,7 @@ private:
 
     static QJsonObject buildAppInfoJson();
     static QJsonObject buildProfileSettings(const Profile* profile);
-    bool validateUpload(const QString& beverageType, double duration);
+    bool validateUpload(const ShotProjection& shot);
     void sendUpload(const QByteArray& jsonData);
 
     // Paged reconciliation fetch: accumulates results across pages,
@@ -432,6 +440,9 @@ private:
     ShotHistoryStorage* m_storage = nullptr;
     // The shot sendSavedShot is working on; 0 when idle.
     qint64 m_jobShotId = 0;
+    Send m_jobHow = Send::UploadOrUpdate;
+    QString m_jobError;
+    QString m_jobSkipReason;
     // The visualizer id that job is PATCHing, so the migration-16 back-sync's
     // PATCH does not end it.
     QString m_jobVisualizerId;

@@ -644,7 +644,7 @@ or pass `keys:["…"]` to bypass categories entirely.
 | `dye` | `dyeBarista`, `dyeBeanBrand`, `dyeBeanType`, `dyeBeanWeight`, `dyeDrinkEy`, `dyeDrinkTds`, `dyeDrinkWeight`, `dyeGrinderBrand`, `dyeGrinderBurrs`, `dyeGrinderModel`, `dyeGrinderSetting`, `dyeRoastDate`, `dyeRoastLevel`, `dyeShotNotes` |
 | `mqtt` | `mqttEnabled`, `mqttBaseTopic`, `mqttBrokerHost`, `mqttBrokerPort`, `mqttClientId`, `mqttHomeAssistantDiscovery`, `mqttPublishInterval`, `mqttRetainMessages`, `mqttUsername` |
 | `themes` | `activeShader`, `activeThemeName`, `isDarkMode`, `themeNames` (mostly read-only metadata; write via `machine.themeMode`/`darkThemeName`/`lightThemeName`) |
-| `upload` | `visualizerEnabled`, `decentEnabled`, `uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`, `visualizerExtendedMetadata`, `decentAccountState`, `decentEmail` |
+| `upload` | `visualizerEnabled`, `decentEnabled`, `uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`, `visualizerExtendedMetadata`, `decentAccountState` |
 | `update` | `autoCheckUpdates`, `betaUpdatesEnabled` |
 | `data` | `dailyBackupHour`, `shotServerEnabled`, `shotServerPort`, `webSecurityEnabled` |
 | `history` | `shotHistorySortDirection`, `shotHistorySortField` |

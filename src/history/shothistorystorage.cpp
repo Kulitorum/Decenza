@@ -2971,16 +2971,18 @@ void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what, co
     });
 }
 
-void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial)
+void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial,
+                                                   bool stillPending)
 {
     runDecentStateWrite(shotId, "upload", "the shot is in the Decent account, but an edit will go as a new upload",
-                        [shotId, serverShotId, serial](QSqlQuery& q) {
+                        [shotId, serverShotId, serial, stillPending](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_uploaded_at = strftime('%s', 'now'), decent_shot_id = :sid, "
-                       "decent_serial = :sn, decent_replace_pending = 0, decent_rejected_status = NULL, "
+                       "decent_serial = :sn, decent_replace_pending = :pending, decent_rejected_status = NULL, "
                        "decent_rejected_at = NULL WHERE id = :id"))
             return false;
         q.bindValue(":sid", serverShotId);
         q.bindValue(":sn", serial);
+        q.bindValue(":pending", stillPending ? 1 : 0);
         q.bindValue(":id", shotId);
         return q.exec();
     });

@@ -317,13 +317,10 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("updateAutomatically", "upload")) result["updateAutomatically"] = settings->upload()->autoUpdate();
             if (include("uploadMinDurationSec", "upload")) result["uploadMinDurationSec"] = settings->upload()->minDuration();
             if (include("visualizerExtendedMetadata", "upload")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
-            if (mainController && mainController->decentAccount()) {
-                const DecentAccount* account = mainController->decentAccount();
-                if (include("decentAccountState", "upload"))
-                    result["decentAccountState"] = QString::fromLatin1(QMetaEnum::fromType<DecentAccount::State>().valueToKey(int(account->state())));
-                if (include("decentEmail", "upload")) result["decentEmail"] = account->email();
-            }
-            // Visualizer username/password and the Decent encrypted password excluded — sensitive
+            if (mainController && mainController->decentAccount() && include("decentAccountState", "upload"))
+                result["decentAccountState"] = QString::fromLatin1(QMetaEnum::fromType<DecentAccount::State>().valueToKey(
+                    int(mainController->decentAccount()->state())));
+            // Account names and passwords excluded — MCP is reachable remotely
             if (include("visualizerShowAfterShot", "machine")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
             if (include("visualizerClearNotesOnStart", "machine")) result["visualizerClearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
 

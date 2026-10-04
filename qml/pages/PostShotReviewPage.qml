@@ -292,19 +292,10 @@ T.Page {
     property bool _decentUploaded: false
     // visualizerId from DB, captured before any Object.assign strips Q_GADGET fields. Captured in onShotReady
     // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
-    // this page or from the shot-completion background uploader) so the "Re-Upload" button label,
-    // the auto-update PATCH gate, and the manual upload button all see a stable value after
-    // saveEditedShot replaces editShotData with a plain JS object.
+    // this page or from the shot-completion background uploader) so the "Re-Upload" button label
+    // and the Upload button's in-sync state see a stable value after saveEditedShot replaces
+    // editShotData with a plain JS object.
     property string _visualizerId: ""
-    // Track requests THIS page initiated so the shared VisualizerUploader signals
-    // (updateSuccess, uploadFailed) can be filtered. Without these guards an unrelated request
-    // (e.g. an MCP-triggered PATCH on the same visualizer record from a different session) would
-    // clear our uploadError and reset the in-flight flags for a foreign request, leaving the page
-    // in a spuriously clean state. updateSuccess carries a visualizerId string but no caller
-    // identity (the same cloud shot can be PATCHed concurrently from any session), and
-    // uploadFailed carries no identifier at all — the flags are the only reliable discriminator.
-    property bool _firstUploadInFlight: false
-    property bool _patchInFlight: false
 
     // Auto-close timer: return to idle after configured timeout
     // 0 = instant (handled in main.qml, never reaches this page)
@@ -468,7 +459,7 @@ T.Page {
             // No reload: a full loadShotForEditing() here would re-run
             // onShotReady, clobber an in-progress edit, and orphan the undo
             // stack (same race the metadata path avoids). The visualizer id is
-            // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
+            // refreshed in place by onUploadSucceededForShot below.
             if (!success)
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save visualizer info for shot", shotId].map(String).join(" "))
         }
@@ -873,6 +864,8 @@ T.Page {
         metadata["enjoyment"] = editEnjoyment
         metadata["tasteBalance"] = editTasteBalance
         metadata["tasteBody"] = editTasteBody
+        // Held while the page is open: this save reaches the destinations on close.
+        if (_heldShotId === editShotId) MainController.shotUploads.expectHeldEdit(editShotId)
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         runStickySync()
@@ -924,8 +917,6 @@ T.Page {
             pendingVisualizerUpdate = false
             uploadError = ""
             uploadSkipReason = ""
-            if (_visualizerId) _patchInFlight = true
-            else _firstUploadInFlight = true
         }
         if (Settings.decent.active) pendingDecentUpdate = false
         MainController.shotUploads.uploadNow(editShotId)
@@ -966,8 +957,6 @@ T.Page {
             // finish while the user is already on this page — without this handler
             // the new visualizer id would not be visible until the page reopens.
             if (dbShotId !== postShotReviewPage.editShotId) return
-            if (postShotReviewPage._firstUploadInFlight)
-                postShotReviewPage._firstUploadInFlight = false
             postShotReviewPage.uploadError = ""
             postShotReviewPage.uploadSkipReason = ""
             if (url) {
@@ -983,34 +972,11 @@ T.Page {
                 postShotReviewPage._visualizerId = visualizerId
             }
         }
-        function onUpdateSuccess(visualizerId) {
-            // updateSuccess carries no shot id. Filter on the in-flight flag we set
-            // before dispatching the PATCH; ignore PATCHes initiated elsewhere (MCP),
-            // which would otherwise clear uploadError and reset _patchInFlight for a
-            // request we did not dispatch — leaving the page spuriously "clean".
-            if (!postShotReviewPage._patchInFlight) return
-            postShotReviewPage._patchInFlight = false
-            postShotReviewPage.uploadError = ""
-            postShotReviewPage.uploadSkipReason = ""
-        }
-        function onUploadFailed(error) {
-            // Only surface and react when the failure belongs to a request we
-            // dispatched. Without this guard, an unrelated background upload failure
-            // would set uploadError on this page and leave our in-flight flag stuck.
-            if (!postShotReviewPage._firstUploadInFlight && !postShotReviewPage._patchInFlight) return
-            postShotReviewPage._firstUploadInFlight = false
-            postShotReviewPage._patchInFlight = false
+        // This shot's upload or update finished, from this page or any other trigger.
+        function onSavedShotFinished(shotId, error, skipReason) {
+            if (shotId !== postShotReviewPage.editShotId) return
             postShotReviewPage.uploadError = error
-        }
-        function onUploadSkipped(reason) {
-            // Policy rejection (maintenance profile, too-short shot). Clear the
-            // in-flight flag the same way onUploadFailed does, but populate the
-            // informational uploadSkipReason instead of uploadError so the page
-            // doesn't surface a red "Upload failed" string for a deliberate skip.
-            if (!postShotReviewPage._firstUploadInFlight && !postShotReviewPage._patchInFlight) return
-            postShotReviewPage._firstUploadInFlight = false
-            postShotReviewPage._patchInFlight = false
-            postShotReviewPage.uploadSkipReason = reason
+            postShotReviewPage.uploadSkipReason = skipReason
         }
     }
 
@@ -2533,16 +2499,15 @@ T.Page {
 
                 // Taste tapped in the advisor's intake flows back to this page at once so
                 // the rating slider + taste chips reflect it. The overlay already
-                // persisted the taps to the DB (and synced Visualizer via
-                // requestUpdateShotMetadata), so mirror them in without re-saving — the
+                // persisted the taps to the DB (requestUpdateShotMetadata, which the
+                // upload destinations follow), so mirror them in without re-saving — the
                 // same external-flow pattern as ChangeBeansDialog.onBagSelected. That
                 // means advancing BOTH baselines: editShotData (what hasUnsavedChanges
                 // compares against) as well as _committedState (the undo baseline). If we
                 // only advanced _committedState, hasUnsavedChanges would stay stuck true
                 // and the next lifecycle flush (backing out) would redundantly re-save,
-                // re-PATCH Visualizer, and push a phantom undo frame. No
-                // pendingVisualizerUpdate here — the overlay already synced. Empty axes
-                // are left untouched.
+                // re-send it to the upload destinations, and push a phantom undo frame.
+                // Empty axes are left untouched.
                 onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
                     var s = postShotReviewPage.captureEditState()
                     if (tasteBalance.length > 0) s.tasteBalance = tasteBalance

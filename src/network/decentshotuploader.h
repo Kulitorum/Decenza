@@ -76,6 +76,7 @@ public:
     QString name() const override { return QStringLiteral("decent"); }
     bool isActive() const override;
     bool busy() const override { return m_uploading; }
+    bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
     // An already-uploaded shot is re-sent with ?replace=1 under the serial it was
     // first uploaded with; a rejected shot is tried again.
     void sendSavedShot(qint64 shotId, Send how) override;
@@ -116,6 +117,8 @@ private:
     int m_retryDelayMs = 2000;
 
     bool m_uploading = false;
+    // The shot was edited while its upload was out, so the edit stays pending.
+    bool m_editedInFlight = false;
     Prepared m_current;
     int m_attempt = 0;
 

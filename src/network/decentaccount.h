@@ -44,7 +44,8 @@ public:
     bool uploadsActive() const;
     bool busy() const { return m_linkReply != nullptr; }
 
-    // The password is used for this one request and never stored.
+    // The password is used for this one request and never stored. Always ends
+    // with linkFinished, Cancelled if unlink() interrupts it.
     Q_INVOKABLE void link(const QString& email, const QString& password);
     Q_INVOKABLE void unlink();
     // Opens the account's machine page in the browser, signed in through a
