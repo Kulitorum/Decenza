@@ -355,7 +355,10 @@ T.Page {
     Connections {
         target: MainController.shotHistory
         function onDecentUploadStateReady(shotId, state) {
-            if (shotId === postShotReviewPage.editShotId) postShotReviewPage._decentUploaded = !!state.uploaded
+            if (shotId !== postShotReviewPage.editShotId) return
+            postShotReviewPage._decentUploaded = !!state.uploaded
+            // Decent kept an earlier copy (NotReplaced): the edit still has to reach it.
+            if (state.replacePending) postShotReviewPage.pendingDecentUpdate = true
         }
         function onDecentUploadStateUpdated(shotId, success) {
             if (shotId === postShotReviewPage.editShotId) MainController.shotHistory.requestDecentUploadState(shotId)
@@ -1011,11 +1014,13 @@ T.Page {
     }
 
     // Anything short of a stored upload leaves the edit pending, so Upload stays lit.
+    // Never cleared here: Upload clears it on tap, and an edit saved while the
+    // upload ran did not go with it.
     Connections {
         target: MainController.decentUploader
         function onUploadFinished(shotId, result) {
             if (shotId !== postShotReviewPage.editShotId) return
-            postShotReviewPage.pendingDecentUpdate = result !== DecentShotUploader.Result.Uploaded
+            if (result !== DecentShotUploader.Result.Uploaded) postShotReviewPage.pendingDecentUpdate = true
             if (AccessibilityManager.enabled && decentUploadStatus.text.length > 0)
                 AccessibilityManager.announce(decentUploadStatus.text, true)
         }

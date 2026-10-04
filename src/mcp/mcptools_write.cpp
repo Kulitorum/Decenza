@@ -1534,7 +1534,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 // Serials are numbers, so clients often send one unquoted.
                 const QJsonValue raw = args["simulatorSerialNumber"];
-                const QString v = raw.isDouble() ? QString::number(raw.toInteger()) : raw.toString();
+                const bool wholeNumber = raw.isDouble() && raw.toDouble() == double(raw.toInteger());
+                if (!raw.isString() && !wholeNumber) {
+                    respond(QJsonObject{{"error", "simulatorSerialNumber must be a string or a whole number - "
+                                                  "no settings were changed."}});
+                    return;
+                }
+                const QString v = raw.isString() ? raw.toString() : QString::number(raw.toInteger());
                 addSetter([device, v]() { device->setSimulatedSerialNumber(v); });
                 updated << "simulatorSerialNumber";
             }

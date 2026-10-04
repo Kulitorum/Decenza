@@ -38,9 +38,9 @@ public:
         NoMachine,       // first upload with no DE1 connected
         NotFound,        // the shot could not be loaded
         Rejected,        // permanent 4xx; recorded on the shot
-        NeedsSignIn,     // 401
+        NeedsSignIn,     // the stored credentials were refused (401), now or earlier
         NotRegistered,   // 403: the serial is not in the account
-        Failed,          // transport error / 408 / 429 / 5xx after the retries
+        Failed,          // a transient response (classify) on every attempt
     };
     Q_ENUM(Result)
 

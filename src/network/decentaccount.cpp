@@ -21,7 +21,8 @@ void openInBrowser(const QUrl& url) {
 
 // login_test's token is one short line; a captive portal's page is not.
 bool looksLikeToken(const QString& body) {
-    return body.size() <= 200 && !body.contains(QLatin1Char('<')) && !body.contains(QLatin1Char('\n'));
+    return body.size() <= 200 && !body.contains(QLatin1Char('<')) && !body.contains(QLatin1Char('{'))
+        && !body.contains(QLatin1Char('\n'));
 }
 }
 
@@ -104,6 +105,7 @@ void DecentAccount::unlink() {
         pending->abort();
         pending->deleteLater();
         emit busyChanged();
+        DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled";
     }
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();

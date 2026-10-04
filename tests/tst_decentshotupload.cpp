@@ -378,11 +378,11 @@ private slots:
         QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
         QCOMPARE(rig.nam.requests.size(), DecentShotUploader::kAttempts);
 
-        // A 2xx that is not the API's answer (a captive portal) stored nothing.
+        // A 2xx that is not the API's answer (a captive portal) stored nothing,
+        // and its body is logged once, not per attempt.
         rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
-        for (int i = 0; i < DecentShotUploader::kAttempts; ++i)
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's answer <html>"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts \\(HTTP 200 that is not"));
         QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
 
         rig.nam.replies = {{403, R"({"ok":false,"error":"not your machine"})"}};

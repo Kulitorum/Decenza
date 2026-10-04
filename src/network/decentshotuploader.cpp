@@ -23,11 +23,6 @@ DecentShotUploader::DecentShotUploader(QNetworkAccessManager* network, DecentAcc
     , m_account(account)
     , m_storage(storage)
 {
-    connect(m_storage, &ShotHistoryStorage::decentUploadStateUpdated, this, [this](qint64 shotId, bool ok) {
-        if (!ok && shotId == m_lastShotId && m_lastResult == Result::Uploaded)
-            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "is in the Decent account but Decenza could "
-                                                       "not record that; an edit will go as a new upload";
-    });
 }
 
 DecentShotUploader::ResponseClass DecentShotUploader::classify(int httpStatus, bool transportError) {
@@ -155,11 +150,13 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
 
     const QJsonObject json = QJsonDocument::fromJson(body).object();
     ResponseClass responseClass = classify(status, transportError);
+    QString why = status == 0 ? reply->errorString() : QStringLiteral("HTTP %1").arg(status);
     // A 2xx that is not the API's {"ok":true,...} — a captive portal's page, a
     // proxy, a changed API — has not stored anything.
     if (responseClass == ResponseClass::Success && !json.value(QStringLiteral("ok")).toBool()) {
-        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "HTTP" << status
-                                                << "answer is not the upload API's:" << QString::fromUtf8(body.left(300));
+        why = QStringLiteral("HTTP %1 that is not the upload API's answer").arg(status);
+        if (m_attempt == 1)
+            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << QString::fromUtf8(body.left(300));
         responseClass = ResponseClass::Transient;
     }
 
@@ -188,18 +185,19 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     }
     case ResponseClass::Transient:
         if (m_attempt < kAttempts) {
-            DIAG_DEBUG(DECENT, "DecentShotUploader") << "shot" << shotId << "attempt" << m_attempt << "failed (HTTP"
-                                                     << status << reply->errorString() << ") - retrying";
+            DIAG_DEBUG(DECENT, "DecentShotUploader") << "shot" << shotId << "attempt" << m_attempt
+                                                     << QStringLiteral("failed (%1), retrying").arg(why);
             QTimer::singleShot(m_retryDelayMs * m_attempt, this, &DecentShotUploader::send);
             return;
         }
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << kAttempts
-                                                << "attempts (HTTP" << status << reply->errorString() << ")";
+                                                << QStringLiteral("attempts (%1)").arg(why);
         finish(Result::Failed, status);
         return;
     case ResponseClass::AuthFailed:
         m_account->reportAuthFailure();
-        finish(Result::NeedsSignIn, status);
+        // Unlinked while the request was out: there is nothing to sign in to.
+        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked, status);
         return;
     case ResponseClass::NotRegistered:
         DIAG_WARN(DECENT, "DecentShotUploader") << "serial" << m_current.serial
@@ -233,6 +231,9 @@ void DecentShotUploader::finish(Result result, int httpStatus) {
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded:" << m_current.failure; break;
     case Result::NotLinked:
         DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: no Decent account linked"; break;
+    case Result::NeedsSignIn:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id
+                                                << "not uploaded: the Decent account needs signing in again"; break;
     case Result::Maintenance:
         DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: maintenance cycle"; break;
     case Result::TooShort:

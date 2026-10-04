@@ -104,11 +104,12 @@ The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage)
 
   Replacements are ordered first. Each id is loaded and serialized on a worker thread, then posted back queued; the POST itself is async on the main thread through the shared QNAM. After a batch of 5, the next batch is scheduled ≥30 s later. That is a periodic rate limit, which the timer rule allows; it is not a guard.
 - **Idle gate (Stage 3):** a boolean `m_machineBusy`, set from `MachineState::phaseChanged`. Busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport. Idle = Disconnected, Sleep, Idle, Heating, Ready. A transition to idle is a backlog trigger. Before each request the uploader checks the flag, and stops issuing when busy (event-based, per CLAUDE.md).
-- **Retry:** transport error, 408, 429 or 5xx → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
+- **Retry:** transport error, 404, 405, 408, 410, 429, 5xx, or a 2xx without `"ok":true` → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
   - 401 → `DecentAccount::reportAuthFailure()`, which persists `needsSignIn` and stops everything.
   - 403 → in-memory `m_pausedNotRegistered` with the serial; a status message names it; cleared on re-link or restart.
   - Other 4xx → `decent_rejected_status` and `decent_rejected_at`; clear `decent_replace_pending`.
-  - 2xx including `duplicate` → write `decent_uploaded_at`, `decent_shot_id` (server `id`, falling back to uuid), `decent_serial`; clear pending and rejection.
+  - 2xx with `"ok":true` on a first upload (including `duplicate`) → write `decent_uploaded_at`, `decent_shot_id` (server `id`, falling back to uuid), `decent_serial`; clear pending and rejection.
+  - A replace answered `duplicate` → the server kept its earlier copy: set `decent_replace_pending`, record nothing, report NotReplaced.
 - **Unlink or disable:** clear the queue, abort any queued-not-sent work, ignore a late reply's scheduling (its state write still lands, since it is true).
 - **MainController wiring:** constructs it with storage, account, settings domain, device and machine state, and connects the signals listed above.
 

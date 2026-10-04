@@ -103,8 +103,8 @@ KeyboardAwareContainer {
             id: uploadGrid
             width: uploadFlick.width
             columns: visualizerTab.wide ? 2 : 1
-            columnSpacing: Theme.scaled(15)
-            rowSpacing: Theme.scaled(15)
+            columnSpacing: Theme.spacingMedium
+            rowSpacing: Theme.spacingMedium
 
             UploadDestinationCard {
                 objectName: "visualizer"
@@ -142,7 +142,7 @@ KeyboardAwareContainer {
                     key: "settings.visualizer.signUp"
                     fallback: "Don't have an account? Sign up at visualizer.coffee"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.captionFont
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
 
@@ -156,7 +156,7 @@ KeyboardAwareContainer {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.scaled(6)
+                    Layout.topMargin: Theme.spacingSmall
                     Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
@@ -166,8 +166,7 @@ KeyboardAwareContainer {
                     key: "settings.visualizer.recoverTitle"
                     fallback: "Recover Shots from Visualizer"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
+                    font: Theme.subtitleFont
                 }
 
                 Tr {
@@ -175,24 +174,24 @@ KeyboardAwareContainer {
                     key: "settings.visualizer.recoverDesc"
                     fallback: "Import your uploaded shot history back into this device for a date range. Shots you already have are skipped."
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.captionFont
                     wrapMode: Text.WordWrap
                 }
 
                 // From / To date pickers
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
+                    spacing: Theme.spacingMedium
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
+                        spacing: Theme.spacingSmall / 2
 
                         Tr {
                             key: "settings.visualizer.recoverFrom"
                             fallback: "From"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font: Theme.captionFont
                         }
 
                         AccessibleButton {
@@ -209,13 +208,13 @@ KeyboardAwareContainer {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
+                        spacing: Theme.spacingSmall / 2
 
                         Tr {
                             key: "settings.visualizer.recoverTo"
                             fallback: "To"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font: Theme.captionFont
                         }
 
                         AccessibleButton {
@@ -234,7 +233,7 @@ KeyboardAwareContainer {
                 // Retrieve button + progress line
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
+                    spacing: Theme.spacingSmall
 
                     AccessibleButton {
                         text: MainController.visualizerImporter.recovering
@@ -259,7 +258,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: visualizerTab.recoverStatus
                         color: visualizerTab.recoverStatusError ? Theme.errorColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font: Theme.captionFont
                         wrapMode: Text.WordWrap
                         visible: visualizerTab.recoverStatus.length > 0
                     }
@@ -271,7 +270,7 @@ KeyboardAwareContainer {
                     key: "settings.visualizer.recoverNotConnected"
                     fallback: "Connect your Visualizer account above to recover shots."
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.captionFont
                     wrapMode: Text.WordWrap
                     visible: !visualizerTab.visualizerConnected
                 }
@@ -315,7 +314,7 @@ KeyboardAwareContainer {
                     key: "decent.account.viewShots"
                     fallback: "View my shots on decentespresso.com"
                     color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.captionFont
                     wrapMode: Text.WordWrap
 
                     AccessibleMouseArea {
@@ -337,7 +336,7 @@ KeyboardAwareContainer {
                 objectName: "uploadSettings"
                 Layout.columnSpan: uploadGrid.columns
                 Layout.fillWidth: true
-                implicitHeight: uploadSettingsColumn.implicitHeight + Theme.scaled(30)
+                implicitHeight: uploadSettingsColumn.implicitHeight + 2 * Theme.spacingMedium
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
@@ -346,15 +345,14 @@ KeyboardAwareContainer {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(12)
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingMedium
 
                     Tr {
                         key: "settings.upload.settingsTitle"
                         fallback: "Upload Settings"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font: Theme.subtitleFont
                     }
 
                     Tr {
@@ -362,29 +360,29 @@ KeyboardAwareContainer {
                         key: "settings.upload.settingsDesc"
                         fallback: "When shots are uploaded, for every destination that is switched on"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.spacingMedium
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
+                            spacing: Theme.spacingSmall / 4
                             Tr {
                                 key: "settings.visualizer.autoUpload"
                                 fallback: "Auto-upload shots"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
+                                font: Theme.labelFont
                             }
                             Tr {
                                 Layout.fillWidth: true
                                 key: "settings.visualizer.autoUploadDesc"
                                 fallback: "Automatically upload espresso shots after completion"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font: Theme.captionFont
                                 wrapMode: Text.WordWrap
                             }
                         }
@@ -398,25 +396,25 @@ KeyboardAwareContainer {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.spacingMedium
                         enabled: Settings.upload.autoUpload
                         opacity: Settings.upload.autoUpload ? 1.0 : 0.4
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
+                            spacing: Theme.spacingSmall / 4
                             Tr {
                                 key: "settings.visualizer.autoUpdate"
                                 fallback: "Auto-update shots"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
+                                font: Theme.labelFont
                             }
                             Tr {
                                 Layout.fillWidth: true
                                 key: "settings.upload.autoUpdateDesc"
                                 fallback: "Re-send a shot after you edit it"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font: Theme.captionFont
                                 wrapMode: Text.WordWrap
                             }
                         }
@@ -430,23 +428,23 @@ KeyboardAwareContainer {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.spacingMedium
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
+                            spacing: Theme.spacingSmall / 4
                             Tr {
                                 key: "settings.visualizer.minDuration"
                                 fallback: "Minimum Duration"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
+                                font: Theme.labelFont
                             }
                             Tr {
                                 Layout.fillWidth: true
                                 key: "settings.visualizer.minDurationDesc"
                                 fallback: "Only upload shots longer than this (skip aborted shots)"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font: Theme.captionFont
                                 wrapMode: Text.WordWrap
                             }
                         }

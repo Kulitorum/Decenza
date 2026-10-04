@@ -460,7 +460,10 @@ void VisualizerUploader::connectAccount(const QString& username, const QString& 
         m_connecting = false;
         emit connectingChanged();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() == QNetworkReply::NoError) {
+        // The shot list's {"data":[...]}; a captive portal or proxy page is not it.
+        const bool isShotList = reply->error() == QNetworkReply::NoError
+            && QJsonDocument::fromJson(reply->readAll()).object().value(QStringLiteral("data")).isArray();
+        if (isShotList) {
             m_settings->visualizer()->setVisualizerUsername(username.trimmed());
             m_settings->visualizer()->setVisualizerPassword(password);
             m_settings->visualizer()->setVisualizerEnabled(true);
@@ -469,6 +472,9 @@ void VisualizerUploader::connectAccount(const QString& username, const QString& 
         } else if (status == 401 || status == 403) {
             DIAG_INFO(VISUALIZER, "VisualizerUploader") << "connect rejected: username or password not accepted";
             emit accountConnectFinished(AccountLink::Error::Rejected);
+        } else if (reply->error() == QNetworkReply::NoError) {
+            DIAG_WARN(VISUALIZER, "VisualizerUploader") << "connect failed: HTTP" << status << "answer is not a shot list";
+            emit accountConnectFinished(AccountLink::Error::ServerError);
         } else {
             DIAG_WARN(VISUALIZER, "VisualizerUploader") << "connect failed: HTTP" << status << reply->errorString();
             emit accountConnectFinished(status == 0 ? AccountLink::Error::Unreachable : AccountLink::Error::ServerError);
@@ -1634,8 +1640,11 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 
     // Older builds left last_upload_debug.txt here holding base64 username:password.
     const QString staleAuthFile = uploadDebugFilePath(QStringLiteral("last_upload_debug.txt"));
-    if (QFile::exists(staleAuthFile) && !QFile::remove(staleAuthFile))
+    static bool staleAuthFileWarned = false;
+    if (QFile::exists(staleAuthFile) && !QFile::remove(staleAuthFile) && !staleAuthFileWarned) {
+        staleAuthFileWarned = true;
         DIAG_WARN(VISUALIZER, "VisualizerUploader") << "could not delete" << staleAuthFile;
+    }
 
     // Send request
     QNetworkReply* reply = m_networkManager->post(request, multipartData);

@@ -51,6 +51,9 @@ Text {
             return TranslationManager.translate("decent.upload.notRegistered",
                 "Serial number %1 is not registered to your Decent account").arg(root.uploader.lastSerial)
         case DecentShotUploader.Result.Failed:
+            if (root.uploader.lastHttpStatus > 0)
+                return TranslationManager.translate("decent.upload.serverProblem",
+                    "decentespresso.com had a problem (HTTP %1) — try again later").arg(root.uploader.lastHttpStatus)
             return TranslationManager.translate("decent.upload.failed",
                 "Could not reach decentespresso.com — try again later")
         }

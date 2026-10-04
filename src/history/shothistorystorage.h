@@ -116,7 +116,7 @@ public:
     // Only for a shot already uploaded: its latest edit still has to reach Decent.
     void requestMarkDecentReplacePending(qint64 shotId);
     // Emits decentUploadStateReady(shotId, {uploaded, serverShotId, serial,
-    // rejected, rejectedStatus}) for the shot detail page.
+    // replacePending, rejected, rejectedStatus}) for the shot pages.
     Q_INVOKABLE void requestDecentUploadState(qint64 shotId);
     static bool loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out);
     // Runs `task` on the serial DB worker, after every write already queued —
@@ -670,7 +670,9 @@ private:
     // marshals results back to the main thread itself. Heavy one-shot ops
     // (backup/import) deliberately stay on their own threads.
     void runOnDbThread(std::function<void()> task);
-    void runDecentStateWrite(qint64 shotId, const char* what, std::function<bool(QSqlQuery&)> bindAndExec);
+    // `ifLost` is the consequence of a failed write, logged with it.
+    void runDecentStateWrite(qint64 shotId, const char* what, const char* ifLost,
+                             std::function<bool(QSqlQuery&)> bindAndExec);
 
     // Run `body` on a one-shot background thread for a read query that does NOT
     // need the FIFO ordering runOnDbThread() provides (and for the two heavy

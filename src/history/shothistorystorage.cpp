@@ -2937,23 +2937,29 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
 
 // Shared by the two Decent state writes: one UPDATE on the DB thread, reported
 // through decentUploadStateUpdated.
-void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what,
+void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what, const char* ifLost,
                                              std::function<bool(QSqlQuery&)> bindAndExec)
 {
-    if (!m_ready) { emit decentUploadStateUpdated(shotId, false); return; }
+    if (!m_ready) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write skipped for shot" << shotId
+                                                 << "- database not ready;" << ifLost;
+        emit decentUploadStateUpdated(shotId, false);
+        return;
+    }
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, destroyed, shotId, what, bindAndExec]() {
+    runOnDbThread([this, dbPath, destroyed, shotId, what, ifLost, bindAndExec]() {
         bool success = false;
         const bool opened = withTempDb(dbPath, "shs_decent", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             success = bindAndExec(query);
             if (!success)
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write failed for shot" << shotId
-                                                         << "-" << query.lastError().text();
+                                                         << "-" << query.lastError().text() << ";" << ifLost;
         });
         if (!opened)
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write: could not open DB for shot" << shotId;
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent" << what << "write: could not open DB for shot" << shotId
+                                                     << ";" << ifLost;
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
@@ -2964,7 +2970,8 @@ void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what,
 
 void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial)
 {
-    runDecentStateWrite(shotId, "upload", [shotId, serverShotId, serial](QSqlQuery& q) {
+    runDecentStateWrite(shotId, "upload", "the shot is in the Decent account, but an edit will go as a new upload",
+                        [shotId, serverShotId, serial](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_uploaded_at = strftime('%s', 'now'), decent_shot_id = :sid, "
                        "decent_serial = :sn, decent_replace_pending = 0, decent_rejected_status = NULL, "
                        "decent_rejected_at = NULL WHERE id = :id"))
@@ -2978,7 +2985,8 @@ void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString&
 
 void ShotHistoryStorage::requestRecordDecentRejection(qint64 shotId, int httpStatus)
 {
-    runDecentStateWrite(shotId, "rejection", [shotId, httpStatus](QSqlQuery& q) {
+    runDecentStateWrite(shotId, "rejection", "the shot is not marked as refused by Decent",
+                        [shotId, httpStatus](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_rejected_status = :status, decent_rejected_at = strftime('%s', 'now'), "
                        "decent_replace_pending = 0 WHERE id = :id"))
             return false;
@@ -2990,19 +2998,30 @@ void ShotHistoryStorage::requestRecordDecentRejection(qint64 shotId, int httpSta
 
 void ShotHistoryStorage::requestMarkDecentReplacePending(qint64 shotId)
 {
-    runDecentStateWrite(shotId, "replace-pending", [shotId](QSqlQuery& q) {
+    runDecentStateWrite(shotId, "replace-pending", "the unsent edit is shown only until the page closes",
+                        [shotId](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_replace_pending = 1 WHERE id = :id AND decent_uploaded_at IS NOT NULL"))
             return false;
         q.bindValue(":id", shotId);
-        return q.exec();
+        if (!q.exec()) return false;
+        if (q.numRowsAffected() == 0)
+            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shot" << shotId
+                                                      << "is no longer recorded as uploaded to Decent; replace-pending not set";
+        return true;
     });
 }
 
 bool ShotHistoryStorage::loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out)
 {
     QSqlQuery q(db);
-    q.prepare("SELECT decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending, "
-              "decent_rejected_status, decent_rejected_at FROM shots WHERE id = :id");
+    // A failed prepare must be reported here: exec() would replace its error
+    // with "Parameter count mismatch" (qsql_sqlite.cpp:565-567).
+    if (!q.prepare("SELECT decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending, "
+                   "decent_rejected_status, decent_rejected_at FROM shots WHERE id = :id")) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent upload state of shot" << shotId
+                                                 << "unreadable:" << q.lastError().text();
+        return false;
+    }
     q.bindValue(":id", shotId);
     if (!q.exec()) {
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent upload state of shot" << shotId
@@ -3037,6 +3056,7 @@ void ShotHistoryStorage::requestDecentUploadState(qint64 shotId)
                 {QStringLiteral("uploaded"), state.uploaded()},
                 {QStringLiteral("serverShotId"), state.serverShotId},
                 {QStringLiteral("serial"), state.serial},
+                {QStringLiteral("replacePending"), state.replacePending},
                 {QStringLiteral("rejected"), state.rejected()},
                 {QStringLiteral("rejectedStatus"), state.rejectedStatus},
             });
