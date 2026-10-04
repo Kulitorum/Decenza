@@ -97,13 +97,7 @@ The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage)
   - Persisting the flag is what makes "edit while offline, upload disabled, or needs-sign-in" survive.
   - The uploader's own writeback goes through a separate storage method that emits `decentUploadStateUpdated`, never `shotMetadataUpdated`, so it cannot loop. The Visualizer link writeback also does not emit `shotMetadataUpdated`.
   - *Alternative considered:* compare `updated_at` against a recorded revision, as Decaid does. Rejected, because the Visualizer writeback bumps `updated_at` and would force a replace of every shot uploaded to both destinations.
-- **Backlog (Stage 3):** a worker-thread query (`withTempDb`) selects the next ≤5 ids, newest first, where:
-  - `decent_replace_pending = 1`, OR (`decent_uploaded_at IS NULL` AND `decent_rejected_status IS NULL`)
-  - and the beverage type is not a maintenance type
-  - and the duration is at least the minimum
-
-  Replacements are ordered first. Each id is loaded and serialized on a worker thread, then posted back queued; the POST itself is async on the main thread through the shared QNAM. After a batch of 5, the next batch is scheduled ≥30 s later. That is a periodic rate limit, which the timer rule allows; it is not a guard.
-- **Idle gate (Stage 3):** a boolean `m_machineBusy`, set from `MachineState::phaseChanged`. Busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport. Idle = Disconnected, Sleep, Idle, Heating, Ready. A transition to idle is a backlog trigger. Before each request the uploader checks the flag, and stops issuing when busy (event-based, per CLAUDE.md).
+- **History (Stage 3):** a button, not automatic — see D14.
 - **Retry:** transport error, 404, 405, 408, 410, 429, 5xx, or a 2xx without `"ok":true` → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
   - 401 → `DecentAccount::reportAuthFailure()`, which persists `needsSignIn` and stops everything.
   - 403 → in-memory `m_pausedNotRegistered` with the serial; a status message names it; cleared on re-link or restart.
@@ -162,11 +156,11 @@ Implementation lands in three PRs, each gated on a check against the live server
    - The single Upload button.
    - Decent ignores the shared automatic settings until Stage 2.
 2. **Automatic upload and replace-on-edit for Decent**, plus web and MCP parity.
-3. **Backlog drain.**
+3. **History upload**, one button per destination (D14).
 
 Why this order: the payload is the only part that depends on a server we do not control, and a wrong document multiplied by a whole history is the expensive failure. Stage 1 proves the document on a handful of shots a person checked by eye before anything uploads unattended. Stage 3 is held until automatic upload has run in daily use.
 
-Until Stage 3, a live upload that fails transiently is simply left un-uploaded; the Upload button retries it. Nothing in Stages 1-2 is thrown away by Stage 3: the drain reuses the same request core, response classes and state columns.
+Until Stage 3, a live upload that fails transiently is simply left un-uploaded; the Upload button retries it. Nothing in Stages 1-2 is thrown away by Stage 3: the history run reuses the same request core, response classes and state columns.
 
 ### D13. `ShotUploads`: one path for every destination (Stage 2)
 `src/network/shotuploads.{h,cpp}` is the only place that decides when a shot is sent. It applies `SettingsUpload` once and queues the shot per active destination; each destination implements `ShotUploadDestination` (`isActive`, `busy`, `sendSavedShot(id, UploadOrUpdate|UpdateOnly)`, `noteEdited`). `VisualizerUploader` and `DecentShotUploader` are the two implementations.
@@ -179,11 +173,20 @@ Until Stage 3, a live upload that fails transiently is simply left un-uploaded; 
 - **Edits reach Visualizer from every editor now.** Before, only the review page and MCP PATCHed it; ShotServer, the AI advisor and the change-beans dialog did not. One trigger for both destinations makes that uniform.
 - **Web:** Connect on the ShotServer page calls `VisualizerUploader::connectAccount` / `DecentAccount::link`, the app's verified connect, replacing the page's own Visualizer test request and its unverified credential save. Every `link()` ends with `linkFinished`, `Cancelled` when Disconnect interrupts it, so a waiting web request is always answered.
 
+### D14. History upload: one button per destination, once (Stage 3)
+Existing history is uploaded only when the user asks, never automatically: each destination card on the Shot Upload tab (and its ShotServer counterpart) has an **Upload history** button. Once that destination's history has gone up, its button is gone for good.
+- **Which shots:** those the destination does not hold yet, by the same eligibility rule as every upload (`uploadIneligibility`: no maintenance cycles, nothing under the minimum length). Visualizer: no `visualizer_id`. Decent: not uploaded and not rejected, plus shots marked replace-pending (edits that missed the account), replacements first. Newest first. Each destination supplies its selection; the run itself is one implementation in `ShotUploads`.
+- **How:** the shots go through `ShotUploads` as `UploadOrUpdate`, so nothing is duplicated (a shot a destination already holds is never selected) and the queue stays one at a time. Batches of 5 with at least 30 s between, only while the machine is idle: a boolean set from `MachineState::phaseChanged` (busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport); no new batch starts while busy, and a return to idle resumes. The 30 s spacing is a periodic rate limit (Decaid's cadence), which the timer rule allows; it is not a guard. The selection query runs on a worker thread (`withTempDb`).
+- **Progress and completion:** while it runs, the card shows "Uploading history: N of M" in place of the button. The run is user-requested, so it survives a restart: a started-but-unfinished run resumes at app start, when idle. When nothing eligible is left, the destination's `historyUploaded` setting is set and the button stops appearing. A transient failure leaves the shot for the next pass rather than finishing the run; a run that ends with nothing left but rejections still counts as done.
+- **Account change:** disconnecting a destination's account clears its `historyUploaded`, so a different account gets the button again.
+- **Shots filed under the connected machine:** a first upload uses the connected DE1's serial (Decaid's rule for shots saved before it recorded the machine). Accepted, and stated next to the Decent button.
+- *Alternative considered:* the automatic idle drain of the original plan (and of Decaid). Rejected by Jeff: history should go up when the owner chooses, once.
+
 ## Risks / Trade-offs
 
 - **[Serial MMR read returns 0 on old firmware or some boards]** → no serial means no upload (spec). The About tab shows "unknown". Verify on Jeff's DE1 before relying on it, and log the raw read at INFO once per connect.
-- **[Backlog filed under the currently connected machine]** → every first upload uses the connected DE1's serial (Decaid's legacy-shot rule). An owner who replaced their DE1 gets the old machine's history filed under the new serial when it drains; the server rejects serials not in the account (403). Accepted — the same outcome Decaid gives every shot saved before it captured machine identity.
-- **[Large backlog]** → 5 shots per ≥30 s is ~600/hour while idle. A 3,000-shot history drains in an afternoon of idle time. This is Decaid's cadence: it also sends 5 per batch and continues after 30 s while a batch fills.
+- **[History filed under the currently connected machine]** → every first upload uses the connected DE1's serial (Decaid's legacy-shot rule). An owner who replaced their DE1 gets the old machine's history filed under the new serial when the history run sends it; the server rejects serials not in the account (403). Accepted — the same outcome Decaid gives every shot saved before it captured machine identity.
+- **[Large history]** → 5 shots per ≥30 s is ~600/hour while idle. A 3,000-shot history goes up in an afternoon of idle time after the button is pressed. This is Decaid's cadence: it also sends 5 per batch and continues after 30 s while a batch fills.
 - **[`cryptpw` in plain QSettings]** → same exposure as the Visualizer password today. Excluded from backup, migration, web and MCP. Keychain is a tracked follow-up.
 - **[Edit paths that bypass `shotMetadataUpdated`]** → `coffeebagstorage.cpp` writes to `shots` in four places. Audit them during implementation; any that changes uploaded fields must also mark replace-pending.
 - **[A bad upload lands in the user's real account]** → recoverable. A content mistake is corrected by re-sending the same `id` with `?replace=1`. A shot that should not be there is trashed by id with `shot_trash` (recoverable until `purge`). Only a wrong serial is beyond replace, because it files the shot under another machine; Stage 1 verifies the serial before the first upload, and uploads one shot and inspects it before any more. Each request body is saved to `last_decent_upload.json` for inspection.

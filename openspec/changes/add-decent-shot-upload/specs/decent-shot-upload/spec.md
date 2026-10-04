@@ -108,22 +108,26 @@ When the metadata of a shot that has already been uploaded changes — from the 
 - **WHEN** the uploader records a successful upload on a shot
 - **THEN** that write does not cause another upload of the same shot
 
-### Requirement: Backlog drain runs only while the machine is idle
+### Requirement: History upload is a one-time button per destination
 
-With the Decent switch on, the shared "Auto-upload shots" setting on, and an account linked, the system SHALL upload eligible shots that were never uploaded, and pending replacements, newest shot first. It SHALL run only while no espresso, steam, hot water or flush operation is in progress, and SHALL stop starting new requests as soon as one begins. It SHALL send at most 5 shots per batch, with at least 30 seconds between batches. It SHALL start when the Decent switch or the shared automatic upload is turned on, when an account is linked or re-linked, at app start, and whenever the machine returns to idle or sleep, and SHALL continue batch by batch until no eligible shot remains.
+The system SHALL NOT upload existing history automatically. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload history button while that destination is switched on and connected and its history has not been uploaded. Pressing it SHALL upload the eligible shots that destination does not hold yet — for Decent also the shots marked replace-pending, replacements first — newest first, through the shared upload path. It SHALL send at most 5 shots per batch with at least 30 seconds between batches, and only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button. When no eligible shot is left the button SHALL no longer be offered for that destination; disconnecting that destination's account SHALL offer it again.
 
-#### Scenario: Enabling with existing history
-- **WHEN** a user with 1,000 never-uploaded shots switches Decent on while the machine is idle
-- **THEN** shots are uploaded newest first, at most 5 per batch, with at least 30 seconds between batches
+#### Scenario: Pressing the button
+- **WHEN** a user with 1,000 shots the Decent account does not hold presses Upload history on the Decent card while the machine is idle
+- **THEN** shots are uploaded newest first, at most 5 per batch, with at least 30 seconds between batches, and the card shows the progress
 
-#### Scenario: Shot started mid-drain
-- **WHEN** the user starts an espresso while the backlog is draining
+#### Scenario: Shot started mid-run
+- **WHEN** the user starts an espresso while history is uploading
 - **THEN** no new upload request is started until the machine is idle again
-- **AND** the drain resumes where it stopped
+- **AND** the run resumes where it stopped
 
-#### Scenario: Backlog completes
+#### Scenario: History done
 - **WHEN** every eligible shot is uploaded or rejected
-- **THEN** the drain stops and makes no further requests until a new trigger
+- **THEN** the run stops and the Upload history button no longer appears for that destination
+
+#### Scenario: Never automatic
+- **WHEN** a destination is switched on, an account is linked or the app starts, and the button was never pressed
+- **THEN** no history is uploaded
 
 ### Requirement: Retry and rejection rules
 

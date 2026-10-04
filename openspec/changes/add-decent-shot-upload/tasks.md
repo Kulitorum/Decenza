@@ -62,8 +62,9 @@ Each stage lands as its own PR and ends with a verification gate on Jeff's machi
 
 ### 8. Web, MCP and simplification
 
-- [ ] 8.1 ShotServer settings page mirrors the tab: a card per destination (switch, Connect with email and password through the app's verified connect, Disconnect, state) and the shared Upload settings once; one card generator and one set of JS functions for both. Replaces the page's own Visualizer test request and unverified credential save. No account names, passwords or `cryptpw` in any response. (No `handleGetSettings` test: only `DecentAccount::applyAuth` reads the encrypted password, so no response can carry it, and a ShotServer test target would cost a heavy new build for nothing the code allows.) Verify: connect and switch from a browser and see the app reflect it.
-  - 2026-10-04: both cards and the Upload settings render with live values; the Decent switch toggled off and on from the browser and the app followed each time. Web Connect not exercised (needs a typed password).
+- [x] 8.1 ShotServer settings page mirrors the tab: a card per destination (switch, Connect with email and password through the app's verified connect, Disconnect, state) and the shared Upload settings once; one card generator and one set of JS functions for both. Replaces the page's own Visualizer test request and unverified credential save. No account names, passwords or `cryptpw` in any response. (No `handleGetSettings` test: only `DecentAccount::applyAuth` reads the encrypted password, so no response can carry it, and a ShotServer test target would cost a heavy new build for nothing the code allows.) Verify: connect and switch from a browser and see the app reflect it.
+  - 2026-10-04: both cards and the Upload settings render with live values; the Decent switch toggled off and on from the browser and the app followed each time.
+  - 2026-10-04 (afde4928 build): web Disconnect unlinked the Decent account (app NotLinked, Visualizer untouched); Connect with empty fields was refused before sending; Connect with Jeff's credentials linked it (app Linked, still switched on); a wrong password was refused ("link rejected") and nothing was saved.
 - [x] 8.2 MCP `settings_get`/`settings_set`: `visualizerEnabled`, `decentEnabled`, `uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec` (replacing the three `visualizer*` names), read-only `decentAccountState` (no account email: MCP is reachable remotely), category `upload`; `McpSurfaceVersion` 1.12.0. Verify: `scripts/check_mcp_tool_budget.py` passes; `tst_mcptools_write` round-trips the renamed settings.
 - [x] 8.3 Retire Visualizer's live payload builder (folded into 7.2): `by_weight_raw` stored in the sample blob, `machine_state` from the device at upload time, `meta.time` from the last sample. Verify: existing Visualizer tests pass; `docs/CLAUDE_MD/VISUALIZER.md` no longer describes two builders.
 
@@ -78,11 +79,13 @@ Each stage lands as its own PR and ends with a verification gate on Jeff's machi
 
 ## Stage 3 — Backlog
 
-### 10. Backlog drain
+### 10. History upload button (D14)
 
-- [ ] 10.1 Storage `requestDecentBacklog(limit, minDuration)`: replacements first, then never-uploaded, newest first, excluding maintenance beverage types and rejected shots. Verify: a storage test covers the ordering and each filter.
-- [ ] 10.2 Uploader drain (D6): event-based idle gate from `MachineState::phaseChanged`; batches of 5 with ≥30 s between; triggers (upload turned on, account linked or re-linked, app start, machine back to idle or sleep, after a live upload); stop issuing when busy; a transient failure leaves the shot and pauses the drain until the next trigger; a first upload with no real device connected waits. Verify: `tst_decentshotupload` cases with a fake phase source cover the busy gate stopping new requests mid-batch, the batch spacing, and resuming on the idle trigger.
-- [ ] 10.3 Backlog end-to-end on Jeff's history. Verify: turning upload on while idle drains newest first in batches of 5; starting a shot mid-drain stops new requests until idle; restarting the app mid-drain does not re-upload finished shots; WiFi off leaves shots un-rejected and the drain resumes when idle with WiFi back; an edit made while offline is replaced afterwards.
+On hold (2026-10-04, Jeff): do not start until he says. Open questions for then: keep a web sign-in error on screen until the next attempt (it clears after 4 s today), and confirm the three defaults in D14 (resume after restart, disconnect brings the button back, Decent card notes the serial).
+
+- [ ] 10.1 Per-destination selection of history to send (Visualizer: no `visualizer_id`; Decent: not uploaded and not rejected, plus replace-pending first), eligible shots only, newest first, on a worker thread; a count for progress. Verify: a storage test covers the ordering and each filter.
+- [ ] 10.2 The run in `ShotUploads`: per destination, batches of 5 through the shared queue, ≥30 s apart, only while idle (`MachineState::phaseChanged` flag), resuming at app start when started-but-unfinished; `historyUploaded` per destination set when nothing eligible is left and cleared on disconnect. Verify: `tst_decentshotupload` cases with fake destinations and a fake phase source cover batching, the busy gate, resume, completion setting the flag, and never starting on its own.
+- [ ] 10.3 The button on each destination card (app tab and ShotServer page), progress in its place while running, gone once done; the Decent card states that history is filed under the connected machine. Verify: on Jeff's machine, pressing it on each card uploads the missing shots newest first in batches of 5, a shot started mid-run pauses it, a restart mid-run resumes without re-sending finished shots, and the button is gone afterwards.
 
 ### 11. Docs, review and merge
 
