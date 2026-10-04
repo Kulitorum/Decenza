@@ -45,7 +45,7 @@ The stored encrypted password SHALL be treated as an account secret. It SHALL NO
 
 #### Scenario: Log output
 - **WHEN** any Decent API request or response is logged
-- **THEN** the log line contains neither the Authorization header nor the encrypted password
+- **THEN** the log line contains neither the Authorization header, the encrypted password nor the account email
 
 ### Requirement: Rejected credentials put the account in a needs-sign-in state
 

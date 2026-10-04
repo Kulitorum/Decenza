@@ -80,7 +80,8 @@ void DecentAccount::onLinkFinished() {
     m_settings->setAccount(m_pendingEmail, body);
     // Connecting an account switches uploads to it on; the user can switch it off.
     m_settings->setEnabled(true);
-    DIAG_INFO(DECENT, "DecentAccount") << "account linked:" << m_pendingEmail;
+    // No email: debug logs are submitted for support and readable over MCP.
+    DIAG_INFO(DECENT, "DecentAccount") << "account linked";
     emit linkFinished(AccountLink::Error::None);
 }
 
