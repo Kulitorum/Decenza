@@ -32,7 +32,9 @@ public:
         None,
         Uploaded,        // 2xx, including the server's duplicate answer to a first upload
         NotReplaced,     // a replace answered "duplicate": the server kept its earlier copy
-        NotLinked,       // no linked account, or it needs signing in again
+        Maintenance,     // a cleaning or descaling record (uploadIneligibility)
+        TooShort,        // shorter than the shared minimum length
+        NotLinked,       // no linked account
         NoMachine,       // first upload with no DE1 connected
         NotFound,        // the shot could not be loaded
         Rejected,        // permanent 4xx; recorded on the shot
@@ -47,6 +49,7 @@ public:
     static ResponseClass classify(int httpStatus, bool transportError);
 
     static constexpr int kAttempts = 3;
+    static constexpr int kUploadTimeoutMs = 30000;
 
     DecentShotUploader(QNetworkAccessManager* network, DecentAccount* account,
                        ShotHistoryStorage* storage, QObject* parent = nullptr);
@@ -57,6 +60,8 @@ public:
     void setMachineIdentityProvider(std::function<DecentMachineIdentity()> provider) {
         m_machineIdentity = std::move(provider);
     }
+    // The shared minimum shot length (SettingsUpload::minDuration), read when an upload starts.
+    void setMinDurationProvider(std::function<double()> provider) { m_minDuration = std::move(provider); }
     // First retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
 
@@ -87,16 +92,19 @@ private:
         QString serial;
         bool replace = false;
         Result error = Result::None;
+        QString failure;  // for the log when error is NotFound
     };
     void onPrepared(const Prepared& prepared);
     void send();
     void onReplyFinished(QNetworkReply* reply);
     void finish(Result result, int httpStatus = 0);
+    static void writeDebugFile(const QString& name, const QByteArray& content);
 
     QNetworkAccessManager* m_network;
     DecentAccount* m_account;
     ShotHistoryStorage* m_storage;
     std::function<DecentMachineIdentity()> m_machineIdentity;
+    std::function<double()> m_minDuration;
     int m_retryDelayMs = 2000;
 
     bool m_uploading = false;

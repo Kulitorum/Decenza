@@ -188,9 +188,10 @@ public:
     int firmwareBuildNumber() const { return m_firmwareBuildNumber; }  // 0 = unknown, otherwise build number (e.g. 1347)
     int heaterVoltage() const { return m_heaterVoltage; }  // 0=unknown, otherwise volts (e.g. 110, 220)
     // Read from MMR SERIAL_NUMBER on connect. Empty when unread or when the machine
-    // reports 0 (de1app treats 0 as "no serial" too). The simulator reports
-    // kSimulatedSerial: not a number, so no Decent account can own it and the
-    // server refuses its uploads (403) — simulated shots never reach an account.
+    // reports 0 (de1app treats 0 as "no serial" too); cleared on disconnect. The
+    // simulator reports kSimulatedSerial: not a number, so no Decent account can
+    // own it and the server refuses its uploads (403) — unless
+    // setSimulatedSerialNumber gave it a real serial.
     QString serialNumber() const;
     static constexpr const char* kSimulatedSerial = "SIM-DE1";
     // A real serial for the simulator to report instead, so a developer can test

@@ -6,9 +6,9 @@ Uploads the user's espresso shots to their linked Decent account, so they appear
 
 ### Requirement: Decent switch and shared upload settings
 
-Uploading to Decent SHALL have its own on/off switch, off until an account is linked; linking switches it on, and the user can switch it off. Automatic behaviour SHALL follow the Shot Upload tab's shared Upload settings ("Upload new shots automatically", "Update edited shots automatically", "Minimum shot length"), which also govern Visualizer; Decent SHALL NOT have separate copies of them. No shot SHALL be sent to Decent while its switch is off or no account is linked. Turning the switch on with a linked account SHALL start the backlog drain.
+Uploading to Decent SHALL have its own on/off switch, off until an account is linked; linking switches it on, and the user can switch it off. Automatic behaviour SHALL follow the Shot Upload tab's shared Upload settings ("Auto-upload shots", "Auto-update shots", "Minimum Duration"), which also govern Visualizer; Decent SHALL NOT have separate copies of them. No shot SHALL be sent to Decent while its switch is off or no account is linked. Turning the switch on with a linked account SHALL start the backlog drain.
 
-#### Scenario: Fresh install
+#### Scenario: Linked but switched off
 - **WHEN** a user links a Decent account and then switches Decent off
 - **THEN** no shot is uploaded to Decent, automatically or from the review page
 
@@ -34,7 +34,7 @@ A shot SHALL be uploaded automatically only when all of these hold: it is a save
 
 ### Requirement: Machine identity in the payload
 
-Every uploaded document SHALL carry `machine.serialNumber`, and SHALL carry `machine.firmwareVersion` and `machine.model` when known. For a first upload these SHALL come from the DE1 connected at the time of upload; the serial is not stored with the shot itself. A replacement of an already-uploaded shot SHALL reuse the serial the shot was first uploaded under, so it lands on the same machine in the account. If no DE1 is connected when a first upload is due, the shot SHALL wait for a later pass and SHALL NOT be marked rejected. In simulation mode the machine reports the fixed serial `SIM-DE1`. It is not a number, so no Decent account can own it, and the server refuses its uploads (403): the simulator exercises sign-in, the request and the response handling, but no simulated shot can reach an account. For testing a full upload, MCP `settings_set` `simulatorSerialNumber` SHALL make the simulator report a given serial until the app restarts. It SHALL never be saved and SHALL have no on-screen control; an empty value restores `SIM-DE1`.
+Every uploaded document SHALL carry `machine.serialNumber`, and SHALL carry `machine.firmwareVersion` and `machine.model` when known. For a first upload these SHALL come from the DE1 connected at the time of upload; the serial is not stored with the shot itself. A replacement of an already-uploaded shot SHALL reuse the serial the shot was first uploaded under, so it lands on the same machine in the account. If no DE1 is connected when a first upload is due, the shot SHALL wait for a later pass and SHALL NOT be marked rejected. In simulation mode the machine reports the fixed serial `SIM-DE1`. It is not a number, so no Decent account can own it, and the server refuses its uploads (403): the simulator exercises sign-in, the request and the response handling, and with `SIM-DE1` no simulated shot can reach an account. For testing a full upload, MCP `settings_set` `simulatorSerialNumber` SHALL make the simulator report a given serial until the app restarts. It SHALL never be saved and SHALL have no on-screen control; an empty value restores `SIM-DE1`.
 
 #### Scenario: Shot uploaded right after it is pulled
 - **WHEN** an eligible shot is saved while a real DE1 is connected
@@ -58,7 +58,7 @@ Each upload SHALL be a `POST` to `https://decentespresso.com/support/api/shot_up
 - `id`: a stable shot identifier, the same on every upload of that shot, which does not collide with shots from other devices or apps;
 - `timestamp`: shot start in ISO 8601 UTC with milliseconds;
 - `measurements`: one entry per sample, each with `machine` (`timestamp`, `state`, `flow`, `pressure`, `targetFlow`, `targetPressure`, `mixTemperature`, `groupTemperature`, `targetMixTemperature`, `targetGroupTemperature`, `profileFrame`) and, when a scale was in use, `scale` (`timestamp`, `weight`, `weightFlow`);
-- `workflow`: `name` (profile title), `profile` (the profile the shot ran, in de1app v2 JSON), and `context` (`targetDoseWeight`, `targetYield`, `grinderModel`, `grinderSetting`, `coffeeName`, `coffeeRoaster`, `baristaName`, `drinkerName`, and `extras.roastDate` as ISO `yyyy-mm-dd` plus `extras.roastLevel`);
+- `workflow`: `name` (profile title), `profile` (the profile the shot ran, in de1app v2 JSON), and `context` (`targetDoseWeight`, `targetYield`, `grinderModel`, `grinderSetting`, `coffeeName`, `coffeeRoaster`, `baristaName`, `finalBeverageType`, and `extras.roastDate` as ISO `yyyy-mm-dd` plus `extras.roastLevel` and `extras.grinderRpm`);
 - `annotations`: `actualDoseWeight`, `actualYield`, `drinkTds`, `drinkEy`, `enjoyment` (0-100), `espressoNotes`;
 - `machine`: as in the machine identity requirement;
 - `app`: `{"name":"decenza","version":<app version>,"sourceFormat":"decenza"}`;
@@ -81,7 +81,7 @@ Fields with no recorded value SHALL be omitted rather than sent as empty strings
 
 ### Requirement: New shots upload once they are saved
 
-With the Decent switch on and the shared "Upload new shots automatically" setting on, the system SHALL upload each eligible shot after it has been saved to history, using the saved row as the source of truth. Uploads SHALL be sent one at a time: a shot saved while another upload or a backlog batch is in flight SHALL be queued and sent next.
+With the Decent switch on and the shared "Auto-upload shots" setting on, the system SHALL upload each eligible shot after it has been saved to history, using the saved row as the source of truth. Uploads SHALL be sent one at a time: a shot saved while another upload or a backlog batch is in flight SHALL be queued and sent next.
 
 #### Scenario: Shot finishes
 - **WHEN** an eligible espresso shot is saved
@@ -93,7 +93,7 @@ With the Decent switch on and the shared "Upload new shots automatically" settin
 
 ### Requirement: Edited shots are re-uploaded with replace
 
-When the metadata of a shot that has already been uploaded changes — from the post-shot review, shot detail, ShotServer or an MCP tool — the system SHALL re-upload it with `?replace=1`, while the Decent switch and the shared "Update edited shots automatically" setting are on. A change made while the re-upload cannot be sent (upload off, needs sign-in, offline) SHALL be remembered on the shot and sent when uploading resumes. Writes the uploader itself makes to record upload state SHALL NOT trigger a re-upload.
+When the metadata of a shot that has already been uploaded changes — from the post-shot review, shot detail, ShotServer or an MCP tool — the system SHALL re-upload it with `?replace=1`, while the Decent switch and the shared "Auto-update shots" setting are on. A change made while the re-upload cannot be sent (upload off, needs sign-in, offline) SHALL be remembered on the shot and sent when uploading resumes. Writes the uploader itself makes to record upload state SHALL NOT trigger a re-upload.
 
 #### Scenario: Rating added after upload
 - **WHEN** the user rates a shot that was already uploaded
@@ -110,7 +110,7 @@ When the metadata of a shot that has already been uploaded changes — from the 
 
 ### Requirement: Backlog drain runs only while the machine is idle
 
-With the Decent switch on, the shared "Upload new shots automatically" setting on, and an account linked, the system SHALL upload eligible shots that were never uploaded, and pending replacements, newest shot first. It SHALL run only while no espresso, steam, hot water or flush operation is in progress, and SHALL stop starting new requests as soon as one begins. It SHALL send at most 5 shots per batch, with at least 30 seconds between batches. It SHALL start when the Decent switch or the shared automatic upload is turned on, when an account is linked or re-linked, at app start, and whenever the machine returns to idle or sleep, and SHALL continue batch by batch until no eligible shot remains.
+With the Decent switch on, the shared "Auto-upload shots" setting on, and an account linked, the system SHALL upload eligible shots that were never uploaded, and pending replacements, newest shot first. It SHALL run only while no espresso, steam, hot water or flush operation is in progress, and SHALL stop starting new requests as soon as one begins. It SHALL send at most 5 shots per batch, with at least 30 seconds between batches. It SHALL start when the Decent switch or the shared automatic upload is turned on, when an account is linked or re-linked, at app start, and whenever the machine returns to idle or sleep, and SHALL continue batch by batch until no eligible shot remains.
 
 #### Scenario: Enabling with existing history
 - **WHEN** a user with 1,000 never-uploaded shots switches Decent on while the machine is idle
@@ -127,7 +127,7 @@ With the Decent switch on, the shared "Upload new shots automatically" setting o
 
 ### Requirement: Retry and rejection rules
 
-A response of 2xx SHALL record the shot as uploaded, including the server's `"duplicate":true` response, which means the server already holds that id. A transport failure, or HTTP 408, 429 or 5xx, SHALL be transient: the request SHALL be retried up to 3 attempts with increasing delay, and after that the shot SHALL be left for a later drain pass, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL stop automatic uploads, tell the user that machine serial is not in their Decent account, and resume on re-link or the next app start. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
+A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot as uploaded, including a first upload answered `"duplicate":true`, which means the server already holds that id; a 2xx without `"ok":true` stored nothing and SHALL be transient. A replace answered `"duplicate":true` kept the server's earlier copy: the shot SHALL stay marked as having an edit to send, and the user SHALL be told the edit was not saved. A transport failure or timeout, or HTTP 404, 405, 408, 410, 429 or 5xx (an endpoint or server problem, not the shot), SHALL be transient: the request SHALL be retried up to 3 attempts with increasing delay, and after that the shot SHALL be left for a later drain pass, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL stop automatic uploads, tell the user that machine serial is not in their Decent account, and resume on re-link or the next app start. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
 
 #### Scenario: Server error
 - **WHEN** an upload returns HTTP 503 three times
@@ -165,7 +165,7 @@ The settings section SHALL show the account state and the result of the most rec
 
 ### Requirement: One Upload button for every destination
 
-The post-shot review page (which owns uploading; the shot detail page stays read-only) SHALL have a single Upload button, the one that was the Visualizer upload button. It SHALL send the reviewed shot — just pulled or opened from history — to every destination that is switched on and connected: Visualizer, Decent, or both. It SHALL be hidden when no destination is on and connected. For Decent it SHALL work whether or not automatic upload is on, SHALL also retry a shot recorded as rejected, SHALL re-send an already-uploaded shot with `?replace=1`, SHALL apply the machine-identity rule, and SHALL report success or the failure reason for each destination.
+The post-shot review page (which owns uploading; the shot detail page stays read-only) SHALL have a single Upload button, the one that was the Visualizer upload button. It SHALL send the reviewed shot — just pulled or opened from history — to every destination that is switched on and connected: Visualizer, Decent, or both. It SHALL be hidden when no destination is on and connected. For Decent it SHALL work whether or not automatic upload is on, SHALL apply the same eligibility rule as Visualizer (no cleaning or descaling records, nothing under the shared minimum length), SHALL also retry a shot recorded as rejected, SHALL re-send an already-uploaded shot with `?replace=1`, SHALL apply the machine-identity rule, and SHALL report success or the failure reason for each destination.
 
 #### Scenario: Both destinations on
 - **WHEN** Visualizer and Decent are both switched on and connected and the user taps Upload

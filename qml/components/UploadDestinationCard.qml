@@ -18,26 +18,25 @@ Rectangle {
 
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
-    implicitHeight: column.implicitHeight + Theme.scaled(30)
+    implicitHeight: column.implicitHeight + 2 * Theme.spacingMedium
 
     ColumnLayout {
         id: column
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Theme.scaled(15)
-        spacing: Theme.scaled(12)
+        anchors.margins: Theme.spacingMedium
+        spacing: Theme.spacingMedium
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: Theme.scaled(15)
+            spacing: Theme.spacingMedium
 
             Text {
                 Layout.fillWidth: true
                 text: root.title
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(16)
-                font.bold: true
+                font: Theme.subtitleFont
                 elide: Text.ElideRight
                 Accessible.ignored: true
             }
@@ -54,7 +53,7 @@ Rectangle {
             Layout.fillWidth: true
             text: root.description
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(12)
+            font: Theme.captionFont
             wrapMode: Text.WordWrap
         }
 
@@ -63,7 +62,7 @@ Rectangle {
             visible: root.statusText.length > 0
             text: root.statusText
             color: root.statusColor
-            font.pixelSize: Theme.scaled(12)
+            font: Theme.captionFont
             wrapMode: Text.WordWrap
             Accessible.role: Accessible.StaticText
             Accessible.name: text
@@ -72,7 +71,7 @@ Rectangle {
         ColumnLayout {
             id: contentColumn
             Layout.fillWidth: true
-            spacing: Theme.scaled(12)
+            spacing: Theme.spacingMedium
         }
     }
 }

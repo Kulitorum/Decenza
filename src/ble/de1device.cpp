@@ -334,6 +334,11 @@ void DE1Device::onTransportDisconnected() {
     // — and the wizard's Apply gate is exactly "has this machine answered", so a
     // stale true opens a write against a baseline this machine never reported.
     clearCalibrationCache();
+    // Same for the serial: a first Decent upload is filed under it.
+    if (m_serialNumber != 0) {
+        m_serialNumber = 0;
+        emit serialNumberChanged();
+    }
     // Stop chasing reads for a connection that no longer exists — a reconnect
     // re-issues them fresh via sendInitialSettings().
     m_pendingMMRReads.clear();

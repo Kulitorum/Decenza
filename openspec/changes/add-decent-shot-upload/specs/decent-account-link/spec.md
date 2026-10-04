@@ -21,9 +21,14 @@ When the user links an account, the system SHALL send the entered email and plai
 - **AND** the user is told the email or password was not accepted
 
 #### Scenario: Network failure while linking
-- **WHEN** the `login_test` request fails at the transport level or returns a non-200 status
+- **WHEN** the `login_test` request fails at the transport level or times out
 - **THEN** no credentials are stored
 - **AND** the user is told the Decent server could not be reached, which is distinct from the wrong-password message
+
+#### Scenario: Server error while linking
+- **WHEN** `login_test` returns a non-200 status, or a 200 whose body is not a token (e.g. a captive portal's page)
+- **THEN** no credentials are stored
+- **AND** the user is told the server had a problem and to try again later
 
 ### Requirement: Authenticated calls use HTTP Basic with the encrypted password
 
@@ -49,11 +54,11 @@ The stored encrypted password SHALL be treated as an account secret. It SHALL NO
 
 ### Requirement: Rejected credentials put the account in a needs-sign-in state
 
-When any authenticated Decent API call returns HTTP 401, the system SHALL mark the linked account as needing sign-in, SHALL stop all automatic Decent API activity, and SHALL show the state where the account is displayed. The stored email SHALL remain so the user only re-enters the password. A successful re-link SHALL clear the state and resume automatic activity.
+When any authenticated Decent API call returns HTTP 401, the system SHALL mark the linked account as needing sign-in, SHALL send the stored credentials on no further Decent API call, and SHALL show the state where the account is displayed. The stored email SHALL remain so the user only re-enters the password. A successful re-link SHALL clear the state and resume uploads.
 
 #### Scenario: Password changed on the website
 - **WHEN** an upload returns HTTP 401
-- **THEN** the account shows "Sign in again" instead of "Linked as <email>"
+- **THEN** the account shows "Sign in again" instead of "Connected as <email>"
 - **AND** no further automatic uploads are attempted until the user re-links
 
 #### Scenario: Re-link resumes
@@ -63,6 +68,10 @@ When any authenticated Decent API call returns HTTP 401, the system SHALL mark t
 ### Requirement: Unlinking removes the credentials
 
 Unlinking SHALL delete the stored email and encrypted password and SHALL stop all automatic Decent API activity immediately, including any queued or in-flight backlog work that has not yet been sent. Unlinking SHALL NOT delete local shots or their recorded upload state.
+
+#### Scenario: Disconnect during a sign-in
+- **WHEN** the user taps Disconnect while a sign-in is still waiting for `login_test`
+- **THEN** the sign-in is cancelled, and its answer does not link the account or switch Decent on
 
 #### Scenario: Unlink
 - **WHEN** the user unlinks the account

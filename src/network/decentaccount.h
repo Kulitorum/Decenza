@@ -14,9 +14,8 @@ class SettingsDecent;
 
 // The user's decentespresso.com account, linked the way de1app and Decaid do it:
 // the password is sent once to login_test, which answers with an encrypted
-// password; only that is stored, and every later call sends it as HTTP Basic.
-// All Decent API traffic authenticates through applyAuth(), the one place a
-// future OAuth bearer token would go.
+// password; only that is stored, and every later call sends it as HTTP Basic
+// through applyAuth(), the one place a future OAuth bearer token would go.
 class DecentAccount : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -31,6 +30,11 @@ public:
     Q_ENUM(State)
 
     static constexpr const char* kBaseUrl = "https://decentespresso.com";
+    // The page a signed-in owner's machines and shots live on.
+    static constexpr const char* kAccountPath = "/support/espressomachine";
+    // Without one, Qt waits forever on a stalled connection (no default timeout,
+    // qnetworkrequest.cpp), leaving Connect or Upload stuck "busy".
+    static constexpr int kTransferTimeoutMs = 15000;
 
     DecentAccount(QNetworkAccessManager* network, SettingsDecent* settings, QObject* parent = nullptr);
 
@@ -45,7 +49,8 @@ public:
     // single-use authenticated redirect; falls back to the plain page.
     Q_INVOKABLE void openAccountInBrowser();
 
-    // Sets the Basic Authorization header. Returns false when no account is linked.
+    // Sets the Basic Authorization header. Returns false unless the account is
+    // Linked (not when the server has refused the stored credentials).
     bool applyAuth(QNetworkRequest& request) const;
     // Any authenticated call that gets HTTP 401 reports it here.
     void reportAuthFailure();

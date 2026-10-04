@@ -1,4 +1,5 @@
 #include "core/diagnosticlogging.h"
+#include "httpauth.h"
 #include "core/logfields.h"
 #include "visualizerimporter.h"
 #include "../controllers/maincontroller.h"
@@ -62,9 +63,7 @@ QString VisualizerImporter::authHeader() const {
         return QString();
     }
 
-    QString credentials = username + ":" + password;
-    QByteArray base64 = credentials.toUtf8().toBase64();
-    return "Basic " + QString::fromLatin1(base64);
+    return QString::fromLatin1(basicAuthHeader(username, password));
 }
 
 QString VisualizerImporter::extractShotId(const QString& url) const {

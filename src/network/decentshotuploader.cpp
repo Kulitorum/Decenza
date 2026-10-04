@@ -23,6 +23,11 @@ DecentShotUploader::DecentShotUploader(QNetworkAccessManager* network, DecentAcc
     , m_account(account)
     , m_storage(storage)
 {
+    connect(m_storage, &ShotHistoryStorage::decentUploadStateUpdated, this, [this](qint64 shotId, bool ok) {
+        if (!ok && shotId == m_lastShotId && m_lastResult == Result::Uploaded)
+            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "is in the Decent account but Decenza could "
+                                                       "not record that; an edit will go as a new upload";
+    });
 }
 
 DecentShotUploader::ResponseClass DecentShotUploader::classify(int httpStatus, bool transportError) {
@@ -30,14 +35,16 @@ DecentShotUploader::ResponseClass DecentShotUploader::classify(int httpStatus, b
     if (httpStatus >= 200 && httpStatus < 300) return ResponseClass::Success;
     if (httpStatus == 401) return ResponseClass::AuthFailed;
     if (httpStatus == 403) return ResponseClass::NotRegistered;
-    if (httpStatus == 408 || httpStatus == 429) return ResponseClass::Transient;
+    // 404/405/410 say the endpoint is wrong, not the shot: never brand it rejected.
+    if (httpStatus == 404 || httpStatus == 405 || httpStatus == 408 || httpStatus == 410 || httpStatus == 429)
+        return ResponseClass::Transient;
     if (httpStatus >= 400 && httpStatus < 500) return ResponseClass::Permanent;
     return ResponseClass::Transient;
 }
 
 QString DecentShotUploader::shotViewUrl(const QString& serial, const QString& serverShotId) {
     if (serial.isEmpty() || serverShotId.isEmpty()) return QString();
-    QUrl url(QString::fromLatin1(DecentAccount::kBaseUrl) + QStringLiteral("/support/espressomachine"));
+    QUrl url(QString::fromLatin1(DecentAccount::kBaseUrl) + QString::fromLatin1(DecentAccount::kAccountPath));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("view"), QStringLiteral("chart"));
     query.addQueryItem(QStringLiteral("sn"), serial);
@@ -54,23 +61,37 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
     emit uploadingChanged();
 
     if (m_account->state() != DecentAccount::State::Linked) {
-        finish(Result::NotLinked);
+        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
         return;
     }
 
     const DecentMachineIdentity connected = m_machineIdentity ? m_machineIdentity() : DecentMachineIdentity{};
+    const double minDuration = m_minDuration ? m_minDuration() : 0.0;
     const QString dbPath = m_storage->databasePath();
     auto destroyed = m_destroyed;
-    m_storage->runAfterQueuedWrites([this, destroyed, dbPath, shotId, connected]() {
+    m_storage->runAfterQueuedWrites([this, destroyed, dbPath, shotId, connected, minDuration]() {
         Prepared p;
         p.shotId = shotId;
         p.error = Result::NotFound;
+        p.failure = QStringLiteral("could not open the shot database");
         withTempDb(dbPath, "decent_upload", [&](QSqlDatabase& db) {
             const ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+            if (record.summary.id <= 0) { p.failure = QStringLiteral("no such shot"); return; }
             DecentUploadState state;
-            if (record.summary.id <= 0 || !ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &state))
+            if (!ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &state)) {
+                p.failure = QStringLiteral("its Decent upload state could not be read");
                 return;
+            }
             const ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
+            switch (uploadIneligibility(shot.beverageType, shot.durationSec, minDuration)) {
+            case UploadIneligible::Maintenance: p.error = Result::Maintenance; return;
+            case UploadIneligible::TooShort: p.error = Result::TooShort; return;
+            case UploadIneligible::None: break;
+            }
+            if (!shot.profileJson.isEmpty() && !QJsonDocument::fromJson(shot.profileJson.toUtf8()).isObject()) {
+                p.failure = QStringLiteral("its stored profile is unreadable");
+                return;
+            }
 
             // A replacement goes to the machine the shot was first filed under.
             DecentMachineIdentity machine = connected;
@@ -86,11 +107,8 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
             p.body = DecentShotRecord::build(shot, machine);
             p.error = Result::None;
         });
-        if (p.error == Result::None) {
-            QFile file(uploadDebugFilePath(QStringLiteral("last_decent_upload.json")));
-            if (file.open(QIODevice::WriteOnly))
-                file.write(QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
-        }
+        if (p.error == Result::None)
+            writeDebugFile(QStringLiteral("last_decent_upload.json"), QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, destroyed, p]() {
             if (!*destroyed) onPrepared(p);
@@ -115,8 +133,10 @@ void DecentShotUploader::send() {
     // Exactly what Decaid's proxy and Decent's API docs send. JSON is UTF-8 by
     // definition (RFC 8259), so a charset parameter adds nothing.
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setTransferTimeout(kUploadTimeoutMs);
     if (!m_account->applyAuth(request)) {
-        finish(Result::NotLinked);
+        // Signed out or refused during a retry delay.
+        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
         return;
     }
     ++m_attempt;
@@ -130,28 +150,35 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     const bool transportError = reply->error() != QNetworkReply::NoError && status == 0;
     const QByteArray body = reply->readAll();
     const qint64 shotId = m_current.shotId;
-    {
-        QFile file(uploadDebugFilePath(QStringLiteral("last_decent_upload_response.txt")));
-        if (file.open(QIODevice::WriteOnly))
-            file.write("POST " + reply->url().toEncoded() + "\nHTTP " + QByteArray::number(status) + "\n\n" + body);
+    writeDebugFile(QStringLiteral("last_decent_upload_response.txt"),
+                   "POST " + reply->url().toEncoded() + "\nHTTP " + QByteArray::number(status) + "\n\n" + body);
+
+    const QJsonObject json = QJsonDocument::fromJson(body).object();
+    ResponseClass responseClass = classify(status, transportError);
+    // A 2xx that is not the API's {"ok":true,...} — a captive portal's page, a
+    // proxy, a changed API — has not stored anything.
+    if (responseClass == ResponseClass::Success && !json.value(QStringLiteral("ok")).toBool()) {
+        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "HTTP" << status
+                                                << "answer is not the upload API's:" << QString::fromUtf8(body.left(300));
+        responseClass = ResponseClass::Transient;
     }
 
-    switch (classify(status, transportError)) {
+    switch (responseClass) {
     case ResponseClass::Success: {
-        const QJsonObject json = QJsonDocument::fromJson(body).object();
         QString serverId = json.value(QStringLiteral("id")).toString();
         if (serverId.isEmpty()) serverId = m_current.uuid;
         const bool duplicate = json.value(QStringLiteral("duplicate")).toBool();
-        m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial);
         if (m_current.replace && duplicate) {
             // Seen from decentespresso.com on 2026-10-04 with ?replace=1 sent exactly as
-            // its API docs and Decaid send it: the edit is not stored.
+            // its API docs and Decaid send it: the edit is not stored. Keep it pending.
+            m_storage->requestMarkDecentReplacePending(shotId);
             DIAG_WARN(DECENT, "DecentShotUploader") << QStringLiteral(
                 "shot %1: Decent answered a replace with \"duplicate\" and kept its earlier copy (serial %2, server id %3)")
                 .arg(QString::number(shotId), m_current.serial, serverId);
             finish(Result::NotReplaced, status);
             return;
         }
+        m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial);
         const QString how = duplicate ? QStringLiteral(" (already on the server)")
                             : m_current.replace ? QStringLiteral(" (replace)") : QString();
         DIAG_INFO(DECENT, "DecentShotUploader") << QStringLiteral("shot %1 uploaded%2, serial %3, server id %4")
@@ -188,9 +215,30 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     }
 }
 
+void DecentShotUploader::writeDebugFile(const QString& name, const QByteArray& content) {
+    QFile file(uploadDebugFilePath(name));
+    if (file.open(QIODevice::WriteOnly) && file.write(content) == content.size()) return;
+    // A stale file from an earlier upload would be read as this one's.
+    DIAG_DEBUG(DECENT, "DecentShotUploader") << "could not write" << name << file.errorString();
+    file.close();
+    QFile::remove(file.fileName());
+}
+
 void DecentShotUploader::finish(Result result, int httpStatus) {
-    if (result == Result::NoMachine)
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << m_current.shotId << "not uploaded: no DE1 connected";
+    const qint64 id = m_current.shotId;
+    switch (result) {
+    case Result::NoMachine:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: no DE1 connected"; break;
+    case Result::NotFound:
+        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded:" << m_current.failure; break;
+    case Result::NotLinked:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: no Decent account linked"; break;
+    case Result::Maintenance:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: maintenance cycle"; break;
+    case Result::TooShort:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: shorter than the minimum length"; break;
+    default: break;
+    }
     m_lastShotId = m_current.shotId;
     m_lastResult = result;
     m_lastHttpStatus = httpStatus;

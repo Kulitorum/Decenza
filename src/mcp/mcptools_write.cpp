@@ -1532,7 +1532,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     respond(QJsonObject{{"error", "No DE1 device object - no settings were changed."}});
                     return;
                 }
-                const QString v = args["simulatorSerialNumber"].toString();
+                // Serials are numbers, so clients often send one unquoted.
+                const QJsonValue raw = args["simulatorSerialNumber"];
+                const QString v = raw.isDouble() ? QString::number(raw.toInteger()) : raw.toString();
                 addSetter([device, v]() { device->setSimulatedSerialNumber(v); });
                 updated << "simulatorSerialNumber";
             }

@@ -9,8 +9,12 @@ SettingsVisualizer::SettingsVisualizer(QObject* parent)
     connect(this, &SettingsVisualizer::visualizerEnabledChanged, this, &SettingsVisualizer::visualizerActiveChanged);
 }
 
+bool SettingsVisualizer::visualizerConnected() const {
+    return !visualizerUsername().isEmpty() && !visualizerPassword().isEmpty();
+}
+
 bool SettingsVisualizer::visualizerActive() const {
-    return visualizerEnabled() && !visualizerUsername().isEmpty() && !visualizerPassword().isEmpty();
+    return visualizerEnabled() && visualizerConnected();
 }
 
 QString SettingsVisualizer::visualizerUsername() const {

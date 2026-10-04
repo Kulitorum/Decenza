@@ -490,6 +490,27 @@ private slots:
         QVERIFY(!orphan.readCalibration(int(DE1::Calibration::Target::Pressure)));
     }
 
+    void serialNumberIsPerMachineAndNeverTheSimulators() {
+        // A first Decent upload is filed under this serial, so it must be this
+        // machine's: cleared on disconnect, and never reported while simulating.
+        TestFixture f;
+        QByteArray reply = mmrResponse(DE1::MMR::SERIAL_NUMBER, 0x14);
+        reply[5] = 0x07;   // 0x0714 = 1812, little-endian
+        emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR, reply);
+        QCOMPARE(f.device.serialNumber(), QStringLiteral("1812"));
+
+        f.device.m_simulationMode = true;
+        QCOMPARE(f.device.serialNumber(), QString::fromLatin1(DE1Device::kSimulatedSerial));
+        f.device.setSimulatedSerialNumber(QStringLiteral(" 4321 "));
+        QCOMPARE(f.device.serialNumber(), QStringLiteral("4321"));
+        f.device.setSimulatedSerialNumber(QString());
+        QCOMPARE(f.device.serialNumber(), QString::fromLatin1(DE1Device::kSimulatedSerial));
+
+        f.device.m_simulationMode = false;
+        f.transport.setConnectedSim(false);
+        QCOMPARE(f.device.serialNumber(), QString());
+    }
+
     void calibrationCacheIsClearedWhenTheMachineGoesAway() {
         // These values are facts about ONE machine. Carrying them across a
         // reconnect means a second DE1 shows the first's offsets — and the

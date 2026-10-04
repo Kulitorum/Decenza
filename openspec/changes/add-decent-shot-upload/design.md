@@ -43,7 +43,7 @@ Current Decenza state that shapes the approach:
 - **MCP:** in Stage 1 the existing `visualizerAutoUpload`/`visualizerAutoUpdate`/`visualizerMinDuration` names keep working against `SettingsUpload`. Stage 2 renames them to destination-neutral names and adds the switches (task 8.5, with a `McpSurfaceVersion` bump).
 
 ### D3. Serial number: read on connect, used at upload time
-`DE1Device` adds `issueMMRReadWithRetry(MMR::SERIAL_NUMBER, …)` to the post-connect reads, and a `parseMMRResponse` branch that takes the 32-bit value (de1app's `Data0`). It exposes it as `Q_PROPERTY QString serialNumber`, empty when unread or 0. The simulator reports `SIM-DE1` (`DE1Device::kSimulatedSerial`): non-numeric, so no account owns it and the server refuses its uploads with 403. That lets the whole upload path run on the simulator without a simulated shot ever reaching an account. To test a successful upload, MCP `settings_set simulatorSerialNumber` swaps in a real serial for this app run only: an in-memory `DE1Device` field, never saved and with no UI, so it cannot outlive the test session or be switched on by accident. The About tab's DE1 card binds to it (selectable `Text`, accessible name "Serial number: <value>").
+`DE1Device` adds `issueMMRReadWithRetry(MMR::SERIAL_NUMBER, …)` to the post-connect reads, and a `parseMMRResponse` branch that takes the 32-bit value (de1app's `Data0`). It exposes it as `Q_PROPERTY QString serialNumber`, empty when unread or 0. The simulator reports `SIM-DE1` (`DE1Device::kSimulatedSerial`): non-numeric, so no account owns it and the server refuses its uploads with 403. That lets the whole upload path run on the simulator without a simulated shot ever reaching an account. To test a successful upload, MCP `settings_set simulatorSerialNumber` swaps in a real serial for this app run only: an in-memory `DE1Device` field, never saved and with no UI, so it cannot outlive the test session or be switched on by accident. The About tab's DE1 card binds to it (selectable read-only `TextEdit`, accessible name "Serial number: <value>").
 
 The serial is **not** stored with the shot. A first upload takes serial, model and firmware from the connected device when the request is built:
 - model maps `MachineModel` to `"DE1"`, `"DE1+"`, `"DE1PRO"`, `"DE1XL"`, `"DE1CAFE"`
@@ -60,12 +60,12 @@ Adds to `shots`:
 
 These are schema facts, so the version bump is gated on the columns landing. No index: the backlog query runs on a worker thread once per batch of five, every 30 s or more, and nobody waits on it. That is no user-felt cost, so per the complexity rule there is no index.
 
-The columns are carried by `importDatabaseStatic` and `importShotRecordStatic` (spec: data-transfer-coverage). They are **not** added to the positional `loadShotRecordStatic` SELECT. The uploader reads its own columns with its own query, and the shot-detail status uses a small dedicated read alongside the existing shot load. This avoids the three-struct positional cost noted at `shotserver.cpp:1888`.
+The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage); `importShotRecordStatic` imports shot files, which have no Decent state. They are **not** added to the positional `loadShotRecordStatic` SELECT. The uploader reads its own columns with its own query, and the shot-detail status uses a small dedicated read alongside the existing shot load. This avoids the three-struct positional cost noted at `shotserver.cpp:1888`.
 
 ### D5. One serializer, from the saved row
-`DecentShotRecord::build(const ShotProjection&, const MachineIdentity&) → QByteArray` (`src/network/decentshotrecord.{h,cpp}`) is static, pure and thread-safe.
+`DecentShotRecord::build(const ShotProjection&, const DecentMachineIdentity&) → QByteArray` (`src/network/decentshotrecord.{h,cpp}`) is static, pure and thread-safe.
 - Live shots are uploaded **after `shotSaved`**, by loading the saved row, exactly like backlog and replace. So there is no `ShotDataModel` builder to drift.
-- **Timeline:** the pressure series is the master. Each sample gets `timestamp = shotStart + x`, ISO 8601 UTC with ms. Every other series is resampled onto it with Visualizer's `interpolateGoalData`, moved out of file scope into a shared header (`src/history/seriesresample.h`) so both uploaders call one copy. A missing value inside the series is 0 (spec).
+- **Timeline:** the pressure series is the master. Each sample gets `timestamp = shotStart + x`, ISO 8601 UTC with ms. Every other series is resampled onto it with Visualizer's `interpolateGoalData`, moved out of file scope into a shared header (`src/network/shotpayloadhelpers.h`) so both uploaders call one copy. A missing value inside the series is 0 (spec).
 - **Channels:**
   - `flow` = flow
   - `pressure` = pressure
@@ -77,13 +77,13 @@ The columns are carried by `importDatabaseStatic` and `importShotRecordStatic` (
   - `profileFrame` = the frame number of the last phase marker at or before x
   - `state` = `{"state":"espresso","substate":"pouring"}`, as de1app's converter writes
   - `scale` is emitted only when the shot has a weight series: `weight` = cumulative weight, `weightFlow` = weight flow rate
-- **Workflow:** `profile` is the de1app-v2 JSON Visualizer already produces (`buildVisualizerProfileJson`), not Decenza's internal profile JSON. The server's profile family and lineage inference is built for that shape.
+- **Workflow:** `profile` is the shot's stored profile snapshot (already de1app v2), sent verbatim as `buildHistoryShotJson` sends it: re-serializing through `Profile` would claim values the shot never ran. A shot whose stored profile does not parse is not uploaded.
 - **Context mapping:**
   - dose → `targetDoseWeight`, target weight → `targetYield`
   - resolved grinder brand+model → `grinderModel`; grinder setting → `grinderSetting`
   - bean type → `coffeeName`, bean brand → `coffeeRoaster`, barista → `baristaName`
   - beverage type → `finalBeverageType`
-  - `extras`: `roastDate` (validated ISO date), `roastLevel`, and `grinderRpm` when set. Grinder model resolution reuses Visualizer's equipment-following helper.
+  - `extras`: `roastDate` (validated ISO date), `roastLevel`, and `grinderRpm` when set. `grinderModel` is `grinderDisplayName(brand, model)` from `shotpayloadhelpers.h`.
 - **Annotations:** dose, final weight, TDS, EY, enjoyment, notes.
 - **`id` = `shots.uuid`:** globally unique, stable across re-uploads, and preserved by migration's uuid dedup. The server's duplicate check then makes a re-upload after state loss harmless (`"duplicate":true` → mark uploaded).
 - **`app`:** `{"name":"decenza","version":VERSION_STRING,"sourceFormat":"decenza"}`. **`schemaVersion`:** 1.
@@ -91,19 +91,19 @@ The columns are carried by `importDatabaseStatic` and `importShotRecordStatic` (
 
 ### D6. `DecentShotUploader`: one in-flight request, event-driven
 `src/network/decentshotuploader.{h,cpp}` owns a small state machine:
-- **Inputs:** `onShotSaved(id)`, `onShotMetadataUpdated(id, ok)`, machine phase changes, settings and account-state changes, and app start.
-- **Live:** `onShotSaved` enqueues the id at the head. If a request or batch is in flight, it is sent next (Decaid's `pendingLiveShots`).
-- **Edit:** `onShotMetadataUpdated(id, true)` calls a storage method that sets `decent_replace_pending = 1` **only if** `decent_uploaded_at IS NOT NULL`, then enqueues it.
+- **Inputs (Stage 2):** `onShotSaved(id)`, `onShotMetadataUpdated(id, ok)`, machine phase changes, settings and account-state changes, and app start.
+- **Live (Stage 2):** `onShotSaved` enqueues the id at the head. If a request or batch is in flight, it is sent next (Decaid's `pendingLiveShots`).
+- **Edit (Stage 2):** `onShotMetadataUpdated(id, true)` calls a storage method that sets `decent_replace_pending = 1` **only if** `decent_uploaded_at IS NOT NULL`, then enqueues it.
   - Persisting the flag is what makes "edit while offline, upload disabled, or needs-sign-in" survive.
   - The uploader's own writeback goes through a separate storage method that emits `decentUploadStateUpdated`, never `shotMetadataUpdated`, so it cannot loop. The Visualizer link writeback also does not emit `shotMetadataUpdated`.
   - *Alternative considered:* compare `updated_at` against a recorded revision, as Decaid does. Rejected, because the Visualizer writeback bumps `updated_at` and would force a replace of every shot uploaded to both destinations.
-- **Backlog:** a worker-thread query (`withTempDb`) selects the next ≤5 ids, newest first, where:
+- **Backlog (Stage 3):** a worker-thread query (`withTempDb`) selects the next ≤5 ids, newest first, where:
   - `decent_replace_pending = 1`, OR (`decent_uploaded_at IS NULL` AND `decent_rejected_status IS NULL`)
   - and the beverage type is not a maintenance type
   - and the duration is at least the minimum
 
   Replacements are ordered first. Each id is loaded and serialized on a worker thread, then posted back queued; the POST itself is async on the main thread through the shared QNAM. After a batch of 5, the next batch is scheduled ≥30 s later. That is a periodic rate limit, which the timer rule allows; it is not a guard.
-- **Idle gate:** a boolean `m_machineBusy`, set from `MachineState::phaseChanged`. Busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport. Idle = Disconnected, Sleep, Idle, Heating, Ready. A transition to idle is a backlog trigger. Before each request the uploader checks the flag, and stops issuing when busy (event-based, per CLAUDE.md).
+- **Idle gate (Stage 3):** a boolean `m_machineBusy`, set from `MachineState::phaseChanged`. Busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport. Idle = Disconnected, Sleep, Idle, Heating, Ready. A transition to idle is a backlog trigger. Before each request the uploader checks the flag, and stops issuing when busy (event-based, per CLAUDE.md).
 - **Retry:** transport error, 408, 429 or 5xx → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
   - 401 → `DecentAccount::reportAuthFailure()`, which persists `needsSignIn` and stops everything.
   - 403 → in-memory `m_pausedNotRegistered` with the serial; a status message names it; cleared on re-link or restart.
@@ -114,7 +114,7 @@ The columns are carried by `importDatabaseStatic` and `importShotRecordStatic` (
 
 ### D7. Logging
 New registered subsystem `DECENT` ("Decent") in `src/core/logtags.h` (two edits), used through `DIAG_*` per `docs/CLAUDE_MD/LOGGING.md`. Tiers by audience:
-- `INFO`: link/unlink, each upload outcome (shot id, status), backlog start and finish with counts, pause reasons.
+- `INFO`: link/unlink, successful uploads, not-sent outcomes (no machine, not linked, ineligible); in Stage 3 backlog start/finish and pause reasons.
 - `WARN`: transient failure after retries exhausted, 403, 401.
 - `DEBUG`: per-attempt detail.
 
@@ -129,7 +129,7 @@ Never log the Authorization header, the encrypted password, or request bodies. T
   - Connect verifies before saving: `DecentAccount::link` via `login_test`, `VisualizerUploader::connectAccount` via an authenticated `GET /api/shots?items=1`. Both answer with the shared `AccountLink::Error` (None / Rejected / Unreachable), and a success switches that destination on.
   - This replaces Visualizer's save-as-you-type fields and separate Test Connection, which let unverified credentials into settings.
 - **Moves:** Edit After Shot and Clear Notes on Start move to the Machine tab's App Behavior column, with the same `visualizer/*` keys. Renaming keys would need a settings migration for no user benefit.
-- **Search index:** `SettingsPage.qml` entries are updated — new Decent entries, moved entries re-pointed to Machine.
+- **Search index:** `qml/components/SettingsSearchIndex.js` entries are updated — new Decent entries, moved entries re-pointed to Machine.
 - Uses `StyledTextField`, `Keyboard.commit()` before reading the password, `KeyboardAwareContainer`, full accessibility roles, and every string via `TranslationManager`.
 
 ### D9. Shot surfaces
@@ -142,7 +142,7 @@ Never log the Authorization header, the encrypted password, or request bodies. T
 
 ### D10. Web and MCP
 - **ShotServer settings page:** mirrors the tab — a switch and account per destination (Decent: email + password → link server-side via `DecentAccount::link`, unlink, status), plus the shared Upload settings once. The password is never echoed, and `cryptpw` never leaves C++.
-- **MCP `settings_get`/`settings_set`:** expose both switches (`visualizerEnabled`, `decentEnabled`), the shared settings under destination-neutral names (`uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`), and read-only `decentAccountState` / `decentEmail`. This changes the settings tool schema, so bump `McpSurfaceVersion`.
+- **MCP `settings_get`/`settings_set` (Stage 2):** expose both switches (`visualizerEnabled`, `decentEnabled`), the shared settings under destination-neutral names (`uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`), and read-only `decentAccountState` / `decentEmail`. This changes the settings tool schema, so bump `McpSurfaceVersion`.
 - No new MCP tool: the budget rule says a verb of an existing noun is an action, and nothing here needs one.
 
 ### D11. One implementation per shared behaviour
@@ -150,7 +150,7 @@ Where the two destinations do the same thing, there is one implementation, calle
 - **"Is this destination active"** — switch on and account connected — is one property per destination on its settings domain (`SettingsVisualizer::visualizerActive`, `SettingsDecent::active`). MainController, the MCP tools (which hold `Settings`, not `MainController`) and QML all read it; none recomputes it.
 - **Shot eligibility** (minimum length, not a maintenance beverage type) is one function, `uploadIneligibility()` in `shotpayloadhelpers.h`, used by Visualizer's `validateUpload` and MCP's pre-check (which each hand-rolled it) and by the Decent uploader's automatic path in Stage 2.
 - **The settings card** grammar is one QML component (`UploadDestinationCard.qml`), and the shared settings appear once.
-- **The review page** has one Upload button and one auto-update-on-close path, each dispatching to every active destination.
+- **The review page** has one Upload button and one auto-update-on-close path, each dispatching to every active destination (auto-update reaches Decent from Stage 2).
 - **Payload helpers** (`shotpayloadhelpers.h`: resampling, grinder name, debug-file location) are shared by both serializers.
 
 ### D12. Staged rollout
@@ -180,6 +180,6 @@ Until Stage 3, a live upload that fails transiently is simply left un-uploaded; 
 
 ## Migration Plan
 
-- Migration 42 runs once at startup (adds nullable columns). Existing shots start "never uploaded".
+- Migration 42 runs once at startup (adds the columns, NULL or 0). Existing shots start "never uploaded".
 - Nothing uploads until the user links an account **and** turns upload on, so shipping is inert for existing users.
 - Rollback: an older build ignores the new columns and keys; re-upgrading resumes from the recorded state.

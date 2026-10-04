@@ -11,6 +11,7 @@ class SettingsVisualizer : public QObject {
     Q_PROPERTY(QString visualizerUsername READ visualizerUsername WRITE setVisualizerUsername NOTIFY visualizerUsernameChanged FINAL)
     Q_PROPERTY(QString visualizerPassword READ visualizerPassword WRITE setVisualizerPassword NOTIFY visualizerPasswordChanged FINAL)
     Q_PROPERTY(bool visualizerEnabled READ visualizerEnabled WRITE setVisualizerEnabled NOTIFY visualizerEnabledChanged FINAL)
+    Q_PROPERTY(bool visualizerConnected READ visualizerConnected NOTIFY visualizerActiveChanged FINAL)
     Q_PROPERTY(bool visualizerActive READ visualizerActive NOTIFY visualizerActiveChanged FINAL)
     Q_PROPERTY(bool visualizerExtendedMetadata READ visualizerExtendedMetadata WRITE setVisualizerExtendedMetadata NOTIFY visualizerExtendedMetadataChanged FINAL)
     Q_PROPERTY(bool visualizerShowAfterShot READ visualizerShowAfterShot WRITE setVisualizerShowAfterShot NOTIFY visualizerShowAfterShotChanged FINAL)
@@ -29,8 +30,8 @@ public:
     // SettingsUpload, shared with the Decent account.
     bool visualizerEnabled() const;
     void setVisualizerEnabled(bool enabled);
-    // Switched on with both credentials set: shots go to Visualizer.
-    bool visualizerActive() const;
+    bool visualizerConnected() const;  // both credentials set
+    bool visualizerActive() const;     // connected and switched on
 
     bool visualizerExtendedMetadata() const;
     void setVisualizerExtendedMetadata(bool enabled);

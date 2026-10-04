@@ -2276,7 +2276,8 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // Migration 42: per-shot Decent account upload state (add-decent-shot-upload).
-    // Nullable and unfilled: every existing shot starts "never uploaded". Schema
+    // Unfilled (NULL, or 0 for decent_replace_pending): every existing shot starts
+    // "never uploaded". Schema
     // facts — the uploader selects these columns by name — so the bump is gated
     // on all of them being present.
     if (currentVersion >= 41 && currentVersion < 42) {
@@ -2310,7 +2311,8 @@ bool ShotHistoryStorage::runMigrations()
                      && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (42)"));
             if (ok && txn.commit()) {
                 currentVersion = 42;
-                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 42 complete";
+                // INFO: its failure is a WARN that promises a retry, and the resolution belongs beside it.
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 42 complete";
             } else {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 42 incomplete - will retry next launch"
                               " (Decent upload is unavailable until it completes)";
@@ -2986,14 +2988,28 @@ void ShotHistoryStorage::requestRecordDecentRejection(qint64 shotId, int httpSta
     });
 }
 
+void ShotHistoryStorage::requestMarkDecentReplacePending(qint64 shotId)
+{
+    runDecentStateWrite(shotId, "replace-pending", [shotId](QSqlQuery& q) {
+        if (!q.prepare("UPDATE shots SET decent_replace_pending = 1 WHERE id = :id AND decent_uploaded_at IS NOT NULL"))
+            return false;
+        q.bindValue(":id", shotId);
+        return q.exec();
+    });
+}
+
 bool ShotHistoryStorage::loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out)
 {
     QSqlQuery q(db);
-    if (!q.prepare("SELECT decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending, "
-                   "decent_rejected_status, decent_rejected_at FROM shots WHERE id = :id"))
-        return false;
+    q.prepare("SELECT decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending, "
+              "decent_rejected_status, decent_rejected_at FROM shots WHERE id = :id");
     q.bindValue(":id", shotId);
-    if (!q.exec() || !q.next()) return false;
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Decent upload state of shot" << shotId
+                                                 << "unreadable:" << q.lastError().text();
+        return false;
+    }
+    if (!q.next()) return false;
     out->uploadedAt = q.value(0).toLongLong();
     out->serverShotId = q.value(1).toString();
     out->serial = q.value(2).toString();

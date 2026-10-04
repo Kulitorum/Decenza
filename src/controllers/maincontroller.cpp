@@ -349,6 +349,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         id.model = DecentShotRecord::modelName(m_device->machineModel());
         return id;
     });
+    m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
 
     // profile-usage-history: ProfileManager owns the usage data (profileUsage,
     // fed to the picker and usage-mode favorites resort); ShotHistoryStorage

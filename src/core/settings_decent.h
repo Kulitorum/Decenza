@@ -8,13 +8,11 @@
 //
 // The encrypted password is the token login_test returns, not the user's
 // password. It is deliberately not a Q_PROPERTY so QML cannot read it, and
-// SettingsSerializer never exports or imports it.
+// SettingsSerializer never exports or imports it. Only DecentAccount writes the
+// account; QML reads its state from there.
 class SettingsDecent : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(QString email READ email NOTIFY accountChanged FINAL)
-    Q_PROPERTY(bool linked READ linked NOTIFY accountChanged FINAL)
-    Q_PROPERTY(bool needsSignIn READ needsSignIn NOTIFY accountChanged FINAL)
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged FINAL)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged FINAL)
 

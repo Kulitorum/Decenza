@@ -387,7 +387,8 @@ private slots:
         // An install from before the switches has none stored: Visualizer must stay
         // on (it uploaded before) and Decent off (opt-in, as in Decaid).
         AppSettings raw;
-        const QStringList keys{"visualizer/enabled", "visualizer/username", "visualizer/password", "decent/enabled"};
+        const QStringList keys{"visualizer/enabled", "visualizer/username", "visualizer/password", "decent/enabled",
+                               "visualizer/autoUpload", "visualizer/minDuration"};
         QVariantMap original;
         for (const auto& key : keys) original[key] = raw.value(key);
         const auto restore = qScopeGuard([&] {
@@ -397,9 +398,14 @@ private slots:
             }
         });
         for (const auto& key : keys) raw.remove(key);
+        // A choice made on the old Visualizer tab carries over to the shared settings.
+        raw.setValue("visualizer/autoUpload", false);
+        raw.setValue("visualizer/minDuration", 10.0);
         raw.sync();
 
         Settings fresh;
+        QVERIFY(!fresh.upload()->autoUpload());
+        QCOMPARE(fresh.upload()->minDuration(), 10.0);
         QVERIFY(fresh.visualizer()->visualizerEnabled());
         QVERIFY(!fresh.decent()->enabled());
         QVERIFY2(!fresh.visualizer()->visualizerActive(), "switched on but no account is not active");
@@ -408,12 +414,12 @@ private slots:
         QVERIFY(fresh.visualizer()->visualizerActive());
         fresh.visualizer()->setVisualizerEnabled(false);
         QVERIFY(!fresh.visualizer()->visualizerActive());
-
     }
 
     void decentAccountNeverTransfers() {
         AppSettings raw;
-        const QStringList keys{"decent/email", "decent/cryptpw", "decent/enabled"};
+        const QStringList keys{"decent/email", "decent/cryptpw", "decent/enabled", "visualizer/enabled",
+                               "visualizer/autoUpload", "visualizer/minDuration"};
         QVariantMap original;
         for (const auto& key : keys) original[key] = raw.value(key);
         const auto restore = qScopeGuard([&] {
@@ -430,14 +436,18 @@ private slots:
         QCOMPARE(QJsonDocument(decent).toJson(QJsonDocument::Compact),
                  QByteArray(R"({"enabled":true})"));
 
-        // A hand-edited backup naming another account must not replace this one.
-        m_settings.decent()->clearAccount();
-        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"decent", QJsonObject{
-            {"email", "attacker@example.com"}, {"cryptpw", "stolen"}, {"encryptedPassword", "stolen"},
-            {"enabled", false}}}});
-        QVERIFY(!m_settings.decent()->linked());
-        QVERIFY(raw.value("decent/email").toString().isEmpty());
-        QVERIFY(!m_settings.decent()->enabled());   // the switch restores
+        // A hand-edited backup naming another account must neither replace this one
+        // nor wipe it; the switches and the shared settings do restore.
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{
+            {"decent", QJsonObject{{"email", "attacker@example.com"}, {"cryptpw", "stolen"},
+                                   {"encryptedPassword", "stolen"}, {"enabled", false}}},
+            {"visualizer", QJsonObject{{"enabled", false}, {"autoUpload", false}, {"minDuration", 9.0}}}});
+        QCOMPARE(m_settings.decent()->email(), QStringLiteral("owner@example.com"));
+        QCOMPARE(m_settings.decent()->encryptedPassword(), QStringLiteral("cryptpw-token"));
+        QVERIFY(!m_settings.decent()->enabled());
+        QVERIFY(!m_settings.visualizer()->visualizerEnabled());
+        QVERIFY(!m_settings.upload()->autoUpload());
+        QCOMPARE(m_settings.upload()->minDuration(), 9.0);
     }
 
     void portalSelectionAndDisplayPreferenceSurviveBackup() {

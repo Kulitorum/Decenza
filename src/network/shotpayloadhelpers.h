@@ -38,9 +38,9 @@ inline QString grinderDisplayName(const QString& brand, const QString& model) {
     return brand + QLatin1Char(' ') + model;
 }
 
-// Helper: Interpolate goal data to match elapsed timestamps
-// Goal data may have different timestamps or gaps; we need to align to the master elapsed array
-// Gaps > 0.5s between goal points indicate mode switches (flow/pressure) - return 0 during gaps
+// Resamples a series onto the master timeline. A gap of more than 0.5 s reads 0:
+// for a goal series that is a flow/pressure mode switch, for a measured one a
+// sensor gap.
 inline QJsonArray interpolateGoalData(const QVector<QPointF>& goalData, const QVector<QPointF>& masterData) {
     QJsonArray result;
 

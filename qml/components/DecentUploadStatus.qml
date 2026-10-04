@@ -2,7 +2,7 @@ import QtQuick
 import Decenza
 
 // The one wording for a Decent upload's progress and outcome. With shotId set,
-// it shows only for that shot.
+// results show only for that shot; progress shows for any upload.
 Text {
     id: root
 
@@ -31,6 +31,10 @@ Text {
         case DecentShotUploader.Result.NotReplaced:
             return TranslationManager.translate("decent.upload.notReplaced",
                 "Decent kept its earlier copy — the edit was not saved")
+        case DecentShotUploader.Result.Maintenance:
+            return TranslationManager.translate("decent.upload.maintenance", "Cleaning and descaling cycles are not uploaded")
+        case DecentShotUploader.Result.TooShort:
+            return TranslationManager.translate("decent.upload.tooShort", "Shorter than the minimum shot length — not uploaded")
         case DecentShotUploader.Result.NotLinked:
             return TranslationManager.translate("decent.upload.notLinked", "Connect your Decent account in Settings first")
         case DecentShotUploader.Result.NoMachine:

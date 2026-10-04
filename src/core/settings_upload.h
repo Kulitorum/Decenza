@@ -3,9 +3,9 @@
 #include <QObject>
 #include "appsettings.h"
 
-// When and what to upload, shared by every upload destination (Visualizer, the
-// Decent account). Each destination has only its own switch and account. The
-// keys predate the split and stay under visualizer/ so stored values carry over.
+// When and what to upload automatically, shared by the upload destinations; each
+// has only its own switch and account. Visualizer reads it today, the Decent
+// account from Stage 2 of add-decent-shot-upload.
 class SettingsUpload : public QObject {
     Q_OBJECT
 

@@ -2,6 +2,7 @@
 
 #include "core/diagnosticlogging.h"
 #include "core/settings_decent.h"
+#include "network/httpauth.h"
 
 #include <QDesktopServices>
 #include <QJsonDocument>
@@ -13,11 +14,14 @@
 #include <QUrlQuery>
 
 namespace {
-// The page a signed-in owner's shots live on.
-const QString kAccountPath = QStringLiteral("/support/espressomachine");
+void openInBrowser(const QUrl& url) {
+    if (!QDesktopServices::openUrl(url))
+        DIAG_WARN(DECENT, "DecentAccount") << "no browser could open" << url.host();
+}
 
-QByteArray basicAuth(const QString& user, const QString& secret) {
-    return "Basic " + (user.trimmed() + QLatin1Char(':') + secret.trimmed()).toUtf8().toBase64();
+// login_test's token is one short line; a captive portal's page is not.
+bool looksLikeToken(const QString& body) {
+    return body.size() <= 200 && !body.contains(QLatin1Char('<')) && !body.contains(QLatin1Char('\n'));
 }
 }
 
@@ -42,7 +46,8 @@ void DecentAccount::link(const QString& email, const QString& password) {
     if (m_linkReply || email.trimmed().isEmpty() || password.isEmpty()) return;
 
     QNetworkRequest request(QUrl(QString::fromLatin1(kBaseUrl) + QStringLiteral("/support/api/login_test")));
-    request.setRawHeader("Authorization", basicAuth(email, password));
+    request.setRawHeader("Authorization", basicAuthHeader(email, password));
+    request.setTransferTimeout(kTransferTimeoutMs);
     m_pendingEmail = email.trimmed();
     m_linkReply = m_network->get(request);
     connect(m_linkReply, &QNetworkReply::finished, this, &DecentAccount::onLinkFinished);
@@ -65,8 +70,8 @@ void DecentAccount::onLinkFinished() {
         return;
     }
     if (status != 200) {
-        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test returned HTTP" << status;
-        emit linkFinished(AccountLink::Error::Unreachable);
+        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test returned HTTP" << status << reply->errorString();
+        emit linkFinished(AccountLink::Error::ServerError);
         return;
     }
     // login_test answers 0 (or nothing) for bad credentials, otherwise the
@@ -74,6 +79,12 @@ void DecentAccount::onLinkFinished() {
     if (body.isEmpty() || body == QLatin1String("0")) {
         DIAG_INFO(DECENT, "DecentAccount") << "link rejected: email or password not accepted";
         emit linkFinished(AccountLink::Error::Rejected);
+        return;
+    }
+    if (!looksLikeToken(body)) {
+        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test answered 200 with" << body.size()
+                                           << "characters that are not a token";
+        emit linkFinished(AccountLink::Error::ServerError);
         return;
     }
 
@@ -86,14 +97,23 @@ void DecentAccount::onLinkFinished() {
 }
 
 void DecentAccount::unlink() {
+    // A sign-in still in flight must not re-link the account the user just disconnected.
+    if (QNetworkReply* pending = m_linkReply) {
+        m_linkReply = nullptr;
+        disconnect(pending, nullptr, this, nullptr);
+        pending->abort();
+        pending->deleteLater();
+        emit busyChanged();
+    }
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();
     DIAG_INFO(DECENT, "DecentAccount") << "account unlinked";
 }
 
 bool DecentAccount::applyAuth(QNetworkRequest& request) const {
-    if (!m_settings->linked()) return false;
-    request.setRawHeader("Authorization", basicAuth(m_settings->email(), m_settings->encryptedPassword()));
+    // Credentials the server has already refused are not sent again.
+    if (state() != State::Linked) return false;
+    request.setRawHeader("Authorization", basicAuthHeader(m_settings->email(), m_settings->encryptedPassword()));
     return true;
 }
 
@@ -101,21 +121,22 @@ void DecentAccount::reportAuthFailure() {
     if (!m_settings->linked() || m_settings->needsSignIn()) return;
     m_settings->setNeedsSignIn(true);
     DIAG_WARN(DECENT, "DecentAccount") << "the server rejected the stored credentials (HTTP 401); "
-                                          "automatic uploads stop until the account is signed in again";
+                                          "Decent uploads stop until the account is signed in again";
 }
 
 void DecentAccount::openAccountInBrowser() {
-    const QUrl fallback(QString::fromLatin1(kBaseUrl) + kAccountPath);
+    const QUrl fallback(QString::fromLatin1(kBaseUrl) + QString::fromLatin1(kAccountPath));
     QNetworkRequest request(QUrl(QString::fromLatin1(kBaseUrl) + QStringLiteral("/support/api/authenticated_redirect")));
     if (!applyAuth(request)) {
-        QDesktopServices::openUrl(fallback);
+        openInBrowser(fallback);
         return;
     }
     QUrl url = request.url();
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("dest"), kAccountPath);
+    query.addQueryItem(QStringLiteral("dest"), QString::fromLatin1(kAccountPath));
     url.setQuery(query);
     request.setUrl(url);
+    request.setTransferTimeout(kTransferTimeoutMs);
 
     QNetworkReply* reply = m_network->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, fallback]() {
@@ -126,11 +147,11 @@ void DecentAccount::openAccountInBrowser() {
         const QUrl signedIn(json.value(QStringLiteral("url")).toString());
         if (status == 200 && json.value(QStringLiteral("ok")).toBool() && signedIn.isValid()
             && signedIn.host() == QUrl(fallback).host()) {
-            QDesktopServices::openUrl(signedIn);
+            openInBrowser(signedIn);
             return;
         }
         DIAG_INFO(DECENT, "DecentAccount") << "authenticated redirect unavailable (HTTP" << status
-                                           << "); opening the account page unsigned";
-        QDesktopServices::openUrl(fallback);
+                                           << reply->errorString() << "); opening the account page unsigned";
+        openInBrowser(fallback);
     });
 }

@@ -1021,6 +1021,7 @@ set(HEADERS
     src/network/visualizeruploader.h
     src/network/shotpayloadhelpers.h
     src/network/accountlink.h
+    src/network/httpauth.h
     src/network/decentaccount.h
     src/network/decentshotrecord.h
     src/network/decentshotuploader.h

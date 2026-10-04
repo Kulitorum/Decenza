@@ -9,27 +9,33 @@ https://decentespresso.com/support/api/
 
 | | |
 |---|---|
-| `DecentAccount` (`src/network/decentaccount.*`) | `login_test` exchange, sign-in state, authenticated redirect. `applyAuth()` is the only place auth is set. |
-| `SettingsDecent` | `decent/email`, `decent/cryptpw` (never exported or imported), `decent/needsSignIn`, `decent/enabled` (the Decent switch, default off). `active` = switched on + linked. |
+| `DecentAccount` (`src/network/decentaccount.*`) | `login_test` exchange, sign-in state, authenticated redirect. Every call after linking authenticates through `applyAuth()`, and only while Linked. |
+| `SettingsDecent` | `decent/email`, `decent/cryptpw` (never exported or imported), `decent/needsSignIn`, `decent/enabled` (the Decent switch; linking turns it on). `active` = switched on + linked + not waiting to sign in again. |
 | `SettingsUpload` | When/what to upload, shared with Visualizer: `autoUpload`, `autoUpdate`, `minDuration`, stored under the pre-split `visualizer/*` keys. Each destination has only its switch and account. |
 | `DecentShotRecord` | Saved shot → Decaid `ShotRecord` JSON. Field mapping follows de1app's `converter.tcl`. |
 | `DecentShotUploader` | One request at a time; retry classes; writes the result to the shot row. |
-| `shots.decent_*` (migration 42) | Upload time, server id, the serial it was filed under, replace-pending, rejection. |
+| `shots.decent_*` (migration 42) | Upload time, server id, the serial it was filed under, replace-pending (an edit Decent did not take), rejection. |
 
 **Auth.** The password goes to `login_test` once. The encrypted password it returns is stored and sent as HTTP Basic
-`email:cryptpw` on every later call. No OAuth: neither Decent app uses it, and it needs a client registration.
+`email:cryptpw` on every later call (`basicAuthHeader()` in `httpauth.h`, shared with Visualizer; the password is never
+trimmed). Requests time out after 15 s, uploads after 30 s. No OAuth: neither Decent app uses it, and it needs a client
+registration.
 
-**Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`). It is not stored per shot. A first upload uses
-the connected machine's serial, which is Decaid's rule for legacy shots. A replacement reuses `decent_serial`, so it lands
-on the same machine. With no machine connected, a first upload waits. The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
+**Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`), cleared on disconnect. It is not captured when a
+shot is saved: a first upload uses the connected machine's serial (Decaid's rule for legacy shots), and only the serial an
+upload was filed under is kept (`decent_serial`), so a replacement lands on the same machine. With no machine connected, a
+first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
 
 **Responses** (Decaid's classes):
-- 2xx, including `"duplicate":true` → uploaded.
-- Transport error, 408, 429, 5xx → retried 3 times (2 s, 4 s), then left untouched.
-- 401 → needs sign-in.
+- 2xx with `"ok":true`, including `"duplicate":true` on a first upload → uploaded.
+- A 2xx without `"ok":true` (a captive portal, a proxy) is treated as transient.
+- Transport error, timeout, 404, 405, 408, 410, 429, 5xx → up to 3 attempts (retries after 2 s and 4 s), then left untouched.
+- 401 → needs sign-in; credentials are not sent again until the account is signed in again.
 - 403 → the serial is not in the account.
 - Other 4xx → rejected and recorded.
-- A replace answered `"duplicate":true` → `NotReplaced`: the server kept its earlier copy. As of 2026-10-04 decentespresso.com answers every `?replace=1` this way; reported to Decent.
+- A replace answered `"duplicate":true` → `NotReplaced`, and the shot is marked replace-pending: the server kept its earlier
+  copy. As of 2026-10-04 decentespresso.com answers every `?replace=1` this way; reported to Decent.
+- Cleaning/descaling records and shots under the shared minimum length are not sent (`uploadIneligibility()`).
 
 **One button.** The review page's Upload button sends to every active destination (`visualizerActive`, `decent.active`). Stage 1: Decent ignores the automatic settings, so nothing reaches it except through that button.
 
@@ -40,8 +46,8 @@ Every request body is written to `Documents/last_decent_upload.json`, and the se
 
 ## Cleaning up test uploads
 
-A wrong document is fixed by uploading the same shot again: the id is the shot's uuid, so it replaces. A shot that should not
-be there is trashed, which stays recoverable until a purge. Shot ids and serials come from the local database:
+Re-uploading the same shot replaces it once Decent applies `?replace=1` (it does not as of 2026-10-04). Until then a wrong
+document can only be trashed, which stays recoverable until a purge. Shot ids and serials come from the local database:
 
 ```bash
 sqlite3 shots.db "SELECT id, decent_shot_id, decent_serial FROM shots WHERE decent_uploaded_at IS NOT NULL"

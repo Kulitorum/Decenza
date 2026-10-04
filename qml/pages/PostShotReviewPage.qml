@@ -76,7 +76,7 @@ T.Page {
         }
         // If a pending edit has not yet been synced to visualizer, fire the PATCH
         // now. maybeAutoUpdateVisualizer() requires: pendingVisualizerUpdate
-        // set, Settings.upload.autoUpdate on, Visualizer switched on, MainController.visualizer
+        // set, Settings.upload.autoUpdate on, Visualizer active (switched on with credentials), MainController.visualizer
         // present, and a captured _visualizerId (i.e. the shot was previously uploaded).
         // Safe here because maybeAutoUpdateVisualizer() only dispatches a network call —
         // no DB writes or Keyboard.commit(), which are the operations flagged as
@@ -1010,12 +1010,14 @@ T.Page {
             _visualizerId, editShotData, buildVisualizerOverrides())
     }
 
-    // A replace Decent did not apply leaves the edit pending, so Upload stays lit.
+    // Anything short of a stored upload leaves the edit pending, so Upload stays lit.
     Connections {
         target: MainController.decentUploader
         function onUploadFinished(shotId, result) {
-            if (shotId === postShotReviewPage.editShotId && result === DecentShotUploader.Result.NotReplaced)
-                postShotReviewPage.pendingDecentUpdate = true
+            if (shotId !== postShotReviewPage.editShotId) return
+            postShotReviewPage.pendingDecentUpdate = result !== DecentShotUploader.Result.Uploaded
+            if (AccessibilityManager.enabled && decentUploadStatus.text.length > 0)
+                AccessibilityManager.announce(decentUploadStatus.text, true)
         }
     }
 
@@ -2437,14 +2439,9 @@ T.Page {
                      && !MainController.visualizer.uploading && !MainController.decentUploader.uploading
 
             // Every active destination already holds this shot as edited: nothing to
-            // push. Anything else — never uploaded, or a local edit saved but not yet
-            // sent — means a tap would actually send something, which is what the
-            // warning fill signals.
-            //
-            // The two not-in-sync cases are announced differently, since colour alone
-            // can't carry state: never-uploaded is already implied by accessibleName
-            // ("Upload" vs "Re-Upload"), but a pending edit needs accessibleDescription
-            // — the name reads the same either way.
+            // push. Otherwise a tap sends something, which the warning fill signals;
+            // colour alone can't carry that, so the description flags any active
+            // destination not yet holding the current version.
             readonly property bool uploadedSomewhere:
                 (uploadButton.toVisualizer && !!postShotReviewPage._visualizerId) || (uploadButton.toDecent && postShotReviewPage._decentUploaded)
             readonly property bool inSync:
@@ -2519,6 +2516,7 @@ T.Page {
         }
 
         DecentUploadStatus {
+            id: decentUploadStatus
             shotId: postShotReviewPage.editShotId
             Layout.fillWidth: true
             // Same cap as the Visualizer status lines above, for the same reason.

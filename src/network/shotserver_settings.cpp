@@ -1,4 +1,5 @@
 #include "core/diagnosticlogging.h"
+#include "httpauth.h"
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
@@ -1717,8 +1718,7 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
         m_testNetworkManager = new QNetworkAccessManager(this);
 
     QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
-    QString credentials = username + ":" + password;
-    request.setRawHeader("Authorization", "Basic " + credentials.toUtf8().toBase64());
+    request.setRawHeader("Authorization", basicAuthHeader(username, password));
     request.setTransferTimeout(15000);
 
     m_visualizerTestInFlight = true;

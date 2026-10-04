@@ -38,17 +38,17 @@ ColumnLayout {
         passwordInput.text = ""
     }
 
-    spacing: Theme.scaled(12)
+    spacing: Theme.spacingMedium
 
     ColumnLayout {
         Layout.fillWidth: true
         visible: !root.connected
-        spacing: Theme.scaled(4)
+        spacing: Theme.spacingSmall / 2
 
         Text {
             text: root.identityLabel
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(12)
+            font: Theme.captionFont
             Accessible.ignored: true
         }
         StyledTextField {
@@ -65,7 +65,7 @@ ColumnLayout {
             key: "settings.upload.account.password"
             fallback: "Password"
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(12)
+            font: Theme.captionFont
             Accessible.ignored: true
         }
         StyledTextField {
@@ -79,7 +79,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Theme.scaled(10)
+        spacing: Theme.spacingSmall
 
         AccessibleButton {
             visible: !root.connected
@@ -111,10 +111,13 @@ ColumnLayout {
         visible: root.linkError !== AccountLink.Error.None
         text: root.linkError === AccountLink.Error.Rejected
               ? TranslationManager.translate("settings.upload.account.rejected", "Email or password not accepted")
-              : TranslationManager.translate("settings.upload.account.unreachable",
-                    "Could not reach the server — check your connection")
+              : root.linkError === AccountLink.Error.ServerError
+                ? TranslationManager.translate("settings.upload.account.serverError",
+                      "The server had a problem — try again later")
+                : TranslationManager.translate("settings.upload.account.unreachable",
+                      "Could not reach the server — check your connection")
         color: Theme.errorColor
-        font.pixelSize: Theme.scaled(12)
+        font: Theme.captionFont
         wrapMode: Text.WordWrap
         Accessible.role: Accessible.StaticText
         Accessible.name: text

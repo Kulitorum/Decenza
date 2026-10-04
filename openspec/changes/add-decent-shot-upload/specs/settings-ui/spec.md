@@ -8,7 +8,7 @@ The settings tab that holds upload settings SHALL be labelled "Shot Upload". It 
 3. account controls, identical for both destinations — sign-in fields and a Connect button when not connected, the connected identity and a Disconnect button when connected. Connect checks the credentials with the service before anything is saved, so there is no separate Test Connection: credentials that were not accepted, or could not be checked, are not stored. Connecting switches that destination on; the user can switch it off afterwards;
 4. destination-specific actions — Visualizer: sign-up link and Recover Shots; Decent: "View my shots on decentespresso.com" and the most recent upload result.
 
-The Upload settings card SHALL hold "Upload new shots automatically", "Update edited shots automatically" and "Minimum shot length". These are single settings shared by both destinations; no destination card SHALL carry its own copy. They SHALL keep the values the Visualizer tab's settings of the same names had (stored under the same keys), so nothing changes for an existing Visualizer user. A destination receives uploads only while its switch is on and its account is connected. On a narrow screen the cards SHALL stack — Visualizer, Decent account, Upload settings — and every card SHALL scroll fully into view.
+The Upload settings card SHALL hold "Auto-upload shots", "Auto-update shots" and "Minimum Duration". These are single settings shared by both destinations; no destination card SHALL carry its own copy. They SHALL keep the values the Visualizer tab's settings of the same names had (stored under the same keys), so nothing changes for an existing Visualizer user. A destination receives uploads only while its switch is on and its account is connected. On a narrow screen the cards SHALL stack — Visualizer, Decent account, Upload settings — and every card SHALL scroll fully into view.
 
 #### Scenario: Two destinations, one set of settings
 - **WHEN** the user opens Settings → Shot Upload on a tablet
@@ -105,7 +105,7 @@ The app SHALL provide a "Machine" settings tab (renamed from Preferences) contai
 
 #### Scenario: Renamed cards show new labels
 - **WHEN** user opens the Machine tab
-- **THEN** cards display "Shot Review Timer", "Screen Zoom", and "Simulation Mode" (not the old names)
+- **THEN** the tab shows "Shot Review Timer", "Screen Zoom", and "Simulation Mode" (not the old names)
 
 #### Scenario: Post-shot review options moved
 - **WHEN** user opens the Machine tab

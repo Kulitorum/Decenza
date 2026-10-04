@@ -41,10 +41,17 @@ public:
         setUrl(request.url());
         setOperation(op);
         open(QIODevice::ReadOnly);
-        if (canned.status > 0)
+        if (canned.status > 0) {
             setAttribute(QNetworkRequest::HttpStatusCodeAttribute, canned.status);
-        else
+            // Real QNAM sets an error for every status >= 400 as well
+            // (qhttpthreaddelegate.cpp:539-544), so code must not read error() alone.
+            if (canned.status >= 400)
+                setError(canned.status >= 500 ? QNetworkReply::InternalServerError
+                                              : QNetworkReply::ProtocolInvalidOperationError,
+                         QStringLiteral("HTTP %1").arg(canned.status));
+        } else {
             setError(QNetworkReply::HostNotFoundError, QStringLiteral("host not found"));
+        }
         QTimer::singleShot(0, this, [this]() {
             setFinished(true);
             emit finished();
@@ -114,13 +121,6 @@ class tst_DecentShotUpload : public QObject {
 
     QTemporaryDir m_dir;
 
-    static void drain() {
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
-    }
-
     static ShotRecord makeShot() {
         ShotRecord r;
         r.summary.uuid = QStringLiteral("0b6f7c1e-5d2a-4c1e-9a77-3f1d2e4b5a60");
@@ -142,7 +142,6 @@ class tst_DecentShotUpload : public QObject {
         DecentShotUploader uploader{&nam, &account, &storage};
         QString serial = QStringLiteral("1234");
         qint64 shotId = 0;
-        QSignalSpy written{&storage, &ShotHistoryStorage::decentUploadStateUpdated};
 
         explicit Rig(const QString& dbPath) {
             settings.setAccount(QStringLiteral("owner@example.com"), QStringLiteral("token"));
@@ -154,8 +153,11 @@ class tst_DecentShotUpload : public QObject {
         }
         ~Rig() {
             settings.clearAccount();
+            settings.setEnabled(false);
+            // A worker still busy after 5 s surfaces as the queued-work warning on close.
+            (void)QTest::qWaitFor([this]() { return storage.isDbWorkIdle(); }, 5000);
             storage.close();
-            drain();
+            (void)QTest::qWaitFor([this]() { return storage.isDbWorkIdle(); }, 5000);
         }
         DecentShotUploader::Result upload() {
             QSignalSpy finished(&uploader, &DecentShotUploader::uploadFinished);
@@ -163,9 +165,11 @@ class tst_DecentShotUpload : public QObject {
             if (finished.isEmpty() && !finished.wait(5000)) return DecentShotUploader::Result::None;
             return finished.first().at(1).value<DecentShotUploader::Result>();
         }
+        // The uploader posts its state write before it reports, so once the DB
+        // worker is idle the newest write has landed.
         DecentUploadState state() {
-            if (written.isEmpty()) written.wait(2000);
-            written.clear();
+            // If it never idles, the caller's assertions on the state fail instead.
+            (void)QTest::qWaitFor([this]() { return storage.isDbWorkIdle(); }, 5000);
             DecentUploadState s;
             withTempDb(storage.databasePath(), "tst_decent", [&](QSqlDatabase& db) {
                 ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &s);
@@ -249,7 +253,7 @@ private slots:
         QCOMPARE(QSet<QString>(accepted - built), QSet<QString>());
     }
 
-    // The shared policy every destination applies (Visualizer, MCP, Decent).
+    // The shared eligibility policy (Visualizer, MCP, and Decent's uploads).
     void uploadIneligibility_data() {
         QTest::addColumn<QString>("beverageType");
         QTest::addColumn<double>("durationSec");
@@ -278,6 +282,7 @@ private slots:
         QTest::newRow("unauthorized") << 401 << false << int(C::AuthFailed);
         QTest::newRow("not your machine") << 403 << false << int(C::NotRegistered);
         QTest::newRow("timeout") << 408 << false << int(C::Transient);
+        QTest::newRow("endpoint gone") << 404 << false << int(C::Transient);
         QTest::newRow("rate limited") << 429 << false << int(C::Transient);
         QTest::newRow("bad document") << 400 << false << int(C::Permanent);
         QTest::newRow("server error") << 503 << false << int(C::Transient);
@@ -293,9 +298,12 @@ private slots:
         Rig rig(m_dir.filePath("upload.db"));
         QVERIFY(rig.shotId > 0);
         rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-1"})"}};
+        // Recording an upload must never read as a user edit (Stage 2 replaces on edits).
+        QSignalSpy edits(&rig.storage, &ShotHistoryStorage::shotMetadataUpdated);
 
         QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
         const DecentUploadState first = rig.state();
+        QCOMPARE(edits.count(), 0);
         QVERIFY(first.uploaded());
         QCOMPARE(first.serverShotId, QStringLiteral("srv-1"));
         QCOMPARE(first.serial, QStringLiteral("1234"));
@@ -315,6 +323,10 @@ private slots:
         rig.nam.replies = {{200, R"({"ok":true,"stored":false,"duplicate":true,"id":"srv-1"})"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("answered a replace with \"duplicate\""));
         QCOMPARE(rig.upload(), DecentShotUploader::Result::NotReplaced);
+        // The edit did not land: it stays pending, and the earlier upload stands.
+        const DecentUploadState kept = rig.state();
+        QVERIFY(kept.replacePending);
+        QCOMPARE(kept.serverShotId, QStringLiteral("srv-1"));
     }
 
     void linkKeepsOnlyTheEncryptedPassword_data() {
@@ -324,6 +336,9 @@ private slots:
         QTest::newRow("accepted") << 200 << QByteArray("11c393223f0d8f7b\n") << int(AccountLink::Error::None);
         QTest::newRow("wrong password") << 200 << QByteArray("0") << int(AccountLink::Error::Rejected);
         QTest::newRow("offline") << 0 << QByteArray() << int(AccountLink::Error::Unreachable);
+        QTest::newRow("server error") << 500 << QByteArray() << int(AccountLink::Error::ServerError);
+        QTest::newRow("captive portal") << 200 << QByteArray("<html><body>Sign in to Wi-Fi</body></html>")
+                                        << int(AccountLink::Error::ServerError);
     }
     void linkKeepsOnlyTheEncryptedPassword() {
         QFETCH(int, status);
@@ -336,7 +351,10 @@ private slots:
         settings.setEnabled(false);
         DecentAccount account(&nam, &settings);
         QSignalSpy finished(&account, &DecentAccount::linkFinished);
-        if (status == 0) QTest::ignoreMessage(QtWarningMsg, QRegularExpression("server unreachable"));
+        if (error == int(AccountLink::Error::Unreachable))
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("server unreachable"));
+        if (error == int(AccountLink::Error::ServerError))
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("link failed"));
 
         account.link(QStringLiteral(" owner@example.com "), QStringLiteral("plain-password"));
         QVERIFY(finished.wait(2000));
@@ -360,6 +378,13 @@ private slots:
         QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
         QCOMPARE(rig.nam.requests.size(), DecentShotUploader::kAttempts);
 
+        // A 2xx that is not the API's answer (a captive portal) stored nothing.
+        rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
+        for (int i = 0; i < DecentShotUploader::kAttempts; ++i)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts"));
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
+
         rig.nam.replies = {{403, R"({"ok":false,"error":"not your machine"})"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("serial 1234 is not registered"));
         QCOMPARE(rig.upload(), DecentShotUploader::Result::NotRegistered);
@@ -372,15 +397,68 @@ private slots:
         QCOMPARE(rejected.rejectedStatus, 400);
         QVERIFY(!rejected.uploaded());
 
+        // Uploading it after all clears the rejection.
+        rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-2"})"}};
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        const DecentUploadState stored = rig.state();
+        QVERIFY(stored.uploaded());
+        QVERIFY(!stored.rejected());
+
         rig.nam.replies = {{401, {}}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected the stored credentials"));
         QCOMPARE(rig.upload(), DecentShotUploader::Result::NeedsSignIn);
         QCOMPARE(rig.account.state(), DecentAccount::State::NeedsSignIn);
 
-        // Signed out: nothing is sent.
+        // Credentials the server refused are not sent again.
         const qsizetype sent = rig.nam.requests.size();
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NotLinked);
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::NeedsSignIn);
         QCOMPARE(rig.nam.requests.size(), sent);
+
+        // Signing in again clears it, and uploads resume.
+        rig.nam.replies = {{200, "fresh-token"}};
+        QSignalSpy linked(&rig.account, &DecentAccount::linkFinished);
+        rig.account.link(QStringLiteral("owner@example.com"), QStringLiteral("new-password"));
+        QVERIFY(linked.wait(2000));
+        QCOMPARE(rig.account.state(), DecentAccount::State::Linked);
+        rig.nam.replies = {{200, R"({"ok":true,"stored":true,"replaced":true,"id":"srv-2"})"}};
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+    }
+
+    void firstUploadAnsweredDuplicateIsStored() {
+        // After a reinstall or a restore that lost the upload state, the server
+        // already holds the shot: that is an upload, not a failure.
+        Rig rig(m_dir.filePath("duplicate.db"));
+        QVERIFY(rig.shotId > 0);
+        rig.nam.replies = {{200, R"({"ok":true,"stored":false,"duplicate":true,"id":"srv-9"})"}};
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.state().serverShotId, QStringLiteral("srv-9"));
+    }
+
+    void ineligibleShotsAreNotSent() {
+        Rig rig(m_dir.filePath("ineligible.db"));
+        QVERIFY(rig.shotId > 0);
+        rig.uploader.setMinDurationProvider([]() { return 60.0; });
+        QCOMPARE(rig.upload(), DecentShotUploader::Result::TooShort);
+        QVERIFY(rig.nam.requests.isEmpty());
+    }
+
+    void disconnectingCancelsASignInInFlight() {
+        CannedNam nam;
+        nam.replies = {{200, "11c393223f0d8f7b"}};
+        SettingsDecent settings;
+        settings.clearAccount();
+        settings.setEnabled(false);
+        DecentAccount account(&nam, &settings);
+        QSignalSpy finished(&account, &DecentAccount::linkFinished);
+
+        account.link(QStringLiteral("owner@example.com"), QStringLiteral("plain-password"));
+        account.unlink();
+        QVERIFY(!account.busy());
+        QCoreApplication::processEvents();   // the canned reply would finish now
+
+        QVERIFY(finished.isEmpty());
+        QCOMPARE(account.state(), DecentAccount::State::NotLinked);
+        QVERIFY(!settings.enabled());
     }
 
     void firstUploadNeedsAConnectedMachine() {

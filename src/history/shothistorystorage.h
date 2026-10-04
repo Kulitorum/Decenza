@@ -108,11 +108,13 @@ public:
                                                   const QString& visualizerUrl);
 
     // Decent account upload state (add-decent-shot-upload). The writes emit
-    // decentUploadStateUpdated, never shotMetadataUpdated: the uploader listens
-    // to the latter to queue replacements, and its own bookkeeping must not loop.
-    // Neither bumps updated_at, which the history mirror export keys on.
+    // decentUploadStateUpdated, never shotMetadataUpdated, so recording an
+    // upload can never read as a user edit (Stage 2 queues replacements off
+    // shotMetadataUpdated). None bumps updated_at, which the history export keys on.
     void requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial);
     void requestRecordDecentRejection(qint64 shotId, int httpStatus);
+    // Only for a shot already uploaded: its latest edit still has to reach Decent.
+    void requestMarkDecentReplacePending(qint64 shotId);
     // Emits decentUploadStateReady(shotId, {uploaded, serverShotId, serial,
     // rejected, rejectedStatus}) for the shot detail page.
     Q_INVOKABLE void requestDecentUploadState(qint64 shotId);

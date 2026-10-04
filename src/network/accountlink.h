@@ -12,7 +12,8 @@ QML_ELEMENT
 enum class Error {
     None,
     Rejected,     // the server refused the credentials
-    Unreachable,  // no answer, or not one that says whether they are valid
+    Unreachable,  // no answer at all (offline, timeout, DNS)
+    ServerError,  // an answer, but an error or not one the API gives
 };
 Q_ENUM_NS(Error)
 }

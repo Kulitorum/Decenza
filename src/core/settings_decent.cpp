@@ -49,6 +49,7 @@ void SettingsDecent::clearAccount() {
 }
 
 void SettingsDecent::setNeedsSignIn(bool needsSignIn) {
+    if (needsSignIn && !linked()) return;
     if (this->needsSignIn() != needsSignIn) {
         m_settings.setValue(kNeedsSignInKey, needsSignIn);
         emit accountChanged();

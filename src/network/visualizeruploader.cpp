@@ -62,6 +62,7 @@
 #include <QDir>
 #include <QBuffer>
 #include "shotpayloadhelpers.h"
+#include "httpauth.h"
 
 namespace {
 // Visualizer has no rpm field, so the grinder rpm dial-in is appended to the
@@ -448,8 +449,8 @@ void VisualizerUploader::connectAccount(const QString& username, const QString& 
     setCmState(CmState::Unknown);
 
     QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
-    request.setRawHeader("Authorization",
-                         "Basic " + (username.trimmed() + QLatin1Char(':') + password).toUtf8().toBase64());
+    request.setRawHeader("Authorization", basicAuthHeader(username, password));
+    request.setTransferTimeout(15000);
     m_connecting = true;
     emit connectingChanged();
 
@@ -470,7 +471,7 @@ void VisualizerUploader::connectAccount(const QString& username, const QString& 
             emit accountConnectFinished(AccountLink::Error::Rejected);
         } else {
             DIAG_WARN(VISUALIZER, "VisualizerUploader") << "connect failed: HTTP" << status << reply->errorString();
-            emit accountConnectFinished(AccountLink::Error::Unreachable);
+            emit accountConnectFinished(status == 0 ? AccountLink::Error::Unreachable : AccountLink::Error::ServerError);
         }
     });
 }
@@ -1550,11 +1551,8 @@ QByteArray VisualizerUploader::buildMultipartData(const QByteArray& jsonData, co
 
 QString VisualizerUploader::authHeader() const
 {
-    QString username = m_settings->value("visualizer/username", "").toString();
-    QString password = m_settings->value("visualizer/password", "").toString();
-    QString credentials = username + ":" + password;
-    QByteArray base64 = credentials.toUtf8().toBase64();
-    return "Basic " + QString::fromLatin1(base64);
+    return QString::fromLatin1(basicAuthHeader(m_settings->value("visualizer/username", "").toString(),
+                                               m_settings->value("visualizer/password", "").toString()));
 }
 
 bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
@@ -1634,10 +1632,10 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
 
-    // Earlier versions wrote last_upload_debug.txt here with the username and the
-    // first 30 characters of the Basic auth header — base64 of username:password.
-    // Remove any copy still on disk.
-    QFile::remove(uploadDebugFilePath(QStringLiteral("last_upload_debug.txt")));
+    // Older builds left last_upload_debug.txt here holding base64 username:password.
+    const QString staleAuthFile = uploadDebugFilePath(QStringLiteral("last_upload_debug.txt"));
+    if (QFile::exists(staleAuthFile) && !QFile::remove(staleAuthFile))
+        DIAG_WARN(VISUALIZER, "VisualizerUploader") << "could not delete" << staleAuthFile;
 
     // Send request
     QNetworkReply* reply = m_networkManager->post(request, multipartData);

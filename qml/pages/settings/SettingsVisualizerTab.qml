@@ -14,10 +14,7 @@ KeyboardAwareContainer {
     readonly property bool wide: width >= Theme.scaled(700)
 
     // --- Recover shots from Visualizer (date-range history import) ---
-    // Visualizer is "connected" when both credentials are present.
-    readonly property bool visualizerConnected:
-        Settings.visualizer.visualizerUsername.length > 0 &&
-        Settings.visualizer.visualizerPassword.length > 0
+    readonly property bool visualizerConnected: Settings.visualizer.visualizerConnected
 
     // Format a JS Date as a local YYYY-MM-DD string.
     function jsDateToIso(d) {
