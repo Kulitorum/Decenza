@@ -1,6 +1,7 @@
 // Decent account link and shot upload (add-decent-shot-upload): the ShotRecord
-// payload, the response classes, the login_test exchange, and the uploader
-// against a real shot database with canned server replies.
+// payload, the response classes, the login_test exchange, the uploader against
+// a real shot database with canned server replies, and the ShotUploads path
+// every destination is reached through.
 
 #include <QtTest>
 #include <QFile>
@@ -18,13 +19,42 @@
 
 #include "core/dbutils.h"
 #include "core/settings_decent.h"
+#include "core/settings_upload.h"
 #include "history/shothistorystorage.h"
 #include "network/decentaccount.h"
 #include "network/decentshotrecord.h"
 #include "network/decentshotuploader.h"
 #include "network/shotpayloadhelpers.h"
+#include "network/shotuploads.h"
 
 namespace {
+
+// A destination that records what ShotUploads hands it. With `holding` set it
+// stays busy until finish(), like a request in flight.
+struct FakeDestination : ShotUploadDestination {
+    using Sent = QPair<qint64, Send>;
+    QString label;
+    bool active = true;
+    bool holding = false;
+    bool inFlight = false;
+    QList<Sent> sent;
+    QList<qint64> edited;
+
+    explicit FakeDestination(QString n) : label(std::move(n)) {}
+    QString name() const override { return label; }
+    bool isActive() const override { return active; }
+    bool busy() const override { return inFlight; }
+    void sendSavedShot(qint64 shotId, Send how) override {
+        sent.append({shotId, how});
+        inFlight = true;
+        if (!holding) finish();
+    }
+    void noteEdited(qint64 shotId) override { edited.append(shotId); }
+    void finish() {
+        inFlight = false;
+        notifyIdle();
+    }
+};
 
 struct Canned {
     int status = 200;           // 0 = transport failure
@@ -161,7 +191,7 @@ class tst_DecentShotUpload : public QObject {
         }
         DecentShotUploader::Result upload() {
             QSignalSpy finished(&uploader, &DecentShotUploader::uploadFinished);
-            uploader.uploadNow(shotId);
+            uploader.sendSavedShot(shotId, ShotUploadDestination::Send::UploadOrUpdate);
             if (finished.isEmpty() && !finished.wait(5000)) return DecentShotUploader::Result::None;
             return finished.first().at(1).value<DecentShotUploader::Result>();
         }
@@ -459,6 +489,108 @@ private slots:
         QVERIFY(finished.isEmpty());
         QCOMPARE(account.state(), DecentAccount::State::NotLinked);
         QVERIFY(!settings.enabled());
+    }
+
+    // ShotUploads: the shared settings decide, each active destination gets the
+    // shot, one at a time, never queued twice.
+    void shotUploadsAppliesTheSharedSettingsOnce() {
+        using Send = ShotUploadDestination::Send;
+        using Sent = FakeDestination::Sent;
+        SettingsUpload upload;
+        const bool autoUpload = upload.autoUpload(), autoUpdate = upload.autoUpdate();
+        ShotHistoryStorage storage;
+        FakeDestination visualizer(QStringLiteral("visualizer")), decent(QStringLiteral("decent"));
+        ShotUploads uploads(&upload, &storage, {&visualizer, &decent});
+        decent.active = false;
+        QCOMPARE(uploads.activeDestinations(), QStringList{QStringLiteral("visualizer")});
+
+        upload.setAutoUpload(false);
+        uploads.shotSaved(1);
+        QVERIFY(visualizer.sent.isEmpty());
+        upload.setAutoUpload(true);
+        uploads.shotSaved(1);
+        QCOMPARE(visualizer.sent, QList<Sent>{Sent(1, Send::UploadOrUpdate)});
+        QVERIFY(decent.sent.isEmpty());
+
+        // An edit is noted everywhere, and sent only while automatic update is on.
+        decent.active = true;
+        upload.setAutoUpdate(false);
+        emit storage.shotMetadataUpdated(2, true);
+        QCOMPARE(decent.edited, QList<qint64>{2});
+        QCOMPARE(visualizer.sent.size(), 1);
+        upload.setAutoUpdate(true);
+        emit storage.shotMetadataUpdated(2, false);
+        QCOMPARE(visualizer.sent.size(), 1);
+        emit storage.shotMetadataUpdated(2, true);
+        QCOMPARE(visualizer.sent.last(), Sent(2, Send::UpdateOnly));
+        QCOMPARE(decent.sent, QList<Sent>{Sent(2, Send::UpdateOnly)});
+
+        // While a request is out the rest wait, and a shot is queued once, as an
+        // upload if either request was one.
+        visualizer.sent.clear();
+        visualizer.holding = true;
+        uploads.uploadNow(3);
+        emit storage.shotMetadataUpdated(4, true);
+        uploads.uploadNow(4);
+        uploads.uploadNow(4);
+        QCOMPARE(visualizer.sent, QList<Sent>{Sent(3, Send::UploadOrUpdate)});
+        visualizer.finish();
+        QCoreApplication::processEvents();
+        QCOMPARE(visualizer.sent.last(), Sent(4, Send::UploadOrUpdate));
+        visualizer.finish();
+        QCoreApplication::processEvents();
+        QCOMPARE(visualizer.sent.size(), 2);
+
+        // Switched off with shots waiting: they are dropped, not sent later.
+        uploads.uploadNow(5);
+        uploads.uploadNow(6);
+        visualizer.active = false;
+        visualizer.finish();
+        QCoreApplication::processEvents();
+        visualizer.active = true;
+        visualizer.holding = false;
+        uploads.uploadNow(7);
+        QCOMPARE(visualizer.sent.last(), Sent(7, Send::UploadOrUpdate));
+        QVERIFY(!std::any_of(visualizer.sent.cbegin(), visualizer.sent.cend(),
+                             [](const Sent& s) { return s.first == 6; }));
+
+        upload.setAutoUpload(autoUpload);
+        upload.setAutoUpdate(autoUpdate);
+    }
+
+    // The review page holds its shot: field-by-field saves go out once, on close.
+    void shotUploadsSendsAHeldShotsEditsOnRelease() {
+        using Send = ShotUploadDestination::Send;
+        using Sent = FakeDestination::Sent;
+        SettingsUpload upload;
+        const bool autoUpdate = upload.autoUpdate();
+        upload.setAutoUpdate(true);
+        ShotHistoryStorage storage;
+        FakeDestination destination(QStringLiteral("visualizer"));
+        ShotUploads uploads(&upload, &storage, {&destination});
+
+        uploads.holdUpdates(8);
+        emit storage.shotMetadataUpdated(8, true);
+        emit storage.shotMetadataUpdated(8, true);
+        QVERIFY(destination.sent.isEmpty());
+        QCOMPARE(destination.edited.size(), 2);
+        uploads.releaseUpdates(8);
+        QCOMPARE(destination.sent, QList<Sent>{Sent(8, Send::UpdateOnly)});
+
+        // Uploading from the page takes the edits so far; closing then sends nothing.
+        uploads.holdUpdates(9);
+        emit storage.shotMetadataUpdated(9, true);
+        uploads.uploadNow(9);
+        uploads.releaseUpdates(9);
+        QCOMPARE(destination.sent.last(), Sent(9, Send::UploadOrUpdate));
+        QCOMPARE(destination.sent.size(), 2);
+
+        // Closing without an edit sends nothing.
+        uploads.holdUpdates(10);
+        uploads.releaseUpdates(10);
+        QCOMPARE(destination.sent.size(), 2);
+
+        upload.setAutoUpdate(autoUpdate);
     }
 
     void firstUploadNeedsAConnectedMachine() {

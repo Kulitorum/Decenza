@@ -16,6 +16,7 @@
 #include "../network/visualizerimporter.h"
 #include "../network/decentaccount.h"
 #include "../network/decentshotuploader.h"
+#include "../network/shotuploads.h"
 #include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
 #include "../ai/livesteamcoach.h"
@@ -126,6 +127,7 @@ class MainController : public QObject {
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
     Q_PROPERTY(DecentAccount* decentAccount READ decentAccount CONSTANT FINAL)
     Q_PROPERTY(DecentShotUploader* decentUploader READ decentUploader CONSTANT FINAL)
+    Q_PROPERTY(ShotUploads* shotUploads READ shotUploads CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT FINAL)
     Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT FINAL)
@@ -231,6 +233,7 @@ public:
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
     DecentAccount* decentAccount() const { return m_decentAccount; }
     DecentShotUploader* decentUploader() const { return m_decentUploader; }
+    ShotUploads* shotUploads() const { return m_shotUploads; }
     DE1Device* de1Device() const { return m_device; }
     BeanBaseClient* beanbase() const { return m_beanbase; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
@@ -726,6 +729,7 @@ private:
     VisualizerImporter* m_visualizerImporter = nullptr;
     DecentAccount* m_decentAccount = nullptr;
     DecentShotUploader* m_decentUploader = nullptr;
+    ShotUploads* m_shotUploads = nullptr;
     BeanBaseClient* m_beanbase = nullptr;
     AIManager* m_aiManager = nullptr;
     LiveSteamCoach* m_liveSteamCoach = nullptr;

@@ -81,7 +81,7 @@ Fields with no recorded value SHALL be omitted rather than sent as empty strings
 
 ### Requirement: New shots upload once they are saved
 
-With the Decent switch on and the shared "Auto-upload shots" setting on, the system SHALL upload each eligible shot after it has been saved to history, using the saved row as the source of truth. Uploads SHALL be sent one at a time: a shot saved while another upload or a backlog batch is in flight SHALL be queued and sent next.
+With the Decent switch on and the shared "Auto-upload shots" setting on, the system SHALL upload each eligible shot after it has been saved to history, using the saved row as the source of truth, through the shared upload path (shot-uploads). Uploads SHALL be sent one at a time: a shot saved while another upload or a backlog batch is in flight SHALL be queued and sent next.
 
 #### Scenario: Shot finishes
 - **WHEN** an eligible espresso shot is saved
@@ -93,7 +93,7 @@ With the Decent switch on and the shared "Auto-upload shots" setting on, the sys
 
 ### Requirement: Edited shots are re-uploaded with replace
 
-When the metadata of a shot that has already been uploaded changes — from the post-shot review, shot detail, ShotServer or an MCP tool — the system SHALL re-upload it with `?replace=1`, while the Decent switch and the shared "Auto-update shots" setting are on. A change made while the re-upload cannot be sent (upload off, needs sign-in, offline) SHALL be remembered on the shot and sent when uploading resumes. Writes the uploader itself makes to record upload state SHALL NOT trigger a re-upload.
+When the metadata of a shot that has already been uploaded changes — from the post-shot review (once, when it closes), shot detail, ShotServer, an MCP tool, the AI advisor or the change-beans dialog — the system SHALL re-upload it with `?replace=1`, through the shared upload path, while the Decent switch and the shared "Auto-update shots" setting are on. A change made while the re-upload cannot be sent (upload off, needs sign-in, offline) SHALL be remembered on the shot and sent when uploading resumes. Writes the uploader itself makes to record upload state SHALL NOT trigger a re-upload.
 
 #### Scenario: Rating added after upload
 - **WHEN** the user rates a shot that was already uploaded
@@ -185,7 +185,7 @@ The post-shot review page (which owns uploading; the shot detail page stays read
 
 ### Requirement: Web and MCP settings parity
 
-The ShotServer settings page SHALL let the user link and unlink the Decent account, switch Decent and Visualizer on and off, change the shared Upload settings, and see the account state. MCP `settings_get` / `settings_set` SHALL expose both destination switches, the shared Upload settings, and the read-only Decent account state (linked, email, needs sign-in). Neither surface SHALL expose the encrypted password.
+The ShotServer settings page SHALL let the user link and unlink the Decent account, switch Decent and Visualizer on and off, change the shared Upload settings, and see the account state. MCP `settings_get` / `settings_set` SHALL expose both destination switches (`visualizerEnabled`, `decentEnabled`), the shared Upload settings (`uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`), and the read-only `decentAccountState` and `decentEmail`. On the web, Connect SHALL verify an account through the same code the app uses before saving it. Neither surface SHALL expose the encrypted password; the web page shows no account names or passwords.
 
 #### Scenario: Switch Decent on from the web
 - **WHEN** the user switches Decent on from the ShotServer settings page

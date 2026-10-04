@@ -2381,6 +2381,7 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     root["weightFlow"] = pointsToJsonObject(shotData->weightData());
     // Weight-based flow rate (g/s) for visualizer export
     root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
+    root["weightFlowRateRaw"] = pointsToJsonObject(shotData->weightFlowRateRawData());
 
     // Phase summaries for UI display (pre-computed by saveShot() via computePhaseSummaries)
     if (!phaseSummariesJson.isEmpty()) {
@@ -2448,6 +2449,8 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     record->weight = arrayToPoints(root["weight"].toObject());
     if (root.contains("weightFlowRate"))
         record->weightFlowRate = arrayToPoints(root["weightFlowRate"].toObject());
+    if (root.contains("weightFlowRateRaw"))
+        record->weightFlowRateRaw = arrayToPoints(root["weightFlowRateRaw"].toObject());
 
     // Phase summaries (stored as JSON array in the compressed blob)
     if (root.contains("phaseSummaries")) {
@@ -5575,6 +5578,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     root["temperatureGoal"] = pointsToJsonObject(record.temperatureGoal);
     root["weight"] = pointsToJsonObject(record.weight);
     root["weightFlowRate"] = pointsToJsonObject(record.weightFlowRate);
+    if (!record.weightFlowRateRaw.isEmpty())
+        root["weightFlowRateRaw"] = pointsToJsonObject(record.weightFlowRateRaw);
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     QByteArray compressedData = qCompress(json, 9);

@@ -114,6 +114,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.temperatureMixGoal = pointsToVariant(record.temperatureMixGoal);
     p.weight = pointsToVariant(record.weight);
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
+    p.weightFlowRateRaw = pointsToVariant(record.weightFlowRateRaw);
 
     p.channelingDetected = record.channelingDetected;
     p.grindIssueDetected = record.grindIssueDetected;

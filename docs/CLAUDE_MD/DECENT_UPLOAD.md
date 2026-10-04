@@ -18,7 +18,7 @@ https://decentespresso.com/support/api/
 
 **Auth.** The password goes to `login_test` once. The encrypted password it returns is stored and sent as HTTP Basic
 `email:cryptpw` on every later call (`basicAuthHeader()` in `httpauth.h`, shared with Visualizer; the password is never
-trimmed). Requests time out after 15 s, uploads after 30 s. No OAuth: neither Decent app uses it, and it needs a client
+trimmed). Requests time out after 15 s, uploads after 60 s (the server took 25-29 s on 2026-10-04). No OAuth: neither Decent app uses it, and it needs a client
 registration.
 
 **Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`), cleared on disconnect. It is not captured when a
@@ -37,7 +37,7 @@ first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no
   copy. As of 2026-10-04 decentespresso.com answers every `?replace=1` this way; reported to Decent.
 - Cleaning/descaling records and shots under the shared minimum length are not sent (`uploadIneligibility()`).
 
-**One button.** The review page's Upload button sends to every active destination (`visualizerActive`, `decent.active`). Stage 1: Decent ignores the automatic settings, so nothing reaches it except through that button.
+**One path.** `ShotUploads` decides when for both destinations (D13 in the change's design): the shot saved after an extraction, any edit, and the Upload button, layout action and MCP `shots_upload`. `DecentShotUploader` is a `ShotUploadDestination`; it is handed one shot at a time and never decides on its own. An edit marks an uploaded shot replace-pending (`noteEdited`) even when nothing is sent, for the Stage 3 drain.
 
 **Ordering.** The upload is prepared on the storage's serial DB worker (`runAfterQueuedWrites`), so it reads an edit the
 review page saved a moment earlier.

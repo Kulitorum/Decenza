@@ -1,6 +1,7 @@
 #pragma once
 
 #include "decentshotrecord.h"
+#include "shotuploaddestination.h"
 
 #include <QObject>
 #include <QString>
@@ -14,9 +15,9 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class ShotHistoryStorage;
 
-// Uploads saved shots to the linked Decent account (POST /support/api/shot_upload),
-// one request at a time. Stage 1 of add-decent-shot-upload: manual uploads only.
-class DecentShotUploader : public QObject {
+// The Decent account as an upload destination (POST /support/api/shot_upload).
+// ShotUploads decides when; this builds and sends one shot at a time.
+class DecentShotUploader : public QObject, public ShotUploadDestination {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("DecentShotUploader is created in C++ and reached via MainController")
@@ -49,7 +50,8 @@ public:
     static ResponseClass classify(int httpStatus, bool transportError);
 
     static constexpr int kAttempts = 3;
-    static constexpr int kUploadTimeoutMs = 30000;
+    // decentespresso.com took 25-29 s to answer on 2026-10-04.
+    static constexpr int kUploadTimeoutMs = 60000;
 
     DecentShotUploader(QNetworkAccessManager* network, DecentAccount* account,
                        ShotHistoryStorage* storage, QObject* parent = nullptr);
@@ -71,10 +73,15 @@ public:
     int lastHttpStatus() const { return m_lastHttpStatus; }
     QString lastSerial() const { return m_lastSerial; }
 
-    // Uploads one shot now. An already-uploaded shot is re-sent with
-    // ?replace=1 under the serial it was first uploaded with; a rejected shot
-    // is tried again. Ignored while another upload is in flight.
-    Q_INVOKABLE void uploadNow(qint64 shotId);
+    QString name() const override { return QStringLiteral("decent"); }
+    bool isActive() const override;
+    bool busy() const override { return m_uploading; }
+    // An already-uploaded shot is re-sent with ?replace=1 under the serial it was
+    // first uploaded with; a rejected shot is tried again.
+    void sendSavedShot(qint64 shotId, Send how) override;
+    // Persists that an uploaded shot's edit still has to reach Decent, so it
+    // survives uploads being off, offline or signed out (the Stage 3 drain sends it).
+    void noteEdited(qint64 shotId) override;
 
     // The shot's page in the Decent account.
     Q_INVOKABLE static QString shotViewUrl(const QString& serial, const QString& serverShotId);
@@ -91,6 +98,7 @@ private:
         QString uuid;
         QString serial;
         bool replace = false;
+        bool skip = false;  // an UpdateOnly for a shot not in the account
         Result error = Result::None;
         QString failure;  // for the log when error is NotFound
     };

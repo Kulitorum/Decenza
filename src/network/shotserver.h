@@ -245,7 +245,8 @@ private:
     void handleRotateRemoteMcpToken(QTcpSocket* socket);
 
     // Settings test/connect endpoints
-    void handleVisualizerTest(QTcpSocket* socket, const QByteArray& body);
+    void handleAccountConnect(QTcpSocket* socket, const QByteArray& body, const QString& destination);
+    void handleAccountDisconnect(QTcpSocket* socket, const QString& destination);
     void handleAiTest(QTcpSocket* socket, const QByteArray& body);
     void handleMqttConnect(QTcpSocket* socket, const QByteArray& body);
     void handleMqttDisconnect(QTcpSocket* socket);
@@ -325,8 +326,6 @@ private:
     MainController* m_mainController = nullptr;
     AIManager* m_aiManager = nullptr;
     MqttClient* m_mqttClient = nullptr;
-    QNetworkAccessManager* m_testNetworkManager = nullptr;
-    bool m_visualizerTestInFlight = false;
     bool m_aiTestInFlight = false;
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;

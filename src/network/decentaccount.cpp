@@ -39,6 +39,10 @@ DecentAccount::State DecentAccount::state() const {
     return m_settings->needsSignIn() ? State::NeedsSignIn : State::Linked;
 }
 
+bool DecentAccount::uploadsActive() const {
+    return m_settings->active();
+}
+
 QString DecentAccount::email() const {
     return m_settings->email();
 }

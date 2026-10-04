@@ -19,13 +19,14 @@ Supported metadata fields:
 - **Endpoint**: `POST https://visualizer.coffee/api/shots/upload` (multipart form-data)
 - **Auth**: HTTP Basic Auth (username:password base64)
 - **Update**: `PATCH https://visualizer.coffee/api/shots/{id}` (JSON body)
-- **Two paths**: `buildShotJson()` for live shots, `buildHistoryShotJson()` for history re-uploads
-
-**Keep the two builders in step.** They construct the same payload from
-different sources (`ShotDataModel*` vs `ShotProjection`) and have drifted
-before: `buildHistoryShotJson()` omitted `temperature.mix` entirely, so
-re-uploading a shot silently dropped a line the live upload had sent. Any
-series added to one belongs in the other.
+- **One builder**: `buildHistoryShotJson()`, from the saved row, for every upload. A live builder
+  (`buildShotJson()`) existed until add-decent-shot-upload Stage 2 and drifted from it (the history
+  copy once dropped `temperature.mix`). What only it sent now comes from the row (`by_weight_raw`,
+  stored in the sample blob) or the device at upload time (`machine_state`).
+- **When**: decided by `ShotUploads` (`src/network/shotuploads.h`), shared with the Decent account.
+  `VisualizerUploader` is a `ShotUploadDestination`: `sendSavedShot()` PATCHes a shot that has a
+  `visualizer_id` and uploads it otherwise, so a shot is never uploaded twice. Requests are one at a
+  time; do not call the upload or PATCH paths around it.
 
 **Optional series are omitted, never zero-filled.** `interpolateGoalData()`
 returns an array of zeros for an empty input vector, so an unguarded
@@ -38,13 +39,13 @@ key as legacy data and draws nothing.
 #### Result persistence (authoritative C++ path)
 
 The returned Visualizer shot id is persisted to the originating local
-row by **`MainController`**, not by any UI page. `uploadShot()` /
-`uploadShotFromHistory()` carry the local `shots.id`; on success
+row by **`MainController`**, not by any UI page. The upload carries the
+local `shots.id`; on success
 `VisualizerUploader::uploadSucceededForShot(dbShotId, visualizerId,
 url)` fires and `MainController` calls
 `ShotHistoryStorage::requestUpdateVisualizerInfo(...)`. The shot-end
-auto-upload is dispatched from the `shotSaved` callback (once the row
-id is known) — never before save, so it cannot orphan. The
+auto-upload is dispatched from the `shotSaved` callback through
+`ShotUploads::shotSaved` (once the row id is known) — never before save, so it cannot orphan. The
 `PostShotReviewPage` / `ShotDetailPage` `onUploadSuccess` handlers do
 **not** persist (they only refresh UI); do not reintroduce a
 page-gated writeback — it silently lost links whenever the review page

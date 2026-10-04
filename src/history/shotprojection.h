@@ -247,6 +247,8 @@ public:
     QVariantList temperatureMixGoal;
     QVariantList weight;
     QVariantList weightFlowRate;
+    // Upload payload only; not exposed to QML.
+    QVariantList weightFlowRateRaw;
 
     QVariantList summaryLines;
     QVariantMap detectorResults;

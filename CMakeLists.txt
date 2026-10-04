@@ -771,6 +771,7 @@ set(SOURCES
     src/network/decentaccount.cpp
     src/network/decentshotrecord.cpp
     src/network/decentshotuploader.cpp
+    src/network/shotuploads.cpp
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
     src/ai/aimanager.cpp
@@ -1025,6 +1026,8 @@ set(HEADERS
     src/network/decentaccount.h
     src/network/decentshotrecord.h
     src/network/decentshotuploader.h
+    src/network/shotuploaddestination.h
+    src/network/shotuploads.h
     src/network/visualizerimporter.h
     src/network/visualizershotlist.h
     src/network/beanbaseclient.h

@@ -118,10 +118,10 @@ struct PendingConfirmation {
 // 1.11.0: settings_get/settings_set gain simulatorSerialNumber — the serial the DE1 simulator
 // reports for this app run only (never saved), for testing Decent account uploads.
 // Not visible to the fingerprint below.
-inline constexpr const char* McpSurfaceVersion = "1.11.0";
+inline constexpr const char* McpSurfaceVersion = "1.12.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
-inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";
+inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";
 
 class McpServer : public QObject {
     Q_OBJECT

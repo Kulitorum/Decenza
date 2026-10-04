@@ -1,5 +1,4 @@
 #include "core/diagnosticlogging.h"
-#include "httpauth.h"
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
@@ -11,6 +10,10 @@
 #include "../core/settings_mqtt.h"
 #include "../core/settings_ai.h"
 #include "../core/settings_visualizer.h"
+#include "../controllers/maincontroller.h"
+#include "decentaccount.h"
+#include "visualizeruploader.h"
+#include <QMetaEnum>
 #include "../core/settings_mcp.h"
 #include "../mcp/mcpremoteaccess.h"
 #include "../core/profilestorage.h"
@@ -263,6 +266,53 @@ static QStringList applyMcpSettings(Settings* s, const QJsonObject& obj)
     if (obj.contains("remoteMcpCustomBaseUrl"))
         m->setRemoteMcpCustomBaseUrl(obj["remoteMcpCustomBaseUrl"].toString().trimmed());
     return errors;
+}
+
+// One destination card of the Shot Upload settings, as the app's
+// UploadDestinationCard: its switch, then Connect or Disconnect.
+static QString uploadAccountSection(const QString& dest, const QString& icon, const QString& title,
+                                    const QString& description, const QString& identityLabel)
+{
+    return QStringLiteral(R"HTML(
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">%2</span>
+                <h2>%3</h2>
+            </div>
+            <div class="section-body">
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="%1-enabled" onchange="saveUploadSetting('%1Enabled', this.checked)">
+                        <span>Upload shots to %3</span>
+                    </label>
+                    <div class="form-hint">%4</div>
+                </div>
+                <div class="form-hint" id="%1-state"></div>
+                <div id="%1-connected" style="display:none;">
+                    <div class="section-actions">
+                        <button class="btn btn-secondary" onclick="disconnectAccount('%1')">Disconnect</button>
+                    </div>
+                </div>
+                <div id="%1-signin">
+                    <div class="form-group">
+                        <label class="form-label">%5</label>
+                        <input type="text" class="form-input" id="%1-identity" placeholder="your@email.com" autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" class="form-input" id="%1-password" placeholder="Enter password" autocomplete="current-password">
+                            <button type="button" class="password-toggle" onclick="togglePassword('%1-password')">&#128065;</button>
+                        </div>
+                    </div>
+                    <div class="section-actions">
+                        <button class="btn btn-primary" id="%1-connect" onclick="connectAccount('%1')">Connect</button>
+                    </div>
+                </div>
+                <div id="%1-status" class="status-msg"></div>
+            </div>
+        </div>
+)HTML").arg(dest, icon, title, description, identityLabel);
 }
 
 QString ShotServer::generateSettingsPage() const
@@ -542,6 +592,11 @@ QString ShotServer::generateSettingsPage() const
             border-color: rgba(24, 195, 126, 0.5);
             color: var(--text);
         }
+        .form-hint {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
     </style>
 </head>)HTML" R"HTML(
 <body>
@@ -553,29 +608,34 @@ QString ShotServer::generateSettingsPage() const
     </header>
 
     <div class="container">
-        <!-- Visualizer Section -->
+        <!-- Shot Upload: a card per destination, then one set of upload settings -->
+        <!--UPLOAD_ACCOUNT:visualizer-->
+        <!--UPLOAD_ACCOUNT:decent-->
         <div class="section">
             <div class="section-header">
-                <span class="section-icon">&#9749;</span>
-                <h2>Visualizer.coffee</h2>
+                <span class="section-icon">&#9881;</span>
+                <h2>Upload Settings</h2>
             </div>
             <div class="section-body">
+                <div class="form-hint">When shots are uploaded, for every destination that is switched on</div>
                 <div class="form-group">
-                    <label class="form-label">Username / Email</label>
-                    <input type="text" class="form-input" id="visualizerUsername" placeholder="your@email.com">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="uploadAutomatically" onchange="saveUploadSetting('uploadAutomatically', this.checked)">
+                        <span>Auto-upload shots: upload espresso shots after completion</span>
+                    </label>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" class="form-input" id="visualizerPassword" placeholder="Enter password">
-                        <button type="button" class="password-toggle" onclick="togglePassword('visualizerPassword')">&#128065;</button>
-                    </div>
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="updateAutomatically" onchange="saveUploadSetting('updateAutomatically', this.checked)">
+                        <span>Auto-update shots: re-send a shot after you edit it</span>
+                    </label>
                 </div>
-                <div class="section-actions">
-                    <span id="visualizerStatus" class="status-msg"></span>
-                    <button class="btn btn-secondary" id="visualizerTestBtn" onclick="testVisualizer()">Test Connection</button>
-                    <button class="btn btn-primary" id="visualizerSaveBtn" onclick="saveVisualizer()">Save</button>
+                <div class="form-group">
+                    <label class="form-label">Minimum upload duration (seconds): skip aborted shots</label>
+                    <input type="number" class="form-input" id="uploadMinDurationSec" min="0" max="60" step="1"
+                           onchange="saveUploadSetting('uploadMinDurationSec', Number(this.value))">
                 </div>
+                <div id="uploadSettingsStatus" class="status-msg"></div>
             </div>
         </div>
 
@@ -902,8 +962,12 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const data = await resp.json();
 
-                document.getElementById('visualizerUsername').value = data.visualizerUsername || '';
-                document.getElementById('visualizerPassword').value = data.visualizerPassword || '';
+                showUploadAccount('visualizer', data.visualizerEnabled, data.visualizerConnected, false);
+                showUploadAccount('decent', data.decentEnabled, data.decentAccountState === 'Linked',
+                                  data.decentAccountState === 'NeedsSignIn');
+                document.getElementById('uploadAutomatically').checked = !!data.uploadAutomatically;
+                document.getElementById('updateAutomatically').checked = !!data.updateAutomatically;
+                document.getElementById('uploadMinDurationSec').value = data.uploadMinDurationSec ?? 0;
 
                 document.getElementById('openaiApiKey').value = data.openaiApiKey || '';
                 document.getElementById('anthropicApiKey').value = data.anthropicApiKey || '';
@@ -964,7 +1028,7 @@ QString ShotServer::generateSettingsPage() const
                 pollMqttStatus();
                 startMqttPolling();
             } catch (e) {
-                showSectionStatus('visualizerStatus', 'Failed to load settings', true);
+                showSectionStatus('uploadSettingsStatus', 'Failed to load settings', true);
                 showSectionStatus('aiStatus', 'Failed to load settings', true);
                 showSectionStatus('mqttSaveStatus', 'Failed to load settings', true);
             }
@@ -1154,43 +1218,52 @@ QString ShotServer::generateSettingsPage() const
             }, 4000);
         }
 )HTML" R"HTML(
-        // --- Visualizer ---
-        async function saveVisualizer() {
-            const btn = document.getElementById('visualizerSaveBtn');
-            btn.disabled = true; btn.textContent = 'Saving...';
-            try {
-                const resp = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        visualizerUsername: document.getElementById('visualizerUsername').value,
-                        visualizerPassword: document.getElementById('visualizerPassword').value
-                    })
-                });
-                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
-                const r = await resp.json();
-                showSectionStatus('visualizerStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
-            } catch (e) { showSectionStatus('visualizerStatus', e.message || 'Network error', true); }
-            btn.disabled = false; btn.textContent = 'Save';
+        // --- Shot Upload: one set of functions for every destination ---
+        function showUploadAccount(dest, enabled, connected, needsSignIn) {
+            document.getElementById(dest + '-enabled').checked = !!enabled;
+            document.getElementById(dest + '-connected').style.display = connected ? '' : 'none';
+            document.getElementById(dest + '-signin').style.display = connected ? 'none' : '';
+            document.getElementById(dest + '-state').textContent = connected ? 'Connected'
+                : needsSignIn ? 'Sign in again: the server no longer accepts the saved sign-in' : '';
         }
 
-        async function testVisualizer() {
-            const btn = document.getElementById('visualizerTestBtn');
-            btn.disabled = true; btn.textContent = 'Testing...';
+        async function postJson(url, body) {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+            return resp.json();
+        }
+
+        async function saveUploadSetting(key, value) {
             try {
-                const resp = await fetch('/api/settings/visualizer/test', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username: document.getElementById('visualizerUsername').value,
-                        password: document.getElementById('visualizerPassword').value
-                    })
+                const r = await postJson('/api/settings', { [key]: value });
+                showSectionStatus('uploadSettingsStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+            } catch (e) { showSectionStatus('uploadSettingsStatus', e.message || 'Network error', true); }
+        }
+
+        async function connectAccount(dest) {
+            const btn = document.getElementById(dest + '-connect');
+            const password = document.getElementById(dest + '-password');
+            btn.disabled = true; btn.textContent = 'Connecting...';
+            try {
+                const r = await postJson('/api/settings/' + dest + '/connect', {
+                    identity: document.getElementById(dest + '-identity').value,
+                    password: password.value
                 });
-                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
-                const r = await resp.json();
-                showSectionStatus('visualizerStatus', r.message, !r.success);
-            } catch (e) { showSectionStatus('visualizerStatus', e.message || 'Network error', true); }
-            btn.disabled = false; btn.textContent = 'Test Connection';
+                showSectionStatus(dest + '-status', r.message, !r.success);
+                if (r.success) { password.value = ''; loadSettings(); }
+            } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Connect';
+        }
+
+        async function disconnectAccount(dest) {
+            try {
+                await postJson('/api/settings/' + dest + '/disconnect', {});
+                loadSettings();
+            } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true); }
         }
 
         // --- AI ---
@@ -1474,7 +1547,15 @@ QString ShotServer::generateSettingsPage() const
     </script>
 </body>
 </html>
-)HTML");
+)HTML")
+        .replace(QStringLiteral("<!--UPLOAD_ACCOUNT:visualizer-->"),
+                 uploadAccountSection(QStringLiteral("visualizer"), QStringLiteral("&#9749;"), QStringLiteral("Visualizer"),
+                                      QStringLiteral("Upload your shots to visualizer.coffee for tracking and analysis"),
+                                      QStringLiteral("Username / Email")))
+        .replace(QStringLiteral("<!--UPLOAD_ACCOUNT:decent-->"),
+                 uploadAccountSection(QStringLiteral("decent"), QStringLiteral("&#9749;"), QStringLiteral("Decent Account"),
+                                      QStringLiteral("Upload your shots to your account at decentespresso.com"),
+                                      QStringLiteral("Email")));
 }
 
 void ShotServer::handleGetSettings(QTcpSocket* socket)
@@ -1486,9 +1567,16 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
 
     QJsonObject obj;
 
-    // Visualizer — credentials redacted (masked if set, "" if unset).
-    obj["visualizerUsername"] = redactedSecret(m_settings->visualizer()->visualizerUsername());
-    obj["visualizerPassword"] = redactedSecret(m_settings->visualizer()->visualizerPassword());
+    // Shot Upload: a switch and account state per destination, one set of
+    // upload settings. No account names or passwords, as before.
+    obj["visualizerEnabled"] = m_settings->visualizer()->visualizerEnabled();
+    obj["visualizerConnected"] = m_settings->visualizer()->visualizerConnected();
+    obj["decentEnabled"] = m_settings->decent()->enabled();
+    if (DecentAccount* decent = m_mainController ? m_mainController->decentAccount() : nullptr)
+        obj["decentAccountState"] = QString::fromLatin1(QMetaEnum::fromType<DecentAccount::State>().valueToKey(int(decent->state())));
+    obj["uploadAutomatically"] = m_settings->upload()->autoUpload();
+    obj["updateAutomatically"] = m_settings->upload()->autoUpdate();
+    obj["uploadMinDurationSec"] = m_settings->upload()->minDuration();
 
     // AI — API keys redacted; provider/model/endpoint are not secrets.
     {
@@ -1622,12 +1710,12 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 
     QJsonObject obj = doc.object();
 
-    // Visualizer credentials: only overwrite on a real new value (not mask/empty).
-    {
-        auto* v = m_settings->visualizer();
-        applySecretString(obj, "visualizerUsername", [v](const QString& s){ v->setVisualizerUsername(s); });
-        applySecretString(obj, "visualizerPassword", [v](const QString& s){ v->setVisualizerPassword(s); });
-    }
+    // Shot Upload switches and shared settings; accounts go through Connect.
+    if (obj.contains("visualizerEnabled")) m_settings->visualizer()->setVisualizerEnabled(obj["visualizerEnabled"].toBool());
+    if (obj.contains("decentEnabled")) m_settings->decent()->setEnabled(obj["decentEnabled"].toBool());
+    if (obj.contains("uploadAutomatically")) m_settings->upload()->setAutoUpload(obj["uploadAutomatically"].toBool());
+    if (obj.contains("updateAutomatically")) m_settings->upload()->setAutoUpdate(obj["updateAutomatically"].toBool());
+    if (obj.contains("uploadMinDurationSec")) m_settings->upload()->setMinDuration(obj["uploadMinDurationSec"].toDouble());
 
     // AI
     const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
@@ -1683,89 +1771,68 @@ void ShotServer::handleRotateRemoteMcpToken(QTcpSocket* socket)
     sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
 }
 
-void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body)
+namespace {
+QString accountLinkMessage(AccountLink::Error error) {
+    switch (error) {
+    case AccountLink::Error::None: return QStringLiteral("Connected");
+    case AccountLink::Error::Rejected: return QStringLiteral("Email or password not accepted");
+    case AccountLink::Error::Unreachable: return QStringLiteral("Could not reach the server - check the connection");
+    case AccountLink::Error::ServerError: return QStringLiteral("The server answered with an error - try again later");
+    }
+    return QString();
+}
+}
+
+// Connect verifies the account with its service and saves it only if it works,
+// through the same code the Shot Upload tab uses. Connecting switches the
+// destination on.
+void ShotServer::handleAccountConnect(QTcpSocket* socket, const QByteArray& body, const QString& destination)
 {
-    if (m_visualizerTestInFlight) {
-        sendJson(socket, R"({"success": false, "message": "A test is already in progress"})");
+    VisualizerUploader* visualizer = m_mainController ? m_mainController->visualizer() : nullptr;
+    DecentAccount* decent = m_mainController ? m_mainController->decentAccount() : nullptr;
+    const bool isDecent = destination == QLatin1String("decent");
+    if ((isDecent && !decent) || (!isDecent && !visualizer)) {
+        sendJson(socket, R"({"success": false, "message": "Not available"})");
         return;
     }
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(body, &err);
-    if (err.error != QJsonParseError::NoError) {
-        sendJson(socket, R"({"success": false, "message": "Invalid JSON"})");
+    if (isDecent ? decent->busy() : visualizer->connecting()) {
+        sendJson(socket, R"({"success": false, "message": "Already connecting"})");
         return;
     }
-
-    QJsonObject obj = doc.object();
-    QString username = obj["username"].toString();
-    QString password = obj["password"].toString();
-
-    // The web form shows redacted credentials (masked if configured). If the
-    // user tests without re-entering, substitute the stored value so an already-
-    // configured account can still be tested; a real typed value overrides.
-    if ((username.isEmpty() || username == kSecretMask) && m_settings)
-        username = m_settings->visualizer()->visualizerUsername();
-    if ((password.isEmpty() || password == kSecretMask) && m_settings)
-        password = m_settings->visualizer()->visualizerPassword();
-
-    if (username.isEmpty() || password.isEmpty()) {
-        sendJson(socket, R"({"success": false, "message": "Username and password are required"})");
+    const QJsonObject obj = QJsonDocument::fromJson(body).object();
+    const QString identity = obj["identity"].toString();
+    const QString password = obj["password"].toString();
+    if (identity.trimmed().isEmpty() || password.isEmpty()) {
+        sendJson(socket, R"({"success": false, "message": "Enter the email and password"})");
         return;
     }
-
-    if (!m_testNetworkManager)
-        m_testNetworkManager = new QNetworkAccessManager(this);
-
-    QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
-    request.setRawHeader("Authorization", basicAuthHeader(username, password));
-    request.setTransferTimeout(15000);
-
-    m_visualizerTestInFlight = true;
 
     QPointer<QTcpSocket> safeSocket(socket);
-    QNetworkReply* reply = m_testNetworkManager->get(request);
-    auto fired = std::make_shared<bool>(false);
-
-    // Safety-net timeout (20s) in case Qt's transfer timeout (15s) fails to
-    // trigger QNetworkReply::finished -- ensures the socket always gets a response.
-    auto* timer = new QTimer(this);
-    timer->setSingleShot(true);
-
-    auto cleanup = [this, safeSocket, fired, timer](bool success, const QString& message) {
-        if (*fired) return;
-        *fired = true;
-        m_visualizerTestInFlight = false;
-        timer->stop();
-        timer->deleteLater();
-        if (!success)
-            DIAG_WARN(NETWORK, "ShotServer") << "Visualizer test failed:" << message;
-        else
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Visualizer test succeeded";
-        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
-            return;
+    auto respond = [this, safeSocket](AccountLink::Error error) {
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState) return;
         QJsonObject result;
-        result["success"] = success;
-        result["message"] = message;
+        result["success"] = error == AccountLink::Error::None;
+        result["message"] = accountLinkMessage(error);
         sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     };
+    if (isDecent) {
+        connect(decent, &DecentAccount::linkFinished, this, respond, Qt::SingleShotConnection);
+        decent->link(identity, password);
+    } else {
+        connect(visualizer, &VisualizerUploader::accountConnectFinished, this, respond, Qt::SingleShotConnection);
+        visualizer->connectAccount(identity, password);
+    }
+}
 
-    connect(reply, &QNetworkReply::finished, this, [reply, cleanup]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            cleanup(true, "Connection successful");
-        } else if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
-            cleanup(false, "Invalid username or password");
-        } else {
-            cleanup(false, "Connection failed: " + reply->errorString());
-        }
-    });
-
-    connect(timer, &QTimer::timeout, this, [reply, cleanup]() {
-        reply->abort();
-        cleanup(false, "Connection test timed out");
-    });
-    timer->start(20000);
+void ShotServer::handleAccountDisconnect(QTcpSocket* socket, const QString& destination)
+{
+    if (destination == QLatin1String("decent")) {
+        if (DecentAccount* decent = m_mainController ? m_mainController->decentAccount() : nullptr)
+            decent->unlink();
+    } else if (VisualizerUploader* visualizer = m_mainController ? m_mainController->visualizer() : nullptr) {
+        visualizer->disconnectAccount();
+    }
+    sendJson(socket, R"({"success": true})");
 }
 
 void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)

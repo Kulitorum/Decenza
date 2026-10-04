@@ -132,6 +132,7 @@ struct ShotRecord {
     QVector<QPointF> waterDispensed;
     QVector<QPointF> weight;
     QVector<QPointF> weightFlowRate;  // Flow rate from scale (g/s) for visualizer export
+    QVector<QPointF> weightFlowRateRaw;  // The same before smoothing (Visualizer by_weight_raw); absent on older shots
 
     // Phase markers
     QList<HistoryPhaseMarker> phases;

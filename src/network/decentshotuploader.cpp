@@ -48,7 +48,15 @@ QString DecentShotUploader::shotViewUrl(const QString& serial, const QString& se
     return url.toString();
 }
 
-void DecentShotUploader::uploadNow(qint64 shotId) {
+bool DecentShotUploader::isActive() const {
+    return m_account->uploadsActive();
+}
+
+void DecentShotUploader::noteEdited(qint64 shotId) {
+    m_storage->requestMarkDecentReplacePending(shotId);
+}
+
+void DecentShotUploader::sendSavedShot(qint64 shotId, Send how) {
     if (m_uploading || shotId <= 0) return;
     m_current = Prepared{};
     m_current.shotId = shotId;
@@ -64,7 +72,8 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
     const double minDuration = m_minDuration ? m_minDuration() : 0.0;
     const QString dbPath = m_storage->databasePath();
     auto destroyed = m_destroyed;
-    m_storage->runAfterQueuedWrites([this, destroyed, dbPath, shotId, connected, minDuration]() {
+    const bool updateOnly = how == Send::UpdateOnly;
+    m_storage->runAfterQueuedWrites([this, destroyed, dbPath, shotId, connected, minDuration, updateOnly]() {
         Prepared p;
         p.shotId = shotId;
         p.error = Result::NotFound;
@@ -75,6 +84,11 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
             DecentUploadState state;
             if (!ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &state)) {
                 p.failure = QStringLiteral("its Decent upload state could not be read");
+                return;
+            }
+            if (updateOnly && !state.uploaded()) {
+                p.error = Result::None;
+                p.skip = true;
                 return;
             }
             const ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
@@ -102,7 +116,7 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
             p.body = DecentShotRecord::build(shot, machine);
             p.error = Result::None;
         });
-        if (p.error == Result::None)
+        if (p.error == Result::None && !p.skip)
             writeDebugFile(QStringLiteral("last_decent_upload.json"), QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, destroyed, p]() {
@@ -113,6 +127,12 @@ void DecentShotUploader::uploadNow(qint64 shotId) {
 
 void DecentShotUploader::onPrepared(const Prepared& prepared) {
     m_current = prepared;
+    if (prepared.skip) {
+        m_uploading = false;
+        emit uploadingChanged();
+        notifyIdle();
+        return;
+    }
     if (prepared.error != Result::None) {
         finish(prepared.error);
         return;
@@ -248,4 +268,5 @@ void DecentShotUploader::finish(Result result, int httpStatus) {
     emit uploadingChanged();
     emit lastResultChanged();
     emit uploadFinished(m_lastShotId, result);
+    notifyIdle();
 }

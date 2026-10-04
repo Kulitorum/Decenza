@@ -40,6 +40,8 @@ public:
 
     State state() const;
     QString email() const;
+    // Uploads switched on, the account linked and signed in.
+    bool uploadsActive() const;
     bool busy() const { return m_linkReply != nullptr; }
 
     // The password is used for this one request and never stored.
