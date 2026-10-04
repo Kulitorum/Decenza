@@ -1668,7 +1668,9 @@ T.Page {
             text: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             accessibleName: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             onClicked: {
-                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
+                // A local, not a bare `(…)` line: see scripts/check_qml_asi_hazards.py.
+                const overlay = conversationOverlayLoader.ensure() as ConversationOverlay
+                overlay?.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
             }
         }
 

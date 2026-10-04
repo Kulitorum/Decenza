@@ -2550,7 +2550,9 @@ T.Page {
                 shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
                 shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody
                 shotForAdvisor.enjoyment0to100 = postShotReviewPage.editEnjoyment
-                (conversationOverlayLoader.ensure() as ConversationOverlay)?.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
+                // A local, not a bare `(…)` line: see scripts/check_qml_asi_hazards.py.
+                const overlay = conversationOverlayLoader.ensure() as ConversationOverlay
+                overlay?.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
             }
         }
 
