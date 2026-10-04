@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
@@ -30,10 +31,10 @@
 #include "../models/shotcomparisonmodel.h"
 #include "../network/shotserver.h"
 #include "../network/shotreporter.h"
-// This include propagates the third-party <MQTTAsync.h> to all 16 includers of
-// this header, most of which use MqttClient only as an opaque pointer. It was
-// tried as a forward declaration and REVERTED — do not retry without reading
-// this. `Q_PROPERTY(MqttClient* mqttClient ...)` below needs the complete type:
+// A full include, not a forward declaration — tried and REVERTED, do not retry
+// without reading this. (mqttclient.h forward-declares its Qt MQTT types, so no
+// MQTT header reaches the includers of this one.)
+// `Q_PROPERTY(MqttClient* mqttClient ...)` below needs the complete type:
 // Qt's metatype system rejects an incomplete pointee outright ("Pointer Meta
 // Types must either point to fully-defined types or be declared with
 // Q_DECLARE_OPAQUE_POINTER"). And the opaque-pointer escape hatch is worse than
@@ -917,6 +918,10 @@ private:
     ShotComparisonModel* m_shotComparison = nullptr;
     ShotServer* m_shotServer = nullptr;
     MqttClient* m_mqttClient = nullptr;
+    // The MQTT last-shot reads, matched against ShotHistoryStorage's broadcast replies.
+    qint64 m_mqttLastShotRequestId = 0;
+    QHash<QString, qint64> m_mqttRecipeIds;   // recipe select: name -> id
+    bool m_mqttWantsMostRecentShot = false;
     UpdateChecker* m_updateChecker = nullptr;
     HdsFirmwareUpdateController* m_hdsFirmwareUpdate = nullptr;
     DE1::Firmware::FirmwareAssetCache* m_firmwareAssetCache = nullptr;

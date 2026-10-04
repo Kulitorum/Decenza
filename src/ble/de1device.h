@@ -873,6 +873,7 @@ private:
     friend class tst_MachineState;
     friend class tst_ProfileManager;
     friend class tst_MachineStatusSnapshot;
+    friend class tst_MqttClient;
     friend class tst_MMRWrite;
     friend class tst_DE1DeviceFirmware;
     friend class tst_ShotSampleDecode;

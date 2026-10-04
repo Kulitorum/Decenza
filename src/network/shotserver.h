@@ -251,6 +251,7 @@ private:
     void handleMqttDisconnect(QTcpSocket* socket);
     void handleMqttStatus(QTcpSocket* socket);
     void handleMqttPublishDiscovery(QTcpSocket* socket);
+    void handleMqttNewDeviceId(QTcpSocket* socket);
 
     // AI Conversations web UI
     QString generateAIConversationsPage() const;

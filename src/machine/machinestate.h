@@ -322,6 +322,7 @@ private:
     friend class tst_SensorCalibration;
     friend class tst_ProfileManager;
     friend class tst_MachineStatusSnapshot;
+    friend class tst_MqttClient;
     friend class tst_LiveSteamCoach;
 #endif
 };

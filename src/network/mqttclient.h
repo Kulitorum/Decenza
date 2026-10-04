@@ -1,32 +1,49 @@
 #pragma once
 
 #include "core/logcollapse.h"
-
+#include <QAbstractSocket>
+#include <QByteArray>
+#include <QJsonObject>
+#include <QList>
 #include <QObject>
+#include <QPointer>
+#include <QSslError>
+#include <QStringList>
 #include <QTimer>
-#include <QMutex>
 #include <algorithm>
 #include <QtQmlIntegration/qqmlintegration.h>
-
-extern "C" {
-#include <MQTTAsync.h>
-}
 
 class DE1Device;
 class MachineState;
 class Settings;
 class SettingsMqtt;
 class MainController;
+class QMqttClient;
+class QMqttSubscription;
+class QTcpSocket;
 
+/**
+ * MQTT client for Home Assistant integration, on Qt MQTT (built in-tree, cmake/qtmqtt.cmake).
+ *
+ * One QMqttClient lives as long as this object. Each connection attempt opens its own
+ * TCP or TLS socket and hands it over once connected (see connectWithHost()), which is
+ * what lets TLS verify a certificate against the configured host name when the address
+ * came from our own mDNS lookup, and keeps the real socket error for the status text.
+ *
+ * Topics under <base> (default "decenza"):
+ *   availability (online/offline, LWT), state, phase, substate, connected, scale_connected,
+ *   temperature/{head,mix,steam}, pressure, flow, weight, shot_time, target_weight,
+ *   water_level, water_level_ml, profile, profile_filename, recipe, steam_mode,
+ *   steam_state, espresso_count, last_shot (JSON), event/shot (JSON, not retained)
+ * Subscribed: command (wake/sleep/steam_on/steam_off/stop), profile/set (filename),
+ *   profile/select and recipe/select (titles, from the HA selects), and homeassistant/status.
+ */
 class MqttClient : public QObject {
     Q_OBJECT
-
-    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
-    // follow MainController's property through to this class. A runtime qmlRegister* call is
-    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
     QML_ELEMENT
     QML_UNCREATABLE("MqttClient is created in C++ and reached via MainController")
 
+    // True only once the broker has accepted the login AND the command subscriptions.
     Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(int reconnectAttempts READ reconnectAttempts NOTIFY reconnectAttemptsChanged)
@@ -38,167 +55,215 @@ public:
                        QObject* parent = nullptr);
     ~MqttClient();
 
-    bool isConnected() const;
+    bool isConnected() const { return m_connected; }
     QString status() const { return m_status; }
     int reconnectAttempts() const { return m_reconnectAttempts; }
     QString currentProfile() const { return m_currentProfile; }
     void setCurrentProfile(const QString& profile);
     void setCurrentProfileFilename(const QString& filename);
+
+    // For the steam heater policy and the espresso count.
     void setMainController(MainController* controller);
 
     Q_INVOKABLE void connectToBroker();
     Q_INVOKABLE void disconnectFromBroker();
     Q_INVOKABLE void publishDiscovery();
+    // SettingsMqtt::regenerateMqttDeviceId(), re-announced if connected.
+    Q_INVOKABLE void newDeviceId();
+
+    // For QML; see SettingsMqtt::describeCaCertificate().
+    Q_INVOKABLE QString describeCaCertificate(const QString& pem) const;
+
+    // User-facing reason for a failed attempt. Precedence: the broker's CONNACK/protocol
+    // error, then the TLS errors, then the socket error.
+    static QString failureReason(int clientError, QAbstractSocket::SocketError socketError,
+                                 const QList<QSslError>& sslErrors);
+
+    // A saved shot, as MainController reads it back from history.
+    struct LastShot {
+        qint64 startEpochSec = 0;
+        double durationSec = 0.0;
+        double doseG = 0.0;
+        double yieldG = 0.0;
+        QString profile;
+    };
+    // Plain-data inputs from MainController, so this class never queries ProfileManager
+    // or reads shots from history itself.
+    void setProfileTitles(const QStringList& titles);
+    // Non-archived recipe names, and the active one ("" when none).
+    void setRecipeTitles(const QStringList& titles);
+    void setActiveRecipe(const QString& name);
+    void setLastShot(const LastShot& shot);
 
 public slots:
     void onScaleConnectedChanged(bool connected);
     void onSteamSettingsChanged();
+
+    // Shot lifecycle, wired by MainController. `maintenance`: a cleaning, descale or
+    // calibration profile.
+    void onEspressoCycleStarted(bool maintenance);
+    void onShotPersisted(double durationSec, double yieldG);
+    void onShotNotSaved();
 
 signals:
     void connectedChanged();
     void statusChanged();
     void reconnectAttemptsChanged();
     void commandReceived(const QString& command);
-    void profileSelectRequested(const QString& profileName);
+    void profileSelectRequested(const QString& profileFilename);
+    // From the Home Assistant select, which shows titles; MainController resolves it.
+    void profileTitleSelectRequested(const QString& profileTitle);
+    // From the Home Assistant recipe select; MainController resolves the name.
+    void recipeTitleSelectRequested(const QString& recipeName);
+    // Asks MainController for the most recent saved shot (answered via setLastShot()).
+    void lastShotRequested();
     void currentProfileChanged();
     void steamOnRequested();
     void steamOffRequested();
-
-    // Internal signals for thread-safe callback handling
-    void internalConnected();
-    void internalDisconnected();
-    void internalConnectionFailed(const QString& error);
-    void internalMessageReceived(const QString& topic, const QString& payload);
+    // Only emitted when the phase allows a remote stop (see handleCommand()).
+    void stopRequested();
 
 #ifdef DECENZA_TESTING
-    // The reconnect state machine is pure logic over a QTimer and a handful of flags,
-    // and every one of its inputs is a private slot. Exposing it to the test is what
-    // lets tst_mqttclient assert on timer state directly, with no broker and no waiting.
-    // Added after a latched m_userRequestedDisconnect shipped in a change whose entire
-    // purpose was to stop reconnection from dying — this file was in no test target at
-    // all, so nothing could have caught it.
     friend class tst_MqttClient;
 #endif
 
 private slots:
-    void onInternalConnected();
-    void onInternalDisconnected();
-    void onInternalConnectionFailed(const QString& error);
-    void onInternalMessageReceived(const QString& topic, const QString& payload);
-
-    // Data source slots
+    void onClientStateChanged();
     void onPhaseChanged();
-    void onShotSampleReceived();
     void onWaterLevelChanged();
     void onDE1StateChanged();
     void onDE1ConnectedChanged();
-
-    // Publishing
     void onPublishTimerTick();
     void publishState();
-
-    // Reconnection
     void onReconnectTimerTick();
     void onSettingsChanged();
+    void onDiscoverySettingChanged();
 
 private:
+    // Availability class of a Home Assistant entity (applied in componentConfig()).
+    enum class Source { App, Machine, Scale };
+    struct DiscoveryEntry {
+        QString component;
+        QString objectId;
+        QJsonObject config;   // unique_id holds only the suffix; availability and device are added on publish
+        Source source = Source::App;
+    };
+
+    void onMdnsResolved(quint64 generation, const QString& host, const QString& resolved);
+    void connectWithHost(const QString& host);
+    void onSocketReady(QTcpSocket* socket);
+    void onSocketError(QTcpSocket* socket);
+    void abandonSocket(QTcpSocket* socket);
+    void onSessionUp();
+    void onSessionDown();
+    void endSession();
+    void onConnectionFailed(const QString& reason);
+    void onSubscriptionState(QMqttSubscription* subscription);
+    void updateVerifiedState();
+    void onMessageReceived(const QByteArray& message, const QString& topic);
+
     void setupSubscriptions();
-    void publishHomeAssistantDiscovery();
     void handleCommand(const QString& command);
     QString topicPath(const QString& subtopic) const;
-    QJsonObject buildDeviceInfo() const;
-    void publishDiscoveryConfig(const QString& component, const QString& objectId,
-                                const QJsonObject& config);
-    void connectWithHost(const QString& host);
+    // Retained only if `retain` AND the user's retain setting; QoS 0. The ordinary path.
     void publish(const QString& topic, const QString& payload, bool retain = true);
+    // Flags exactly as given, for messages whose retain/QoS must not follow publish()'s rule.
+    void publishRaw(const QString& topic, const QString& payload, bool retain, quint8 qos);
     void publishAvailability(bool online);
-    QString generateClientId();
+    void republishAll();
     void onNetworkReachabilityChanged(bool reachable);
     QString reconnectStatusText() const;
     void scheduleReconnect(const QString& reason);
+    bool stopAllowedInCurrentPhase() const;
 
-    // Paho callbacks (static, call instance methods via context)
-    static void onConnectSuccess(void* context, MQTTAsync_successData* response);
-    static void onConnectFailure(void* context, MQTTAsync_failureData* response);
-    static void onConnectionLost(void* context, char* cause);
-    static int onMessageArrived(void* context, char* topicName, int topicLen, MQTTAsync_message* message);
-    static void onDisconnectSuccess(void* context, MQTTAsync_successData* response);
-    static void onSubscribeSuccess(void* context, MQTTAsync_successData* response);
-    static void onSubscribeFailure(void* context, MQTTAsync_failureData* response);
+    QString deviceId() const;
+    QJsonObject buildDeviceInfo() const;
+    QList<DiscoveryEntry> discoveryEntries() const;
+    QJsonObject componentConfig(const DiscoveryEntry& entry) const;
+    // The device-based discovery message; `publishedComponents` receives the component
+    // keys it describes, for SettingsMqtt's bookkeeping.
+    QJsonObject deviceDiscoveryPayload(QStringList* publishedComponents = nullptr) const;
+    QString deviceDiscoveryTopic() const;
+    static QString legacyDiscoveryTopic(const QString& component, const QString& objectId);
+    static QStringList legacyDiscoveryTopics();
+    void publishHomeAssistantDiscovery();
+    void retractDiscovery();
 
-    MQTTAsync m_client = nullptr;
+    static QJsonObject lastShotSummary(const LastShot& shot);
+    void publishLastShot();
+    void publishShotEvent(const QString& eventType, const QJsonObject& detail = {});
+
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
     Settings* m_settings = nullptr;
     SettingsMqtt* m_settingsMqtt = nullptr;
     MainController* m_mainController = nullptr;
 
+    // Deleted explicitly in ~MqttClient, before the socket children (see there).
+    QMqttClient* m_client = nullptr;
+#ifdef DECENZA_TESTING
+    struct Published { QString topic; QString payload; bool retain; quint8 qos; };
+    // When set, publishRaw() records here instead of sending (tests only).
+    QList<Published>* m_publishRecorder = nullptr;
+#endif
+    // The attempt in flight, not yet handed to m_client.
+    QPointer<QTcpSocket> m_pendingSocket;
+    // The socket m_client holds. Kept alive until the NEXT hand-over replaces it:
+    // setTransport() disconnects from the previous transport by pointer
+    // (qmqttconnection.cpp:102-126), so deleting it earlier would leave m_client
+    // holding a dangling QObject*.
+    QPointer<QTcpSocket> m_activeSocket;
+    QString m_attemptHost;            // the name the user configured, for TLS verification
+    QString m_attemptAddress;         // what we dialled (the mDNS result, on Android .local)
+    bool m_attemptTls = false;
+    QList<QSslError> m_lastSslErrors;
+    QString m_failureOverride;        // set when WE ended the attempt, e.g. the deadline
+    bool m_useMqtt31 = false;         // broker rejected 3.1.1; reset when settings change
+
     QTimer m_publishTimer;
     QTimer m_reconnectTimer;
+    // Deadline from dial to CONNACK. QTcpSocket has none (the OS SYN timeout runs to
+    // minutes) and Qt MQTT none for CONNACK (it has only a ping timer).
+    QTimer m_attemptDeadline;
+    static constexpr int ATTEMPT_DEADLINE_MS = 30000;
+
+    // Bumped by every connect and disconnect; an mDNS answer for an older one is dropped.
+    quint64 m_attemptGeneration = 0;
     int m_reconnectAttempts = 0;
     bool m_isReconnecting = false;
-    // True only while QNetworkInformation positively reports Disconnected (Unknown is
-    // NOT offline — see the constructor). Reconnect attempts are not spent while it
-    // holds, and the transition back to reachable is what resumes them.
     bool m_networkDown = false;
-    // Attempts spent at the FAST cadence before dropping to the slow one. Not a
-    // stopping point: retries continue indefinitely, just rarely. It used to be
-    // terminal, which meant a broker outage longer than the budget (~7 min) killed
-    // MQTT until someone intervened — a Home Assistant restart or a broker redeploy
-    // was enough, and nothing about that is the user's fault or their job to notice.
+
     static constexpr int MAX_FAST_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
-    // Slow cadence once the fast budget is spent. A TCP connect to a LAN broker is
-    // negligible, so this is about log noise and not looking frantic, not cost —
-    // 15 min recovers an unattended broker restart well within the time it takes
-    // anyone to notice Home Assistant went quiet.
     static constexpr int IDLE_RECONNECT_DELAY_MS = 15 * 60 * 1000;
-    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s… then every 15 min forever.
     int reconnectDelayMs() const {
         if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS)
             return IDLE_RECONNECT_DELAY_MS;
         return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)),
                         MAX_RECONNECT_DELAY_MS);
     }
-    // Latches when the slow cadence is announced, so the transition is logged once
-    // rather than every 15 minutes for as long as the broker stays away.
     bool m_slowRetryAnnounced = false;
 
-    // Nothing while a repeating message is unchanged; a changed message emits at once. A broker
-    // that is down stays down for hours with one unvarying reason, and the retry ladder already has
-    // its own one-shot "backing off" warning — so restating "still down, same reason" on any
-    // cadence adds a line count, not a diagnosis. The first failure prints, the recovery prints,
-    // and the recovery carries how many attempts fell in between.
-    // Episodic: a run is one connection attempt sequence. Flushed on a successful connect in
-    // onConnected() — the only caller that got this right before the others were audited.
     LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
-    // A stop the user asked for is not a fault, so it must not re-arm the retry loop.
-    //
-    // INVARIANT: this may only be true while a disconnect callback is actually pending.
-    // It is set in the ONE branch of disconnectFromBroker() that triggers that callback,
-    // consumed by onInternalDisconnected(), and cleared again in connectToBroker() so a
-    // callback lost to MQTTAsync_destroy() cannot strand it. A latched true is not a
-    // cosmetic bug: the next genuine broker drop reads as user-requested, stops the
-    // timer, and leaves MQTT dead until the app restarts — the exact terminal death the
-    // slow-retry cadence was written to end.
+
+    // One-shot: suppresses the reconnect that would otherwise follow the disconnect the
+    // user asked for. Armed only when a session is up (see disconnectFromBroker()).
     bool m_userRequestedDisconnect = false;
-    // One definition for a string that is both WRITTEN and COMPARED. It had three
-    // copies; editing any one of them would have silently stopped the clear-on-resume
-    // from matching, re-creating the permanently-latched status it exists to prevent,
-    // with no compiler help.
+    // Set only around connectWithHost()'s abort of the session it is replacing.
+    bool m_replacingSession = false;
+
     static constexpr auto kWaitingForNetwork = "Waiting for network...";
-    // Same reasoning, same trap: the down-edge WRITES this and the up-edge COMPARES it.
-    // Two copies of the literal is how the connected case came to be left latched on
-    // screen forever while kWaitingForNetwork was handled correctly beside it.
     static constexpr auto kConnectedNetworkUnreachable = "Connected - network unreachable";
+    static constexpr auto kConnecting = "Connecting...";
 
     QString m_status;
-    bool m_connected = false;
-    bool m_discoveryPublished = false;
-    // Entities published by the current publishHomeAssistantDiscovery() pass, so the
-    // one summary line can report the set was complete without a line per member.
-    // Reset at the top of that function — it runs again on every reconnect.
+    bool m_sessionUp = false;     // CONNACK accepted — publishing works
+    bool m_connected = false;     // session up AND command subscriptions acknowledged
+    QList<QPointer<QMqttSubscription>> m_requiredSubscriptions;
+    QList<QPointer<QMqttSubscription>> m_sessionSubscriptions;   // all of them, to delete
+    QString m_refusedSubscription;
+
     int m_discoveryEntityCount = 0;
     QString m_lastPublishedState;
     QString m_lastPublishedPhase;
@@ -208,8 +273,16 @@ private:
     QString m_currentProfileFilename;
     QString m_lastPublishedSteamMode;
     bool m_lastPublishedScaleConnected = false;
+    bool m_scaleConnected = false;
     int m_lastPublishedEspressoCount = -1;
-    QString m_clientId;
 
-    mutable QMutex m_mutex;
+
+    // Shot lifecycle: one terminal event per espresso cycle, none for maintenance runs.
+    bool m_shotCycleOpen = false;
+    bool m_haveLastShot = false;
+    LastShot m_lastShot;
+    QStringList m_profileTitles;
+    QStringList m_recipeTitles;
+    QString m_activeRecipe;
+    void publishActiveRecipe();
 };

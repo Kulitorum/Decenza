@@ -379,7 +379,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     mqtt["publishInterval"] = mqttSettings->mqttPublishInterval();
     mqtt["retainMessages"] = mqttSettings->mqttRetainMessages();
     mqtt["homeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
-    mqtt["clientId"] = mqttSettings->mqttClientId();
+    // Not the client ID: it is the broker's session key and must stay unique to each
+    // install. The device ID is the Home Assistant identity a replacement tablet keeps.
+    mqtt["deviceId"] = mqttSettings->mqttDeviceId();
+    mqtt["useTls"] = mqttSettings->mqttUseTls();
+    mqtt["caCertificate"] = mqttSettings->mqttCaCertificate();
     root["mqtt"] = mqtt;
 
     // Layout configuration
@@ -952,18 +956,53 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     if (json.contains("mqtt") && !excludeKeys.contains("mqtt")) {
         QJsonObject mqtt = json["mqtt"].toObject();
         auto* mqttSettings = settings->mqtt();
-        if (mqtt.contains("enabled")) mqttSettings->setMqttEnabled(mqtt["enabled"].toBool());
-        if (mqtt.contains("brokerHost")) mqttSettings->setMqttBrokerHost(mqtt["brokerHost"].toString());
-        if (mqtt.contains("brokerPort")) mqttSettings->setMqttBrokerPort(mqtt["brokerPort"].toInt());
-        if (mqtt.contains("username")) mqttSettings->setMqttUsername(mqtt["username"].toString());
-        if (mqtt.contains("password") && !excludeKeys.contains("mqttPassword")) {
+
+        // A restore without the password must not send the stored one to another broker or
+        // in the clear — the rule the settings page and MCP apply. With a password, the
+        // credentials go first: every setter below reconnects at once.
+        QStringList keptBrokerKeys;
+        const bool bringsPassword = mqtt.contains("password") && !excludeKeys.contains("mqttPassword");
+        if (bringsPassword) {
+            if (mqtt.contains("username")) mqttSettings->setMqttUsername(mqtt["username"].toString());
             mqttSettings->setMqttPassword(mqtt["password"].toString());
+        } else {
+            QJsonObject asSettings;
+            if (mqtt.contains("brokerHost")) asSettings["mqttBrokerHost"] = mqtt["brokerHost"];
+            if (mqtt.contains("brokerPort")) asSettings["mqttBrokerPort"] = mqtt["brokerPort"];
+            if (mqtt.contains("useTls")) asSettings["mqttUseTls"] = mqtt["useTls"];
+            if (mqtt.contains("caCertificate")) asSettings["mqttCaCertificate"] = mqtt["caCertificate"];
+            keptBrokerKeys = mqttSettings->passwordExposingChanges(asSettings);
+            if (!keptBrokerKeys.isEmpty()) {
+                DIAG_WARN(STORAGE, "settingsserializer") << "Settings import kept this device's"
+                    << keptBrokerKeys << "- the backup has no MQTT password, so it may not redirect the stored one";
+            }
         }
+        const auto allowed = [&keptBrokerKeys](const char* key) {
+            return !keptBrokerKeys.contains(QLatin1String(key));
+        };
+
+        if (mqtt.contains("enabled")) mqttSettings->setMqttEnabled(mqtt["enabled"].toBool());
+        if (mqtt.contains("brokerHost") && allowed("mqttBrokerHost"))
+            mqttSettings->setMqttBrokerHost(mqtt["brokerHost"].toString());
+        if (mqtt.contains("brokerPort") && allowed("mqttBrokerPort"))
+            mqttSettings->setMqttBrokerPort(mqtt["brokerPort"].toInt());
+        if (!bringsPassword && mqtt.contains("username"))
+            mqttSettings->setMqttUsername(mqtt["username"].toString());
         if (mqtt.contains("baseTopic")) mqttSettings->setMqttBaseTopic(mqtt["baseTopic"].toString());
         if (mqtt.contains("publishInterval")) mqttSettings->setMqttPublishInterval(mqtt["publishInterval"].toInt());
         if (mqtt.contains("retainMessages")) mqttSettings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
         if (mqtt.contains("homeAssistantDiscovery")) mqttSettings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
-        if (mqtt.contains("clientId")) mqttSettings->setMqttClientId(mqtt["clientId"].toString());
+        // A backup from before the device ID carries only the client ID, which is what built
+        // that install's Home Assistant unique_ids: it becomes the device ID, never this
+        // install's client ID.
+        if (mqtt.contains("deviceId"))
+            mqttSettings->importMqttDeviceId(mqtt["deviceId"].toString());
+        else if (mqtt.contains("clientId"))
+            mqttSettings->importMqttDeviceId(mqtt["clientId"].toString());
+        if (mqtt.contains("useTls") && allowed("mqttUseTls"))
+            mqttSettings->setMqttUseTls(mqtt["useTls"].toBool());
+        if (mqtt.contains("caCertificate") && allowed("mqttCaCertificate"))
+            mqttSettings->setMqttCaCertificate(mqtt["caCertificate"].toString());
     }
 
     // Layout configuration

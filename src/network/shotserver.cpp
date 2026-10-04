@@ -2188,6 +2188,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/settings/mqtt/publish-discovery" && method == "POST") {
         handleMqttPublishDiscovery(socket);
     }
+    else if (path == "/api/settings/mqtt/new-device-id" && method == "POST") {
+        handleMqttNewDeviceId(socket);
+    }
     else if (path == "/api/settings/mcp/rotate-token" && method == "POST") {
         handleRotateRemoteMcpToken(socket);
     }

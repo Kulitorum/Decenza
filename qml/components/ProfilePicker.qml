@@ -205,21 +205,11 @@ Item {
             list.sort(function(a, b) { return a.title.localeCompare(b.title) })
             return list
         }
-        // "usage": current profile first, then most recent shot descending,
-        // never-used last in alpha order.
-        var usage = ProfileManager.profileUsage
-        var pinned = picker.highlightedFilename
-        list.sort(function(a, b) {
-            if (a.name === pinned && b.name !== pinned) return -1
-            if (b.name === pinned && a.name !== pinned) return 1
-            var ua = usage[a.title], ub = usage[b.title]
-            var ta = ua ? ua.lastTimestamp : 0
-            var tb = ub ? ub.lastTimestamp : 0
-            if (!!ta !== !!tb) return ta ? -1 : 1
-            if (ta !== tb) return tb - ta
-            return a.title.localeCompare(b.title)
-        })
-        return list
+        // "usage": ProfileManager.sortedByRecentUse is the one definition (the Home
+        // Assistant profile select uses it too). Read profileUsage here so the
+        // binding re-sorts when it changes; the invokable records no dependency.
+        var _usage = ProfileManager.profileUsage
+        return ProfileManager.sortedByRecentUse(list, picker.highlightedFilename)
     }
 
     // One row: exact-bean matches first (reason "used with <bean>"), then the
