@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -33,8 +34,9 @@ public:
     // The page a signed-in owner's machines and shots live on.
     static constexpr const char* kAccountPath = "/support/espressomachine";
     // Without one, Qt waits forever on a stalled connection (no default timeout,
-    // qnetworkrequest.cpp), leaving Connect or Upload stuck "busy".
-    static constexpr int kTransferTimeoutMs = 15000;
+    // qnetworkrequest.cpp), leaving Connect stuck "busy". decentespresso.com took
+    // 33-38 s to answer login_test and its home page on 2026-10-04 (from a Mac).
+    static constexpr int kTransferTimeoutMs = 60000;
 
     DecentAccount(QNetworkAccessManager* network, SettingsDecent* settings, QObject* parent = nullptr);
 
@@ -69,5 +71,6 @@ private:
     QNetworkAccessManager* m_network;
     SettingsDecent* m_settings;
     QPointer<QNetworkReply> m_linkReply;
+    QElapsedTimer m_linkTimer;
     QString m_pendingEmail;
 };

@@ -18,7 +18,7 @@ https://decentespresso.com/support/api/
 
 **Auth.** The password goes to `login_test` once. The encrypted password it returns is stored and sent as HTTP Basic
 `email:cryptpw` on every later call (`basicAuthHeader()` in `httpauth.h`, shared with Visualizer; the password is never
-trimmed). Requests time out after 15 s, uploads after 60 s (the server took 25-29 s on 2026-10-04). No OAuth: neither Decent app uses it, and it needs a client
+trimmed). Sign-in and uploads time out after 60 s (on 2026-10-04 the server took 25-29 s per upload and 33-38 s per page). Each sign-in outcome is logged with its duration, HTTP status and Qt error code. No OAuth: neither Decent app uses it, and it needs a client
 registration.
 
 **Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`), cleared on disconnect. It is not captured when a
