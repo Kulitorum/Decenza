@@ -108,26 +108,30 @@ When the metadata of a shot that has already been uploaded changes — from the 
 - **WHEN** the uploader records a successful upload on a shot
 - **THEN** that write does not cause another upload of the same shot
 
-### Requirement: History upload is a one-time button per destination
+### Requirement: Missing shots are tracked and offered for upload per destination
 
-The system SHALL NOT upload existing history automatically. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload history button while that destination is switched on and connected and its history has not been uploaded. Pressing it SHALL upload the eligible shots that destination does not hold yet — for Decent also the shots marked replace-pending, replacements first — newest first, through the shared upload path. It SHALL send at most 5 shots per batch with at least 30 seconds between batches, and only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button. When no eligible shot is left the button SHALL no longer be offered for that destination; disconnecting that destination's account SHALL offer it again.
+The system SHALL NOT retry an upload automatically beyond its 3 attempts. An upload that still fails after them (no response, no connection, a server error) SHALL be recorded on the shot for that destination and cleared when the shot uploads; a permanent rejection is not a failure. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload missing shots button while that destination is switched on and connected and is missing at least one eligible, non-rejected shot, showing how many and how many of them failed; with none missing it SHALL offer no button. Pressing it SHALL upload those shots — for Decent also the shots marked replace-pending, replacements first — newest first, through the shared upload path, at most 5 per batch with at least 30 seconds between batches, only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button.
+
+#### Scenario: Upload fails three times
+- **WHEN** a new shot's Decent upload gets no response on all 3 attempts
+- **THEN** the shot is recorded as failed for Decent, nothing retries it automatically, and the Decent card offers Upload missing shots with 1 failed
 
 #### Scenario: Pressing the button
-- **WHEN** a user with 1,000 shots the Decent account does not hold presses Upload history on the Decent card while the machine is idle
+- **WHEN** a user with 1,000 shots the Decent account does not hold presses Upload missing shots while the machine is idle
 - **THEN** shots are uploaded newest first, at most 5 per batch, with at least 30 seconds between batches, and the card shows the progress
 
 #### Scenario: Shot started mid-run
-- **WHEN** the user starts an espresso while history is uploading
+- **WHEN** the user starts an espresso while missing shots are uploading
 - **THEN** no new upload request is started until the machine is idle again
 - **AND** the run resumes where it stopped
 
-#### Scenario: History done
+#### Scenario: Nothing missing
 - **WHEN** every eligible shot is uploaded or rejected
-- **THEN** the run stops and the Upload history button no longer appears for that destination
+- **THEN** the card offers no button until a shot is missing again
 
 #### Scenario: Never automatic
-- **WHEN** a destination is switched on, an account is linked or the app starts, and the button was never pressed
-- **THEN** no history is uploaded
+- **WHEN** a destination is switched on, an account is linked or the app starts, and the button was not pressed
+- **THEN** no saved shot is uploaded by the history mechanism
 
 ### Requirement: Retry and rejection rules
 

@@ -97,7 +97,7 @@ The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage)
   - Persisting the flag is what makes "edit while offline, upload disabled, or needs-sign-in" survive.
   - The uploader's own writeback goes through a separate storage method that emits `decentUploadStateUpdated`, never `shotMetadataUpdated`, so it cannot loop. The Visualizer link writeback also does not emit `shotMetadataUpdated`.
   - *Alternative considered:* compare `updated_at` against a recorded revision, as Decaid does. Rejected, because the Visualizer writeback bumps `updated_at` and would force a replace of every shot uploaded to both destinations.
-- **History (Stage 3):** a button, not automatic — see D14.
+- **Missing shots (Stage 3):** tracked failures and a button, not automatic — see D14.
 - **Retry:** transport error, 404, 405, 408, 410, 429, 5xx, or a 2xx without `"ok":true` → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
   - 401 → `DecentAccount::reportAuthFailure()`, which persists `needsSignIn` and stops everything.
   - 403 → in-memory `m_pausedNotRegistered` with the serial; a status message names it; cleared on re-link or restart.
@@ -156,7 +156,7 @@ Implementation lands in three PRs, each gated on a check against the live server
    - The single Upload button.
    - Decent ignores the shared automatic settings until Stage 2.
 2. **Automatic upload and replace-on-edit for Decent**, plus web and MCP parity.
-3. **History upload**, one button per destination (D14).
+3. **Missing shots:** failed uploads tracked, and an upload button per destination (D14).
 
 Why this order: the payload is the only part that depends on a server we do not control, and a wrong document multiplied by a whole history is the expensive failure. Stage 1 proves the document on a handful of shots a person checked by eye before anything uploads unattended. Stage 3 is held until automatic upload has run in daily use.
 
@@ -173,14 +173,15 @@ Until Stage 3, a live upload that fails transiently is simply left un-uploaded; 
 - **Edits reach Visualizer from every editor now.** Before, only the review page and MCP PATCHed it; ShotServer, the AI advisor and the change-beans dialog did not. One trigger for both destinations makes that uniform.
 - **Web:** Connect on the ShotServer page calls `VisualizerUploader::connectAccount` / `DecentAccount::link`, the app's verified connect, replacing the page's own Visualizer test request and its unverified credential save. Every `link()` ends with `linkFinished`, `Cancelled` when Disconnect interrupts it, so a waiting web request is always answered.
 
-### D14. History upload: one button per destination, once (Stage 3)
-Existing history is uploaded only when the user asks, never automatically: each destination card on the Shot Upload tab (and its ShotServer counterpart) has an **Upload history** button. Once that destination's history has gone up, its button is gone for good.
-- **Which shots:** those the destination does not hold yet, by the same eligibility rule as every upload (`uploadIneligibility`: no maintenance cycles, nothing under the minimum length). Visualizer: no `visualizer_id`. Decent: not uploaded and not rejected, plus shots marked replace-pending (edits that missed the account), replacements first. Newest first. Each destination supplies its selection; the run itself is one implementation in `ShotUploads`.
-- **How:** the shots go through `ShotUploads` as `UploadOrUpdate`, so nothing is duplicated (a shot a destination already holds is never selected) and the queue stays one at a time. Batches of 5 with at least 30 s between, only while the machine is idle: a boolean set from `MachineState::phaseChanged` (busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport); no new batch starts while busy, and a return to idle resumes. The 30 s spacing is a periodic rate limit (Decaid's cadence), which the timer rule allows; it is not a guard. The selection query runs on a worker thread (`withTempDb`).
-- **Progress and completion:** while it runs, the card shows "Uploading history: N of M" in place of the button. The run is user-requested, so it survives a restart: a started-but-unfinished run resumes at app start, when idle. When nothing eligible is left, the destination's `historyUploaded` setting is set and the button stops appearing. A transient failure leaves the shot for the next pass rather than finishing the run; a run that ends with nothing left but rejections still counts as done.
-- **Account change:** disconnecting a destination's account clears its `historyUploaded`, so a different account gets the button again.
+### D14. Missing shots: tracked failures and an upload button per destination (Stage 3)
+Nothing already saved is uploaded automatically beyond a shot's own 3 attempts. Each destination card on the Shot Upload tab (and its ShotServer counterpart) offers an **Upload missing shots** button whenever that destination is missing shots, and only then.
+- **Failed uploads are tracked:** an upload that ends Failed after its 3 automatic attempts (a timeout, no connection, a 5xx; from any trigger) is recorded on the shot for that destination — `decent_failed_at`, `visualizer_failed_at` (schema migration 43) — and cleared when the shot uploads. There is no later automatic retry: 3 attempts are enough (Jeff, 2026-10-04, after decentespresso.com took ~46 s to answer and sign-ins timed out at 60 s). A rejection (permanent 4xx) is not a failure; it stays rejected.
+- **When the button shows:** while the destination is switched on and connected and has at least one missing shot: eligible (`uploadIneligibility`: no maintenance cycles, nothing under the minimum length), not held by that destination, not rejected. Before the first press that is the whole history; afterwards it is the shots whose upload failed, plus any saved while automatic upload was off. The card shows how many, and how many of them failed. With none missing, there is no button.
+- **Which shots a press sends:** the missing ones; for Decent also the shots marked replace-pending (edits that missed the account), replacements first. Newest first. Each destination supplies its selection; the run itself is one implementation in `ShotUploads`.
+- **How:** through `ShotUploads` as `UploadOrUpdate`, so nothing is duplicated (a held shot is never selected) and the queue stays one at a time. Batches of 5 with at least 30 s between, only while the machine is idle: a boolean set from `MachineState::phaseChanged` (busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport); no new batch starts while busy, and a return to idle resumes. The 30 s spacing is a periodic rate limit (Decaid's cadence), which the timer rule allows; it is not a guard. Selection and counting run on a worker thread (`withTempDb`).
+- **Progress:** while a run is going the card shows "Uploading N of M" in place of the button. The run is user-requested, so it survives a restart: an unfinished run resumes at app start, when idle. Each shot gets its usual 3 attempts; one that still fails is tracked and the run moves on, so the button comes back afterwards with what is left.
 - **Shots filed under the connected machine:** a first upload uses the connected DE1's serial (Decaid's rule for shots saved before it recorded the machine). Accepted, and stated next to the Decent button.
-- *Alternative considered:* the automatic idle drain of the original plan (and of Decaid). Rejected by Jeff: history should go up when the owner chooses, once.
+- *Alternatives considered:* the automatic idle drain of the original plan (and of Decaid), rejected by Jeff — saved shots go up when the owner chooses; and a later automatic retry of failed uploads, rejected by Jeff — 3 attempts are enough, the button offers the rest.
 
 ## Risks / Trade-offs
 
