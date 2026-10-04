@@ -169,6 +169,7 @@ private:
     void publish(const QString& topic, const QString& payload, bool retain = true);
     // Flags exactly as given, for messages whose retain/QoS must not follow publish()'s rule.
     void publishRaw(const QString& topic, const QString& payload, bool retain, quint8 qos);
+    void publishAvailabilityInput(const QString& subtopic, const QString& payload);
     void publishAvailability(bool online);
     void republishAll();
     void onNetworkReachabilityChanged(bool reachable);

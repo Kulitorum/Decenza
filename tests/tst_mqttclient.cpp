@@ -445,6 +445,28 @@ private slots:
         const QJsonObject link = configFor(c.data(), "connected");
         QVERIFY(!link.contains("availability"));
         QCOMPARE(link.value("availability_topic").toString(), QStringLiteral("decenza/availability"));
+
+        // What those topics carry: retained whatever the retain setting, or the retained
+        // will/exit "offline" is what Home Assistant reads on subscribing (every entity
+        // unavailable on a tablet with retain off), and with the payloads the configs expect.
+        settings.mqtt()->setMqttRetainMessages(false);
+        c->m_scaleConnected = true;
+        QList<MqttClient::Published> sent;
+        c->m_publishRecorder = &sent;
+        c->republishAll();
+        const QHash<QString, QString> expected{
+            {"decenza/availability", "online"},
+            {"decenza/connected", "false"},          // no DE1 in this test
+            {"decenza/scale_connected", temp.value("availability").toArray().at(1).toObject()
+                                             .value("payload_available").toString()},
+        };
+        for (auto it = expected.cbegin(); it != expected.cend(); ++it) {
+            const auto m = std::find_if(sent.cbegin(), sent.cend(),
+                                        [&](const auto& p) { return p.topic == it.key(); });
+            QVERIFY2(m != sent.cend(), qPrintable(it.key() + " not published"));
+            QVERIFY2(m->retain, qPrintable(it.key() + " must be retained"));
+            QCOMPARE(m->payload, it.value());
+        }
     }
 
     void profileSelectListsTheInstalledTitles() {

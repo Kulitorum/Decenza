@@ -141,7 +141,7 @@ MqttClient::~MqttClient()
         // is only quick when the link is moving. With a write backlog it is not, so drop
         // the connection instead and let the broker's LWT say "offline".
         if (m_activeSocket && m_activeSocket->bytesToWrite() == 0) {
-            publishRaw(topicPath("availability"), QStringLiteral("offline"), true, 1);
+            publishAvailability(false);
             m_client->disconnectFromHost();
         } else if (m_activeSocket) {
             m_activeSocket->abort();
@@ -1083,9 +1083,17 @@ void MqttClient::publishRaw(const QString& topic, const QString& payload, bool r
     }
 }
 
+// What Home Assistant's availability reads: always retained, like the will and the exit
+// "offline". With the user's retain setting off, a non-retained "online" left the retained
+// "offline" on the broker, and every entity Home Assistant (re)subscribed read unavailable.
+void MqttClient::publishAvailabilityInput(const QString& subtopic, const QString& payload)
+{
+    publishRaw(topicPath(subtopic), payload, true, 1);
+}
+
 void MqttClient::publishAvailability(bool online)
 {
-    publish(topicPath("availability"), online ? "online" : "offline", true);
+    publishAvailabilityInput(QStringLiteral("availability"), online ? "online" : "offline");
 }
 
 void MqttClient::republishAll()
@@ -1101,8 +1109,8 @@ void MqttClient::republishAll()
 
     publishAvailability(true);
     // Machine and scale entities are available only while these read "true".
-    publish(topicPath("connected"), (m_device && m_device->isConnected()) ? "true" : "false", true);
-    publish(topicPath("scale_connected"), m_scaleConnected ? "true" : "false", true);
+    publishAvailabilityInput(QStringLiteral("connected"), (m_device && m_device->isConnected()) ? "true" : "false");
+    publishAvailabilityInput(QStringLiteral("scale_connected"), m_scaleConnected ? "true" : "false");
     m_lastPublishedScaleConnected = m_scaleConnected;
     publishState();
     publishActiveRecipe();
@@ -1130,7 +1138,7 @@ void MqttClient::onDE1ConnectedChanged()
     if (!m_sessionUp) return;
 
     bool connected = m_device && m_device->isConnected();
-    publish(topicPath("connected"), connected ? "true" : "false", true);
+    publishAvailabilityInput(QStringLiteral("connected"), connected ? "true" : "false");
 }
 
 void MqttClient::onWaterLevelChanged()
@@ -1147,7 +1155,7 @@ void MqttClient::onScaleConnectedChanged(bool connected)
     if (!m_sessionUp) return;
 
     if (connected != m_lastPublishedScaleConnected) {
-        publish(topicPath("scale_connected"), connected ? "true" : "false", true);
+        publishAvailabilityInput(QStringLiteral("scale_connected"), connected ? "true" : "false");
         m_lastPublishedScaleConnected = connected;
         DIAG_DEBUG(NETWORK, "MqttClient") << "Published scale connected:" << connected;
     }

@@ -37,7 +37,7 @@ Every Home Assistant entity `unique_id` and the device identifier SHALL be built
 
 ### Requirement: Broker Message Contract
 The app SHALL publish and subscribe as follows:
-- State values are published at QoS 0 under the configured base topic, retained only when the user has enabled retained messages.
+- State values are published at QoS 0 under the configured base topic, retained only when the user has enabled retained messages. The topics entity availability reads (`availability`, `connected`, `scale_connected`) are always retained, at QoS 1, like the last-will message; otherwise Home Assistant reads the retained `offline` when it subscribes.
 - The command and profile-select topics are subscribed at QoS 1.
 - The availability topic carries `online` after connecting.
 - A last-will message of `offline` is registered on the availability topic, at QoS 1 and retained.
