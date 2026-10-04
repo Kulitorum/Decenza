@@ -82,8 +82,7 @@ private slots:
         QVERIFY(qAbs(temp["goal"].toArray()[0].toDouble() - 92.0) < 0.01);
     }
 
-    // The history builder used to omit `mix` entirely while the live builder
-    // sent it, so re-uploading a shot silently dropped the measured mix line.
+    // A missing `mix` key silently drops the measured mix line from the upload.
     void historyUploadIncludesMeasuredMixWhenPresent() {
         ShotProjection p = baseProjection();
         p.temperatureMix = series({{0.0, 90.0}, {1.0, 90.5}, {2.0, 90.7}});

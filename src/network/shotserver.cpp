@@ -2158,13 +2158,17 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/settings") {
         sendHtml(socket, generateSettingsPage());
     }
-    else if (path == "/api/settings/visualizer/test" && method == "POST") {
+    else if ((path == "/api/settings/visualizer/connect" || path == "/api/settings/decent/connect") && method == "POST") {
+        const QString destination = path.section(QLatin1Char('/'), 3, 3);
         qsizetype bodyStart = request.indexOf("\r\n\r\n");
         if (bodyStart != -1) {
-            handleVisualizerTest(socket, request.mid(bodyStart + 4));
+            handleAccountConnect(socket, request.mid(bodyStart + 4), destination);
         } else {
             sendJson(socket, R"({"success": false, "message": "Invalid request"})");
         }
+    }
+    else if ((path == "/api/settings/visualizer/disconnect" || path == "/api/settings/decent/disconnect") && method == "POST") {
+        handleAccountDisconnect(socket, path.section(QLatin1Char('/'), 3, 3));
     }
     else if (path == "/api/settings/ai/test" && method == "POST") {
         qsizetype bodyStart = request.indexOf("\r\n\r\n");

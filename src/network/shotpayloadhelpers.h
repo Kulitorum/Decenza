@@ -3,10 +3,13 @@
 // Payload helpers shared by the Visualizer and Decent shot uploaders, so the
 // two serializers resample and name things identically.
 
+#include "history/shotprojection.h"
 #include "profile/profile.h"
 
 #include <QDir>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointF>
 #include <QStandardPaths>
 #include <QString>
@@ -29,6 +32,17 @@ inline UploadIneligible uploadIneligibility(const QString& beverageType, double 
     if (Profile::isMaintenanceBeverageType(beverageType)) return UploadIneligible::Maintenance;
     if (durationSec < minDurationSec) return UploadIneligible::TooShort;
     return UploadIneligible::None;
+}
+
+// A saved shot's beverage type: the stored column (the shot editor can correct
+// it), else its profile snapshot's. The one source every uploader checks.
+inline QString uploadBeverageType(const ShotProjection& shot) {
+    if (!shot.beverageType.isEmpty() || shot.profileJson.isEmpty()) return shot.beverageType;
+    return QJsonDocument::fromJson(shot.profileJson.toUtf8()).object().value(QStringLiteral("beverage_type")).toString();
+}
+
+inline UploadIneligible uploadIneligibility(const ShotProjection& shot, double minDurationSec) {
+    return uploadIneligibility(uploadBeverageType(shot), shot.durationSec, minDurationSec);
 }
 
 // Brand and model as one name ("Niche Zero"), or whichever is set.

@@ -39,6 +39,10 @@ DecentAccount::State DecentAccount::state() const {
     return m_settings->needsSignIn() ? State::NeedsSignIn : State::Linked;
 }
 
+bool DecentAccount::uploadsActive() const {
+    return m_settings->active();
+}
+
 QString DecentAccount::email() const {
     return m_settings->email();
 }
@@ -106,6 +110,7 @@ void DecentAccount::unlink() {
         pending->deleteLater();
         emit busyChanged();
         DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled";
+        emit linkFinished(AccountLink::Error::Cancelled);
     }
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();

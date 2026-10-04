@@ -393,15 +393,10 @@ QtObject {
                     }
                     break
                 case "uploadVisualizer": {
+                    // Every active destination; a shot already uploaded is updated.
                     let lastId = MainController.lastSavedShotId
                     if (lastId > 0) {
-                        let handler = function(shotId, data) {
-                            if (shotId !== lastId) return
-                            MainController.shotHistory.shotReady.disconnect(handler)
-                            MainController.visualizer.uploadShotFromHistory(data)
-                        }
-                        MainController.shotHistory.shotReady.connect(handler)
-                        MainController.shotHistory.requestShot(lastId)
+                        MainController.shotUploads.uploadNow(lastId)
                     } else {
                         _warn("uploadVisualizer — no saved shot this session, nothing to upload")
                     }

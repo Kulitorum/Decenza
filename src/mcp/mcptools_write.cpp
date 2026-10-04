@@ -106,7 +106,6 @@ QJsonObject brewStateAfterSet(ProfileManager* profileManager, Settings* settings
 
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
-                        VisualizerUploader* visualizerUploader,
                         CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
@@ -116,6 +115,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         BeanBaseClient* beanbase,
                         MainController* mainController)
 {
+    ShotUploads* shotUploads = mainController ? mainController->shotUploads() : nullptr;
+
     // shots_update — replaces shots_set_feedback with full metadata editing (same as QML)
     registry->registerAsyncTool(
         "shots_update",
@@ -153,7 +154,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory, settings, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, shotUploads](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
@@ -227,74 +228,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
 
-            // Build ShotProjection-keyed overrides for visualizer PATCH (field names differ from DB keys).
-            QVariantMap vizOverrides;
-            if (args.contains("enjoyment"))
-                vizOverrides["enjoyment0to100"] = qBound(0, args["enjoyment"].toInt(), 100);
-            if (args.contains("notes"))
-                vizOverrides["espressoNotes"] = args["notes"].toString();
-            if (args.contains("doseWeight"))
-                vizOverrides["doseWeightG"] = args["doseWeight"].toDouble();
-            if (args.contains("drinkWeight"))
-                vizOverrides["finalWeightG"] = args["drinkWeight"].toDouble();
-            if (args.contains("beanBrand"))
-                vizOverrides["beanBrand"] = args["beanBrand"].toString();
-            if (args.contains("beanType"))
-                vizOverrides["beanType"] = args["beanType"].toString();
-            if (args.contains("roastLevel"))
-                vizOverrides["roastLevel"] = args["roastLevel"].toString();
-            if (args.contains("roastDate"))
-                vizOverrides["roastDate"] = args["roastDate"].toString();
-            if (args.contains("grinderBrand"))
-                vizOverrides["grinderBrand"] = args["grinderBrand"].toString();
-            if (args.contains("grinderModel"))
-                vizOverrides["grinderModel"] = args["grinderModel"].toString();
-            // grinderBurrs intentionally omitted from vizOverrides — Visualizer API
-            // has no separate burrs field (only combined grinder_model). The burrs
-            // value is still persisted to the local DB via the metadata map above.
-            if (args.contains("grinderSetting"))
-                vizOverrides["grinderSetting"] = args["grinderSetting"].toString();
-            if (args.contains("barista"))
-                vizOverrides["barista"] = args["barista"].toString();
-            // beverageType intentionally omitted from vizOverrides — Visualizer's
-            // shot PATCH schema has no beverage_type field. Still persisted to
-            // local DB via the metadata map above.
-            if (args.contains("drinkTds"))
-                vizOverrides["drinkTdsPct"] = args["drinkTds"].toDouble();
-            if (args.contains("drinkEy"))
-                vizOverrides["drinkEyPct"] = args["drinkEy"].toDouble();
-
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, metadata, vizOverrides,
-                                               respond, shotHistory, settings, visualizerUploader]() {
+            QThread* thread = QThread::create([dbPath, shotId, metadata, respond, shotHistory, shotUploads]() {
                 bool ok = false;
-                QString visualizerId;
-                ShotProjection vizShot;
                 // Checked, so a database that will not open is not reported as a
                 // bad shot id. The old message told the model to "check the id
                 // with shots_list" — against a database shots_list cannot reach
                 // either, so the advice could only send it in a circle.
+                QStringList holding;
                 const bool opened = withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
-                    if (ok) {
-                        QSqlQuery idQuery(db);
-                        idQuery.prepare("SELECT visualizer_id FROM shots WHERE id = :id");
-                        idQuery.bindValue(":id", shotId);
-                        if (idQuery.exec()) {
-                            if (idQuery.next())
-                                visualizerId = idQuery.value(0).toString();
-                        } else {
-                            MCP_WARN_TAGGED("shots_update",
-                                            QStringLiteral("failed to query visualizer_id for "
-                                                           "shot %1: %2")
-                                                .arg(shotId).arg(idQuery.lastError().text()));
-                        }
-                        if (!visualizerId.isEmpty()) {
-                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
-                            vizShot = ShotHistoryStorage::convertShotRecord(record);
-                        }
-                    }
+                    if (ok && shotUploads) holding = shotUploads->destinationsHolding(db, shotId);
                 });
 
                 QJsonObject result;
@@ -317,42 +262,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                       "Check the id with shots_list.";
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok,
-                                                  visualizerId, vizShot, vizOverrides, settings, visualizerUploader]() mutable {
+                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok, shotUploads, holding]() mutable {
                     if (ok) {
-                        // Same notification the in-process edit path emits: this writes
-                        // shot metadata directly, so nothing else would tell a
-                        // history-derived binding its answer may have moved.
+                        // Same notification the in-process edit path emits. ShotUploads
+                        // takes it from here: with automatic update on, every active
+                        // destination already holding the shot is updated.
                         emit shotHistory->historyDataChanged();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
-                    }
-
-                    bool willAutoUpdate = false;
-                    QString skipReason;
-                    if (ok && visualizerUploader && !visualizerId.isEmpty()
-                            && settings && settings->visualizer()->visualizerActive()
-                            && settings->upload()->autoUpdate()) {
-                        if (vizShot.isValid()) {
-                            willAutoUpdate = true;
-                            MCP_INFO_TAGGED("shots_update",
-                                            QStringLiteral("auto-updating visualizer shot %1 for "
-                                                           "local shot id %2")
-                                                .arg(visualizerId).arg(shotId));
-                            visualizerUploader->updateShotOnVisualizerWithOverrides(
-                                visualizerId, QVariant::fromValue(vizShot), vizOverrides);
-                        } else {
-                            skipReason = QString("failed to reload shot %1 for visualizer PATCH").arg(shotId);
-                            MCP_WARN_TAGGED("shots_update", skipReason);
-                        }
-                    }
-
-                    // Only surface visualizer-update status on the success path —
-                    // a DB update failure produces an error response, and tacking
-                    // a status field onto it is semantically confusing for LLM callers.
-                    if (ok) {
-                        result["visualizerUpdateTriggered"] = willAutoUpdate;
-                        if (!skipReason.isEmpty())
-                            result["visualizerUpdateSkippedReason"] = skipReason;
+                        if (shotUploads)
+                            result["autoUpdateTo"] = QJsonArray::fromStringList(shotUploads->autoUpdateDestinations(holding));
                     }
                     respond(result);
                 }, Qt::QueuedConnection);
@@ -363,17 +281,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         },
         "control", McpTierCore);
 
-    // shots_upload_to_visualizer — first-POST a historical shot. Companion to
-    // shots_update's PATCH path: shots_update only fires the auto-update PATCH for
-    // shots that already have a visualizer_id, so historical shots that were never
-    // auto-uploaded (e.g. an older shot recorded before credentials were set up, or
-    // an upload that failed at shot completion) need this entry point instead.
+    // shots_upload — the Upload button over MCP, through the same ShotUploads path.
     registry->registerAsyncTool(
-        "shots_upload_to_visualizer",
-        "Upload a historical shot to visualizer.coffee for the first time (POST). "
-        "Use this for shots that were never auto-uploaded and therefore have no "
-        "visualizer_id yet. For shots that are already uploaded, use shots_update "
-        "to PATCH metadata instead — this tool refuses to re-upload an existing shot.",
+        "shots_upload",
+        "Upload a shot to every upload destination that is switched on and connected "
+        "(Visualizer, the Decent account). A shot already uploaded is updated there, never "
+        "duplicated. A maintenance shot or one shorter than uploadMinDurationSec is refused "
+        "unless a destination already holds it.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -381,9 +295,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory, settings, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
-            // Validate the input first so the unit-test fixture can cover the
-            // shotId guard without wiring full ShotHistoryStorage / VisualizerUploader.
+        [shotHistory, settings, shotUploads](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             qint64 shotId = args["shotId"].toInteger();
             if (shotId <= 0) {
                 respond(QJsonObject{{"error", "Valid shotId is required"}});
@@ -393,98 +305,55 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
             }
-            if (!visualizerUploader || !settings) {
-                respond(QJsonObject{{"error", "Visualizer uploader not available"}});
+            if (!shotUploads || !settings) {
+                respond(QJsonObject{{"error", "Uploads not available"}});
+                return;
+            }
+            const QStringList destinations = shotUploads->activeDestinations();
+            if (destinations.isEmpty()) {
+                respond(QJsonObject{{"error", "No upload destination is switched on and connected"}});
                 return;
             }
 
             const QString dbPath = shotHistory->databasePath();
-
-            QThread* thread = QThread::create([dbPath, shotId, respond, settings, visualizerUploader]() {
-                bool shotFound = false;
-                QString existingVisualizerId;
+            QThread* thread = QThread::create([dbPath, shotId, respond, settings, shotUploads, destinations]() {
                 ShotProjection shot;
+                QStringList holding;
                 withTempDb(dbPath, "mcp_upload", [&](QSqlDatabase& db) {
-                    QSqlQuery idQuery(db);
-                    idQuery.prepare("SELECT visualizer_id FROM shots WHERE id = :id");
-                    idQuery.bindValue(":id", shotId);
-                    bool ran = idQuery.exec();
-                    if (ran && idQuery.next()) {
-                        shotFound = true;
-                        existingVisualizerId = idQuery.value(0).toString();
-                        if (existingVisualizerId.isEmpty()) {
-                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
-                            shot = ShotHistoryStorage::convertShotRecord(record);
-                        }
-                    }
+                    shot = ShotHistoryStorage::convertShotRecord(
+                        ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+                    holding = shotUploads->destinationsHolding(db, shotId);
                 });
-
-                QMetaObject::invokeMethod(qApp,
-                    [respond, shotId, shotFound, existingVisualizerId, shot, settings, visualizerUploader]() mutable {
-                        if (!shotFound) {
-                            respond(QJsonObject{{"error", QString("Shot %1 not found").arg(shotId)}});
-                            return;
-                        }
-                        if (!existingVisualizerId.isEmpty()) {
-                            respond(QJsonObject{
-                                {"error", QString("Shot %1 is already uploaded to visualizer (id %2); use shots_update to PATCH instead")
-                                    .arg(shotId).arg(existingVisualizerId)}
-                            });
-                            return;
-                        }
-                        if (!shot.isValid()) {
-                            respond(QJsonObject{{"error", QString("Failed to load shot %1 for upload").arg(shotId)}});
-                            return;
-                        }
-
-                        // Pre-flight checks mirror validateUpload so we never enter
-                        // the call chain that emits uploadFailed/uploadSkipped on a
-                        // shared signal — VisualizerUploader's header explicitly
-                        // warns that concurrent callers would mis-attribute those
-                        // signals on a UI page that is filtering on its own
-                        // in-flight flags. Failing fast here also lets the MCP
-                        // caller distinguish "rejected by policy" from "dispatched
-                        // but might fail over the network" — the latter still
-                        // returns success below.
-                        if (settings->visualizer()->visualizerUsername().isEmpty()
-                                || settings->visualizer()->visualizerPassword().isEmpty()) {
-                            respond(QJsonObject{{"error", "Visualizer credentials not configured"}});
-                            return;
-                        }
-                        QString beverageType;
-                        if (!shot.profileJson.isEmpty()) {
-                            QJsonDocument profileDoc = QJsonDocument::fromJson(shot.profileJson.toUtf8());
-                            if (!profileDoc.isNull())
-                                beverageType = profileDoc.object()["beverage_type"].toString();
-                        }
-                        const double minDuration = settings->upload()->minDuration();
-                        const UploadIneligible ineligible = uploadIneligibility(beverageType, shot.durationSec, minDuration);
-                        if (ineligible == UploadIneligible::Maintenance) {
-                            respond(QJsonObject{
-                                {"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded").arg(shotId).arg(beverageType)}
-                            });
-                            return;
-                        }
-                        if (ineligible == UploadIneligible::TooShort) {
-                            respond(QJsonObject{
-                                {"error", QString("Shot %1 too short (%2s < %3s); not uploaded")
-                                    .arg(shotId).arg(shot.durationSec, 0, 'f', 1).arg(minDuration, 0, 'f', 0)}
-                            });
-                            return;
-                        }
-
-                        // Empty overrides — the projection loaded from DB already
-                        // carries the user's current metadata (notes, ratings, bean
-                        // info, etc.), so no edit-field overlay is needed.
-                        visualizerUploader->uploadShotFromHistoryWithOverrides(QVariant::fromValue(shot), QVariantMap{});
-                        respond(QJsonObject{
-                            {"success", true},
-                            {"uploadTriggered", true},
-                            {"message", QString("Upload dispatched for shot %1; the visualizer id will land in the local DB once the response arrives").arg(shotId)}
-                        });
-                    }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(qApp, [respond, shotId, shot, settings, shotUploads, destinations, holding]() {
+                    if (!shot.isValid()) {
+                        respond(QJsonObject{{"error", QString("Shot %1 not found").arg(shotId)}});
+                        return;
+                    }
+                    // The uploaders check this too; checking first lets the caller tell a
+                    // policy refusal from a request that may still fail on the network. A
+                    // shot a destination already holds is still sent: it updates there.
+                    const double minDuration = settings->upload()->minDuration();
+                    switch (holding.isEmpty() ? uploadIneligibility(shot, minDuration) : UploadIneligible::None) {
+                    case UploadIneligible::Maintenance:
+                        respond(QJsonObject{{"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded")
+                                                          .arg(shotId).arg(uploadBeverageType(shot))}});
+                        return;
+                    case UploadIneligible::TooShort:
+                        respond(QJsonObject{{"error", QString("Shot %1 too short (%2s < %3s); not uploaded")
+                                                          .arg(shotId).arg(shot.durationSec, 0, 'f', 1).arg(minDuration, 0, 'f', 0)}});
+                        return;
+                    case UploadIneligible::None:
+                        break;
+                    }
+                    shotUploads->uploadNow(shotId);
+                    respond(QJsonObject{
+                        {"success", true},
+                        {"destinations", QJsonArray::fromStringList(destinations)},
+                        {"message", QString("Upload queued for shot %1; each destination records it when its "
+                                            "answer arrives (visualizer_id, Decent upload state)").arg(shotId)}
+                    });
+                }, Qt::QueuedConnection);
             });
-
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
@@ -717,10 +586,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // Themes
                 {"activeThemeName", QJsonObject{{"type", "string"}, {"description", "Active theme name"}}},
                 {"activeShader", QJsonObject{{"type", "string"}, {"description", "Active screen shader (empty for none, 'crt' for CRT)"}}},
-                // Visualizer
-                {"visualizerAutoUpload", QJsonObject{{"type", "boolean"}, {"description", "Auto-upload shots to visualizer.coffee"}}},
-                {"visualizerAutoUpdate", QJsonObject{{"type", "boolean"}, {"description", "Auto-update shot metadata on visualizer.coffee after editing"}}},
-                {"visualizerMinDuration", QJsonObject{{"type", "number"}, {"description", "Minimum shot duration for upload (seconds)"}}},
+                // Shot Upload: a switch per destination, one set of upload settings
+                {"visualizerEnabled", QJsonObject{{"type", "boolean"}, {"description", "Upload to visualizer.coffee (needs its account)"}}},
+                {"decentEnabled", QJsonObject{{"type", "boolean"}, {"description", "Upload to the Decent account (needs it linked in the app)"}}},
+                {"uploadAutomatically", QJsonObject{{"type", "boolean"}, {"description", "Upload each shot when it finishes, to every destination switched on"}}},
+                {"updateAutomatically", QJsonObject{{"type", "boolean"}, {"description", "Send a shot's edits to every destination already holding it"}}},
+                {"uploadMinDurationSec", QJsonObject{{"type", "number"}, {"description", "Shots shorter than this are not uploaded (seconds)"}}},
                 {"visualizerExtendedMetadata", QJsonObject{{"type", "boolean"}, {"description", "Upload extended metadata"}}},
                 {"visualizerShowAfterShot", QJsonObject{{"type", "boolean"}, {"description", "Show visualizer after shot"}}},
                 {"visualizerClearNotesOnStart", QJsonObject{{"type", "boolean"}, {"description", "Clear notes when starting a shot"}}},
@@ -1424,21 +1295,31 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "activeShader";
             }
 
-            // === Visualizer ===
-            if (args.contains("visualizerAutoUpload")) {
-                bool v = args["visualizerAutoUpload"].toBool();
+            // === Shot Upload ===
+            if (args.contains("visualizerEnabled")) {
+                bool v = args["visualizerEnabled"].toBool();
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerEnabled(v); });
+                updated << "visualizerEnabled";
+            }
+            if (args.contains("decentEnabled")) {
+                bool v = args["decentEnabled"].toBool();
+                addSetter([settings, v]() { settings->decent()->setEnabled(v); });
+                updated << "decentEnabled";
+            }
+            if (args.contains("uploadAutomatically")) {
+                bool v = args["uploadAutomatically"].toBool();
                 addSetter([settings, v]() { settings->upload()->setAutoUpload(v); });
-                updated << "visualizerAutoUpload";
+                updated << "uploadAutomatically";
             }
-            if (args.contains("visualizerAutoUpdate")) {
-                bool v = args["visualizerAutoUpdate"].toBool();
+            if (args.contains("updateAutomatically")) {
+                bool v = args["updateAutomatically"].toBool();
                 addSetter([settings, v]() { settings->upload()->setAutoUpdate(v); });
-                updated << "visualizerAutoUpdate";
+                updated << "updateAutomatically";
             }
-            if (args.contains("visualizerMinDuration")) {
-                double v = args["visualizerMinDuration"].toDouble();
+            if (args.contains("uploadMinDurationSec")) {
+                double v = args["uploadMinDurationSec"].toDouble();
                 addSetter([settings, v]() { settings->upload()->setMinDuration(v); });
-                updated << "visualizerMinDuration";
+                updated << "uploadMinDurationSec";
             }
             if (args.contains("visualizerExtendedMetadata")) {
                 bool v = args["visualizerExtendedMetadata"].toBool();

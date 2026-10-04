@@ -32,6 +32,7 @@
 #include "../core/translationmanager.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
+#include "../history/shothistorystorage.h"
 #include "../models/shotdatamodel.h"
 #include "../core/settings.h"
 #include "../core/settings_visualizer.h"
@@ -88,166 +89,97 @@ QString VisualizerUploader::tr_(const char* key, const char* fallback) const {
     return translateOrFallback(m_translationManager, key, fallback);
 }
 
-void VisualizerUploader::uploadShot(ShotDataModel* shotData,
-                                     const Profile* profile,
-                                     double duration,
-                                     double finalWeight,
-                                     double doseWeight,
-                                     const ShotMetadata& metadata,
-                                     const QString& debugLog,
-                                     qint64 shotEpoch,
-                                     qint64 dbShotId)
+bool VisualizerUploader::isActive() const
 {
-    if (!shotData) {
-        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
-        return;
-    }
-
-    QString beverageType = profile ? profile->beverageType() : QString();
-    if (!validateUpload(beverageType, duration))
-        return;
-
-    m_uploadingDbShotId = dbShotId;
-    m_uploadRetries = 0;
-    QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata, debugLog, shotEpoch);
-    sendUpload(jsonData);
+    return m_settings->visualizer()->visualizerActive();
 }
 
-void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
+void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
+{
+    if (busy()) return;
+    if (shotId <= 0 || !m_storage) { notifyIdle(); return; }
+    m_jobShotId = shotId;
+    m_jobHow = how;
+    const QString dbPath = m_storage->databasePath();
+    QPointer<VisualizerUploader> self(this);
+    m_storage->runAfterQueuedWrites([self, dbPath, shotId, how]() {
+        ShotProjection shot;
+        withTempDb(dbPath, "viz_upload", [&](QSqlDatabase& db) {
+            shot = ShotHistoryStorage::convertShotRecord(
+                ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+        });
+        QMetaObject::invokeMethod(qApp, [self, shot, shotId, how]() {
+            if (!self) return;
+            bool sent = false;
+            if (!shot.visualizerId.isEmpty()) {
+                self->m_jobVisualizerId = shot.visualizerId;
+                sent = self->updateShotOnVisualizer(shot.visualizerId, shot);
+            } else if (how == Send::UploadOrUpdate) {
+                sent = self->uploadShotFromHistory(shot);
+            }
+            if (!sent) self->endJob(shotId);
+        }, Qt::QueuedConnection);
+    });
+}
+
+bool VisualizerUploader::holdsShot(QSqlDatabase& db, qint64 shotId) const
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral("SELECT visualizer_id FROM shots WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), shotId);
+    return query.exec() && query.next() && !query.value(0).toString().isEmpty();
+}
+
+void VisualizerUploader::noteJobFailure(const QString& message, const QString& visualizerId)
+{
+    if (m_jobShotId != 0 && (visualizerId.isEmpty() || visualizerId == m_jobVisualizerId))
+        m_jobError = message;
+}
+
+void VisualizerUploader::endJob(qint64 shotId)
+{
+    if (m_jobShotId == 0 || m_jobShotId != shotId) return;
+    const QString error = m_jobError, skipReason = m_jobSkipReason;
+    m_jobShotId = 0;
+    m_jobVisualizerId.clear();
+    m_jobError.clear();
+    m_jobSkipReason.clear();
+    emit savedShotFinished(shotId, error, skipReason);
+    notifyIdle();
+}
+
+bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 {
     if (!shotData.isValid()) {
-        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
-        return;
+        const QString message = tr_("visualizer.upload.noShotData", "No shot data available");
+        noteJobFailure(message);
+        emit uploadFailed(message);
+        return false;
     }
+    if (!validateUpload(shotData))
+        return false;
 
-    // Extract beverage type from profile JSON
-    QString beverageType;
-    if (!shotData.profileJson.isEmpty()) {
-        QJsonDocument profileDoc = QJsonDocument::fromJson(shotData.profileJson.toUtf8());
-        if (!profileDoc.isNull()) {
-            beverageType = profileDoc.object()["beverage_type"].toString();
-        }
+    // de1app sends its whole ::DE1 array here; these are the key fields, read at upload time.
+    QJsonObject machineState;
+    if (m_device) {
+        if (!m_device->firmwareVersion().isEmpty())
+            machineState["firmware_version"] = m_device->firmwareVersion();
+        machineState["state"] = m_device->stateString();
+        machineState["substate"] = m_device->subStateString();
+        machineState["headless"] = m_device->isHeadless() ? 1 : 0;
     }
-
-    if (!validateUpload(beverageType, shotData.durationSec))
-        return;
-
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
-    QByteArray jsonData = buildHistoryShotJson(shotData, false);
-    sendUpload(jsonData);
+    sendUpload(buildHistoryShotJson(shotData, false, machineState));
+    return true;
 }
 
-void VisualizerUploader::uploadShotFromHistoryWithOverrides(
-    const QVariant& baseShot, const QVariantMap& overrides)
-{
-    ShotProjection shot = ShotProjection::coerce(baseShot);
-    if (!shot.isValid()) {
-        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
-        return;
-    }
-    auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toString();
-    };
-    auto applyDouble = [&](double        ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toDouble();
-    };
-    auto applyInt    = [&](int           ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toInt();
-    };
-    auto applyI64    = [&](qint64        ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toLongLong();
-    };
-
-    applyStr   (&ShotProjection::profileName,     "profileName");
-    applyStr   (&ShotProjection::beanBrand,       "beanBrand");
-    applyStr   (&ShotProjection::beanType,        "beanType");
-    applyStr   (&ShotProjection::roastDate,       "roastDate");
-    applyStr   (&ShotProjection::roastLevel,      "roastLevel");
-    applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
-    applyStr   (&ShotProjection::grinderModel,    "grinderModel");
-    applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
-    applyI64   (&ShotProjection::rpm,             "rpm");
-    applyStr   (&ShotProjection::barista,         "barista");
-    applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
-    // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
-    // intentionally omit them from overrides so the applyStr lines would be no-ops.
-    applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
-    applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
-    applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
-    applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
-    applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
-    applyStr   (&ShotProjection::tasteBalance,    "tasteBalance");
-    applyStr   (&ShotProjection::tasteBody,       "tasteBody");
-
-    uploadShotFromHistory(shot);
-}
-
-void VisualizerUploader::updateShotOnVisualizerWithOverrides(
-    const QString& visualizerId,
-    const QVariant& baseShot,
-    const QVariantMap& overrides)
-{
-    ShotProjection shot = ShotProjection::coerce(baseShot);
-    // updateShotOnVisualizer below only guards on visualizerId, not validity, so
-    // catch a coerce miss here — otherwise a PATCH could go out with id=0 /
-    // durationSec=0 / empty curves.
-    if (!shot.isValid()) {
-        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
-        emit updateFailed(visualizerId, false, "No shot data available");
-        return;
-    }
-    auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toString();
-    };
-    auto applyDouble = [&](double        ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toDouble();
-    };
-    auto applyInt    = [&](int           ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toInt();
-    };
-    auto applyI64    = [&](qint64        ShotProjection::*f, const char* k) {
-        auto it = overrides.find(QLatin1String(k));
-        if (it != overrides.end()) shot.*f = it->toLongLong();
-    };
-
-    applyStr   (&ShotProjection::profileName,     "profileName");
-    applyStr   (&ShotProjection::beanBrand,       "beanBrand");
-    applyStr   (&ShotProjection::beanType,        "beanType");
-    applyStr   (&ShotProjection::roastDate,       "roastDate");
-    applyStr   (&ShotProjection::roastLevel,      "roastLevel");
-    applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
-    applyStr   (&ShotProjection::grinderModel,    "grinderModel");
-    applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
-    applyI64   (&ShotProjection::rpm,             "rpm");
-    applyStr   (&ShotProjection::barista,         "barista");
-    applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
-    // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
-    // intentionally omit them from overrides so the applyStr lines would be no-ops.
-    applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
-    applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
-    applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
-    applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
-    applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
-    applyStr   (&ShotProjection::tasteBalance,    "tasteBalance");
-    applyStr   (&ShotProjection::tasteBody,       "tasteBody");
-
-    updateShotOnVisualizer(visualizerId, shot);
-}
-
-void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
+bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
         emit updateFailed(visualizerId, false, "No visualizer ID for update");
-        return;
+        return false;
     }
 
     // Check credentials
@@ -257,9 +189,10 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     if (username.isEmpty() || password.isEmpty()) {
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
+        noteJobFailure(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"), visualizerId);
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
-        return;
+        return false;
     }
 
     m_uploading = true;
@@ -393,6 +326,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerId]() {
         onUpdateFinished(reply, visualizerId);
     });
+    return true;
 }
 
 void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& visualizerId)
@@ -428,6 +362,7 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        noteJobFailure(errorMsg, visualizerId);
         emit uploadFailed(errorMsg);
         // 404 is the one terminal outcome: the shot is gone from (or was
         // never on) Visualizer, so no retry can ever succeed. Everything
@@ -439,6 +374,21 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     }
 
     reply->deleteLater();
+    if (m_jobVisualizerId.isEmpty() || visualizerId != m_jobVisualizerId) return;
+    if (statusCode == 404) {
+        // Deleted on visualizer.coffee: drop the dead link, and upload the shot again
+        // if the job was an upload. The clear is queued before the re-read.
+        const qint64 shotId = m_jobShotId;
+        m_storage->requestClearStaleVisualizerLink(shotId, visualizerId);
+        if (m_jobHow == Send::UploadOrUpdate) {
+            m_jobShotId = 0;
+            m_jobVisualizerId.clear();
+            m_jobError.clear();
+            sendSavedShot(shotId, Send::UploadOrUpdate);
+            return;
+        }
+    }
+    endJob(m_jobShotId);
 }
 
 void VisualizerUploader::connectAccount(const QString& username, const QString& password)
@@ -536,6 +486,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit lastUploadStatusChanged();
             DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
                 .arg(diagnosticShotId).arg(statusCode);
+            noteJobFailure(m_lastUploadStatus);
             emit uploadFailed(m_lastUploadStatus);
         }
     } else {
@@ -572,6 +523,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
+        noteJobFailure(errorMsg);
         emit uploadFailed(errorMsg);
         DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: shotId=%1 httpStatus=%2 networkError=%3")
             .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()));
@@ -579,11 +531,10 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
     // Clear the per-upload id on every terminal outcome (success,
     // no-id, or failure) so a subsequent upload can't inherit a stale
-    // correlation. Safe because callers never overlap uploads (see the
-    // m_uploadingDbShotId note in the header) — m_uploading is UI-only,
-    // not a concurrency guard.
+    // correlation. ShotUploads never overlaps uploads; m_uploading is UI-only.
     m_uploadingDbShotId = 0;
     reply->deleteLater();
+    endJob(diagnosticShotId);
 }
 
 void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
@@ -1140,322 +1091,6 @@ void VisualizerUploader::scheduleBeanRepairRequest(std::function<void()> send)
     QTimer::singleShot(kBeanRepairIntervalMs, this, std::move(send));
 }
 
-QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
-                                              const Profile* profile,
-                                              double finalWeight,
-                                              double doseWeight,
-                                              const ShotMetadata& metadata,
-                                              const QString& debugLog,
-                                              qint64 shotEpoch)
-{
-    QJsonObject root;
-
-    // Get data from ShotDataModel
-    const auto& pressureData = shotData->pressureData();
-    const auto& flowData = shotData->flowData();
-    const auto& temperatureData = shotData->temperatureData();
-    const auto& pressureGoalData = shotData->pressureGoalData();
-    const auto& flowGoalData = shotData->flowGoalData();
-    const auto& temperatureGoalData = shotData->temperatureGoalData();
-    const auto& weightFlowRateData = shotData->weightFlowRateData();   // Scale flow rate (g/s)
-    const auto& darcyResistanceData = shotData->darcyResistanceData(); // P/flow² (Darcy formula, matches de1app)
-    const auto& cumulativeWeightData = shotData->cumulativeWeightData(); // Cumulative weight (g)
-
-    // Use de1app version 2 format
-    root["version"] = 2;
-
-    // Timestamps — use the caller-supplied shot epoch so pending uploads don't use upload time
-    qint64 clockTime = shotEpoch > 0 ? shotEpoch : QDateTime::currentSecsSinceEpoch();
-    root["clock"] = clockTime;
-    root["timestamp"] = clockTime;
-    root["date"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-
-    // Elapsed time array
-    QJsonArray elapsed;
-    for (const auto& pt : pressureData) {
-        elapsed.append(pt.x());
-    }
-    root["elapsed"] = elapsed;
-
-    // Pressure object
-    QJsonObject pressure;
-    QJsonArray pressureValues;
-    for (const auto& pt : pressureData) {
-        pressureValues.append(pt.y());
-    }
-    pressure["pressure"] = pressureValues;
-    // Interpolate goal data to match elapsed timestamps
-    pressure["goal"] = interpolateGoalData(pressureGoalData, pressureData);
-    root["pressure"] = pressure;
-
-    // Flow object
-    QJsonObject flow;
-    QJsonArray flowValues;
-    for (const auto& pt : flowData) {
-        flowValues.append(pt.y());
-    }
-    flow["flow"] = flowValues;
-    // Interpolate goal data to match elapsed timestamps
-    flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
-    // Interpolate weight flow rate (g/s from scale) to match elapsed timestamps
-    if (!weightFlowRateData.isEmpty()) {
-        flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
-    }
-    // Raw (pre-smoothing) weight flow rate
-    const auto& weightFlowRateRawData = shotData->weightFlowRateRawData();
-    if (!weightFlowRateRawData.isEmpty()) {
-        flow["by_weight_raw"] = interpolateGoalData(weightFlowRateRawData, pressureData);
-    }
-    root["flow"] = flow;
-
-    // Temperature object
-    QJsonObject temperature;
-    QJsonArray basketValues;
-    for (const auto& pt : temperatureData) {
-        basketValues.append(pt.y());
-    }
-    temperature["basket"] = basketValues;
-    // Interpolate goal data to match elapsed timestamps
-    temperature["goal"] = interpolateGoalData(temperatureGoalData, pressureData);
-    // Mix temperature (water input temperature)
-    const auto& temperatureMixData = shotData->temperatureMixData();
-    if (!temperatureMixData.isEmpty()) {
-        temperature["mix"] = interpolateGoalData(temperatureMixData, pressureData);
-    }
-    // Mix temperature goal (SetMixTemp). Omit the key entirely when absent —
-    // interpolateGoalData() would otherwise fill a zero array, and Visualizer
-    // would draw a 0 °C goal line. Missing means "legacy shot" to Visualizer.
-    const auto& temperatureMixGoalData = shotData->temperatureMixGoalData();
-    if (!temperatureMixGoalData.isEmpty()) {
-        temperature["mix_goal"] = interpolateGoalData(temperatureMixGoalData, pressureData);
-    }
-    root["temperature"] = temperature;
-
-    // Totals object
-    QJsonObject totals;
-    if (!cumulativeWeightData.isEmpty()) {
-        // Interpolate cumulative weight to match elapsed timestamps
-        totals["weight"] = interpolateGoalData(cumulativeWeightData, pressureData);
-    }
-    // Water dispensed: de1app stores espresso_water_dispensed at 0.1× scale (tenths of ml),
-    // so Visualizer expects values ~4.0 for a 40ml shot, not 40.0. Apply the same scaling.
-    const auto& waterDispensedData = shotData->waterDispensedData();
-    if (!waterDispensedData.isEmpty()) {
-        QJsonArray waterDispensedRaw = interpolateGoalData(waterDispensedData, pressureData);
-        QJsonArray waterDispensedScaled;
-        for (const auto& v : waterDispensedRaw)
-            waterDispensedScaled.append(v.toDouble() * 0.1);
-        totals["water_dispensed"] = waterDispensedScaled;
-    }
-    root["totals"] = totals;
-
-    // Resistance object: P/flow² (Darcy formula, matches de1app's espresso_resistance) and
-    // P/flow_weight² (scale flow, de1app calls this espresso_resistance_weight → by_weight)
-    const auto& resistanceData = darcyResistanceData;  // use Darcy P/flow² to match de1app
-    {
-        QJsonObject resistance;
-        if (!resistanceData.isEmpty())
-            resistance["resistance"] = interpolateGoalData(resistanceData, pressureData);
-        if (!weightFlowRateData.isEmpty() && !pressureData.isEmpty()) {
-            QJsonArray fwInterp = interpolateGoalData(weightFlowRateData, pressureData);
-            QJsonArray resByWeight;
-            for (qsizetype i = 0; i < pressureData.size(); ++i) {
-                double fw = fwInterp[i].toDouble();
-                double res = 0.0;
-                if (fw > 0.05)
-                    res = qMin(pressureData[i].y() / (fw * fw), 19.0);
-                resByWeight.append(res);
-            }
-            resistance["by_weight"] = resByWeight;
-        }
-        if (!resistance.isEmpty())
-            root["resistance"] = resistance;
-    }
-
-    // State change array (de1app format: alternating sign value at each frame transition)
-    // Used by Visualizer to draw vertical frame markers on the shot graph
-    const auto& markers = shotData->phaseMarkersList();
-    if (!markers.isEmpty() && !pressureData.isEmpty()) {
-        // Collect times of real frame transitions only (skip Start/End markers)
-        QVector<double> transitionTimes;
-        for (const auto& m : markers) {
-            if (m.frameNumber >= 0 && m.label != "Start")
-                transitionTimes.append(m.time);
-        }
-        QJsonArray stateChange;
-        double stateVal = 10000000.0;
-        qsizetype markerIdx = 0;
-        for (const auto& pt : pressureData) {
-            while (markerIdx < transitionTimes.size() && pt.x() >= transitionTimes[markerIdx]) {
-                stateVal *= -1.0;
-                markerIdx++;
-            }
-            stateChange.append(stateVal);
-        }
-        root["state_change"] = stateChange;
-    }
-
-    // Scale object: raw weight series at native sample times (for connectivity debugging)
-    // de1app sends scale_raw_weight/arrival (raw BLE readings); we send processed cumulative weight.
-    // Only emit if there is actual scale data.
-    if (!cumulativeWeightData.isEmpty() || !weightFlowRateData.isEmpty()) {
-        QJsonObject scale;
-        scale["espresso_start"] = clockTime;  // shot-end epoch (consistent with history path)
-        if (!cumulativeWeightData.isEmpty()) {
-            QJsonArray weights, arrivals;
-            for (const auto& pt : cumulativeWeightData) {
-                arrivals.append(pt.x());
-                weights.append(pt.y());
-            }
-            scale["weight_arrival"] = arrivals;
-            scale["weight"] = weights;
-        }
-        if (!weightFlowRateData.isEmpty()) {
-            QJsonArray flows;
-            for (const auto& pt : weightFlowRateData)
-                flows.append(pt.y());
-            scale["weight_flow"] = flows;
-        }
-        root["scale"] = scale;
-    }
-
-    // Meta object (de1app format)
-    QJsonObject meta;
-
-    // Bean info
-    QJsonObject bean;
-    if (!metadata.beanBrand.isEmpty())
-        bean["brand"] = metadata.beanBrand;
-    if (!metadata.beanType.isEmpty())
-        bean["type"] = metadata.beanType;
-    if (!metadata.roastDate.isEmpty())
-        bean["roast_date"] = RoastDate::toIso(metadata.roastDate);
-    if (!metadata.roastLevel.isEmpty())
-        bean["roast_level"] = metadata.roastLevel;
-    meta["bean"] = bean;
-
-    // Shot info
-    QJsonObject shot;
-    if (metadata.espressoEnjoyment > 0)
-        shot["enjoyment"] = metadata.espressoEnjoyment;
-    if (!metadata.espressoNotes.isEmpty())
-        shot["notes"] = metadata.espressoNotes;
-    if (metadata.drinkTds > 0)
-        shot["tds"] = metadata.drinkTds;
-    if (metadata.drinkEy > 0)
-        shot["ey"] = metadata.drinkEy;
-    meta["shot"] = shot;
-
-    // Grinder info (combine brand+model for visualizer compatibility)
-    QJsonObject grinder;
-    QString grinderDisplay = grinderDisplayName(metadata.grinderBrand, metadata.grinderModel);
-    if (!grinderDisplay.isEmpty())
-        grinder["model"] = grinderDisplay;
-    {
-        const QString gs = grinderSettingWithRpm(metadata.grinderSetting, metadata.rpm);
-        if (!gs.isEmpty()) grinder["setting"] = gs;
-    }
-    meta["grinder"] = grinder;
-
-    // Weights. beanWeight keeps its metadata-first resolution: the dose is
-    // user-entered (dyeBeanWeight) and the doseWeight argument is a fallback
-    // the caller derives from the profile when that setting is unset, so the
-    // two genuinely differ.
-    double beanWeight = metadata.beanWeight > 0 ? metadata.beanWeight : doseWeight;
-    // The yield takes the measured argument directly. ShotMetadata carries no
-    // drink weight: it used to, and preferring that field over this argument
-    // is what let a sticky setting holding the PREVIOUS shot's yield reach
-    // Visualizer while the app showed the right number. A per-shot measurement
-    // has one source, and it is this parameter.
-    double drinkWeight = finalWeight;
-    if (drinkWeight <= 0) {
-        const auto& wdData = shotData->waterDispensedData();
-        if (!wdData.isEmpty())
-            drinkWeight = wdData.last().y();  // actual ml from flow integration, not scaled
-    }
-    if (beanWeight > 0)
-        meta["in"] = beanWeight;
-    if (drinkWeight > 0)
-        meta["out"] = drinkWeight;
-
-    // Time
-    if (!elapsed.isEmpty()) {
-        meta["time"] = elapsed.last().toDouble();
-    }
-
-    root["meta"] = meta;
-
-    // App info with settings (Visualizer extracts metadata from app.data.settings)
-    QJsonObject app = buildAppInfoJson();
-
-    // Build settings object with all metadata (de1app field names)
-    QJsonObject settings;
-    if (!metadata.beanBrand.isEmpty())
-        settings["bean_brand"] = metadata.beanBrand;
-    if (!metadata.beanType.isEmpty())
-        settings["bean_type"] = metadata.beanType;
-    if (!metadata.roastDate.isEmpty())
-        settings["roast_date"] = RoastDate::toIso(metadata.roastDate);
-    if (!metadata.roastLevel.isEmpty())
-        settings["roast_level"] = metadata.roastLevel;
-    if (!grinderDisplay.isEmpty())
-        settings["grinder_model"] = grinderDisplay;
-    {
-        const QString gs = grinderSettingWithRpm(metadata.grinderSetting, metadata.rpm);
-        if (!gs.isEmpty()) settings["grinder_setting"] = gs;
-    }
-    if (beanWeight > 0)
-        settings["grinder_dose_weight"] = beanWeight;
-    if (drinkWeight > 0)
-        settings["drink_weight"] = drinkWeight;
-    if (metadata.drinkTds > 0)
-        settings["drink_tds"] = metadata.drinkTds;
-    if (metadata.drinkEy > 0)
-        settings["drink_ey"] = metadata.drinkEy;
-    if (metadata.espressoEnjoyment > 0)
-        settings["espresso_enjoyment"] = metadata.espressoEnjoyment;
-    if (!metadata.espressoNotes.isEmpty())
-        settings["espresso_notes"] = metadata.espressoNotes;
-    if (!metadata.barista.isEmpty())
-        settings["barista"] = metadata.barista;
-
-    // Merge profile fields so Visualizer's DecentJson parser can extract TCL profile data
-    if (profile) {
-        QJsonObject profileSettings = buildProfileSettings(profile);
-        for (auto it = profileSettings.begin(); it != profileSettings.end(); ++it)
-            settings[it.key()] = it.value();
-    }
-
-    QJsonObject data;
-    data["settings"] = settings;
-    // Machine state (de1app includes the full ::DE1 array; we include key fields)
-    if (m_device) {
-        QJsonObject machineState;
-        if (!m_device->firmwareVersion().isEmpty())
-            machineState["firmware_version"] = m_device->firmwareVersion();
-        machineState["state"] = m_device->stateString();
-        machineState["substate"] = m_device->subStateString();
-        machineState["headless"] = m_device->isHeadless() ? 1 : 0;
-        data["machine_state"] = machineState;
-    }
-    if (!debugLog.isEmpty())
-        data["debug_log"] = debugLog;
-    app["data"] = data;
-
-    root["app"] = app;
-
-    // Also add barista at root level (Visualizer may extract from here)
-    if (!metadata.barista.isEmpty())
-        root["barista"] = metadata.barista;
-
-    // Profile
-    if (profile) {
-        root["profile"] = buildVisualizerProfileJson(profile);
-    }
-
-    return QJsonDocument(root).toJson(QJsonDocument::Compact);
-}
-
 QJsonObject VisualizerUploader::buildAppInfoJson()
 {
     QJsonObject app;
@@ -1521,23 +1156,6 @@ QJsonObject VisualizerUploader::buildProfileSettings(const Profile* profile)
     return s;
 }
 
-QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profile)
-{
-    if (!profile) {
-        QJsonObject obj;
-        obj["title"] = "Unknown";
-        return obj;
-    }
-
-    // Single canonical serialization — identical to the on-disk / exported / share-code
-    // format. Profile::toJsonObject() is the one source of truth (string-encoded values,
-    // the ecosystem-required tank_temperature / target_volume_count_start keys, standard
-    // DE1 v2 metadata, non-empty steps), so a profile downloaded from Visualizer is the
-    // same profile any DE1 app would read. Do not re-serialize here — that duplication is
-    // exactly what let the two paths drift.
-    return profile->toJsonObject();
-}
-
 QByteArray VisualizerUploader::buildMultipartData(const QByteArray& jsonData, const QString& boundary)
 {
     QByteArray data;
@@ -1561,10 +1179,12 @@ QString VisualizerUploader::authHeader() const
                                                m_settings->value("visualizer/password", "").toString()));
 }
 
-bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
+bool VisualizerUploader::validateUpload(const ShotProjection& shot)
 {
     const double minDuration = m_settings->upload()->minDuration();
-    const UploadIneligible ineligible = uploadIneligibility(beverageType, duration, minDuration);
+    const QString beverageType = uploadBeverageType(shot);
+    const double duration = shot.durationSec;
+    const UploadIneligible ineligible = uploadIneligibility(shot, minDuration);
     if (ineligible == UploadIneligible::Maintenance) {
         const QString reason = tr_("visualizer.skip.maintenance", "maintenance profile (%1)").arg(beverageType);
         m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
@@ -1574,6 +1194,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         // treat uploadFailed as a real failure. The page wraps the reason
         // with a translated "Upload skipped:" prefix; emit just the reason
         // payload so the C++ "Skipped:" prefix doesn't double up.
+        m_jobSkipReason = reason;
         emit uploadSkipped(reason);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Skipping upload for maintenance profile:" << beverageType;
         return false;
@@ -1585,6 +1206,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     if (username.isEmpty() || password.isEmpty()) {
         m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
+        noteJobFailure(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         return false;
     }
@@ -1595,6 +1217,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         emit lastUploadStatusChanged();
         // Policy skip, not an error — see uploadSkipped rationale on the
         // maintenance branch above. Emit just the reason payload.
+        m_jobSkipReason = reason;
         emit uploadSkipped(reason);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Shot too short, not uploading";
         return false;
@@ -1656,7 +1279,8 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 }
 
 // static
-QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData, bool includePortal)
+QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData, bool includePortal,
+                                                 const QJsonObject& machineState)
 {
     QJsonObject root;
     if (includePortal && !shotData.portalSamples.isEmpty())
@@ -1708,6 +1332,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     QVector<QPointF> tempMixGoalData = toPointVector(shotData.temperatureMixGoal);
     QVector<QPointF> weightData = toPointVector(shotData.weight);
     QVector<QPointF> weightFlowRateData = toPointVector(shotData.weightFlowRate);
+    QVector<QPointF> weightFlowRateRawData = toPointVector(shotData.weightFlowRateRaw);
 
     // Elapsed time array (from pressure data - the master timeline)
     root["elapsed"] = extractTimes(pressureData);
@@ -1726,18 +1351,18 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!weightFlowRateData.isEmpty()) {
         flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
     }
+    if (!weightFlowRateRawData.isEmpty())
+        flow["by_weight_raw"] = interpolateGoalData(weightFlowRateRawData, pressureData);
     root["flow"] = flow;
 
-    // Temperature object. Keep this in step with buildShotJson()'s temperature
-    // block — a shot re-uploaded from history must carry the same series the
-    // live upload sent, or re-uploading silently degrades it.
+    // Temperature object
     QJsonObject temperature;
     temperature["basket"] = extractValues(tempData);
     temperature["goal"] = interpolateGoalData(tempGoalData, pressureData);
     if (!tempMixData.isEmpty()) {
         temperature["mix"] = interpolateGoalData(tempMixData, pressureData);
     }
-    // Omit rather than zero-fill when absent — see buildShotJson().
+    // Omit rather than zero-fill when absent (shots saved before it was recorded).
     if (!tempMixGoalData.isEmpty()) {
         temperature["mix_goal"] = interpolateGoalData(tempMixGoalData, pressureData);
     }
@@ -1863,7 +1488,8 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
         finalWeight = waterDispensedData.last().y();  // actual ml (normalized at import)
     if (shotData.doseWeightG > 0) meta["in"] = shotData.doseWeightG;
     if (finalWeight > 0) meta["out"] = finalWeight;
-    meta["time"] = shotData.durationSec;
+    // The last sample's time.
+    if (!pressureData.isEmpty()) meta["time"] = pressureData.last().x();
 
     root["meta"] = meta;
 
@@ -1918,6 +1544,8 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
 
     QJsonObject data;
     data["settings"] = settings;
+    if (!machineState.isEmpty())
+        data["machine_state"] = machineState;
     if (!shotData.debugLog.isEmpty())
         data["debug_log"] = shotData.debugLog;
     app["data"] = data;
@@ -2099,9 +1727,9 @@ void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, cons
 {
     // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
     // Management). The DYE-metadata PATCH (updateShotOnVisualizer) also carries
-    // the canonical, but only fires when there's metadata (rating/notes) to send
-    // — so this guarantees a known coffee links even on a bare, no-bag shot. Same
-    // value as that path, so a double-send is idempotent.
+    // the canonical, but only goes out when the shot is edited — so this
+    // guarantees a known coffee links even on a shot nobody edits. Same value as
+    // that path, so a double-send is idempotent.
     QJsonObject shotObj{{QStringLiteral("canonical_coffee_bag_id"), canonicalId}};
     QJsonObject root{{QStringLiteral("shot"), shotObj}};
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);

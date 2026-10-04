@@ -44,7 +44,6 @@ class CoffeeBagStorage;
 class MainController;
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
-                        VisualizerUploader* visualizerUploader,
                         CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
@@ -259,10 +258,10 @@ private:
     void registerTools(McpTestFixture& f)
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
-        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager,
+        // (bagStorage, accessibility, screensaver, translation, battery, aiManager,
         // beanbase, mainController).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
@@ -527,64 +526,54 @@ private slots:
         QCOMPARE(mqtt->mqttBaseTopic(), QStringLiteral("decenza"));
     }
 
-    // Verifies that settings_set persists visualizerAutoUpdate through the MCP
-    // tool surface. Does NOT exercise the shots_update auto-update gate inside
-    // the QMetaObject::invokeMethod lambda in registerWriteTools — that path
-    // requires a real VisualizerUploader, and registerTools passes nullptr here.
-    // The gate currently has no automated test coverage; adding it would require
-    // either a mock VisualizerUploader or a live-network integration harness.
-    void settingsSetVisualizerAutoUpdateRoundTrip()
+    // settings_set reaches the shared upload settings and the per-destination
+    // switches under their destination-neutral names. When an edit is sent is
+    // ShotUploads, tested in tst_decentshotupload.
+    void settingsSetUploadSettingsRoundTrip()
     {
         McpTestFixture f;
         registerTools(f);
 
-        bool orig = f.settings.upload()->autoUpdate();
+        const bool origUpdate = f.settings.upload()->autoUpdate();
+        const bool origDecent = f.settings.decent()->enabled();
         QJsonObject args;
-        args["visualizerAutoUpdate"] = !orig;
+        args["updateAutomatically"] = !origUpdate;
+        args["decentEnabled"] = !origDecent;
         QJsonObject result = f.callAsyncTool("settings_set", args);
 
-        QVERIFY(result.contains("updated"));
-        QJsonArray updated = result["updated"].toArray();
-        bool found = false;
-        for (const auto& v : updated) {
-            if (v.toString() == "visualizerAutoUpdate") found = true;
-        }
-        QVERIFY2(found, "visualizerAutoUpdate should be in updated list");
-        QCOMPARE(f.settings.upload()->autoUpdate(), !orig);
+        const QJsonArray updated = result["updated"].toArray();
+        QVERIFY(updated.contains(QJsonValue("updateAutomatically")));
+        QVERIFY(updated.contains(QJsonValue("decentEnabled")));
+        QCOMPARE(f.settings.upload()->autoUpdate(), !origUpdate);
+        QCOMPARE(f.settings.decent()->enabled(), !origDecent);
 
-        // Restore
-        f.settings.upload()->setAutoUpdate(orig);
+        f.settings.upload()->setAutoUpdate(origUpdate);
+        f.settings.decent()->setEnabled(origDecent);
     }
 
-    // shots_upload_to_visualizer needs both a real ShotHistoryStorage and a real
-    // VisualizerUploader to exercise the upload-dispatch path; the test fixture
-    // wires both as nullptr, so what we cover here is the synchronous input and
-    // dependency guards. The dispatch path (load shot, detect existing upload,
-    // pre-flight credentials/maintenance/duration, call uploadShotFromHistoryWithOverrides)
-    // currently has no automated test coverage; adding it would require a real
-    // ShotHistoryStorage plus either a mock VisualizerUploader or a live-network
-    // integration harness.
-    void shotsUploadToVisualizerRejectsInvalidShotId()
+    // shots_upload's input guards. The dispatch itself is ShotUploads, tested in
+    // tst_decentshotupload.
+    void shotsUploadRejectsInvalidShotId()
     {
         McpTestFixture f;
         registerTools(f);
 
         QJsonObject args;
         args["shotId"] = 0;
-        QJsonObject result = f.callAsyncTool("shots_upload_to_visualizer", args);
+        QJsonObject result = f.callAsyncTool("shots_upload", args);
 
         QVERIFY2(result.contains("error"), "expected error for shotId <= 0");
         QCOMPARE(result["error"].toString(), QString("Valid shotId is required"));
     }
 
-    void shotsUploadToVisualizerRejectsMissingShotHistory()
+    void shotsUploadRejectsMissingShotHistory()
     {
         McpTestFixture f;
         registerTools(f);
 
         QJsonObject args;
         args["shotId"] = 42;
-        QJsonObject result = f.callAsyncTool("shots_upload_to_visualizer", args);
+        QJsonObject result = f.callAsyncTool("shots_upload", args);
 
         QVERIFY2(result.contains("error"), "expected error when shotHistory is null");
         QCOMPARE(result["error"].toString(), QString("Shot history not available"));
@@ -603,7 +592,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed", [&](QSqlDatabase& db) {
@@ -681,7 +670,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("equpd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 packageId = -1;
         withTempDb(storage.databasePath(), "equpd_seed", [&](QSqlDatabase& db) {
@@ -729,7 +718,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("eqmerge.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 source = -1, target = -1, movedShot = -1;
         withTempDb(storage.databasePath(), "eqmerge_seed", [&](QSqlDatabase& db) {
@@ -804,7 +793,7 @@ private slots:
         CoffeeBagStorage bagStorage;
         bagStorage.initialize(storage.databasePath());
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // Tea bag with brewing data: kind + tea vocabulary round-trip.
         QJsonObject tea;
@@ -858,7 +847,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagkind.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 coffeeId = -1, teaId = -1;
         withTempDb(storage.databasePath(), "bagkind_seed", [&](QSqlDatabase& db) {
@@ -902,7 +891,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd_linked.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed3", [&](QSqlDatabase& db) {
@@ -1007,7 +996,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_get.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Morning Latte");
         QVERIFY(recipeId > 0);
@@ -1027,7 +1016,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_get_stale.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // A stale reference (the recipe row no longer exists) is a snapshot,
         // not an error — the next auto-load trigger discovers and clears it.
@@ -1063,7 +1052,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Afternoon Cortado");
         QVERIFY(recipeId > 0);
@@ -1131,7 +1120,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_notfound.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         // Settings::testQSettingsPath() is a single PID-scoped store shared by
         // every McpTestFixture in this process, so a prior test's write can
         // still be sitting there — capture the baseline rather than assume -1.
@@ -1151,7 +1140,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_archived.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         const int before = f.settings.dye()->autoLoadRecipeId();  // see note above
 
         const qint64 recipeId = seedRecipe(storage, "Retired Recipe", /*archived=*/true);
@@ -1174,7 +1163,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_overwrite.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 first = seedRecipe(storage, "First Pin");
         const qint64 second = seedRecipe(storage, "Second Pin");
@@ -1201,7 +1190,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_revert.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 recipeId = seedRecipe(storage, "Evening Decaf");
         QVERIFY(recipeId > 0);
@@ -1290,7 +1279,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("del.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // The storage layer logs the failed delete; that is the point, not a fault.
         ScopedWarningFilter deleteFilter("Failed to async delete shot");
@@ -1313,7 +1302,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("del2.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 shotId = insertMinimalShot(storage);
         QVERIFY(shotId > 0);
@@ -1338,7 +1327,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("upd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         ScopedWarningFilter updateFilter("No shot with id");
 
@@ -1360,7 +1349,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("upd2.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         const qint64 shotId = insertMinimalShot(storage);
         QVERIFY(shotId > 0);
@@ -1394,7 +1383,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("eqcreate.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         QJsonObject args;
         args["grinderBrand"] = "Niche";

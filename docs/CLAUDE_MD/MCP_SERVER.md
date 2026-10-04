@@ -192,7 +192,7 @@ access check and the rate limiter consult.
 | Category | Min Access Level | Tools (merged tools listed by verb where the verbs differ) |
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, get_agent_file, dialing_get_context, dialing_get_grinder_calibration, steam_get_health, recipe_list, recipe_get, `ai_conversations` (all), `auto_load` get, `bag` list, `equipment` list, `flow_calibration` get, `steam_pitcher` list, `water_vessel` list, `devices_wifi` results |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_stop, machine_skip_frame, `machine_start` (all), `scale_timer` (all), scale_tare, shots_update, shots_upload_to_visualizer, backup_now, `mqtt` (all), devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_extract_details, `bag` select, `equipment` select, `steam_pitcher` select, `water_vessel` select, `devices_wifi` browse |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_stop, machine_skip_frame, `machine_start` (all), `scale_timer` (all), scale_tare, shots_update, shots_upload, backup_now, `mqtt` (all), devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_extract_details, `bag` select, `equipment` select, `steam_pitcher` select, `water_vessel` select, `devices_wifi` browse |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, apply_theme, `reset_saw_learning` (all), recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, `auto_load` set/clear, `bag` create/update, `equipment` create/update/merge, `flow_calibration` set/clear, `steam_pitcher` add/update/delete, `water_vessel` add/update/delete |
 
 **An `action` the server cannot resolve is gated as the tool's STRICTEST verb**, not as its
@@ -229,7 +229,7 @@ Two confirmation mechanisms are used depending on where the user is:
 | devices_reset_scale_priority | **Confirm** | Confirm | Chat |
 | devices_disconnect_scale | **Confirm** | Confirm | Chat |
 | shots_update | No confirm | No confirm | — |
-| shots_upload_to_visualizer | No confirm | No confirm | — |
+| shots_upload | No confirm | No confirm | — |
 
 When confirmation level is 0 (None), all tools execute immediately regardless of mechanism.
 
@@ -364,8 +364,8 @@ the `refresh()` / `rotateToken()` invokables.
 | `shots_get_detail` | Full shot record with time-series data | read |
 | `shots_get_debug_log` | Per-shot debug log (BLE frames, phase transitions, SAW events, flow calibration). Paginated with offset/limit. `filter` (substring, or regex when `regex` is true; case-insensitive) narrows which lines qualify before pagination; `dedupe` collapses consecutive qualifying lines that are identical apart from any leading timestamp into one entry carrying `count`/`lastLine` (non-consecutive repeats stay separate); `tail` (last N qualifying/deduped entries) takes precedence over `offset` when both are given. `minLevel` is accepted but has no effect — shot debug log lines aren't level-tagged. Every returned line carries its absolute line number in a `lines` array alongside the existing `log` string. | read |
 | `shots_compare` | Side-by-side comparison of 2+ shots with auto-computed change diffs (grind, dose, yield, duration) | read |
-| `shots_update` | Update any metadata field on a shot: enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY. Same fields the QML shot editor can change. Replaces the old `shots_set_feedback`. If the shot already has a `visualizer_id`, Visualizer is switched on and connected, and `visualizerAutoUpdate` (the shared auto-update setting) is on, the edits are auto-PATCHed up to visualizer.coffee (response includes `visualizerUpdateTriggered`). | control |
-| `shots_upload_to_visualizer` | Upload a historical shot to visualizer.coffee for the first time (POST). Use for shots that were never auto-uploaded and therefore have no `visualizer_id` yet. Refuses to re-upload an existing shot (points the caller at `shots_update` to PATCH instead) and rejects upfront if the shot is a maintenance profile, shorter than `visualizerMinDuration`, or credentials are missing. Response: `{success, uploadTriggered, message}`; the new `visualizer_id` lands in the local DB when the network response arrives. | control |
+| `shots_update` | Update any metadata field on a shot: enjoyment, notes, dose, yield, bean info, grinder setting, barista, TDS, EY, Bean Base snapshot. Same fields the QML shot editor can change. With `updateAutomatically` on, `ShotUploads` sends the edit to every active destination already holding the shot (Visualizer PATCH, Decent replace); the response lists them as `autoUpdateTo`. | control |
+| `shots_upload` | Upload a shot to every destination switched on and connected (Visualizer, the Decent account) through `ShotUploads`, as the Upload button does. A shot a destination already holds is updated there, never duplicated. Rejects upfront for a maintenance profile or a shot shorter than `uploadMinDurationSec`, or when no destination is active. Response: `{success, destinations, message}`; each destination records its result when its answer arrives. | control |
 | `shots_delete` | Delete a shot by ID. Permanent and cannot be undone. | settings |
 
 `shots_get_detail` also surfaces the shot's coffee bag snapshot (bean-bag-inventory): sparse-emitted `bagId`, `frozenDate`, `defrostDate` (ISO dates; pre-bag shots and unfrozen beans omit them).

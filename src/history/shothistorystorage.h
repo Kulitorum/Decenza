@@ -109,9 +109,11 @@ public:
 
     // Decent account upload state (add-decent-shot-upload). The writes emit
     // decentUploadStateUpdated, never shotMetadataUpdated, so recording an
-    // upload can never read as a user edit (Stage 2 queues replacements off
+    // upload can never read as a user edit (ShotUploads sends edits off
     // shotMetadataUpdated). None bumps updated_at, which the history export keys on.
-    void requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial);
+    // `stillPending`: an edit landed while the upload was out, so it may not be in it.
+    void requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial,
+                                   bool stillPending);
     void requestRecordDecentRejection(qint64 shotId, int httpStatus);
     // Only for a shot already uploaded: its latest edit still has to reach Decent.
     void requestMarkDecentReplacePending(qint64 shotId);
