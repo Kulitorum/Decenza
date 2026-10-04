@@ -24,6 +24,7 @@
 - [ ] 3.2 TLS attempt: `QSslSocket::connectToHostEncrypted(address, port, configuredHostName)` with the system CAs plus the user CA. Verify: TLS to a broker with a self-signed CA connects once the CA is supplied, is rejected with a certificate reason without it, and a `.local` broker on Android verifies against the `.local` name.
   - Held (Jeff, 2026-10-03): partly verified. Against Home Assistant's broker on 8883 (Let's Encrypt certificate for its DuckDNS name), connecting as `homeassistant-chv.local` was rejected with "certificate rejected: The host name did not match any of the valid hosts for this certificate", so the handshake and host-name check run for real. A successful TLS connection, a user-supplied CA, and Android `.local` are unverified (the DuckDNS name is not reachable on 8883); the CA path is covered only by `tst_mqttclient`.
 - [ ] 3.3 App Home Automation tab: TLS switch (moves 1883↔8883, leaving a custom port alone), CA certificate pasted and validated with `SettingsMqtt::describeCaCertificate()`, the client ID with a uniqueness hint, and accessible names on every field. All strings via `TranslationManager`; accessibility per `docs/CLAUDE_MD/ACCESSIBILITY.md`. Verify: open the tab on the tablet, set and clear each, and navigate the new controls with TalkBack.
+  - Held for the tablet beta (Jeff, 2026-10-03): the TLS switch's port move was seen working in the Mac app's log; the CA summary/validation/Clear, the client ID hint and TalkBack are checked on the tablet.
 - [x] 3.4 ShotServer settings page: the same TLS switch and a CA textarea or upload, sharing the existing page helpers, with the form read in one `mqttFormValues()`. Verify: settings saved on the web appear in the app and the reverse, and the publish interval round-trips in seconds.
 - [x] 3.5 Expose both settings through MCP `settings_get`/`settings_set`, and bump `McpSurfaceVersion`. Verify: `python3 scripts/check_mcp_tool_budget.py` passes.
 
@@ -63,6 +64,7 @@
 
 - [x] 6.1 Update `openspec/config.yaml` (tech stack: Qt MQTT built in-tree), `docs/CPP_COMPLIANCE_AUDIT.md` (MQTT conventions line) and the Paho comment in `src/network/shotserver_settings.cpp`. Verify: `grep -ri paho` over the repo, excluding archived changes, returns nothing stale.
 - [ ] 6.2 Wiki manual Home Automation page: short entries for TLS (with the CA certificate), the profile dropdown, last shot, shot events and Stop; the Home Assistant 2024.11 minimum; one sentence each on the client ID (unique per device) and "New device ID" (only for a second device restored from the same backup); and one sentence that entities now go unavailable while the DE1 or scale is disconnected. Keep it to 3-5 sentences per feature, then cut it in half. Verify: the page is reviewed with Jeff before pushing (wiki edits are held for release). The release notes state the Home Assistant 2024.11 minimum.
+  - Drafted in the local Decenza.wiki clone and reviewed with Jeff (2026-10-03); uncommitted, pushed with the release. Release notes still to state the Home Assistant 2024.11 minimum.
 
 ## 7. Tests, review and merge
 
