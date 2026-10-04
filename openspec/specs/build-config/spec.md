@@ -107,6 +107,14 @@ project's position is to wait for the release that carries it rather than to for
 This SHALL NOT be read as a claim that no upstream bug affects Decenza. It is a decision about where
 the fix lives.
 
+A Qt module that the open-source installer does not provide (Qt MQTT is one: Qt publishes its
+binaries only to commercial licensees) MAY be compiled into the application from its unmodified
+upstream source. The source SHALL be fetched at the release tag matching the Qt version found at
+configure time, never from a version written into the repository, so a Qt bump moves it with no
+edit. The build SHALL fail at configure time if the fetched source declares a different Qt version
+than the one found. The compiled module SHALL NOT be committed to the repository or placed in the
+installed Qt tree.
+
 #### Scenario: An upstream Qt bug affects the app
 - **WHEN** a Qt defect is identified that degrades Decenza on some platform
 - **THEN** the remedy SHALL be an upstream patch, a workaround in Decenza's own code, or an accepted
@@ -128,6 +136,18 @@ the fix lives.
   runs, because those plugins pull external dependencies an AppImage cannot satisfy. Deleting a
   file cannot introduce a foreign version; substituting one can. The rule is about provenance, not
   about the Qt tree being read-only
+- **AND** a Qt module compiled from source SHALL follow the new version on the next configure,
+  with no change to any file in the repository
+
+#### Scenario: A stale module source survives a Qt bump
+- **WHEN** a build directory or a local source override still holds Qt module source from a
+  different Qt version than the one CMake found
+- **THEN** configure SHALL fail with an error naming both versions, rather than building against
+  the mismatched source
+
+#### Scenario: Qt has no matching module release
+- **WHEN** the Qt version found has no matching release tag for a module compiled from source
+- **THEN** configure SHALL fail with an error naming the Qt version and the module
 
 ### Requirement: A Version Bump Records What It Inherits
 A change that moves the pinned Qt version SHALL record which upstream fixes it is relying on, with

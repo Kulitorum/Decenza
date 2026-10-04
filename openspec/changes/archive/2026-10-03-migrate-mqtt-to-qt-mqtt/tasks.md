@@ -70,6 +70,7 @@
 
 - [x] 7.1 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`). Verify: all pass, with no new WARN lines from MQTT tests.
 - [x] 7.2 `openspec validate migrate-mqtt-to-qt-mqtt --strict` passes.
-- [ ] 7.3 Open the PR, read the `text-invariants.yml` run for it, then run `/pr-review-toolkit:review-pr` and address the findings.
+- [x] 7.3 Open the PR, read the `text-invariants.yml` run for it, then run `/pr-review-toolkit:review-pr` and address the findings.
   - PR [Kulitorum/Decenza#1985](https://github.com/Kulitorum/Decenza/pull/1985) opened; Text invariants passed. The five-agent review found a reconnect loop (retry timer surviving a successful connect), a backup-restore bypass of the password guard, a socket leak on an empty client ID, a CA replacing the Linux system trust store, leaked subscription objects, and an unchecked wildcard base topic; all fixed with tests, plus the comment corrections. Stale Android mDNS answers (a lookup finishing after Disconnect, a newer attempt or a host change) are now dropped by an attempt generation. Closes when the fixes' checks are read.
 - [ ] 7.4 Archive with `openspec archive migrate-mqtt-to-qt-mqtt --yes` as the PR's final commit, push, read that commit's checks, then merge.
+  - Merged 2026-10-03 at Jeff's request with the beta holds open (2.7, 3.2, 3.3, 4.1, 4.7, 4.10, 5.1, 5.2, 5.3, 6.2). Their checks run on the tablet in the next beta; the release notes must state the Home Assistant 2024.11 minimum, and the wiki draft is pushed with the release.
