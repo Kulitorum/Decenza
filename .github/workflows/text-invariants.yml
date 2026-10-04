@@ -1,15 +1,11 @@
 name: Text invariants
 
 # Invariants of the QML and source corpus. Each one was violated in the tree at the time its
-# checker was written, each violation was found by a person reading code rather than by
-# anything automatic, and none of them is expressible as a unit test — they are properties of the
-# whole QML corpus, not of any one function.
+# checker was written, none was caught by anything automatic, and none of them is expressible as
+# a unit test — they are properties of the whole corpus, not of any one function.
 #
-# They are checked here because guidance alone did not hold. Only check_font_glyph_coverage.py
-# was documented in CLAUDE.md, as a "run this before you add a symbol" step; the other two were
-# described only in the change that created them. All three were wired to nothing, which is the
-# same as not having them: the invariant that justifies a load-bearing decision elsewhere in the
-# code was enforced by whether someone remembered.
+# They are checked here because guidance alone did not hold: an invariant that justifies a
+# load-bearing decision elsewhere in the code was otherwise enforced by whether someone remembered.
 #
 # What each one protects:
 #
@@ -66,11 +62,15 @@ name: Text invariants
 #     compiling shotanalysis.cpp that decenza_testlib already carried, which the check reports as
 #     its own violation class with its own fix ("delete the line").
 #
-#   check_qml_asi_hazards.py — no QML/JS statement opens with ( [ or ` after a line that does
-#     not end one. JavaScript inserts no semicolon there, so the line silently becomes a call on
-#     the line above. Valid JavaScript, so the compiler and qmllint pass it: it shipped in 2.0.8
-#     as a TypeError on every tap that left the post-shot AI Advice button dead. Blocking,
-#     because the fix is always mechanical (bind the value to a local first).
+#   check_profile_resources.py — no .qrc lists a bundled profile; the list is generated from
+#     resources/profiles/. Blocking: a hand-kept list is a second copy, and #1833 added Adaptive
+#     v3 to the tests' copy only, so nine profiles reached every test binary and no release.
+#
+#   check_qml_asi_hazards.py — no QML/JS statement opens with ( [ or ` after an unterminated
+#     line. JavaScript inserts no semicolon there, so the line silently continues the one above.
+#     Valid JavaScript, so the compiler and qmllint pass it: #1978 shipped one in 2.0.8 that left
+#     the post-shot AI Advice button dead. Blocking, because the fix is always mechanical (bind
+#     the value to a local first).
 #
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
@@ -81,8 +81,8 @@ name: Text invariants
 #     makes this advisory, not the script.
 #
 # Runs on PRs that touch the surfaces involved. ~16 s in CI (13-22 s observed), nearly
-# all of it actions/checkout plus setup-python; the checks themselves total under a
-# second. No build, no network. This is the one place that number lives — the docs say
+# all of it actions/checkout plus setup-python; the checks themselves total ~2.5 s on an
+# M-series Mac (measured 2026-10-04), most of it check_log_markers.py. No build, no network. This is the one place that number lives — the docs say
 # "seconds" and point here, because three copies of it had already drifted to three
 # different values (~1 minute, 12 s, ~14 s).
 #
@@ -179,7 +179,7 @@ jobs:
       - name: No hand-written list of bundled profiles
         run: python3 scripts/check_profile_resources.py
 
-      # Blocking: a missed semicolon compiles, lints clean, and fails only as a runtime TypeError.
+      # Blocking: a missed semicolon compiles and lints clean.
       - name: No QML statement glued onto the line above
         run: |
           python3 scripts/check_qml_asi_hazards.py --self-test

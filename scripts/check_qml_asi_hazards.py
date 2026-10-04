@@ -9,17 +9,20 @@ the line is parsed as a continuation of the one above:
 
 is `page.editEnjoyment(loader.ensure() as ...)?.openWithShot(...)` — a call on
 a number, which threw on every tap and left the post-shot AI Advice button dead
-in 2.0.8. It is valid JavaScript, so the compiler and qmllint both pass it; the
-only symptom is a TypeError in the running app's log.
+(introduced by #1978, shipped in 2.0.8). It is valid JavaScript, so the
+compiler and qmllint both pass it.
 
-Fix by binding the value to a local first (`const x = ...` then `x?.f()`),
-never by adding a leading `;`.
+Fix by binding the value to a local first (`const x = ...` then `x?.f()`). A
+leading `;` also works but reads as a typo and invites someone to delete it.
 
 A line-based grep, not a parser: the previous line counts as unterminated when
-it ends in an identifier, a literal, `)` or `]`. A `}` is not flagged — it
-almost always closes a block. Exit code 1 on any finding.
+it ends in a word character, a quote, `)` or `]`. Keywords are word characters,
+so `return` followed by a `(` line is flagged although ASI ends the statement
+there. A previous line ending in `}` counts as terminated — it almost always
+closes a block — so a function expression or object literal followed by `(` is
+missed. Exit code 1 on any finding, or if no files were scanned.
 
-Run --self-test to exercise fixtures through this same checker.
+`--self-test` runs the built-in fixtures.
 """
 
 import pathlib
@@ -50,8 +53,12 @@ def scan(text):
 
 
 def main() -> int:
-    findings = []
     paths = sorted(list(QML_DIR.rglob("*.qml")) + list(QML_DIR.rglob("*.js")))
+    if not paths:
+        print(f"check_qml_asi_hazards: no .qml/.js files under {QML_DIR} — "
+              "nothing was checked")
+        return 1
+    findings = []
     for path in paths:
         rel = path.relative_to(QML_DIR.parent)
         for lineno, prev, line in scan(path.read_text(encoding="utf-8")):
@@ -69,16 +76,23 @@ def main() -> int:
 
 
 def self_test() -> int:
+    # Each fixture names the rule it pins; each goes red if that rule breaks.
     must_flag = {
-        "shipped 2.0.8 shape":
+        "shipped shape (identifier)":
             "a.b = c.d\n(loader.ensure() as T)?.open()\n",
-        "array after call":
+        "after ) — array opener":
             "foo()\n[1, 2].forEach(f)\n",
-        "template after literal":
+        "after ] ":
+            "a[0]\n(x)?.open()\n",
+        "after quote — template opener":
             "var s = 'x'\n`y`\n",
-        "comment between":
-            "a = b\n// opens the overlay\n(x)?.open()\n",
-        "url in previous line":
+        "after backtick":
+            "var s = `a`\n(x)?.open()\n",
+        "blank line skipped":
+            "a = b\n\n(x)?.open()\n",
+        "one-line block comment blanked":
+            "a = b\n/* note */\n(x)?.open()\n",
+        "url kept in previous line":
             "var u = \"http://x\"\n(y)?.open()\n",
     }
     must_pass = {
@@ -86,7 +100,8 @@ def self_test() -> int:
         "after semicolon": "a = b;\n(x)?.open()\n",
         "after comma": "f(a,\n(b))\n",
         "after closing block": "if (x) {\n}\n(y)?.open()\n",
-        "inside block comment": "a = b\n/*\n(x)\n*/\n",
+        "inside block comment": "a = b\n/*\nfoo\n(x)\n*/\n",
+        "trailing line comment stripped": "onClicked: { // open it\n(x)?.open()\n",
     }
     failed = []
     for name, src in must_flag.items():
@@ -95,11 +110,15 @@ def self_test() -> int:
     for name, src in must_pass.items():
         if list(scan(src)):
             failed.append(f"false positive: {name}")
+    # Line numbers must survive block-comment blanking.
+    lines = [n for n, *_ in scan("a = b\n/*\n x\n*/\n(x)?.open()\n")]
+    if lines != [5]:
+        failed.append(f"wrong line number after block comment: {lines} != [5]")
     if failed:
         print("check_qml_asi_hazards self-test FAILED:\n  " + "\n  ".join(failed))
         return 1
     print(f"check_qml_asi_hazards self-test: OK — {len(must_flag)} flagged, "
-          f"{len(must_pass)} passed")
+          f"{len(must_pass)} passed, line numbers kept")
     return 0
 
 
