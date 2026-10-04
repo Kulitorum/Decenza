@@ -632,9 +632,11 @@ private slots:
             QSqlQuery q(db);
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
                       "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
-                      "storage_hint, opened_date, taste_balance, taste_body) "
+                      "storage_hint, opened_date, taste_balance, taste_body, decent_uploaded_at, decent_shot_id, "
+                      "decent_serial, decent_replace_pending, decent_rejected_status, decent_rejected_at) "
                       "VALUES ('src-uuid-1', 2000, 'P', 30, 'Transfer', 'Roast', :bag, 'weight', "
-                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy')");
+                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy', "
+                      "1790000000, 'srv-7', '1812', 1, 400, 1790000100)");
             q.bindValue(":bag", srcBagId);
             QVERIFY(q.exec());
         });
@@ -654,7 +656,8 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT s.bag_id, s.stopped_by, s.beanbase_json, s.beanbase_id, s.frozen_date, "
                            "b.roaster_name, s.storage_hint, s.opened_date, b.storage_hint, b.opened_date, "
-                           "s.taste_balance, s.taste_body "
+                           "s.taste_balance, s.taste_body, s.decent_uploaded_at, s.decent_shot_id, s.decent_serial, "
+                           "s.decent_replace_pending, s.decent_rejected_status, s.decent_rejected_at "
                            "FROM shots s JOIN coffee_bags b ON b.id = s.bag_id "
                            "WHERE s.uuid = 'src-uuid-1'"));
             QVERIFY(q.next());
@@ -673,6 +676,39 @@ private slots:
             // bind would corrupt these or the adjacent recipe/steam columns.
             QCOMPARE(q.value(10).toString(), QString("sour"));      // taste_balance carried
             QCOMPARE(q.value(11).toString(), QString("heavy"));     // taste_body carried
+            // Decent upload state carries, so a migrated history is not uploaded again.
+            QCOMPARE(q.value(12).toLongLong(), qint64(1790000000));
+            QCOMPARE(q.value(13).toString(), QString("srv-7"));
+            QCOMPARE(q.value(14).toString(), QString("1812"));
+            QCOMPARE(q.value(15).toInt(), 1);
+            QCOMPARE(q.value(16).toInt(), 400);
+            QCOMPARE(q.value(17).toLongLong(), qint64(1790000100));
+        });
+    }
+
+    void importingAHistoryFromBeforeDecentUploadState() {
+        // A backup or migration source from before migration 42 has none of the
+        // decent_* columns; decent_replace_pending is NOT NULL in the destination.
+        const QString srcPath = freshDb();
+        const QString destPath = freshDb();
+        withRawDb(srcPath, "pre42_src", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            for (const char* column : {"decent_uploaded_at", "decent_shot_id", "decent_serial",
+                                       "decent_replace_pending", "decent_rejected_status", "decent_rejected_at"})
+                QVERIFY2(q.exec(QStringLiteral("ALTER TABLE shots DROP COLUMN %1").arg(QLatin1String(column))),
+                         qPrintable(q.lastError().text()));
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('old-uuid-1', 1000, 'P', 30)"));
+        });
+
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
+
+        withRawDb(destPath, "pre42_check", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT decent_uploaded_at, decent_replace_pending FROM shots WHERE uuid = 'old-uuid-1'"));
+            QVERIFY(q.next());
+            QVERIFY(q.value(0).isNull());   // never uploaded
+            QCOMPARE(q.value(1).toInt(), 0);
         });
     }
 

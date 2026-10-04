@@ -4,6 +4,17 @@
 SettingsVisualizer::SettingsVisualizer(QObject* parent)
     : QObject(parent)
 {
+    connect(this, &SettingsVisualizer::visualizerUsernameChanged, this, &SettingsVisualizer::visualizerActiveChanged);
+    connect(this, &SettingsVisualizer::visualizerPasswordChanged, this, &SettingsVisualizer::visualizerActiveChanged);
+    connect(this, &SettingsVisualizer::visualizerEnabledChanged, this, &SettingsVisualizer::visualizerActiveChanged);
+}
+
+bool SettingsVisualizer::visualizerConnected() const {
+    return !visualizerUsername().isEmpty() && !visualizerPassword().isEmpty();
+}
+
+bool SettingsVisualizer::visualizerActive() const {
+    return visualizerEnabled() && visualizerConnected();
 }
 
 QString SettingsVisualizer::visualizerUsername() const {
@@ -28,36 +39,14 @@ void SettingsVisualizer::setVisualizerPassword(const QString& password) {
     }
 }
 
-bool SettingsVisualizer::visualizerAutoUpload() const {
-    return m_settings.value("visualizer/autoUpload", true).toBool();
+bool SettingsVisualizer::visualizerEnabled() const {
+    return m_settings.value("visualizer/enabled", true).toBool();
 }
 
-void SettingsVisualizer::setVisualizerAutoUpload(bool enabled) {
-    if (visualizerAutoUpload() != enabled) {
-        m_settings.setValue("visualizer/autoUpload", enabled);
-        emit visualizerAutoUploadChanged();
-    }
-}
-
-bool SettingsVisualizer::visualizerAutoUpdate() const {
-    return m_settings.value("visualizer/autoUpdate", true).toBool();
-}
-
-void SettingsVisualizer::setVisualizerAutoUpdate(bool enabled) {
-    if (visualizerAutoUpdate() != enabled) {
-        m_settings.setValue("visualizer/autoUpdate", enabled);
-        emit visualizerAutoUpdateChanged();
-    }
-}
-
-double SettingsVisualizer::visualizerMinDuration() const {
-    return m_settings.value("visualizer/minDuration", 6.0).toDouble();
-}
-
-void SettingsVisualizer::setVisualizerMinDuration(double seconds) {
-    if (visualizerMinDuration() != seconds) {
-        m_settings.setValue("visualizer/minDuration", seconds);
-        emit visualizerMinDurationChanged();
+void SettingsVisualizer::setVisualizerEnabled(bool enabled) {
+    if (visualizerEnabled() != enabled) {
+        m_settings.setValue("visualizer/enabled", enabled);
+        emit visualizerEnabledChanged();
     }
 }
 

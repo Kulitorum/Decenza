@@ -147,6 +147,22 @@ void DE1Device::setTransport(DE1Transport* transport) {
     }
 }
 
+QString DE1Device::serialNumber() const {
+    if (m_simulationMode)
+        return m_simulatedSerial.isEmpty() ? QString::fromLatin1(kSimulatedSerial) : m_simulatedSerial;
+    if (m_serialNumber == 0) return QString();
+    return QString::number(m_serialNumber);
+}
+
+void DE1Device::setSimulatedSerialNumber(const QString& serial) {
+    const QString trimmed = serial.trimmed();
+    if (trimmed == m_simulatedSerial) return;
+    m_simulatedSerial = trimmed;
+    DEVICE_INFO(QStringLiteral("Simulator serial for this run: %1")
+                    .arg(trimmed.isEmpty() ? QString::fromLatin1(kSimulatedSerial) : trimmed));
+    emit serialNumberChanged();
+}
+
 QString DE1Device::connectionType() const {
     if (m_simulationMode) return QStringLiteral("Simulation");
     if (!m_transport) return QString();
@@ -318,6 +334,11 @@ void DE1Device::onTransportDisconnected() {
     // — and the wizard's Apply gate is exactly "has this machine answered", so a
     // stale true opens a write against a baseline this machine never reported.
     clearCalibrationCache();
+    // Same for the serial: a first Decent upload is filed under it.
+    if (m_serialNumber != 0) {
+        m_serialNumber = 0;
+        emit serialNumberChanged();
+    }
     // Stop chasing reads for a connection that no longer exists — a reconnect
     // re-issues them fresh via sendInitialSettings().
     m_pendingMMRReads.clear();
@@ -542,6 +563,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     }
 
     emit simulationModeChanged();
+    emit serialNumberChanged();
     emit connectedChanged();
     emit guiEnabledChanged();
 }
@@ -1275,6 +1297,20 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
                 m_heaterVoltage = voltage;
                 DEVICE_INFO(QStringLiteral("Heater voltage: %1 V").arg(m_heaterVoltage));
                 emit heaterVoltageChanged();
+            }
+        }
+    }
+    // Serial number (address 0x803830). de1app's get_sn reads the same register.
+    else if (address == DE1::MMR::SERIAL_NUMBER) {
+        if (data.size() >= 8) {
+            uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
+                           static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
+            DEVICE_INFO(QStringLiteral("Serial number read: %1").arg(val));
+            if (val != m_serialNumber) {
+                m_serialNumber = val;
+                emit serialNumberChanged();
             }
         }
     }
@@ -2608,6 +2644,7 @@ void DE1Device::sendInitialSettings() {
     issueMMRReadWithRetry(DE1::MMR::MACHINE_MODEL, QStringLiteral("machine model"));
     issueMMRReadWithRetry(DE1::MMR::FIRMWARE_VERSION, QStringLiteral("firmware build number"));
     issueMMRReadWithRetry(DE1::MMR::HEATER_VOLTAGE, QStringLiteral("heater voltage"));
+    issueMMRReadWithRetry(DE1::MMR::SERIAL_NUMBER, QStringLiteral("serial number"));
 
     // Read refill kit status
     requestRefillKitStatus();

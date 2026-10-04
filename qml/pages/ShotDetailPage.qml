@@ -92,9 +92,14 @@ T.Page {
         graphCard.forceActiveFocus()
     }
 
+    // Decent account upload state for this shot (decentUploadStateReady).
+    property var decentState: ({})
+
     function loadShot() {
+        decentState = ({})
         if (shotId > 0) {
             MainController.shotHistory.requestShot(shotId)
+            MainController.shotHistory.requestDecentUploadState(shotId)
         }
     }
 
@@ -121,6 +126,12 @@ T.Page {
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
                 AppShell.backRequested()
+        }
+        function onDecentUploadStateReady(id, state) {
+            if (id === shotDetailPage.shotId) shotDetailPage.decentState = state
+        }
+        function onDecentUploadStateUpdated(id, success) {
+            if (id === shotDetailPage.shotId) MainController.shotHistory.requestDecentUploadState(id)
         }
         function onVisualizerInfoUpdated(id, success) {
             if (id !== shotDetailPage.shotId) return
@@ -1397,6 +1408,61 @@ T.Page {
                         Layout.maximumWidth: parent.width * 0.5
                         elide: Text.ElideRight
                         Accessible.ignored: true
+                    }
+                }
+            }
+
+            // Decent account status (read-only; uploading lives on PostShotReviewPage)
+            Rectangle {
+                id: decentCard
+                readonly property bool uploaded: !!shotDetailPage.decentState.uploaded
+                readonly property string viewUrl: uploaded
+                    ? MainController.decentUploader.shotViewUrl(shotDetailPage.decentState.serial,
+                                                                shotDetailPage.decentState.serverShotId)
+                    : ""
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                visible: uploaded || !!shotDetailPage.decentState.rejected
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+
+                    ThemedIcon {
+                        source: "qrc:/icons/CloudUpload.svg"
+                        iconSize: Theme.labelFont.pixelSize
+                        color: decentCard.uploaded ? Theme.successColor : Theme.errorColor
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: decentCard.uploaded
+                              ? TranslationManager.translate("shotdetail.uploadedToDecent", "Uploaded to Decent")
+                              : TranslationManager.translate("shotdetail.rejectedByDecent", "Not accepted by Decent (HTTP %1)")
+                                    .arg(shotDetailPage.decentState.rejectedStatus || 0)
+                        font: Theme.labelFont
+                        color: decentCard.uploaded ? Theme.successColor : Theme.errorColor
+                        elide: Text.ElideRight
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
+                    Text {
+                        id: decentViewLink
+                        visible: decentCard.viewUrl.length > 0
+                        text: TranslationManager.translate("shotdetail.viewOnDecent", "View on decentespresso.com")
+                        font: Theme.captionFont
+                        color: Theme.primaryColor
+                        Accessible.ignored: true
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -Theme.scaled(6)
+                            accessibleName: TranslationManager.translate("shotdetail.viewOnDecentAccessible",
+                                                                         "View this shot on decentespresso.com. Opens web browser")
+                            accessibleItem: decentViewLink
+                            onAccessibleClicked: Qt.openUrlExternally(decentCard.viewUrl)
+                        }
                     }
                 }
             }

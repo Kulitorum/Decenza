@@ -538,7 +538,7 @@ private slots:
         McpTestFixture f;
         registerTools(f);
 
-        bool orig = f.settings.visualizer()->visualizerAutoUpdate();
+        bool orig = f.settings.upload()->autoUpdate();
         QJsonObject args;
         args["visualizerAutoUpdate"] = !orig;
         QJsonObject result = f.callAsyncTool("settings_set", args);
@@ -550,10 +550,10 @@ private slots:
             if (v.toString() == "visualizerAutoUpdate") found = true;
         }
         QVERIFY2(found, "visualizerAutoUpdate should be in updated list");
-        QCOMPARE(f.settings.visualizer()->visualizerAutoUpdate(), !orig);
+        QCOMPARE(f.settings.upload()->autoUpdate(), !orig);
 
         // Restore
-        f.settings.visualizer()->setVisualizerAutoUpdate(orig);
+        f.settings.upload()->setAutoUpdate(orig);
     }
 
     // shots_upload_to_visualizer needs both a real ShotHistoryStorage and a real

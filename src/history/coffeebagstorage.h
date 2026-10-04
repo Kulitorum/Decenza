@@ -368,7 +368,7 @@ signals:
     void bagDeleted(qint64 bagId, bool success);
     // Emitted (after a successful update) only when the edit touched a field
     // Visualizer stores on the bean — see touchesVisualizerFields(). The
-    // MainController gates on visualizerAutoUpdate + CM-active before PATCHing.
+    // MainController gates on visualizerActive + upload autoUpdate + CM-active before PATCHing.
     void bagVisualizerFieldsChanged(qint64 bagId);
     // Coarse "something changed" signal so views can re-request the inventory.
     void bagsChanged();

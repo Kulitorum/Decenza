@@ -285,13 +285,23 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         visualizer["username"] = settings->visualizer()->visualizerUsername();
         visualizer["password"] = settings->visualizer()->visualizerPassword();
     }
-    visualizer["autoUpload"] = settings->visualizer()->visualizerAutoUpload();
-    visualizer["autoUpdate"] = settings->visualizer()->visualizerAutoUpdate();
-    visualizer["minDuration"] = settings->visualizer()->visualizerMinDuration();
+    // The shared upload settings (SettingsUpload) stay in this section, where
+    // backups from before the split carry them.
+    visualizer["enabled"] = settings->visualizer()->visualizerEnabled();
+    visualizer["autoUpload"] = settings->upload()->autoUpload();
+    visualizer["autoUpdate"] = settings->upload()->autoUpdate();
+    visualizer["minDuration"] = settings->upload()->minDuration();
     visualizer["extendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
     visualizer["showAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
     visualizer["clearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
     root["visualizer"] = visualizer;
+
+    // Decent account settings. The email and encrypted password are never
+    // exported, not even with includeSensitive: the account is re-linked on each
+    // device (data-transfer-coverage, "Decent account credentials never transfer").
+    QJsonObject decent;
+    decent["enabled"] = settings->decent()->enabled();
+    root["decent"] = decent;
 
     // AI settings
     QJsonObject ai;
@@ -850,12 +860,20 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("password") && !excludeKeys.contains("visualizerPassword")) {
             settings->visualizer()->setVisualizerPassword(visualizer["password"].toString());
         }
-        if (visualizer.contains("autoUpload")) settings->visualizer()->setVisualizerAutoUpload(visualizer["autoUpload"].toBool());
-        if (visualizer.contains("autoUpdate")) settings->visualizer()->setVisualizerAutoUpdate(visualizer["autoUpdate"].toBool());
-        if (visualizer.contains("minDuration")) settings->visualizer()->setVisualizerMinDuration(visualizer["minDuration"].toDouble());
+        if (visualizer.contains("enabled")) settings->visualizer()->setVisualizerEnabled(visualizer["enabled"].toBool());
+        if (visualizer.contains("autoUpload")) settings->upload()->setAutoUpload(visualizer["autoUpload"].toBool());
+        if (visualizer.contains("autoUpdate")) settings->upload()->setAutoUpdate(visualizer["autoUpdate"].toBool());
+        if (visualizer.contains("minDuration")) settings->upload()->setMinDuration(visualizer["minDuration"].toDouble());
         if (visualizer.contains("extendedMetadata")) settings->visualizer()->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
         if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
         if (visualizer.contains("clearNotesOnStart")) settings->visualizer()->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
+    }
+
+    // Decent account settings. Credentials are never read from an import, even
+    // a hand-edited one that contains them.
+    if (json.contains("decent") && !excludeKeys.contains("decent")) {
+        QJsonObject decent = json["decent"].toObject();
+        if (decent.contains("enabled")) settings->decent()->setEnabled(decent["enabled"].toBool());
     }
 
     // AI settings

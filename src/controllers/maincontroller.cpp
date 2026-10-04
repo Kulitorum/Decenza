@@ -329,6 +329,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
     m_beanbase = new BeanBaseClient(m_networkManager, m_settings, this);
+    m_decentAccount = new DecentAccount(m_networkManager, m_settings->decent(), this);
 
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);
@@ -338,6 +339,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // no emit needed: QML bindings haven't been created yet.
     m_lastSavedShotId = m_shotHistory->lastSavedShotId();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
+
+    m_decentUploader = new DecentShotUploader(m_networkManager, m_decentAccount, m_shotHistory, this);
+    m_decentUploader->setMachineIdentityProvider([this]() {
+        DecentMachineIdentity id;
+        if (!m_device || !m_device->isConnected()) return id;
+        id.serialNumber = m_device->serialNumber();
+        if (m_device->firmwareBuildNumber() > 0) id.firmwareVersion = QString::number(m_device->firmwareBuildNumber());
+        id.model = DecentShotRecord::modelName(m_device->machineModel());
+        return id;
+    });
+    m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
 
     // profile-usage-history: ProfileManager owns the usage data (profileUsage,
     // fed to the picker and usage-mode favorites resort); ShotHistoryStorage
@@ -575,7 +587,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // the post-upload sync chain — this handles the edit-an-existing-bag case.
     connect(m_bagStorage, &CoffeeBagStorage::bagVisualizerFieldsChanged, this,
             [this](qint64 bagId) {
-        if (m_visualizer && m_settings && m_settings->visualizer()->visualizerAutoUpdate())
+        if (m_visualizer && m_settings && m_settings->visualizer()->visualizerActive()
+            && m_settings->upload()->autoUpdate())
             m_visualizer->updateBagOnVisualizer(bagId);
     });
 
@@ -4627,7 +4640,7 @@ void MainController::onShotEnded() {
                     // shot that failed to save has no row to link, so we
                     // intentionally do NOT auto-upload it (avoids the
                     // orphaned-upload bug this change exists to fix).
-                    if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
+                    if (m_settings->visualizer()->visualizerActive() && m_settings->upload()->autoUpload() && m_visualizer) {
                         DIAG_DEBUG(VISUALIZER, "maincontroller") << "  -> Auto-uploading to visualizer for shot" << shotId;
                         m_visualizer->uploadShot(
                             m_shotDataModel, m_profileManager->currentProfilePtr(),

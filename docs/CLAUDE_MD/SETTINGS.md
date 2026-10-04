@@ -1,16 +1,16 @@
 # Settings Architecture
 
-`Settings` is a **composition façade** that owns 13 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals.
+`Settings` is a **composition façade** that owns one domain sub-object per area. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals.
 
 The split exists so that a **narrow consumer** — one that takes a `Settings<Domain>*` and includes only that domain's header — recompiles when its own domain changes and not when any other does (~9 files for `settings_mqtt.h`). That is still true and is still the reason to write consumers that way.
 
-What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all thirteen domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
+What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes every domain header (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
 ## Domain classes (today)
 
-`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`, `SettingsGraph`. What remains on `Settings` itself is machine/scale/refractometer/USB-serial — a candidate for a future `SettingsHardware` extension or a Tier 4 `SettingsMachine` split.
+`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`, `SettingsGraph`, `SettingsDecent`, `SettingsUpload`. What remains on `Settings` itself is machine/scale/refractometer/USB-serial — a candidate for a future `SettingsHardware` extension or a Tier 4 `SettingsMachine` split.
 
 ## Where new settings go
 
@@ -34,7 +34,7 @@ That's it — no other files need to change. The narrow consumer set defined in 
 Full checklist (8 steps — missing one will silently break things):
 
 1. **Create `src/core/settings_<domain>.h` + `.cpp`**. Inherit `QObject`, own a `mutable AppSettings m_settings` (default-constructed — `AppSettings` names the store, see `src/core/appsettings.h`), declare properties + getters + setters + NOTIFY signals.
-2. **Add `#include "settings_<domain>.h"` to `src/core/settings.h`** with the other eleven.
+2. **Add `#include "settings_<domain>.h"` to `src/core/settings.h`** with the others.
    *(This reverses earlier guidance, which said never to include it. See "Why the includes are back" below — the short version is that avoiding it required erasing the property type, which blinded qmllint, `qmlcachegen` and the language server to 1,310 QML call sites.)*
 3. **Add `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT FINAL)` to `Settings`** — the CONCRETE type, never `QObject*`. This is what lets every tool follow `Settings.<domain>.<prop>` through to the property.
    *`FINAL` is required, not stylistic: without it `qmlcachegen` will not compile ANY chained lookup through the accessor. A non-final property could be shadowed by a subclass, so the base degrades to `var` and the next lookup off it fails with "Cannot use shadowable base type for further lookups" (`qqmljsshadowcheck.cpp:248`; `:197-198` is the final-property escape). Omitting it silently costs AOT compilation everywhere `Settings.<domain>.<prop>` is read — no error, no warning.*
@@ -58,7 +58,7 @@ Full checklist (8 steps — missing one will silently break things):
 
 ## Why the includes are back
 
-`settings.h` includes all thirteen domain headers, and the domain `Q_PROPERTY`s carry their
+`settings.h` includes every domain header, and the domain `Q_PROPERTY`s carry their
 concrete types. Earlier guidance said the opposite — forward-declare, and declare the properties
 `QObject*` — purely to keep the recompile blast down.
 
@@ -103,7 +103,7 @@ Never: `Settings.<property>` (flat, only valid for properties that remain on `Se
 // Right
 checked: Settings.mqtt.mqttEnabled
 text: Settings.theme.activeThemeName
-onValueModified: Settings.visualizer.visualizerMinDuration = newValue
+onValueModified: Settings.upload.minDuration = newValue
 
 // Wrong — silently fails (Settings has no flat mqttEnabled property anymore)
 checked: Settings.mqttEnabled

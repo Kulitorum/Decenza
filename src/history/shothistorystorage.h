@@ -3,6 +3,7 @@
 #include "shothistory_types.h"
 #include "shotprojection.h"
 #include "shotscope.h"
+#include "decentuploadstate.h"
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -16,6 +17,8 @@
 #include <optional>
 
 #include <QtQmlIntegration/qqmlintegration.h>
+
+class QSqlQuery;
 class QThread;
 class SerialDbWorker;
 
@@ -83,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 41;
+    static constexpr int kCurrentSchemaVersion = 42;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -103,6 +106,23 @@ public:
     Q_INVOKABLE void requestUpdateVisualizerInfo(qint64 shotId,
                                                   const QString& visualizerId,
                                                   const QString& visualizerUrl);
+
+    // Decent account upload state (add-decent-shot-upload). The writes emit
+    // decentUploadStateUpdated, never shotMetadataUpdated, so recording an
+    // upload can never read as a user edit (Stage 2 queues replacements off
+    // shotMetadataUpdated). None bumps updated_at, which the history export keys on.
+    void requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial);
+    void requestRecordDecentRejection(qint64 shotId, int httpStatus);
+    // Only for a shot already uploaded: its latest edit still has to reach Decent.
+    void requestMarkDecentReplacePending(qint64 shotId);
+    // Emits decentUploadStateReady(shotId, {uploaded, serverShotId, serial,
+    // replacePending, rejected, rejectedStatus}) for the shot pages.
+    Q_INVOKABLE void requestDecentUploadState(qint64 shotId);
+    static bool loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out);
+    // Runs `task` on the serial DB worker, after every write already queued —
+    // so a reader sees an edit the user just saved (the post-shot review page
+    // saves, then uploads). The task opens its own connection with withTempDb.
+    void runAfterQueuedWrites(std::function<void()> task) { runOnDbThread(std::move(task)); }
 
     // Async: clear visualizer_id/visualizer_url on a shot row, but ONLY if the
     // row still holds `staleVisualizerId` — a guarded clear so a link that was
@@ -624,6 +644,8 @@ signals:
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
     void backupFinished(bool success, const QString& resultPath);
     void visualizerInfoUpdated(qint64 shotId, bool success);
+    void decentUploadStateUpdated(qint64 shotId, bool success);
+    void decentUploadStateReady(qint64 shotId, const QVariantMap& state);
     // Emitted after requestReconcileVisualizerLinks finishes. `ok` is
     // false if the DB could not be opened or a SQL step failed — the
     // caller MUST NOT treat that as a completed pass (do not set the
@@ -648,6 +670,9 @@ private:
     // marshals results back to the main thread itself. Heavy one-shot ops
     // (backup/import) deliberately stay on their own threads.
     void runOnDbThread(std::function<void()> task);
+    // `ifLost` is the consequence of a failed write, logged with it.
+    void runDecentStateWrite(qint64 shotId, const char* what, const char* ifLost,
+                             std::function<bool(QSqlQuery&)> bindAndExec);
 
     // Run `body` on a one-shot background thread for a read query that does NOT
     // need the FIFO ordering runOnDbThread() provides (and for the two heavy

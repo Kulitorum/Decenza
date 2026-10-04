@@ -102,6 +102,7 @@ class DE1Device : public QObject {
     Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectedChanged)
     Q_PROPERTY(int machineModel READ machineModel NOTIFY firmwareVersionChanged)
     Q_PROPERTY(int heaterVoltage READ heaterVoltage NOTIFY heaterVoltageChanged)
+    Q_PROPERTY(QString serialNumber READ serialNumber NOTIFY serialNumberChanged)
     Q_PROPERTY(int nominalHeaterVoltage READ nominalHeaterVoltage NOTIFY heaterVoltageChanged)
     // Bumped whenever any stored/factory calibration value changes, so QML can
     // re-read the per-target accessors above. One signal rather than eight
@@ -186,6 +187,18 @@ public:
     int machineModel() const { return m_machineModel; }  // 0=unknown, 1=DE1, 2=DE1+, 3=PRO, 4=XL, 5=CAFE, 6=XXL, 7=XXXL
     int firmwareBuildNumber() const { return m_firmwareBuildNumber; }  // 0 = unknown, otherwise build number (e.g. 1347)
     int heaterVoltage() const { return m_heaterVoltage; }  // 0=unknown, otherwise volts (e.g. 110, 220)
+    // Read from MMR SERIAL_NUMBER on connect. Empty when unread or when the machine
+    // reports 0 (de1app treats 0 as "no serial" too); cleared on disconnect. The
+    // simulator reports kSimulatedSerial: not a number, so no Decent account can
+    // own it and the server refuses its uploads (403) — unless
+    // setSimulatedSerialNumber gave it a real serial.
+    QString serialNumber() const;
+    static constexpr const char* kSimulatedSerial = "SIM-DE1";
+    // A real serial for the simulator to report instead, so a developer can test
+    // Decent uploads end to end. Set only over MCP, held in memory for this app
+    // run, never saved; empty restores kSimulatedSerial.
+    void setSimulatedSerialNumber(const QString& serial);
+    QString simulatedSerialNumber() const { return m_simulatedSerial; }
     // The raw readback bucketed to 120 / 230 / 0=unknown, which is what a UI
     // offering a two-way choice needs. Kept beside the raw value rather than
     // replacing it: the raw number still carries whether the machine measured
@@ -435,6 +448,7 @@ signals:
     // same instant to four bindings.
     void descaleProgressChanged();
     void heaterVoltageChanged();
+    void serialNumberChanged();
     void calibrationChanged();
 
     // Firmware-update response from the DE1 (A009 notification). Carries
@@ -750,6 +764,8 @@ private:
     int m_firmwareBuildNumber = 0;
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
+    uint32_t m_serialNumber = 0;  // 0=unknown, read from MMR SERIAL_NUMBER
+    QString m_simulatedSerial;
 
     // Stored and factory calibration per target, absent until the machine
     // answers a read. Indexed by DE1::Calibration::Target; the flow slot exists

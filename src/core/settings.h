@@ -52,6 +52,8 @@
 #include "settings_ai.h"
 #include "settings_theme.h"
 #include "settings_visualizer.h"
+#include "settings_decent.h"
+#include "settings_upload.h"
 #include "settings_mcp.h"
 #include "settings_brew.h"
 #include "settings_dye.h"
@@ -107,6 +109,8 @@ class Settings : public QObject {
     Q_PROPERTY(SettingsAI* ai READ ai CONSTANT FINAL)
     Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT FINAL)
     Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT FINAL)
+    Q_PROPERTY(SettingsDecent* decent READ decent CONSTANT FINAL)
+    Q_PROPERTY(SettingsUpload* upload READ upload CONSTANT FINAL)
     Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT FINAL)
     Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT FINAL)
     Q_PROPERTY(SettingsDye* dye READ dye CONSTANT FINAL)
@@ -178,6 +182,8 @@ public:
     SettingsAI* ai() const { return m_ai; }
     SettingsTheme* theme() const { return m_theme; }
     SettingsVisualizer* visualizer() const { return m_visualizer; }
+    SettingsDecent* decent() const { return m_decent; }
+    SettingsUpload* upload() const { return m_upload; }
     SettingsMcp* mcp() const { return m_mcp; }
     SettingsBrew* brew() const { return m_brew; }
     SettingsDye* dye() const { return m_dye; }
@@ -291,6 +297,8 @@ private:
     SettingsAI* m_ai = nullptr;
     SettingsTheme* m_theme = nullptr;
     SettingsVisualizer* m_visualizer = nullptr;
+    SettingsDecent* m_decent = nullptr;
+    SettingsUpload* m_upload = nullptr;
     SettingsMcp* m_mcp = nullptr;
     SettingsBrew* m_brew = nullptr;
     SettingsDye* m_dye = nullptr;

@@ -19,6 +19,7 @@
 #include "../screensaver/screensavervideomanager.h"
 #include "../ai/aimanager.h"
 #include "../controllers/maincontroller.h"
+#include "../ble/de1device.h"
 #include "../controllers/profilemanager.h"
 
 #include <QJsonObject>
@@ -306,9 +307,9 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("isDarkMode", "themes")) result["isDarkMode"] = settings->theme()->isDarkMode();
 
             // === Visualizer ===
-            if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->visualizer()->visualizerAutoUpload();
-            if (include("visualizerAutoUpdate", "visualizer")) result["visualizerAutoUpdate"] = settings->visualizer()->visualizerAutoUpdate();
-            if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->visualizer()->visualizerMinDuration();
+            if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->upload()->autoUpload();
+            if (include("visualizerAutoUpdate", "visualizer")) result["visualizerAutoUpdate"] = settings->upload()->autoUpdate();
+            if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->upload()->minDuration();
             if (include("visualizerExtendedMetadata", "visualizer")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
             if (include("visualizerShowAfterShot", "visualizer")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
             if (include("visualizerClearNotesOnStart", "visualizer")) result["visualizerClearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
@@ -340,6 +341,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // that settings_set refuses.
             if (include("simulatorAvailable", "debug")) result["simulatorAvailable"] = settings->app()->simulatorAvailable();
             if (include("hideGhcSimulator", "debug")) result["hideGhcSimulator"] = settings->app()->hideGhcSimulator();
+            if (include("simulatorSerialNumber", "debug") && mainController && mainController->de1Device())
+                result["simulatorSerialNumber"] = mainController->de1Device()->simulatedSerialNumber();
 
             // === Battery ===
             if (battery) {

@@ -25,7 +25,8 @@ TextField {
     // Accessibility: expose as editable text with label and current value
     Accessible.role: Accessible.EditableText
     Accessible.name: accessibleName || placeholder || placeholderText
-    Accessible.description: text
+    // Never hand a masked password to a screen reader.
+    Accessible.description: echoMode === TextInput.Normal ? text : ""
     Accessible.focusable: true
 
     // In accessibility mode, double-tap is the deliberate activation gesture.

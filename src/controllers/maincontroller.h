@@ -14,6 +14,8 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
+#include "../network/decentaccount.h"
+#include "../network/decentshotuploader.h"
 #include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
 #include "../ai/livesteamcoach.h"
@@ -122,6 +124,8 @@ class MainController : public QObject {
     // Nothing subclasses MainController today.
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT FINAL)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
+    Q_PROPERTY(DecentAccount* decentAccount READ decentAccount CONSTANT FINAL)
+    Q_PROPERTY(DecentShotUploader* decentUploader READ decentUploader CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT FINAL)
     Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT FINAL)
@@ -225,6 +229,9 @@ public:
     double filteredGoalFlow() const { return m_filteredGoalFlow; }
     VisualizerUploader* visualizer() const { return m_visualizer; }
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
+    DecentAccount* decentAccount() const { return m_decentAccount; }
+    DecentShotUploader* decentUploader() const { return m_decentUploader; }
+    DE1Device* de1Device() const { return m_device; }
     BeanBaseClient* beanbase() const { return m_beanbase; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
@@ -717,6 +724,8 @@ private:
     ProfileStorage* m_profileStorage = nullptr;
     VisualizerUploader* m_visualizer = nullptr;
     VisualizerImporter* m_visualizerImporter = nullptr;
+    DecentAccount* m_decentAccount = nullptr;
+    DecentShotUploader* m_decentUploader = nullptr;
     BeanBaseClient* m_beanbase = nullptr;
     AIManager* m_aiManager = nullptr;
     LiveSteamCoach* m_liveSteamCoach = nullptr;

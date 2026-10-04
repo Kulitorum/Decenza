@@ -679,6 +679,8 @@ set(SOURCES
     src/core/settings_theme.cpp
     src/core/backgroundpresets.cpp
     src/core/settings_visualizer.cpp
+    src/core/settings_decent.cpp
+    src/core/settings_upload.cpp
     src/core/settings_mcp.cpp
     src/core/settings_brew.cpp
     src/core/settings_dye.cpp
@@ -766,6 +768,9 @@ set(SOURCES
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
     src/network/visualizeruploader.cpp
+    src/network/decentaccount.cpp
+    src/network/decentshotrecord.cpp
+    src/network/decentshotuploader.cpp
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
     src/ai/aimanager.cpp
@@ -923,6 +928,8 @@ set(HEADERS
     src/core/settings_theme.h
     src/core/backgroundpresets.h
     src/core/settings_visualizer.h
+    src/core/settings_decent.h
+    src/core/settings_upload.h
     src/core/settings_mcp.h
     src/core/settings_brew.h
     src/core/settings_dye.h
@@ -1012,6 +1019,12 @@ set(HEADERS
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
     src/network/visualizeruploader.h
+    src/network/shotpayloadhelpers.h
+    src/network/accountlink.h
+    src/network/httpauth.h
+    src/network/decentaccount.h
+    src/network/decentshotrecord.h
+    src/network/decentshotuploader.h
     src/network/visualizerimporter.h
     src/network/visualizershotlist.h
     src/network/beanbaseclient.h
@@ -1034,6 +1047,7 @@ set(HEADERS
     src/history/unifiedbeansearchmodel.h
     src/history/equipmentjoin.h
     src/history/shotprojection.h
+    src/history/decentuploadstate.h
     src/history/shotscope.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
@@ -1427,6 +1441,9 @@ set(QML_FILES
     qml/components/ColorEditor.qml
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml
+    qml/components/UploadAccountSection.qml
+    qml/components/DecentUploadStatus.qml
+    qml/components/UploadDestinationCard.qml
     qml/components/SubsystemLogView.qml
     qml/components/SuggestionField.qml
     qml/components/BeanBaseSearchBar.qml
@@ -2342,7 +2359,7 @@ if(NOT ANDROID AND NOT IOS)
 
     # saw_parity: validates saw_replay's standalone math port against the
     # real production code path in src/core/settings.cpp. Links the full
-    # Settings translation unit (and its 11 settings_* sub-domain TUs).
+    # Settings translation unit (and its settings_* sub-domain TUs).
     # A passing run lets us trust simulator-driven sweeps as predictive of
     # what production would do under the same change.
     add_executable(saw_parity
@@ -2358,6 +2375,8 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_theme.cpp
         src/core/backgroundpresets.cpp
         src/core/settings_visualizer.cpp
+        src/core/settings_decent.cpp
+        src/core/settings_upload.cpp
         src/core/settings_mcp.cpp
         src/core/settings_brew.cpp
         src/core/settings_dye.cpp
