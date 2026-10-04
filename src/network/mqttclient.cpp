@@ -213,6 +213,7 @@ void MqttClient::connectToBroker()
     // A user-requested disconnect only describes the connection it ended; once we are
     // dialling again it is meaningless. Cleared unconditionally so no path can strand it.
     m_userRequestedDisconnect = false;
+    [[maybe_unused]] const quint64 generation = ++m_attemptGeneration;   // Android mDNS
 
     if (!m_settingsMqtt) {
         m_status = "Error: No settings";
@@ -244,26 +245,11 @@ void MqttClient::connectToBroker()
         emit statusChanged();
 
         QPointer<MqttClient> guard(this);
-        QThread* thread = QThread::create([guard, host]() {
-            QString resolved = MdnsResolver::resolveHostname(host);
-            QMetaObject::invokeMethod(guard.data(), [guard, resolved, host]() {
-                if (!guard) return;
-                // Conditions can change inside the ~2 s resolve: a flapping AP would
-                // otherwise overwrite "Waiting for network..." and dial a dead interface.
-                if (guard->m_networkDown || !guard->m_settingsMqtt
-                    || !guard->m_settingsMqtt->mqttEnabled()) {
-                    DIAG_DEBUG(NETWORK, "MqttClient") << "mDNS resolve finished but conditions changed"
-                             << "(networkDown=" << guard->m_networkDown << ") - not connecting";
-                    return;
-                }
-                if (!resolved.isEmpty()) {
-                    DIAG_DEBUG(NETWORK, "MqttClient") << "Resolved" << host << "to" << resolved << "via mDNS";
-                    guard->connectWithHost(resolved);
-                } else {
-                    DIAG_WARN(NETWORK, "MqttClient") << "mDNS resolution failed for" << host
-                               << "- trying direct connection";
-                    guard->connectWithHost(host);
-                }
+        QThread* thread = QThread::create([guard, host, generation]() {
+            const QString resolved = MdnsResolver::resolveHostname(host);
+            QMetaObject::invokeMethod(guard.data(), [guard, generation, host, resolved]() {
+                if (guard)
+                    guard->onMdnsResolved(generation, host, resolved);
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QThread::deleteLater);
@@ -272,6 +258,32 @@ void MqttClient::connectToBroker()
     }
 #endif
 
+    connectWithHost(host);
+}
+
+void MqttClient::onMdnsResolved(quint64 generation, const QString& host, const QString& resolved)
+{
+    // Anything inside the ~2 s resolve can make this answer stale: a newer attempt, a
+    // Disconnect, another broker, or a flapping AP whose answer would overwrite
+    // "Waiting for network..." and dial a dead interface.
+    if (generation != m_attemptGeneration || m_networkDown || !m_settingsMqtt
+        || !m_settingsMqtt->mqttEnabled() || host != m_settingsMqtt->mqttBrokerHost().trimmed()) {
+        DIAG_DEBUG(NETWORK, "MqttClient") << "mDNS answer for" << host << "is stale - not connecting";
+        return;
+    }
+    if (!resolved.isEmpty()) {
+        DIAG_DEBUG(NETWORK, "MqttClient") << "Resolved" << host << "to" << resolved << "via mDNS";
+        connectWithHost(resolved);
+        return;
+    }
+    {
+        LogCollapse::Collapsed collapsed;
+        const QString text = QStringLiteral("mDNS resolution failed for %1 - trying direct connection").arg(host);
+        if (m_logCollapse.shouldLog(QStringLiteral("mdns"), text,
+                                    QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            DIAG_WARN(NETWORK, "MqttClient").noquote() << text + m_logCollapse.suffix(collapsed);
+        }
+    }
     connectWithHost(host);
 }
 
@@ -494,6 +506,7 @@ void MqttClient::onSessionUp()
     const int failedAttempts = m_reconnectAttempts;
     m_logCollapse.flush(QStringLiteral("connecting"), nowMs);
     m_logCollapse.flush(QStringLiteral("retry"), nowMs);
+    m_logCollapse.flush(QStringLiteral("mdns"), nowMs);
     const LogCollapse::Collapsed unprinted = m_logCollapse.flush(QStringLiteral("failed"), nowMs);
 
     if (failedAttempts > 0) {
@@ -601,6 +614,7 @@ void MqttClient::onConnectionFailed(const QString& reason)
 
 void MqttClient::disconnectFromBroker()
 {
+    ++m_attemptGeneration;   // an mDNS answer still on its way must not reconnect
     m_reconnectTimer.stop();
     m_publishTimer.stop();
     m_attemptDeadline.stop();

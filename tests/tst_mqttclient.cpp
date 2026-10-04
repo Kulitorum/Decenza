@@ -113,6 +113,24 @@ private slots:
                  "a retry left armed aborts the session this attempt opens");
     }
 
+    void aStaleMdnsAnswerDoesNotConnect() {
+        // Android resolves .local on a worker; Disconnect pressed during the ~2 s lookup
+        // used to be overridden when the answer arrived.
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+        const QString host = settings.mqtt()->mqttBrokerHost();
+
+        c->connectToBroker();
+        const quint64 lookup = c->m_attemptGeneration;
+        c->disconnectFromBroker();
+        c->onMdnsResolved(lookup, host, QStringLiteral("192.0.2.1"));
+        QVERIFY2(!c->m_pendingSocket, "an answer for an ended attempt must not dial");
+
+        c->onMdnsResolved(c->m_attemptGeneration, host, QStringLiteral("192.0.2.1"));
+        QVERIFY2(c->m_pendingSocket, "the current attempt's answer still dials");
+    }
+
     // ===== Backoff cadence =====
 
     void backoffWalksUpThenSettlesOnTheSlowCadence() {

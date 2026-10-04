@@ -149,6 +149,7 @@ private:
         Source source = Source::App;
     };
 
+    void onMdnsResolved(quint64 generation, const QString& host, const QString& resolved);
     void connectWithHost(const QString& host);
     void onSocketReady(QTcpSocket* socket);
     void onSocketError(QTcpSocket* socket);
@@ -226,6 +227,8 @@ private:
     QTimer m_attemptDeadline;
     static constexpr int ATTEMPT_DEADLINE_MS = 30000;
 
+    // Bumped by every connect and disconnect; an mDNS answer for an older one is dropped.
+    quint64 m_attemptGeneration = 0;
     int m_reconnectAttempts = 0;
     bool m_isReconnecting = false;
     bool m_networkDown = false;
