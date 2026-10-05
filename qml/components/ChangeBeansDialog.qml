@@ -849,8 +849,7 @@ DecenzaDialog {
         // cached og:image pixels describe the old page. Linked bags key the
         // cache by canonical id; manual bags by their row id (create mode
         // handles the manual case in onBagCreated, once the id exists).
-        var imageKey = fBeanBaseId.length > 0 ? fBeanBaseId
-                     : (formMode === "edit" && editBagId > 0 ? "bag-" + editBagId : "")
+        var imageKey = MainController.beanbase.bagImageKey(formMode === "edit" ? editBagId : 0, fBeanBaseId)
         if (imageKey.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
             MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
         var fields = {
@@ -998,11 +997,11 @@ DecenzaDialog {
             // id, so "bag-<rowid>" would cache it where nothing looks.
             if (root._extractedImageUrl.length > 0)
                 MainController.beanbase.replaceBagImageFromUrl(
-                    root.fBeanBaseId.length > 0 ? root.fBeanBaseId : "bag-" + bagId,
+                    MainController.beanbase.bagImageKey(bagId, root.fBeanBaseId),
                     root._extractedImageUrl)
             else if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
                 MainController.beanbase.ensureBagImage(
-                    "bag-" + bagId, root.fCoffee.trim(), root.fLink.trim())
+                    MainController.beanbase.bagImageKey(bagId, ""), root.fCoffee.trim(), root.fLink.trim())
             root.applySelection(bagId, bag)
             root.close()
         }
@@ -1680,9 +1679,8 @@ DecenzaDialog {
                             // not win. cacheBagImageFromUrl's cache-hit-wins is
                             // for warming a bag that has no photo yet.
                             if (fields["imageUrl"]) {
-                                let imgKey = root.fBeanBaseId.length > 0 ? root.fBeanBaseId
-                                    : (root.formMode === "edit" && root.editBagId > 0
-                                        ? "bag-" + root.editBagId : "")
+                                let imgKey = MainController.beanbase.bagImageKey(
+                                    root.formMode === "edit" ? root.editBagId : 0, root.fBeanBaseId)
                                 if (imgKey.length > 0)
                                     MainController.beanbase.replaceBagImageFromUrl(imgKey, String(fields["imageUrl"]))
                                 else

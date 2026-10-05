@@ -72,9 +72,8 @@ Rectangle {
     // handed to BeanThumbnail. Conflating them dropped a manual bag's already
     // cached photo the moment its URL died, and handed refreshBagImage an
     // empty key on the recovery that followed.
-    readonly property string linkKey: hasCanonical
-        ? canonicalId
-        : (bag && bag.id !== undefined ? "bag-" + bag.id : "")
+    readonly property string linkKey: MainController.beanbase.bagImageKey(
+        bag && bag.id !== undefined ? bag.id : 0, canonicalId)
 
     // Bag photo from the on-disk image cache (canonical entries carry no image
     // — the photo is resolved from the product page's og:image and cached as a

@@ -18,9 +18,10 @@
 //     resource. The CREATE-path builders here use skip-on-zero/empty,
 //     which is the conventional Rails strong-params behavior.
 //   - PATCH (update): omitting == "don't change"; `null` == "clear";
-//     value == "set". `updateShotOnVisualizer` emits every editable
-//     field explicitly (null for unset) so the cloud copy mirrors
-//     local state — including local clears. Issue #1150 / migration 16.
+//     value == "set". `buildShotUpdateBody` writes the fields it is given
+//     (null for unset, so a local clear carries — issue #1150) and omits
+//     the rest, so an edit made on visualizer.coffee survives an update
+//     of a different field.
 
 #include "core/diagnosticlogging.h"
 #include "core/logfields.h"
@@ -28,6 +29,8 @@
 #include "beanbase_blob.h"
 #include "roastdate.h"
 #include "tastecvamap.h"
+#include "visualizernotes.h"
+#include "visualizersync.h"
 #include "visualizershotlist.h"
 #include "../core/translationmanager.h"
 #include "../history/coffeebagstorage.h"
@@ -65,17 +68,7 @@
 #include "shotpayloadhelpers.h"
 #include "httpauth.h"
 
-namespace {
-// Visualizer has no rpm field, so the grinder rpm dial-in is appended to the
-// grind setting using the community convention ("2.4 1400rpm") that the grinder
-// parser already tolerates (add-equipment-packages).
-QString grinderSettingWithRpm(const QString& setting, qint64 rpm) {
-    if (rpm <= 0)
-        return setting;
-    return setting.isEmpty() ? QStringLiteral("%1rpm").arg(rpm)
-                             : QStringLiteral("%1 %2rpm").arg(setting).arg(rpm);
-}
-} // namespace
+using VisualizerSync::grinderSettingWithRpm;
 
 VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
@@ -104,17 +97,36 @@ void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
     QPointer<VisualizerUploader> self(this);
     m_storage->runAfterQueuedWrites([self, dbPath, shotId, how]() {
         ShotProjection shot;
+        quint32 dirty = 0;
+        qint64 seq = 0;
+        bool dirtyRead = false;
         withTempDb(dbPath, "viz_upload", [&](QSqlDatabase& db) {
             shot = ShotHistoryStorage::convertShotRecord(
                 ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+            dirtyRead = ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq);
         });
-        QMetaObject::invokeMethod(qApp, [self, shot, shotId, how]() {
+        QMetaObject::invokeMethod(qApp, [self, shot, shotId, how, dirty, seq, dirtyRead]() {
             if (!self) return;
+            self->m_jobDirtySeq = dirtyRead ? seq : -1;
             bool sent = false;
             if (!shot.visualizerId.isEmpty()) {
-                self->m_jobVisualizerId = shot.visualizerId;
-                sent = self->updateShotOnVisualizer(shot.visualizerId, shot);
+                // The Upload button sends every field: the user asked for
+                // Visualizer to match this shot. An automatic update sends only
+                // the fields edited here, so it cannot overwrite an edit made on
+                // visualizer.coffee to another field. Unreadable edit state sends
+                // everything, as every update did before the state existed.
+                const quint32 fields = (how == Send::UploadOrUpdate || !dirtyRead) ? VisualizerSync::kAllFields
+                                                                                    : dirty;
+                if (fields == 0) {
+                    DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "shot" << shotId
+                             << "has no edit Visualizer has not seen - nothing to update";
+                } else {
+                    self->m_jobVisualizerId = shot.visualizerId;
+                    self->m_jobFields = fields;
+                    sent = self->updateShotOnVisualizer(shot.visualizerId, shot, fields);
+                }
             } else if (how == Send::UploadOrUpdate) {
+                self->m_jobFields = VisualizerSync::kAllFields;
                 sent = self->uploadShotFromHistory(shot);
             }
             if (!sent) self->endJob(shotId);
@@ -144,6 +156,8 @@ void VisualizerUploader::endJob(qint64 shotId)
     m_jobVisualizerId.clear();
     m_jobError.clear();
     m_jobSkipReason.clear();
+    m_jobFields = 0;
+    m_jobDirtySeq = -1;
     emit savedShotFinished(shotId, error, skipReason);
     notifyIdle();
 }
@@ -170,11 +184,83 @@ bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
     }
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
-    sendUpload(buildHistoryShotJson(shotData, false, machineState));
+    // Visualizer reads uploaded notes as Markdown, so escape them to read as
+    // typed. Here, not in buildHistoryShotJson, which also writes local exports.
+    ShotProjection forUpload = shotData;
+    forUpload.espressoNotes = VisualizerNotes::escapeMarkdown(shotData.espressoNotes);
+    sendUpload(buildHistoryShotJson(forUpload, false, machineState));
     return true;
 }
 
-bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
+// static
+QJsonObject VisualizerUploader::buildShotUpdateBody(const ShotProjection& shotData, quint32 fields)
+{
+    // A PATCH leaves an omitted field alone, so only `fields` are written, and a
+    // written field the user has unset locally goes as JSON null: the API marks
+    // every editable field nullable, and a literal 0/"" would SET it ("Rated
+    // 0/100" rather than Unrated — issue #1150, migration 16's back-sync).
+    namespace VS = VisualizerSync;
+    QJsonObject shotObj;
+    auto setStr = [&](quint32 field, const char* apiField, const QString& s) {
+        if (fields & field)
+            shotObj[QLatin1StringView(apiField)] = s.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(s);
+    };
+    auto setDouble = [&](quint32 field, const char* apiField, double v) {
+        if (fields & field)
+            shotObj[QLatin1StringView(apiField)] = v > 0 ? QJsonValue(v) : QJsonValue(QJsonValue::Null);
+    };
+
+    setStr(VS::BeanBrand, "bean_brand", shotData.beanBrand);
+    setStr(VS::BeanType, "bean_type", shotData.beanType);
+    setStr(VS::RoastLevel, "roast_level", shotData.roastLevel);
+    // The one field that can hold a legacy non-ISO display string.
+    setStr(VS::RoastDate, "roast_date", RoastDate::toIso(shotData.roastDate));
+    setDouble(VS::DoseWeight, "bean_weight", shotData.doseWeightG);
+    setDouble(VS::FinalWeight, "drink_weight", shotData.finalWeightG);
+    // No separate brand field in the API.
+    setStr(VS::GrinderModel, "grinder_model",
+           (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed());
+    setStr(VS::GrinderSetting, "grinder_setting", VS::grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm));
+    setDouble(VS::DrinkTds, "drink_tds", shotData.drinkTdsPct);
+    setDouble(VS::DrinkEy, "drink_ey", shotData.drinkEyPct);
+    if (fields & VS::Enjoyment)
+        shotObj["espresso_enjoyment"] = shotData.enjoyment0to100 > 0 ? QJsonValue(shotData.enjoyment0to100)
+                                                                     : QJsonValue(QJsonValue::Null);
+    // A PATCH reads notes as HTML, so plain newlines must become markup.
+    setStr(VS::EspressoNotes, "espresso_notes", VisualizerNotes::plainToHtml(shotData.espressoNotes));
+    setStr(VS::Barista, "barista", shotData.barista);
+    setStr(VS::ProfileTitle, "profile_title", shotData.profileName);
+    // Structured taste taps → CVA (add-ai-taste-intake). Only-when-tapped /
+    // never-null so this PATCH cannot clear a hand-entered CVA score.
+    if (fields & VS::Taste)
+        applyTasteCvaMapping(shotObj, shotData.tasteBalance, shotData.tasteBody);
+
+    // Canonical bean linkage (5C): the Visualizer canonical UUID from the shot's
+    // Bean Base snapshot, so the shot clusters by bean there too (accepted for
+    // ALL users; the server back-fills bean fields from the canonical record).
+    // Never sent as null: the user may have linked the bag in Visualizer's UI.
+    if ((fields & VS::CanonicalBean) && !shotData.beanBaseJson.isEmpty()) {
+        // A NON-EMPTY blob that fails to parse is corruption, not "unlinked".
+        if (!QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).isObject())
+            DIAG_WARN(VISUALIZER, "VisualizerUploader") << "corrupt beanBaseJson on shot" << shotData.id;
+        const QString canonicalId = BeanBaseBlob::canonicalId(shotData.beanBaseJson);
+        // Withheld when the record names a different coffee than the shot: the
+        // server rewrites bean_brand/bean_type from it on link, which would
+        // rename the shot (see canonicalIdentityConflicts).
+        if (BeanBaseBlob::canonicalIdentityConflicts(shotData.beanBaseJson,
+                                                     {shotData.beanBrand, shotData.beanType})) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "canonical link withheld -" << shotData.beanBrand
+                     << "/" << shotData.beanType
+                     << "is not what the linked canonical record is named";
+        } else if (!canonicalId.isEmpty()) {
+            shotObj["canonical_coffee_bag_id"] = canonicalId;
+        }
+    }
+    return shotObj;
+}
+
+bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData,
+                                                quint32 fields)
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
@@ -200,107 +286,8 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     m_lastUploadStatus = tr_("visualizer.status.updating", "Updating...");
     emit lastUploadStatusChanged();
 
-    // Build JSON body: {"shot": {"bean_brand": "...", ...}}
-    // Field-pointer accessors give compile-time safety on the projection side;
-    // the API field strings are visualizer.coffee's external schema (snake_case)
-    // and intentionally distinct from the projection's field names.
-    //
-    // This is a PATCH and we always emit every editable field — the
-    // Visualizer API marks them `nullable: true`, so we use JSON null
-    // to clear a value the user has unset locally (TDS reset, rating
-    // cleared, etc.). Sending literal 0 / "" would set the field to a
-    // *value* of zero/empty-string rather than clearing it, which on
-    // visualizer.coffee renders as e.g. "Rating: 0/100" instead of
-    // "Unrated". Required by migration 16's back-sync for issue #1150
-    // users whose default rating is 0.
-    QJsonObject shotObj;
-    auto setStr = [&](const QString& apiField, QString ShotProjection::*field) {
-        const QString& s = shotData.*field;
-        shotObj[apiField] = s.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(s);
-    };
-    auto setDouble = [&](const QString& apiField, double ShotProjection::*field) {
-        const double v = shotData.*field;
-        shotObj[apiField] = v > 0 ? QJsonValue(v) : QJsonValue(QJsonValue::Null);
-    };
-
-    setStr("bean_brand", &ShotProjection::beanBrand);
-    setStr("bean_type", &ShotProjection::beanType);
-    setStr("roast_level", &ShotProjection::roastLevel);
-    // roast_date is the one field that can carry a legacy non-ISO display
-    // string (the migration-16 back-sync drains pre-bag shots through this
-    // PATCH), so normalize it here rather than via the generic setStr. Empty
-    // still clears to null; an unparseable value passes through unchanged.
-    {
-        const QString iso = RoastDate::toIso(shotData.roastDate);
-        shotObj["roast_date"] = iso.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iso);
-    }
-    setDouble("bean_weight", &ShotProjection::doseWeightG);
-    setDouble("drink_weight", &ShotProjection::finalWeightG);
-    // Combine brand + model for visualizer (no separate brand field in API)
-    {
-        const QString combined =
-            (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
-        shotObj["grinder_model"] =
-            combined.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(combined);
-    }
-    // Pair RPM into the freeform grinder_setting (the Visualizer has no native
-    // RPM field), matching the initial POST — otherwise a metadata edit PATCHes
-    // "2.4 1400rpm" back to bare "2.4" and drops the RPM. Empty → null, same as
-    // the generic setStr it replaces.
-    {
-        const QString gs = grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm);
-        shotObj["grinder_setting"] = gs.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(gs);
-    }
-    setDouble("drink_tds", &ShotProjection::drinkTdsPct);
-    setDouble("drink_ey", &ShotProjection::drinkEyPct);
-    // null, not omitted, and not 0. Migration 16's back-sync depends on this:
-    // it PATCHes shots whose invented rating it just reset to 0, and null is
-    // what clears them to Unrated — literal 0 would read as "Rated 0/100" and
-    // omitting the field would leave the stale rating on Visualizer forever.
-    // The create-path builder below omits on zero instead, which is correct
-    // there; do not unify the two onto skip-on-zero.
-    shotObj["espresso_enjoyment"] = shotData.enjoyment0to100 > 0
-        ? QJsonValue(shotData.enjoyment0to100)
-        : QJsonValue(QJsonValue::Null);
-    setStr("espresso_notes", &ShotProjection::espressoNotes);
-    setStr("barista", &ShotProjection::barista);
-    setStr("profile_title", &ShotProjection::profileName);
-    // Structured taste taps → CVA (add-ai-taste-intake). Only-when-tapped /
-    // never-null so this PATCH cannot clear a hand-entered CVA score.
-    applyTasteCvaMapping(shotObj, shotData.tasteBalance, shotData.tasteBody);
-
-    // Canonical bean linkage (5C): when the shot's Bean Base snapshot was
-    // picked via Visualizer's canonical autocomplete, the blob carries
-    // Visualizer's canonical UUID — send it so the shot clusters by bean on
-    // visualizer.coffee too (accepted for ALL users on shot PATCH; the
-    // server back-fills bean fields from the canonical record). Only emit
-    // when present: never null it out, since the user may have linked the
-    // bag in Visualizer's own UI.
-    if (!shotData.beanBaseJson.isEmpty()) {
-        // A NON-EMPTY blob that fails to parse is corruption, not "unlinked" —
-        // every consumer degrades identically/silently, so log it here at the
-        // upload chokepoint where it would otherwise vanish without a trace.
-        if (!QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).isObject())
-            DIAG_WARN(VISUALIZER, "VisualizerUploader") << "corrupt beanBaseJson on shot" << shotData.id;
-        const QString canonicalId = BeanBaseBlob::canonicalId(shotData.beanBaseJson);
-        // ...but never when that record names a different coffee than the shot
-        // does. The server rewrites bean_brand/bean_type from the canonical
-        // record on link (see canonicalIdentityConflicts), so a borrowed record
-        // — the same bean from another roaster, which the bag editor lets the
-        // user keep linked while correcting the roaster — would rename the shot
-        // on visualizer.coffee. The link stays local; only the export stops.
-        if (BeanBaseBlob::canonicalIdentityConflicts(shotData.beanBaseJson,
-                                                     {shotData.beanBrand, shotData.beanType})) {
-            DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "canonical link withheld -" << shotData.beanBrand
-                     << "/" << shotData.beanType
-                     << "is not what the linked canonical record is named";
-        } else if (!canonicalId.isEmpty()) {
-            shotObj["canonical_coffee_bag_id"] = canonicalId;
-        }
-    }
-
     QJsonObject root;
-    root["shot"] = shotObj;
+    root["shot"] = buildShotUpdateBody(shotData, fields);
 
     QJsonDocument doc(root);
     QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
@@ -342,23 +329,12 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         emit lastUploadStatusChanged();
         emit updateSuccess(visualizerId);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Update successful for shot" << visualizerId;
+        if (visualizerId == m_jobVisualizerId && m_jobDirtySeq >= 0)
+            m_storage->requestClearVisualizerDirty(m_jobShotId, m_jobFields, m_jobDirtySeq);
     } else {
-        QString errorMsg;
-
-        if (statusCode == 401) {
-            errorMsg = tr_("visualizer.error.invalidCredentials", "Invalid credentials");
-        } else if (statusCode == 404) {
-            errorMsg = tr_("visualizer.error.shotNotFound", "Shot not found on Visualizer");
-        } else if (statusCode == 422) {
-            QJsonDocument doc = QJsonDocument::fromJson(response);
-            QJsonObject obj = doc.object();
-            errorMsg = obj["error"].toString();
-            if (errorMsg.isEmpty()) {
-                errorMsg = tr_("visualizer.error.invalidData422", "Invalid data (422)");
-            }
-        } else {
-            errorMsg = tr_("visualizer.error.http", "HTTP %1: %2").arg(statusCode).arg(reply->errorString());
-        }
+        const QString errorMsg = statusCode == 404
+            ? tr_("visualizer.error.shotNotFound", "Shot not found on Visualizer")
+            : apiErrorMessage(statusCode, response, reply->errorString());
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
@@ -472,6 +448,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // local shots.id so MainController can persist the link
             // regardless of which (if any) UI page is alive.
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
+            if (m_uploadingDbShotId == m_jobShotId && m_jobDirtySeq >= 0)
+                m_storage->requestClearVisualizerDirty(m_jobShotId, m_jobFields, m_jobDirtySeq);
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Upload successful, ID:" << shotId
                      << "for local shot" << diagnosticShotId;
             // Coffee Management: the server auto-links the shot to its bag on
@@ -506,20 +484,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             return;
         }
 
-        QString errorMsg;
-
-        if (statusCode == 401) {
-            errorMsg = tr_("visualizer.error.invalidCredentials", "Invalid credentials");
-        } else if (statusCode == 422) {
-            QJsonDocument doc = QJsonDocument::fromJson(response);
-            QJsonObject obj = doc.object();
-            errorMsg = obj["error"].toString();
-            if (errorMsg.isEmpty()) {
-                errorMsg = tr_("visualizer.error.invalidShotData422", "Invalid shot data (422)");
-            }
-        } else {
-            errorMsg = tr_("visualizer.error.http", "HTTP %1: %2").arg(statusCode).arg(reply->errorString());
-        }
+        const QString errorMsg = apiErrorMessage(statusCode, response, reply->errorString());
 
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
@@ -1088,7 +1053,7 @@ void VisualizerUploader::scheduleBeanRepairRequest(std::function<void()> send)
     // whole point: the interval used to gate only the next shot, while a shot
     // that needed repairing fired its GET and then its PATCH back to back, so
     // the real rate was double the documented one.
-    QTimer::singleShot(kBeanRepairIntervalMs, this, std::move(send));
+    QTimer::singleShot(kApiRequestIntervalMs, this, std::move(send));
 }
 
 QJsonObject VisualizerUploader::buildAppInfoJson()
@@ -1177,6 +1142,23 @@ QString VisualizerUploader::authHeader() const
 {
     return QString::fromLatin1(basicAuthHeader(m_settings->value("visualizer/username", "").toString(),
                                                m_settings->value("visualizer/password", "").toString()));
+}
+
+QString VisualizerUploader::apiErrorMessage(int status, const QByteArray& body, const QString& transportError) const
+{
+    if (status == 401)
+        return tr_("visualizer.error.invalidCredentials", "Invalid credentials");
+    // Visualizer explains most refusals in a JSON `error`: a 422's validation
+    // failure, a 403 for a disabled account, a 429 rate limit, a 400 for a
+    // malformed parameter (api/base_controller.rb).
+    const QString serverMessage = QJsonDocument::fromJson(body).object().value(QStringLiteral("error")).toString();
+    if (!serverMessage.isEmpty())
+        return serverMessage;
+    if (status == 429)
+        return tr_("visualizer.error.rateLimited", "Visualizer is busy - try again in a few minutes");
+    if (status == 422)
+        return tr_("visualizer.error.invalidShotData422", "Invalid shot data (422)");
+    return tr_("visualizer.error.http", "HTTP %1: %2").arg(status).arg(transportError);
 }
 
 bool VisualizerUploader::validateUpload(const ShotProjection& shot)
@@ -1514,7 +1496,9 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     // initial .shot upload settings; the authoritative sync is the PATCH path.
     applyTasteCvaMapping(settings, shotData.tasteBalance, shotData.tasteBody);
 
-    if (!shotData.barista.isEmpty()) settings["barista"] = shotData.barista;
+    // de1app's key: Visualizer's parser reads the barista from my_name only
+    // (Parsers::Base#build_shot); a `barista` key there is ignored.
+    if (!shotData.barista.isEmpty()) settings["my_name"] = shotData.barista;
 
     // Parse profile JSON and merge profile fields for Visualizer TCL extraction
     QJsonObject profileJsonObj;
@@ -1551,10 +1535,6 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     app["data"] = data;
 
     root["app"] = app;
-
-    // Barista at root level (Visualizer may extract from here)
-    if (!shotData.barista.isEmpty())
-        root["barista"] = shotData.barista;
 
     // Profile JSON object for Visualizer's ?format=json download
     if (!profileJsonObj.isEmpty())
@@ -1614,7 +1594,7 @@ void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString
         return;
     // CM-off accounts have no bags to enrich. Cached per session (reset by
     // connectAccount) so toggling Coffee Management converges next upload.
-    if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
+    if (!bagEditPushAllowed(m_cmState))
         return;
 
     const QString dbPath = m_localDbPath;
@@ -1769,19 +1749,9 @@ QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag,
     };
     const QJsonObject blob = QJsonDocument::fromJson(
         bag.value("beanBaseData").toString().toUtf8()).object();
-    fillBlank("country",                 blob.value("origin").toString());
-    fillBlank("region",                  blob.value("region").toString());
-    fillBlank("farm",                    blob.value("farm").toString());
-    fillBlank("farmer",                  blob.value("producer").toString());
-    fillBlank("variety",                 blob.value("variety").toString());
-    fillBlank("processing",              blob.value("process").toString());
-    fillBlank("harvest_time",            blob.value("harvest").toString());
-    fillBlank("quality_score",           blob.value("qualityScore").toString());
-    fillBlank("place_of_purchase",       blob.value("placeOfPurchase").toString());
-    fillBlank("tasting_notes",           blob.value("tastingNotes").toString());
-    fillBlank("elevation",               blob.value("elevation").toString());
-    fillBlank("url",                     blob.value("link").toString());
-    fillBlank("notes",                   bag.value("notes").toString());
+    for (const VisualizerSync::BagBlobField& f : VisualizerSync::kBagBlobFields)
+        fillBlank(f.apiKey, blob.value(QLatin1StringView(f.blobKey)).toString());
+    fillBlank("notes",                   VisualizerNotes::plainToHtml(bag.value("notes").toString()));
     fillBlank("frozen_date",             bag.value("frozenDate").toString());
     fillBlank("defrosted_date",          bag.value("defrostDate").toString());
     fillBlank("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
@@ -1949,22 +1919,13 @@ void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVaria
     setIf("roast_level", bag.value("roastLevel").toString());
     setIf("frozen_date", bag.value("frozenDate").toString());
     setIf("defrosted_date", bag.value("defrostDate").toString());
-    setIf("notes", bag.value("notes").toString());
+    // A bag PATCH reads notes as HTML, like a shot PATCH.
+    setIf("notes", VisualizerNotes::plainToHtml(bag.value("notes").toString()));
     setIf("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
     const QJsonObject blob = QJsonDocument::fromJson(
         bag.value("beanBaseData").toString().toUtf8()).object();
-    setIf("country", blob.value("origin").toString());
-    setIf("region", blob.value("region").toString());
-    setIf("farm", blob.value("farm").toString());
-    setIf("farmer", blob.value("producer").toString());
-    setIf("variety", blob.value("variety").toString());
-    setIf("processing", blob.value("process").toString());
-    setIf("harvest_time", blob.value("harvest").toString());
-    setIf("quality_score", blob.value("qualityScore").toString());
-    setIf("place_of_purchase", blob.value("placeOfPurchase").toString());
-    setIf("tasting_notes", blob.value("tastingNotes").toString());
-    setIf("elevation", blob.value("elevation").toString());
-    setIf("url", blob.value("link").toString());
+    for (const VisualizerSync::BagBlobField& f : VisualizerSync::kBagBlobFields)
+        setIf(f.apiKey, blob.value(QLatin1StringView(f.blobKey)).toString());
 }
 
 void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
@@ -1990,18 +1951,15 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
 {
     if (localBagId <= 0 || m_localDbPath.isEmpty())
         return;
-    // Only push to CM-active accounts — matches the create path; a CM-off
-    // user's remote bag list is dormant state we never add to. Unknown (pre
-    // first-upload this session) also skips: a bag PATCH is premium-gated, NOT
-    // CM-gated, so it cannot double as a CM probe — the edit is parked as
-    // sync-pending and propagates once a shot upload confirms CM (the
-    // retrySyncPendingBags call in the read-back). A definitive CM-off state
-    // parks nothing: those accounts never push.
-    if (m_cmState != CmState::Active) {
-        if (m_cmState == CmState::Unknown)
-            persistBagSyncPending(localBagId, true);
+    // A definitive CM-off state pushes nothing: that account's remote bag list
+    // is dormant. Unknown (no shot uploaded yet this session) DOES push: only a
+    // bag that already has a visualizerBagId is PATCHed, and that id exists
+    // because Coffee Management created the bag, so the PATCH is the answer —
+    // 200 lands, 403 caches not-premium. Parking until a shot upload confirmed
+    // CM used to hold every bag edit (an AI fill included) back until the next
+    // shot, and forever on a device that never uploads one.
+    if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
         return;
-    }
 
     // Park FIRST, un-park on outcome. Any failure between here and
     // patchRemoteBag's reply handler — bag load failure, the roaster-list GET
@@ -2074,6 +2032,10 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
 
     QJsonObject body;
     addBagDescriptiveFields(body, bag);
+    QJsonValue archivedAt;
+    const bool sendsArchive = VisualizerSync::bagArchiveForPush(bag, QDateTime::currentDateTimeUtc(), &archivedAt);
+    if (sendsArchive)
+        body["archived_at"] = archivedAt;
     const QString storedRoasterId = bag.value("visualizerRoasterId").toString();
     const bool roasterChanged = !roasterId.isEmpty() && roasterId != storedRoasterId;
     if (roasterChanged)
@@ -2087,12 +2049,17 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName]() {
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, sendsArchive]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: updated coffee bag" << bagUuid;
             persistBagSyncPending(localBagId, false);
+            // Recorded only when this push set it: a reply to any other edit may
+            // carry an archive made there that the next pull has yet to apply here.
+            if (sendsArchive)
+                persistBagArchivedAt(localBagId,
+                                     QJsonDocument::fromJson(reply->readAll()).object().value("archived_at").toString());
             // A roaster rename moved the bag to a different roaster_id — persist
             // it so the next update diffs against the new value.
             if (roasterChanged)
@@ -2148,14 +2115,32 @@ void VisualizerUploader::persistBagSyncPending(qint64 localBagId, bool pending)
     thread->start();
 }
 
+void VisualizerUploader::persistBagArchivedAt(qint64 localBagId, const QString& archivedAt)
+{
+    if (localBagId <= 0 || m_localDbPath.isEmpty())
+        return;
+    const QString dbPath = m_localDbPath;
+    QThread* thread = QThread::create([dbPath, localBagId, archivedAt]() {
+        withTempDb(dbPath, "viz_bagarch", [&](QSqlDatabase& db) {
+            // A failed write leaves the push to repeat on the bag's next edit,
+            // and the next pull to see the archive as made there: both harmless.
+            if (!CoffeeBagStorage::updateBagFieldsStatic(
+                    db, localBagId, {{QStringLiteral("visualizerArchivedAt"), archivedAt}}))
+                DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Visualizer CM: failed to record archive state for bag" << localBagId;
+        });
+    });
+    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 void VisualizerUploader::retrySyncPendingBags()
 {
-    // Re-push bags whose edit-time push never completed (parked while CM was
-    // Unknown, or any failure after the park-first set). Called from the
-    // upload read-back once CM is confirmed Active — event-driven, no timers.
+    // Re-push bags whose edit-time push never completed (any failure after the
+    // park-first set). Called from the upload read-back and at the end of each
+    // VisualizerShotSync pass.
     // Each re-push runs the full park-first cycle, so this self-drains on
     // success/definitive outcomes and re-parks on repeat failure.
-    if (m_localDbPath.isEmpty() || m_cmState != CmState::Active)
+    if (m_localDbPath.isEmpty() || !bagEditPushAllowed(m_cmState))
         return;
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);

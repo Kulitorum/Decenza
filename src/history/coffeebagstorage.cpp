@@ -108,7 +108,7 @@ void setYieldMode(CoffeeBag& b, const QVariant& v) { b.yieldMode = YieldSpec::no
 
 // String columns carry an explicit Visualizer flag (the identity/lifecycle
 // strings sync; the grinder/visualizer-id strings do not). The numeric/bool
-// columns are all local-only.
+// columns are local-only, except in_inventory, spelled out below.
 #define COL_STR(sqlName, member, viz) \
     BagCol{ sqlName, #member, viz, true, \
             &readStr<&CoffeeBag::member>, &bindStr<&CoffeeBag::member>, \
@@ -153,7 +153,11 @@ const BagCol kCols[] = {
     COL_STR  ("opened_date",           openedDate,          false),
     COL_STR  ("notes",                 notes,               true),
     COL_DBL  ("start_weight_g",        startWeightG),
-    COL_BOOL ("in_inventory",          inInventory),
+    // Visualizer-synced since its API takes archived_at: finishing a bag
+    // archives it there (VisualizerSync::bagArchiveForPush).
+    BagCol   { "in_inventory", "inInventory", true, true,
+               &readBool<&CoffeeBag::inInventory>, &bindBool<&CoffeeBag::inInventory>,
+               &getMember<&CoffeeBag::inInventory>, &setBool<&CoffeeBag::inInventory> },
     // Grinder identity (brand/model/burrs) is no longer stored on the bag —
     // it resolves through equipment_id to the package's grinder item
     // (migration 23 dropped the columns). The grind setting + rpm stay as the
@@ -176,6 +180,7 @@ const BagCol kCols[] = {
     COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
     COL_STR  ("visualizer_roaster_id", visualizerRoasterId, false),
     COL_BOOL ("visualizer_sync_pending", visualizerSyncPending),
+    COL_STR  ("visualizer_archived_at", visualizerArchivedAt, false),
     COL_EPOCH("last_used",             lastUsedEpoch),
 };
 
@@ -414,6 +419,17 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                         bool propagateBeanBase)
 {
+    updateBag(bagId, fields, propagateBeanBase, true);
+}
+
+void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId, const QVariantMap& fields)
+{
+    updateBag(bagId, fields, false, false);
+}
+
+void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase,
+                                 bool pushToVisualizer)
+{
     // Guarantee a terminal bagUpdated even when uninitialized: runAsync drops
     // the job (no done callback) if m_dbPath is empty, and callers like the MCP
     // bag_update tool arm a one-shot bagUpdated to send their response — without
@@ -434,7 +450,7 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success](bool) {
+        [this, bagId, fields, success, pushToVisualizer](bool) {
             emit bagUpdated(bagId, *success);
             if (!*success) {
                 // The dialog has already closed and bagsChanged() is not
@@ -446,7 +462,7 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
             }
             if (*success) {
                 emit bagsChanged();
-                if (touchesVisualizerFields(fields))
+                if (pushToVisualizer && touchesVisualizerFields(fields))
                     emit bagVisualizerFieldsChanged(bagId);
                 // Inventory lifecycle events, whichever surface wrote them
                 // (the card's Bag Finished button funnels through
@@ -597,6 +613,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             visualizer_bag_id TEXT,
             visualizer_roaster_id TEXT,
             visualizer_sync_pending INTEGER NOT NULL DEFAULT 0,
+            visualizer_archived_at TEXT,
             last_used INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
@@ -925,10 +942,10 @@ bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
     // (the columns flagged visualizer==true in kCols): beanBaseId ->
     // canonical_coffee_bag_id; beanBaseData -> the descriptive blob
     // (country/variety/process/tasting/...); roasterName maps to the bag's
-    // roaster_id (re-resolved on rename). Deliberately EXCLUDES the local-only
-    // columns (grinder*/dose/yield/startWeight/lastUsed/inInventory and the
-    // visualizer_* sync ids themselves) so a grinder write-through or dose/yield
-    // stamp never triggers a network PATCH.
+    // roaster_id (re-resolved on rename); inInventory -> archived_at.
+    // Deliberately EXCLUDES the local-only columns (grinder*/dose/yield/
+    // startWeight/lastUsed and the visualizer_* sync state itself) so a grinder
+    // write-through or dose/yield stamp never triggers a network PATCH.
     const QSet<QString>& kVisualizerKeys = bagVisualizerKeys();
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
         if (kVisualizerKeys.contains(it.key()))

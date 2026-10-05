@@ -2,6 +2,7 @@
 #include "shotfileparser.h"
 #include "core/grinderaliases.h"
 #include "network/tastecvamap.h"
+#include "network/visualizernotes.h"
 #include <QFile>
 #include <QRegularExpression>
 #include <QJsonDocument>
@@ -355,8 +356,9 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
     result.record.drinkTds = jsonToScalar(shotJson.value("drink_tds"));
     result.record.drinkEy  = jsonToScalar(shotJson.value("drink_ey"));
     result.record.summary.enjoyment = qRound(jsonToScalar(shotJson.value("espresso_enjoyment")));
-    result.record.espressoNotes = shotJson.value("espresso_notes").toString();
-    result.record.beanNotes = shotJson.value("bean_notes").toString();
+    // Visualizer returns notes as rich-text HTML since 2026-08-02.
+    result.record.espressoNotes = VisualizerNotes::htmlToPlain(shotJson.value("espresso_notes").toString());
+    result.record.beanNotes = VisualizerNotes::htmlToPlain(shotJson.value("bean_notes").toString());
     result.record.barista = shotJson.value("barista").toString();
     result.record.summary.doseWeight = jsonToScalar(shotJson.value("bean_weight"));
     result.record.summary.finalWeight = jsonToScalar(shotJson.value("drink_weight"));

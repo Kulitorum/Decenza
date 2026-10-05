@@ -66,6 +66,7 @@ class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
 class TranslationManager;
+class VisualizerShotSync;
 class ScaleDeviceProxy;
 struct ShotSample;
 
@@ -726,6 +727,7 @@ private:
     ShotDataModel* m_shotDataModel = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
     VisualizerUploader* m_visualizer = nullptr;
+    VisualizerShotSync* m_visualizerSync = nullptr;
     VisualizerImporter* m_visualizerImporter = nullptr;
     DecentAccount* m_decentAccount = nullptr;
     DecentShotUploader* m_decentUploader = nullptr;

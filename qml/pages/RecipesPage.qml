@@ -428,13 +428,9 @@ T.Page {
         // Bean photo cache key: canonical Bean Base id when the recipe has
         // one, else the linked BAG's key ("bag-<id>") — a manual bag's photo
         // is cached under the bag key.
-        imageKey: {
-            if (recipe && recipe.beanBaseId && String(recipe.beanBaseId).length > 0)
-                return String(recipe.beanBaseId)
-            if (recipe && (recipe.bagId || 0) > 0)
-                return "bag-" + recipe.bagId
-            return ""
-        }
+        imageKey: recipe ? MainController.beanbase.bagImageKey(recipe.bagId || 0,
+                                                               recipe.beanBaseId ? String(recipe.beanBaseId) : "")
+                         : ""
         // Product-page link from the linked bag's blob (lets the cache
         // backfill a manual bag's photo, same as BagCard).
         imageLink: {

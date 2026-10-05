@@ -453,8 +453,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8())
                         .object().value(QStringLiteral("link")).toString();
                 const QString canonicalId = bag.value(QStringLiteral("beanBaseId")).toString();
-                const QString imageKey = canonicalId.isEmpty()
-                    ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
+                const QString imageKey = BeanBaseClient::imageKeyFor(bagId, canonicalId);
                 if (safeBeanbase && !createdImageUrl.isEmpty()) {
                     // The extraction found the photo itself (SPA page); nothing
                     // else will. Mirrors the app stashing it until the row id
@@ -514,9 +513,9 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                             roastName = bag.coffeeName;
                             productUrl = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
                                              .object().value(QStringLiteral("link")).toString();
-                            imageKey = !bag.beanBaseId.isEmpty() ? bag.beanBaseId
-                                : (productUrl.isEmpty() ? QString()
-                                                        : QStringLiteral("bag-%1").arg(bagId));
+                            // A manual bag with no product URL has no photo to key.
+                            if (!bag.beanBaseId.isEmpty() || !productUrl.isEmpty())
+                                imageKey = BeanBaseClient::imageKeyFor(bagId, bag.beanBaseId);
                         }
                     });
                     QMetaObject::invokeMethod(qApp,
@@ -653,8 +652,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                                  safeBeanbase, respondJson]() {
                                     bool imageRefreshed = false;
                                     if (safeBeanbase) {
-                                        const QString imageKey = canonicalId.isEmpty()
-                                            ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
+                                        const QString imageKey = BeanBaseClient::imageKeyFor(bagId, canonicalId);
                                         if (!extractedImageUrl.isEmpty()) {
                                             // The extraction's own photo wins over
                                             // re-scraping: stage 2 ran because the

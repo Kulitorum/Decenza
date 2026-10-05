@@ -2365,8 +2365,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     const QString newLink = linkOf(merged);
                     std::function<void()> refreshPhoto;
                     if (safeBeanbase && !newLink.isEmpty() && newLink != linkOf(currentBlob)) {
-                        const QString imageKey = curBeanBaseId.isEmpty()
-                            ? QStringLiteral("bag-%1").arg(bagId) : curBeanBaseId;
+                        const QString imageKey = BeanBaseClient::imageKeyFor(bagId, curBeanBaseId);
                         const QString roastName = fields.value("coffeeName", curCoffee).toString();
                         refreshPhoto = [safeBeanbase, imageKey, roastName, newLink]() {
                             if (safeBeanbase)

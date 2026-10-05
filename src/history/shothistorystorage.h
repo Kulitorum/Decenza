@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 42;
+    static constexpr int kCurrentSchemaVersion = 43;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -325,6 +325,28 @@ public:
 
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
+
+    // Two-way Visualizer sync (visualizer-two-way-sync). An edit through
+    // updateShotMetadataStatic sets a VisualizerSync::Field bit in
+    // shots.visualizer_dirty for each field it changes and bumps
+    // visualizer_dirty_seq; a successful send clears what it carried.
+    static bool readVisualizerDirtyStatic(QSqlDatabase& db, qint64 shotId, quint32* dirty, qint64* seq);
+    // Clears `fields` only if no edit has landed since `seq` was read: that
+    // edit's bits are not in the send being acknowledged.
+    static bool clearVisualizerDirtyStatic(QSqlDatabase& db, qint64 shotId, quint32 fields, qint64 seq);
+    void requestClearVisualizerDirty(qint64 shotId, quint32 fields, qint64 seq);
+    // Writes a pull's values (VisualizerSync::remoteShotValues) where they
+    // differ from the row and the field is not dirty, decided inside the write
+    // transaction so an edit saved meanwhile still wins. Marks nothing dirty.
+    // Returns the metadata keys written; false (and nothing written) on failure.
+    static bool applyVisualizerPullStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& remote,
+                                          QVariantMap* written);
+    // As above on the DB worker; a shot that changed emits historyDataChanged
+    // and shotMetadataUpdated, so the Decent copy and open pages follow.
+    void requestApplyVisualizerPull(qint64 shotId, const QVariantMap& remote);
+    // The local shot linked to each of `visualizerIds`, for those linked here.
+    static bool shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const QStringList& visualizerIds,
+                                              QHash<QString, qint64>* out);
 
     // Async: fetch most recent shot ID on background thread, emits mostRecentShotIdReady()
     Q_INVOKABLE void requestMostRecentShotId();

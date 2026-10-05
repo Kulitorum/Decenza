@@ -768,6 +768,7 @@ set(SOURCES
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
     src/network/visualizeruploader.cpp
+    src/network/visualizershotsync.cpp
     src/network/decentaccount.cpp
     src/network/decentshotrecord.cpp
     src/network/decentshotuploader.cpp
@@ -1020,6 +1021,9 @@ set(HEADERS
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
     src/network/visualizeruploader.h
+    src/network/visualizershotsync.h
+    src/network/visualizersync.h
+    src/network/visualizernotes.h
     src/network/shotpayloadhelpers.h
     src/network/accountlink.h
     src/network/httpauth.h

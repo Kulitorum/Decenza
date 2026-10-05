@@ -627,7 +627,7 @@ QString ShotServer::generateSettingsPage() const
                 <div class="form-group">
                     <label class="form-checkbox">
                         <input type="checkbox" id="updateAutomatically" onchange="saveUploadSetting('updateAutomatically', this.checked)">
-                        <span>Auto-update shots: re-send a shot after you edit it</span>
+                        <span>Auto-update shots: re-send a shot after you edit it, and bring back edits made on Visualizer</span>
                     </label>
                 </div>
                 <div class="form-group">

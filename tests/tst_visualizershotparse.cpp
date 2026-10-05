@@ -15,6 +15,8 @@
 #include <QJsonArray>
 
 #include "history/shotfileparser.h"
+#include "network/visualizernotes.h"
+#include "network/visualizersync.h"
 
 class TstVisualizerShotParse : public QObject
 {
@@ -174,6 +176,109 @@ private slots:
 
         QVERIFY2(!res.success, "hollow shot (no pressure) was accepted");
         QVERIFY(res.errorMessage.contains(QStringLiteral("pressure"), Qt::CaseInsensitive));
+    }
+
+    // Visualizer returns notes as rich-text HTML since 2026-08-02; recovery must
+    // store the text, not the markup.
+    void recovered_notes_are_plain_text()
+    {
+        QJsonObject extra;
+        extra.insert(QStringLiteral("espresso_notes"),
+                     QStringLiteral("<p>Sour<br>try finer</p><p>Beans &amp; water &lt;3</p>"));
+        const ShotFileParser::ParseResult r = ShotFileParser::parseVisualizerShot(
+            minimalShot(extra), QString(), QStringLiteral("t-notes"), 1751000000);
+        QVERIFY2(r.success, qPrintable(r.errorMessage));
+        QCOMPARE(r.record.espressoNotes, QStringLiteral("Sour\ntry finer\n\nBeans & water <3"));
+    }
+
+    // What a PATCH sends must read back as what was typed, or every pull would
+    // see a difference and rewrite the local note.
+    void notes_round_trip_through_visualizer_html()
+    {
+        const QString typed = QStringLiteral("a <b> & c\nd\n\ne");
+        QCOMPARE(VisualizerNotes::plainToHtml(typed), QStringLiteral("<p>a &lt;b&gt; &amp; c<br>d</p><p>e</p>"));
+        QCOMPARE(VisualizerNotes::htmlToPlain(VisualizerNotes::plainToHtml(typed)), typed);
+        QCOMPARE(VisualizerNotes::htmlToPlain(QStringLiteral("plain, pre-rich-text")),
+                 QStringLiteral("plain, pre-rich-text"));
+        // Indentation does not survive the upload's Markdown rendering.
+        QVERIFY(VisualizerNotes::sameNotes(QStringLiteral("    indented"), QStringLiteral("<pre>indented</pre>")));
+    }
+
+    // A pull writes what changed there, keeps a field edited here and not yet
+    // sent, and never clears a local value from a field Visualizer lacks.
+    void shot_pull_keeps_local_edits_and_never_clears()
+    {
+        QJsonObject remote;
+        remote.insert("grinder_setting", "2.6 1500rpm");
+        remote.insert("espresso_enjoyment", 80);
+        remote.insert("espresso_notes", "<p>sour<br>try finer</p>");
+        remote.insert("bean_weight", "18.0");
+        remote.insert("barista", QJsonValue(QJsonValue::Null));
+        const QVariantMap values = VisualizerSync::remoteShotValues(remote);
+        QCOMPARE(values.value("grinderSetting").toString(), QStringLiteral("2.6"));
+        QCOMPARE(values.value("rpm").toLongLong(), qint64(1500));
+
+        QVariantMap local;
+        local.insert("grinderSetting", "2.4");
+        local.insert("rpm", 1500);
+        local.insert("enjoyment", 70);
+        local.insert("espressoNotes", "sour\ntry finer");
+        local.insert("doseWeight", 18.0);
+        local.insert("barista", "Jeff");
+        const QVariantMap changes = VisualizerSync::shotPullChanges(values, local, VisualizerSync::Enjoyment);
+        QCOMPARE(changes.keys(), QStringList{QStringLiteral("grinderSetting")});
+        QCOMPARE(changes.value("grinderSetting").toString(), QStringLiteral("2.6"));
+    }
+
+    // Archive state syncs both ways off the archived_at Visualizer was last known
+    // to hold: a change there carries over once, and a push goes out only when
+    // the two sides disagree — so neither side's newer state is undone by the
+    // other's stale one.
+    void bag_archive_syncs_on_disagreement_only()
+    {
+        const QString at = QStringLiteral("2026-10-01T09:00:00.000Z");
+        auto bag = [](bool inInventory, const QString& seen) {
+            return QVariantMap{{"inInventory", inInventory}, {"visualizerArchivedAt", seen}};
+        };
+
+        QVariantMap c = VisualizerSync::bagArchivePullChanges(at, bag(true, QString()));
+        QCOMPARE(c.value("inInventory"), QVariant(false));
+        QCOMPARE(c.value("visualizerArchivedAt").toString(), at);
+        QVERIFY(VisualizerSync::bagArchivePullChanges(at, bag(true, at)).isEmpty());   // restocked here, not yet pushed
+        QCOMPARE(VisualizerSync::bagArchivePullChanges(QString(), bag(false, at)).value("inInventory"), QVariant(true));
+        QVERIFY(VisualizerSync::bagArchivePullChanges(QString(), bag(false, QString())).isEmpty());  // finished here
+
+        const QDateTime now = QDateTime::fromString(QStringLiteral("2026-10-05T08:30:00Z"), Qt::ISODate);
+        QJsonValue sent;
+        QVERIFY(VisualizerSync::bagArchiveForPush(bag(false, QString()), now, &sent));
+        QCOMPARE(sent.toString(), QStringLiteral("2026-10-05T08:30:00Z"));
+        QVERIFY(VisualizerSync::bagArchiveForPush(bag(true, at), now, &sent));
+        QVERIFY(sent.isNull());
+        QVERIFY(!VisualizerSync::bagArchiveForPush(bag(true, QString()), now, &sent));
+        QVERIFY(!VisualizerSync::bagArchiveForPush(bag(false, at), now, &sent));
+    }
+
+    // Freeze there resets the defrost date; descriptive fields only fill blanks;
+    // a bag with an unsent local edit keeps its fields.
+    void bag_pull_freezer_and_blanks()
+    {
+        QJsonObject remote;
+        remote.insert("frozen_date", "2026-10-02");
+        remote.insert("defrosted_date", QJsonValue(QJsonValue::Null));
+        remote.insert("country", "Colombia");
+        remote.insert("region", "Huila");
+        QVariantMap local{{"inInventory", true}, {"frozenDate", "2026-09-01"}, {"defrostDate", "2026-09-10"},
+                          {"beanBaseData", QStringLiteral(R"({"region":"Nariño"})")}};
+
+        const QVariantMap c = VisualizerSync::bagFieldPullChanges(remote, local);
+        QCOMPARE(c.value("frozenDate").toString(), QStringLiteral("2026-10-02"));
+        QCOMPARE(c.value("defrostDate").toString(), QString());
+        const QJsonObject blob = QJsonDocument::fromJson(c.value("beanBaseData").toString().toUtf8()).object();
+        QCOMPARE(blob.value("origin").toString(), QStringLiteral("Colombia"));
+        QCOMPARE(blob.value("region").toString(), QStringLiteral("Nariño"));
+
+        local.insert("visualizerSyncPending", true);
+        QVERIFY(VisualizerSync::bagFieldPullChanges(remote, local).isEmpty());
     }
 };
 

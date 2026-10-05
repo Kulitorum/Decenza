@@ -1,17 +1,13 @@
 ## Visualizer Integration
 
 ### DYE (Describe Your Espresso) Metadata
-- **Location**: `qml/pages/PostShotReviewPage.qml` and `qml/pages/BeanInfoPage.qml`
-- **Settings**: `src/core/settings.h` - dye* properties (sticky between shots)
-- **Feature toggle**: `visualizerExtendedMetadata` setting (no UI toggle — controlled via layout system and backup/restore)
-- **Auto-show**: Settings → Visualizer → "Edit after shot"
-- **Access**: BeansItem in layout system (`qml/components/layout/items/BeansItem.qml`), auto-show after shot, or shot history tap
+- **Location**: `qml/pages/PostShotReviewPage.qml` and the bag editor (`qml/components/ChangeBeansDialog.qml`)
+- **Settings**: `SettingsDye` (`src/core/settings_dye.h`) — sticky between shots
+- **Auto-show**: Settings → Machine → App Behavior → "Edit after shot"
 
-Supported metadata fields:
-- `bean_brand`, `bean_type`, `roast_date`, `roast_level`
-- `grinder_model`, `grinder_setting`
-- `drink_tds`, `drink_ey`, `espresso_enjoyment`
-- `dyeShotNotes`, `barista`
+Fields that reach Visualizer: bean brand/type, roast date/level, grinder (from the
+equipment package) and setting (+ rpm), dose, yield, TDS, EY, enjoyment, notes,
+barista, taste taps (as CVA scores), and the canonical bean link.
 
 ### Shot Upload (VisualizerUploader)
 
@@ -28,7 +24,81 @@ Supported metadata fields:
   `visualizer_id` and uploads it otherwise, so a shot is never uploaded twice; a PATCH answered 404
   (deleted on visualizer.coffee) clears the link and uploads afresh. Requests are one at a time; do
   not call the upload or PATCH paths around it. The one exception is the migration-16 back-sync,
-  which PATCHes directly; a job never mistakes that PATCH for its own.
+  which PATCHes the rating directly; a job never mistakes that PATCH for its own.
+- **Which fields a PATCH sends** (`buildShotUpdateBody(shot, fields)`): an automatic update sends
+  only the fields edited here since the last send (`shots.visualizer_dirty`, below); the Upload
+  button sends all of them. A sent field the user cleared goes as JSON `null`.
+- **Errors**: `apiErrorMessage()` shows Visualizer's own JSON `error` when it sends one — that is
+  how a disabled account (403), the rate limit (429) and a validation failure (422) explain
+  themselves.
+
+#### Notes are rich text on Visualizer, plain text here
+
+Since 2026-08-02 Visualizer stores notes as HTML, and each route reads them differently
+(`src/network/visualizernotes.h`):
+
+| Route | Visualizer reads the value as | Decenza sends |
+|---|---|---|
+| Upload (`app.data.settings.espresso_notes`) | Markdown (GFM, hard wraps) | `escapeMarkdown()` — `*`, `1.` etc. stay literal |
+| Shot / bag PATCH | HTML (a bare newline is whitespace) | `plainToHtml()` — `<p>`, `<br>` |
+| Every read (shot, bag, recovery) | returns HTML | `htmlToPlain()` on the way in |
+
+#### Barista is `my_name`
+
+Visualizer's parser reads the barista from `app.data.settings.my_name` only (de1app's key,
+`Parsers::Base#build_shot`). A `barista` key there, or at the root, is ignored — which is how
+every uploaded Decenza shot lost its barista until 2026-10.
+
+### Two-way sync (VisualizerShotSync)
+
+Edits made on visualizer.coffee — notably in its Journal table, which bulk-edits up to 100
+shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules in
+`src/network/visualizersync.h` (pure, unit-tested).
+
+- **Runs** at startup, every 30 min and on account connect, only while Visualizer is on and
+  **automatic update** is on (the same switch that sends edits). Requests are paced by
+  `VisualizerUploader::kApiRequestIntervalMs` (the rate-limit budget is shared with uploads).
+- **Shots**: `GET /api/shots?updated_after=<cursor>&sort=updated_at`, then
+  `GET /api/shots/:id?essentials=1` for each one linked to a local shot. The cursor
+  (`visualizer/pullCursor`, per account) advances only over a complete pass; the first pass on an
+  account looks back 14 days. Our own uploads and PATCHes come back too and write nothing.
+- **What a pull writes** (`shotPullChanges`): a field whose remote value differs from local, unless
+  it is dirty here. A missing or null remote value never clears a local one (CVA needs Premium;
+  barista never reached Visualizer before the `my_name` fix). Grinder identity and the canonical
+  link are not pulled — locally they are an equipment package and a Bean Base snapshot. The rpm
+  comes back off the `"2.4 1400rpm"` suffix.
+- **Dirty tracking** (migration 43): `updateShotMetadataStatic` sets a `VisualizerSync::Field` bit
+  in `shots.visualizer_dirty` for each field whose value an edit changes (compared in SQL, NULL and
+  "" equal) and bumps `visualizer_dirty_seq`. A successful send clears only the bits it carried, and
+  only if the seq is unchanged — an edit that landed while the request was out keeps its bits. A
+  pull does not mark anything. Both columns travel with backups.
+- **Coffee bags**:
+  - **Archive, both ways** (API since visualizer `0668577`, our
+    [#262](https://github.com/miharekar/visualizer/issues/262)): `coffee_bags.visualizer_archived_at`
+    is the `archived_at` Visualizer was last known to hold. The pull reads every bag's
+    `archived_at` from the paged bag list (not one read per bag) and acts only on a change —
+    an archive there marks the bag finished here, a restore puts it back
+    (`bagArchivePullChanges`). A bag push carries `archived_at` only when the bag's
+    inventory state here disagrees with that value (`bagArchiveForPush`: now, or null to
+    restore), and records what the reply says; so an edit to anything else never moves an
+    archive the pull has not applied yet. `inInventory` is therefore a Visualizer-pushed field.
+  - **Fields** (`bagFieldPullChanges`), for each bag still in inventory, from
+    `GET /api/coffee_bags/:id`: a new `frozen_date` is taken with its `defrosted_date`
+    (Visualizer's Freeze clears it), otherwise a differing `defrosted_date`; descriptive
+    fields fill local blanks only. A bag with `visualizerSyncPending` keeps its fields.
+  - **Photo**: whichever side lacks one gets the other's. Visualizer's signed `image_url`
+    (expires in 5 min) goes into the bag photo cache under `BeanBaseClient::imageKeyFor()`; a
+    cached photo is uploaded as `coffee_bag[image]` multipart. Neither side's photo is replaced.
+  - Pulled values are written through `CoffeeBagStorage::requestApplyVisualizerPull`, which
+    emits everything `requestUpdateBag` does except the push back to Visualizer.
+
+### Bag edits reach Visualizer without a shot upload
+
+A bag edit (editor, AI fill, MCP `bag_update`) is pushed at once unless Coffee Management is
+known to be off. It used to wait for a shot upload to confirm CM, so on a device that never uploads
+a shot an edit never arrived. A parked (failed) push is retried after each upload and at the end of
+each sync pass.
+
 
 **Optional series are omitted, never zero-filled.** `interpolateGoalData()`
 returns an array of zeros for an empty input vector, so an unguarded
@@ -121,7 +191,7 @@ carry one.
 
 The Visualizer's server-side `DecentJson` parser extracts profile fields from `app.data.settings` using a fixed list of TCL field names (`PROFILE_FIELDS`). De1app dumps its entire `::settings` array (hundreds of keys); Decenza sends a curated subset via `buildProfileSettings()`.
 
-**DYE metadata fields**: `bean_brand`, `bean_type`, `roast_date`, `roast_level`, `grinder_model`, `grinder_setting`, `grinder_dose_weight`, `drink_weight`, `drink_tds`, `drink_ey`, `espresso_enjoyment`, `espresso_notes`, `barista`, `profile_title`
+**DYE metadata fields**: `bean_brand`, `bean_type`, `roast_date`, `roast_level`, `grinder_model`, `grinder_setting`, `grinder_dose_weight`, `drink_weight`, `drink_tds`, `drink_ey`, `espresso_enjoyment`, `espresso_notes`, `my_name` (barista), `profile_title`
 
 **Profile fields** (for Visualizer TCL reconstruction):
 - `settings_profile_type` — `settings_2a`/`settings_2b`/`settings_2c`
@@ -171,10 +241,12 @@ Decenza's upload is at feature parity with de1app for Visualizer's purposes. Key
 | `resistance.by_weight` | Resistance from weight flow | Not sent (minimal Visualizer impact) |
 | `timers` | Timer reference points | Not sent (not used by Visualizer) |
 | `scale` | Raw scale data (timestamps, raw weight) | Not sent (not used by Visualizer) |
-| `meta.bean.notes` | Bean notes field | Not sent (Decenza doesn't store bean notes separately) |
+| `bean_notes` | Bean notes | Not sent |
 
 ### Profile Import (VisualizerImporter)
 - **Location**: `src/network/visualizerimporter.cpp/.h`
+- `GET /api/shots/shared?code=` with an EMPTY code and credentials lists the user's shared
+  shots (multi-import relies on it); an unknown code answers 404 (visualizer `39d2219`).
 - **QML Page**: `qml/pages/VisualizerBrowserPage.qml`
 - **Input**: User enters a 4-character share code (no embedded browser)
 - **API**: `GET https://visualizer.coffee/api/shots/{id}/profile?format=json`
