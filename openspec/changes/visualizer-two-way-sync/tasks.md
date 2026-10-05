@@ -32,7 +32,10 @@
 ## 6. Verify
 
 - [x] 6.1 Full suite through Qt Creator: 119/119 passed.
-- [ ] 6.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). Local build with Visualizer disconnected or Auto-update off.
+- [ ] 6.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). The web /beans page already shows them; the three QML screens open by long press.
+- [x] 6.7 Mac dev build, 2026-10-05: migration 43 ran on the real desktop database; an edit marks only changed fields, a re-save marks nothing, and an empty value over an unset one is not a change (checked in the DB); the web settings page shows the new description; no QML warnings in the log.
+
+A Mac dev run with the account connected (2026-10-05 08:11) already completed one real pass: 54 changed shots listed, 29 linked read, one roast level pulled with no echo PATCH; the bag list read; one defrost date pulled; five bag photos uploaded and visible on visualizer.coffee; a second pass read only the one shot changed since. This exercised every request shape against the live server, but it is not a substitute for 6.2-6.5.
 
 Held for the next beta: 6.2-6.5 run against Jeff's one paid Visualizer account, so they happen on his production Android tablet, not on a desktop or simulator build, which would fill that account with test data. They are not passed until that beta confirms them.
 
