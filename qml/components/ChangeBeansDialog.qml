@@ -739,6 +739,15 @@ DecenzaDialog {
             editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
     }
 
+    // Restock a finished bag: the re-buy form above, prefilled from it, saved
+    // as a new bag. The finished bag stays finished, with its shots.
+    function openRestock(bag) {
+        bagKind = String(bag.kind || "") === "tea" ? "tea" : "coffee"
+        openFormFromResult(bag)
+        _armedForm = true
+        open()
+    }
+
     function openManualEntry() {
         resetForm()
         formMode = "create"

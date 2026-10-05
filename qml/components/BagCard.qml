@@ -13,17 +13,23 @@ import Decenza
 // "Bag finished" once shots exist (leaves inventory, history kept). Storage
 // still refuses deleting a referenced bag — a brief message explains if the
 // count was stale.
+//
+// A finished bag (finishedCard) is shown dimmed; tapping it opens the editor,
+// and its actions are Restock (a new bag of the same coffee), Edit and details.
 Rectangle {
     id: card
 
     property var bag: ({})
+    property bool finishedCard: false
 
     signal editRequested(var bag)
     // "Find in Bean Base": open the edit dialog with the canonical link
     // search pre-run for this bag.
     signal linkRequested(var bag)
+    // Finished card: open the new-bag form prefilled from this bag.
+    signal restockRequested(var bag)
 
-    readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
+    readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
     // isFrozen means "this bag is stored frozen". Beans are frozen in PORTIONS
@@ -292,10 +298,12 @@ Rectangle {
         if (attrLine.length > 0) bits.push(attrLine)
         if (metaLine.length > 0) bits.push(metaLine)
         if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
+        if (finishedCard) bits.push(TranslationManager.translate("bagcard.accessible.finished", "finished"))
         return bits.join(", ")
     }
 
     color: Theme.cardBackgroundColor
+    opacity: finishedCard ? 0.7 : 1.0
     radius: Theme.cardRadius
     border.width: selected ? 2 : 1
     border.color: selected ? Theme.primaryColor : Theme.borderColor
@@ -337,7 +345,11 @@ Rectangle {
         accessibleName: card.accessibleSummary
         accessibleItem: card
         onAccessibleClicked: {
-            if (card.bag && card.bag.id !== undefined)
+            if (!card.bag || card.bag.id === undefined)
+                return
+            if (card.finishedCard)
+                card.editRequested(card.bag)
+            else
                 Settings.dye.activeBagId = card.bag.id
         }
     }
@@ -484,7 +496,19 @@ Rectangle {
             // Unlinked bag: one tap opens the edit dialog with the Bean Base
             // search already run for this coffee (was a passive hint before).
             AccessibleButton {
-                visible: !card.hasCanonical
+                visible: card.finishedCard
+                primary: true
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.restock", "Restock")
+                accessibleName: TranslationManager.translate("bagcard.accessible.restock", "Restock: add a new bag of this coffee")
+                onClicked: card.restockRequested(card.bag)
+            }
+
+            AccessibleButton {
+                visible: !card.finishedCard && !card.hasCanonical
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -495,7 +519,7 @@ Rectangle {
             }
 
             AccessibleButton {
-                visible: card.hasShots
+                visible: !card.finishedCard && card.hasShots
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -530,7 +554,7 @@ Rectangle {
             // pass "" so the picker's "default to today" branch wins over any
             // stored defrostDate).
             AccessibleButton {
-                visible: card.isFrozen
+                visible: !card.finishedCard && card.isFrozen
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -549,7 +573,7 @@ Rectangle {
             // bag stays frozen), "Mark Opened" this portion leaving airtight
             // storage. Same picker pattern as Thaw, always defaulting to today.
             AccessibleButton {
-                visible: card.portionOutOfFreezer
+                visible: !card.finishedCard && card.portionOutOfFreezer
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)

@@ -201,6 +201,7 @@ public:
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
     Q_INVOKABLE void requestInventory();                   // inInventory = true, MRU order
+    Q_INVOKABLE void requestFinishedBags();                // inInventory = false, MRU order
     Q_INVOKABLE void requestBag(qint64 bagId);             // bagReady()
 
     // Async writes — all emit bagsChanged() on success.
@@ -240,8 +241,13 @@ public:
     static bool ensureTableStatic(QSqlDatabase& db);
 
     static qint64 insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag);
-    static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId);
-    static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db);
+    // An invalid bag means not found, unless `readError` is set: a failed query
+    // is not a missing row.
+    static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId, QString* readError = nullptr);
+    // The open bags, or the finished ones. A failed query returns no bags and
+    // sets `readError`, so a caller can tell it from an empty shelf.
+    static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db, bool finished = false,
+                                                     QString* readError = nullptr);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
 
@@ -359,7 +365,12 @@ signals:
     // that waits for "loaded" before deciding what to render would otherwise
     // wait forever and show neither bags nor an empty state.
     void inventoryFailed();
+    void finishedBagsReady(const QVariantList& bags);
+    void finishedBagsFailed();
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
+    // requestBag could not read the database. Not "not found": a listener that
+    // acts on a missing bag (SettingsDye clears the selection) must not act on this.
+    void bagReadFailed(qint64 bagId);
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
     // A write failed in a way the user must know about. bagUpdated carries the
@@ -390,6 +401,7 @@ signals:
     void bagsChanged();
 
 private:
+    void requestShelf(bool finished);  // requestInventory / requestFinishedBags
     void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
     void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success);
     void emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields);

@@ -858,12 +858,19 @@ private slots:
         QSignalSpy restocked(&storage, &CoffeeBagStorage::bagRestocked);
         QSignalSpy updated(&storage, &CoffeeBagStorage::bagUpdated);
 
-        // Mark empty (the card's Bag Finished button) → bagFinished.
+        // Mark empty (the card's Bag Finished button) → bagFinished, and the
+        // bag moves from the inventory to the finished shelf.
         storage.requestMarkEmpty(bagId);
         QTRY_COMPARE(updated.count(), 1);
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished.at(0).at(0).toLongLong(), bagId);
         QCOMPARE(restocked.count(), 0);
+        withRawDb(path, "lifecycle_shelves", [&](QSqlDatabase& db) {
+            QVERIFY(CoffeeBagStorage::loadInventoryStatic(db).isEmpty());
+            const QVector<InventoryBag> shelf = CoffeeBagStorage::loadInventoryStatic(db, true);
+            QCOMPARE(shelf.size(), 1);
+            QCOMPARE(shelf.first().bag.id, bagId);
+        });
 
         // Return to inventory (MCP/web-style update) → bagRestocked.
         storage.requestUpdateBag(bagId, {{"inInventory", true}});
@@ -2026,6 +2033,46 @@ private slots:
         // An absolute is NOT a ratio and must not be clamped into 0.5–100.
         dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
         QCOMPARE(dye.activeBagYieldValue(), 44.0);
+
+        drainDbWork(storage);
+        clearDyeSettings();
+    }
+
+    // A bag read that FAILS is not a missing bag: the selection survives it,
+    // and the inventory reports a failure rather than "no bags". Reproduced
+    // from a dev database whose coffee_bags lacked a column the code selects —
+    // every read failed, the Beans page said "No bags yet", and SettingsDye
+    // cleared the user's active bag.
+    void settingsDyeKeepsActiveBagWhenItsReadFails() {
+        clearDyeSettings();
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        qint64 bagId = -1;
+        withRawDb(path, "readfail_seed", [&](QSqlDatabase& db) {
+            CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "Kept";
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_seen"));
+        });
+        QVERIFY(bagId > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+        QSignalSpy failed(&storage, &CoffeeBagStorage::bagReadFailed);
+        QSignalSpy ready(&storage, &CoffeeBagStorage::bagReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("bag \\d+ unreadable"));
+        dye.setActiveBagId(static_cast<int>(bagId));
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(dye.activeBagId(), static_cast<int>(bagId));
+
+        QSignalSpy inventoryFailed(&storage, &CoffeeBagStorage::inventoryFailed);
+        QSignalSpy inventoryReady(&storage, &CoffeeBagStorage::inventoryReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("inventory query failed"));
+        storage.requestInventory();
+        QTRY_COMPARE(inventoryFailed.count(), 1);
+        QCOMPARE(inventoryReady.count(), 0);
 
         drainDbWork(storage);
         clearDyeSettings();

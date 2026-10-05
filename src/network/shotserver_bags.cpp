@@ -388,22 +388,38 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // GET /api/bags — the open-bag inventory (maps include shotCount).
-    if (path == "/api/bags" && method == "GET") {
+    // GET /api/bags — the open-bag inventory; /api/bags/finished — the bags
+    // marked finished (maps include shotCount).
+    if ((path == "/api/bags" || path == "/api/bags/finished") && method == "GET") {
+        const bool finished = path.endsWith(QLatin1String("/finished"));
         const int activeBagId = m_settings ? m_settings->dye()->activeBagId() : -1;
         auto conn = std::make_shared<QMetaObject::Connection>();
-        *conn = connect(bagStorage, &CoffeeBagStorage::inventoryReady, this,
-            [conn, activeBagId, respondJson](const QVariantList& bags) {
-                disconnect(*conn);
-                QJsonArray arr;
-                for (const QVariant& v : bags) {
-                    QJsonObject o = QJsonObject::fromVariantMap(v.toMap());
-                    o["isActive"] = o["id"].toInteger() == activeBagId;
-                    arr.append(o);
-                }
-                respondJson(QJsonObject{{"bags", arr}, {"count", arr.size()}});
-            });
-        bagStorage->requestInventory();
+        auto failConn = std::make_shared<QMetaObject::Connection>();
+        auto onReady = [conn, failConn, activeBagId, respondJson](const QVariantList& bags) {
+            disconnect(*conn);
+            disconnect(*failConn);
+            QJsonArray arr;
+            for (const QVariant& v : bags) {
+                QJsonObject o = QJsonObject::fromVariantMap(v.toMap());
+                o["isActive"] = o["id"].toInteger() == activeBagId;
+                arr.append(o);
+            }
+            respondJson(QJsonObject{{"bags", arr}, {"count", arr.size()}});
+        };
+        auto onFailed = [conn, failConn, respondJson]() {
+            disconnect(*conn);
+            disconnect(*failConn);
+            respondJson(QJsonObject{{"error", "Could not read the bags from the database"}}, 500);
+        };
+        if (finished) {
+            *conn = connect(bagStorage, &CoffeeBagStorage::finishedBagsReady, this, onReady);
+            *failConn = connect(bagStorage, &CoffeeBagStorage::finishedBagsFailed, this, onFailed);
+            bagStorage->requestFinishedBags();
+        } else {
+            *conn = connect(bagStorage, &CoffeeBagStorage::inventoryReady, this, onReady);
+            *failConn = connect(bagStorage, &CoffeeBagStorage::inventoryFailed, this, onFailed);
+            bagStorage->requestInventory();
+        }
         return;
     }
 
@@ -562,15 +578,25 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         // GET /api/bag/<id>
         if (action.isEmpty() && method == "GET") {
             auto conn = std::make_shared<QMetaObject::Connection>();
+            auto failConn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagReady, this,
-                [conn, bagId, respondJson](qint64 readyId, const QVariantMap& bag) {
+                [conn, failConn, bagId, respondJson](qint64 readyId, const QVariantMap& bag) {
                     if (readyId != bagId)
                         return;
                     disconnect(*conn);
+                    disconnect(*failConn);
                     if (bag.isEmpty())
                         respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
                     else
                         respondJson(QJsonObject::fromVariantMap(bag));
+                });
+            *failConn = connect(bagStorage, &CoffeeBagStorage::bagReadFailed, this,
+                [conn, failConn, bagId, respondJson](qint64 failedId) {
+                    if (failedId != bagId)
+                        return;
+                    disconnect(*conn);
+                    disconnect(*failConn);
+                    respondJson(QJsonObject{{"error", "Could not read the bag from the database"}}, 500);
                 });
             bagStorage->requestBag(bagId);
             return;
@@ -765,6 +791,10 @@ QString ShotServer::generateBeansPage() const
         </div>
         <div id="status"></div>
         <div id="list"></div>
+        <div class="section-head" id="finishedHead" style="display:none">
+            <button onclick="toggleFinished()" id="finishedToggle" aria-expanded="false">Show finished (0)</button>
+        </div>
+        <div id="finishedList"></div>
     </div>
 
     <dialog id="editor">
@@ -967,6 +997,7 @@ QString ShotServer::generateBeansPage() const
                 });
             getJson('/api/bags')
                 .then(d => { render(d.bags || []); status(''); })
+                .then(loadFinished)
                 .catch(e => status('Could not load bags: ' + e.message));
         }
 
@@ -1024,7 +1055,7 @@ QString ShotServer::generateBeansPage() const
             return parts.join(' &middot; ');
         }
 
-        function cardHtml(b) {
+        function cardHtml(b, finished) {
             const bb = parseBlob(b.beanBaseData);
             // Linkedness keys off the canonical id ALONE — BEAN_BASE.md
             // ("isLinked keys solely off a non-empty id"), BagCard.qml's
@@ -1061,6 +1092,18 @@ QString ShotServer::generateBeansPage() const
             if (dial) body += '<div class="plan-line">' + dial + '</div>';
             body += '</div>';
 
+            if (finished) {
+                // A finished bag offers only its way back, and its details.
+                let fin = '<div class="actions">'
+                    + '<button class="primary" onclick="restockBag(' + b.id + ')">Restock</button>'
+                    + '<button onclick="openEditor(' + b.id + ')">Edit</button>';
+                if (linked)
+                    fin += '<button onclick="showInfo(' + b.id + ')">Info</button>';
+                fin += '</div>';
+                return '<div class="card dimmed">'
+                    + '<div class="card-head">' + thumb + body + '</div>' + fin + '</div>';
+            }
+
             let acts = '<div class="actions">'
                 + '<button class="primary" onclick="activate(' + b.id + ')"' + (b.isActive ? ' disabled' : '') + '>Activate</button>'
                 + '<button onclick="openEditor(' + b.id + ')">Edit</button>';
@@ -1082,11 +1125,38 @@ QString ShotServer::generateBeansPage() const
         }
 
         function render(list) {
-            bags = list;
+            bags = list.concat(finishedBags);
             el('list').innerHTML = list.length
-                ? '<div class="grid">' + list.map(cardHtml).join('') + '</div>'
+                ? '<div class="grid">' + list.map(b => cardHtml(b, false)).join('') + '</div>'
                 : '<div class="empty"><h2>No bags yet</h2>'
                   + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+        }
+
+        // Finished bags: hidden behind a toggle, as Recipes hides archived ones.
+        let finishedBags = [];
+        let showFinished = false;
+        function renderFinished() {
+            bags = bags.filter(b => !finishedBags.some(f => f.id === b.id)).concat(finishedBags);
+            const btn = el('finishedToggle');
+            el('finishedHead').style.display = finishedBags.length ? '' : 'none';
+            btn.textContent = (showFinished ? 'Hide finished' : 'Show finished') + ' (' + finishedBags.length + ')';
+            btn.setAttribute('aria-expanded', showFinished ? 'true' : 'false');
+            el('finishedList').innerHTML = showFinished && finishedBags.length
+                ? '<div class="grid">' + finishedBags.map(b => cardHtml(b, true)).join('') + '</div>' : '';
+        }
+        function toggleFinished() { showFinished = !showFinished; renderFinished(); }
+        function loadFinished() {
+            return getJson('/api/bags/finished')
+                .then(d => { finishedBags = d.bags || []; renderFinished(); })
+                .catch(e => status('Could not load finished bags: ' + e.message));
+        }
+        // Restock: a new bag of the same coffee, as the app's re-buy form —
+        // identity, details and dial-in carry over; dates and notes belong to
+        // the finished bag, which stays finished.
+        function restockBag(id) {
+            const src = bags.find(x => x.id === id) || {};
+            openEditor(0, src.kind, false, Object.assign({}, src, {
+                roastDate: '', frozenDate: '', defrostDate: '', openedDate: '', notes: '', startWeightG: 0 }));
         }
 
         function activate(id) { post('/api/bag/' + id + '/activate').then(load).catch(e => status(e.message)); }
@@ -1128,9 +1198,10 @@ QString ShotServer::generateBeansPage() const
             el('lblCoffee').textContent = isTea ? 'Tea name' : 'Coffee';
         }
 
-        function openEditor(id, kind, focusSearch) {
+        // `source`: a bag to prefill a NEW bag from (restock).
+        function openEditor(id, kind, focusSearch, source) {
             editingId = id;
-            const b = bags.find(x => x.id === id) || {};
+            const b = source || bags.find(x => x.id === id) || {};
             editingKind = kind || b.kind || 'coffee';
             editorGeneration++;
             editBlob = parseBlob(b.beanBaseData, true);
@@ -1144,7 +1215,8 @@ QString ShotServer::generateBeansPage() const
             // to 95s — the same cross-record carryover as #1588.
             extracting = false;
             el('btnGetInfo').disabled = false;
-            el('editorTitle').textContent = id ? 'Edit Bag' : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
+            el('editorTitle').textContent = id ? 'Edit Bag' : source ? 'Restock'
+                : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
             el('fRoaster').value = b.roasterName || '';
             el('fCoffee').value = b.coffeeName || '';
             el('fRoastDate').value = b.roastDate || '';
@@ -1162,9 +1234,10 @@ QString ShotServer::generateBeansPage() const
             // the in-app form arrives with the current equipment resolved, so
             // the grind picker's RPM half matches the real grinder instead of
             // the "unknown grinder -> assume rpm-capable" fallback an empty
-            // identity triggers). An existing bag keeps its own link.
+            // identity triggers). An existing bag keeps its own link; a restock
+            // takes its source bag's, as the app's re-buy form does.
             const defaultPkg = id ? (b.equipmentId || 0)
-                : ((equipmentList.find(p => p.isActive) || { id: 0 }).id);
+                : (b.equipmentId || (equipmentList.find(p => p.isActive) || { id: 0 }).id);
             fillEquipmentSelect(defaultPkg);
             refreshGrindCandidates();
             el('fNotes').value = b.notes || '';

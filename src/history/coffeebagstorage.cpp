@@ -341,17 +341,34 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 
 void CoffeeBagStorage::requestInventory()
 {
+    requestShelf(false);
+}
+
+void CoffeeBagStorage::requestFinishedBags()
+{
+    requestShelf(true);
+}
+
+void CoffeeBagStorage::requestShelf(bool finished)
+{
     // runAsync silently drops the job when storage was never initialized, and a
     // view gated on "have we loaded yet" would wait forever — the same guard
     // requestCreateBag and requestUpdateBag carry, for the same reason.
+    auto fail = [this, finished]() {
+        if (finished)
+            emit finishedBagsFailed();
+        else
+            emit inventoryFailed();
+    };
     if (m_dbPath.isEmpty()) {
-        emit inventoryFailed();
+        fail();
         return;
     }
     auto bags = std::make_shared<QVariantList>();
-    runAsync("bags_inv",
-        [bags](QSqlDatabase& db) {
-            const QVector<InventoryBag> inventory = loadInventoryStatic(db);
+    auto error = std::make_shared<QString>();
+    runAsync(finished ? "bags_finished" : "bags_inv",
+        [bags, error, finished](QSqlDatabase& db) {
+            const QVector<InventoryBag> inventory = loadInventoryStatic(db, finished, error.get());
             for (const InventoryBag& entry : inventory) {
                 // shotCount is an inventory-only aggregate, not a CoffeeBag
                 // field — inject it into the map the QML card reads.
@@ -360,30 +377,42 @@ void CoffeeBagStorage::requestInventory()
                 bags->append(map);
             }
         },
-        // Read: skip the READY emit on open failure so the UI keeps its
-        // current list instead of being told the inventory is empty — but say
-        // that it failed, or a view gated on "have we loaded yet" never draws.
-        [this, bags](bool dbOpened) {
-            if (dbOpened)
-                emit inventoryReady(*bags);
+        // A database that would not open or a query that failed is not an
+        // empty shelf: the view keeps its list and says the read failed,
+        // rather than telling the user they have no bags.
+        [this, bags, error, finished, fail](bool dbOpened) {
+            if (!dbOpened || !error->isEmpty())
+                fail();
+            else if (finished)
+                emit finishedBagsReady(*bags);
             else
-                emit inventoryFailed();
+                emit inventoryReady(*bags);
         });
 }
 
 void CoffeeBagStorage::requestBag(qint64 bagId)
 {
     auto result = std::make_shared<QVariantMap>();
+    auto error = std::make_shared<QString>();
     runAsync("bags_get",
-        [bagId, result](QSqlDatabase& db) {
-            const CoffeeBag bag = loadBagStatic(db, bagId);
+        [bagId, result, error](QSqlDatabase& db) {
+            const CoffeeBag bag = loadBagStatic(db, bagId, error.get());
             if (bag.isValid())
                 *result = bag.toVariantMap();
         },
-        // Read: skip the emit on open failure. An empty result here would be read
-        // by SettingsDye as "active bag vanished" and clear the user's selection;
-        // only a genuine not-found (db opened, row absent) should do that.
-        [this, bagId, result](bool dbOpened) { if (dbOpened) emit bagReady(bagId, *result); });
+        // An empty bagReady means the row is gone, and SettingsDye clears the
+        // user's selection on it, so a database that would not open or a query
+        // that failed (a column missing after a botched migration) is reported
+        // as a failure instead.
+        [this, bagId, result, error](bool dbOpened) {
+            if (!dbOpened || !error->isEmpty()) {
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "unreadable:"
+                    << (dbOpened ? *error : QStringLiteral("database would not open"));
+                emit bagReadFailed(bagId);
+                return;
+            }
+            emit bagReady(bagId, *result);
+        });
 }
 
 void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
@@ -769,12 +798,17 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& inBa
     return query.lastInsertId().toLongLong();
 }
 
-CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
+CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId, QString* readError)
 {
     QSqlQuery query(db);
     query.prepare(QString("SELECT %1 FROM coffee_bags WHERE id = :id").arg(bagColumnList()));
     query.bindValue(":id", bagId);
-    if (!query.exec() || !query.next())
+    if (!query.exec()) {
+        if (readError)
+            *readError = query.lastError().text();
+        return CoffeeBag();
+    }
+    if (!query.next())
         return CoffeeBag();
     CoffeeBag bag = bagFromQueryRow(query);
     // Materialize the read-only grinder identity from the bag's equipment package
@@ -796,7 +830,8 @@ CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
     return bag;
 }
 
-QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
+QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db, bool finished,
+                                                         QString* readError)
 {
     QVector<InventoryBag> bags;
     QSqlQuery query(db);
@@ -805,9 +840,12 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
     // shots is history ("Bag finished").
     if (!query.exec(QString("SELECT %1, "
                             "(SELECT COUNT(*) FROM shots WHERE bag_id = coffee_bags.id) AS shot_count "
-                            "FROM coffee_bags WHERE in_inventory = 1 "
-                            "ORDER BY last_used DESC, id DESC").arg(bagColumnList()))) {
-        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "inventory query failed:" << query.lastError().text();
+                            "FROM coffee_bags WHERE in_inventory = %2 "
+                            "ORDER BY last_used DESC, id DESC").arg(bagColumnList()).arg(finished ? 0 : 1))) {
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << (finished ? "finished-bag" : "inventory")
+                                                 << "query failed:" << query.lastError().text();
+        if (readError)
+            *readError = query.lastError().text();
         return bags;
     }
     // Read shot_count by its alias, not a hardcoded position, so it no longer

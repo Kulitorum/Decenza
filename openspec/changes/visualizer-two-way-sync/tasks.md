@@ -35,6 +35,9 @@
 - [x] 5.8 One request pacer for every background pass; a changed-shot list that shrinks mid-pass leaves the cursor; the bag phase reads its bags in one query.
 - [x] 5.9 Second review round: shots no longer pull bean fields (Visualizer rewrites them from the bag); pulls announce themselves with `shotPulledFromVisualizer` / `bagPulledFromVisualizer` (forwarded to Decent, the exporter, SettingsDye, the open screens) instead of the edit signals; a shot pull waits for its write before the cursor moves; archive first sight records without acting; the review page merges from the pull's previous/written values and moves its undo frames; the bag editor saves its detail blob key by key; a read overtaken by a push of the same item is dropped; the bean inventory re-reads bags at most every 3 min; a bad shot is skipped rather than ending the pass; past 50 list pages the cursor re-baselines; a pass that outlives its account drops its cursor; failures log once and their recovery with a repeat count. Verify: `tst_visualizershotparse`, `tst_dbmigration::v42ToV43AddsVisualizerSyncColumns`, `tst_coffeebags::visualizerPullDecidesOnCurrentRowAndSignalsAsAPull`, `tst_visualizershotlist`.
 
+- [x] 5.10 A failed bag read is reported as a failure, not as an empty inventory or a missing bag, so the active bag survives it (a dev database missing a column cleared it). Verify: `tst_coffeebags::settingsDyeKeepsActiveBagWhenItsReadFails`.
+- [x] 5.11 Finished bags: "Show finished (N)" on the Beans page and the web `/beans` page; Restock opens the new-bag form prefilled from the finished bag. Verify: `tst_coffeebags::inventoryLifecycleSignals` (finished shelf); the QML is checked by hand (7.8).
+
 ## 6. Surfaces and docs
 
 - [x] 6.1 Shot Upload tab and ShotServer settings: "Auto-update shots" description mentions bringing edits back.
@@ -43,8 +46,9 @@
 
 ## 7. Verify
 
-- [x] 7.1 Full suite through Qt Creator after the second review round: 119/119 passed, no warnings; QML lint gate clean (252/252).
+- [x] 7.1 Full suite through Qt Creator after the finished-bags work: 118/119 in the full run, then `tst_coffeebags` re-run green after declaring its expected warnings (119/119); QML lint gate clean (252/252).
 - [ ] 7.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). The web /beans page already shows them; the three QML screens open by long press.
+- [ ] 7.8 Beans page: Show finished lists the finished bags; Restock on one opens a prefilled new-bag form and saves a new bag; tapping a finished card opens it for editing. Same on the web /beans page.
 - [x] 7.7 Mac dev build, 2026-10-05: migration 43 ran on the real desktop database; an edit marks only changed fields, a re-save marks nothing, and an empty value over an unset one is not a change (checked in the DB); the web settings page shows the new description; no QML warnings in the log.
 
 A Mac dev run with the account connected (2026-10-05 08:11) already completed one real pass: 54 changed shots listed, 29 linked read, one roast level pulled with no echo PATCH; the bag list read; one defrost date pulled; five bag photos uploaded and visible on visualizer.coffee; a second pass read only the one shot changed since. This exercised every request shape against the live server, but it is not a substitute for 7.2-7.5.

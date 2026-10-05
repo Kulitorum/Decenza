@@ -96,7 +96,7 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
     [miharekar/visualizer#262](https://github.com/miharekar/visualizer/issues/262)): `archived_at` is a key of
     `visualizer_seen` (below). The pull reads every bag's `archived_at` from the paged bag list
     (not one read per bag) and acts only on a change — an archive there marks the bag finished
-    here, a restore puts it back (`bagArchivePullChanges`). First sight records the state without
+    here, a restore puts it back (`bagArchivePullChanges`). Finished bags are listed under "Show finished" on the Beans page (app and web), where Restock opens the new-bag form prefilled from one. First sight records the state without
     acting: a difference that predates sync is not an archive. A bag push carries `archived_at` only when the bag's
     inventory state here disagrees with that value (`bagArchiveForPush`: now, or null to
     restore), and records what the reply says; so an edit to anything else never moves an
