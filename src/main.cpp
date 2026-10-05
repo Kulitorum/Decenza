@@ -4471,8 +4471,9 @@ int main(int argc, char *argv[])
             // DE1 intentionally NOT put to sleep - user may be checking other apps
             // while machine heats up
 
-            // IMPORTANT: Ensure charger is ON when app goes to background
-            // This prevents tablet from dying if user doesn't return to the app.
+            // IMPORTANT: Ensure charger is ON when app goes to background (unless
+            // the user switched USB Charger off) so the tablet doesn't die if the
+            // user doesn't return to the app.
             // Previously skipped on iOS because the old BLE command queue raced with
             // CoreBluetooth suspension, causing SIGSEGV. ensureChargerOn() uses
             // setUsbChargerOnUrgent(), which puts the write at the FRONT of the shared
@@ -4844,9 +4845,9 @@ int main(int argc, char *argv[])
             needBleWait = true;
         }
 
-        // IMPORTANT: Ensure charger is ON before exiting.
-        // Matches de1app's app_exit behaviour — always leave the charger ON so
-        // the tablet can charge while the app is not running to manage it.
+        // IMPORTANT: Ensure charger is ON before exiting, unless the user switched
+        // USB Charger off. Matches de1app's app_exit behaviour — leave the charger
+        // ON so the tablet can charge while the app is not running to manage it.
         //
         // BEFORE the drain wait below, not after, and that ordering is the whole
         // point. The write goes to the FRONT of the shared GATT queue and its

@@ -2584,12 +2584,9 @@ void DE1Device::setHeaterVoltage(int volts) {
 void DE1Device::sendInitialSettings() {
     if (!m_transport) return;
 
-    // Ensure USB charger is ON at startup (safe default like de1app)
-    if (!m_usbChargerOn) {
-        m_usbChargerOn = true;
-        writeMMR(DE1::MMR::USB_CHARGER, 1, QStringLiteral("connect-setup"));
-        emit usbChargerOnChanged();
-    }
+    // No USB charger write here: BatteryManager owns the port and applies its
+    // decision on connectedChanged, which onTransportConnected() emits before
+    // calling this. A write here ran second and overrode it for up to 60 s.
 
     // CRITICAL: Set fan temperature threshold via MMR.
     // Default DE1 fan runs continuously; threshold > 0 means fan only runs when

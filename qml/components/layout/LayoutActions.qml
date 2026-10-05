@@ -373,7 +373,11 @@ QtObject {
                     AppShell.brewSettingsRequested()
                     break
                 case "toggleCharging":
-                    if (typeof BatteryManager !== "undefined" && BatteryManager !== null)
+                    // With USB Charger off the modes are hidden and ignored, so cycling
+                    // one would change nothing visible; turn the charger back on instead.
+                    if (!BatteryManager.usbChargerEnabled)
+                        BatteryManager.usbChargerEnabled = true
+                    else
                         BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
                     break
                 case "tempToggleSteam":
