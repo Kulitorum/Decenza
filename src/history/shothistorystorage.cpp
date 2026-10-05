@@ -2348,10 +2348,9 @@ bool ShotHistoryStorage::runMigrations()
         }, "Until it completes, editing a shot and reading coffee bags fail");
     }
 
-    // Migration 44: the same upload outcome record for every destination
-    // (add-decent-shot-upload D14/D15): an upload that failed its 3 attempts,
-    // and Visualizer rejections, which Decent's migration 42 columns already
-    // record. Unfilled: no shot has failed or been refused by Visualizer.
+    // Migration 44 (D15): <dest>_failed_at for both destinations (an upload that
+    // failed every attempt), and visualizer_rejected_* to match Decent's
+    // migration-42 columns. Unfilled: nothing failed, nothing refused by Visualizer.
     if (currentVersion >= 43 && currentVersion < 44) {
         addColumns(44, "migration 44 upload outcome columns", {
             {QStringLiteral("shots"), QStringLiteral("decent_failed_at"), QStringLiteral("INTEGER")},
@@ -3024,7 +3023,9 @@ void ShotHistoryStorage::requestRecordUploadOutcome(qint64 shotId, const QString
 {
     // Column names are built from the destination, so only known ones are accepted.
     if (destination != QLatin1String("decent") && destination != QLatin1String("visualizer")) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "upload outcome for unknown destination" << destination;
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "upload outcome for shot" << shotId
+                                                 << "not recorded: unknown destination" << destination;
+        emit uploadOutcomeUpdated(shotId, false);
         return;
     }
     QString set;
@@ -3047,7 +3048,11 @@ void ShotHistoryStorage::requestRecordUploadOutcome(qint64 shotId, const QString
         if (outcome == UploadOutcome::Rejected) q.bindValue(":status", httpStatus);
         q.bindValue(":id", shotId);
         return q.exec();
-    }, [this, shotId](bool success) { emit uploadOutcomeUpdated(shotId, success); });
+    }, [this, shotId, destination](bool success) {
+        emit uploadOutcomeUpdated(shotId, success);
+        // The shot pages show Decent's rejection from its upload state.
+        if (destination == QLatin1String("decent")) emit decentUploadStateUpdated(shotId, success);
+    });
 }
 
 void ShotHistoryStorage::requestClearUploadRejections(qint64 shotId)
@@ -3061,7 +3066,10 @@ void ShotHistoryStorage::requestClearUploadRejections(qint64 shotId)
             return false;
         q.bindValue(":id", shotId);
         return q.exec();
-    }, [this, shotId](bool success) { emit uploadOutcomeUpdated(shotId, success); });
+    }, [this, shotId](bool success) {
+        emit uploadOutcomeUpdated(shotId, success);
+        emit decentUploadStateUpdated(shotId, success);
+    });
 }
 
 void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial,
@@ -5130,8 +5138,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // there does not overwrite them. Older sources resolve to 0.
             const int idxVisualizerDirty = srcRecord.indexOf("visualizer_dirty");
             const int idxVisualizerDirtySeq = srcRecord.indexOf("visualizer_dirty_seq");
-            // Upload outcomes (migration 44): carried so a migrated history keeps
-            // offering its failed uploads and not its rejected ones.
+            // Upload outcomes (migration 44): carried so a migrated history still shows
+            // which uploads failed, and does not offer the shots a destination refused.
             const int idxDecentFailedAt = srcRecord.indexOf("decent_failed_at");
             const int idxVisualizerFailedAt = srcRecord.indexOf("visualizer_failed_at");
             const int idxVisualizerRejectedStatus = srcRecord.indexOf("visualizer_rejected_status");

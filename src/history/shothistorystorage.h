@@ -122,8 +122,10 @@ public:
     static bool loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out);
 
     // The outcome every upload destination records the same way (D15), in
-    // <destination>_failed_at and <destination>_rejected_at/_status, where
-    // `destination` is ShotUploadDestination::name(). Emits uploadOutcomeUpdated.
+    // <destination>_failed_at and <destination>_rejected_at/_status. Column names
+    // are built from ShotUploadDestination::name(), so only "decent" and
+    // "visualizer" are accepted: a third destination needs the allow-list in
+    // requestRecordUploadOutcome, requestClearUploadRejections and a migration.
     enum class UploadOutcome { Sent, Failed, Rejected };
     void requestRecordUploadOutcome(qint64 shotId, const QString& destination, UploadOutcome outcome,
                                     int httpStatus = 0);
@@ -708,8 +710,8 @@ private:
     // (backup/import) deliberately stay on their own threads.
     void runOnDbThread(std::function<void()> task);
     // One UPDATE of a shot's upload state on the DB thread. `ifLost` is the
-    // consequence of a failed write, logged with it; `report` runs on this
-    // thread with the result.
+    // consequence of a failed write, logged with it; `report` runs back on the
+    // storage's own thread with the result.
     void runUploadStateWrite(qint64 shotId, const QString& what, const char* ifLost,
                              std::function<bool(QSqlQuery&)> bindAndExec, std::function<void(bool)> report);
     void runDecentStateWrite(qint64 shotId, const char* what, const char* ifLost,

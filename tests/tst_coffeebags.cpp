@@ -634,10 +634,12 @@ private slots:
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
                       "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
                       "storage_hint, opened_date, taste_balance, taste_body, decent_uploaded_at, decent_shot_id, "
-                      "decent_serial, decent_replace_pending, decent_rejected_status, decent_rejected_at) "
+                      "decent_serial, decent_replace_pending, decent_rejected_status, decent_rejected_at, "
+                      "visualizer_dirty, visualizer_dirty_seq, decent_failed_at, visualizer_failed_at, "
+                      "visualizer_rejected_status, visualizer_rejected_at) "
                       "VALUES ('src-uuid-1', 2000, 'P', 30, 'Transfer', 'Roast', :bag, 'weight', "
                       "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy', "
-                      "1790000000, 'srv-7', '1812', 1, 400, 1790000100)");
+                      "1790000000, 'srv-7', '1812', 1, 400, 1790000100, 3, 7, 1790000200, 1790000300, 422, 1790000400)");
             q.bindValue(":bag", srcBagId);
             QVERIFY(q.exec());
         });
@@ -658,7 +660,9 @@ private slots:
             QVERIFY(q.exec("SELECT s.bag_id, s.stopped_by, s.beanbase_json, s.beanbase_id, s.frozen_date, "
                            "b.roaster_name, s.storage_hint, s.opened_date, b.storage_hint, b.opened_date, "
                            "s.taste_balance, s.taste_body, s.decent_uploaded_at, s.decent_shot_id, s.decent_serial, "
-                           "s.decent_replace_pending, s.decent_rejected_status, s.decent_rejected_at "
+                           "s.decent_replace_pending, s.decent_rejected_status, s.decent_rejected_at, "
+                           "s.visualizer_dirty, s.visualizer_dirty_seq, s.decent_failed_at, s.visualizer_failed_at, "
+                           "s.visualizer_rejected_status, s.visualizer_rejected_at "
                            "FROM shots s JOIN coffee_bags b ON b.id = s.bag_id "
                            "WHERE s.uuid = 'src-uuid-1'"));
             QVERIFY(q.next());
@@ -684,6 +688,14 @@ private slots:
             QCOMPARE(q.value(15).toInt(), 1);
             QCOMPARE(q.value(16).toInt(), 400);
             QCOMPARE(q.value(17).toLongLong(), qint64(1790000100));
+            // Visualizer unsent edits (migration 43) and upload outcomes (migration 44),
+            // each a distinct value so a swapped bind shows.
+            QCOMPARE(q.value(18).toInt(), 3);
+            QCOMPARE(q.value(19).toInt(), 7);
+            QCOMPARE(q.value(20).toLongLong(), qint64(1790000200));
+            QCOMPARE(q.value(21).toLongLong(), qint64(1790000300));
+            QCOMPARE(q.value(22).toInt(), 422);
+            QCOMPARE(q.value(23).toLongLong(), qint64(1790000400));
         });
     }
 

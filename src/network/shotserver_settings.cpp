@@ -1300,13 +1300,20 @@ QString ShotServer::generateSettingsPage() const
         async function refreshMissing() {
             try {
                 const resp = await fetch('/api/settings/upload-missing');
-                if (resp.ok) showMissing((await resp.json()).missing);
-            } catch (e) { /* the next loadSettings shows it */ }
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+                showMissing((await resp.json()).missing);
+            } catch (e) {
+                // Keep polling: the run goes on whether or not this request got through.
+                clearTimeout(showMissing.timer);
+                showMissing.timer = setTimeout(refreshMissing, 5000);
+            }
         }
 
         async function uploadMissing(dest) {
             try {
-                showMissing((await postJson('/api/settings/' + dest + '/upload-missing', {})).missing);
+                const r = await postJson('/api/settings/' + dest + '/upload-missing', {});
+                if (r.error) showSectionStatus(dest + '-status', r.error, true, true);
+                showMissing(r.missing);
             } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true); }
         }
 
@@ -1892,8 +1899,15 @@ void ShotServer::handleAccountDisconnect(QTcpSocket* socket, const QString& dest
 
 void ShotServer::handleUploadMissing(QTcpSocket* socket, const QString& destination)
 {
-    if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
-        uploads->uploadMissing(destination);
+    ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr;
+    if (!uploads || !uploads->uploadMissing(destination)) {
+        // Switched off or signed out since the page loaded, or a run is already going.
+        QJsonObject obj;
+        obj["error"] = QStringLiteral("Could not start the upload: check the account is connected and switched on");
+        if (uploads) obj["missing"] = QJsonObject::fromVariantMap(uploads->missing());
+        sendJson(socket, QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        return;
+    }
     handleGetUploadMissing(socket);
 }
 

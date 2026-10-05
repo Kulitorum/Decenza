@@ -63,11 +63,11 @@ When any authenticated Decent API call returns HTTP 401, the system SHALL mark t
 
 #### Scenario: Re-link resumes
 - **WHEN** the user re-enters a valid password for an account in the needs-sign-in state
-- **THEN** the state clears and automatic uploads, including the backlog drain, resume
+- **THEN** the state clears and automatic uploads resume
 
 ### Requirement: Unlinking removes the credentials
 
-Unlinking SHALL delete the stored email and encrypted password and SHALL stop all automatic Decent API activity immediately, including any queued or in-flight backlog work that has not yet been sent. Unlinking SHALL NOT delete local shots or their recorded upload state.
+Unlinking SHALL delete the stored email and encrypted password and SHALL stop all automatic Decent API activity immediately, including any queued Upload missing shots work that has not yet been sent. Unlinking SHALL NOT delete local shots or their recorded upload state.
 
 #### Scenario: Disconnect during a sign-in
 - **WHEN** the user taps Disconnect while a sign-in is still waiting for `login_test`

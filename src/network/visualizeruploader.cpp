@@ -205,6 +205,7 @@ void VisualizerUploader::sendFinished(qint64 shotId, Attempt last)
     m_jobSkipReason.clear();
     m_jobFields = 0;
     m_jobDirtySeq = -1;
+    m_jobRelinked = false;
     const bool wasUploading = isUploading();
     m_jobShotId = 0;
     if (isUploading() != wasUploading) emit uploadingChanged();
@@ -417,12 +418,15 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     if (m_jobVisualizerId.isEmpty() || visualizerId != m_jobVisualizerId) return;
     if (statusCode == 404) {
         // Deleted on visualizer.coffee: drop the dead link, and upload the shot again
-        // within this attempt if the job was an upload. The clear is queued before the re-read.
+        // within this attempt if the job was an upload. The clear is queued before the
+        // re-read. Once per send: if the clear failed, the re-read would PATCH again.
         m_storage->requestClearStaleVisualizerLink(m_jobShotId, visualizerId);
-        if (m_jobHow == Send::UploadOrUpdate) {
+        if (m_jobHow == Send::UploadOrUpdate && !m_jobRelinked) {
+            m_jobRelinked = true;
             attemptSavedShot(m_jobShotId, Send::UploadOrUpdate);
             return;
         }
+        if (m_jobRelinked) outcome = Outcome::Transient;
     }
     endAttempt(m_jobShotId, outcome, statusCode);
 }
@@ -520,11 +524,16 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // local shot row never gets its visualizer_id and the bag sync
             // chain never runs. Surface it so the user sees an error and a
             // retry path, instead of a benign-looking "completed" status.
-            // Nothing was stored, as with a 2xx that is not Decent's API answer: try again.
+            // The row stays unlinked and the bag sync never runs, so it is retried;
+            // if Visualizer did store it, a retry may duplicate it.
             outcome = Outcome::Transient;
             const QString message = tr_("visualizer.error.noShotIdReturned", "Upload returned no shot id (unexpected response)");
-            DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
-                .arg(diagnosticShotId).arg(statusCode);
+            const QString line = QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
+                                     .arg(diagnosticShotId).arg(statusCode);
+            if (jobAttemptMayRetry(outcome))
+                DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << line;
+            else
+                DIAG_WARN(VISUALIZER, "VisualizerUploader") << line;
             noteJobFailure(message);
         }
     } else {
@@ -543,8 +552,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         }
     }
 
-    // Clear the per-upload id on every terminal outcome (success,
-    // no-id, or failure) so a subsequent upload can't inherit a stale
+    // Cleared at every attempt's end, so a later upload cannot inherit a stale
     // correlation. ShotUploads never overlaps uploads.
     m_uploadingDbShotId = 0;
     reply->deleteLater();

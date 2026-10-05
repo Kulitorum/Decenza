@@ -360,9 +360,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);
         operating();
     }
-    // A destination switched on or off, or signed in or out, changes what it is missing.
-    connect(m_settings->visualizer(), &SettingsVisualizer::visualizerActiveChanged, m_shotUploads, &ShotUploads::refreshMissing);
-    connect(m_settings->decent(), &SettingsDecent::activeChanged, m_shotUploads, &ShotUploads::refreshMissing);
+    // A destination switched on or off, or signed in or out, changes what it is
+    // missing, and one back on picks up a run it could not resume at startup.
+    for (auto changed : {&ShotUploads::refreshMissing, &ShotUploads::resumeMissingRuns}) {
+        connect(m_settings->visualizer(), &SettingsVisualizer::visualizerActiveChanged, m_shotUploads, changed);
+        connect(m_settings->decent(), &SettingsDecent::activeChanged, m_shotUploads, changed);
+    }
     // An Upload missing shots run a restart interrupted resumes once the history is readable.
     if (m_shotHistory->isReady())
         m_shotUploads->resumeMissingRuns();

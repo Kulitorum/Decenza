@@ -18,7 +18,7 @@ class ShotHistoryStorage;
 // The one path every shot upload takes, for every destination. It applies the
 // shared upload settings (SettingsUpload) once, then queues the shot for each
 // active destination, which receives one shot at a time. Every send gets the
-// same 3 attempts and its outcome is recorded the same way (D15).
+// same kAttempts attempts and its outcome is recorded the same way (D15).
 //
 //  - shotSaved: a finished shot, when automatic upload is on.
 //  - an edit (ShotHistoryStorage::shotMetadataUpdated, or one pulled from
@@ -28,6 +28,7 @@ class ShotHistoryStorage;
 //  - holdUpdates/expectHeldEdit/releaseUpdates: the review page saves on every
 //    field, so while it is open ITS saves are collected and sent once when it
 //    closes. Edits from anywhere else still go out at once.
+//  - uploadMissing/resumeMissingRuns: Upload missing shots (D14, below).
 class ShotUploads : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -65,6 +66,7 @@ public:
         QList<qint64> shotIds;   // unsent edits first, then missing shots
         int unsentEdits = 0;
         int failed = 0;          // of the missing shots, those whose upload failed
+        bool readable = false;   // false: the history could not be read, which is not "nothing missing"
     };
     // Reads only `db`, so it runs on a worker thread. A shot that failed at or
     // after `skipFailedSince` (seconds since the epoch; 0 = none) is left out.
@@ -77,7 +79,8 @@ public:
     // that fails its attempts is recorded and the run moves on; a sign-in or
     // account refusal ends it. Never starts on its own: only from this, or from
     // resumeMissingRuns() for a run the user started before a restart.
-    Q_INVOKABLE void uploadMissing(const QString& destination);
+    // False when it starts nothing: unknown or inactive destination, or a run already going.
+    Q_INVOKABLE bool uploadMissing(const QString& destination);
     // At startup: picks up runs a restart interrupted, leaving out the shots that
     // already failed during them.
     void resumeMissingRuns();
@@ -112,6 +115,7 @@ private:
         qint64 shotId = 0;
         Send how = Send::UploadOrUpdate;
         int attempt = 0;
+        Attempt last;   // the attempt a retry waits after
     };
 
     void onShotEdited(qint64 shotId, bool success);
@@ -123,7 +127,9 @@ private:
     ShotUploadDestination* destinationNamed(const QString& name) const;
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
     void nextBatch(ShotUploadDestination* destination);
-    void endRun(ShotUploadDestination* destination);
+    void endRun(ShotUploadDestination* destination, const QString& why);
+    // Drops what is queued for a destination, and its run; logs how many and why.
+    void dropQueue(ShotUploadDestination* destination, const QString& why);
     // findMissing over a destination's name and conditions, which a worker can hold by value.
     static Missing findMissingFor(QSqlDatabase& db, const QString& name, const QString& held, const QString& unsent,
                                   double minDurationSec, qint64 skipFailedSince);
@@ -140,6 +146,8 @@ private:
     struct Run {
         bool selecting = true;        // findMissing is still running
         bool waiting = false;         // a batch-spacing wait is pending
+        bool paused = false;          // waiting for the machine to stop operating (logged once)
+        int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
         QSet<qint64> outstanding;     // the batch being sent
         int done = 0;

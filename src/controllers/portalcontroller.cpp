@@ -50,8 +50,7 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
             device->setExtractionActive(false);
             model->markPortalGap();
         }
-        // Refill is not an operation: treating it as busy stranded PORTAL after
-        // link loss, although the same device connected during the preceding startup.
+        // Refill counted as busy once stranded PORTAL after link loss; isOperating() excludes it.
         device->setMachineBusy(machine->isOperating());
     };
     connect(machine, &MachineState::phaseChanged, this, updateMachine);

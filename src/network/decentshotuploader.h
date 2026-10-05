@@ -41,7 +41,7 @@ public:
         Rejected,        // permanent 4xx; recorded on the shot
         NeedsSignIn,     // the stored credentials were refused (401), now or earlier
         NotRegistered,   // 403: the serial is not in the account
-        Failed,          // a transient response (classify) on every attempt
+        Failed,          // transient on every attempt (responseOutcome, ShotUploads::kAttempts)
     };
     // What a result means to ShotUploads (D15).
     static Outcome outcome(Result result);

@@ -102,7 +102,7 @@ class VisualizerUploader : public QObject, public ShotUploadDestination {
 public:
     explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
-    // A request is out, or a send is between its attempts.
+    // A request is out, or a ShotUploads send is in progress (reading, sending or waiting to retry).
     bool isUploading() const { return m_uploading || m_jobShotId != 0; }
     // True when a queue snapshot was dropped because a pass was already
     // draining. The caller re-reads the queue on beanRepairFinished when set;
@@ -240,7 +240,6 @@ public:
     // blob→API field mapping and the fill-blanks contract are unit-tested.
     static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
 
-
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -301,7 +300,7 @@ private:
     // Ends this attempt of the job's send with `outcome` (ShotUploads may retry it).
     void endAttempt(qint64 shotId, Outcome outcome, int httpStatus = 0);
     void setUploading(bool uploading);
-    // Whether a failure of the job's attempt is announced now or left for sendFinished.
+    // True when the job's failed attempt is left for sendFinished to announce (ShotUploads may retry it).
     bool jobAttemptMayRetry(Outcome outcome, const QString& visualizerId = QString()) const;
     // Clears the fields the running job sent from the shot's unsent edits, if
     // their seq was read.
@@ -460,7 +459,6 @@ private:
     // uploadSucceededForShot. ShotUploads sends one shot at a time.
     qint64 m_uploadingDbShotId = 0;
 
-
     // Coffee Management sync state (see CmState above).
     CmState m_cmState = CmState::Unknown;
     QString m_localDbPath;
@@ -481,6 +479,8 @@ private:
     // read (-1 if unread): a success clears those fields only if no edit landed since.
     quint32 m_jobFields = 0;
     qint64 m_jobDirtySeq = -1;
+    // The send already re-uploaded after a PATCH 404 (at most once).
+    bool m_jobRelinked = false;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
     static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";

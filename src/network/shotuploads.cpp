@@ -158,19 +158,38 @@ void ShotUploads::enqueueTo(ShotUploadDestination* destination, qint64 shotId, S
     pump(destination);
 }
 
+// The run's lines go under the destination's own marker, so [Decent] or
+// [Visualizer] at INFO tells the whole story of its uploads.
+static void logUploads(const QString& destination, const QString& text, bool warn = false) {
+    if (destination == QLatin1String("decent")) {
+        if (warn) DIAG_WARN(DECENT, "ShotUploads") << text;
+        else DIAG_INFO(DECENT, "ShotUploads") << text;
+    } else {
+        if (warn) DIAG_WARN(VISUALIZER, "ShotUploads") << text;
+        else DIAG_INFO(VISUALIZER, "ShotUploads") << text;
+    }
+}
+
 void ShotUploads::pump(ShotUploadDestination* destination) {
     if (m_current.value(destination).shotId != 0) return;
-    QList<Job>& queue = m_queues[destination];
-    // Switched off or signed out since the shot was queued: drop its queue, and its run.
     if (!destination->isActive()) {
-        queue.clear();
-        if (m_runs.contains(destination)) endRun(destination);
+        dropQueue(destination, QStringLiteral("switched off or signed out"));
         return;
     }
+    QList<Job>& queue = m_queues[destination];
     if (queue.isEmpty()) return;
     const Job job = queue.takeFirst();
-    m_current.insert(destination, Current{job.shotId, job.how, 1});
+    m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
     destination->attemptSavedShot(job.shotId, job.how);
+}
+
+void ShotUploads::dropQueue(ShotUploadDestination* destination, const QString& why) {
+    QList<Job>& queue = m_queues[destination];
+    if (!queue.isEmpty())
+        logUploads(destination->name(), QStringLiteral("%1 queued shot(s) not sent (%2); Upload missing shots offers them")
+                                            .arg(queue.size()).arg(why));
+    queue.clear();
+    if (m_runs.contains(destination)) endRun(destination, why);
 }
 
 void ShotUploads::onAttempt(ShotUploadDestination* destination, Attempt attempt) {
@@ -179,10 +198,15 @@ void ShotUploads::onAttempt(ShotUploadDestination* destination, Attempt attempt)
     if (attempt.outcome == Outcome::Transient && current->attempt < kAttempts) {
         const int delayMs = m_retryDelayMs * current->attempt;
         ++current->attempt;
+        current->last = attempt;
         QTimer::singleShot(delayMs, this, [this, destination]() {
             const Current retry = m_current.value(destination);
-            // The destination reports a sign-out or switch-off during the wait itself.
-            if (retry.shotId != 0) destination->attemptSavedShot(retry.shotId, retry.how);
+            if (retry.shotId == 0) return;
+            // Switched off during the wait: the send ends on the attempt that failed.
+            if (!destination->isActive())
+                finishSend(destination, retry.last);
+            else
+                destination->attemptSavedShot(retry.shotId, retry.how);
         });
         return;
     }
@@ -208,18 +232,18 @@ void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
         break;
     }
     destination->sendFinished(shotId, last);
-    // The account needs attention: nothing queued for it can succeed until then.
-    if (last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused)
-        m_queues[destination].clear();
+    const bool refused = last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused;
     const auto run = m_runs.find(destination);
     if (run != m_runs.end() && run->outstanding.remove(shotId)) {
         ++run->done;
         emit missingChanged();
-        if (last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused)
-            endRun(destination);
-        else if (run->outstanding.isEmpty())
-            nextBatch(destination);
+        if (!refused && run->outstanding.isEmpty()) nextBatch(destination);
     }
+    // The account needs attention: nothing queued for it can succeed until then,
+    // whichever send was refused.
+    if (refused)
+        dropQueue(destination, last.outcome == Outcome::AuthFailed ? QStringLiteral("the account needs signing in again")
+                                                                    : QStringLiteral("the account refused the upload"));
     QMetaObject::invokeMethod(this, [this, destination]() { pump(destination); }, Qt::QueuedConnection);
 }
 
@@ -229,14 +253,16 @@ ShotUploadDestination* ShotUploads::destinationNamed(const QString& name) const 
     return nullptr;
 }
 
-void ShotUploads::uploadMissing(const QString& name) {
+bool ShotUploads::uploadMissing(const QString& name) {
     ShotUploadDestination* destination = destinationNamed(name);
-    if (!destination || !destination->isActive() || m_runs.contains(destination)) return;
+    if (!destination || !destination->isActive() || m_runs.contains(destination)) return false;
     m_settings->setMissingRunStartedAt(name, QDateTime::currentSecsSinceEpoch());
     startRun(destination, 0);
+    return true;
 }
 
 void ShotUploads::resumeMissingRuns() {
+    if (!m_storage->isReady()) return;   // MainController calls again on readyChanged
     for (ShotUploadDestination* destination : std::as_const(m_destinations)) {
         const qint64 startedAt = m_settings->missingRunStartedAt(destination->name());
         if (startedAt > 0 && destination->isActive() && !m_runs.contains(destination))
@@ -292,10 +318,19 @@ void ShotUploads::refreshMissing() {
         withTempDb(dbPath, "missing_count", [&](QSqlDatabase& db) {
             for (const Target& t : targets) counts.insert(t.name, findMissingFor(db, t.name, t.held, t.unsent, minDuration, 0));
         });
-        QMetaObject::invokeMethod(qApp, [self, counts]() {
+        QMetaObject::invokeMethod(qApp, [self, counts, targets]() {
             if (!self) return;
             self->m_counting = false;
-            self->m_counts = counts;
+            // A count that could not be read keeps the last one rather than reading as nothing missing.
+            QHash<QString, Missing> next;
+            for (const Target& t : targets) {
+                const Missing counted = counts.value(t.name);
+                if (counted.readable)
+                    next.insert(t.name, counted);
+                else if (self->m_counts.contains(t.name))
+                    next.insert(t.name, self->m_counts.value(t.name));
+            }
+            self->m_counts = next;
             emit self->missingChanged();
             if (self->m_countAgain) {
                 self->m_countAgain = false;
@@ -319,14 +354,25 @@ void ShotUploads::startRun(ShotUploadDestination* destination, qint64 skipFailed
         withTempDb(dbPath, "missing_shots", [&](QSqlDatabase& db) {
             missing = findMissingFor(db, name, held, unsent, minDuration, skipFailedSince);
         });
-        QMetaObject::invokeMethod(qApp, [self, destination, missing]() {
+        QMetaObject::invokeMethod(qApp, [self, destination, missing, name, skipFailedSince]() {
             if (!self) return;
             const auto run = self->m_runs.find(destination);
             if (run == self->m_runs.end()) return;
+            if (!missing.readable) {
+                // Kept for the next press or launch: one bad read must not lose the run.
+                self->m_runs.erase(run);
+                emit self->missingChanged();
+                logUploads(name, QStringLiteral("Upload missing shots not started: the history could not be read"), true);
+                return;
+            }
             run->selecting = false;
             run->pending = missing.shotIds;
+            run->unsentLeft = missing.unsentEdits;
             run->total = int(missing.shotIds.size());
             emit self->missingChanged();
+            logUploads(name, QStringLiteral("Upload missing shots %1: %2 shot(s), %3 of them unsent edits")
+                                 .arg(skipFailedSince > 0 ? QStringLiteral("resumed after a restart") : QStringLiteral("started"))
+                                 .arg(run->total).arg(missing.unsentEdits));
             self->nextBatch(destination);
         }, Qt::QueuedConnection);
     });
@@ -335,11 +381,19 @@ void ShotUploads::startRun(ShotUploadDestination* destination, qint64 skipFailed
 void ShotUploads::nextBatch(ShotUploadDestination* destination) {
     const auto run = m_runs.find(destination);
     if (run == m_runs.end() || run->selecting || run->waiting || !run->outstanding.isEmpty()) return;
-    if (run->pending.isEmpty() || !destination->isActive()) {
-        endRun(destination);
+    if (!destination->isActive()) {
+        endRun(destination, QStringLiteral("switched off or signed out"));
         return;
     }
-    if (m_machineOperating) return;   // setMachineOperating(false) comes back here
+    if (run->pending.isEmpty()) {
+        endRun(destination, QStringLiteral("finished"));
+        return;
+    }
+    if (m_machineOperating) {   // setMachineOperating(false) comes back here
+        if (!run->paused) logUploads(destination->name(), QStringLiteral("Upload missing shots paused while the machine is operating"));
+        run->paused = true;
+        return;
+    }
     if (run->sinceBatch.isValid()) {
         const qint64 wait = m_batchSpacingMs - run->sinceBatch.elapsed();
         if (wait > 0) {
@@ -353,18 +407,27 @@ void ShotUploads::nextBatch(ShotUploadDestination* destination) {
             return;
         }
     }
+    run->paused = false;
     run->sinceBatch.start();
-    QList<qint64> batch;
-    while (batch.size() < kBatchSize && !run->pending.isEmpty()) batch.append(run->pending.takeFirst());
-    for (qint64 shotId : std::as_const(batch)) run->outstanding.insert(shotId);
-    // Enqueued after `outstanding` holds them all: a send can finish within enqueueTo.
-    for (qint64 shotId : std::as_const(batch)) enqueueTo(destination, shotId, Send::UploadOrUpdate);
+    const qint64 sending = m_current.value(destination).shotId;
+    for (int i = 0; i < kBatchSize && !run->pending.isEmpty(); ++i) {
+        const qint64 shotId = run->pending.takeFirst();
+        // Unsent edits come first, and go as updates: only their edited fields, so
+        // edits made on the destination's side are not overwritten.
+        const Send how = run->unsentLeft > 0 ? Send::UpdateOnly : Send::UploadOrUpdate;
+        if (run->unsentLeft > 0) --run->unsentLeft;
+        run->outstanding.insert(shotId);
+        // Already being sent: its finish counts for the run, and a second send would repeat it.
+        if (shotId != sending) enqueueTo(destination, shotId, how);
+    }
 }
 
-void ShotUploads::endRun(ShotUploadDestination* destination) {
-    m_runs.remove(destination);
+void ShotUploads::endRun(ShotUploadDestination* destination, const QString& why) {
+    const Run run = m_runs.take(destination);
     m_settings->setMissingRunStartedAt(destination->name(), 0);
     emit missingChanged();
+    logUploads(destination->name(), QStringLiteral("Upload missing shots ended (%1): %2 of %3 sent")
+                                        .arg(why).arg(run.done).arg(run.total));
 }
 
 ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUploadDestination& destination,
@@ -376,24 +439,24 @@ ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUpload
 ShotUploads::Missing ShotUploads::findMissingFor(QSqlDatabase& db, const QString& name, const QString& held,
                                                  const QString& unsent, double minDurationSec, qint64 skipFailedSince) {
     Missing missing;
-    // Measured 2026-10-05 on a 1,217-shot, 21 MB history (MacBook Pro, warm
-    // cache): median 1.4 ms, worst 2.9 ms. Large columns stay in overflow pages
-    // this scan never reads, so it does not grow with the blobs.
-    // The profile snapshot is read only where the beverage-type column is empty,
-    // which uploadBeverageType falls back to; the import fills that column.
+    // On the DB worker. Measured 2026-10-05 (MacBook Pro, warm cache, rows
+    // rewritten so these late-added columns follow profile_json/debug_log):
+    // 1,217 shots / 21 MB median 1.3 ms, worst 4.3 ms; 4,962 shots / 57 MB
+    // median 5.0 ms, worst 7.2 ms. It grows with the history's bytes.
+    // profile_json is read only where beverage_type is empty (uploadBeverageType's
+    // fallback); migration 6 and the import fill that column.
     QSqlQuery q(db);
     const QString sql = QStringLiteral(
         "SELECT id, beverage_type, duration_seconds, "
         "CASE WHEN COALESCE(beverage_type, '') = '' THEN profile_json END, "
-        "(%2) AS unsent, %1_failed_at IS NOT NULL "
+        "((%3) AND (%2)) AS unsent, %1_failed_at IS NOT NULL "
         "FROM shots WHERE %1_rejected_at IS NULL AND (NOT (%3) OR (%2)) "
         "AND (%1_failed_at IS NULL OR %1_failed_at < :since) "
         "ORDER BY unsent DESC, timestamp DESC, id DESC").arg(name, unsent, held);
     const bool prepared = q.prepare(sql);
     q.bindValue(":since", skipFailedSince > 0 ? skipFailedSince : std::numeric_limits<qint64>::max());
     if (!prepared || !q.exec()) {
-        DIAG_WARN(STORAGE, "ShotUploads") << "missing shots for" << name
-                                          << "could not be read -" << q.lastError().text();
+        logUploads(name, QStringLiteral("missing shots could not be read - %1").arg(q.lastError().text()), true);
         return missing;
     }
     while (q.next()) {
@@ -408,6 +471,6 @@ ShotUploads::Missing ShotUploads::findMissingFor(QSqlDatabase& db, const QString
         else if (q.value(5).toBool())
             ++missing.failed;
     }
+    missing.readable = true;
     return missing;
 }
-

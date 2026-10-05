@@ -6,9 +6,9 @@
 class QSqlDatabase;
 
 // A place saved shots are uploaded to (Visualizer, the Decent account).
-// ShotUploads decides when, makes the attempts and records the outcome; a
-// destination only knows how to make one attempt and what its server's answer
-// means. A destination gets one shot at a time.
+// ShotUploads decides when, makes the attempts and records failures and
+// rejections; a destination makes one attempt, reads its server's answer and
+// records its own upload. A destination gets one shot at a time.
 class ShotUploadDestination {
 public:
     enum class Send {
@@ -19,7 +19,7 @@ public:
     // What one attempt came to, the same for every destination (D15).
     enum class Outcome {
         Sent,            // the destination holds the shot as saved
-        NothingToSend,   // not eligible, not held for an update, or nothing changed
+        NothingToSend,   // nothing sent, nothing recorded: ineligible, not held, unchanged, unreadable, no machine or account
         Transient,       // no answer, or one that says try again (retried, then failed)
         AuthFailed,      // the account's credentials were refused
         AccountRefused,  // the account cannot take shots (Decent: unregistered machine)
@@ -40,7 +40,7 @@ public:
         if (httpStatus == 401) return Outcome::AuthFailed;
         // Decent: the machine's serial is not in the account. Visualizer: the account is refused.
         if (httpStatus == 403) return Outcome::AccountRefused;
-        // 404/405/410 say the endpoint is wrong, not the shot: never brand it rejected.
+        // 404/405/410 say the endpoint is wrong, 408/429 say try later: none says the shot is bad (Decaid's table).
         if (httpStatus == 404 || httpStatus == 405 || httpStatus == 408 || httpStatus == 410 || httpStatus == 429)
             return Outcome::Transient;
         if (httpStatus >= 400 && httpStatus < 500) return Outcome::Rejected;
