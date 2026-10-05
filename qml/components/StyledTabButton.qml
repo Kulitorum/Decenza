@@ -70,6 +70,5 @@ TabButton {
     FocusIndicator {
         targetItem: root
         targetRadius: Theme.scaled(4)  // matches the checked-tab background Rectangle
-        visible: root.visualFocus
     }
 }

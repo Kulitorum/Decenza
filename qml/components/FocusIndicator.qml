@@ -23,7 +23,7 @@ Rectangle {
     // focus arrived by Tab, Backtab or a shortcut (qquickcontrol.cpp:124-127,
     // 1433-1437), so a page's initial forceActiveFocus() draws no ring for
     // mouse and touch users. Key handlers that move focus pass Qt.TabFocusReason.
-    // With a screen reader on, any focus shows.
+    // With a screen reader on, any focus shows. Users must not override `visible`.
     visible: focusIndicator.targetItem.visualFocus === true
              || (focusIndicator.targetItem.activeFocus && AccessibilityManager.enabled)
     color: "transparent"

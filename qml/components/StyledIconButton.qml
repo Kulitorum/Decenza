@@ -116,7 +116,6 @@ T.RoundButton {
     FocusIndicator {
         targetItem: root
         targetRadius: root.width / 2  // RoundButton — keep the ring circular
-        visible: root.activeFocus
     }
 
     // Tap-to-announce, tap-again-to-activate for accessibility mode
