@@ -60,6 +60,13 @@ TabButton {
     Accessible.role: Accessible.PageTab
     Accessible.name: root.accessibleName
     Accessible.focusable: true
+    // Required, not redundant: Qt advertises Press for no PageTab item
+    // (qaccessiblequickitem.cpp:517-543), and both the macOS and Android bridges
+    // run only an advertised action (qaccessiblebridgeutils.cpp:10-19,
+    // androidjniaccessibility.cpp:336-344), so without this a screen-reader
+    // press on a tab did nothing. Connecting the handler advertises it
+    // (qquickaccessibleattached.cpp:548-551).
+    Accessible.onPressAction: root.click()
 
     // Focus indicator - only for keyboard navigation, not mouse clicks
     FocusIndicator {
