@@ -34,7 +34,7 @@ ColumnLayout {
 
     // The owner calls this when its connect attempt answers.
     function connectFinished(error) {
-        root.linkError = error
+        root.linkError = error === AccountLink.Error.Cancelled ? AccountLink.Error.None : error
         passwordInput.text = ""
     }
 

@@ -631,7 +631,7 @@ or pass `keys:["…"]` to bypass categories entirely.
 
 | Category | Notable keys |
 |---|---|
-| `machine` | `autoSleepMinutes`, `keepSteamHeaterOn`, `themeMode`, `darkThemeName`, `lightThemeName`, `screenBrightness`, `autoWakeEnabled`, `autoWakeStayAwakeEnabled`, `autoWakeStayAwakeMinutes`, `launcherMode`, `postShotReviewTimeout`, `refillKitOverride`, `steamAutoFlushSeconds`, `steamTwoTapStop`, `waterLevelDisplayUnit`, `waterRefillPoint` |
+| `machine` | `autoSleepMinutes`, `keepSteamHeaterOn`, `themeMode`, `darkThemeName`, `lightThemeName`, `screenBrightness`, `autoWakeEnabled`, `autoWakeStayAwakeEnabled`, `autoWakeStayAwakeMinutes`, `launcherMode`, `postShotReviewTimeout`, `refillKitOverride`, `steamAutoFlushSeconds`, `steamTwoTapStop`, `visualizerClearNotesOnStart`, `visualizerShowAfterShot`, `waterLevelDisplayUnit`, `waterRefillPoint` |
 | `calibration` | `autoFlowCalibration`, `flowCalibrationMultiplier`, `ignoreVolumeWithScale`, `useFlowScale` |
 | `connections` | `machineAddress`, `scaleAddress`, `scaleName`, `scaleType`, `showScaleDialogs`, `usbSerialEnabled` |
 | `screensaver` | `screensaverType`, `dimDelayMinutes`, `dimPercent`, `cacheEnabled`, `flipClockUse3D`, `imageDisplayDuration`, `pipesSpeed`, `pipesCameraSpeed`, `pipesShowClock`, `videosShowClock`, `attractorShowClock`, `showDateOnPersonal`, `shotMapShape`, `shotMapTexture`, `shotMapShowClock`, `shotMapShowProfiles`, `shotMapShowTerminator` |
@@ -644,7 +644,7 @@ or pass `keys:["…"]` to bypass categories entirely.
 | `dye` | `dyeBarista`, `dyeBeanBrand`, `dyeBeanType`, `dyeBeanWeight`, `dyeDrinkEy`, `dyeDrinkTds`, `dyeDrinkWeight`, `dyeGrinderBrand`, `dyeGrinderBurrs`, `dyeGrinderModel`, `dyeGrinderSetting`, `dyeRoastDate`, `dyeRoastLevel`, `dyeShotNotes` |
 | `mqtt` | `mqttEnabled`, `mqttBaseTopic`, `mqttBrokerHost`, `mqttBrokerPort`, `mqttClientId`, `mqttHomeAssistantDiscovery`, `mqttPublishInterval`, `mqttRetainMessages`, `mqttUsername` |
 | `themes` | `activeShader`, `activeThemeName`, `isDarkMode`, `themeNames` (mostly read-only metadata; write via `machine.themeMode`/`darkThemeName`/`lightThemeName`) |
-| `visualizer` | `visualizerAutoUpload`, `visualizerClearNotesOnStart`, `visualizerExtendedMetadata`, `visualizerMinDuration`, `visualizerShowAfterShot` |
+| `upload` | `visualizerEnabled`, `decentEnabled`, `uploadAutomatically`, `updateAutomatically`, `uploadMinDurationSec`, `visualizerExtendedMetadata`, `decentAccountState` |
 | `update` | `autoCheckUpdates`, `betaUpdatesEnabled` |
 | `data` | `dailyBackupHour`, `shotServerEnabled`, `shotServerPort`, `webSecurityEnabled` |
 | `history` | `shotHistorySortDirection`, `shotHistorySortField` |

@@ -118,12 +118,17 @@ struct PendingConfirmation {
 // 1.11.0: settings_get/settings_set gain simulatorSerialNumber — the serial the DE1 simulator
 // reports for this app run only (never saved), for testing Decent account uploads.
 // Not visible to the fingerprint below.
-// 1.12.0: settings_get/settings_set gain usbChargerEnabled — false keeps the DE1 USB port off.
+// 1.12.0: shots_upload replaces shots_upload_to_visualizer and sends to every active
+// destination. settings_get/settings_set: visualizerAutoUpload/AutoUpdate/MinDuration become
+// uploadAutomatically/updateAutomatically/uploadMinDurationSec, plus visualizerEnabled,
+// decentEnabled and the read-only decentAccountState; category visualizer becomes upload.
+// shots_update returns autoUpdateTo in place of visualizerUpdateTriggered.
+// 1.13.0: settings_get/settings_set gain usbChargerEnabled — false keeps the DE1 USB port off.
 // Not visible to the fingerprint below.
-inline constexpr const char* McpSurfaceVersion = "1.12.0";
+inline constexpr const char* McpSurfaceVersion = "1.13.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
-inline constexpr const char* McpSurfaceFingerprint = "aeb8e5deebbe";
+inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";
 
 class McpServer : public QObject {
     Q_OBJECT

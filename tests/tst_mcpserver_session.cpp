@@ -39,7 +39,7 @@ void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, 
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, MainController*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}
 void registerControlTools(McpToolRegistry*, DE1Device*, MachineState*, ProfileManager*, MainController*, Settings*) {}
-void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, VisualizerUploader*, CoffeeBagStorage*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, BeanBaseClient*, MainController*) {}
+void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, CoffeeBagStorage*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*, BeanBaseClient*, MainController*) {}
 void registerScaleTools(McpToolRegistry*, MachineState*) {}
 void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}

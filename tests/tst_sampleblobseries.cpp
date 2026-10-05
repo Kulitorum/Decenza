@@ -385,8 +385,7 @@ private slots:
     // The seam between the blob and the upload/chart surfaces. Without this,
     // dropping the one convertShotRecord() line leaves every other test green
     // while no stored shot ever uploads mix_goal and no detail page plots it —
-    // and re-upload from history is the path that runs forever, unlike the
-    // single live upload.
+    // and every upload is built from the stored shot.
     void mixGoalSurvivesRecordToProjectionToJson() {
         ShotHistoryStorage storage;
         ShotDataModel model;

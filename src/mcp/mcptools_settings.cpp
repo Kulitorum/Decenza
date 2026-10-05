@@ -11,6 +11,10 @@
 #include "../core/settings_ai.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_visualizer.h"
+#include "../core/settings_decent.h"
+#include "../core/settings_upload.h"
+#include "../network/decentaccount.h"
+#include <QMetaEnum>
 #include "../core/settings_mcp.h"
 #include "../core/settings_calibration.h"
 #include "../core/accessibilitymanager.h"
@@ -39,7 +43,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
         "settings_get",
         "Read app settings. Returns all settings, specific keys, or a category of settings. "
         "Categories match QML settings tabs: machine, calibration, connections, screensaver, accessibility, "
-        "ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, "
+        "ai, espresso, steam, water, flush, dye, mqtt, themes, upload, update, data, "
         "history, language, debug, battery, heater, autofavorites",
         QJsonObject{
             {"type", "object"},
@@ -90,7 +94,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 QStringLiteral("espresso"), QStringLiteral("steam"),
                 QStringLiteral("water"), QStringLiteral("flush"),
                 QStringLiteral("dye"), QStringLiteral("mqtt"),
-                QStringLiteral("themes"), QStringLiteral("visualizer"),
+                QStringLiteral("themes"), QStringLiteral("upload"),
                 QStringLiteral("update"), QStringLiteral("data"),
                 QStringLiteral("history"), QStringLiteral("language"),
                 QStringLiteral("debug"), QStringLiteral("battery"),
@@ -306,14 +310,19 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("activeShader", "themes")) result["activeShader"] = settings->theme()->activeShader();
             if (include("isDarkMode", "themes")) result["isDarkMode"] = settings->theme()->isDarkMode();
 
-            // === Visualizer ===
-            if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->upload()->autoUpload();
-            if (include("visualizerAutoUpdate", "visualizer")) result["visualizerAutoUpdate"] = settings->upload()->autoUpdate();
-            if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->upload()->minDuration();
-            if (include("visualizerExtendedMetadata", "visualizer")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
-            if (include("visualizerShowAfterShot", "visualizer")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
-            if (include("visualizerClearNotesOnStart", "visualizer")) result["visualizerClearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
-            // visualizerUsername/Password excluded — sensitive
+            // === Shot Upload (Visualizer and the Decent account; one set of upload settings) ===
+            if (include("visualizerEnabled", "upload")) result["visualizerEnabled"] = settings->visualizer()->visualizerEnabled();
+            if (include("decentEnabled", "upload")) result["decentEnabled"] = settings->decent()->enabled();
+            if (include("uploadAutomatically", "upload")) result["uploadAutomatically"] = settings->upload()->autoUpload();
+            if (include("updateAutomatically", "upload")) result["updateAutomatically"] = settings->upload()->autoUpdate();
+            if (include("uploadMinDurationSec", "upload")) result["uploadMinDurationSec"] = settings->upload()->minDuration();
+            if (include("visualizerExtendedMetadata", "upload")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
+            if (mainController && mainController->decentAccount() && include("decentAccountState", "upload"))
+                result["decentAccountState"] = QString::fromLatin1(QMetaEnum::fromType<DecentAccount::State>().valueToKey(
+                    int(mainController->decentAccount()->state())));
+            // Account names and passwords excluded — MCP is reachable remotely
+            if (include("visualizerShowAfterShot", "machine")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
+            if (include("visualizerClearNotesOnStart", "machine")) result["visualizerClearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
 
             // === Update ===
             if (include("autoCheckUpdates", "update")) result["autoCheckUpdates"] = settings->app()->autoCheckUpdates();

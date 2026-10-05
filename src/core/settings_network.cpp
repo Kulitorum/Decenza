@@ -1102,7 +1102,7 @@ const QVector<LayoutActionEntry>& layoutActionTable() {
         { "command:brewSettings",     "customaction.command.brewSettings",     "Open Brew Settings",        "idle",     true,  false },
         { "command:tempToggleSteam",  "customaction.command.tempToggleSteam",  "Toggle Steam (temporary)",  "idle",     true,  false },
         { "command:toggleCharging",   "customaction.command.toggleCharging",   "Toggle Charging Mode",      "idle all", true,  false },
-        { "command:uploadVisualizer", "customaction.command.uploadVisualizer", "Upload to Visualizer",      "idle",     true,  false },
+        { "command:uploadVisualizer", "customaction.command.uploadShot",       "Upload last shot",          "idle",     true,  false },
         { "command:disconnectDE1",    "customaction.command.disconnectDE1",    "Disconnect DE1",            "idle",     true,  false },
         // The one parameterized action — see the expandsToSubmenu note above.
         { "command:loadProfile",      "customaction.command.loadProfile",      "Load Profile",              "idle",     true,  true },

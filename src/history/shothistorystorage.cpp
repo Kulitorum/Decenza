@@ -2381,6 +2381,7 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     root["weightFlow"] = pointsToJsonObject(shotData->weightData());
     // Weight-based flow rate (g/s) for visualizer export
     root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
+    root["weightFlowRateRaw"] = pointsToJsonObject(shotData->weightFlowRateRawData());
 
     // Phase summaries for UI display (pre-computed by saveShot() via computePhaseSummaries)
     if (!phaseSummariesJson.isEmpty()) {
@@ -2448,6 +2449,8 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     record->weight = arrayToPoints(root["weight"].toObject());
     if (root.contains("weightFlowRate"))
         record->weightFlowRate = arrayToPoints(root["weightFlowRate"].toObject());
+    if (root.contains("weightFlowRateRaw"))
+        record->weightFlowRateRaw = arrayToPoints(root["weightFlowRateRaw"].toObject());
 
     // Phase summaries (stored as JSON array in the compressed blob)
     if (root.contains("phaseSummaries")) {
@@ -2968,16 +2971,18 @@ void ShotHistoryStorage::runDecentStateWrite(qint64 shotId, const char* what, co
     });
 }
 
-void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial)
+void ShotHistoryStorage::requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial,
+                                                   bool stillPending)
 {
     runDecentStateWrite(shotId, "upload", "the shot is in the Decent account, but an edit will go as a new upload",
-                        [shotId, serverShotId, serial](QSqlQuery& q) {
+                        [shotId, serverShotId, serial, stillPending](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_uploaded_at = strftime('%s', 'now'), decent_shot_id = :sid, "
-                       "decent_serial = :sn, decent_replace_pending = 0, decent_rejected_status = NULL, "
+                       "decent_serial = :sn, decent_replace_pending = :pending, decent_rejected_status = NULL, "
                        "decent_rejected_at = NULL WHERE id = :id"))
             return false;
         q.bindValue(":sid", serverShotId);
         q.bindValue(":sn", serial);
+        q.bindValue(":pending", stillPending ? 1 : 0);
         q.bindValue(":id", shotId);
         return q.exec();
     });
@@ -5575,6 +5580,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     root["temperatureGoal"] = pointsToJsonObject(record.temperatureGoal);
     root["weight"] = pointsToJsonObject(record.weight);
     root["weightFlowRate"] = pointsToJsonObject(record.weightFlowRate);
+    if (!record.weightFlowRateRaw.isEmpty())
+        root["weightFlowRateRaw"] = pointsToJsonObject(record.weightFlowRateRaw);
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     QByteArray compressedData = qCompress(json, 9);

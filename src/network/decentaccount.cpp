@@ -7,6 +7,7 @@
 #include <QDesktopServices>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaEnum>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -17,6 +18,14 @@ namespace {
 void openInBrowser(const QUrl& url) {
     if (!QDesktopServices::openUrl(url))
         DIAG_WARN(DECENT, "DecentAccount") << "no browser could open" << url.host();
+}
+
+// How a request ended, for the log: time taken, HTTP status, Qt's error code.
+QString replyOutcome(const QNetworkReply* reply, const QElapsedTimer& timer) {
+    return QStringLiteral("after %1 ms, HTTP %2, %3")
+        .arg(timer.elapsed())
+        .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
+        .arg(QString::fromLatin1(QMetaEnum::fromType<QNetworkReply::NetworkError>().valueToKey(reply->error())));
 }
 
 // login_test's token is one short line; a captive portal's page is not.
@@ -39,6 +48,10 @@ DecentAccount::State DecentAccount::state() const {
     return m_settings->needsSignIn() ? State::NeedsSignIn : State::Linked;
 }
 
+bool DecentAccount::uploadsActive() const {
+    return m_settings->active();
+}
+
 QString DecentAccount::email() const {
     return m_settings->email();
 }
@@ -50,6 +63,7 @@ void DecentAccount::link(const QString& email, const QString& password) {
     request.setRawHeader("Authorization", basicAuthHeader(email, password));
     request.setTransferTimeout(kTransferTimeoutMs);
     m_pendingEmail = email.trimmed();
+    m_linkTimer.start();
     m_linkReply = m_network->get(request);
     connect(m_linkReply, &QNetworkReply::finished, this, &DecentAccount::onLinkFinished);
     emit busyChanged();
@@ -66,25 +80,28 @@ void DecentAccount::onLinkFinished() {
     const QString body = QString::fromUtf8(reply->readAll()).trimmed();
 
     if (reply->error() != QNetworkReply::NoError && status == 0) {
-        DIAG_WARN(DECENT, "DecentAccount") << "link failed: server unreachable:" << reply->errorString();
+        DIAG_WARN(DECENT, "DecentAccount") << "link failed: server unreachable" << replyOutcome(reply, m_linkTimer)
+                                           << reply->errorString();
         emit linkFinished(AccountLink::Error::Unreachable);
         return;
     }
     if (status != 200) {
-        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test returned HTTP" << status << reply->errorString();
+        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test" << replyOutcome(reply, m_linkTimer)
+                                           << reply->errorString();
         emit linkFinished(AccountLink::Error::ServerError);
         return;
     }
     // login_test answers 0 (or nothing) for bad credentials, otherwise the
     // encrypted password. Same acceptance test as Decaid's DecentAccountService.
     if (body.isEmpty() || body == QLatin1String("0")) {
-        DIAG_INFO(DECENT, "DecentAccount") << "link rejected: email or password not accepted";
+        DIAG_INFO(DECENT, "DecentAccount") << "link rejected: email or password not accepted"
+                                           << replyOutcome(reply, m_linkTimer);
         emit linkFinished(AccountLink::Error::Rejected);
         return;
     }
     if (!looksLikeToken(body)) {
-        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test answered 200 with" << body.size()
-                                           << "characters that are not a token";
+        DIAG_WARN(DECENT, "DecentAccount") << "link failed: login_test answered" << body.size()
+                                           << "characters that are not a token" << replyOutcome(reply, m_linkTimer);
         emit linkFinished(AccountLink::Error::ServerError);
         return;
     }
@@ -93,7 +110,7 @@ void DecentAccount::onLinkFinished() {
     // Connecting an account switches uploads to it on; the user can switch it off.
     m_settings->setEnabled(true);
     // No email: debug logs are submitted for support and readable over MCP.
-    DIAG_INFO(DECENT, "DecentAccount") << "account linked";
+    DIAG_INFO(DECENT, "DecentAccount") << "account linked" << replyOutcome(reply, m_linkTimer);
     emit linkFinished(AccountLink::Error::None);
 }
 
@@ -105,7 +122,8 @@ void DecentAccount::unlink() {
         pending->abort();
         pending->deleteLater();
         emit busyChanged();
-        DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled";
+        DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled after" << m_linkTimer.elapsed() << "ms";
+        emit linkFinished(AccountLink::Error::Cancelled);
     }
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();
@@ -140,8 +158,10 @@ void DecentAccount::openAccountInBrowser() {
     request.setUrl(url);
     request.setTransferTimeout(kTransferTimeoutMs);
 
+    QElapsedTimer timer;
+    timer.start();
     QNetworkReply* reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, fallback]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, fallback, timer]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 401) reportAuthFailure();
@@ -152,8 +172,8 @@ void DecentAccount::openAccountInBrowser() {
             openInBrowser(signedIn);
             return;
         }
-        DIAG_INFO(DECENT, "DecentAccount") << "authenticated redirect unavailable (HTTP" << status
-                                           << reply->errorString() << "); opening the account page unsigned";
+        DIAG_INFO(DECENT, "DecentAccount") << "authenticated redirect unavailable" << replyOutcome(reply, timer)
+                                           << reply->errorString() << "- opening the account page unsigned";
         openInBrowser(fallback);
     });
 }

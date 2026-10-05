@@ -333,6 +333,7 @@ add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/shotuploads.cpp
     # Header-only Q_NAMESPACE: listed so AUTOMOC emits its staticMetaObject.
     ${CMAKE_SOURCE_DIR}/src/network/accountlink.h
 )

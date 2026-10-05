@@ -350,6 +350,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         return id;
     });
     m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
+    m_visualizer->setStorage(m_shotHistory);
+    m_shotUploads = new ShotUploads(m_settings->upload(), m_shotHistory, {m_visualizer, m_decentUploader}, this);
 
     // profile-usage-history: ProfileManager owns the usage data (profileUsage,
     // fed to the picker and usage-mode favorites resort); ShotHistoryStorage
@@ -4529,13 +4531,6 @@ void MainController::onShotEnded() {
     if (!shotWasAborted)
         computeAutoFlowCalibration(shotFlowCalibration);
 
-    // Shot-end epoch for the visualizer upload. A local captured by value into
-    // the save callback below, alongside duration/finalWeight/metadata/debugLog
-    // — so it describes THIS shot even if another shot ends while the save is
-    // still in flight. It was a member until the dead uploadPendingShot() that
-    // needed it across calls was removed.
-    const qint64 pendingShotEpoch = QDateTime::currentSecsSinceEpoch();
-
     // Stop debug logging and get the captured log
     QString debugLog;
     if (m_shotDebugLogger) {
@@ -4547,9 +4542,9 @@ void MainController::onShotEnded() {
     // helper; what follows is what only THIS shot can supply.
     ShotMetadata metadata = buildShotMetadataFromSettings();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
-    // The yield is NOT set here. It reaches the uploader as the finalWeight
-    // argument below — see ShotMetadata in visualizeruploader.h for why the
-    // struct deliberately has no drink-weight field.
+    // The yield is NOT set here: saveShot() takes it as the finalWeight
+    // argument — see ShotMetadata in visualizeruploader.h for why the struct
+    // deliberately has no drink-weight field.
     //
     // No enjoyment: a just-pulled shot has not been tasted, so it saves
     // unrated (ShotMetadata defaults to 0). See settings_dye.h.
@@ -4615,8 +4610,7 @@ void MainController::onShotEnded() {
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
-                    [this, finalWeight, shotDateTime, showPostShot, duration,
-                     doseWeight, metadata, debugLog, pendingShotEpoch](qint64 shotId) {
+                    [this, finalWeight, shotDateTime, showPostShot, duration](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -4632,21 +4626,8 @@ void MainController::onShotEnded() {
                     // shot no matter what the live models hold by now.
                     emit shotPersisted(shotId, duration, finalWeight);
 
-                    // Auto-upload here (not before save) so we know the
-                    // local shots.id and can pass it to the uploader.
-                    // VisualizerUploader emits uploadSucceededForShot with
-                    // this id, and MainController persists the link from
-                    // C++ — independent of any UI page being alive. A
-                    // shot that failed to save has no row to link, so we
-                    // intentionally do NOT auto-upload it (avoids the
-                    // orphaned-upload bug this change exists to fix).
-                    if (m_settings->visualizer()->visualizerActive() && m_settings->upload()->autoUpload() && m_visualizer) {
-                        DIAG_DEBUG(VISUALIZER, "maincontroller") << "  -> Auto-uploading to visualizer for shot" << shotId;
-                        m_visualizer->uploadShot(
-                            m_shotDataModel, m_profileManager->currentProfilePtr(),
-                            duration, finalWeight, doseWeight, metadata, debugLog,
-                            pendingShotEpoch, shotId);
-                    }
+                    // Uploaded from the saved row, so only a shot that saved is uploaded.
+                    m_shotUploads->shotSaved(shotId);
 
                     // Set shot date/time for display on metadata page
                     m_settings->dye()->setDyeShotDateTime(shotDateTime);
@@ -4773,10 +4754,9 @@ void MainController::onShotEnded() {
              << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
-    // Auto-upload is dispatched from the shotSaved callback above (once
-    // the local shots.id is known) so the returned Visualizer id can be
-    // persisted to the right row from C++. Do NOT auto-upload here —
-    // before save the id is unknown and the upload would orphan.
+    // Auto-upload goes through ShotUploads::shotSaved from the shotSaved
+    // callback above, once the row exists. Do NOT upload here — before
+    // save there is no row to upload from or to link.
 
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.

@@ -675,38 +675,6 @@ private slots:
         QCOMPARE(ProfileJson::enc(-1.25, ProfileJson::Pressure), QStringLiteral("-1.25"));
     }
 
-    // A LIVE upload carries the canonical serialization — the same bytes that go
-    // to disk, to an export and into a share code.
-    //
-    // The previous version of this test fed p.toJsonObject() in as the stored
-    // snapshot and then asserted the output equalled p.toJsonObject(). Since the
-    // history path passes the snapshot through verbatim, that compared a value
-    // with itself: it would have passed with any serializer at all, canonical or
-    // not. The two paths are now tested separately, for the property each
-    // actually has.
-    void visualizerLiveUploadProfileIsCanonical() {
-        const Profile p = Profile::loadFromFile(
-            QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/resources/profiles/d_flow_default.json"));
-        QVERIFY(p.isValid());
-
-        const QJsonObject uploaded = VisualizerUploader::buildVisualizerProfileJson(&p);
-
-        QVERIFY2(!uploaded.isEmpty(), "live upload carried no profile object");
-        QCOMPARE(QJsonDocument(uploaded).toJson(QJsonDocument::Compact),
-                 QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact));
-
-        const QStringList errors = Profile::decaidReadabilityErrors(uploaded);
-        QVERIFY2(errors.isEmpty(), qPrintable(errors.join(", ")));
-    }
-
-    void visualizerLiveUploadHandlesNullProfile() {
-        // Shots can be recorded with no profile attached; the uploader must
-        // still produce a well-formed object rather than an empty one.
-        const QJsonObject uploaded = VisualizerUploader::buildVisualizerProfileJson(nullptr);
-        QVERIFY(!uploaded.isEmpty());
-        QVERIFY(uploaded.contains(QStringLiteral("title")));
-    }
-
     // A HISTORY upload re-sends the profile snapshot stored WITH the shot,
     // byte-for-byte. Re-serializing an old shot through today's serializer would
     // rewrite what the user actually brewed, so this deliberately feeds a
