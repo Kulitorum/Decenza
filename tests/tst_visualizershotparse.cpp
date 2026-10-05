@@ -214,7 +214,13 @@ private slots:
         remote.insert("espresso_notes", "<p>sour<br>try finer</p>");
         remote.insert("bean_weight", "18.0");
         remote.insert("barista", QJsonValue(QJsonValue::Null));
+        // Visualizer rewrites a linked shot's bean fields from its bag
+        // (Shot#refresh_coffee_bag_fields), so they are never pulled.
+        remote.insert("bean_brand", "Roaster");
+        remote.insert("roast_date", "05.10.2026");
         const QVariantMap values = VisualizerSync::remoteShotValues(remote);
+        QVERIFY(!values.contains("beanBrand"));
+        QVERIFY(!values.contains("roastDate"));
         QCOMPARE(values.value("grinderSetting").toString(), QStringLiteral("2.6"));
         QCOMPARE(values.value("rpm").toLongLong(), qint64(1500));
 
@@ -237,16 +243,26 @@ private slots:
     void bag_archive_syncs_on_disagreement_only()
     {
         const QString at = QStringLiteral("2026-10-01T09:00:00.000Z");
-        auto bag = [](bool inInventory, const QString& seen) {
-            return QVariantMap{{"inInventory", inInventory}, {"visualizerArchivedAt", seen}};
+        auto bag = [](bool inInventory, const QVariant& seen) {
+            QJsonObject o;
+            if (seen.isValid())
+                o.insert("archived_at", seen.toString());
+            return QVariantMap{{"inInventory", inInventory},
+                               {"visualizerSeen", QString::fromUtf8(QJsonDocument(o).toJson())}};
         };
+        const QVariant neverSeen;
+        const QVariant active = QString();
 
-        QVariantMap c = VisualizerSync::bagArchivePullChanges(at, bag(true, QString()));
-        QCOMPARE(c.value("inInventory"), QVariant(false));
-        QCOMPARE(c.value("visualizerArchivedAt").toString(), at);
+        VisualizerSync::BagPull c = VisualizerSync::bagArchivePullChanges(at, bag(true, active));
+        QCOMPARE(c.fields.value("inInventory"), QVariant(false));
+        QCOMPARE(c.seen.value("archived_at").toString(), at);
         QVERIFY(VisualizerSync::bagArchivePullChanges(at, bag(true, at)).isEmpty());   // restocked here, not yet pushed
-        QCOMPARE(VisualizerSync::bagArchivePullChanges(QString(), bag(false, at)).value("inInventory"), QVariant(true));
-        QVERIFY(VisualizerSync::bagArchivePullChanges(QString(), bag(false, QString())).isEmpty());  // finished here
+        QCOMPARE(VisualizerSync::bagArchivePullChanges(QString(), bag(false, at)).fields.value("inInventory"), QVariant(true));
+        QVERIFY(VisualizerSync::bagArchivePullChanges(QString(), bag(false, active)).isEmpty());  // finished here
+        // First sight: a difference that predates sync is recorded, not acted on.
+        c = VisualizerSync::bagArchivePullChanges(at, bag(true, neverSeen));
+        QVERIFY(c.fields.isEmpty());
+        QCOMPARE(c.seen.value("archived_at").toString(), at);
 
         const QDateTime now = QDateTime::fromString(QStringLiteral("2026-10-05T08:30:00Z"), Qt::ISODate);
         QJsonValue sent;
@@ -256,6 +272,7 @@ private slots:
         QVERIFY(sent.isNull());
         QVERIFY(!VisualizerSync::bagArchiveForPush(bag(true, QString()), now, &sent));
         QVERIFY(!VisualizerSync::bagArchiveForPush(bag(false, at), now, &sent));
+        QVERIFY(!VisualizerSync::bagArchiveForPush(bag(true, neverSeen), now, &sent));
     }
 
     // Bag fields sync off what Visualizer was last seen to hold: a change there
@@ -275,20 +292,20 @@ private slots:
                           {"beanBaseData", QStringLiteral(R"({"region":"Nariño"})")}};
 
         // Never seen: blanks fill, set values stay, everything is recorded.
-        QVariantMap c = VisualizerSync::bagFieldPullChanges(remote, local);
-        QCOMPARE(c.value("notes").toString(), QStringLiteral("washed"));
-        QVERIFY(!c.contains("frozenDate"));
-        QJsonObject blob = QJsonDocument::fromJson(c.value("beanBaseData").toString().toUtf8()).object();
+        VisualizerSync::BagPull c = VisualizerSync::bagFieldPullChanges(remote, local);
+        QCOMPARE(c.fields.value("notes").toString(), QStringLiteral("washed"));
+        QVERIFY(!c.fields.contains("frozenDate"));
+        QJsonObject blob = QJsonDocument::fromJson(c.fields.value("beanBaseData").toString().toUtf8()).object();
         QCOMPARE(blob.value("origin").toString(), QStringLiteral("Colombia"));
         QCOMPARE(blob.value("region").toString(), QStringLiteral("Nariño"));
-        QCOMPARE(c.value("visualizerSeen").toMap().value("frozen_date").toString(), QStringLiteral("2026-10-02"));
+        QCOMPARE(c.seen.value("frozen_date").toString(), QStringLiteral("2026-10-02"));
+        QVERIFY(!c.seen.contains("farm"));   // absent from the response: unknown, not recorded
 
         // Seen as it still is there: a local clear of the notes stays cleared.
         QJsonObject seen{{"frozen_date", "2026-10-02"}, {"defrosted_date", ""}, {"country", "Colombia"},
                          {"region", "Huila"}, {"notes", "washed"}};
         local.insert("visualizerSeen", seenJson(seen));
         c = VisualizerSync::bagFieldPullChanges(remote, local);
-        c.remove("visualizerSeen");   // fields never seen (all empty) are recorded once
         QVERIFY(c.isEmpty());
 
         // Frozen there since: taken, with the defrost date it cleared.
@@ -296,15 +313,26 @@ private slots:
         seen.insert("defrosted_date", "2026-07-30");
         local.insert("visualizerSeen", seenJson(seen));
         c = VisualizerSync::bagFieldPullChanges(remote, local);
-        QCOMPARE(c.value("frozenDate").toString(), QStringLiteral("2026-10-02"));
-        QVERIFY(c.contains("defrostDate"));
-        QCOMPARE(c.value("defrostDate").toString(), QString());
+        QCOMPARE(c.fields.value("frozenDate").toString(), QStringLiteral("2026-10-02"));
+        QVERIFY(c.fields.contains("defrostDate"));
+        QCOMPARE(c.fields.value("defrostDate").toString(), QString());
+
+        // Region cleared there, unchanged here: removed from the blob.
+        QJsonObject cleared = remote;
+        cleared.insert("region", QJsonValue(QJsonValue::Null));
+        QVariantMap seenLocal = local;
+        seenLocal.insert("beanBaseData", QStringLiteral(R"({"origin":"Colombia","region":"Huila"})"));
+        seenLocal.insert("visualizerSeen", seenJson(seen));
+        c = VisualizerSync::bagFieldPullChanges(cleared, seenLocal);
+        blob = QJsonDocument::fromJson(c.fields.value("beanBaseData").toString().toUtf8()).object();
+        QVERIFY(!blob.contains("region"));
+        QCOMPARE(blob.value("origin").toString(), QStringLiteral("Colombia"));
 
         // Changed on both sides: the local edit stays, and goes out on the next push.
         local.insert("defrostDate", "2026-08-15");
         c = VisualizerSync::bagFieldPullChanges(remote, local);
-        QVERIFY(!c.contains("defrostDate"));
-        QCOMPARE(c.value("visualizerSeen").toMap().value("defrosted_date").toString(), QString());
+        QVERIFY(!c.fields.contains("defrostDate"));
+        QCOMPARE(c.seen.value("defrosted_date").toString(), QString());
     }
 
     // A note uploaded before uploads escaped Markdown came back rendered; that
@@ -314,6 +342,11 @@ private slots:
         QVERIFY(VisualizerNotes::sameNotes(QStringLiteral("1. finer\n*very* sour"),
                                            QStringLiteral("<ol><li>finer<br><em>very</em> sour</li></ol>")));
         QVERIFY(!VisualizerNotes::sameNotes(QStringLiteral("finer"), QStringLiteral("<p>coarser</p>")));
+        // Near misses: words, not markup, differ.
+        QVERIFY(!VisualizerNotes::sameNotes(QStringLiteral("1. finer"), QStringLiteral("<ol><li>coarser</li></ol>")));
+        QVERIFY(!VisualizerNotes::sameNotes(QStringLiteral("a b"), QStringLiteral("<p>ab</p>")));
+        // "<3" is text, not a tag.
+        QCOMPARE(VisualizerNotes::htmlToPlain(QStringLiteral("<3 this")), QStringLiteral("<3 this"));
     }
 };
 

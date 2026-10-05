@@ -2,7 +2,7 @@
 
 ### Requirement: Shot edits made on Visualizer are pulled into Decenza
 
-While Visualizer is connected and automatic update is on, the application SHALL periodically (at startup, every 30 minutes and when an account is connected) list the shots changed on visualizer.coffee since the last complete pass (`GET /api/shots?updated_after=<cursor>&sort=updated_at`) and read each one linked to a local shot. For each pulled field — bean brand, bean type, roast date, roast level, grind setting and rpm, dose, yield, TDS, EY, enjoyment, notes, barista, taste — whose remote value differs from the local value, the local value SHALL be replaced, unless that field was edited locally and not yet sent. A missing or null remote value SHALL NOT clear a local value. Grinder identity and the canonical bean link SHALL NOT be pulled. The cursor SHALL be kept per account and advanced only after a complete pass; the first pass on an account SHALL look back 14 days. Requests SHALL be paced at the shared Visualizer API interval.
+While Visualizer is connected and automatic update is on, the application SHALL periodically (at startup, every 30 minutes and when an account is connected) list the shots changed on visualizer.coffee since the last complete pass (`GET /api/shots?updated_after=<cursor>&sort=updated_at`) and read each one linked to a local shot. For each pulled field — grind setting and rpm, dose, yield, TDS, EY, enjoyment, notes, barista, taste — whose remote value differs from the local value, the local value SHALL be replaced, unless that field was edited locally and not yet sent. A missing or null remote value SHALL NOT clear a local value. Grinder identity, the canonical bean link and the bean fields (brand, type, roast date, roast level) SHALL NOT be pulled: Visualizer rewrites a bag-linked shot's bean fields from its coffee bag, so their values there are not edits. The cursor SHALL be kept per account and advanced only after a complete pass in which every pulled write was saved; the first pass on an account, and an account with more changed shots than one pass reads, SHALL look back 14 days. A shot that cannot be read SHALL be skipped and logged; a failure that affects the whole account SHALL end the pass. A read that a push of the same item overtook SHALL be dropped. A pulled shot change SHALL reach the other upload destinations as a local edit would, and SHALL NOT be pushed back to Visualizer. Requests SHALL be paced at the shared Visualizer API interval.
 
 #### Scenario: Journal edit comes back
 - **GIVEN** a shot uploaded from Decenza
@@ -18,13 +18,22 @@ While Visualizer is connected and automatic update is on, the application SHALL 
 - **WHEN** a pulled shot has no barista or CVA scores on Visualizer
 - **THEN** the local barista and taste are unchanged
 
+#### Scenario: Bean fields rewritten by Visualizer
+- **GIVEN** a shot linked to a Coffee Management bag, whose roast date Visualizer stores in the user's display format
+- **WHEN** a pass reads the shot
+- **THEN** the local bean brand, type, roast date and roast level are unchanged
+
 #### Scenario: Pass fails part-way
 - **WHEN** a pass stops on an offline network or a refused request
 - **THEN** the cursor is not advanced and the next pass reads the same shots again, writing nothing already applied
 
+#### Scenario: One shot will not read
+- **WHEN** one changed shot's read fails with a response specific to that shot
+- **THEN** the pass skips it, logs it, and reads the rest
+
 ### Requirement: Coffee bag archive state syncs both ways
 
-The application SHALL keep, per synced bag, the `archived_at` visualizer.coffee was last known to hold. Each pass SHALL read every bag's `archived_at` from the bag list; when it differs from the known value, an archive SHALL mark the local bag finished, a restore SHALL return it to inventory, and the new value SHALL be recorded. A bag push SHALL carry `archived_at` — the current time when the bag is finished here and active there, `null` when it is in inventory here and archived there — only when the two disagree, and SHALL record the value Visualizer returns. Pulled changes SHALL NOT be pushed back.
+The application SHALL keep, per synced bag, the `archived_at` visualizer.coffee was last known to hold. Each pass SHALL read every bag's `archived_at` from the bag list; when it differs from the known value, an archive SHALL mark the local bag finished, a restore SHALL return it to inventory, and the new value SHALL be recorded. A bag whose archive state has never been seen SHALL have it recorded without acting on it. A bag push SHALL carry `archived_at` — the current time when the bag is finished here and active there, `null` when it is in inventory here and archived there — only when the two disagree, and SHALL record the value Visualizer returns. Pulled changes SHALL NOT be pushed back.
 
 #### Scenario: Archived on Visualizer
 - **WHEN** the user archives a synced bag on visualizer.coffee and the next pass runs
@@ -33,6 +42,11 @@ The application SHALL keep, per synced bag, the `archived_at` visualizer.coffee 
 #### Scenario: Finished in Decenza
 - **WHEN** the user taps Bag Finished on a synced bag in Decenza
 - **THEN** the bag is archived on visualizer.coffee
+
+#### Scenario: First sight is recorded, not acted on
+- **GIVEN** a bag archived on Visualizer before this sync existed and still in use in Decenza
+- **WHEN** the first pass reads it
+- **THEN** the bag stays in inventory in Decenza
 
 #### Scenario: An edit does not undo an unpulled archive
 - **GIVEN** a bag archived on Visualizer since the last pass
@@ -58,7 +72,7 @@ During the same pass, the application SHALL read each synced bag still in invent
 
 ### Requirement: Synced data is fresh when viewed
 
-A screen showing a Visualizer-linked shot (post-shot review, shot detail, the web shot page) SHALL read that shot from Visualizer when it opens; the bag editor SHALL read its bag; the bean inventory (in the app and on the web) SHALL read every bag's archive state and the bags in use. An editor SHALL save only the fields edited in it, and while open SHALL take a pulled change into any field not yet edited. Background requests SHALL share one pacer, so concurrent passes together keep to the request interval.
+A screen showing a Visualizer-linked shot (post-shot review, shot detail, the web shot page) SHALL read that shot from Visualizer when it opens; the bag editor SHALL read its bag; the bean inventory (in the app and on the web) SHALL read every bag's archive state and the bags in use, unless the bags were read in the last 3 minutes. An editor SHALL save only the fields edited in it, and while open SHALL take a pulled change into any field not yet edited; an undo SHALL NOT restore the value a pull replaced. Background requests SHALL share one pacer, so concurrent passes together keep to the request interval.
 
 #### Scenario: Review page opened after a Journal edit
 - **GIVEN** the user changed a shot's rating in Visualizer's Journal a minute ago
@@ -69,6 +83,11 @@ A screen showing a Visualizer-linked shot (post-shot review, shot detail, the we
 - **GIVEN** the review page is open and a pull changes the shot's grind setting
 - **WHEN** the user then changes the rating
 - **THEN** the grind field shows the pulled value, and the save writes and sends only the rating
+
+#### Scenario: Undo after a pull
+- **GIVEN** the review page is open, the user changed the rating, and a pull then changed the grind setting
+- **WHEN** the user taps Undo
+- **THEN** the rating reverts and the grind setting keeps the pulled value
 
 #### Scenario: Shot list shrinks mid-pass
 - **WHEN** a shot is deleted on Visualizer while a pass is paging the changed-shot list

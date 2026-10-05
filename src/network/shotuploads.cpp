@@ -18,6 +18,7 @@ ShotUploads::ShotUploads(SettingsUpload* settings, ShotHistoryStorage* storage,
         });
     }
     connect(storage, &ShotHistoryStorage::shotMetadataUpdated, this, &ShotUploads::onShotEdited);
+    connect(storage, &ShotHistoryStorage::shotPulledFromVisualizer, this, &ShotUploads::onShotPulled);
 }
 
 void ShotUploads::uploadNow(qint64 shotId) {
@@ -93,6 +94,20 @@ void ShotUploads::onShotEdited(qint64 shotId, bool success) {
     for (ShotUploadDestination* destination : std::as_const(m_destinations))
         destination->noteEdited(shotId);
     if (pageSave)
+        held->edited = true;
+    else if (m_settings->autoUpdate())
+        enqueue(shotId, Send::UpdateOnly);
+}
+
+// An edit made on Visualizer reaches the other destinations as any edit does.
+// Visualizer itself is sent nothing: a pull leaves no field dirty.
+void ShotUploads::onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written) {
+    Q_UNUSED(previous);
+    if (shotId <= 0 || written.isEmpty()) return;
+    for (ShotUploadDestination* destination : std::as_const(m_destinations))
+        destination->noteEdited(shotId);
+    const auto held = m_held.find(shotId);
+    if (held != m_held.end())
         held->edited = true;
     else if (m_settings->autoUpdate())
         enqueue(shotId, Send::UpdateOnly);

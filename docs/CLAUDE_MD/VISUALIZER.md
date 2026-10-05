@@ -66,12 +66,26 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
   (`visualizer/pullCursor`, per account) advances only over a complete pass; the first pass on an
   account looks back 14 days. Our own uploads and PATCHes come back too and write nothing. The
   list is paged by offset over a moving sort: a list that shrinks mid-pass (a shot deleted there)
-  could hide a row, so the pass ends without advancing the cursor.
+  could hide a row, so the pass ends without advancing the cursor. Past 50 pages the cursor
+  re-baselines to the 14-day window rather than failing forever. A shot that will not read is
+  skipped with a WARN; an account-wide failure (offline, 401/403/429/5xx) or a pulled write
+  that did not save ends the pass, so the cursor stays. A pass that outlives its account (signed
+  in elsewhere meanwhile) drops its cursor.
 - **What a pull writes** (`shotPullChanges`): a field whose remote value differs from local, unless
   it is dirty here. A missing or null remote value never clears a local one (CVA needs Premium;
   barista never reached Visualizer before the `my_name` fix). Grinder identity and the canonical
-  link are not pulled — locally they are an equipment package and a Bean Base snapshot. The rpm
-  comes back off the `"2.4 1400rpm"` suffix.
+  link are not pulled — locally they are an equipment package and a Bean Base snapshot. Nor are
+  the bean fields: Visualizer rewrites a bag-linked shot's `bean_brand`/`bean_type`/`roast_date`/
+  `roast_level` from its coffee bag (`Shot#refresh_coffee_bag_fields`, `roast_date` in the
+  user's display format), so they are not edits. The rpm comes back off the `"2.4 1400rpm"` suffix.
+- **Pull signals**: a pulled shot emits `ShotHistoryStorage::shotPulledFromVisualizer(id, previous,
+  written)`, a pulled bag `CoffeeBagStorage::bagPulledFromVisualizer(id)` — never
+  `shotMetadataUpdated`/`bagUpdated`, which the MCP and web handlers, AIManager, SettingsDye's
+  self-write tokens and the review page's held saves all read as the result of their own write.
+  ShotUploads forwards a pulled shot to the other destinations (Decent); the exporter rewrites it.
+- **A push overtakes a read**: `VisualizerUploader::shotPushGeneration`/`bagPushGeneration` count
+  sends per item. The pull snapshots the count before each GET (bags: before the list) and drops
+  the read if it moved — the read may predate our own change, which comes back next pass anyway.
 - **Dirty tracking** (migration 43): `updateShotMetadataStatic` sets a `VisualizerSync::Field` bit
   in `shots.visualizer_dirty` for each field whose value an edit changes (compared in SQL, NULL and
   "" equal) and, only then, bumps `visualizer_dirty_seq`. A successful send clears only the bits it carried, and
@@ -79,11 +93,11 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
   pull does not mark anything. Both columns travel with backups.
 - **Coffee bags**:
   - **Archive, both ways** (API since visualizer `0668577`, our
-    [#262](https://github.com/miharekar/visualizer/issues/262)): `coffee_bags.visualizer_archived_at`
-    is the `archived_at` Visualizer was last known to hold. The pull reads every bag's
-    `archived_at` from the paged bag list (not one read per bag) and acts only on a change —
-    an archive there marks the bag finished here, a restore puts it back
-    (`bagArchivePullChanges`). A bag push carries `archived_at` only when the bag's
+    [miharekar/visualizer#262](https://github.com/miharekar/visualizer/issues/262)): `archived_at` is a key of
+    `visualizer_seen` (below). The pull reads every bag's `archived_at` from the paged bag list
+    (not one read per bag) and acts only on a change — an archive there marks the bag finished
+    here, a restore puts it back (`bagArchivePullChanges`). First sight records the state without
+    acting: a difference that predates sync is not an archive. A bag push carries `archived_at` only when the bag's
     inventory state here disagrees with that value (`bagArchiveForPush`: now, or null to
     restore), and records what the reply says; so an edit to anything else never moves an
     archive the pull has not applied yet. `inInventory` is therefore a Visualizer-pushed field.
@@ -94,22 +108,28 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
     still in inventory, `GET /api/coffee_bags/:id`) takes a field changed there and not here;
     changed on both sides, the local edit stays and goes out next. A field never seen (a bag
     synced before this existed) is pushed only when set here and pulled only into a blank.
-    Name and the canonical link are pushed but never pulled.
+    Name and the canonical link are pushed but never pulled, and never sent as `null`.
   - **Photo**: whichever side lacks one gets the other's. Visualizer's signed `image_url`
     (expires in 5 min) goes into the bag photo cache under `BeanBaseClient::imageKeyFor()`; a
     cached photo is uploaded as `coffee_bag[image]` multipart. Neither side's photo is replaced.
+    A 403 stops photo uploads for the session.
   - Pulled values are decided and written on the bag worker against the row as it stands
     (`CoffeeBagStorage::requestApplyVisualizerPull`), so a local edit queued first wins; it emits
-    everything `requestUpdateBag` does except the push back to Visualizer.
+    `bagsChanged`, `bagPulledFromVisualizer` and the finished/restocked lifecycle signals, and
+    commits the fields with the `visualizer_seen` merge.
+- **Failures** are logged once at WARN per distinct message, repeats counted; the recovery is an
+  INFO carrying the count.
 
 ### Fresh when viewed
 
 A screen showing synced data reads it from Visualizer when it opens, instead of waiting for the
 next pass: the review and detail pages call `VisualizerShotSync::refreshShot`, the bag editor
-`refreshBag`, the bean inventory `refreshBags` (also the web `/shot/<id>` and `/beans` pages).
-Editors never write back what they did not change: the review page, the bag editor and the
-web shot editor save only the fields edited there, and while open they take a pulled change into
-any field not yet touched. All background requests share one pacer
+`refreshBag`, the bean inventory `refreshBags` (also the web `/shot/<id>` and `/beans` pages;
+skipped within 3 min of the last bag pass, which costs a request per bag in use).
+Editors never write back what they did not change: the review page, the bag editor (the detail
+blob key by key, `beanBaseDataPatch`) and the web shot editor save only the fields edited there,
+and while open they take a pulled change into any field not yet touched. The review page also
+moves its undo frames, so Undo cannot write the old value back. All background requests share one pacer
 (`VisualizerUploader::paceApiRequest`), so concurrent passes keep to the rate budget together.
 
 ### Bag edits reach Visualizer without a shot upload

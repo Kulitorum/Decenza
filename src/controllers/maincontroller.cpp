@@ -586,8 +586,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Push a bag edit to its already-synced Visualizer bag, gated on the SAME
     // toggle as shot metadata updates (bag sync follows shot sync). The signal
     // fires only when a Visualizer-stored field changed (CoffeeBagStorage owns
-    // that test); updateBagOnVisualizer additionally no-ops unless CM is Active
-    // and the bag has a visualizerBagId. Create/link still rides auto-upload via
+    // that test); updateBagOnVisualizer additionally no-ops for an account
+    // without Coffee Management and for a bag with no visualizerBagId. Create/link still rides auto-upload via
     // the post-upload sync chain — this handles the edit-an-existing-bag case.
     connect(m_bagStorage, &CoffeeBagStorage::bagVisualizerFieldsChanged, this,
             [this](qint64 bagId) {

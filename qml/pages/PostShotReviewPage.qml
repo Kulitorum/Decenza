@@ -356,13 +356,8 @@ T.Page {
             // moment this page opens. Re-running the block below would repopulate every
             // edit field from the database and reset the upload status, which is the same
             // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
-            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId) {
-                if (postShotReviewPage._mergePending) {
-                    postShotReviewPage._mergePending = false
-                    postShotReviewPage.mergeStoredChanges(shot)
-                }
+            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
                 return
-            }
             postShotReviewPage.editShotData = shot
             postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
             MainController.shotHistory.requestDecentUploadState(shotId)
@@ -446,16 +441,11 @@ T.Page {
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
-            // Success needs no full reload: saveEditedShot() already advanced the
+            // Success needs no reload: saveEditedShot() already advanced the
             // in-memory baseline optimistically, and a reload would clobber an
-            // in-progress edit. But the change may not be ours (a Visualizer
-            // pull), so re-read and take only the fields nobody edited here.
+            // in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
-                if (postShotReviewPage._editLoaded) {
-                    postShotReviewPage._mergePending = true
-                    MainController.shotHistory.requestShot(shotId)
-                }
             } else {
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
                 postShotReviewPage._saveFailed = true
@@ -463,6 +453,10 @@ T.Page {
                     AccessibilityManager.announce(TranslationManager.translate(
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
+        }
+        function onShotPulledFromVisualizer(shotId, previous, written) {
+            if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
+                postShotReviewPage.mergePulledChanges(previous, written)
         }
         function onHistoryDataChanged() {
             if (postShotReviewPage._baristaHistoryLoaded)
@@ -850,10 +844,10 @@ T.Page {
     // key, and the shot-record property it mirrors. `pulled` marks the ones a
     // Visualizer pull can change underneath an open page.
     readonly property var _fieldSpecs: [
-        { meta: "beanBrand",      state: "beanBrand",      shot: "beanBrand",       def: "",  pulled: true },
-        { meta: "beanType",       state: "beanType",       shot: "beanType",        def: "",  pulled: true },
-        { meta: "roastDate",      state: "roastDate",      shot: "roastDate",       def: "",  pulled: true, date: true },
-        { meta: "roastLevel",     state: "roastLevel",     shot: "roastLevel",      def: "",  pulled: true },
+        { meta: "beanBrand",      state: "beanBrand",      shot: "beanBrand",       def: "" },
+        { meta: "beanType",       state: "beanType",       shot: "beanType",        def: "" },
+        { meta: "roastDate",      state: "roastDate",      shot: "roastDate",       def: "",  date: true },
+        { meta: "roastLevel",     state: "roastLevel",     shot: "roastLevel",      def: "" },
         { meta: "grinderSetting", state: "grinderSetting", shot: "grinderSetting",  def: "",  pulled: true },
         { meta: "rpm",            state: "rpm",            shot: "rpm",             def: 0,   pulled: true },
         { meta: "equipmentId",    state: "equipmentId",    shot: "equipmentId",     def: -1,  orDef: true },
@@ -870,35 +864,40 @@ T.Page {
         { meta: "tasteBody",      state: "tasteBody",      shot: "tasteBody",       def: "",  pulled: true }
     ]
 
-    // A spec's stored value in `shot`, in the form its edit field holds.
-    function _stored(spec, shot) {
-        var v = shot[spec.shot]
+    // A stored value in the form a spec's edit field holds.
+    function _asField(spec, v) {
         v = (typeof spec.def === "string" || spec.orDef) ? (v || spec.def) : (v ?? spec.def)
         return spec.date ? DateUtils.normalizeDateString(v) : v
     }
+    function _stored(spec, shot) { return _asField(spec, shot[spec.shot]) }
 
-    // The stored shot changed under this page (a Visualizer pull). Take each
-    // pulled field whose stored value moved and that nobody has edited here.
-    property bool _mergePending: false
-    function mergeStoredChanges(shot) {
+    // A Visualizer pull rewrote stored fields (`previous` -> `written`, keyed by
+    // metadata key). Each field still showing its old value takes the new one;
+    // a field edited here keeps the edit, which the next save sends. Undo frames
+    // holding the old value move too, so Undo cannot write it back.
+    function mergePulledChanges(previous, written) {
         var state = captureEditState()
         var nb = clonePersistedShot(editShotData)
-        var changed = false
+        var shownChanged = false
         for (var i = 0; i < _fieldSpecs.length; ++i) {
             var spec = _fieldSpecs[i]
-            if (!spec.pulled) continue
-            var stored = _stored(spec, shot)
-            var before = _stored(spec, editShotData)
-            if (stored === before) continue
+            if (!spec.pulled || written[spec.meta] === undefined) continue
+            var before = _asField(spec, previous[spec.meta])
+            var after = _asField(spec, written[spec.meta])
+            var baseline = _stored(spec, editShotData)
             // The dose field shows the DYE dose when the shot has none.
-            var shown = (spec.meta === "doseWeight" && !(before > 0)) ? Settings.dye.dyeBeanWeight : before
-            if (state[spec.state] !== shown) continue
-            state[spec.state] = stored
-            nb[spec.shot] = shot[spec.shot]
-            changed = true
+            var shown = (spec.meta === "doseWeight" && !(baseline > 0)) ? Settings.dye.dyeBeanWeight : baseline
+            nb[spec.shot] = written[spec.meta]
+            if (state[spec.state] === shown) {
+                state[spec.state] = after
+                shownChanged = true
+            }
+            var frames = _undoStack.concat([_committedState])
+            for (var f = 0; f < frames.length; ++f)
+                if (frames[f][spec.state] === before) frames[f][spec.state] = after
         }
-        if (!changed) return
         editShotData = nb
+        if (!shownChanged) return
         applyEditState(state)
         _committedState = captureEditState()
     }

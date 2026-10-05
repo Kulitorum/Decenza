@@ -2712,7 +2712,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         sendHtml(socket, generateRecipesPage());
     }
     else if (path == "/beans") {
-        // As the app's bean inventory: pull archive, freeze and photo state.
+        // As the app's bean inventory: the bags as Visualizer holds them now.
         if (m_mainController && m_mainController->visualizerSync())
             m_mainController->visualizerSync()->refreshBags();
         sendHtml(socket, generateBeansPage());

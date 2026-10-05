@@ -111,7 +111,7 @@ T.Page {
             if (id !== shotDetailPage.shotId) return
             shotDetailPage.shotData = shot
             // Show what Visualizer holds now: a change there reloads this page
-            // through onShotMetadataUpdated. Once per shot shown.
+            // through onShotPulledFromVisualizer. Once per shot shown.
             if (shot.visualizerId && shotDetailPage._refreshedShotId !== id) {
                 shotDetailPage._refreshedShotId = id
                 MainController.visualizerSync.refreshShot(id)
@@ -1617,12 +1617,16 @@ T.Page {
     }
 
     // Shot Detail is read-only — beans are re-linked on the Post-Shot Review
-    // page. Still refresh if this shot's metadata changes elsewhere (e.g. after
-    // editing it on the review page pushed on top), so returning shows fresh data.
+    // page. Still refresh if this shot's metadata changes elsewhere (the review
+    // page pushed on top, or Visualizer), so returning shows fresh data.
     Connections {
         target: MainController.shotHistory
         function onShotMetadataUpdated(id, success) {
             if (id === shotDetailPage.shotId && success)
+                shotDetailPage.loadShot()
+        }
+        function onShotPulledFromVisualizer(id, previous, written) {
+            if (id === shotDetailPage.shotId)
                 shotDetailPage.loadShot()
         }
     }

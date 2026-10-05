@@ -38,8 +38,8 @@ T.Page {
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
-        // Archive, freeze and photo state as Visualizer holds it now; changes
-        // arrive through onBagsChanged below.
+        // The bags as Visualizer holds them now; changes arrive through
+        // onBagsChanged below.
         MainController.visualizerSync.refreshBags()
         addBagButton.forceActiveFocus()
     }

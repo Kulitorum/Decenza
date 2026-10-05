@@ -338,12 +338,14 @@ public:
     // Writes a pull's values (VisualizerSync::remoteShotValues) where they
     // differ from the row and the field is not dirty, decided inside the write
     // transaction so an edit saved meanwhile still wins. Marks nothing dirty.
-    // Returns the metadata keys written; false (and nothing written) on failure.
+    // `written` gets the metadata keys written and `previous` their old values;
+    // a shot deleted here is a successful no-op. False on a database failure.
     static bool applyVisualizerPullStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& remote,
-                                          QVariantMap* written);
-    // As above on the DB worker; a shot that changed emits historyDataChanged
-    // and shotMetadataUpdated, so the Decent copy and open pages follow.
-    void requestApplyVisualizerPull(qint64 shotId, const QVariantMap& remote);
+                                          QVariantMap* written, QVariantMap* previous);
+    // As above on the DB worker, then done(ok) on the main thread. A shot that
+    // changed emits historyDataChanged and shotPulledFromVisualizer — never
+    // shotMetadataUpdated, whose listeners take it as the result of their own write.
+    void requestApplyVisualizerPull(qint64 shotId, const QVariantMap& remote, std::function<void(bool ok)> done);
     // The local shot linked to each of `visualizerIds`, for those linked here.
     static bool shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const QStringList& visualizerIds,
                                               QHash<QString, qint64>* out);
@@ -648,6 +650,8 @@ signals:
     void latestGrindForBeanReady(const QVariantMap& grind);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);
+    // A Visualizer pull changed these metadata keys (from `previous` to `written`).
+    void shotPulledFromVisualizer(qint64 shotId, const QVariantMap& previous, const QVariantMap& written);
 
     // A write landed that can change what the getDistinct*() getters and the
     // grind-step derivation return: a shot saved, deleted, metadata-edited, or a

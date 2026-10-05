@@ -891,6 +891,59 @@ private slots:
         drainDbWork(storage);
     }
 
+    // A Visualizer pull decides on the row as it stands inside the write, merges
+    // what it saw into visualizer_seen rather than replacing it, and announces
+    // itself as a pull: bagUpdated would read to the MCP/web one-shot listeners
+    // as the result of their own write.
+    void visualizerPullDecidesOnCurrentRowAndSignalsAsAPull() {
+        const QString path = freshDb();
+        qint64 bagId = 0;
+        withRawDb(path, "pull_setup", [&](QSqlDatabase& db) {
+            CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "C";
+            bag.notes = "local";
+            bag.visualizerSeen = QStringLiteral(R"({"notes":"old"})");
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        QSignalSpy pulled(&storage, &CoffeeBagStorage::bagPulledFromVisualizer);
+        QSignalSpy updated(&storage, &CoffeeBagStorage::bagUpdated);
+        QSignalSpy finished(&storage, &CoffeeBagStorage::bagFinished);
+
+        QString notesSeenByDecide;
+        storage.requestApplyVisualizerPull(bagId, [&notesSeenByDecide](const QVariantMap& current) {
+            notesSeenByDecide = current.value("notes").toString();
+            VisualizerSync::BagPull pull;
+            pull.fields.insert("inInventory", false);
+            pull.seen.insert("archived_at", "2026-10-01T09:00:00Z");
+            return pull;
+        });
+        QTRY_COMPARE(pulled.count(), 1);
+        QCOMPARE(notesSeenByDecide, QStringLiteral("local"));
+        QCOMPARE(finished.count(), 1);
+
+        // Seen only: recorded, but no field changed, so nothing is announced.
+        storage.requestApplyVisualizerPull(bagId, [](const QVariantMap&) {
+            VisualizerSync::BagPull pull;
+            pull.seen.insert("region", "Huila");
+            return pull;
+        });
+        drainDbWork(storage);
+        QCOMPARE(pulled.count(), 1);
+        QCOMPARE(updated.count(), 0);
+
+        withRawDb(path, "pull_verify", [&](QSqlDatabase& db) {
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+            QVERIFY(!bag.inInventory);
+            const QJsonObject seen = QJsonDocument::fromJson(bag.visualizerSeen.toUtf8()).object();
+            QCOMPARE(seen.value("notes").toString(), QStringLiteral("old"));
+            QCOMPARE(seen.value("archived_at").toString(), QStringLiteral("2026-10-01T09:00:00Z"));
+            QCOMPARE(seen.value("region").toString(), QStringLiteral("Huila"));
+        });
+    }
+
     void migration24AddsSyncPendingColumn() {
         // Fresh DB: the column exists (CREATE TABLE path) with default 0.
         const QString path = freshDb();
@@ -1886,7 +1939,7 @@ private slots:
             "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
             "doseWeightG", "yieldValue", "yieldMode", "startWeightG", "lastUsedEpoch",
             "visualizerBagId", "visualizerRoasterId",
-            "visualizerSyncPending", "visualizerArchivedAt", "visualizerSeen"};
+            "visualizerSyncPending", "visualizerSeen"};
         for (const QString& key : localKeys)
             QVERIFY2(!CoffeeBagStorage::touchesVisualizerFields({{key, "x"}}),
                      qPrintable("expected " + key + " to be local-only"));
@@ -2604,10 +2657,10 @@ private slots:
         QCOMPARE(body.value("url").toString(), QStringLiteral("https://roaster.example/bag"));
     }
 
-    // VisualizerSync::bagPushBody for a bag Visualizer has not been seen for:
-    // every field set here, empty ones omitted. Locks the blob->API mapping incl.
-    // the add-bag-detail-editing fields.
-    void patchBody_mapsAllFieldsAtCurrentValues() {
+    // VisualizerSync::bagPushBody: a bag never seen sends every field set here
+    // (locking the blob->API mapping incl. the add-bag-detail-editing fields);
+    // a seen one sends only what changed here since.
+    void pushBody_sendsChangesSinceSeen() {
         QVariantMap bag;
         bag.insert("coffeeName", "First Batch");
         bag.insert("roastDate", "2026-06-01");
@@ -2668,6 +2721,21 @@ private slots:
         QCOMPARE(delta.keys(), (QStringList{"notes", "roast_level"}));
         QVERIFY(delta.value("notes").isNull());
         QCOMPARE(delta.value("roast_level").toString(), QStringLiteral("Dark"));
+
+        // A name or canonical link cleared here is never nulled there; a blob
+        // field cleared here is.
+        QVariantMap cleared = bag;
+        cleared.insert("visualizerSeen", seenBag.value("visualizerSeen"));
+        cleared.insert("coffeeName", QString());
+        cleared.insert("beanBaseId", QString());
+        cleared.insert("beanBaseData", QStringLiteral("{\"origin\":\"Colombia\"}"));
+        QVariantMap clearedSent;
+        const QJsonObject clears = VisualizerSync::bagPushBody(cleared, &clearedSent);
+        QVERIFY(!clears.contains("name"));
+        QVERIFY(!clears.contains("canonical_coffee_bag_id"));
+        QVERIFY(clears.contains("region"));
+        QVERIFY(clears.value("region").isNull());
+        QVERIFY(!clears.contains("country"));
     }
 
     // A bag may carry a canonical id only while its own roaster/coffee still

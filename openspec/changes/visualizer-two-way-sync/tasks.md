@@ -6,7 +6,7 @@
 
 ## 2. Send only what changed
 
-- [x] 2.1 Migration 43 adds `visualizer_dirty`, `visualizer_dirty_seq` (shots) and `visualizer_archived_at` (coffee_bags); backup import carries the shot columns, the bag column rides `kCols`.
+- [x] 2.1 Migration 43 adds `visualizer_dirty`, `visualizer_dirty_seq` (shots) and `visualizer_seen` (coffee_bags, archive state included); backup import carries the shot columns, the bag column rides `kCols`.
 - [x] 2.2 `updateShotMetadataStatic` marks the fields whose value an edit changes; a send clears only its fields and only if the seq is unchanged. Verify: `tst_dbmigration::visualizerDirty_marksClearsAndGuardsPulls`.
 - [x] 2.3 `sendSavedShot`: automatic update sends the dirty fields, Upload sends all; the rating back-sync sends the rating only.
 
@@ -25,7 +25,7 @@
 
 ## 5. Review fixes and freshness
 
-- [x] 5.1 Bag fields sync off `coffee_bags.visualizer_seen` (last value known on Visualizer): pushes send only fields changed here (a clear as null), pulls take only fields changed there; a local clear is never refilled. Verify: `tst_coffeebags::patchBody_mapsAllFieldsAtCurrentValues`, `tst_visualizershotparse::bag_pull_takes_only_changes_made_there`.
+- [x] 5.1 Bag fields sync off `coffee_bags.visualizer_seen` (last value known on Visualizer): pushes send only fields changed here (a clear as null), pulls take only fields changed there; a local clear is never refilled. Verify: `tst_coffeebags::pushBody_sendsChangesSinceSeen`, `tst_visualizershotparse::bag_pull_takes_only_changes_made_there`.
 - [x] 5.2 Pull decisions for bags run on the bag worker against the current row.
 - [x] 5.3 The review page, bag editor and web shot editor save only the fields edited there, and take pulled changes into untouched fields while open.
 - [x] 5.4 Refresh on view: review/detail pages and the web shot page refresh their shot; the bag editor its bag; the bean inventory (app and web) all bags.
@@ -33,6 +33,7 @@
 - [x] 5.6 No roaster is created while Coffee Management is unconfirmed.
 - [x] 5.7 The edit seq moves only when a field changed. Verify: `tst_dbmigration::visualizerDirty_marksClearsAndGuardsPulls`.
 - [x] 5.8 One request pacer for every background pass; a changed-shot list that shrinks mid-pass leaves the cursor; the bag phase reads its bags in one query.
+- [x] 5.9 Second review round: shots no longer pull bean fields (Visualizer rewrites them from the bag); pulls announce themselves with `shotPulledFromVisualizer` / `bagPulledFromVisualizer` (forwarded to Decent, the exporter, SettingsDye, the open screens) instead of the edit signals; a shot pull waits for its write before the cursor moves; archive first sight records without acting; the review page merges from the pull's previous/written values and moves its undo frames; the bag editor saves its detail blob key by key; a read overtaken by a push of the same item is dropped; the bean inventory re-reads bags at most every 3 min; a bad shot is skipped rather than ending the pass; past 50 list pages the cursor re-baselines; a pass that outlives its account drops its cursor; failures log once and their recovery with a repeat count. Verify: `tst_visualizershotparse`, `tst_dbmigration::v42ToV43AddsVisualizerSyncColumns`, `tst_coffeebags::visualizerPullDecidesOnCurrentRowAndSignalsAsAPull`, `tst_visualizershotlist`.
 
 ## 6. Surfaces and docs
 
@@ -42,7 +43,7 @@
 
 ## 7. Verify
 
-- [x] 7.1 Full suite through Qt Creator after the review fixes: 119/119 passed, no warnings; QML lint gate clean (252/252).
+- [x] 7.1 Full suite through Qt Creator after the second review round: 119/119 passed, no warnings; QML lint gate clean (252/252).
 - [ ] 7.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). The web /beans page already shows them; the three QML screens open by long press.
 - [x] 7.7 Mac dev build, 2026-10-05: migration 43 ran on the real desktop database; an edit marks only changed fields, a re-save marks nothing, and an empty value over an unset one is not a change (checked in the DB); the web settings page shows the new description; no QML warnings in the log.
 

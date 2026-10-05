@@ -48,11 +48,12 @@ inline QString escapeMarkdown(const QString& plain)
     return out;
 }
 
-// For a read: the plain text of Visualizer's HTML. A value with no leading tag
-// is already plain (a pre-2026-08 shot, or a .shot file) and is returned as is.
+// For a read: the plain text of Visualizer's HTML. A value not opening with a
+// tag ("<3" is not one) is already plain (a pre-2026-08 shot, or a .shot file) and is returned as is.
 inline QString htmlToPlain(const QString& html)
 {
-    if (!html.trimmed().startsWith(QLatin1Char('<')))
+    static const QRegularExpression leadingTag(QStringLiteral("^\\s*<[a-zA-Z!/]"));
+    if (!leadingTag.match(html).hasMatch())
         return html;
     QString s = html;
     static const QRegularExpression sourceNewlines(QStringLiteral("[\\r\\n]+"));

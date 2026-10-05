@@ -11,6 +11,8 @@
 #include <functional>
 #include <memory>
 
+#include "network/visualizersync.h"
+
 #include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
 class QJsonArray;
@@ -127,13 +129,8 @@ struct CoffeeBag {
     // harmlessly. Not a Visualizer-synced field itself (visualizer=false in
     // kCols, so writing it never triggers a push).
     bool visualizerSyncPending = false;
-    // visualizer.coffee's archived_at as last acted on ("" = active there). A
-    // pull acts only when the remote value differs from this, so an archive or
-    // restore there carries over once and a local finish or restock is never
-    // undone by the remote state. Not a Visualizer-synced field itself.
-    QString visualizerArchivedAt;
-    // JSON object of the attribute values Visualizer was last known to hold,
-    // keyed by API name (VisualizerSync::bagPushBody / bagFieldPullChanges).
+    // JSON object of each attribute's value as Visualizer was last known to hold
+    // it, keyed by API name, "archived_at" included (VisualizerSync bag rules).
     QString visualizerSeen;
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
@@ -218,11 +215,12 @@ public:
                                       bool propagateBeanBase = false); // bagUpdated()
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
     // Applies a Visualizer pull: `decide` runs on the bag worker with the row as
-    // it stands and returns the fields to write (VisualizerSync::bag*PullChanges),
-    // plus an optional "visualizerSeen" map of remote values to record. Emits what
-    // requestUpdateBag does except bagVisualizerFieldsChanged: the values came
-    // from Visualizer, so pushing them back would only echo.
-    void requestApplyVisualizerPull(qint64 bagId, std::function<QVariantMap(const QVariantMap&)> decide);
+    // it stands and returns what to write (VisualizerSync::bag*PullChanges); the
+    // fields and the seen values commit together. A change emits bagsChanged,
+    // bagPulledFromVisualizer and the inventory lifecycle signals — never
+    // bagUpdated, whose listeners take it as the result of their own write, nor
+    // bagVisualizerFieldsChanged, since pushing the values back would only echo.
+    void requestApplyVisualizerPull(qint64 bagId, std::function<VisualizerSync::BagPull(const QVariantMap&)> decide);
     // Records remote values in coffee_bags.visualizer_seen, keyed by API name.
     static bool mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& seen);
     // Stamp "the AI product-page search already ran for this bag" into the
@@ -386,12 +384,15 @@ signals:
     // Visualizer stores on the bean — see touchesVisualizerFields(). The
     // MainController gates on visualizerActive + upload autoUpdate + CM-active before PATCHing.
     void bagVisualizerFieldsChanged(qint64 bagId);
+    // A Visualizer pull changed this bag's fields.
+    void bagPulledFromVisualizer(qint64 bagId);
     // Coarse "something changed" signal so views can re-request the inventory.
     void bagsChanged();
 
 private:
     void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
-    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success, bool pushToVisualizer);
+    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success);
+    void emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields);
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is
     // false (open failure → empty result that must not be read as not-found).

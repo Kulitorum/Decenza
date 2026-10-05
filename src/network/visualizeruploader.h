@@ -6,6 +6,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QElapsedTimer>
+#include <QHash>
 #include <functional>
 
 #include "../history/shotprojection.h"
@@ -156,6 +157,12 @@ public:
     // `context` is destroyed first.
     void paceApiRequest(QObject* context, std::function<void()> send);
 
+    // Counts the pushes started for a shot or bag. A pull compares it from
+    // before its read to just before applying: a push in between makes the
+    // read possibly older than Visualizer, so the pull skips that item.
+    quint64 shotPushGeneration(qint64 shotId) const { return m_shotPushGeneration.value(shotId); }
+    quint64 bagPushGeneration(qint64 bagId) const { return m_bagPushGeneration.value(bagId); }
+
     // Checks the credentials against visualizer.coffee and saves them only if
     // they work; connecting switches Visualizer on. Answers with
     // accountConnectFinished.
@@ -172,7 +179,9 @@ public:
     enum class CmState { Unknown, Active, NoCoffeeManagement, PremiumNoCm };
     CmState cmState() const { return m_cmState; }
     // Whether a bag edit is pushed in this state: only a definitive CM-off
-    // stops it (see updateBagOnVisualizer for why Unknown pushes).
+    // stops it. Unknown pushes: only a bag Coffee Management created has a
+    // visualizerBagId, so the PATCH answers for itself (200 lands, 403 caches
+    // not-premium) instead of waiting for a shot upload to confirm CM.
     static bool bagEditPushAllowed(CmState state)
     {
         return state != CmState::NoCoffeeManagement && state != CmState::PremiumNoCm;
@@ -287,6 +296,9 @@ private:
     bool uploadShotFromHistory(const ShotProjection& shotData);
     // Ends the sendSavedShot job for this shot, if it is the running one.
     void endJob(qint64 shotId);
+    // Clears the fields the running job sent from the shot's unsent edits, if
+    // their seq was read.
+    void clearJobDirty();
     // Records a failure as the running job's result; a PATCH failure only when it
     // is the job's own (the migration-16 back-sync PATCHes outside jobs).
     void noteJobFailure(const QString& message, const QString& visualizerId = QString());
@@ -414,14 +426,12 @@ private:
     // Set/clear coffee_bags.visualizer_sync_pending (background write, no
     // signals). Park-first contract: updateBagOnVisualizer SETS it before any
     // network I/O; it is CLEARED only by an outcome — patchRemoteBag's reply
-    // (200/403/404/422) or the not-synced-yet skip. Failures that never produce
+    // (200/403/404/422), nothing left to send, or the not-synced-yet skip. Failures that never produce
     // a reply (roaster-list GET dying offline, roaster create dropped, bag load
     // failure) therefore leave it set for the next retry. One deliberate leak: a
     // roaster-create 403 flips CM off with the flag still set — inert (retry
     // skips CM-off) and self-draining if premium returns.
     void persistBagSyncPending(qint64 localBagId, bool pending);
-    // Records the archived_at a bag push set (coffee_bags.visualizer_archived_at).
-    void persistBagArchivedAt(qint64 localBagId, const QString& archivedAt);
     // Records the fields a bag push set as what Visualizer now holds.
     void persistBagSeen(qint64 localBagId, const QVariantMap& sent);
 
@@ -465,6 +475,8 @@ private:
     // The visualizer id that job is PATCHing, so the migration-16 back-sync's
     // PATCH does not end it.
     QString m_jobVisualizerId;
+    QHash<qint64, quint64> m_shotPushGeneration;
+    QHash<qint64, quint64> m_bagPushGeneration;
     QElapsedTimer m_apiPaceClock;
     qint64 m_nextApiSlotMs = 0;
     // The fields that job sends, and the shot's visualizer_dirty_seq when it was

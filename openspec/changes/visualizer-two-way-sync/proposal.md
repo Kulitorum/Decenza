@@ -5,7 +5,7 @@ visualizer.coffee is now a place people edit shots, not just view them: its Jour
 ## What Changes
 
 - **Send only what changed.** Each shot records which Visualizer fields were edited locally and not yet sent; an automatic update sends only those. The Upload button still sends everything.
-- **Pull edits back.** A background pass (startup, every 30 minutes, on account connect) reads shots changed on Visualizer since the last pass and writes their values locally, except fields edited here and not yet sent. A pull never clears a local value.
+- **Pull edits back.** A background pass (startup, every 30 minutes, on account connect) reads shots changed on Visualizer since the last pass and writes their values locally, except fields edited here and not yet sent. A pull never clears a local value. Bean fields are not pulled: Visualizer rewrites them from the coffee bag. A screen showing a shot or bags reads them when it opens.
 - **Bag archive syncs both ways.** Finishing a bag in Decenza archives it on Visualizer and returning it to inventory restores it; an archive or restore there does the same here. Visualizer added the API for this at our request (miharekar/visualizer#262).
 - **Other bag state comes back.** Bags in inventory are read for a freeze or thaw and for descriptive fields Decenza is missing.
 - **Bag photos fill the gap.** A bag photo either side lacks is copied from the other; neither side's photo is replaced.
@@ -26,7 +26,7 @@ visualizer.coffee is now a place people edit shots, not just view them: its Jour
 
 ## Impact
 
-- **Database**: migration 43 — `shots.visualizer_dirty`, `shots.visualizer_dirty_seq`, `coffee_bags.visualizer_archived_at`; carried by backup import.
+- **Database**: migration 43 — `shots.visualizer_dirty`, `shots.visualizer_dirty_seq`, `coffee_bags.visualizer_seen`; carried by backup import.
 - **C++**: new `VisualizerShotSync` (`src/network/visualizershotsync.*`), pure rules in `visualizersync.h` and `visualizernotes.h`; `VisualizerUploader`, `ShotHistoryStorage`, `CoffeeBagStorage`, `ShotFileParser`, `MainController`.
 - **UI / web**: one description string in the Shot Upload tab and its ShotServer counterpart; the bag photo key in `BagCard`, `ChangeBeansDialog`, `RecipesPage` and `RecipeWizardPage` now comes from `bagImageKey()`.
 - **Network**: per pass, one shot-list and one bag-list request, plus one read per changed linked shot and per synced bag in inventory, and a one-time photo upload per bag; paced at the existing 4 s interval.

@@ -103,6 +103,13 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                 if (success)
                     m_bagStorage->requestBag(bagId);
             });
+    // An edit pulled from Visualizer is never one of our write-throughs, so it
+    // consumes no token.
+    connect(m_bagStorage, &CoffeeBagStorage::bagPulledFromVisualizer, this,
+            [this](qint64 bagId) {
+                if (bagId == activeBagId())
+                    m_bagStorage->requestBag(bagId);
+            });
 
     if (bagIdIsSet(activeBagId()))
         m_bagStorage->requestBag(activeBagId());

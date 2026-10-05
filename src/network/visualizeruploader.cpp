@@ -2,8 +2,10 @@
 //
 // Authoritative API reference:   https://apidocs.visualizer.coffee
 //   Spec source:                 OpenAPI 3.1 (current version 1.8.2).
-//   Public endpoints used:       POST /api/shots/upload       (initial upload)
-//                                PATCH /api/shots/{id}        (update metadata)
+//   Endpoints used here:         POST /api/shots/upload, PATCH /api/shots/{id},
+//                                GET /api/shots[/{id}], /api/coffee_bags[/{id}]
+//                                (GET, PATCH), /api/roasters[/{id}] (GET, POST, PATCH);
+//                                VisualizerShotSync reads through makeApiJsonRequest.
 //
 // Schema conventions worth knowing before editing the JSON builders:
 //   - Every editable scalar field is `nullable: true`. Use JSON `null`
@@ -20,8 +22,7 @@
 //   - PATCH (update): omitting == "don't change"; `null` == "clear";
 //     value == "set". `buildShotUpdateBody` writes the fields it is given
 //     (null for unset, so a local clear carries — issue #1150) and omits
-//     the rest, so an edit made on visualizer.coffee survives an update
-//     of a different field.
+//     the rest (VisualizerSync::Field).
 
 #include "core/diagnosticlogging.h"
 #include "core/logfields.h"
@@ -119,13 +120,10 @@ void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
             self->m_jobDirtySeq = dirtyRead ? seq : -1;
             bool sent = false;
             if (!shot.visualizerId.isEmpty()) {
-                // The Upload button sends every field: the user asked for
-                // Visualizer to match this shot. An automatic update sends only
-                // the fields edited here, so it cannot overwrite an edit made on
-                // visualizer.coffee to another field. Unreadable edit state sends
-                // everything, as every update did before the state existed.
-                const quint32 fields = (how == Send::UploadOrUpdate || !dirtyRead) ? VisualizerSync::kAllFields
-                                                                                    : dirty;
+                const quint32 fields = VisualizerSync::fieldsToSend(how == Send::UploadOrUpdate, dirtyRead, dirty);
+                if (!dirtyRead && how == Send::UpdateOnly)
+                    DIAG_WARN(VISUALIZER, "VisualizerUploader") << "shot" << shotId
+                        << "edit state unreadable - updating every field, which can overwrite edits made on Visualizer";
                 if (fields == 0) {
                     DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "shot" << shotId
                              << "has no edit Visualizer has not seen - nothing to update";
@@ -149,6 +147,12 @@ bool VisualizerUploader::holdsShot(QSqlDatabase& db, qint64 shotId) const
     query.prepare(QStringLiteral("SELECT visualizer_id FROM shots WHERE id = :id"));
     query.bindValue(QStringLiteral(":id"), shotId);
     return query.exec() && query.next() && !query.value(0).toString().isEmpty();
+}
+
+void VisualizerUploader::clearJobDirty()
+{
+    if (m_jobDirtySeq >= 0)
+        m_storage->requestClearVisualizerDirty(m_jobShotId, m_jobFields, m_jobDirtySeq);
 }
 
 void VisualizerUploader::noteJobFailure(const QString& message, const QString& visualizerId)
@@ -193,6 +197,7 @@ bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
     }
     m_uploadingDbShotId = shotData.id;
     m_uploadRetries = 0;
+    ++m_shotPushGeneration[shotData.id];
     // Visualizer reads uploaded notes as Markdown, so escape them to read as
     // typed. Here, not in buildHistoryShotJson, which also writes local exports.
     ShotProjection forUpload = shotData;
@@ -239,10 +244,21 @@ QJsonObject VisualizerUploader::buildShotUpdateBody(const ShotProjection& shotDa
     setStr(VS::EspressoNotes, "espresso_notes", VisualizerNotes::plainToHtml(shotData.espressoNotes));
     setStr(VS::Barista, "barista", shotData.barista);
     setStr(VS::ProfileTitle, "profile_title", shotData.profileName);
-    // Structured taste taps → CVA (add-ai-taste-intake). Only-when-tapped /
-    // never-null so this PATCH cannot clear a hand-entered CVA score.
-    if (fields & VS::Taste)
+    // Structured taste taps → CVA (add-ai-taste-intake). A tap cleared here
+    // clears its scores (Taste is dirty only when the taps changed); the full
+    // update never nulls them, which would wipe a hand-entered CVA score the
+    // taps never knew about.
+    if (fields & VS::Taste) {
+        if (fields != VS::kAllFields) {
+            if (shotData.tasteBalance.isEmpty()) {
+                shotObj["acidity"] = QJsonValue(QJsonValue::Null);
+                shotObj["bitterness"] = QJsonValue(QJsonValue::Null);
+            }
+            if (shotData.tasteBody.isEmpty())
+                shotObj["mouthfeel"] = QJsonValue(QJsonValue::Null);
+        }
         applyTasteCvaMapping(shotObj, shotData.tasteBalance, shotData.tasteBody);
+    }
 
     // Canonical bean linkage (5C): the Visualizer canonical UUID from the shot's
     // Bean Base snapshot, so the shot clusters by bean there too (accepted for
@@ -297,6 +313,7 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 
     QJsonObject root;
     root["shot"] = buildShotUpdateBody(shotData, fields);
+    ++m_shotPushGeneration[shotData.id];
 
     QJsonDocument doc(root);
     QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
@@ -338,8 +355,8 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         emit lastUploadStatusChanged();
         emit updateSuccess(visualizerId);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Update successful for shot" << visualizerId;
-        if (visualizerId == m_jobVisualizerId && m_jobDirtySeq >= 0)
-            m_storage->requestClearVisualizerDirty(m_jobShotId, m_jobFields, m_jobDirtySeq);
+        if (visualizerId == m_jobVisualizerId)
+            clearJobDirty();
     } else {
         const QString errorMsg = statusCode == 404
             ? tr_("visualizer.error.shotNotFound", "Shot not found on Visualizer")
@@ -457,8 +474,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // local shots.id so MainController can persist the link
             // regardless of which (if any) UI page is alive.
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
-            if (m_uploadingDbShotId == m_jobShotId && m_jobDirtySeq >= 0)
-                m_storage->requestClearVisualizerDirty(m_jobShotId, m_jobFields, m_jobDirtySeq);
+            if (m_uploadingDbShotId == m_jobShotId)
+                clearJobDirty();
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Upload successful, ID:" << shotId
                      << "for local shot" << diagnosticShotId;
             // Coffee Management: the server auto-links the shot to its bag on
@@ -1050,9 +1067,8 @@ void VisualizerUploader::abandonBeanRepairPass(int status)
 void VisualizerUploader::scheduleNextBeanRepair()
 {
     // Pace the queue. This is a THROTTLE, not a guard: visualizer.coffee rate
-    // limits, and this is the one path that paces itself — fetchShotListPage
-    // above walks its pages back to back, which is why a library-wide pass had
-    // to stop being built on it.
+    // limits — fetchShotListPage above walks its pages back to back, which is
+    // why a library-wide pass had to stop being built on it.
     scheduleBeanRepairRequest([this]() { sendNextBeanRepair(); });
 }
 
@@ -1698,8 +1714,7 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
         if (bag.value("visualizerBagId").toString() != serverBagId)
             persistBagSyncIds(localBagId, serverBagId, serverRoasterId);
         enrichRemoteBag(serverBagId, bag);
-        // CM just (re)confirmed Active: drain bag edits whose push failed
-        // retryably or was parked while the state was still Unknown.
+        // CM just (re)confirmed Active: drain bag edits whose push failed retryably.
         retrySyncPendingBags();
 
         // Verified-roaster badge: the server creates the roaster bare, so link it
@@ -1756,7 +1771,6 @@ QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag,
         if (blank)
             body[QLatin1String(apiKey)] = localValue;
     };
-    // Server-managed name/roast_date/roast_level excluded.
     const QMap<QString, QString> local = VisualizerSync::bagLocalValues(bag);
     for (auto it = local.cbegin(); it != local.cend(); ++it) {
         if (it.key() == QLatin1StringView("name") || it.key() == QLatin1StringView("roast_date")
@@ -1938,20 +1952,13 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
 {
     if (localBagId <= 0 || m_localDbPath.isEmpty())
         return;
-    // A definitive CM-off state pushes nothing: that account's remote bag list
-    // is dormant. Unknown (no shot uploaded yet this session) DOES push: only a
-    // bag that already has a visualizerBagId is PATCHed, and that id exists
-    // because Coffee Management created the bag, so the PATCH is the answer —
-    // 200 lands, 403 caches not-premium. Parking until a shot upload confirmed
-    // CM used to hold every bag edit (an AI fill included) back until the next
-    // shot, and forever on a device that never uploads one.
-    if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
+    if (!bagEditPushAllowed(m_cmState))
         return;
 
     // Park FIRST, un-park on outcome. Any failure between here and
     // patchRemoteBag's reply handler — bag load failure, the roaster-list GET
     // dying offline, a roaster create dropped — leaves the flag set and the
-    // edit is re-pushed on the next upload cycle instead of silently lost
+    // edit is re-pushed after the next upload or sync pass instead of lost
     // (the transport failure that motivates the retry hits the roaster GET
     // first, one hop before the PATCH). patchRemoteBag clears it on every
     // reply it actually receives (200/403/404/422); only retryable outcomes
@@ -1980,9 +1987,7 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
             }
             // Not synced yet → nothing to PATCH, and pending is moot: the
             // next shot upload's server-side find-or-create carries the
-            // CURRENT local fields anyway. Clearing here also stops a bag
-            // parked while CM was Unknown (but never uploaded) from sitting
-            // in the pending set forever.
+            // CURRENT local fields anyway.
             if (bagMap.value("visualizerBagId").toString().isEmpty()) {
                 self->persistBagSyncPending(localBagId, false);
                 DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: bag" << localBagId << "not synced yet - upload-time create covers it";
@@ -2020,9 +2025,10 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     QVariantMap sent;
     QJsonObject body = VisualizerSync::bagPushBody(bag, &sent);
     QJsonValue archivedAt;
-    const bool sendsArchive = VisualizerSync::bagArchiveForPush(bag, QDateTime::currentDateTimeUtc(), &archivedAt);
-    if (sendsArchive)
+    if (VisualizerSync::bagArchiveForPush(bag, QDateTime::currentDateTimeUtc(), &archivedAt)) {
         body["archived_at"] = archivedAt;
+        sent.insert(QStringLiteral("archived_at"), archivedAt.toString());
+    }
     const QString storedRoasterId = bag.value("visualizerRoasterId").toString();
     const bool roasterChanged = !roasterId.isEmpty() && roasterId != storedRoasterId;
     if (roasterChanged)
@@ -2037,22 +2043,23 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     const QString bagDisplayName = QStringList{bag.value("roasterName").toString(),
                                                bag.value("coffeeName").toString()}
                                        .join(QLatin1Char(' ')).trimmed();
+    ++m_bagPushGeneration[localBagId];
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bagUuid);
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, sendsArchive, sent]() {
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, sent]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: updated coffee bag" << bagUuid;
             persistBagSyncPending(localBagId, false);
-            persistBagSeen(localBagId, sent);
-            // Recorded only when this push set it: a reply to any other edit may
-            // carry an archive made there that the next pull has yet to apply here.
-            if (sendsArchive)
-                persistBagArchivedAt(localBagId,
-                                     QJsonDocument::fromJson(reply->readAll()).object().value("archived_at").toString());
+            // The archive as the server stored it, so the next list read matches.
+            QVariantMap accepted = sent;
+            if (accepted.contains(QStringLiteral("archived_at")))
+                accepted.insert(QStringLiteral("archived_at"),
+                                QJsonDocument::fromJson(reply->readAll()).object().value("archived_at").toString());
+            persistBagSeen(localBagId, accepted);
             // A roaster rename moved the bag to a different roaster_id — persist
             // it so the next update diffs against the new value.
             if (roasterChanged)
@@ -2085,7 +2092,7 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
                      << "(" << bagDisplayName << ") -" << message;
         } else {
             // Transport error (status 0), 429, or 5xx: retryable. Park the bag
-            // as sync-pending; the next upload cycle re-pushes it.
+            // as sync-pending; the next upload or sync pass re-pushes it.
             persistBagSyncPending(localBagId, true);
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: bag update failed (HTTP" << status << ") - queued for retry";
         }
@@ -2118,24 +2125,6 @@ void VisualizerUploader::persistBagSeen(qint64 localBagId, const QVariantMap& se
             // A failed write leaves these fields to be sent again on the next edit.
             if (!CoffeeBagStorage::mergeVisualizerSeenStatic(db, localBagId, sent))
                 DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Visualizer CM: failed to record pushed fields for bag" << localBagId;
-        });
-    });
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
-}
-
-void VisualizerUploader::persistBagArchivedAt(qint64 localBagId, const QString& archivedAt)
-{
-    if (localBagId <= 0 || m_localDbPath.isEmpty())
-        return;
-    const QString dbPath = m_localDbPath;
-    QThread* thread = QThread::create([dbPath, localBagId, archivedAt]() {
-        withTempDb(dbPath, "viz_bagarch", [&](QSqlDatabase& db) {
-            // A failed write leaves the push to repeat on the bag's next edit,
-            // and the next pull to see the archive as made there: both harmless.
-            if (!CoffeeBagStorage::updateBagFieldsStatic(
-                    db, localBagId, {{QStringLiteral("visualizerArchivedAt"), archivedAt}}))
-                DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Visualizer CM: failed to record archive state for bag" << localBagId;
         });
     });
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);

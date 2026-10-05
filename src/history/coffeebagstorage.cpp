@@ -180,7 +180,6 @@ const BagCol kCols[] = {
     COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
     COL_STR  ("visualizer_roaster_id", visualizerRoasterId, false),
     COL_BOOL ("visualizer_sync_pending", visualizerSyncPending),
-    COL_STR  ("visualizer_archived_at", visualizerArchivedAt, false),
     COL_STR  ("visualizer_seen",       visualizerSeen,      false),
     COL_EPOCH("last_used",             lastUsedEpoch),
 };
@@ -424,39 +423,57 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
 }
 
 void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
-                                                  std::function<QVariantMap(const QVariantMap&)> decide)
+                                                  std::function<VisualizerSync::BagPull(const QVariantMap&)> decide)
 {
     if (m_dbPath.isEmpty())
         return;
-    auto changes = std::make_shared<QVariantMap>();
-    auto success = std::make_shared<bool>(false);
+    auto pull = std::make_shared<VisualizerSync::BagPull>();
+    auto outcome = std::make_shared<QString>();  // empty = written (or nothing to write)
     // Decided on the bag worker against the row as it stands, so a local edit
-    // queued before this job wins over a pull read from an older snapshot.
+    // queued before this job wins over a pull read from an older snapshot; the
+    // field write and the seen merge commit together.
     runAsync("bags_vizpull",
-        [bagId, decide = std::move(decide), changes, success](QSqlDatabase& db) {
-            const CoffeeBag bag = loadBagStatic(db, bagId);
-            if (!bag.isValid())
-                return;
-            *changes = decide(bag.toVariantMap());
-            const QVariantMap seen = changes->take(QStringLiteral("visualizerSeen")).toMap();
-            *success = (changes->isEmpty() || updateBagFieldsStatic(db, bagId, *changes))
-                       && mergeVisualizerSeenStatic(db, bagId, seen);
-        },
-        [this, bagId, changes, success](bool) {
-            if (changes->isEmpty())
-                return;
-            if (!*success) {
-                DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
-                    << "changes from Visualizer not saved - the next pull retries";
+        [bagId, decide = std::move(decide), pull, outcome](QSqlDatabase& db) {
+            DbWriteTxn txn = DbWriteTxn::begin(db, "Visualizer bag pull");
+            if (!txn.ok()) {
+                *outcome = QStringLiteral("could not take the write lock");
                 return;
             }
-            QString what = changes->keys().join(QStringLiteral(", "));
-            if (changes->contains(QStringLiteral("inInventory")))
-                what = changes->value(QStringLiteral("inInventory")).toBool()
+            const CoffeeBag bag = loadBagStatic(db, bagId);
+            if (!bag.isValid())
+                return;  // deleted here since
+            *pull = decide(bag.toVariantMap());
+            if (pull->isEmpty())
+                return;
+            if (!pull->fields.isEmpty() && !updateBagFieldsStatic(db, bagId, pull->fields))
+                *outcome = QStringLiteral("field write failed");
+            else if (!mergeVisualizerSeenStatic(db, bagId, pull->seen))
+                *outcome = QStringLiteral("seen-state write failed");
+            else if (!txn.commit())
+                *outcome = QStringLiteral("commit failed: %1").arg(txn.commitError());
+        },
+        [this, bagId, pull, outcome](bool dbOpened) {
+            if (!dbOpened) {
+                DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
+                    << "pull from Visualizer not applied: database would not open - the next pull retries";
+                return;
+            }
+            if (!outcome->isEmpty()) {
+                DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
+                    << "pull from Visualizer not applied:" << *outcome << "- the next pull retries";
+                return;
+            }
+            if (pull->fields.isEmpty())
+                return;  // only bookkeeping (seen values) changed
+            QString what = pull->fields.keys().join(QStringLiteral(", "));
+            if (pull->fields.contains(QStringLiteral("inInventory")))
+                what = pull->fields.value(QStringLiteral("inInventory")).toBool()
                     ? QStringLiteral("restored on Visualizer - back in inventory")
                     : QStringLiteral("archived on Visualizer - marked finished");
             DIAG_INFO(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId << "updated from Visualizer:" << what;
-            finishBagUpdate(bagId, *changes, true, false);
+            emit bagsChanged();
+            emit bagPulledFromVisualizer(bagId);
+            emitInventoryLifecycle(bagId, pull->fields);
         });
 }
 
@@ -464,6 +481,12 @@ bool CoffeeBagStorage::mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId,
 {
     if (seen.isEmpty())
         return true;
+    // A stored value json_set cannot parse would fail every merge forever:
+    // start that bag's record afresh instead (its fields read as never seen).
+    QSqlQuery repair(db);
+    if (!repair.exec(QStringLiteral("UPDATE coffee_bags SET visualizer_seen = NULL WHERE id = %1 "
+                                    "AND visualizer_seen IS NOT NULL AND json_valid(visualizer_seen) = 0").arg(bagId)))
+        DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId << "seen-state check failed:" << repair.lastError().text();
     // One statement, so a push recording what it sent and a pull recording what
     // it read cannot lose each other's keys (json_set: SQLite JSON1, built in
     // since 3.38).
@@ -473,14 +496,20 @@ bool CoffeeBagStorage::mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId,
     QSqlQuery q(db);
     if (!q.prepare(QStringLiteral("UPDATE coffee_bags SET visualizer_seen = "
                                   "json_set(IFNULL(visualizer_seen, '{}'), %1) WHERE id = ?")
-                       .arg(args.join(QStringLiteral(", ")))))
+                       .arg(args.join(QStringLiteral(", "))))) {
+        DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId << "seen-state write failed:" << q.lastError().text();
         return false;
+    }
     for (auto it = seen.cbegin(); it != seen.cend(); ++it) {
         q.addBindValue(QStringLiteral("$.\"%1\"").arg(it.key()));
         q.addBindValue(it.value().toString());
     }
     q.addBindValue(bagId);
-    return q.exec();
+    if (!q.exec()) {
+        DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId << "seen-state write failed:" << q.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase)
@@ -505,11 +534,10 @@ void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool p
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success](bool) { finishBagUpdate(bagId, fields, *success, true); });
+        [this, bagId, fields, success](bool) { finishBagUpdate(bagId, fields, *success); });
 }
 
-void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
-                                       bool pushToVisualizer)
+void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success)
 {
     emit bagUpdated(bagId, success);
     if (!success) {
@@ -522,12 +550,17 @@ void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, 
         return;
     }
     emit bagsChanged();
-    if (pushToVisualizer && touchesVisualizerFields(fields))
+    if (touchesVisualizerFields(fields))
         emit bagVisualizerFieldsChanged(bagId);
-    // Inventory lifecycle events, whichever surface wrote them
-    // (the card's Bag Finished button funnels through
-    // requestMarkEmpty; MCP and web updates land here too):
-    // exit → roll-on-finish, return → wake-on-restock.
+    emitInventoryLifecycle(bagId, fields);
+}
+
+void CoffeeBagStorage::emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields)
+{
+    // Inventory lifecycle events, whichever surface wrote them (the card's Bag
+    // Finished button funnels through requestMarkEmpty; MCP, web updates and
+    // Visualizer pulls land here too): exit → roll-on-finish, return →
+    // wake-on-restock.
     if (fields.contains(QStringLiteral("inInventory"))) {
         if (fields.value(QStringLiteral("inInventory")).toBool())
             emit bagRestocked(bagId);
@@ -671,7 +704,6 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             visualizer_bag_id TEXT,
             visualizer_roaster_id TEXT,
             visualizer_sync_pending INTEGER NOT NULL DEFAULT 0,
-            visualizer_archived_at TEXT,
             visualizer_seen TEXT,
             last_used INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -795,6 +827,25 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
                                              const QVariantMap& inFields)
 {
     QVariantMap fields = inFields;
+    // beanBaseDataPatch: blob keys to set ("" or null removes), merged into the
+    // STORED blob here, so an editor's untouched keys never overwrite values a
+    // Visualizer pull wrote while it was open.
+    if (fields.contains(QStringLiteral("beanBaseDataPatch"))) {
+        const QVariantMap patch = fields.take(QStringLiteral("beanBaseDataPatch")).toMap();
+        const CoffeeBag stored = loadBagStatic(db, bagId);
+        if (!stored.isValid()) {
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "could not load bag" << bagId << "to patch its details";
+            return false;
+        }
+        QJsonObject blob = QJsonDocument::fromJson(stored.beanBaseData.toUtf8()).object();
+        for (auto it = patch.cbegin(); it != patch.cend(); ++it) {
+            if (it.value().isNull() || it.value().toString().isEmpty())
+                blob.remove(it.key());
+            else
+                blob.insert(it.key(), QJsonValue::fromVariant(it.value()));
+        }
+        fields.insert(QStringLiteral("beanBaseData"), QString::fromUtf8(QJsonDocument(blob).toJson(QJsonDocument::Compact)));
+    }
     // Renaming a linked bag's identity invalidates the link (see
     // dropConflictedCanonicalLink). The map is partial — a rename arrives as
     // roasterName alone — so the other half of the comparison comes from the
@@ -1007,7 +1058,7 @@ bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
     // write-through or dose/yield stamp never triggers a network PATCH.
     const QSet<QString>& kVisualizerKeys = bagVisualizerKeys();
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
-        if (kVisualizerKeys.contains(it.key()))
+        if (kVisualizerKeys.contains(it.key()) || it.key() == QLatin1StringView("beanBaseDataPatch"))
             return true;
     return false;
 }

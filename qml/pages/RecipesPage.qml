@@ -425,9 +425,7 @@ T.Page {
                 MainController.activateRecipe(card.recipe.id)
         }
 
-        // Bean photo cache key: canonical Bean Base id when the recipe has
-        // one, else the linked BAG's key ("bag-<id>") — a manual bag's photo
-        // is cached under the bag key.
+        // Bean photo cache key (BeanBaseClient::imageKeyFor).
         imageKey: recipe ? MainController.beanbase.bagImageKey(recipe.bagId || 0,
                                                                recipe.beanBaseId ? String(recipe.beanBaseId) : "")
                          : ""

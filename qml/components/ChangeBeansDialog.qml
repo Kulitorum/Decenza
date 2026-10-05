@@ -668,8 +668,8 @@ DecenzaDialog {
     Connections {
         target: MainController.bagStorage
         enabled: root.visible && root.formMode === "edit" && root.editBagId > 0
-        function onBagUpdated(bagId, success) {
-            if (success && bagId === root.editBagId)
+        function onBagPulledFromVisualizer(bagId) {
+            if (bagId === root.editBagId)
                 MainController.bagStorage.requestBag(bagId)
         }
         function onBagReady(bagId, bag) {
@@ -874,9 +874,8 @@ DecenzaDialog {
             return
         }
         // A URL changed to a non-empty value re-resolves the bag image — the
-        // cached og:image pixels describe the old page. Linked bags key the
-        // cache by canonical id; manual bags by their row id (create mode
-        // handles the manual case in onBagCreated, once the id exists).
+        // cached og:image pixels describe the old page. Create mode handles a
+        // manual bag in onBagCreated, once its row id exists.
         var imageKey = MainController.beanbase.bagImageKey(formMode === "edit" ? editBagId : 0, fBeanBaseId)
         if (imageKey.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
             MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
@@ -889,6 +888,15 @@ DecenzaDialog {
             for (var key in fields) {
                 if (fields[key] !== _openedFields[key])
                     changed[key] = fields[key]
+            }
+            // The detail blob goes key by key too, unless the link itself
+            // changed, which replaces the whole blob.
+            if (changed.beanBaseData !== undefined && !fLinkDirty) {
+                var patch = blobPatch(_openedFields.beanBaseData, changed.beanBaseData)
+                if (patch !== null) {
+                    delete changed.beanBaseData
+                    if (Object.keys(patch).length > 0) changed.beanBaseDataPatch = patch
+                }
             }
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
@@ -903,6 +911,25 @@ DecenzaDialog {
             _awaitingCreate = true
             MainController.bagStorage.requestCreateBag(fields)
         }
+    }
+
+    // The blob keys `after` changed from `before`, a removed key as null; null
+    // when either is not a JSON object.
+    function blobPatch(before, after) {
+        var a, b
+        try {
+            a = before ? JSON.parse(before) : {}
+            b = after ? JSON.parse(after) : {}
+        } catch (e) {
+            return null
+        }
+        if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return null
+        var patch = {}
+        for (var k in b)
+            if (JSON.stringify(b[k]) !== JSON.stringify(a[k])) patch[k] = b[k]
+        for (var r in a)
+            if (b[r] === undefined) patch[r] = null
+        return patch
     }
 
     // The bag fields the form holds, as requestUpdateBag/requestCreateBag take them.
