@@ -2,7 +2,7 @@
 
 Uploads shots to the owner's account at decentespresso.com, as de1app (`plugins/shot_upload`) and
 Decaid (`decentespresso/shot-upload`) do. The OpenSpec change is `add-decent-shot-upload`, rolled out in
-three stages: manual upload, then automatic upload, then the history backlog. API reference:
+three stages: manual upload (#1988), automatic upload (#1990), then Upload missing shots. API reference:
 https://decentespresso.com/support/api/
 
 ## Pieces
@@ -43,6 +43,26 @@ first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no
 review page saved a moment earlier.
 
 Every request body is written to `Documents/last_decent_upload.json`, and the server's reply to `Documents/last_decent_upload_response.txt`.
+
+**Golden file.** `tests/data/decent/accepted_shotrecord.json` is a body decentespresso.com accepted on 2026-10-04.
+`payloadHasTheShapeTheServerAccepted` (`tst_decentshotupload`) fails when the serializer's shape drifts from it.
+Re-capture it when Decent changes the contract.
+
+## Upload missing shots
+
+Nothing saved goes up on its own beyond a send's 3 attempts. Each destination card (app and ShotServer) offers
+**Upload missing shots** while that destination lacks something (D14):
+
+- **What:** `ShotUploads::findMissing`, one selection over each destination's `heldCondition`/`unsentEditCondition`.
+  Edits it never received come first (`decent_replace_pending`, `visualizer_dirty`), then shots it does not hold,
+  newest first. Rejected shots and those `uploadIneligibility` excludes are never offered.
+- **How:** 5 at a time through the destination's queue, batches at least 30 s apart, none while
+  `MachineState::isOperating()`. A shot that fails its attempts is recorded (`<dest>_failed_at`) and the run moves on;
+  a sign-in or account refusal ends it and clears that queue.
+- **Restart:** the run's start is kept in `upload/missingRun/<dest>` (device-local, not exported). At startup the run
+  resumes, leaving out shots that failed since it started.
+- **Counts:** `ShotUploads.missing`, recounted on the DB worker after any outcome, save, edit or account change.
+  The web page reads `GET /api/settings/upload-missing` and starts a run with `POST /api/settings/{dest}/upload-missing`.
 
 ## Cleaning up test uploads
 
