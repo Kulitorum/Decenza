@@ -47,7 +47,7 @@ The ShotServer SHALL serve a `/beans` page listing the bag inventory (open bags 
 - The card, button, badge, status, form, and modal styling SHALL come from a **shared embedded-page style** reused across `/beans`, `/recipes`, and `/equipment`.
 
 **Feature parity.** The page SHALL expose the app's full bean feature set:
-- Separate **Add Coffee** and **Add Tea** creation (setting `kind`), with the app's tea fields available for tea bags.
+- Separate **Bag of Coffee** and **Bag of Tea** creation (setting `kind`), with the app's tea fields available for tea bags.
 - The full bean-attribute fields the app edits (origin, region, farm/producer, variety, elevation, process, harvest, quality score, place of purchase, tasting notes, product link) in addition to roaster/coffee/roast date/roast level.
 - The **yield anchor** (grams or ratio), **RPM**, and the **per-bag equipment link**.
 - The **freeze-lifecycle actions** the app offers — Thaw and Mark Opened — as discrete actions, alongside editable frozen/defrost/opened dates.
@@ -69,7 +69,7 @@ All create/edit/finish/activate behavior, the existing REST endpoints, auth gate
 - **THEN** bags render as a responsive grid of rounded cards with the app's field hierarchy (thumbnail, coffee name + verified badge, roaster, dot-joined attributes, freshness line) and the page uses the canonical Decenza header with logo, back link, and burger menu
 
 #### Scenario: Create a tea bag from the web
-- **WHEN** the user chooses "Add Tea" and fills the tea fields
+- **WHEN** the user chooses "Bag of Tea" and fills the tea fields
 - **THEN** a `kind=tea` bag is created with those fields and appears in the app
 
 #### Scenario: Link a bag via Bean Base search on the web

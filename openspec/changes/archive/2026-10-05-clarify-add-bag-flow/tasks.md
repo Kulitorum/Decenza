@@ -8,4 +8,4 @@
 
 - [x] 2.1 Wiki manual: button names (wiki `cc3ec0b`). The Bag Inventory screenshot still shows the old labels.
 - [x] 2.2 Build and full suite through Qt Creator: 119/119; QML lint gate clean (252/252).
-- [ ] 2.3 Check on the Mac: button labels, search label in coffee and tea mode, Enter manually keeps the typed text.
+- [ ] 2.3 Check on the Mac: button labels, search label in coffee and tea mode, Enter manually keeps the typed text. Button pair seen on the Mac before the final "Add" label; the search label and manual entry were not checked before merge (merged on the build, suite and lint gate).
