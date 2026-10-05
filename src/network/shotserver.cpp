@@ -2711,7 +2711,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/recipes") {
         sendHtml(socket, generateRecipesPage());
     }
-    else if (path == "/beans") {
+    else if (path == "/beans" || path.startsWith("/beans?")) {  // ?restock=<bag>&recipe=<id> from /recipes
         // As the app's bean inventory: the bags as Visualizer holds them now.
         if (m_mainController && m_mainController->visualizerSync())
             m_mainController->visualizerSync()->refreshBags();
@@ -2726,7 +2726,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
         handleRecipesApi(socket, method, path, body);
     }
-    else if (path == "/api/bags" || path.startsWith("/api/bag/")
+    else if (path == "/api/bags" || path == "/api/bags/finished" || path.startsWith("/api/bag/")
              || path.startsWith("/api/beans/")) {
         qsizetype headerEndPos = request.indexOf("\r\n\r\n");
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
