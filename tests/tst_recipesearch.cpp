@@ -47,10 +47,14 @@ private slots:
     void webMatcherAgreesOnSharedCases();
     void webSearchesDrinkType();
 
+    // Beans page: every text value a bag holds, never its ids or links; app and web agree
+    void bagSearchCoversAllTextAndAgreesWithWeb();
+
 private:
     QJSEngine m_engine;
     QJSValue m_lib;   // RecipeSearch.js
     QJSValue m_web;   // extracted web matcher
+    QJSValue m_webBagHaystack;   // bagHaystack from shotserver_bags.cpp
     bool match(const QString& haystack, const QString& query);
     // Web matcher: builds a recipe {name, profileTitle, roaster, coffee, drinkType}
     // and returns matchesFilter against the tokenized query.
@@ -102,7 +106,8 @@ void TestRecipeSearch::initTestCase()
                                  QRegularExpression::MultilineOption));
     const QString libProgram =
         QStringLiteral("(function(){ %1\n return { tokenize: tokenize, matches: matches,"
-                       "     normalize: normalize, buildHaystack: buildHaystack }; })()").arg(js);
+                       "     normalize: normalize, buildHaystack: buildHaystack,"
+                       "     buildBagHaystack: buildBagHaystack }; })()").arg(js);
     m_lib = m_engine.evaluate(libProgram);
     QVERIFY2(!m_lib.isError(), qPrintable(m_lib.toString()));
     QVERIFY2(m_lib.property("matches").isCallable(), "matches() not found in RecipeSearch.js");
@@ -112,11 +117,14 @@ void TestRecipeSearch::initTestCase()
     // --- Web matcher: extracted from generateRecipesPage() in shotserver_recipes.cpp ---
     const QString cpp = readSource("/src/network/shotserver_recipes.cpp");
     QVERIFY2(!cpp.isEmpty(), "could not read shotserver_recipes.cpp");
-    const QString normalizeSearch = extractFunction(cpp, "normalizeSearch");
-    const QString tokenizeSearch = extractFunction(cpp, "tokenizeSearch");
+    // The tokenizer is shared by the web /recipes and /beans pages (WEB_JS_MANAGEMENT).
+    const QString sharedJs = readSource("/src/network/webtemplates/management_js.h");
+    QVERIFY2(!sharedJs.isEmpty(), "could not read management_js.h");
+    const QString normalizeSearch = extractFunction(sharedJs, "normalizeSearch");
+    const QString tokenizeSearch = extractFunction(sharedJs, "tokenizeSearch");
     const QString matchesFilter = extractFunction(cpp, "matchesFilter");
-    QVERIFY2(!normalizeSearch.isEmpty(), "normalizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
-    QVERIFY2(!tokenizeSearch.isEmpty(), "tokenizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
+    QVERIFY2(!normalizeSearch.isEmpty(), "normalizeSearch() not found (or ambiguous) in management_js.h");
+    QVERIFY2(!tokenizeSearch.isEmpty(), "tokenizeSearch() not found (or ambiguous) in management_js.h");
     QVERIFY2(!matchesFilter.isEmpty(), "matchesFilter() not found (or ambiguous) in shotserver_recipes.cpp");
 
     // matchesFilter references drinkLabel(); stub it to echo the raw drink type so the
@@ -136,6 +144,11 @@ void TestRecipeSearch::initTestCase()
     m_web = m_engine.evaluate(webProgram);
     QVERIFY2(!m_web.isError(), qPrintable(m_web.toString()));
     QVERIFY2(m_web.property("webMatch").isCallable(), "web matcher failed to build");
+
+    const QString bagHaystack = extractFunction(readSource("/src/network/shotserver_bags.cpp"), "bagHaystack");
+    QVERIFY2(!bagHaystack.isEmpty(), "bagHaystack() not found (or ambiguous) in shotserver_bags.cpp");
+    m_webBagHaystack = m_engine.evaluate(QStringLiteral("(function(){ %1\n return bagHaystack; })()").arg(bagHaystack));
+    QVERIFY2(m_webBagHaystack.isCallable(), qPrintable(m_webBagHaystack.toString()));
 }
 
 // The full pipeline as the in-app page uses it: tokenize the query, then match.
@@ -283,6 +296,29 @@ void TestRecipeSearch::webSearchesDrinkType()
              "web: a drink-type token must match via the drink label field");
     QVERIFY2(!webMatch("House milk", "Cremina", "", "Ethiopia", "espresso", "latte"),
              "web: a drink-type token must NOT match a recipe of a different type");
+}
+
+// A bag as the inventory hands it over: its own fields, and a details blob with a
+// nested canonical snapshot, a link and ids. Every text value is searchable on both
+// surfaces; identifiers and links are not, so a token never matches an id or URL.
+void TestRecipeSearch::bagSearchCoversAllTextAndAgreesWithWeb()
+{
+    const QJSValue bag = m_engine.evaluate(QStringLiteral(
+        "({ id: 7, roasterName: 'Saka', coffeeName: 'Gran Bar', notes: 'for milk drinks',"
+        "   visualizerBagId: 'abc-123',"
+        "   beanBaseData: JSON.stringify({ region: 'Minas Gerais', canonical: { producer: 'Saka Caffe' },"
+        "                                  link: 'https://example.com/gran-bar', id: 'canon-99' }) })"));
+    QVERIFY(!bag.isError());
+    const QString app = m_lib.property("buildBagHaystack").call({bag}).toString();
+    const QString web = m_webBagHaystack.call({bag}).toString();
+    for (const char* q : {"saka gran", "milk", "minas", "caffe"}) {
+        QVERIFY2(match(app, q), q);
+        QVERIFY2(match(web, q), q);
+    }
+    for (const char* q : {"example", "canon", "abc"}) {
+        QVERIFY2(!match(app, q), q);
+        QVERIFY2(!match(web, q), q);
+    }
 }
 
 QTEST_MAIN(TestRecipeSearch)

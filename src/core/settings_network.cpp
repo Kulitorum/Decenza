@@ -102,6 +102,30 @@ void SettingsNetwork::setRecipeSortDirection(const QString& direction) {
     }
 }
 
+// Beans page sort. Defaults reproduce the page's prior order: most-recently-used first.
+
+QString SettingsNetwork::bagSortField() const {
+    return m_settings.value("bags/sortField", "dateUsed").toString();
+}
+
+void SettingsNetwork::setBagSortField(const QString& field) {
+    if (bagSortField() != field) {
+        m_settings.setValue("bags/sortField", field);
+        emit bagSortFieldChanged();
+    }
+}
+
+QString SettingsNetwork::bagSortDirection() const {
+    return m_settings.value("bags/sortDirection", "DESC").toString();
+}
+
+void SettingsNetwork::setBagSortDirection(const QString& direction) {
+    if (bagSortDirection() != direction) {
+        m_settings.setValue("bags/sortDirection", direction);
+        emit bagSortDirectionChanged();
+    }
+}
+
 // Shot server
 
 bool SettingsNetwork::shotServerEnabled() const {

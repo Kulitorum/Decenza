@@ -21,8 +21,8 @@ T.Page {
         anchors.fill: parent
         z: -1
         onClicked: {
-            if (searchField.activeFocus) {
-                searchField.focus = false
+            if (searchBar.field.activeFocus) {
+                searchBar.field.focus = false
                 Keyboard.hide()
             }
         }
@@ -55,7 +55,6 @@ T.Page {
 
     // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
     property var initialFilter: null
-    property bool _populatingSearch: false
 
     // Sort settings
     property string sortField: Settings.network.shotHistorySortField
@@ -186,8 +185,8 @@ T.Page {
         var filter = {}
         // Read displayText (not text) so the in-progress IME preedit on Gboard/Samsung
         // is included — matches the onDisplayTextChanged trigger that scheduled this run.
-        if (searchField.displayText.length > 0) {
-            let searchText = searchField.displayText
+        if (searchBar.field.displayText.length > 0) {
+            let searchText = searchBar.field.displayText
 
             // Parse numeric keyword filters from search text
             // Syntax: keyword:N (exact), keyword:N-M (range), keyword:N+ (min only)
@@ -358,15 +357,10 @@ T.Page {
         applyInitialFilter({ "recipeId": recipeId, "recipeName": recipeName || "" })
     }
 
-    // ONE writer for the search box. The flag suppresses onTextEdited, which
-    // would otherwise null initialFilter as a side effect of us setting the text;
-    // three hand-written copies of that dance is how one of them ends up missing
-    // the reset.
+    // ONE writer for the search box. Setting it silently keeps it from counting
+    // as a user edit, which would null initialFilter as a side effect.
     function _setSearchText(str) {
-        _populatingSearch = true
-        searchField.text = str
-        searchField.lastTriggeredText = str.trim()
-        _populatingSearch = false
+        searchBar.setTextSilently(str)
     }
 
     // Mirror a filter's human-readable terms into the search box so the user can
@@ -520,67 +514,16 @@ T.Page {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
 
-            StyledTextField {
-                id: searchField
+            SearchField {
+                id: searchBar
                 Layout.fillWidth: true
+                debounceMs: 300
                 placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
-                rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
-                // Hint the Android IME away from autocorrect. Some IMEs (notably Gboard)
-                // ignore this, so we also drive the filter from `displayText` below —
-                // displayText includes the IME preedit composing text, so the filter
-                // updates per keystroke instead of waiting for a word commit.
-                inputMethodHints: Qt.ImhNoPredictiveText
-                property string lastTriggeredText: ""
-                onDisplayTextChanged: {
-                    var trimmed = displayText.trim()
-                    if (trimmed !== lastTriggeredText) {
-                        lastTriggeredText = trimmed
-                        // User edited the search field — drop exact-match filter, use FTS
-                        if (!shotHistoryPage._populatingSearch && shotHistoryPage.initialFilter)
-                            shotHistoryPage.initialFilter = null
-                        if (!shotHistoryPage._populatingSearch)
-                            searchTimer.restart()
-                    }
-                }
-
-                // Clear button (inline, hidden in accessibility mode to avoid overlapping elements)
-                Item {
-                    id: searchClearButton
-                    width: Theme.scaled(20)
-                    height: Theme.scaled(20)
-                    visible: searchField.displayText.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.scaled(10)
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    ColoredIcon {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/cross.svg"
-                        iconWidth: Theme.scaled(14)
-                        iconHeight: Theme.scaled(14)
-                        iconColor: Theme.textSecondaryColor
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        anchors.margins: -Theme.scaled(6)
-                        onClicked: {
-                            searchField.text = ""
-                            searchField.focus = false
-                        }
-                    }
-                }
-            }
-
-            // Accessible clear button (outside TextField bounds for TalkBack discoverability)
-            AccessibleButton {
-                visible: searchField.displayText.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
-                accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
-                icon.source: "qrc:/icons/cross.svg"
-                onClicked: {
-                    searchField.text = ""
-                    searchField.focus = false
-                }
+                // An edit drops the exact-match filter a caller opened the page
+                // with; the text search takes over. Restoring text goes through
+                // _setSearchText (setTextSilently), which does not count as one.
+                onEdited: if (shotHistoryPage.initialFilter) shotHistoryPage.initialFilter = null
+                onQueryChanged: shotHistoryPage.loadShots()
             }
 
             AccessibleButton {
@@ -592,9 +535,9 @@ T.Page {
             AccessibleButton {
                 text: TranslationManager.translate("shothistory.save", "Save")
                 accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
-                enabled: searchField.text.trim().length > 0
-                         && Settings.network.savedSearches.indexOf(searchField.text.trim()) === -1
-                onClicked: Settings.network.addSavedSearch(searchField.text.trim())
+                enabled: searchBar.field.text.trim().length > 0
+                         && Settings.network.savedSearches.indexOf(searchBar.field.text.trim()) === -1
+                onClicked: Settings.network.addSavedSearch(searchBar.field.text.trim())
             }
 
             AccessibleButton {
@@ -605,32 +548,19 @@ T.Page {
                 onClicked: savedSearchesDialog.open()
             }
 
-            // Sort field button
-            AccessibleButton {
-                text: shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
-                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField]
-                                  || TranslationManager.translate("shothistory.sort.date", "Date"))
-                onClicked: sortPickerDialog.open()
-            }
-
-            // Sort direction button
-            AccessibleButton {
-                icon.source: shotHistoryPage.sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
-                tintIcon: true
-                accessibleName: shotHistoryPage.sortDirection === "DESC"
-                    ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
-                    : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
-                onClicked: {
-                    shotHistoryPage.sortDirection = (shotHistoryPage.sortDirection === "DESC") ? "ASC" : "DESC"
-                    Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
+            SortControls {
+                keys: shotHistoryPage.sortFieldKeys
+                labels: shotHistoryPage.sortFieldLabels
+                defaultDirections: shotHistoryPage.defaultSortDirections
+                field: shotHistoryPage.sortField
+                direction: shotHistoryPage.sortDirection
+                onSortChanged: function(field, direction) {
+                    shotHistoryPage.sortField = field
+                    shotHistoryPage.sortDirection = direction
+                    Settings.network.shotHistorySortField = field
+                    Settings.network.shotHistorySortDirection = direction
                     shotHistoryPage.loadShots()
                 }
-            }
-
-            Timer {
-                id: searchTimer
-                interval: 300
-                onTriggered: shotHistoryPage.loadShots()
             }
         }
 
@@ -730,8 +660,8 @@ T.Page {
 
             // Dismiss keyboard when user starts scrolling
             onMovementStarted: {
-                if (searchField.activeFocus) {
-                    searchField.focus = false
+                if (searchBar.field.activeFocus) {
+                    searchBar.field.focus = false
                     Keyboard.hide()
                 }
             }
@@ -1365,13 +1295,13 @@ T.Page {
     }
 
     function insertSearchKeyword(keyword) {
-        var currentText = searchField.text
+        var currentText = searchBar.field.text
         if (currentText.length > 0 && !currentText.endsWith(" ")) {
             currentText += " "
         }
-        searchField.text = currentText + keyword
+        searchBar.field.text = currentText + keyword
         searchHelpDialog.close()
-        searchField.forceActiveFocus()
+        searchBar.field.forceActiveFocus()
         Keyboard.show()
     }
 
@@ -1506,7 +1436,7 @@ T.Page {
                         anchors.fill: parent
                         z: -1
                         onClicked: {
-                            searchField.text = savedSearchDelegate.modelData
+                            searchBar.field.text = savedSearchDelegate.modelData
                             savedSearchesDialog.close()
                         }
                     }
@@ -1526,20 +1456,6 @@ T.Page {
         }
     }
 
-    // Sort picker dialog
-    SelectionDialog {
-        id: sortPickerDialog
-        title: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
-        options: shotHistoryPage.sortFieldKeys.map(function(key) { return shotHistoryPage.sortFieldLabels[key] || key })
-        currentIndex: shotHistoryPage.sortFieldKeys.indexOf(shotHistoryPage.sortField)
-        onSelected: function(index, value) {
-            shotHistoryPage.sortField = shotHistoryPage.sortFieldKeys[index]
-            shotHistoryPage.sortDirection = shotHistoryPage.defaultSortDirections[shotHistoryPage.sortFieldKeys[index]] || "DESC"
-            Settings.network.shotHistorySortField = shotHistoryPage.sortField
-            Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
-            shotHistoryPage.loadShots()
-        }
-    }
 
     // Search syntax help dialog
     DecenzaDialog {

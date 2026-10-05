@@ -28,8 +28,7 @@ T.Page {
 
     StackView.onActivated: {
         // Search is transient — clear it whenever the page becomes active.
-        searchField.text = ""
-        recipesPage.searchQuery = ""
+        searchBar.clear()
         // Drop the profile-number cache so a profile edited elsewhere while this
         // page stayed instantiated is re-resolved on re-entry.
         recipesPage._profileNumbersCache = ({})
@@ -80,12 +79,6 @@ T.Page {
         return Number(r.lastUsedEpoch) || 0   // dateUsed (default)
     }
 
-    // A recipe with no value for the sort key (bean-less, never-used, etc.)
-    // sorts to the end regardless of direction so blanks never float to the top.
-    function _isBlankKey(k) {
-        return (typeof k === "number") ? (k <= 0) : (String(k).length === 0)
-    }
-
     function filterAndSort(list, query, field, dir) {
         // Tokenized AND match (RecipeSearch.js): `-` `/` `.` deleted, query split on
         // whitespace, every token must be a substring of the combined text. So a
@@ -106,17 +99,8 @@ T.Page {
             }
             out.push(r)
         }
-        var asc = (dir !== "DESC")
-        out.sort(function(a, b) {
-            var ka = _sortKey(a, field), kb = _sortKey(b, field)
-            var ba = _isBlankKey(ka), bb = _isBlankKey(kb)
-            if (ba !== bb) return ba ? 1 : -1   // blanks always last, both directions
-            var cmp = (typeof ka === "number") ? (ka - kb) : ka.localeCompare(kb)
-            // Deterministic tiebreak by id (Array.sort isn't guaranteed stable).
-            if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)
-            return asc ? cmp : -cmp
-        })
-        return out
+        // Blank keys (bean-less, never-used) last in both directions.
+        return RecipeSearch.sortedCopy(out, function(r) { return _sortKey(r, field) }, dir)
     }
 
     // Cache of profile display numbers resolved from the installed-profile
@@ -720,94 +704,34 @@ T.Page {
                 }
             }
 
-            // Search + sort bar (recipe-list-organization): mirrors the
-            // ShotHistoryPage pattern. Shown once there is anything to organize;
+            // Search + sort bar (recipe-list-organization): the shared SearchField
+            // and SortControls, as on Beans and Shot History. Shown once there is anything to organize;
             // over the empty-library starter tiles it would be pointless clutter.
             RowLayout {
                 Layout.fillWidth: true
                 visible: recipesPage.recipes.length > 0 || recipesPage.archivedRecipes.length > 0
                 spacing: Theme.spacingSmall
 
-                StyledTextField {
-                    id: searchField
+                SearchField {
+                    id: searchBar
                     Layout.fillWidth: true
                     placeholder: TranslationManager.translate("recipes.searchPlaceholder", "Search recipes...")
-                    rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
-                    // displayText includes the IME preedit so the filter updates
-                    // per keystroke; a short debounce keeps re-sorts cheap.
-                    inputMethodHints: Qt.ImhNoPredictiveText
                     accessibleName: TranslationManager.translate("recipes.accessible.search", "Search recipes")
-                    onDisplayTextChanged: searchTimer.restart()
+                    onQueryChanged: function(query) { recipesPage.searchQuery = query }
+                }
 
-                    // Inline clear button (hidden in accessibility mode to avoid
-                    // overlapping elements — the standalone button below serves it).
-                    Item {
-                        id: searchClearButton
-                        width: Theme.scaled(20)
-                        height: Theme.scaled(20)
-                        visible: searchField.displayText.length > 0
-                                 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.scaled(10)
-                        anchors.verticalCenter: parent.verticalCenter
-                        ColoredIcon {
-                            anchors.centerIn: parent
-                            source: "qrc:/icons/cross.svg"
-                            iconWidth: Theme.scaled(14)
-                            iconHeight: Theme.scaled(14)
-                            iconColor: Theme.textSecondaryColor
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -Theme.scaled(6)
-                            onClicked: {
-                                searchField.text = ""
-                                recipesPage.searchQuery = ""
-                                searchField.focus = false
-                            }
-                        }
+                SortControls {
+                    keys: recipesPage.sortFieldKeys
+                    labels: recipesPage.sortFieldLabels
+                    defaultDirections: recipesPage.defaultSortDirections
+                    field: recipesPage.sortField
+                    direction: recipesPage.sortDirection
+                    onSortChanged: function(field, direction) {
+                        recipesPage.sortField = field
+                        recipesPage.sortDirection = direction
+                        Settings.network.recipeSortField = field
+                        Settings.network.recipeSortDirection = direction
                     }
-                }
-
-                // Accessible clear button (outside the field for TalkBack discovery).
-                AccessibleButton {
-                    visible: searchField.displayText.length > 0
-                             && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
-                    accessibleName: TranslationManager.translate("recipes.accessible.clearSearch", "Clear search")
-                    icon.source: "qrc:/icons/cross.svg"
-                    onClicked: {
-                        searchField.text = ""
-                        recipesPage.searchQuery = ""
-                        searchField.focus = false
-                    }
-                }
-
-                // Sort field button
-                AccessibleButton {
-                    text: recipesPage.sortFieldLabels[recipesPage.sortField] || recipesPage.sortFieldLabels["dateUsed"]
-                    accessibleName: TranslationManager.translate("recipes.accessible.sortBy", "Sort by %1")
-                        .arg(recipesPage.sortFieldLabels[recipesPage.sortField] || "")
-                    onClicked: sortPickerDialog.open()
-                }
-
-                // Sort direction toggle
-                AccessibleButton {
-                    icon.source: recipesPage.sortDirection === "DESC"
-                        ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
-                    tintIcon: true
-                    accessibleName: recipesPage.sortDirection === "DESC"
-                        ? TranslationManager.translate("recipes.accessible.sortDescending", "Sort descending, tap to sort ascending")
-                        : TranslationManager.translate("recipes.accessible.sortAscending", "Sort ascending, tap to sort descending")
-                    onClicked: {
-                        recipesPage.sortDirection = (recipesPage.sortDirection === "DESC") ? "ASC" : "DESC"
-                        Settings.network.recipeSortDirection = recipesPage.sortDirection
-                    }
-                }
-
-                Timer {
-                    id: searchTimer
-                    interval: 250
-                    onTriggered: recipesPage.searchQuery = searchField.displayText.trim()
                 }
             }
 
@@ -968,20 +892,6 @@ T.Page {
                     }
                 }
             }
-        }
-    }
-
-    // Sort picker dialog (recipe-list-organization)
-    SelectionDialog {
-        id: sortPickerDialog
-        title: TranslationManager.translate("recipes.sortByTitle", "Sort By")
-        options: recipesPage.sortFieldKeys.map(function(key) { return recipesPage.sortFieldLabels[key] || key })
-        currentIndex: recipesPage.sortFieldKeys.indexOf(recipesPage.sortField)
-        onSelected: function(index, value) {
-            recipesPage.sortField = recipesPage.sortFieldKeys[index]
-            recipesPage.sortDirection = recipesPage.defaultSortDirections[recipesPage.sortField] || "DESC"
-            Settings.network.recipeSortField = recipesPage.sortField
-            Settings.network.recipeSortDirection = recipesPage.sortDirection
         }
     }
 

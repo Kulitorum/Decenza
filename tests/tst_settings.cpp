@@ -1074,18 +1074,22 @@ private slots:
     }
 
     void recipeSortRoundTrip() {
-        // The recipes-page sort preference (recipe-list-organization) must
-        // survive an export -> import cycle. Export/import key strings are
-        // hand-mirrored under a new "recipes" root object, so a typo on either
-        // side would silently drop the preference during device migration.
+        // The recipes- and beans-page sort preferences must survive an export ->
+        // import cycle. Export/import key strings are hand-mirrored under the
+        // "recipes" and "bags" root objects, so a typo on either side would
+        // silently drop the preference during device migration.
         m_settings.network()->setRecipeSortField("coffee");
         m_settings.network()->setRecipeSortDirection("ASC");
+        m_settings.network()->setBagSortField("roastDate");
+        m_settings.network()->setBagSortDirection("ASC");
 
         QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
 
         // Mutate both to confirm import overwrites them.
         m_settings.network()->setRecipeSortField("name");
         m_settings.network()->setRecipeSortDirection("DESC");
+        m_settings.network()->setBagSortField("dateUsed");
+        m_settings.network()->setBagSortDirection("DESC");
 
         // importFromJson emits an expected favorites-replacement warning (see
         // autoLoadBundleRoundTrip) — suppress it for the no-warnings-in-tests rule.
@@ -1095,6 +1099,8 @@ private slots:
 
         QCOMPARE(m_settings.network()->recipeSortField(), QString("coffee"));
         QCOMPARE(m_settings.network()->recipeSortDirection(), QString("ASC"));
+        QCOMPARE(m_settings.network()->bagSortField(), QString("roastDate"));
+        QCOMPARE(m_settings.network()->bagSortDirection(), QString("ASC"));
     }
 
     void waterVesselPresetTemperatureRoundTrip() {

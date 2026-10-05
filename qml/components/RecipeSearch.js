@@ -1,7 +1,7 @@
 .pragma library
 
-// Tokenized matching for the Recipes page search field — the single source of
-// truth for the in-app path (RecipesPage.qml). The query is split into tokens on
+// Tokenized matching for the Recipes and Beans page search fields — the single
+// source of truth for the in-app path (RecipesPage.qml, BeanInfoPage.qml). The query is split into tokens on
 // whitespace, the characters `-`, `/` and `.` are DELETED from both the query and
 // the searchable text, and a recipe matches only when EVERY token is found (as a
 // substring) somewhere in its combined text.
@@ -62,4 +62,54 @@ function matches(haystack, tokens) {
             return false
     }
     return true
+}
+
+// Keys that are not text a user would search for: identifiers, links, sync and
+// cache bookkeeping, and the raw blob (searched parsed, below).
+var _bagSkipKeys = ["id", "kind", "beanBaseId", "beanBaseData", "equipmentId",
+    "visualizerBagId", "visualizerRoasterId", "visualizerSeen", "visualizerSyncPending",
+    "link", "source", "canonicalRoasterId", "visualizerCanonicalId",
+    "linkChecked", "linkDead", "aiPageSearched"]
+
+// Every text value a bag holds: its own fields (roaster, coffee, roast level,
+// notes, dates, ...) and each value in its bean-details blob, nested ones
+// included. The web /beans page carries a behaviorally identical bagHaystack
+// (shotserver_bags.cpp); tests/tst_recipesearch.cpp checks the two agree.
+function buildBagHaystack(bag) {
+    var parts = []
+    function collect(o) {
+        for (var key in o) {
+            if (_bagSkipKeys.indexOf(key) !== -1)
+                continue
+            var v = o[key]
+            if (typeof v === "string")
+                parts.push(v)
+            else if (v && typeof v === "object")
+                collect(v)
+        }
+    }
+    collect(bag || ({}))
+    try {
+        collect(JSON.parse((bag && bag.beanBaseData) || "{}"))
+    } catch (e) {
+        // An unreadable blob contributes nothing; the bag's own fields still match.
+    }
+    return parts.join(" ")
+}
+
+// A sorted copy of list by keyOf(item), which returns a number or a lower-cased
+// string. Blank keys (0 or "") go last in both directions, so a never-used or
+// undated item never floats to the top; ties break by id, as Array.sort is not
+// guaranteed stable.
+function sortedCopy(list, keyOf, direction) {
+    var asc = (direction !== "DESC")
+    function blank(k) { return (typeof k === "number") ? (k <= 0) : (String(k).length === 0) }
+    return list.slice().sort(function(a, b) {
+        var ka = keyOf(a), kb = keyOf(b)
+        var ba = blank(ka), bb = blank(kb)
+        if (ba !== bb) return ba ? 1 : -1
+        var cmp = (typeof ka === "number") ? (ka - kb) : String(ka).localeCompare(String(kb))
+        if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)
+        return asc ? cmp : -cmp
+    })
 }

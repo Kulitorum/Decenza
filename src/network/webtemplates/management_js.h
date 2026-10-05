@@ -33,4 +33,11 @@ inline constexpr const char* WEB_JS_MANAGEMENT = R"JS(
             return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify(body || {}) }).then(readJson);
         }
+
+        // List search, as the app's RecipeSearch.js: lower-case, DELETE - / . (so
+        // "df" matches "D-Flow"), split on whitespace; a match needs every token.
+        // Used by /recipes and /beans; tests/tst_recipesearch.cpp checks it agrees
+        // with the app.
+        function normalizeSearch(s) { return String(s || '').toLowerCase().replace(/[-\/.]/g, ''); }
+        function tokenizeSearch(q) { return normalizeSearch(q).split(/\s+/).filter(Boolean); }
 )JS";

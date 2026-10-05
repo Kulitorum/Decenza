@@ -8,6 +8,7 @@ import QtQuick
 import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
+import "../components/RecipeSearch.js" as RecipeSearch
 
 // Bean bag inventory (bean-bag-inventory change): replaces the old editable
 // DYE-fields + presets page. Shows all bags with inInventory = true as cards;
@@ -41,6 +42,47 @@ T.Page {
     property var finishedBags: []
     property bool showFinished: false
     onShowFinishedChanged: if (showFinished) MainController.bagStorage.requestFinishedBags()
+
+    // Search + sort, as on Recipes. A search covers every text value a bag holds
+    // (RecipeSearch.buildBagHaystack) and the finished bags too, so they are
+    // loaded while a search is on. The sort persists; the search resets on entry.
+    property string searchQuery: ""
+    property string sortField: Settings.network.bagSortField
+    property string sortDirection: Settings.network.bagSortDirection
+    onSearchQueryChanged: if (searchQuery.length > 0) MainController.bagStorage.requestFinishedBags()
+    readonly property var sortFieldLabels: ({
+        "dateUsed": TranslationManager.translate("beaninfo.sort.dateUsed", "Last used"),
+        "roastDate": TranslationManager.translate("beaninfo.sort.roastDate", "Roast date"),
+        "coffee": TranslationManager.translate("beaninfo.sort.coffee", "Coffee"),
+        "roaster": TranslationManager.translate("beaninfo.sort.roaster", "Roaster")
+    })
+    readonly property var sortFieldKeys: ["dateUsed", "roastDate", "coffee", "roaster"]
+    readonly property var defaultSortDirections: ({
+        "dateUsed": "DESC", "roastDate": "DESC", "coffee": "ASC", "roaster": "ASC"
+    })
+    readonly property var visibleBags: filterAndSort(inventoryBags, searchQuery, sortField, sortDirection)
+    readonly property var visibleFinishedBags: filterAndSort(finishedBags, searchQuery, sortField, sortDirection)
+    // With a search on, the count is of the matching finished bags.
+    readonly property int shownFinishedCount: searchQuery.length > 0 ? visibleFinishedBags.length : finishedCount
+
+    function _sortKey(bag, field) {
+        if (field === "roastDate")
+            return String(bag.roastDate || "")   // ISO dates order as text
+        if (field === "coffee")
+            return String(bag.coffeeName || "").toLowerCase()
+        if (field === "roaster")
+            return String(bag.roasterName || "").toLowerCase()
+        return Number(bag.lastUsedEpoch) || 0   // dateUsed (default)
+    }
+
+    function filterAndSort(list, query, field, dir) {
+        const tokens = RecipeSearch.tokenize(query)
+        const out = tokens.length === 0 ? list
+            : list.filter(function(bag) { return RecipeSearch.matches(RecipeSearch.buildBagHaystack(bag), tokens) })
+        return RecipeSearch.sortedCopy(out, function(bag) { return _sortKey(bag, field) }, dir)
+    }
+
+    T.StackView.onActivated: searchBar.clear()
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
@@ -157,6 +199,49 @@ T.Page {
                 }
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+                visible: bagInventoryPage.inventoryBags.length > 0 || bagInventoryPage.finishedCount > 0
+                spacing: Theme.spacingSmall
+
+                SearchField {
+                    id: searchBar
+                    Layout.fillWidth: true
+                    placeholder: TranslationManager.translate("beaninfo.searchPlaceholder", "Search bags...")
+                    accessibleName: TranslationManager.translate("beaninfo.accessible.search", "Search bags")
+                    onQueryChanged: function(query) { bagInventoryPage.searchQuery = query }
+                }
+
+                SortControls {
+                    keys: bagInventoryPage.sortFieldKeys
+                    labels: bagInventoryPage.sortFieldLabels
+                    defaultDirections: bagInventoryPage.defaultSortDirections
+                    field: bagInventoryPage.sortField
+                    direction: bagInventoryPage.sortDirection
+                    onSortChanged: function(field, direction) {
+                        bagInventoryPage.sortField = field
+                        bagInventoryPage.sortDirection = direction
+                        Settings.network.bagSortField = field
+                        Settings.network.bagSortDirection = direction
+                    }
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingMedium
+                visible: bagInventoryPage.searchQuery.length > 0
+                         && bagInventoryPage.visibleBags.length === 0
+                         && bagInventoryPage.visibleFinishedBags.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: TranslationManager.translate("beaninfo.noMatches", "No bags match your search")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
             // The read failed — say so rather than claiming there are no bags.
             Tr {
                 Layout.alignment: Qt.AlignHCenter
@@ -211,7 +296,7 @@ T.Page {
                 spacing: Theme.spacingMedium
 
                 Repeater {
-                    model: bagInventoryPage.inventoryBags
+                    model: bagInventoryPage.visibleBags
 
                     BagCard {
                         required property var modelData
@@ -226,7 +311,7 @@ T.Page {
             }
 
             AccessibleButton {
-                visible: bagInventoryPage.finishedCount > 0
+                visible: bagInventoryPage.shownFinishedCount > 0
                 Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -234,7 +319,7 @@ T.Page {
                 text: (bagInventoryPage.showFinished
                        ? TranslationManager.translate("beaninfo.finished.hide", "Hide finished")
                        : TranslationManager.translate("beaninfo.finished.show", "Show finished"))
-                      + " (" + bagInventoryPage.finishedCount + ")"
+                      + " (" + bagInventoryPage.shownFinishedCount + ")"
                 accessibleName: text
                 onClicked: bagInventoryPage.showFinished = !bagInventoryPage.showFinished
             }
@@ -245,7 +330,7 @@ T.Page {
                 spacing: Theme.spacingMedium
 
                 Repeater {
-                    model: bagInventoryPage.showFinished ? bagInventoryPage.finishedBags : []
+                    model: bagInventoryPage.showFinished ? bagInventoryPage.visibleFinishedBags : []
 
                     BagCard {
                         required property var modelData

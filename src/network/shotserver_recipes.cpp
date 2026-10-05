@@ -967,10 +967,9 @@ QString ShotServer::generateRecipesPage() const
         // English here vs the app's localized DrinkType.shortLabel, and it reads
         // r.drinkType directly whereas the app derives a type for legacy rows with no
         // stored drinkType via DrinkType.fromRecipeMap. Guarded by tests/tst_recipesearch.cpp,
-        // which extracts normalizeSearch/tokenizeSearch/matchesFilter and re-runs the
-        // shared cases — keep the two in sync. tokens are computed once per render().
-        function normalizeSearch(s) { return String(s || '').toLowerCase().replace(/[-\/.]/g, ''); }
-        function tokenizeSearch(q) { return normalizeSearch(q).split(/\s+/).filter(Boolean); }
+        // which extracts matchesFilter (and the shared normalizeSearch/tokenizeSearch
+        // from WEB_JS_MANAGEMENT) and re-runs the shared cases — keep the two in sync.
+        // tokens are computed once per render().
         function matchesFilter(r, tokens) {
             if (!tokens.length) return true;
             const hay = normalizeSearch(

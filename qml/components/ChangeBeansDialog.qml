@@ -1139,7 +1139,7 @@ DecenzaDialog {
         if (!_armedForm) {
             mode = "search"
             errorMessage = ""
-            searchField.text = ""
+            searchField.setTextSilently("")
             MainController.beanSearch.query = ""
             MainController.beanSearch.refresh()
         }
@@ -1149,7 +1149,7 @@ DecenzaDialog {
     onOpened: {
         _refreshHistoryLists()
         if (mode === "search")
-            searchField.forceActiveFocus()
+            searchField.field.forceActiveFocus()
         else if (fRoaster.length === 0 && fCoffee.length === 0)
             roasterInput.forceActiveFocus()
         else
@@ -1188,7 +1188,7 @@ DecenzaDialog {
         implicitWidth: root.width
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
-        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
+        textFields: [searchField.field, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
                      doseInput, yieldInput, yieldRatioInput,
                      notesInput, frozenDateField.textField, defrostDateField.textField,
                      openedDateField.textField,
@@ -1303,12 +1303,13 @@ DecenzaDialog {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
-                    StyledTextField {
+                    SearchField {
                         id: searchField
                         Layout.fillWidth: true
                         placeholder: TranslationManager.translate("changebeans.search.placeholder", "Search roaster or coffee")
                         accessibleName: TranslationManager.translate("changebeans.search.accessible", "Search beans")
-                        onTextEdited: MainController.beanSearch.query = text
+                        // The search service debounces itself; hand it each edit.
+                        onEdited: function(text) { MainController.beanSearch.query = text }
                     }
 
                     BusyIndicator {
@@ -1538,7 +1539,7 @@ DecenzaDialog {
                                 accessibleItem: manualRow
                                 onAccessibleClicked: {
                                     Keyboard.commit()
-                                    root.openManualEntry(searchField.text)
+                                    root.openManualEntry(searchField.field.text)
                                 }
                             }
                         }

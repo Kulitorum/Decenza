@@ -27,6 +27,10 @@ class SettingsNetwork : public QObject {
     Q_PROPERTY(QString recipeSortField READ recipeSortField WRITE setRecipeSortField NOTIFY recipeSortFieldChanged FINAL)
     Q_PROPERTY(QString recipeSortDirection READ recipeSortDirection WRITE setRecipeSortDirection NOTIFY recipeSortDirectionChanged FINAL)
 
+    // Beans page sort
+    Q_PROPERTY(QString bagSortField READ bagSortField WRITE setBagSortField NOTIFY bagSortFieldChanged FINAL)
+    Q_PROPERTY(QString bagSortDirection READ bagSortDirection WRITE setBagSortDirection NOTIFY bagSortDirectionChanged FINAL)
+
     // Shot server (HTTP API)
     Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged FINAL)
     Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged FINAL)
@@ -77,6 +81,12 @@ public:
     void setRecipeSortField(const QString& field);
     QString recipeSortDirection() const;
     void setRecipeSortDirection(const QString& direction);
+
+    // Beans page sort
+    QString bagSortField() const;
+    void setBagSortField(const QString& field);
+    QString bagSortDirection() const;
+    void setBagSortDirection(const QString& direction);
 
     // Shot server
     bool shotServerEnabled() const;
@@ -268,6 +278,8 @@ signals:
     void shotHistorySortDirectionChanged();
     void recipeSortFieldChanged();
     void recipeSortDirectionChanged();
+    void bagSortFieldChanged();
+    void bagSortDirectionChanged();
     void shotServerEnabledChanged();
     void shotServerHostnameChanged();
     void shotServerPortChanged();

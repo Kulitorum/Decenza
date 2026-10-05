@@ -795,6 +795,14 @@ QString ShotServer::generateBeansPage() const
             <button onclick="openEditor(null, 'coffee')">Bag of Coffee</button>
             <button onclick="openEditor(null, 'tea')">Bag of Tea</button>
         </div>
+        <div class="searchbar" id="searchbar" style="display:none">
+            <div class="search-wrap">
+                <input class="search" id="search" placeholder="Search bags…" oninput="applyFilter()">
+                <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&times;</button>
+            </div>
+            <button id="sortField" onclick="cycleSort()">Sort: Last used</button>
+            <button id="sortDir" onclick="toggleDir()">Newest / Z→A first</button>
+        </div>
         <div id="status"></div>
         <div id="list"></div>
         <div class="section-head" id="finishedHead" style="display:none">
@@ -1132,25 +1140,107 @@ QString ShotServer::generateBeansPage() const
                 + '<div class="card-head">' + thumb + body + '</div>' + acts + '</div>';
         }
 
-        function render(list) {
-            bags = list.concat(finishedBags);
-            el('list').innerHTML = list.length
-                ? '<div class="grid">' + list.map(b => cardHtml(b, false)).join('') + '</div>'
-                : '<div class="empty"><h2>No bags yet</h2>'
-                  + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+        // --- Search + sort, as the app's Beans page ---
+        let openBags = [];
+        let filterText = '';
+        const SORTS = [
+            ['lastUsedEpoch', 'Last used'],
+            ['roastDate', 'Roast date'],
+            ['coffee', 'Coffee'],
+            ['roaster', 'Roaster'],
+        ];
+        let sortIdx = 0;
+        let sortAsc = false;   // last used / roast date default newest-first
+
+        // Every text value a bag holds, as RecipeSearch.buildBagHaystack in the app
+        // (tests/tst_recipesearch.cpp checks they agree). No braces inside strings
+        // here: the test extracts this function by brace matching.
+        function bagHaystack(b) {
+            const skip = ['id', 'kind', 'beanBaseId', 'beanBaseData', 'equipmentId',
+                'visualizerBagId', 'visualizerRoasterId', 'visualizerSeen', 'visualizerSyncPending',
+                'link', 'source', 'canonicalRoasterId', 'visualizerCanonicalId',
+                'linkChecked', 'linkDead', 'aiPageSearched'];
+            const parts = [];
+            const collect = (o) => {
+                for (const key in o) {
+                    if (skip.indexOf(key) !== -1) continue;
+                    const v = o[key];
+                    if (typeof v === 'string') parts.push(v);
+                    else if (v && typeof v === 'object') collect(v);
+                }
+            };
+            collect(b);
+            try {
+                if (b && b.beanBaseData) collect(JSON.parse(b.beanBaseData));
+            } catch (e) {
+                // An unreadable blob contributes nothing.
+            }
+            return parts.join(' ');
+        }
+        function bagMatches(b, tokens) {
+            if (!tokens.length) return true;
+            const hay = normalizeSearch(bagHaystack(b));
+            return tokens.every(t => hay.indexOf(t) !== -1);
+        }
+        function sortBags(list) {
+            const key = SORTS[sortIdx][0];
+            const val = (b) => {
+                if (key === 'coffee') return (b.coffeeName || '').toLowerCase();
+                if (key === 'roaster') return (b.roasterName || '').toLowerCase();
+                return b[key] || '';
+            };
+            // Blank keys (never used, no roast date) last in both directions.
+            const blank = (v) => v === '' || v === 0;
+            return list.slice().sort((a, b) => {
+                const va = val(a), vb = val(b);
+                if (blank(va) !== blank(vb)) return blank(va) ? 1 : -1;
+                const cmp = va < vb ? -1 : (va > vb ? 1 : 0);
+                return sortAsc ? cmp : -cmp;
+            });
+        }
+
+        function render(list) { openBags = list; showBags(); }
+        function showBags() {
+            const tokens = tokenizeSearch(filterText);
+            const open = sortBags(openBags.filter(b => bagMatches(b, tokens)));
+            bags = openBags.concat(finishedBags);
+            el('searchbar').style.display = (openBags.length || finishedBags.length) ? '' : 'none';
+            el('searchClear').style.display = filterText ? '' : 'none';
+            el('list').innerHTML = open.length
+                ? '<div class="grid">' + open.map(b => cardHtml(b, false)).join('') + '</div>'
+                : filterText
+                    ? '<p class="muted">No bags match &ldquo;' + esc(filterText) + '&rdquo;.</p>'
+                    : '<div class="empty"><h2>No bags yet</h2>'
+                      + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+            renderFinished();
+        }
+        function applyFilter() { filterText = el('search').value.trim(); showBags(); }
+        function clearSearch() { el('search').value = ''; filterText = ''; showBags(); }
+        function cycleSort() {
+            sortIdx = (sortIdx + 1) % SORTS.length;
+            el('sortField').textContent = 'Sort: ' + SORTS[sortIdx][1];
+            showBags();
+        }
+        function toggleDir() {
+            sortAsc = !sortAsc;
+            el('sortDir').textContent = sortAsc ? 'Oldest / A→Z first' : 'Newest / Z→A first';
+            showBags();
         }
 
         // Finished bags: hidden behind a toggle, as Recipes hides archived ones.
         let finishedBags = [];
         let showFinished = false;
         function renderFinished() {
-            bags = bags.filter(b => !finishedBags.some(f => f.id === b.id)).concat(finishedBags);
+            bags = openBags.concat(finishedBags);
+            // The search applies here too, so the count is of the matches.
+            const shown = sortBags(finishedBags.filter(b => bagMatches(b, tokenizeSearch(filterText))));
             const btn = el('finishedToggle');
-            el('finishedHead').style.display = finishedBags.length ? '' : 'none';
-            btn.textContent = (showFinished ? 'Hide finished' : 'Show finished') + ' (' + finishedBags.length + ')';
+            el('finishedHead').style.display = shown.length ? '' : 'none';
+            el('searchbar').style.display = (openBags.length || finishedBags.length) ? '' : 'none';
+            btn.textContent = (showFinished ? 'Hide finished' : 'Show finished') + ' (' + shown.length + ')';
             btn.setAttribute('aria-expanded', showFinished ? 'true' : 'false');
-            el('finishedList').innerHTML = showFinished && finishedBags.length
-                ? '<div class="grid">' + finishedBags.map(b => cardHtml(b, true)).join('') + '</div>' : '';
+            el('finishedList').innerHTML = showFinished && shown.length
+                ? '<div class="grid">' + shown.map(b => cardHtml(b, true)).join('') + '</div>' : '';
         }
         function toggleFinished() { showFinished = !showFinished; renderFinished(); }
         function loadFinished() {

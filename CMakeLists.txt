@@ -1461,6 +1461,8 @@ set(QML_FILES
     qml/components/LinkBeanBaseDialog.qml
     qml/components/ChangeBeansDialog.qml
     qml/components/CardTapArea.qml
+    qml/components/SearchField.qml
+    qml/components/SortControls.qml
     qml/components/BagCard.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
