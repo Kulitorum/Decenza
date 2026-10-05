@@ -130,6 +130,11 @@ bool MachineState::isReady() const {
            m_phase == Phase::Sleep || m_phase == Phase::Heating;
 }
 
+bool MachineState::isOperating() const {
+    return m_phase != Phase::Disconnected && m_phase != Phase::Sleep && m_phase != Phase::Idle
+           && m_phase != Phase::Heating && m_phase != Phase::Ready && m_phase != Phase::Refill;
+}
+
 double MachineState::shotTime() const {
     // Use timing controller only for espresso phases
     bool isEspressoPhase = (m_phase == Phase::EspressoPreheating ||

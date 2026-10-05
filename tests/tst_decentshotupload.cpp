@@ -820,6 +820,85 @@ private slots:
         closeStorage(storage);
     }
 
+    // D14: Upload missing shots sends newest first, kBatchSize at a time, only
+    // while the machine is idle; moves past a failure, ends on a sign-in refusal,
+    // resumes after a restart without the shots that already failed.
+    void missingShotsRunInBatchesWhileIdle() {
+        using Outcome = ShotUploadDestination::Outcome;
+        SettingsUpload upload;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("run.db")));
+        QList<qint64> newestFirst;
+        for (int i = 1; i <= 7; ++i) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = 1000 * i;
+            newestFirst.prepend(storage.importShotRecord(r, false));
+        }
+        FakeDestination decent(QStringLiteral("decent"));
+        decent.holding = true;
+        ShotUploads uploads(&upload, &storage, {&decent});
+        uploads.setRetryDelayMs(0);
+        uploads.setBatchSpacingMs(0);
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
+        const auto sentIds = [&decent]() {
+            QList<qint64> ids;
+            for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
+            return ids;
+        };
+        const auto step = [&decent]() { decent.finish(); settle(); };
+
+        // Never on its own.
+        uploads.resumeMissingRuns();
+        settle();
+        QVERIFY(decent.sent.isEmpty());
+
+        uploads.uploadMissing(QStringLiteral("decent"));
+        QTRY_COMPARE(decent.sent.size(), 1);
+        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("total").toInt(), 7);
+        QVERIFY(upload.missingRunStartedAt(QStringLiteral("decent")) > 0);
+        for (int i = 0; i < 4; ++i) step();
+        QCOMPARE(sentIds(), newestFirst.mid(0, 5));
+
+        // The batch in flight finishes; the next waits for the machine to be idle.
+        uploads.setMachineOperating(true);
+        step();
+        QCOMPARE(decent.sent.size(), 5);
+        uploads.setMachineOperating(false);
+        settle();
+        QCOMPARE(sentIds().last(), newestFirst.at(5));
+
+        // A shot that fails its 3 attempts is recorded and the run moves on.
+        decent.answer = Outcome::Transient;
+        step();
+        step();
+        step();
+        QCOMPARE(sentIds().mid(5), (QList<qint64>{newestFirst.at(5), newestFirst.at(5), newestFirst.at(5), newestFirst.at(6)}));
+        decent.answer = Outcome::Sent;
+        step();
+        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("running").toBool(), false);
+        QCOMPARE(upload.missingRunStartedAt(QStringLiteral("decent")), 0);
+
+        // After a restart a run resumes, leaving out what already failed in it.
+        (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), QDateTime::currentSecsSinceEpoch() - 60);
+        decent.sent.clear();
+        uploads.resumeMissingRuns();
+        QTRY_COMPARE(decent.sent.size(), 1);
+        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("total").toInt(), 6);
+        QCOMPARE(sentIds().first(), newestFirst.first());
+
+        // A sign-in refusal ends the run.
+        decent.answer = Outcome::AuthFailed;
+        step();
+        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("running").toBool(), false);
+        QCOMPARE(upload.missingRunStartedAt(QStringLiteral("decent")), 0);
+        settle();
+        QCOMPARE(decent.sent.size(), 1);
+
+        closeStorage(storage);
+    }
+
     void firstUploadNeedsAConnectedMachine() {
         Rig rig(m_dir.filePath("nomachine.db"));
         QVERIFY(rig.shotId > 0);

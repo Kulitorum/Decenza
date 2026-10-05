@@ -5,11 +5,16 @@
 #include "history/shothistorystorage.h"
 #include "network/shotpayloadhelpers.h"
 
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QPointer>
 #include <QSqlError>
 #include <QSqlQuery>
+#include "core/dbutils.h"
 
 #include <QTimer>
 #include <algorithm>
+#include <limits>
 
 ShotUploads::ShotUploads(SettingsUpload* settings, ShotHistoryStorage* storage,
                          QList<ShotUploadDestination*> destinations, QObject* parent)
@@ -126,24 +131,27 @@ void ShotUploads::noteEdited(qint64 shotId) {
 }
 
 void ShotUploads::enqueue(qint64 shotId, Send how) {
-    for (ShotUploadDestination* destination : std::as_const(m_destinations)) {
-        if (!destination->isActive()) continue;
-        QList<Job>& queue = m_queues[destination];
-        auto queued = std::find_if(queue.begin(), queue.end(), [shotId](const Job& job) { return job.shotId == shotId; });
-        if (queued == queue.end())
-            queue.append({shotId, how});
-        else if (how == Send::UploadOrUpdate)
-            queued->how = how;
-        pump(destination);
-    }
+    for (ShotUploadDestination* destination : std::as_const(m_destinations))
+        if (destination->isActive()) enqueueTo(destination, shotId, how);
+}
+
+void ShotUploads::enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how) {
+    QList<Job>& queue = m_queues[destination];
+    auto queued = std::find_if(queue.begin(), queue.end(), [shotId](const Job& job) { return job.shotId == shotId; });
+    if (queued == queue.end())
+        queue.append({shotId, how});
+    else if (how == Send::UploadOrUpdate)
+        queued->how = how;
+    pump(destination);
 }
 
 void ShotUploads::pump(ShotUploadDestination* destination) {
     if (m_current.value(destination).shotId != 0) return;
     QList<Job>& queue = m_queues[destination];
-    // Switched off or signed out since the shot was queued: drop its queue.
+    // Switched off or signed out since the shot was queued: drop its queue, and its run.
     if (!destination->isActive()) {
         queue.clear();
+        if (m_runs.contains(destination)) endRun(destination);
         return;
     }
     if (queue.isEmpty()) return;
@@ -187,13 +195,125 @@ void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
         break;
     }
     destination->sendFinished(shotId, last);
+    // The account needs attention: nothing queued for it can succeed until then.
+    if (last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused)
+        m_queues[destination].clear();
+    const auto run = m_runs.find(destination);
+    if (run != m_runs.end() && run->outstanding.remove(shotId)) {
+        ++run->done;
+        emit missingRunChanged(destination->name());
+        if (last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused)
+            endRun(destination);
+        else if (run->outstanding.isEmpty())
+            nextBatch(destination);
+    }
     QMetaObject::invokeMethod(this, [this, destination]() { pump(destination); }, Qt::QueuedConnection);
 }
 
+ShotUploadDestination* ShotUploads::destinationNamed(const QString& name) const {
+    for (ShotUploadDestination* destination : m_destinations)
+        if (destination->name() == name) return destination;
+    return nullptr;
+}
+
+void ShotUploads::uploadMissing(const QString& name) {
+    ShotUploadDestination* destination = destinationNamed(name);
+    if (!destination || !destination->isActive() || m_runs.contains(destination)) return;
+    m_settings->setMissingRunStartedAt(name, QDateTime::currentSecsSinceEpoch());
+    startRun(destination, 0);
+}
+
+void ShotUploads::resumeMissingRuns() {
+    for (ShotUploadDestination* destination : std::as_const(m_destinations)) {
+        const qint64 startedAt = m_settings->missingRunStartedAt(destination->name());
+        if (startedAt > 0 && destination->isActive() && !m_runs.contains(destination))
+            startRun(destination, startedAt);
+    }
+}
+
+void ShotUploads::setMachineOperating(bool operating) {
+    m_machineOperating = operating;
+    if (operating) return;
+    for (ShotUploadDestination* destination : m_runs.keys()) nextBatch(destination);
+}
+
+QVariantMap ShotUploads::missingRun(const QString& name) const {
+    const auto run = m_runs.constFind(destinationNamed(name));
+    if (run == m_runs.constEnd()) return {{QStringLiteral("running"), false}};
+    return {{QStringLiteral("running"), true}, {QStringLiteral("done"), run->done}, {QStringLiteral("total"), run->total}};
+}
+
+void ShotUploads::startRun(ShotUploadDestination* destination, qint64 skipFailedSince) {
+    m_runs.insert(destination, Run{});
+    emit missingRunChanged(destination->name());
+    const QString dbPath = m_storage->databasePath();
+    const double minDuration = m_settings->minDuration();
+    const QString name = destination->name(), held = destination->heldCondition(),
+                  unsent = destination->unsentEditCondition();
+    QPointer<ShotUploads> self(this);
+    // After every queued write, so outcomes just recorded are read.
+    m_storage->runAfterQueuedWrites([self, destination, dbPath, minDuration, skipFailedSince, name, held, unsent]() {
+        Missing missing;
+        withTempDb(dbPath, "missing_shots", [&](QSqlDatabase& db) {
+            missing = findMissingFor(db, name, held, unsent, minDuration, skipFailedSince);
+        });
+        QMetaObject::invokeMethod(qApp, [self, destination, missing]() {
+            if (!self) return;
+            const auto run = self->m_runs.find(destination);
+            if (run == self->m_runs.end()) return;
+            run->selecting = false;
+            run->pending = missing.shotIds;
+            run->total = int(missing.shotIds.size());
+            emit self->missingRunChanged(destination->name());
+            self->nextBatch(destination);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotUploads::nextBatch(ShotUploadDestination* destination) {
+    const auto run = m_runs.find(destination);
+    if (run == m_runs.end() || run->selecting || run->waiting || !run->outstanding.isEmpty()) return;
+    if (run->pending.isEmpty() || !destination->isActive()) {
+        endRun(destination);
+        return;
+    }
+    if (m_machineOperating) return;   // setMachineOperating(false) comes back here
+    if (run->sinceBatch.isValid()) {
+        const qint64 wait = m_batchSpacingMs - run->sinceBatch.elapsed();
+        if (wait > 0) {
+            run->waiting = true;
+            QTimer::singleShot(int(wait), this, [this, destination]() {
+                const auto waited = m_runs.find(destination);
+                if (waited == m_runs.end()) return;
+                waited->waiting = false;
+                nextBatch(destination);
+            });
+            return;
+        }
+    }
+    run->sinceBatch.start();
+    QList<qint64> batch;
+    while (batch.size() < kBatchSize && !run->pending.isEmpty()) batch.append(run->pending.takeFirst());
+    for (qint64 shotId : std::as_const(batch)) run->outstanding.insert(shotId);
+    // Enqueued after `outstanding` holds them all: a send can finish within enqueueTo.
+    for (qint64 shotId : std::as_const(batch)) enqueueTo(destination, shotId, Send::UploadOrUpdate);
+}
+
+void ShotUploads::endRun(ShotUploadDestination* destination) {
+    m_runs.remove(destination);
+    m_settings->setMissingRunStartedAt(destination->name(), 0);
+    emit missingRunChanged(destination->name());
+}
+
 ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUploadDestination& destination,
-                                              double minDurationSec) {
+                                              double minDurationSec, qint64 skipFailedSince) {
+    return findMissingFor(db, destination.name(), destination.heldCondition(), destination.unsentEditCondition(),
+                          minDurationSec, skipFailedSince);
+}
+
+ShotUploads::Missing ShotUploads::findMissingFor(QSqlDatabase& db, const QString& name, const QString& held,
+                                                 const QString& unsent, double minDurationSec, qint64 skipFailedSince) {
     Missing missing;
-    const QString held = destination.heldCondition(), unsent = destination.unsentEditCondition();
     // The profile snapshot is read only where the beverage-type column is empty,
     // which uploadBeverageType falls back to; the import fills that column.
     QSqlQuery q(db);
@@ -202,9 +322,12 @@ ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUpload
         "CASE WHEN COALESCE(beverage_type, '') = '' THEN profile_json END, "
         "(%2) AS unsent, %1_failed_at IS NOT NULL "
         "FROM shots WHERE %1_rejected_at IS NULL AND (NOT (%3) OR (%2)) "
-        "ORDER BY unsent DESC, timestamp DESC, id DESC").arg(destination.name(), unsent, held);
-    if (!q.prepare(sql) || !q.exec()) {
-        DIAG_WARN(STORAGE, "ShotUploads") << "missing shots for" << destination.name()
+        "AND (%1_failed_at IS NULL OR %1_failed_at < :since) "
+        "ORDER BY unsent DESC, timestamp DESC, id DESC").arg(name, unsent, held);
+    const bool prepared = q.prepare(sql);
+    q.bindValue(":since", skipFailedSince > 0 ? skipFailedSince : std::numeric_limits<qint64>::max());
+    if (!prepared || !q.exec()) {
+        DIAG_WARN(STORAGE, "ShotUploads") << "missing shots for" << name
                                           << "could not be read -" << q.lastError().text();
         return missing;
     }

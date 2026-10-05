@@ -2,9 +2,11 @@
 
 #include "shotuploaddestination.h"
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -60,12 +62,36 @@ public:
         int unsentEdits = 0;
         int failed = 0;          // of the missing shots, those whose upload failed
     };
-    // Reads only `db`, so it runs on a worker thread.
-    static Missing findMissing(QSqlDatabase& db, const ShotUploadDestination& destination, double minDurationSec);
+    // Reads only `db`, so it runs on a worker thread. A shot that failed at or
+    // after `skipFailedSince` (seconds since the epoch; 0 = none) is left out.
+    static Missing findMissing(QSqlDatabase& db, const ShotUploadDestination& destination, double minDurationSec,
+                               qint64 skipFailedSince = 0);
+
+    // Upload missing shots (D14): sends what findMissing lists for the
+    // destination through its queue, kBatchSize at a time, batches at least the
+    // batch spacing apart, starting none while the machine is operating. A shot
+    // that fails its attempts is recorded and the run moves on; a sign-in or
+    // account refusal ends it. Never starts on its own: only from this, or from
+    // resumeMissingRuns() for a run the user started before a restart.
+    Q_INVOKABLE void uploadMissing(const QString& destination);
+    // At startup: picks up runs a restart interrupted, leaving out the shots that
+    // already failed during them.
+    void resumeMissingRuns();
+    // MachineState::isOperating(): no batch starts while it is true.
+    void setMachineOperating(bool operating);
+    // A run's progress: {running, done, total}.
+    Q_INVOKABLE QVariantMap missingRun(const QString& destination) const;
+
+    static constexpr int kBatchSize = 5;
+    // Decaid's cadence: a rate limit, so the timer is not a guard.
+    void setBatchSpacingMs(int ms) { m_batchSpacingMs = ms; }
 
     static constexpr int kAttempts = 3;
     // The first retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
+
+signals:
+    void missingRunChanged(const QString& destination);
 
 private:
     using Send = ShotUploadDestination::Send;
@@ -86,7 +112,15 @@ private:
     void onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written);
     void noteEdited(qint64 shotId);
     void enqueue(qint64 shotId, Send how);
+    void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how);
     void pump(ShotUploadDestination* destination);
+    ShotUploadDestination* destinationNamed(const QString& name) const;
+    void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
+    void nextBatch(ShotUploadDestination* destination);
+    void endRun(ShotUploadDestination* destination);
+    // findMissing over a destination's name and conditions, which a worker can hold by value.
+    static Missing findMissingFor(QSqlDatabase& db, const QString& name, const QString& held, const QString& unsent,
+                                  double minDurationSec, qint64 skipFailedSince);
     void onAttempt(ShotUploadDestination* destination, Attempt attempt);
     void finishSend(ShotUploadDestination* destination, Attempt last);
 
@@ -96,6 +130,19 @@ private:
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
     QHash<ShotUploadDestination*, Current> m_current;
     int m_retryDelayMs = 2000;
+
+    struct Run {
+        bool selecting = true;        // findMissing is still running
+        bool waiting = false;         // a batch-spacing wait is pending
+        QList<qint64> pending;        // still to send, in order
+        QSet<qint64> outstanding;     // the batch being sent
+        int done = 0;
+        int total = 0;
+        QElapsedTimer sinceBatch;
+    };
+    QHash<ShotUploadDestination*, Run> m_runs;
+    bool m_machineOperating = false;
+    int m_batchSpacingMs = 30000;
     struct Held {
         bool edited = false;   // a page save to send on release
         int pending = 0;       // page saves whose shotMetadataUpdated is still to come

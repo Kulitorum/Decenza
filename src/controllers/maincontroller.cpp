@@ -354,6 +354,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
     m_visualizer->setStorage(m_shotHistory);
     m_shotUploads = new ShotUploads(m_settings->upload(), m_shotHistory, {m_visualizer, m_decentUploader}, this);
+    if (m_machineState) {
+        const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };
+        connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);
+        operating();
+    }
+    // An Upload missing shots run a restart interrupted resumes once the history is readable.
+    if (m_shotHistory->isReady())
+        m_shotUploads->resumeMissingRuns();
+    connect(m_shotHistory, &ShotHistoryStorage::readyChanged, m_shotUploads, [this]() {
+        if (m_shotHistory->isReady()) m_shotUploads->resumeMissingRuns();
+    });
 
     // profile-usage-history: ProfileManager owns the usage data (profileUsage,
     // fed to the picker and usage-mode favorites resort); ShotHistoryStorage
