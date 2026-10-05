@@ -791,7 +791,7 @@ QString ShotServer::generateBeansPage() const
     html += R"HTML(
     <div class="container">
         <div class="toolbar">
-            <button class="primary" onclick="openEditor(null, 'coffee')">+ Bag of Coffee</button>
+            <button onclick="openEditor(null, 'coffee')">+ Bag of Coffee</button>
             <button onclick="openEditor(null, 'tea')">+ Bag of Tea</button>
         </div>
         <div id="status"></div>

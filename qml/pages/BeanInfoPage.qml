@@ -115,7 +115,8 @@ T.Page {
                 // is stamped at creation, so coffee and tea get their own
                 // buttons and flows — coffee keeps the Bean Base search-first
                 // dialog; tea searches past tea bags only (straight to the
-                // form when there are none).
+                // form when there are none). A matched pair: same style, each
+                // with its kind's icon.
                 AccessibleButton {
                     id: addTeaButton
                     Layout.preferredHeight: Theme.scaled(44)
@@ -136,9 +137,8 @@ T.Page {
 
                 AccessibleButton {
                     id: addBagButton
-                    primary: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    icon.source: "qrc:/icons/plus.svg"
+                    icon.source: "qrc:/icons/coffeebeans.svg"
                     text: TranslationManager.translate("beaninfo.inventory.bagOfCoffee", "Bag of Coffee")
                     accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addBag", "Add a new bag of beans")
                     onClicked: {
