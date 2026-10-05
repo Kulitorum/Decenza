@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change recipes-bag-links-ui-polish. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Roll-on-finish relinks recipes to the successor bag
 When a bag is marked finished and a newer open bag of the same bean exists (matched by Bean Base canonical id when available, otherwise case-insensitive roaster+coffee identity), the system SHALL automatically relink the finished bag's recipes to the newest open bag of that bean — except any recipe whose relink would duplicate an existing recipe on the target bag (same profile title and same drink type). Skipped recipes SHALL remain linked to the finished bag. When no newer bag of the bean exists, all of the finished bag's recipes SHALL remain linked to it. The relink SHALL be silent (no dialog, no confirmation, no setting) and SHALL be announced with a toast naming how many recipes moved.
 
@@ -51,3 +53,11 @@ A stale recipe's management card SHALL offer a direct "bag finished — choose b
 - **WHEN** a recipe is relinked to a different bag (automatically or manually)
 - **THEN** the recipe's own grind and rpm are unchanged
 
+### Requirement: A recipe whose bag is finished offers Restock
+
+A recipe card (active or archived) whose linked bag exists but is finished SHALL show a Restock action. It SHALL open the new-bag form prefilled from that bag, with its dates and notes blank, and the bag saved from it SHALL become the recipe's bag. The finished bag SHALL stay finished. The web Recipes page SHALL offer the same action, completed in the `/beans` editor.
+
+#### Scenario: Restock from the recipe
+- **GIVEN** a recipe linked to a finished bag of Saka Gran Bar
+- **WHEN** the user taps Restock on the recipe card, enters the new roast date and saves
+- **THEN** a new Saka Gran Bar bag is in inventory and the recipe is linked to it

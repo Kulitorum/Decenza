@@ -2,7 +2,9 @@
 
 ## Purpose
 Governs the `visualizerAutoUpdate` setting that automatically re-PATCHes an already-uploaded shot's metadata (notes, rating, TDS, etc.) to visualizer.coffee whenever it changes — either from `PostShotReviewPage` closing after an edit or an MCP metadata write — without requiring a manual re-upload action.
+
 ## Requirements
+
 ### Requirement: Auto-Update setting controls automatic PATCH of edited shots to visualizer.coffee
 
 The application SHALL expose a `visualizerAutoUpdate` boolean setting (QSettings key `"visualizer/autoUpdate"`, default `true`) on `SettingsVisualizer`. When this setting is `true` and the shot being edited has a non-empty `visualizer_id`, the application SHALL automatically PATCH the shot on visualizer.coffee without requiring a manual user action.
@@ -94,3 +96,15 @@ The MCP path SHALL NOT trigger a first upload for shots with no `visualizer_id`.
 - **WHEN** an MCP tool updates the shot's TDS
 - **THEN** no PATCH request SHALL be made
 
+### Requirement: Automatic update sends only the fields edited locally
+
+The application SHALL record, per shot, which Visualizer fields an edit changed (a field re-saved with the same value, or an empty value over an unset one, is not a change). An automatic update SHALL send only those fields, and a successful send SHALL clear only the fields it carried and only if no edit landed while it was in flight. The Upload button SHALL send every field. A field that is sent and was cleared locally SHALL be sent as JSON null. A shot with no unsent edit SHALL NOT be PATCHed by an automatic update.
+
+#### Scenario: Unrelated Visualizer edit survives
+- **GIVEN** the user set a shot's grind in Visualizer's Journal
+- **WHEN** the user changes only the notes in Decenza and the automatic update is sent
+- **THEN** the PATCH carries only the notes, and the grind on Visualizer is unchanged
+
+#### Scenario: Edit during a send
+- **WHEN** the user edits the rating while an update of that shot is in flight
+- **THEN** the rating is still marked unsent after the update succeeds, and goes out with the next update
