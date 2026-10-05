@@ -6,9 +6,9 @@
 class QSqlDatabase;
 
 // A place saved shots are uploaded to (Visualizer, the Decent account).
-// ShotUploads decides when and queues; a destination only knows how. A
-// destination gets one shot at a time: sendSavedShot() is never called while
-// busy().
+// ShotUploads decides when, makes the attempts and records the outcome; a
+// destination only knows how to make one attempt and what its server's answer
+// means. A destination gets one shot at a time.
 class ShotUploadDestination {
 public:
     enum class Send {
@@ -16,27 +16,57 @@ public:
         UpdateOnly,      // only a shot already uploaded here; otherwise nothing
     };
 
+    // What one attempt came to, the same for every destination (D15).
+    enum class Outcome {
+        Sent,            // the destination holds the shot as saved
+        NothingToSend,   // not eligible, not held for an update, or nothing changed
+        Transient,       // no answer, or one that says try again (retried, then failed)
+        AuthFailed,      // the account's credentials were refused
+        AccountRefused,  // the account cannot take shots (Decent: unregistered machine)
+        Rejected,        // this shot is refused for good
+    };
+    struct Attempt {
+        Outcome outcome = Outcome::NothingToSend;
+        int httpStatus = 0;
+    };
+
     virtual ~ShotUploadDestination() = default;
 
-    // For MCP responses: "visualizer", "decent".
+    // What an HTTP answer to a send means, the same for every destination (D15).
+    // A destination handles its server's own exceptions first (a Visualizer PATCH 404).
+    static Outcome responseOutcome(int httpStatus, bool transportError) {
+        if (transportError) return Outcome::Transient;
+        if (httpStatus >= 200 && httpStatus < 300) return Outcome::Sent;
+        if (httpStatus == 401) return Outcome::AuthFailed;
+        // Decent: the machine's serial is not in the account. Visualizer: the account is refused.
+        if (httpStatus == 403) return Outcome::AccountRefused;
+        // 404/405/410 say the endpoint is wrong, not the shot: never brand it rejected.
+        if (httpStatus == 404 || httpStatus == 405 || httpStatus == 408 || httpStatus == 410 || httpStatus == 429)
+            return Outcome::Transient;
+        if (httpStatus >= 400 && httpStatus < 500) return Outcome::Rejected;
+        return Outcome::Transient;
+    }
+
+    // For MCP responses and the per-destination columns: "visualizer", "decent".
     virtual QString name() const = 0;
     // Switched on, with an account that can be used now.
     virtual bool isActive() const = 0;
-    virtual bool busy() const = 0;
     // Whether the shot is already uploaded here. Reads only `db`, so it runs on a
     // worker thread.
     virtual bool holdsShot(QSqlDatabase& db, qint64 shotId) const = 0;
-    // Reads the saved row, after any write already queued, and sends it. Ends
-    // with notifyIdle(), whether or not anything was sent; never called while busy().
-    virtual void sendSavedShot(qint64 shotId, Send how) = 0;
+    // One attempt: reads the saved row, after any write already queued, sends
+    // it, and ends with finishAttempt(). A retry calls it again.
+    virtual void attemptSavedShot(qint64 shotId, Send how) = 0;
+    // The send is over: no more attempts follow. `last` is its final attempt.
+    virtual void sendFinished(qint64 shotId, Attempt last) = 0;
     // Every successful edit of a saved shot, whether or not anything is sent.
     virtual void noteEdited(qint64 shotId) { Q_UNUSED(shotId); }
 
-    void setIdleCallback(std::function<void()> onIdle) { m_onIdle = std::move(onIdle); }
+    void setAttemptCallback(std::function<void(Attempt)> onAttempt) { m_onAttempt = std::move(onAttempt); }
 
 protected:
-    void notifyIdle() { if (m_onIdle) m_onIdle(); }
+    void finishAttempt(Attempt attempt) { if (m_onAttempt) m_onAttempt(attempt); }
 
 private:
-    std::function<void()> m_onIdle;
+    std::function<void(Attempt)> m_onAttempt;
 };

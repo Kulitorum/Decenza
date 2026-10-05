@@ -1,7 +1,7 @@
 // Decent account link and shot upload (add-decent-shot-upload): the ShotRecord
-// payload, the response classes, the login_test exchange, the uploader against
-// a real shot database with canned server replies, and the ShotUploads path
-// every destination is reached through.
+// payload, the shared response table, the login_test exchange, the uploaders
+// against a real shot database with canned server replies, and the ShotUploads
+// path every destination is reached through.
 
 #include <QtTest>
 #include <QFile>
@@ -18,44 +18,56 @@
 #include <QTimer>
 
 #include "core/dbutils.h"
+#include "core/settings.h"
 #include "core/settings_decent.h"
 #include "core/settings_upload.h"
+#include "core/settings_visualizer.h"
 #include "history/shothistorystorage.h"
 #include "network/decentaccount.h"
 #include "network/decentshotrecord.h"
 #include "network/decentshotuploader.h"
 #include "network/shotpayloadhelpers.h"
 #include "network/shotuploads.h"
+#include "network/visualizeruploader.h"
 
 namespace {
 
-// A destination that records what ShotUploads hands it. With `holding` set it
-// stays busy until finish(), like a request in flight.
+// A destination that records the attempts ShotUploads makes. Each attempt
+// answers `answer`; with `holding` set it stays out until finish(), like a
+// request in flight.
 struct FakeDestination : ShotUploadDestination {
     using Sent = QPair<qint64, Send>;
     QString label;
     bool active = true;
     bool holding = false;
-    bool inFlight = false;
+    Outcome answer = Outcome::Sent;
     QList<Sent> sent;
     QList<qint64> edited;
 
     explicit FakeDestination(QString n) : label(std::move(n)) {}
     QString name() const override { return label; }
     bool isActive() const override { return active; }
-    bool busy() const override { return inFlight; }
     bool holdsShot(QSqlDatabase&, qint64) const override { return false; }
-    void sendSavedShot(qint64 shotId, Send how) override {
+    void attemptSavedShot(qint64 shotId, Send how) override {
         sent.append({shotId, how});
-        inFlight = true;
         if (!holding) finish();
     }
+    void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
-    void finish() {
-        inFlight = false;
-        notifyIdle();
-    }
+    void finish() { finishAttempt({answer, 0}); }
 };
+
+// ShotUploads hands results on through queued calls.
+void settle() {
+    for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+}
+
+// A worker still busy after 5 s surfaces as the queued-work warning on close.
+void closeStorage(ShotHistoryStorage& storage) {
+    (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+    storage.close();
+    (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+}
 
 struct Canned {
     int status = 200;           // 0 = transport failure
@@ -165,18 +177,25 @@ class tst_DecentShotUpload : public QObject {
         return r;
     }
 
+    // The Decent account reached the way the app reaches it: through ShotUploads,
+    // which makes the attempts and records the outcome.
     struct Rig {
         CannedNam nam;
         SettingsDecent settings;
+        SettingsUpload upload;
         ShotHistoryStorage storage;
         DecentAccount account{&nam, &settings};
         DecentShotUploader uploader{&nam, &account, &storage};
+        ShotUploads uploads{&upload, &storage, {&uploader}};
         QString serial = QStringLiteral("1234");
         qint64 shotId = 0;
+        bool autoUpdate = upload.autoUpdate();
 
         explicit Rig(const QString& dbPath) {
             settings.setAccount(QStringLiteral("owner@example.com"), QStringLiteral("token"));
-            uploader.setRetryDelayMs(0);
+            settings.setEnabled(true);
+            upload.setAutoUpdate(false);
+            uploads.setRetryDelayMs(0);
             uploader.setMachineIdentityProvider([this]() {
                 return DecentMachineIdentity{serial, QStringLiteral("1352"), QStringLiteral("DE1PRO")};
             });
@@ -185,14 +204,12 @@ class tst_DecentShotUpload : public QObject {
         ~Rig() {
             settings.clearAccount();
             settings.setEnabled(false);
-            // A worker still busy after 5 s surfaces as the queued-work warning on close.
-            (void)QTest::qWaitFor([this]() { return storage.isDbWorkIdle(); }, 5000);
-            storage.close();
-            (void)QTest::qWaitFor([this]() { return storage.isDbWorkIdle(); }, 5000);
+            upload.setAutoUpdate(autoUpdate);
+            closeStorage(storage);
         }
-        DecentShotUploader::Result upload() {
+        DecentShotUploader::Result send() {
             QSignalSpy finished(&uploader, &DecentShotUploader::uploadFinished);
-            uploader.sendSavedShot(shotId, ShotUploadDestination::Send::UploadOrUpdate);
+            uploads.uploadNow(shotId);
             if (finished.isEmpty() && !finished.wait(5000)) return DecentShotUploader::Result::None;
             return finished.first().at(1).value<DecentShotUploader::Result>();
         }
@@ -303,26 +320,28 @@ private slots:
         QCOMPARE(int(::uploadIneligibility(beverageType, durationSec, 6.0)), expected);
     }
 
-    void classify_data() {
+    // The one table both destinations read an answer with (D15).
+    void responseOutcome_data() {
         QTest::addColumn<int>("status");
         QTest::addColumn<bool>("transport");
         QTest::addColumn<int>("expected");
-        using C = DecentShotUploader::ResponseClass;
-        QTest::newRow("created") << 200 << false << int(C::Success);
-        QTest::newRow("transport") << 0 << true << int(C::Transient);
-        QTest::newRow("unauthorized") << 401 << false << int(C::AuthFailed);
-        QTest::newRow("not your machine") << 403 << false << int(C::NotRegistered);
-        QTest::newRow("timeout") << 408 << false << int(C::Transient);
-        QTest::newRow("endpoint gone") << 404 << false << int(C::Transient);
-        QTest::newRow("rate limited") << 429 << false << int(C::Transient);
-        QTest::newRow("bad document") << 400 << false << int(C::Permanent);
-        QTest::newRow("server error") << 503 << false << int(C::Transient);
+        using O = ShotUploadDestination::Outcome;
+        QTest::newRow("created") << 200 << false << int(O::Sent);
+        QTest::newRow("transport") << 0 << true << int(O::Transient);
+        QTest::newRow("unauthorized") << 401 << false << int(O::AuthFailed);
+        QTest::newRow("account refused") << 403 << false << int(O::AccountRefused);
+        QTest::newRow("timeout") << 408 << false << int(O::Transient);
+        QTest::newRow("endpoint gone") << 404 << false << int(O::Transient);
+        QTest::newRow("rate limited") << 429 << false << int(O::Transient);
+        QTest::newRow("bad document") << 400 << false << int(O::Rejected);
+        QTest::newRow("invalid shot") << 422 << false << int(O::Rejected);
+        QTest::newRow("server error") << 503 << false << int(O::Transient);
     }
-    void classify() {
+    void responseOutcome() {
         QFETCH(int, status);
         QFETCH(bool, transport);
         QFETCH(int, expected);
-        QCOMPARE(int(DecentShotUploader::classify(status, transport)), expected);
+        QCOMPARE(int(ShotUploadDestination::responseOutcome(status, transport)), expected);
     }
 
     void uploadRecordsTheShotAndReplacesUnderItsSerial() {
@@ -332,7 +351,7 @@ private slots:
         // Recording an upload must never read as a user edit (ShotUploads re-sends on edits).
         QSignalSpy edits(&rig.storage, &ShotHistoryStorage::shotMetadataUpdated);
 
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Uploaded);
         const DecentUploadState first = rig.state();
         QCOMPARE(edits.count(), 0);
         QVERIFY(first.uploaded());
@@ -347,7 +366,7 @@ private slots:
         {
             rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-1"})"}};
             QSignalSpy finished(&rig.uploader, &DecentShotUploader::uploadFinished);
-            rig.uploader.sendSavedShot(rig.shotId, ShotUploadDestination::Send::UploadOrUpdate);
+            rig.uploads.uploadNow(rig.shotId);
             rig.uploader.noteEdited(rig.shotId);
             QVERIFY(finished.wait(5000));
             QVERIFY(rig.state().replacePending);
@@ -358,14 +377,14 @@ private slots:
         // Re-sending while another machine is connected replaces under the first serial.
         rig.serial = QStringLiteral("9999");
         rig.nam.replies = {{200, R"({"ok":true,"stored":true,"replaced":true,"id":"srv-1"})"}};
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Uploaded);
         QCOMPARE(rig.nam.requests.at(1).url().query(), QStringLiteral("replace=1"));
         QCOMPARE(rig.sentDocument(1)["machine"].toObject()["serialNumber"].toString(), QStringLiteral("1234"));
 
         // A replace the server answers with "duplicate" kept its old copy: not a success.
         rig.nam.replies = {{200, R"({"ok":true,"stored":false,"duplicate":true,"id":"srv-1"})"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("answered a replace with \"duplicate\""));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NotReplaced);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NotReplaced);
         // The edit did not land: it stays pending, and the earlier upload stands.
         const DecentUploadState kept = rig.state();
         QVERIFY(kept.replacePending);
@@ -418,43 +437,45 @@ private slots:
 
         rig.nam.replies = {{503, {}}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts"));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
-        QCOMPARE(rig.nam.requests.size(), DecentShotUploader::kAttempts);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
+        QCOMPARE(rig.nam.requests.size(), ShotUploads::kAttempts);
 
         // A 2xx that is not the API's answer (a captive portal) stored nothing,
         // and its body is logged once, not per attempt.
         rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's answer <html>"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts \\(HTTP 200 that is not"));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Failed);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
 
         rig.nam.replies = {{403, R"({"ok":false,"error":"not your machine"})"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("serial 1234 is not registered"));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NotRegistered);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NotRegistered);
         QCOMPARE(rig.uploader.lastSerial(), QStringLiteral("1234"));
 
         rig.nam.replies = {{400, R"({"ok":false,"error":"no workflow.profile"})"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected \\(HTTP 400"));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Rejected);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Rejected);
         const DecentUploadState rejected = rig.state();
         QCOMPARE(rejected.rejectedStatus, 400);
         QVERIFY(!rejected.uploaded());
 
         // Uploading it after all clears the rejection.
         rig.nam.replies = {{200, R"({"ok":true,"stored":true,"id":"srv-2"})"}};
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Uploaded);
         const DecentUploadState stored = rig.state();
         QVERIFY(stored.uploaded());
         QVERIFY(!stored.rejected());
 
         rig.nam.replies = {{401, {}}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected the stored credentials"));
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NeedsSignIn);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NeedsSignIn);
         QCOMPARE(rig.account.state(), DecentAccount::State::NeedsSignIn);
 
-        // Credentials the server refused are not sent again.
+        // Credentials the server refused are not sent again: nothing is attempted.
         const qsizetype sent = rig.nam.requests.size();
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NeedsSignIn);
+        QVERIFY(rig.uploads.activeDestinations().isEmpty());
+        rig.uploads.uploadNow(rig.shotId);
+        settle();
         QCOMPARE(rig.nam.requests.size(), sent);
 
         // Signing in again clears it, and uploads resume.
@@ -464,7 +485,7 @@ private slots:
         QVERIFY(linked.wait(2000));
         QCOMPARE(rig.account.state(), DecentAccount::State::Linked);
         rig.nam.replies = {{200, R"({"ok":true,"stored":true,"replaced":true,"id":"srv-2"})"}};
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Uploaded);
     }
 
     void firstUploadAnsweredDuplicateIsStored() {
@@ -473,7 +494,7 @@ private slots:
         Rig rig(m_dir.filePath("duplicate.db"));
         QVERIFY(rig.shotId > 0);
         rig.nam.replies = {{200, R"({"ok":true,"stored":false,"duplicate":true,"id":"srv-9"})"}};
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::Uploaded);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::Uploaded);
         QCOMPARE(rig.state().serverShotId, QStringLiteral("srv-9"));
     }
 
@@ -481,7 +502,7 @@ private slots:
         Rig rig(m_dir.filePath("ineligible.db"));
         QVERIFY(rig.shotId > 0);
         rig.uploader.setMinDurationProvider([]() { return 60.0; });
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::TooShort);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::TooShort);
         QVERIFY(rig.nam.requests.isEmpty());
     }
 
@@ -515,6 +536,7 @@ private slots:
         SettingsUpload upload;
         const bool autoUpload = upload.autoUpload(), autoUpdate = upload.autoUpdate();
         ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("shared.db")));
         FakeDestination visualizer(QStringLiteral("visualizer")), decent(QStringLiteral("decent"));
         ShotUploads uploads(&upload, &storage, {&visualizer, &decent});
         decent.active = false;
@@ -527,6 +549,7 @@ private slots:
         uploads.shotSaved(1);
         QCOMPARE(visualizer.sent, QList<Sent>{Sent(1, Send::UploadOrUpdate)});
         QVERIFY(decent.sent.isEmpty());
+        settle();
 
         // An edit is noted everywhere, and sent only while automatic update is on.
         decent.active = true;
@@ -543,6 +566,7 @@ private slots:
 
         // While a request is out the rest wait, and a shot is queued once, as an
         // upload if either request was one.
+        settle();
         visualizer.sent.clear();
         visualizer.holding = true;
         uploads.uploadNow(3);
@@ -551,10 +575,10 @@ private slots:
         uploads.uploadNow(4);
         QCOMPARE(visualizer.sent, QList<Sent>{Sent(3, Send::UploadOrUpdate)});
         visualizer.finish();
-        QCoreApplication::processEvents();
+        settle();
         QCOMPARE(visualizer.sent.last(), Sent(4, Send::UploadOrUpdate));
         visualizer.finish();
-        QCoreApplication::processEvents();
+        settle();
         QCOMPARE(visualizer.sent.size(), 2);
 
         // Switched off with shots waiting: they are dropped, not sent later.
@@ -562,7 +586,7 @@ private slots:
         uploads.uploadNow(6);
         visualizer.active = false;
         visualizer.finish();
-        QCoreApplication::processEvents();
+        settle();
         visualizer.active = true;
         visualizer.holding = false;
         uploads.uploadNow(7);
@@ -572,6 +596,7 @@ private slots:
 
         upload.setAutoUpload(autoUpload);
         upload.setAutoUpdate(autoUpdate);
+        closeStorage(storage);
     }
 
     // The review page holds its shot: field-by-field saves go out once, on close.
@@ -582,6 +607,7 @@ private slots:
         const bool autoUpdate = upload.autoUpdate();
         upload.setAutoUpdate(true);
         ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("held.db")));
         FakeDestination destination(QStringLiteral("visualizer"));
         ShotUploads uploads(&upload, &storage, {&destination});
 
@@ -597,10 +623,12 @@ private slots:
         emit storage.shotMetadataUpdated(8, true);
         QCOMPARE(destination.sent, QList<Sent>{Sent(8, Send::UpdateOnly)});
         uploads.releaseUpdates(8);
+        settle();
         QCOMPARE(destination.sent, (QList<Sent>{Sent(8, Send::UpdateOnly), Sent(8, Send::UpdateOnly)}));
 
         // Upload takes the page's saves so far, even one whose write is still out;
         // closing then sends nothing more.
+        settle();
         destination.sent.clear();
         uploads.holdUpdates(9);
         uploads.expectHeldEdit(9);
@@ -615,13 +643,117 @@ private slots:
         QCOMPARE(destination.sent.size(), 1);
 
         upload.setAutoUpdate(autoUpdate);
+        closeStorage(storage);
+    }
+
+    // D15: the same answers from either server lead to the same attempts and the
+    // same record. Both real destinations, sent through one ShotUploads.
+    void bothDestinationsBehaveTheSame_data() {
+        QTest::addColumn<QList<int>>("statuses");   // per attempt; the last one repeats
+        QTest::addColumn<int>("attempts");
+        QTest::addColumn<QString>("record");         // failed, rejected or nothing
+        QTest::addColumn<QStringList>("warnings");   // Decent's, then Visualizer's
+        const QString gaveUp = QStringLiteral("not uploaded after 3 attempts");
+        QTest::newRow("server error") << QList<int>{503} << 3 << "failed" << QStringList{gaveUp, gaveUp};
+        QTest::newRow("offline") << QList<int>{0} << 3 << "failed" << QStringList{gaveUp, gaveUp};
+        QTest::newRow("rate limited") << QList<int>{429} << 3 << "failed" << QStringList{gaveUp, gaveUp};
+        QTest::newRow("recovers") << QList<int>{503, 200} << 2 << "" << QStringList{};
+        QTest::newRow("refused shot") << QList<int>{400} << 1 << "rejected"
+                                      << QStringList{"rejected \\(HTTP 400", "Upload failed: shotId=\\d+ httpStatus=400"};
+        QTest::newRow("account refused") << QList<int>{403} << 1 << ""
+                                         << QStringList{"is not registered", "Upload failed: shotId=\\d+ httpStatus=403"};
+        QTest::newRow("sign-in refused") << QList<int>{401} << 1 << ""
+                                         << QStringList{"rejected the stored credentials", "Upload failed: shotId=\\d+ httpStatus=401"};
+    }
+    void bothDestinationsBehaveTheSame() {
+        QFETCH(QList<int>, statuses);
+        QFETCH(int, attempts);
+        QFETCH(QString, record);
+        QFETCH(QStringList, warnings);
+        for (const QString& warning : std::as_const(warnings))
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warning));
+
+        CannedNam decentNam, visualizerNam;
+        for (int status : std::as_const(statuses)) {
+            decentNam.replies.append({status, status == 200 ? QByteArray(R"({"ok":true,"stored":true,"id":"srv-1"})") : QByteArray()});
+            visualizerNam.replies.append({status, status == 200 ? QByteArray(R"({"id":"viz-1"})") : QByteArray()});
+        }
+        Settings settings;
+        SettingsVisualizer* vz = settings.visualizer();
+        const QString vzUser = vz->visualizerUsername(), vzPassword = vz->visualizerPassword();
+        const bool vzEnabled = vz->visualizerEnabled(), autoUpdate = settings.upload()->autoUpdate();
+        vz->setVisualizerUsername(QStringLiteral("owner"));
+        vz->setVisualizerPassword(QStringLiteral("secret"));
+        vz->setVisualizerEnabled(true);
+        settings.decent()->setAccount(QStringLiteral("owner@example.com"), QStringLiteral("token"));
+        settings.decent()->setEnabled(true);
+        settings.upload()->setAutoUpdate(false);
+
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath(QStringLiteral("both-%1.db").arg(QTest::currentDataTag()))));
+        const qint64 shotId = storage.importShotRecord(makeShot(), false);
+        QVERIFY(shotId > 0);
+        DecentAccount account(&decentNam, settings.decent());
+        DecentShotUploader decent(&decentNam, &account, &storage);
+        decent.setMachineIdentityProvider([]() { return DecentMachineIdentity{QStringLiteral("1234"), {}, {}}; });
+        VisualizerUploader visualizer(&visualizerNam, &settings);
+        visualizer.setStorage(&storage);
+        ShotUploads uploads(settings.upload(), &storage, {&decent, &visualizer});
+        uploads.setRetryDelayMs(0);
+
+        QSignalSpy decentDone(&decent, &DecentShotUploader::uploadFinished);
+        QSignalSpy visualizerDone(&visualizer, &VisualizerUploader::savedShotFinished);
+        uploads.uploadNow(shotId);
+        QTRY_VERIFY_WITH_TIMEOUT(!decentDone.isEmpty() && !visualizerDone.isEmpty(), 5000);
+        QVERIFY(!decent.uploading());
+        QVERIFY(!visualizer.isUploading());
+
+        const auto uploadsTo = [](const CannedNam& nam, const char* path) {
+            return std::count_if(nam.requests.cbegin(), nam.requests.cend(),
+                                 [path](const QNetworkRequest& r) { return r.url().path() == QLatin1String(path); });
+        };
+        QCOMPARE(uploadsTo(decentNam, "/support/api/shot_upload"), attempts);
+        QCOMPARE(uploadsTo(visualizerNam, "/api/shots/upload"), attempts);
+
+        // Recorded the same way for both, in their own columns.
+        (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+        const auto recorded = [&storage, shotId](const QString& destination) {
+            QString what;
+            withTempDb(storage.databasePath(), "tst_both", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                q.prepare(QStringLiteral("SELECT %1_failed_at, %1_rejected_status FROM shots WHERE id = :id").arg(destination));
+                q.bindValue(":id", shotId);
+                if (!q.exec() || !q.next()) { what = QStringLiteral("unreadable"); return; }
+                what = !q.value(0).isNull() ? QStringLiteral("failed")
+                       : !q.value(1).isNull() ? QStringLiteral("rejected") : QString();
+            });
+            return what;
+        };
+        QCOMPARE(recorded(QStringLiteral("decent")), record);
+        QCOMPARE(recorded(QStringLiteral("visualizer")), record);
+
+        // An edit may make a refused shot acceptable: it clears the rejection everywhere.
+        if (record == QLatin1String("rejected")) {
+            emit storage.shotMetadataUpdated(shotId, true);
+            (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+            QCOMPARE(recorded(QStringLiteral("decent")), QString());
+            QCOMPARE(recorded(QStringLiteral("visualizer")), QString());
+        }
+
+        closeStorage(storage);
+        settings.decent()->clearAccount();
+        settings.decent()->setEnabled(false);
+        settings.upload()->setAutoUpdate(autoUpdate);
+        vz->setVisualizerEnabled(vzEnabled);
+        vz->setVisualizerUsername(vzUser);
+        vz->setVisualizerPassword(vzPassword);
     }
 
     void firstUploadNeedsAConnectedMachine() {
         Rig rig(m_dir.filePath("nomachine.db"));
         QVERIFY(rig.shotId > 0);
         rig.serial.clear();
-        QCOMPARE(rig.upload(), DecentShotUploader::Result::NoMachine);
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NoMachine);
         QVERIFY(rig.nam.requests.isEmpty());
     }
 };

@@ -3,18 +3,21 @@
 #include "core/settings_upload.h"
 #include "history/shothistorystorage.h"
 
+#include <QTimer>
 #include <algorithm>
 
 ShotUploads::ShotUploads(SettingsUpload* settings, ShotHistoryStorage* storage,
                          QList<ShotUploadDestination*> destinations, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
+    , m_storage(storage)
     , m_destinations(std::move(destinations))
 {
     for (ShotUploadDestination* destination : std::as_const(m_destinations)) {
-        // Queued: the next shot starts after the finished one's signals have run.
-        destination->setIdleCallback([this, destination]() {
-            QMetaObject::invokeMethod(this, [this, destination]() { pump(destination); }, Qt::QueuedConnection);
+        // Queued: the attempt's own signals run before anything follows it.
+        destination->setAttemptCallback([this, destination](Attempt attempt) {
+            QMetaObject::invokeMethod(this, [this, destination, attempt]() { onAttempt(destination, attempt); },
+                                      Qt::QueuedConnection);
         });
     }
     connect(storage, &ShotHistoryStorage::shotMetadataUpdated, this, &ShotUploads::onShotEdited);
@@ -91,8 +94,7 @@ void ShotUploads::onShotEdited(qint64 shotId, bool success) {
         }
     }
     if (!success || takenByUpload) return;
-    for (ShotUploadDestination* destination : std::as_const(m_destinations))
-        destination->noteEdited(shotId);
+    noteEdited(shotId);
     if (pageSave)
         held->edited = true;
     else if (m_settings->autoUpdate())
@@ -104,13 +106,18 @@ void ShotUploads::onShotEdited(qint64 shotId, bool success) {
 void ShotUploads::onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written) {
     Q_UNUSED(previous);
     if (shotId <= 0 || written.isEmpty()) return;
-    for (ShotUploadDestination* destination : std::as_const(m_destinations))
-        destination->noteEdited(shotId);
+    noteEdited(shotId);
     const auto held = m_held.find(shotId);
     if (held != m_held.end())
         held->edited = true;
     else if (m_settings->autoUpdate())
         enqueue(shotId, Send::UpdateOnly);
+}
+
+void ShotUploads::noteEdited(qint64 shotId) {
+    m_storage->requestClearUploadRejections(shotId);
+    for (ShotUploadDestination* destination : std::as_const(m_destinations))
+        destination->noteEdited(shotId);
 }
 
 void ShotUploads::enqueue(qint64 shotId, Send how) {
@@ -127,7 +134,7 @@ void ShotUploads::enqueue(qint64 shotId, Send how) {
 }
 
 void ShotUploads::pump(ShotUploadDestination* destination) {
-    if (destination->busy()) return;
+    if (m_current.value(destination).shotId != 0) return;
     QList<Job>& queue = m_queues[destination];
     // Switched off or signed out since the shot was queued: drop its queue.
     if (!destination->isActive()) {
@@ -136,5 +143,44 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     }
     if (queue.isEmpty()) return;
     const Job job = queue.takeFirst();
-    destination->sendSavedShot(job.shotId, job.how);
+    m_current.insert(destination, Current{job.shotId, job.how, 1});
+    destination->attemptSavedShot(job.shotId, job.how);
+}
+
+void ShotUploads::onAttempt(ShotUploadDestination* destination, Attempt attempt) {
+    const auto current = m_current.find(destination);
+    if (current == m_current.end() || current->shotId == 0) return;
+    if (attempt.outcome == Outcome::Transient && current->attempt < kAttempts) {
+        const int delayMs = m_retryDelayMs * current->attempt;
+        ++current->attempt;
+        QTimer::singleShot(delayMs, this, [this, destination]() {
+            const Current retry = m_current.value(destination);
+            // The destination reports a sign-out or switch-off during the wait itself.
+            if (retry.shotId != 0) destination->attemptSavedShot(retry.shotId, retry.how);
+        });
+        return;
+    }
+    finishSend(destination, attempt);
+}
+
+void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
+    const qint64 shotId = m_current.take(destination).shotId;
+    using Record = ShotHistoryStorage::UploadOutcome;
+    switch (last.outcome) {
+    case Outcome::Sent:
+        m_storage->requestRecordUploadOutcome(shotId, destination->name(), Record::Sent);
+        break;
+    case Outcome::Transient:
+        m_storage->requestRecordUploadOutcome(shotId, destination->name(), Record::Failed, last.httpStatus);
+        break;
+    case Outcome::Rejected:
+        m_storage->requestRecordUploadOutcome(shotId, destination->name(), Record::Rejected, last.httpStatus);
+        break;
+    case Outcome::NothingToSend:
+    case Outcome::AuthFailed:
+    case Outcome::AccountRefused:
+        break;
+    }
+    destination->sendFinished(shotId, last);
+    QMetaObject::invokeMethod(this, [this, destination]() { pump(destination); }, Qt::QueuedConnection);
 }

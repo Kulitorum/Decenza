@@ -15,7 +15,8 @@ class ShotHistoryStorage;
 
 // The one path every shot upload takes, for every destination. It applies the
 // shared upload settings (SettingsUpload) once, then queues the shot for each
-// active destination, which receives one shot at a time.
+// active destination, which receives one shot at a time. Every send gets the
+// same 3 attempts and its outcome is recorded the same way (D15).
 //
 //  - shotSaved: a finished shot, when automatic upload is on.
 //  - an edit (ShotHistoryStorage::shotMetadataUpdated, or one pulled from
@@ -52,6 +53,10 @@ public:
     Q_INVOKABLE void expectHeldEdit(qint64 shotId);
     Q_INVOKABLE void releaseUpdates(qint64 shotId);
 
+    static constexpr int kAttempts = 3;
+    // The first retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
+    void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
+
 private:
     using Send = ShotUploadDestination::Send;
     struct Job {
@@ -59,14 +64,28 @@ private:
         Send how;
     };
 
+    using Attempt = ShotUploadDestination::Attempt;
+    using Outcome = ShotUploadDestination::Outcome;
+    struct Current {
+        qint64 shotId = 0;
+        Send how = Send::UploadOrUpdate;
+        int attempt = 0;
+    };
+
     void onShotEdited(qint64 shotId, bool success);
     void onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written);
+    void noteEdited(qint64 shotId);
     void enqueue(qint64 shotId, Send how);
     void pump(ShotUploadDestination* destination);
+    void onAttempt(ShotUploadDestination* destination, Attempt attempt);
+    void finishSend(ShotUploadDestination* destination, Attempt last);
 
     SettingsUpload* m_settings;
+    ShotHistoryStorage* m_storage;
     QList<ShotUploadDestination*> m_destinations;
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
+    QHash<ShotUploadDestination*, Current> m_current;
+    int m_retryDelayMs = 2000;
     struct Held {
         bool edited = false;   // a page save to send on release
         int pending = 0;       // page saves whose shotMetadataUpdated is still to come

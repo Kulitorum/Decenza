@@ -13,8 +13,8 @@ https://decentespresso.com/support/api/
 | `SettingsDecent` | `decent/email`, `decent/cryptpw` (never exported or imported), `decent/needsSignIn`, `decent/enabled` (the Decent switch; linking turns it on). `active` = switched on + linked + not waiting to sign in again. |
 | `SettingsUpload` | When/what to upload, shared with Visualizer: `autoUpload`, `autoUpdate`, `minDuration`, stored under the pre-split `visualizer/*` keys. Each destination has only its switch and account. |
 | `DecentShotRecord` | Saved shot → Decaid `ShotRecord` JSON. Field mapping follows de1app's `converter.tcl`. |
-| `DecentShotUploader` | One request at a time; retry classes; writes the result to the shot row. |
-| `shots.decent_*` (migration 42) | Upload time, server id, the serial it was filed under, replace-pending (an edit Decent did not take), rejection. |
+| `DecentShotUploader` | One attempt at a time; maps Decent's answers to the shared outcomes; records the upload itself. |
+| `shots.decent_*` (migrations 42, 44) | Upload time, server id, the serial it was filed under, replace-pending (an edit Decent did not take), rejection, failure. |
 
 **Auth.** The password goes to `login_test` once. The encrypted password it returns is stored and sent as HTTP Basic
 `email:cryptpw` on every later call (`basicAuthHeader()` in `httpauth.h`, shared with Visualizer; the password is never
@@ -26,18 +26,18 @@ shot is saved: a first upload uses the connected machine's serial (Decaid's rule
 upload was filed under is kept (`decent_serial`), so a replacement lands on the same machine. With no machine connected, a
 first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
 
-**Responses** (Decaid's classes):
+**Responses** (one table for both destinations, `ShotUploadDestination::responseOutcome`; D15):
 - 2xx with `"ok":true`, including `"duplicate":true` on a first upload → uploaded.
 - A 2xx without `"ok":true` (a captive portal, a proxy) is treated as transient.
-- Transport error, timeout, 404, 405, 408, 410, 429, 5xx → up to 3 attempts (retries after 2 s and 4 s), then left untouched.
+- Transport error, timeout, 404, 405, 408, 410, 429, 5xx → up to 3 attempts (retries after 2 s and 4 s, made by `ShotUploads`), then recorded as failed (`decent_failed_at`).
 - 401 → needs sign-in; credentials are not sent again until the account is signed in again.
 - 403 → the serial is not in the account.
-- Other 4xx → rejected and recorded.
+- Other 4xx → rejected and recorded (`decent_rejected_*`, written by `ShotUploads`); an edit clears it.
 - A replace answered `"duplicate":true` → `NotReplaced`, and the shot is marked replace-pending: the server kept its earlier
   copy. As of 2026-10-04 decentespresso.com answers every `?replace=1` this way; reported to Decent.
 - Cleaning/descaling records and shots under the shared minimum length are not sent (`uploadIneligibility()`).
 
-**One path.** `ShotUploads` decides when for both destinations (D13 in the change's design): the shot saved after an extraction, any edit, and the Upload button, layout action and MCP `shots_upload`. `DecentShotUploader` is a `ShotUploadDestination`; it is handed one shot at a time and never decides on its own. An edit marks an uploaded shot replace-pending (`noteEdited`) even when nothing is sent, for the Stage 3 drain.
+**One path.** `ShotUploads` decides when for both destinations (D13 in the change's design): the shot saved after an extraction, any edit, and the Upload button, layout action and MCP `shots_upload`. `DecentShotUploader` is a `ShotUploadDestination`; it is handed one shot at a time and never decides on its own. `ShotUploads` makes every attempt and records failures and rejections the same way for both destinations (D15). An edit marks an uploaded shot replace-pending (`noteEdited`) even when nothing is sent, for Upload missing shots.
 
 **Ordering.** The upload is prepared on the storage's serial DB worker (`runAfterQueuedWrites`), so it reads an edit the
 review page saved a moment earlier.

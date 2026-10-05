@@ -5,6 +5,7 @@
 #include "history/shothistorystorage.h"
 #include "network/decentaccount.h"
 #include "network/shotpayloadhelpers.h"
+#include "network/shotuploads.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -12,7 +13,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -25,16 +25,24 @@ DecentShotUploader::DecentShotUploader(QNetworkAccessManager* network, DecentAcc
 {
 }
 
-DecentShotUploader::ResponseClass DecentShotUploader::classify(int httpStatus, bool transportError) {
-    if (transportError) return ResponseClass::Transient;
-    if (httpStatus >= 200 && httpStatus < 300) return ResponseClass::Success;
-    if (httpStatus == 401) return ResponseClass::AuthFailed;
-    if (httpStatus == 403) return ResponseClass::NotRegistered;
-    // 404/405/410 say the endpoint is wrong, not the shot: never brand it rejected.
-    if (httpStatus == 404 || httpStatus == 405 || httpStatus == 408 || httpStatus == 410 || httpStatus == 429)
-        return ResponseClass::Transient;
-    if (httpStatus >= 400 && httpStatus < 500) return ResponseClass::Permanent;
-    return ResponseClass::Transient;
+ShotUploadDestination::Outcome DecentShotUploader::outcome(Result result) {
+    switch (result) {
+    // A replace answered "duplicate" reached the account, which kept its copy;
+    // the edit stays pending (replace-pending), so it is not a failure.
+    case Result::Uploaded:
+    case Result::NotReplaced: return Outcome::Sent;
+    case Result::Failed: return Outcome::Transient;
+    case Result::Rejected: return Outcome::Rejected;
+    case Result::NeedsSignIn: return Outcome::AuthFailed;
+    case Result::NotRegistered: return Outcome::AccountRefused;
+    case Result::None:
+    case Result::Maintenance:
+    case Result::TooShort:
+    case Result::NotLinked:
+    case Result::NoMachine:
+    case Result::NotFound: return Outcome::NothingToSend;
+    }
+    return Outcome::NothingToSend;
 }
 
 QString DecentShotUploader::shotViewUrl(const QString& serial, const QString& serverShotId) {
@@ -63,17 +71,21 @@ void DecentShotUploader::noteEdited(qint64 shotId) {
     m_storage->requestMarkDecentReplacePending(shotId);
 }
 
-void DecentShotUploader::sendSavedShot(qint64 shotId, Send how) {
-    if (m_uploading) return;
-    if (shotId <= 0) { notifyIdle(); return; }
+void DecentShotUploader::setUploading(bool uploading) {
+    if (m_uploading == uploading) return;
+    m_uploading = uploading;
+    emit uploadingChanged();
+}
+
+void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
+    // Each attempt reads the row again, so it carries every edit saved before it.
     m_editedInFlight = false;
     m_current = Prepared{};
     m_current.shotId = shotId;
-    m_uploading = true;
-    emit uploadingChanged();
+    setUploading(true);
 
     if (m_account->state() != DecentAccount::State::Linked) {
-        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
+        endAttempt(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
         return;
     }
 
@@ -137,16 +149,13 @@ void DecentShotUploader::sendSavedShot(qint64 shotId, Send how) {
 void DecentShotUploader::onPrepared(const Prepared& prepared) {
     m_current = prepared;
     if (prepared.skip) {
-        m_uploading = false;
-        emit uploadingChanged();
-        notifyIdle();
+        endAttempt(Result::None);
         return;
     }
     if (prepared.error != Result::None) {
-        finish(prepared.error);
+        endAttempt(prepared.error);
         return;
     }
-    m_attempt = 0;
     send();
 }
 
@@ -159,11 +168,10 @@ void DecentShotUploader::send() {
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setTransferTimeout(kUploadTimeoutMs);
     if (!m_account->applyAuth(request)) {
-        // Signed out or refused during a retry delay.
-        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
+        // Signed out or refused while the row was being read.
+        endAttempt(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked);
         return;
     }
-    ++m_attempt;
     QNetworkReply* reply = m_network->post(request, m_current.body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { onReplyFinished(reply); });
 }
@@ -178,19 +186,20 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
                    "POST " + reply->url().toEncoded() + "\nHTTP " + QByteArray::number(status) + "\n\n" + body);
 
     const QJsonObject json = QJsonDocument::fromJson(body).object();
-    ResponseClass responseClass = classify(status, transportError);
+    Outcome answer = responseOutcome(status, transportError);
     QString why = status == 0 ? reply->errorString() : QStringLiteral("HTTP %1").arg(status);
     // A 2xx that is not the API's {"ok":true,...} — a captive portal's page, a
     // proxy, a changed API — has not stored anything.
-    if (responseClass == ResponseClass::Success && !json.value(QStringLiteral("ok")).toBool()) {
+    if (answer == Outcome::Sent && !json.value(QStringLiteral("ok")).toBool()) {
         why = QStringLiteral("HTTP %1 that is not the upload API's answer").arg(status);
-        if (m_attempt == 1)
+        if (!m_loggedOddAnswer)
             DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << QString::fromUtf8(body.left(300));
-        responseClass = ResponseClass::Transient;
+        m_loggedOddAnswer = true;
+        answer = Outcome::Transient;
     }
 
-    switch (responseClass) {
-    case ResponseClass::Success: {
+    switch (answer) {
+    case Outcome::Sent: {
         QString serverId = json.value(QStringLiteral("id")).toString();
         if (serverId.isEmpty()) serverId = m_current.uuid;
         const bool duplicate = json.value(QStringLiteral("duplicate")).toBool();
@@ -201,7 +210,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
             DIAG_WARN(DECENT, "DecentShotUploader") << QStringLiteral(
                 "shot %1: Decent answered a replace with \"duplicate\" and kept its earlier copy (serial %2, server id %3)")
                 .arg(QString::number(shotId), m_current.serial, serverId);
-            finish(Result::NotReplaced, status);
+            endAttempt(Result::NotReplaced, status);
             return;
         }
         m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial, m_editedInFlight);
@@ -209,35 +218,28 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
                             : m_current.replace ? QStringLiteral(" (replace)") : QString();
         DIAG_INFO(DECENT, "DecentShotUploader") << QStringLiteral("shot %1 uploaded%2, serial %3, server id %4")
                                                        .arg(QString::number(shotId), how, m_current.serial, serverId);
-        finish(Result::Uploaded, status);
+        endAttempt(Result::Uploaded, status);
         return;
     }
-    case ResponseClass::Transient:
-        if (m_attempt < kAttempts) {
-            DIAG_DEBUG(DECENT, "DecentShotUploader") << "shot" << shotId << "attempt" << m_attempt
-                                                     << QStringLiteral("failed (%1), retrying").arg(why);
-            QTimer::singleShot(m_retryDelayMs * m_attempt, this, &DecentShotUploader::send);
-            return;
-        }
-        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << kAttempts
-                                                << QStringLiteral("attempts (%1)").arg(why);
-        finish(Result::Failed, status);
+    case Outcome::NothingToSend:  // not an HTTP answer
+    case Outcome::Transient:
+        DIAG_DEBUG(DECENT, "DecentShotUploader") << "shot" << shotId << QStringLiteral("attempt failed (%1)").arg(why);
+        endAttempt(Result::Failed, status, why);
         return;
-    case ResponseClass::AuthFailed:
+    case Outcome::AuthFailed:
         m_account->reportAuthFailure();
         // Unlinked while the request was out: there is nothing to sign in to.
-        finish(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked, status);
+        endAttempt(m_account->state() == DecentAccount::State::NeedsSignIn ? Result::NeedsSignIn : Result::NotLinked, status);
         return;
-    case ResponseClass::NotRegistered:
+    case Outcome::AccountRefused:
         DIAG_WARN(DECENT, "DecentShotUploader") << "serial" << m_current.serial
                                                 << "is not registered to the linked Decent account (HTTP 403)";
-        finish(Result::NotRegistered, status);
+        endAttempt(Result::NotRegistered, status);
         return;
-    case ResponseClass::Permanent:
-        m_storage->requestRecordDecentRejection(shotId, status);
+    case Outcome::Rejected:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "rejected (HTTP" << status << "):"
                                                 << QString::fromUtf8(body.left(300));
-        finish(Result::Rejected, status);
+        endAttempt(Result::Rejected, status);
         return;
     }
 }
@@ -251,31 +253,44 @@ void DecentShotUploader::writeDebugFile(const QString& name, const QByteArray& c
     QFile::remove(file.fileName());
 }
 
-void DecentShotUploader::finish(Result result, int httpStatus) {
-    const qint64 id = m_current.shotId;
+void DecentShotUploader::endAttempt(Result result, int httpStatus, const QString& why) {
+    m_attemptResult = result;
+    m_attemptStatus = httpStatus;
+    m_attemptWhy = why;
+    finishAttempt({outcome(result), httpStatus});
+}
+
+void DecentShotUploader::sendFinished(qint64 shotId, Attempt last) {
+    Q_UNUSED(last);
+    const Result result = m_attemptResult;
     switch (result) {
     case Result::NoMachine:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: no DE1 connected"; break;
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: no DE1 connected"; break;
     case Result::NotFound:
-        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded:" << m_current.failure; break;
+        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded:" << m_current.failure; break;
     case Result::NotLinked:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: no Decent account linked"; break;
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: no Decent account linked"; break;
     case Result::NeedsSignIn:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId
                                                 << "not uploaded: the Decent account needs signing in again"; break;
     case Result::Maintenance:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: maintenance cycle"; break;
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: maintenance cycle"; break;
     case Result::TooShort:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << id << "not uploaded: shorter than the minimum length"; break;
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: shorter than the minimum length"; break;
+    case Result::Failed:
+        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << ShotUploads::kAttempts
+                                                << QStringLiteral("attempts (%1)").arg(m_attemptWhy); break;
     default: break;
     }
-    m_lastShotId = m_current.shotId;
+    m_attemptResult = Result::None;
+    m_loggedOddAnswer = false;
+    setUploading(false);
+    // An UpdateOnly for a shot not in the account sent nothing and changes nothing shown.
+    if (result == Result::None) return;
+    m_lastShotId = shotId;
     m_lastResult = result;
-    m_lastHttpStatus = httpStatus;
+    m_lastHttpStatus = m_attemptStatus;
     m_lastSerial = m_current.serial;
-    m_uploading = false;
-    emit uploadingChanged();
     emit lastResultChanged();
     emit uploadFinished(m_lastShotId, result);
-    notifyIdle();
 }

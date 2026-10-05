@@ -16,7 +16,7 @@ class QNetworkReply;
 class ShotHistoryStorage;
 
 // The Decent account as an upload destination (POST /support/api/shot_upload).
-// ShotUploads decides when; this builds and sends one shot at a time.
+// ShotUploads decides when and makes the attempts; this builds and sends one.
 class DecentShotUploader : public QObject, public ShotUploadDestination {
     Q_OBJECT
     QML_ELEMENT
@@ -43,13 +43,10 @@ public:
         NotRegistered,   // 403: the serial is not in the account
         Failed,          // a transient response (classify) on every attempt
     };
+    // What a result means to ShotUploads (D15).
+    static Outcome outcome(Result result);
     Q_ENUM(Result)
 
-    // What one HTTP response means, by Decaid's classes.
-    enum class ResponseClass { Success, Transient, AuthFailed, NotRegistered, Permanent };
-    static ResponseClass classify(int httpStatus, bool transportError);
-
-    static constexpr int kAttempts = 3;
     // decentespresso.com took 25-29 s to answer on 2026-10-04.
     static constexpr int kUploadTimeoutMs = 60000;
 
@@ -64,8 +61,6 @@ public:
     }
     // The shared minimum shot length (SettingsUpload::minDuration), read when an upload starts.
     void setMinDurationProvider(std::function<double()> provider) { m_minDuration = std::move(provider); }
-    // First retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
-    void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
 
     bool uploading() const { return m_uploading; }
     qint64 lastShotId() const { return m_lastShotId; }
@@ -75,13 +70,14 @@ public:
 
     QString name() const override { return QStringLiteral("decent"); }
     bool isActive() const override;
-    bool busy() const override { return m_uploading; }
     bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
     // An already-uploaded shot is re-sent with ?replace=1 under the serial it was
     // first uploaded with; a rejected shot is tried again.
-    void sendSavedShot(qint64 shotId, Send how) override;
+    void attemptSavedShot(qint64 shotId, Send how) override;
+    // Publishes the send's result (lastResult, uploadFinished).
+    void sendFinished(qint64 shotId, Attempt last) override;
     // Persists that an uploaded shot's edit still has to reach Decent, so it
-    // survives uploads being off, offline or signed out (the Stage 3 drain sends it).
+    // survives uploads being off, offline or signed out (Upload missing shots sends it).
     void noteEdited(qint64 shotId) override;
 
     // The shot's page in the Decent account.
@@ -106,7 +102,9 @@ private:
     void onPrepared(const Prepared& prepared);
     void send();
     void onReplyFinished(QNetworkReply* reply);
-    void finish(Result result, int httpStatus = 0);
+    // Ends this attempt with `result`; `why` is logged if the send ends on it.
+    void endAttempt(Result result, int httpStatus = 0, const QString& why = QString());
+    void setUploading(bool uploading);
     static void writeDebugFile(const QString& name, const QByteArray& content);
 
     QNetworkAccessManager* m_network;
@@ -114,13 +112,17 @@ private:
     ShotHistoryStorage* m_storage;
     std::function<DecentMachineIdentity()> m_machineIdentity;
     std::function<double()> m_minDuration;
-    int m_retryDelayMs = 2000;
 
+    // From a send's first attempt until ShotUploads ends it, retry waits included.
     bool m_uploading = false;
-    // The shot was edited while its upload was out, so the edit stays pending.
+    // The shot was edited while this attempt was out, so the edit stays pending.
     bool m_editedInFlight = false;
     Prepared m_current;
-    int m_attempt = 0;
+    Result m_attemptResult = Result::None;
+    int m_attemptStatus = 0;
+    QString m_attemptWhy;
+    // A non-API answer's body is logged once per send, not per attempt.
+    bool m_loggedOddAnswer = false;
 
     qint64 m_lastShotId = 0;
     Result m_lastResult = Result::None;
