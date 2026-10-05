@@ -21,7 +21,12 @@ class Settings;
 // USB port if it hasn't received a command. We resend our decision every 60 seconds
 // to stay in control.
 //
-// Smart charging modes
+// USB charger switch
+// ──────────────────
+// usbChargerEnabled=false keeps the port OFF regardless of mode, for a device that is
+// not charged from the DE1. Persisted, so it survives restarts.
+//
+// Smart charging modes (apply only while usbChargerEnabled)
 // ────────────────────
 // Off   — DE1 USB port always on. Battery charges freely to 100%.
 // On    — Cycles between 55 % and 65 %. Port turns off at 65 %, back on at 55 %.
@@ -58,6 +63,9 @@ class BatteryManager : public QObject {
     // Active smart charging mode (Off / On / Night). Persisted in QSettings.
     Q_PROPERTY(int chargingMode READ chargingMode WRITE setChargingMode NOTIFY chargingModeChanged)
 
+    // false = keep the DE1 USB port off, ignoring chargingMode. Persisted in QSettings.
+    Q_PROPERTY(bool usbChargerEnabled READ usbChargerEnabled WRITE setUsbChargerEnabled NOTIFY usbChargerEnabledChanged)
+
 public:
     // Charging modes — stored as int in QSettings under "smartBatteryCharging".
     enum ChargingMode {
@@ -81,9 +89,11 @@ public:
     int  batteryPercent() const { return m_batteryPercent; }
     bool isCharging()     const { return m_isCharging; }
     int  chargingMode()   const { return m_chargingMode; }
+    bool usbChargerEnabled() const { return m_usbChargerEnabled; }
 
-    // Call on app exit or suspend. Turns the DE1 USB port back on unconditionally so
-    // the tablet can charge while the app is not running. Matches de1app behaviour.
+    // Call on app exit or suspend. Turns the DE1 USB port back on so the tablet can
+    // charge while the app is not running (de1app behaviour) — unless the user has
+    // switched the USB charger off.
     void ensureChargerOn();
 
     // Call from the applicationStateChanged handler: false on Suspended, true on
@@ -94,6 +104,9 @@ public slots:
     // Change the smart charging mode and apply it immediately. Persists to QSettings.
     void setChargingMode(int mode);
 
+    // Persist the USB charger switch and apply it immediately.
+    void setUsbChargerEnabled(bool enabled);
+
     // Read battery level and apply smart charging. Called every 60 s by the internal
     // timer, on DE1 connect, and whenever the charging mode changes.
     void checkBattery();
@@ -103,6 +116,7 @@ signals:
     void batteryPercentChanged();
     void isChargingChanged();
     void chargingModeChanged();
+    void usbChargerEnabledChanged();
 
     // Emitted when we have commanded the DE1 USB port ON but the OS has reported
     // DISCHARGING (port not delivering power) for 5 consecutive 60-second checks (~5 min).
@@ -152,6 +166,7 @@ private:
     int  m_batteryPercent = 100;
     bool m_isCharging     = true;
     int  m_chargingMode   = On;
+    bool m_usbChargerEnabled = true;
 
     // Tracks which half of the charge/discharge cycle we are in.
     // true  = waiting for battery to fall to the lower threshold before re-enabling the port

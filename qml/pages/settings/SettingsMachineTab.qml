@@ -128,8 +128,29 @@ KeyboardAwareContainer {
                             }
                         }
 
+                        // USB charger switch — off keeps the DE1 USB port off and hides the modes
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: BatteryManager.usbChargerEnabled
+                                accessibleName: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
+                                onClicked: BatteryManager.usbChargerEnabled = checked
+                            }
+                        }
+
                         // Smart charging mode selector
                         Text {
+                            visible: BatteryManager.usbChargerEnabled
                             text: TranslationManager.translate("settings.preferences.smartChargingMode", "Smart Charging Mode")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
@@ -137,6 +158,7 @@ KeyboardAwareContainer {
                         }
 
                         RowLayout {
+                            visible: BatteryManager.usbChargerEnabled
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(42)
                             spacing: Theme.scaled(8)
@@ -198,7 +220,9 @@ KeyboardAwareContainer {
 
                         // Explanation text
                         Text {
-                            text: BatteryManager.chargingMode === 0 ?
+                            text: !BatteryManager.usbChargerEnabled ?
+                                  TranslationManager.translate("settings.preferences.usbChargerOffDesc", "The DE1's USB port is kept off. Use this when this device is not charged from the DE1.") :
+                                  BatteryManager.chargingMode === 0 ?
                                   TranslationManager.translate("settings.preferences.chargingOffDesc", "Charger is always on. Battery stays at 100%.") :
                                   BatteryManager.chargingMode === 1 ?
                                   TranslationManager.translate("settings.preferences.chargingOnDesc", "Cycles between 55-65% to extend battery lifespan.") :
@@ -214,7 +238,7 @@ KeyboardAwareContainer {
 
                         // USB port requirement note
                         Text {
-                            visible: BatteryManager.chargingMode !== 0
+                            visible: BatteryManager.usbChargerEnabled && BatteryManager.chargingMode !== 0
                             text: TranslationManager.translate("settings.preferences.chargingUsbNote", "Controls the USB port on the front of the DE1 to manage charging.")
                             color: Theme.warningColor
                             font.family: Theme.captionFont.family
@@ -224,27 +248,6 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
-                        }
-
-                        // Manual charger toggle
-                        RowLayout {
-                            Layout.fillWidth: true
-                            visible: BatteryManager.chargingMode === 0
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                checked: DE1Device.usbChargerOn
-                                accessibleName: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
-                                onClicked: DE1Device.setUsbChargerOn(checked)
-                            }
                         }
 
                     }

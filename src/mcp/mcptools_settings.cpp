@@ -349,6 +349,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 if (include("batteryPercent", "battery")) result["batteryPercent"] = battery->batteryPercent();
                 if (include("isCharging", "battery")) result["isCharging"] = battery->isCharging();
                 if (include("chargingMode", "battery")) result["chargingMode"] = battery->chargingMode();
+                if (include("usbChargerEnabled", "battery")) result["usbChargerEnabled"] = battery->usbChargerEnabled();
             }
 
             // === Heater calibration (stored as tenths internally — divide by 10 to match QML display) ===

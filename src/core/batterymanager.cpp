@@ -77,11 +77,13 @@ void BatteryManager::setSettings(Settings* settings) {
     // a restart the app would see 60 % < 65 % and immediately re-enable the port,
     // charging back to 65 % — the lower threshold would effectively never be reached.
     m_discharging = m_settings->value("battery/discharging", false).toBool();
+    m_usbChargerEnabled = m_settings->value("battery/usbChargerEnabled", true).toBool();
 
     DIAG_DEBUG(BATTERY, "BatteryManager") << "Loaded mode=" << m_chargingMode
-             << "discharging=" << m_discharging;
+             << "discharging=" << m_discharging << "usbChargerEnabled=" << m_usbChargerEnabled;
 
     emit chargingModeChanged();
+    emit usbChargerEnabledChanged();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,12 +115,32 @@ void BatteryManager::setChargingMode(int mode) {
 
     // Switching to Off means "always charge" — turn the port on immediately so the
     // user doesn't have to wait for the next 60-second tick.
-    if (mode == Off && m_device)
+    if (mode == Off && m_usbChargerEnabled && m_device)
         m_device->setUsbChargerOn(true);
 
     emit chargingModeChanged();
 
     // Recompute the correct port state for the new mode right away.
+    checkBattery();
+}
+
+void BatteryManager::setUsbChargerEnabled(bool enabled) {
+    if (m_usbChargerEnabled == enabled)
+        return;
+
+    m_usbChargerEnabled = enabled;
+    DIAG_INFO(BATTERY, "BatteryManager") << "USB charger" << (enabled ? "enabled" : "disabled") << "by user";
+
+    m_chargingMismatchCount = 0;
+    if (m_chargingMismatch) {
+        m_chargingMismatch = false;
+        emit chargingMismatchResolved();
+    }
+
+    if (m_settings)
+        m_settings->setValue("battery/usbChargerEnabled", enabled);
+
+    emit usbChargerEnabledChanged();
     checkBattery();
 }
 
@@ -277,7 +299,11 @@ void BatteryManager::applySmartCharging() {
 
     bool shouldChargerBeOn = true;
 
-    switch (m_chargingMode) {
+    if (!m_usbChargerEnabled) {
+        // Port off regardless of mode; m_discharging is left alone so the mode's
+        // cycle resumes where it was when the charger is switched back on.
+        shouldChargerBeOn = false;
+    } else switch (m_chargingMode) {
 
     case Off:
         // Always-on mode — no smart control, just keep the port enabled.
@@ -348,8 +374,8 @@ void BatteryManager::applySmartCharging() {
     // the battery level curve from logs when diagnosing drain issues.
 
     static const char* modeNames[] = {"Off(always-on)", "On(55-65%)", "Night(90-95%)"};
-    const char* modeName = (m_chargingMode >= 0 && m_chargingMode <= 2)
-        ? modeNames[m_chargingMode] : "Unknown";
+    const char* modeName = !m_usbChargerEnabled ? "ChargerDisabled"
+        : (m_chargingMode >= 0 && m_chargingMode <= 2) ? modeNames[m_chargingMode] : "Unknown";
 
     // Human-readable OS-reported battery status for the log.
     // Populated on both Android (from sticky intent) and iOS (from UIDevice.batteryState).
@@ -523,6 +549,10 @@ void BatteryManager::ensureChargerOn() {
     // if smart charging had turned the port off (battery > 65 %, say), the DE1 would
     // keep the port off for up to 10 minutes after the app exits — the tablet would
     // drain unnecessarily. Matches de1app's app_exit behaviour.
+    // A user who switched the charger off does not get it switched back on here.
+    // The DE1 firmware still re-enables its port ~10 min after the last command.
+    if (!m_usbChargerEnabled)
+        return;
     if (m_device && m_device->isConnected()) {
         DIAG_DEBUG(BATTERY, "BatteryManager") << "Ensuring charger is ON (app exit/suspend safety)";
         // Urgent, meaning FRONT of the shared GATT queue rather than behind whatever

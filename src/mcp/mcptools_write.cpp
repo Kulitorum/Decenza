@@ -745,6 +745,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     "Serial the simulator reports until the app restarts; never saved. Empty = SIM-DE1."}}},
                 // Battery
                 {"chargingMode", QJsonObject{{"type", "integer"}, {"description", "Smart charging mode"}}},
+                {"usbChargerEnabled", QJsonObject{{"type", "boolean"}, {"description",
+                    "false keeps the DE1 USB port off (device not charged from the DE1); chargingMode then has no effect"}}},
                 // Heater calibration (values in display units — same as QML sliders)
                 {"heaterIdleTempC", QJsonObject{{"type", "number"}, {"description", "Heater idle temperature in Celsius (0.0-99.0)"}}},
                 {"heaterWarmupFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Heater warmup flow rate in mL/s (0.5-6.0)"}}},
@@ -1550,6 +1552,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 int v = args["chargingMode"].toInt();
                 addSetter([battery, v]() { battery->setChargingMode(v); });
                 updated << "chargingMode";
+            }
+            if (battery && args.contains("usbChargerEnabled")) {
+                const bool v = args["usbChargerEnabled"].toBool();
+                addSetter([battery, v]() { battery->setUsbChargerEnabled(v); });
+                updated << "usbChargerEnabled";
             }
 
             // === Heater calibration (display units × 10 = internal storage) ===
