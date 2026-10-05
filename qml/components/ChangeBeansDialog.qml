@@ -38,6 +38,8 @@ DecenzaDialog {
     // Emitted after the context's selection semantics ran. `bag` is the
     // selected/created bag's map (CoffeeBag-shaped keys).
     signal bagSelected(int bagId, var bag)
+    // False: a saved new bag is not made the active bag (bagSelected still fires).
+    property bool activateOnSave: true
 
     // "search" -> ranked result list; "form" -> bag details form
     property string mode: "search"
@@ -812,7 +814,8 @@ DecenzaDialog {
         if (root.context === "historicalShot") {
             updateShotSnapshot(bagId, bag)
         } else {
-            Settings.dye.activeBagId = bagId
+            if (root.activateOnSave)
+                Settings.dye.activeBagId = bagId
             if (root.context === "postShot")
                 updateShotSnapshot(bagId, bag)
         }

@@ -202,6 +202,7 @@ public:
     // Async queries — results via signals (QVariantList of toVariantMap()).
     Q_INVOKABLE void requestInventory();                   // inInventory = true, MRU order
     Q_INVOKABLE void requestFinishedBags();                // inInventory = false, MRU order
+    Q_INVOKABLE void requestFinishedBagCount();            // finishedBagCountReady()
     Q_INVOKABLE void requestBag(qint64 bagId);             // bagReady()
 
     // Async writes — all emit bagsChanged() on success.
@@ -242,7 +243,7 @@ public:
 
     static qint64 insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag);
     // An invalid bag means not found, unless `readError` is set: a failed query
-    // is not a missing row.
+    // is not a missing row. A failure is logged here.
     static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId, QString* readError = nullptr);
     // The open bags, or the finished ones. A failed query returns no bags and
     // sets `readError`, so a caller can tell it from an empty shelf.
@@ -367,6 +368,7 @@ signals:
     void inventoryFailed();
     void finishedBagsReady(const QVariantList& bags);
     void finishedBagsFailed();
+    void finishedBagCountReady(int count);
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
     // requestBag could not read the database. Not "not found": a listener that
     // acts on a missing bag (SettingsDye clears the selection) must not act on this.

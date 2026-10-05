@@ -10,6 +10,7 @@
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include <functional>
+#include <optional>
 
 class BeanBaseClient;
 class CoffeeBagStorage;
@@ -73,6 +74,8 @@ private:
         QString visualizerBagId;
         QString beanBaseId;
         bool inInventory;
+        // archived_at as last seen on Visualizer, when it has been seen at all.
+        std::optional<QString> seenArchivedAt = std::nullopt;
     };
 
     struct Failure {

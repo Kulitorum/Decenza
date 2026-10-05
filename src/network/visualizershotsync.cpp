@@ -347,14 +347,17 @@ void VisualizerShotSync::startBags()
         QString error;
         withTempDb(dbPath, "viz_pull_bags", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            if (!q.exec("SELECT id, visualizer_bag_id, IFNULL(beanbase_id, ''), in_inventory FROM coffee_bags "
+            if (!q.exec("SELECT id, visualizer_bag_id, IFNULL(beanbase_id, ''), in_inventory, "
+                        "json_type(visualizer_seen, '$.archived_at'), "
+                        "IFNULL(json_extract(visualizer_seen, '$.archived_at'), '') FROM coffee_bags "
                         "WHERE IFNULL(visualizer_bag_id, '') != ''")) {
                 error = q.lastError().text();
                 return;
             }
             while (q.next())
                 bags.append({q.value(0).toLongLong(), q.value(1).toString(), q.value(2).toString(),
-                             q.value(3).toInt() != 0});
+                             q.value(3).toInt() != 0,
+                             q.value(4).isNull() ? std::nullopt : std::optional<QString>(q.value(5).toString())});
         });
         QMetaObject::invokeMethod(qApp, [self, bags, error]() {
             if (!self) return;
@@ -427,7 +430,9 @@ void VisualizerShotSync::applyBagArchiveState()
             continue;
         }
         const QString archivedAt = *remote;
-        if (m_uploader->bagPushGeneration(bag.bagId) == m_bagGenerationAtList.value(bag.bagId)) {
+        // Unchanged since last seen: nothing to write, so no write transaction.
+        const bool unchanged = bag.seenArchivedAt && *bag.seenArchivedAt == archivedAt;
+        if (!unchanged && m_uploader->bagPushGeneration(bag.bagId) == m_bagGenerationAtList.value(bag.bagId)) {
             m_bags->requestApplyVisualizerPull(bag.bagId, [archivedAt](const QVariantMap& current) {
                 return VisualizerSync::bagArchivePullChanges(archivedAt, current);
             });

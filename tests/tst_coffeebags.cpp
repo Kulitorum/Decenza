@@ -2704,6 +2704,28 @@ private slots:
         QCOMPARE(body.value("url").toString(), QStringLiteral("https://roaster.example/bag"));
     }
 
+    // The bag editor saves its detail blob as a key-by-key patch merged into the
+    // stored blob: an empty string removes its key, an object (the canonical
+    // snapshot) is stored, and untouched keys stay as stored.
+    void beanBaseDataPatchMergesIntoStoredBlob() {
+        const QString path = freshDb();
+        withRawDb(path, "blob_patch", [&](QSqlDatabase& db) {
+            CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "C";
+            bag.beanBaseData = QStringLiteral(R"({"origin":"Colombia","region":"Huila","farm":"El Paraiso"})");
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(bagId > 0);
+            const QVariantMap patch{{"region", QString()}, {"farm", "Las Flores"},
+                                    {"canonical", QVariantMap{{"origin", "Colombia"}}}};
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, bagId, {{"beanBaseDataPatch", patch}}));
+            const QJsonObject blob = QJsonDocument::fromJson(
+                CoffeeBagStorage::loadBagStatic(db, bagId).beanBaseData.toUtf8()).object();
+            QCOMPARE(blob.value("origin").toString(), QStringLiteral("Colombia"));
+            QVERIFY(!blob.contains("region"));
+            QCOMPARE(blob.value("farm").toString(), QStringLiteral("Las Flores"));
+            QCOMPARE(blob.value("canonical").toObject().value("origin").toString(), QStringLiteral("Colombia"));
+        });
+    }
+
     // VisualizerSync::bagPushBody: a bag never seen sends every field set here
     // (locking the blob->API mapping incl. the add-bag-detail-editing fields);
     // a seen one sends only what changed here since.

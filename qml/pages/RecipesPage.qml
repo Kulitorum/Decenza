@@ -181,13 +181,6 @@ T.Page {
         return null
     }
 
-    // Grid column math (BeanInfoPage pattern: fixed base width, computed
-    // columns) — one implementation for both card grids.
-    function cardWidth(avail) {
-        var columns = Math.max(1, Math.floor(avail / Theme.scaled(380)))
-        return (avail - (columns - 1) * Theme.spacingMedium) / columns
-    }
-
     Component.onCompleted: {
         MainController.recipeStorage.requestInventory()
         MainController.recipeStorage.requestArchived()
@@ -203,7 +196,10 @@ T.Page {
         target: MainController.bagStorage
         function onInventoryReady(bags) { recipesPage._bags = bags }
         function onBagReady(bagId, bag) {
-            if (!recipesPage._restockRecipe || bagId !== recipesPage._restockRecipe.bagId) return
+            // Only the read restockRecipeBag asked for: a later bagReady for the
+            // same bag (SettingsDye reloading it) must not reset an open form.
+            if (!recipesPage._restockAwaitingBag || bagId !== recipesPage._restockRecipe.bagId) return
+            recipesPage._restockAwaitingBag = false
             if (!bag || bag.id === undefined) {
                 recipesPage._restockRecipe = null
                 recipesPage.showToast(trRestockFailed.text)
@@ -212,7 +208,8 @@ T.Page {
             restockDialog.openRestock(bag)
         }
         function onBagReadFailed(bagId) {
-            if (!recipesPage._restockRecipe || bagId !== recipesPage._restockRecipe.bagId) return
+            if (!recipesPage._restockAwaitingBag || bagId !== recipesPage._restockRecipe.bagId) return
+            recipesPage._restockAwaitingBag = false
             recipesPage._restockRecipe = null
             recipesPage.showToast(trRestockFailed.text)
         }
@@ -340,21 +337,28 @@ T.Page {
     // Restock a recipe's finished bag: the new-bag form prefilled from it; the
     // saved bag becomes this recipe's bag.
     property var _restockRecipe: null
+    property bool _restockAwaitingBag: false
     function restockRecipeBag(recipe) {
         _restockRecipe = recipe
+        _restockAwaitingBag = true
         MainController.bagStorage.requestBag(recipe.bagId)
     }
     Tr { id: trRestockFailed; key: "recipes.restock.failed"; fallback: "Couldn't read this recipe's bag"; visible: false }
     ChangeBeansDialog {
         id: restockDialog
         context: "inventory"
+        // The new bag goes to the recipe; the active bag stays as the user left it.
+        activateOnSave: false
         onBagSelected: function(bagId, bag) {
             if (!recipesPage._restockRecipe) return
             recipesPage._repointPendingId = recipesPage._restockRecipe.id
             MainController.recipeStorage.requestRelinkRecipeToBag(recipesPage._restockRecipe.id, bagId)
             recipesPage._restockRecipe = null
         }
-        onClosed: recipesPage._restockRecipe = null
+        onClosed: {
+            recipesPage._restockRecipe = null
+            recipesPage._restockAwaitingBag = false
+        }
     }
 
     // The stale card's one-tap re-point: an open-bag picker scoped to one
@@ -901,7 +905,7 @@ T.Page {
                         required property var modelData
 
                         recipe: modelData
-                        width: recipesPage.cardWidth(flickable.width)
+                        width: Theme.cardGridWidth(flickable.width)
                     }
                 }
             }
@@ -960,7 +964,7 @@ T.Page {
 
                         recipe: modelData
                         archivedCard: true
-                        width: recipesPage.cardWidth(flickable.width)
+                        width: Theme.cardGridWidth(flickable.width)
                     }
                 }
             }

@@ -36,12 +36,15 @@ T.Page {
     // read is not an empty one: rendering the empty state for it would claim
     // the user has no bags, and rendering nothing is worse still.
     property string inventoryState: "loading"
+    // Finished bags: the count drives the toggle; the list loads only while shown.
+    property int finishedCount: 0
     property var finishedBags: []
     property bool showFinished: false
+    onShowFinishedChanged: if (showFinished) MainController.bagStorage.requestFinishedBags()
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
-        MainController.bagStorage.requestFinishedBags()
+        MainController.bagStorage.requestFinishedBagCount()
         // The bags as Visualizer holds them now; changes arrive through
         // onBagsChanged below.
         MainController.visualizerSync.refreshBags()
@@ -60,9 +63,14 @@ T.Page {
         function onFinishedBagsReady(bags) {
             bagInventoryPage.finishedBags = bags
         }
+        function onFinishedBagCountReady(count) {
+            bagInventoryPage.finishedCount = count
+        }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
-            MainController.bagStorage.requestFinishedBags()
+            MainController.bagStorage.requestFinishedBagCount()
+            if (bagInventoryPage.showFinished)
+                MainController.bagStorage.requestFinishedBags()
         }
     }
 
@@ -200,12 +208,7 @@ T.Page {
                         required property var modelData
 
                         bag: modelData
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: Theme.cardGridWidth(flickable.width)
                         onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
                         onLinkRequested: function(b) { changeBeansDialog.openForEditAndLink(b) }
                     }
@@ -213,7 +216,7 @@ T.Page {
             }
 
             AccessibleButton {
-                visible: bagInventoryPage.finishedBags.length > 0
+                visible: bagInventoryPage.finishedCount > 0
                 Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -221,7 +224,7 @@ T.Page {
                 text: (bagInventoryPage.showFinished
                        ? TranslationManager.translate("beaninfo.finished.hide", "Hide finished")
                        : TranslationManager.translate("beaninfo.finished.show", "Show finished"))
-                      + " (" + bagInventoryPage.finishedBags.length + ")"
+                      + " (" + bagInventoryPage.finishedCount + ")"
                 accessibleName: text
                 onClicked: bagInventoryPage.showFinished = !bagInventoryPage.showFinished
             }
@@ -239,12 +242,7 @@ T.Page {
 
                         bag: modelData
                         finishedCard: true
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: Theme.cardGridWidth(flickable.width)
                         onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
                         onRestockRequested: function(b) { changeBeansDialog.openRestock(b) }
                     }

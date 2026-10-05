@@ -713,36 +713,24 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
 
         // POST /api/bag/<id>/finish — mark empty ("Bag finished"; never deletes)
-        if (action == "finish") {
-            auto conn = std::make_shared<QMetaObject::Connection>();
-            *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson](qint64 updatedId, bool success) {
-                    if (updatedId != bagId)
-                        return;
-                    disconnect(*conn);
-                    if (success)
-                        respondJson(QJsonObject{{"finished", true}, {"bagId", bagId}});
-                    else
-                        respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
-                });
-            bagStorage->requestMarkEmpty(bagId);
-            return;
-        }
-
         // POST /api/bag/<id>/restore — a finished bag back into inventory
-        if (action == "restore") {
+        if (action == "finish" || action == "restore") {
+            const bool finish = action == "finish";
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson](qint64 updatedId, bool success) {
+                [conn, bagId, finish, respondJson](qint64 updatedId, bool success) {
                     if (updatedId != bagId)
                         return;
                     disconnect(*conn);
                     if (success)
-                        respondJson(QJsonObject{{"restored", true}, {"bagId", bagId}});
+                        respondJson(QJsonObject{{finish ? "finished" : "restored", true}, {"bagId", bagId}});
                     else
                         respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
                 });
-            bagStorage->requestUpdateBag(bagId, {{QStringLiteral("inInventory"), true}});
+            if (finish)
+                bagStorage->requestMarkEmpty(bagId);
+            else
+                bagStorage->requestUpdateBag(bagId, {{QStringLiteral("inInventory"), true}});
             return;
         }
 

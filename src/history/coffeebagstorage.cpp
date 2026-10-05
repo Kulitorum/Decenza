@@ -349,6 +349,24 @@ void CoffeeBagStorage::requestFinishedBags()
     requestShelf(true);
 }
 
+void CoffeeBagStorage::requestFinishedBagCount()
+{
+    auto count = std::make_shared<qint64>(-1);
+    runAsync("bags_finished_count",
+        [count](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            if (!query.exec(QStringLiteral("SELECT COUNT(*) FROM coffee_bags WHERE in_inventory = 0")) || !query.next()) {
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "finished-bag count failed:" << query.lastError().text();
+                return;
+            }
+            *count = query.value(0).toLongLong();
+        },
+        [this, count](bool dbOpened) {
+            if (dbOpened && *count >= 0)
+                emit finishedBagCountReady(static_cast<int>(*count));
+        });
+}
+
 void CoffeeBagStorage::requestShelf(bool finished)
 {
     // runAsync silently drops the job when storage was never initialized, and a
@@ -406,8 +424,8 @@ void CoffeeBagStorage::requestBag(qint64 bagId)
         // as a failure instead.
         [this, bagId, result, error](bool dbOpened) {
             if (!dbOpened || !error->isEmpty()) {
-                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "unreadable:"
-                    << (dbOpened ? *error : QStringLiteral("database would not open"));
+                if (!dbOpened)
+                    DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "unreadable: database would not open";
                 emit bagReadFailed(bagId);
                 return;
             }
@@ -468,7 +486,12 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
                 *outcome = QStringLiteral("could not take the write lock");
                 return;
             }
-            const CoffeeBag bag = loadBagStatic(db, bagId);
+            QString readError;
+            const CoffeeBag bag = loadBagStatic(db, bagId, &readError);
+            if (!readError.isEmpty()) {
+                *outcome = QStringLiteral("bag unreadable");
+                return;
+            }
             if (!bag.isValid())
                 return;  // deleted here since
             *pull = decide(bag.toVariantMap());
@@ -801,11 +824,20 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& inBa
 CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId, QString* readError)
 {
     QSqlQuery query(db);
-    query.prepare(QString("SELECT %1 FROM coffee_bags WHERE id = :id").arg(bagColumnList()));
-    query.bindValue(":id", bagId);
-    if (!query.exec()) {
+    // prepare() carries the real cause (a missing column); exec() after a
+    // failed prepare reports only a parameter-count mismatch.
+    bool ok = query.prepare(QString("SELECT %1 FROM coffee_bags WHERE id = :id").arg(bagColumnList()));
+    if (ok) {
+        query.bindValue(":id", bagId);
+        ok = query.exec();
+    }
+    if (!ok) {
+        // Logged here so no caller can read a failed query as "not found"
+        // silently; callers that act on not-found pass readError.
+        const QString error = query.lastError().text();
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "unreadable:" << error;
         if (readError)
-            *readError = query.lastError().text();
+            *readError = error;
         return CoffeeBag();
     }
     if (!query.next())
@@ -877,7 +909,11 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
         }
         QJsonObject blob = QJsonDocument::fromJson(stored.beanBaseData.toUtf8()).object();
         for (auto it = patch.cbegin(); it != patch.cend(); ++it) {
-            if (it.value().isNull() || it.value().toString().isEmpty())
+            // Only null or an empty string is a clear: an object value (the
+            // `canonical` snapshot) has an empty toString().
+            const bool cleared = it.value().isNull()
+                || (it.value().typeId() == QMetaType::QString && it.value().toString().isEmpty());
+            if (cleared)
                 blob.remove(it.key());
             else
                 blob.insert(it.key(), QJsonValue::fromVariant(it.value()));

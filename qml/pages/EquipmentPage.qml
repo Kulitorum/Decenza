@@ -130,12 +130,7 @@ T.Page {
                         required property var modelData
 
                         pkg: modelData
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: Theme.cardGridWidth(flickable.width)
                         onEditRequested: function(p) { switchEquipmentDialog.openForEdit(p) }
                     }
                 }

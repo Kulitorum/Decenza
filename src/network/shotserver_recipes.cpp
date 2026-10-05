@@ -139,8 +139,10 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         // state, never a gate). Grind is the recipe's own value
         // (fix-recipe-grind-integrity); nothing resolves from the bag.
         if (r.bagId > 0) {
-            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
-            if (!bag.isValid() || !bag.inInventory)
+            QString readError;
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId, &readError);
+            // An unreadable bag is not a finished one: no Restock offered for it.
+            if (readError.isEmpty() && (!bag.isValid() || !bag.inInventory))
                 o["bagStale"] = true;
         } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty()
                    || !r.coffeeName.isEmpty()) {
