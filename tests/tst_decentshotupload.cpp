@@ -848,14 +848,16 @@ private slots:
         };
         const auto step = [&decent]() { decent.finish(); settle(); };
 
-        // Never on its own.
+        // Counted for the button, and never sent on its own.
+        uploads.refreshMissing();
+        QTRY_COMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("count").toInt(), 7);
         uploads.resumeMissingRuns();
         settle();
         QVERIFY(decent.sent.isEmpty());
 
         uploads.uploadMissing(QStringLiteral("decent"));
         QTRY_COMPARE(decent.sent.size(), 1);
-        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("total").toInt(), 7);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("total").toInt(), 7);
         QVERIFY(upload.missingRunStartedAt(QStringLiteral("decent")) > 0);
         for (int i = 0; i < 4; ++i) step();
         QCOMPARE(sentIds(), newestFirst.mid(0, 5));
@@ -876,7 +878,7 @@ private slots:
         QCOMPARE(sentIds().mid(5), (QList<qint64>{newestFirst.at(5), newestFirst.at(5), newestFirst.at(5), newestFirst.at(6)}));
         decent.answer = Outcome::Sent;
         step();
-        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("running").toBool(), false);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("running").toBool(), false);
         QCOMPARE(upload.missingRunStartedAt(QStringLiteral("decent")), 0);
 
         // After a restart a run resumes, leaving out what already failed in it.
@@ -885,13 +887,13 @@ private slots:
         decent.sent.clear();
         uploads.resumeMissingRuns();
         QTRY_COMPARE(decent.sent.size(), 1);
-        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("total").toInt(), 6);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("total").toInt(), 6);
         QCOMPARE(sentIds().first(), newestFirst.first());
 
         // A sign-in refusal ends the run.
         decent.answer = Outcome::AuthFailed;
         step();
-        QCOMPARE(uploads.missingRun(QStringLiteral("decent")).value("running").toBool(), false);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("running").toBool(), false);
         QCOMPARE(upload.missingRunStartedAt(QStringLiteral("decent")), 0);
         settle();
         QCOMPARE(decent.sent.size(), 1);

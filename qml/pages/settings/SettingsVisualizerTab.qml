@@ -154,6 +154,11 @@ KeyboardAwareContainer {
                     }
                 }
 
+                UploadMissingShots {
+                    Layout.fillWidth: true
+                    destination: "visualizer"
+                }
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.spacingSmall
@@ -328,6 +333,13 @@ KeyboardAwareContainer {
 
                 DecentUploadStatus {
                     Layout.fillWidth: true
+                }
+
+                UploadMissingShots {
+                    Layout.fillWidth: true
+                    destination: "decent"
+                    note: TranslationManager.translate("settings.upload.missing.decentNote",
+                                                       "Shots go up under the DE1 that is connected when they are sent.")
                 }
             }
 

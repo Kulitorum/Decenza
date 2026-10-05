@@ -2,6 +2,7 @@
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
+#include "shotuploads.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -269,9 +270,11 @@ static QStringList applyMcpSettings(Settings* s, const QJsonObject& obj)
 }
 
 // One destination card of the Shot Upload settings, as the app's
-// UploadDestinationCard: its switch, then Connect or Disconnect.
+// UploadDestinationCard: its switch, then Connect or Disconnect, then Upload
+// missing shots (UploadMissingShots.qml) with `missingNote` under it.
 static QString uploadAccountSection(const QString& dest, const QString& icon, const QString& title,
-                                    const QString& description, const QString& identityLabel)
+                                    const QString& description, const QString& identityLabel,
+                                    const QString& missingNote = QString())
 {
     return QStringLiteral(R"HTML(
         <div class="section">
@@ -310,9 +313,16 @@ static QString uploadAccountSection(const QString& dest, const QString& icon, co
                     </div>
                 </div>
                 <div id="%1-status" class="status-msg"></div>
+                <div id="%1-missing" style="display:none;">
+                    <div class="section-actions">
+                        <button class="btn btn-secondary" id="%1-missing-button" onclick="uploadMissing('%1')"></button>
+                    </div>
+                    <div class="form-hint" id="%1-missing-detail"></div>
+                    <div class="form-hint">%6</div>
+                </div>
             </div>
         </div>
-)HTML").arg(dest, icon, title, description, identityLabel);
+)HTML").arg(dest, icon, title, description, identityLabel, missingNote.toHtmlEscaped());
 }
 
 QString ShotServer::generateSettingsPage() const
@@ -968,6 +978,7 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('uploadAutomatically').checked = !!data.uploadAutomatically;
                 document.getElementById('updateAutomatically').checked = !!data.updateAutomatically;
                 document.getElementById('uploadMinDurationSec').value = data.uploadMinDurationSec ?? 0;
+                showMissing(data.missing);
 
                 document.getElementById('openaiApiKey').value = data.openaiApiKey || '';
                 document.getElementById('anthropicApiKey').value = data.anthropicApiKey || '';
@@ -1206,16 +1217,21 @@ QString ShotServer::generateSettingsPage() const
             input.type = input.type === 'password' ? 'text' : 'password';
         }
 
-        function showSectionStatus(id, msg, isError) {
+        function clearSectionStatus(id) {
+            const el = document.getElementById(id);
+            clearTimeout(el.clearTimer);
+            el.textContent = '';
+            el.classList.remove('status-error', 'status-success');
+        }
+
+        // `keep`: stays until the next attempt replaces it, instead of clearing after 4 s.
+        function showSectionStatus(id, msg, isError, keep) {
             const el = document.getElementById(id);
             el.textContent = msg;
             el.classList.remove('status-error', 'status-success');
             el.classList.add(isError ? 'status-error' : 'status-success');
             clearTimeout(el.clearTimer);
-            el.clearTimer = setTimeout(() => {
-                el.textContent = '';
-                el.classList.remove('status-error', 'status-success');
-            }, 4000);
+            if (!keep) el.clearTimer = setTimeout(() => clearSectionStatus(id), 4000);
         }
 )HTML" R"HTML(
         // --- Shot Upload: one set of functions for every destination ---
@@ -1248,15 +1264,50 @@ QString ShotServer::generateSettingsPage() const
             const btn = document.getElementById(dest + '-connect');
             const password = document.getElementById(dest + '-password');
             btn.disabled = true; btn.textContent = 'Connecting...';
+            clearSectionStatus(dest + '-status');
             try {
                 const r = await postJson('/api/settings/' + dest + '/connect', {
                     identity: document.getElementById(dest + '-identity').value,
                     password: password.value
                 });
-                showSectionStatus(dest + '-status', r.message, !r.success);
+                // A failed sign-in stays on screen until the next attempt.
+                showSectionStatus(dest + '-status', r.message, !r.success, !r.success);
                 if (r.success) { password.value = ''; loadSettings(); }
-            } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true); }
+            } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true, true); }
             btn.disabled = false; btn.textContent = 'Connect';
+        }
+
+        // Upload missing shots: shown only while a destination is missing shots.
+        function showMissing(missing) {
+            let running = false;
+            for (const dest of ['visualizer', 'decent']) {
+                const m = (missing || {})[dest] || {};
+                const count = m.count || 0, failed = m.failed || 0;
+                running = running || !!m.running;
+                document.getElementById(dest + '-missing').style.display = (m.running || count > 0) ? '' : 'none';
+                const button = document.getElementById(dest + '-missing-button');
+                button.style.display = m.running ? 'none' : '';
+                button.textContent = 'Upload missing shots (' + count + ')';
+                document.getElementById(dest + '-missing-detail').textContent = m.running
+                    ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
+                    : failed > 0 ? failed + ' of them could not be uploaded before' : '';
+            }
+            // Progress is polled only while a run is going.
+            clearTimeout(showMissing.timer);
+            if (running) showMissing.timer = setTimeout(refreshMissing, 5000);
+        }
+
+        async function refreshMissing() {
+            try {
+                const resp = await fetch('/api/settings/upload-missing');
+                if (resp.ok) showMissing((await resp.json()).missing);
+            } catch (e) { /* the next loadSettings shows it */ }
+        }
+
+        async function uploadMissing(dest) {
+            try {
+                showMissing((await postJson('/api/settings/' + dest + '/upload-missing', {})).missing);
+            } catch (e) { showSectionStatus(dest + '-status', e.message || 'Network error', true); }
         }
 
         async function disconnectAccount(dest) {
@@ -1555,7 +1606,8 @@ QString ShotServer::generateSettingsPage() const
         .replace(QStringLiteral("<!--UPLOAD_ACCOUNT:decent-->"),
                  uploadAccountSection(QStringLiteral("decent"), QStringLiteral("&#9749;"), QStringLiteral("Decent Account"),
                                       QStringLiteral("Upload your shots to your account at decentespresso.com"),
-                                      QStringLiteral("Email")));
+                                      QStringLiteral("Email"),
+                                      QStringLiteral("Shots go up under the DE1 that is connected when they are sent.")));
 }
 
 void ShotServer::handleGetSettings(QTcpSocket* socket)
@@ -1577,6 +1629,8 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["uploadAutomatically"] = m_settings->upload()->autoUpload();
     obj["updateAutomatically"] = m_settings->upload()->autoUpdate();
     obj["uploadMinDurationSec"] = m_settings->upload()->minDuration();
+    if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
+        obj["missing"] = QJsonObject::fromVariantMap(uploads->missing());
 
     // AI — API keys redacted; provider/model/endpoint are not secrets.
     {
@@ -1834,6 +1888,21 @@ void ShotServer::handleAccountDisconnect(QTcpSocket* socket, const QString& dest
         visualizer->disconnectAccount();
     }
     sendJson(socket, R"({"success": true})");
+}
+
+void ShotServer::handleUploadMissing(QTcpSocket* socket, const QString& destination)
+{
+    if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
+        uploads->uploadMissing(destination);
+    handleGetUploadMissing(socket);
+}
+
+void ShotServer::handleGetUploadMissing(QTcpSocket* socket)
+{
+    QJsonObject obj;
+    if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
+        obj["missing"] = QJsonObject::fromVariantMap(uploads->missing());
+    sendJson(socket, QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
 void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)

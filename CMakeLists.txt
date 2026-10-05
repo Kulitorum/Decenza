@@ -1450,6 +1450,7 @@ set(QML_FILES
     qml/components/StyledTextField.qml
     qml/components/UploadAccountSection.qml
     qml/components/DecentUploadStatus.qml
+    qml/components/UploadMissingShots.qml
     qml/components/UploadDestinationCard.qml
     qml/components/SubsystemLogView.qml
     qml/components/SuggestionField.qml

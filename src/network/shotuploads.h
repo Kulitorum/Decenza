@@ -33,6 +33,10 @@ class ShotUploads : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
+    // Per active destination, by name: {count, failed, unsentEdits, running, done,
+    // total}, for the Upload missing shots button. Counted on a worker thread.
+    Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
+
 public:
     ShotUploads(SettingsUpload* settings, ShotHistoryStorage* storage,
                 QList<ShotUploadDestination*> destinations, QObject* parent = nullptr);
@@ -79,8 +83,10 @@ public:
     void resumeMissingRuns();
     // MachineState::isOperating(): no batch starts while it is true.
     void setMachineOperating(bool operating);
-    // A run's progress: {running, done, total}.
-    Q_INVOKABLE QVariantMap missingRun(const QString& destination) const;
+    QVariantMap missing() const;
+    // Counts what each active destination is missing again; a call while a count
+    // is running counts once more after it.
+    Q_INVOKABLE void refreshMissing();
 
     static constexpr int kBatchSize = 5;
     // Decaid's cadence: a rate limit, so the timer is not a guard.
@@ -91,7 +97,7 @@ public:
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
 
 signals:
-    void missingRunChanged(const QString& destination);
+    void missingChanged();
 
 private:
     using Send = ShotUploadDestination::Send;
@@ -141,6 +147,9 @@ private:
         QElapsedTimer sinceBatch;
     };
     QHash<ShotUploadDestination*, Run> m_runs;
+    QHash<QString, Missing> m_counts;   // by destination name, active ones only
+    bool m_counting = false;
+    bool m_countAgain = false;
     bool m_machineOperating = false;
     int m_batchSpacingMs = 30000;
     struct Held {
