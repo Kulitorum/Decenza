@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   build-macos:
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout code
@@ -81,6 +81,11 @@ jobs:
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
           cache: true
           cache-key-prefix: 'qt-macos-v2'
+
+      - name: Set up Xcode (pin + deployment-target shims)
+        uses: ./.github/actions/setup-xcode
+        with:
+          xcode-version: '26.4.1'
 
       - name: Set up ccache
         uses: ./.github/actions/setup-compiler-cache
@@ -199,6 +204,12 @@ jobs:
           cd build/macos
           # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
           # on made ccache miss ~88% of this leg's compiles. See PR #1738.
+          #
+          # Link as iOS does: only CC/CXX go through ccache (it caches no link
+          # products), and with them pointing at a non-Apple wrapper Xcode 26
+          # no longer adds the C++ runtime to the link, so it is named here.
+          # Wrapping LD/LDPLUSPLUS too linked on macos-15 but not on macos-26
+          # (undefined std::terminate / operator delete[] in saw_replay).
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
@@ -206,8 +217,7 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX" \
+            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi" \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \

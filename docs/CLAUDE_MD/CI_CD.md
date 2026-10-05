@@ -9,11 +9,13 @@ All workflows have concurrency controls — if the same workflow triggers twice 
 | Platform | Workflow | Runner | Output |
 |----------|----------|--------|--------|
 | Android | `android-release.yml` | ubuntu-24.04 | Signed APK |
-| iOS | `ios-release.yml` | macos-15 | IPA → App Store |
-| macOS | `macos-release.yml` | macos-15 | Signed + notarized DMG |
+| iOS | `ios-release.yml` | macos-26 | IPA → App Store |
+| macOS | `macos-release.yml` | macos-26 | Signed + notarized DMG |
 | Windows | `windows-release.yml` | windows-latest | Inno Setup installer |
 | Linux | `linux-release.yml` | ubuntu-24.04 | AppImage |
 | Linux ARM64 | `linux-arm64-release.yml` | ubuntu-24.04-arm | AppImage (aarch64) |
+
+Both Apple workflows select Xcode and install clang shims through one shared step, `.github/actions/setup-xcode` (pinned to 26.4.1); the reasons are in that file.
 
 On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 

@@ -1,0 +1,59 @@
+name: 'Set up Xcode'
+description: >
+  Selects a pinned Xcode on a macos-26 runner and replaces its clang/clang++
+  with shims that clear the runner's pre-set *_DEPLOYMENT_TARGET variables.
+  Shared by the macOS and iOS release workflows. Run it before anything that
+  resolves clang (the ccache wrappers read `xcrun -f clang`).
+
+# Why the pin. macos-26's default Xcode (26.2) ships a libc++ revision without
+# the [abi:ue170006] symbols Qt's prebuilt binaries reference (qtshadertools,
+# libQt6BundledSpirv_Cross); the iOS link failed with undefined
+# std::length_error[abi:ue170006] and spirv_cross vtables. Observed against
+# Qt 6.11.1's binaries and kept since: drop it only after a branch build links
+# without it. 26.4.1 is the version the developer builds with on macOS 26.4.
+#
+# Why the shims. The runner pre-exports MACOSX/IPHONESIMULATOR/MACCATALYST
+# deployment targets, and Xcode 26.1+ clang rejects conflicting ones. The shim
+# sits on the active toolchain so it catches every clang call, including the
+# AUTOMOC PhaseScriptExecution that bypasses CMAKE_XCODE_ATTRIBUTE_CC (why a
+# ccache-wrapper-only scrub cannot work). The target and SDK still arrive via
+# -target / -isysroot on the command line. Keeping IPHONEOS_DEPLOYMENT_TARGET
+# in the env broke the iOS link (implicit libc++ resolution). The durable fix
+# is upstream: CMake's AUTOMOC predefs step should pass -target (#925).
+#
+# A change to the shim's unset list does not change clang's -v banner, so a
+# workflow whose ccache keys on '%compiler% -v' must bump its cache key with it.
+
+inputs:
+  xcode-version:
+    description: 'Xcode version to select, e.g. 26.4.1 (must be installed on the runner image).'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Pin Xcode ${{ inputs.xcode-version }}
+      shell: bash
+      run: |
+        DEV="/Applications/Xcode_${{ inputs.xcode-version }}.app/Contents/Developer"
+        sudo xcode-select -s "$DEV"
+        xcodebuild -version
+        xcrun clang --version | head -3
+        echo "DEVELOPER_DIR=$DEV" >> "$GITHUB_ENV"
+
+    - name: Replace clang/clang++ with env-scrubbing shims
+      shell: bash
+      run: |
+        set -e
+        XCODE_BIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+        for tool in clang clang++; do
+          if [ -f "$XCODE_BIN/$tool" ] && [ ! -f "$XCODE_BIN/$tool.real" ]; then
+            sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
+            sudo tee "$XCODE_BIN/$tool" >/dev/null <<SHIM
+        #!/bin/sh
+        unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
+        exec "$XCODE_BIN/$tool.real" "\$@"
+        SHIM
+            sudo chmod +x "$XCODE_BIN/$tool"
+          fi
+        done

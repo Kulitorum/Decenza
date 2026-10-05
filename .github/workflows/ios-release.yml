@@ -48,48 +48,10 @@ jobs:
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
-      - name: Pin Xcode to 26.4.1 (matches developer's local libc++ ABI)
-        run: |
-          # macos-26's default Xcode (26.2) ships a libc++ revision that
-          # doesn't include the [abi:ue170006] unstable-ABI symbols Qt's
-          # prebuilt iOS binaries reference (qtshadertools,
-          # libQt6BundledSpirv_Cross). Result: link fails with
-          #   Undefined symbols: std::length_error::length_error[abi:ue170006]
-          #   ... vtable for spirv_cross::CompilerError ...
-          #
-          # Observed against 6.11.1's binaries. NOT re-tested against 6.11.2:
-          # a patch release is built by the same toolchain against the same
-          # libc++, so the pin is kept rather than speculatively dropped. If a
-          # future run wants to remove it, drop the pin on a branch and read
-          # the link step — do not infer it from the version number alone.
-          #
-          # Xcode 26.4.1 (Apple clang 21.0.0 build 2100.0.123.102) ships the
-          # matching libc++ revision and is the version the developer builds
-          # with locally on macOS 26.4 — the same Qt binaries link cleanly
-          # there. The macos-26 runner image has 26.4.1 installed alongside
-          # the default 26.2 with full iOS platform support (iOS 26.4 SDK +
-          # simulator runtimes per the runner readme).
-          #
-          # The deployment-target shim installed below is still needed:
-          # 26.4.1's clang carries the same strict env-conflict check from
-          # 26.1+, and the runner image still pre-exports MACOSX/IPHONESIMU-
-          # LATOR/MACCATALYST values. Pin + shim are complementary, not
-          # redundant.
-          sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
-          xcodebuild -version
-          xcrun --sdk iphoneos clang --version | head -3
-          echo "DEVELOPER_DIR=/Applications/Xcode_26.4.1.app/Contents/Developer" >> $GITHUB_ENV
-
-      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
-      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
-      # them -- it then tries to read a 7z as a zip and dies with
-      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
-      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
-      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
-      # 3.14 is the MINIMUM that works rather than merely the newest.
-      # Set on all six workflows deliberately: which Python aqt gets should be one
-      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
-      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Set up Xcode (pin + deployment-target shims)
+        uses: ./.github/actions/setup-xcode
+        with:
+          xcode-version: '26.4.1'
       - name: Pin Python for aqtinstall (aqtinstall#1042)
         uses: actions/setup-python@v7
         with:
@@ -137,42 +99,10 @@ jobs:
         # still need a manual cache-key bump above — see comment there.)
         run: ccache --set-config=compiler_check='%compiler% -v'
 
-      - name: Replace Xcode clang/clang++ with env-scrubbing shims
-        run: |
-          # The shim sits on the *active* Xcode (26.4.1, set by the pin step
-          # above) and intercepts ALL clang invocations — both xcodebuild's
-          # native compile path and the AUTOMOC PhaseScriptExecution that
-          # calls clang directly without going through CMAKE_XCODE_ATTRIBUTE
-          # _CC (which is why a wrapper-only approach can't catch it).
-          #
-          # Unset ALL platform DEPLOYMENT_TARGET env vars including
-          # IPHONEOS_DEPLOYMENT_TARGET. Target/SDK come in via -target /
-          # -isysroot flags on the actual command line, so iOS is still
-          # correctly identified. With IPHONEOS preserved in the env,
-          # clang++'s implicit libc++ resolution at link time goes wrong
-          # and the link fails with undefined std::* symbols.
-          #
-          # Long-term durable fix is upstream: CMake's AUTOMOC predefs
-          # script should pass -target explicitly so it doesn't depend on
-          # env-var fallback. Tracked as #925.
-          set -e
-          XCODE_BIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
-          for tool in clang clang++; do
-            if [ -f "$XCODE_BIN/$tool" ] && [ ! -f "$XCODE_BIN/$tool.real" ]; then
-              sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
-              sudo tee "$XCODE_BIN/$tool" >/dev/null <<EOF
-          #!/bin/sh
-          unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
-          exec "$XCODE_BIN/$tool.real" "\$@"
-          EOF
-              sudo chmod +x "$XCODE_BIN/$tool"
-            fi
-          done
-
       - name: Create ccache compiler wrappers
         run: |
           # Standard ccache plumbing. The Xcode toolchain binaries are already
-          # replaced with env-scrubbing shims (step above), so the call chain
+          # replaced with env-scrubbing shims (setup-xcode), so the call chain
           # at compile time is:
           #   xcodebuild → launch-c → ccache → /…/clang (shim) → clang.real
           # The shim handles env scrub; the wrapper only adds ccache.
