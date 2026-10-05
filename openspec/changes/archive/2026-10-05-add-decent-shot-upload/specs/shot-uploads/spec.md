@@ -61,3 +61,20 @@ While the post-shot review page has a shot open, its own field-by-field saves SH
 #### Scenario: Edit from elsewhere while the page is open
 - **WHEN** an MCP tool edits the shot while its review page is open, with automatic update on
 - **THEN** each destination holding the shot is updated at once
+
+### Requirement: Decent and Visualizer behave the same
+
+Every send of a saved shot, first upload or update, to either destination, SHALL get 3 attempts, 2 s then 4 s apart, made by the shared upload path. Each destination SHALL map its server's response to one shared set of results — sent, nothing to send, transient, sign-in needed, account refused, rejected — and the shared path SHALL record them the same way for both: transient on the third attempt records the shot as failed for that destination, a rejection records it as rejected with its status, and success clears both. A sign-in or account problem SHALL record nothing on the shot. Where the two servers agree, the result for a response SHALL be the same: a transport failure or timeout, 408, 429 and 5xx are transient, 401 needs sign-in, and any other 4xx is a rejection, except 404, 405 or 410 from the upload endpoint, which are transient.
+
+#### Scenario: Server error on either destination
+- **WHEN** a Visualizer upload and a Decent upload of the same shot each get HTTP 503 on every attempt
+- **THEN** each destination makes 3 attempts, 2 s then 4 s apart, and records the shot as failed
+
+#### Scenario: Rejected by Visualizer
+- **WHEN** Visualizer answers a first upload with HTTP 422
+- **THEN** the shot is recorded as rejected for Visualizer with status 422 and is not offered by Upload missing shots
+
+#### Scenario: Edit that fails
+- **WHEN** a PATCH to Visualizer for an edited shot times out on all 3 attempts
+- **THEN** the edit stays unsent and is offered by Upload missing shots, as a Decent replace that fails is
+

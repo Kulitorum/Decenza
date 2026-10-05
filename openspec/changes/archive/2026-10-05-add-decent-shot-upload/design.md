@@ -13,8 +13,8 @@ Current Decenza state that shapes the approach:
 ## Goals / Non-Goals
 
 **Goals:**
-- Byte-for-byte the same server-facing behaviour as Decaid: endpoint, auth, document shape, replace semantics, idle-only backlog, retry classes.
-- One payload builder, sourced from the saved history row, for live, backlog, replace and manual uploads.
+- Byte-for-byte the same server-facing behaviour as Decaid: endpoint, auth, document shape, replace semantics, response handling.
+- One payload builder, sourced from the saved history row, for live, missing-shot, replace and manual uploads.
 - Upload state in the database, so idempotency survives restarts and migration.
 
 **Non-Goals:**
@@ -58,7 +58,7 @@ Adds to `shots`:
 - `decent_replace_pending INTEGER NOT NULL DEFAULT 0`
 - `decent_rejected_status INTEGER`, `decent_rejected_at INTEGER`
 
-These are schema facts, so the version bump is gated on the columns landing. No index: the backlog query runs on a worker thread once per batch of five, every 30 s or more, and nobody waits on it. That is no user-felt cost, so per the complexity rule there is no index.
+These are schema facts, so the version bump is gated on the columns landing. No index: the missing-shots query runs on the DB worker when a run starts and when the counts change, and nobody waits on it (cost measured at `ShotUploads::findMissingFor`). That is no user-felt cost, so per the complexity rule there is no index.
 
 The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage); `importShotRecordStatic` imports shot files, which have no Decent state. They are **not** added to the positional `loadShotRecordStatic` SELECT. The uploader reads its own columns with its own query, and the shot-detail status uses a small dedicated read alongside the existing shot load. This avoids the three-struct positional cost noted at `shotserver.cpp:1888`.
 
@@ -97,17 +97,11 @@ The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage)
   - Persisting the flag is what makes "edit while offline, upload disabled, or needs-sign-in" survive.
   - The uploader's own writeback goes through a separate storage method that emits `decentUploadStateUpdated`, never `shotMetadataUpdated`, so it cannot loop. The Visualizer link writeback also does not emit `shotMetadataUpdated`.
   - *Alternative considered:* compare `updated_at` against a recorded revision, as Decaid does. Rejected, because the Visualizer writeback bumps `updated_at` and would force a replace of every shot uploaded to both destinations.
-- **Backlog (Stage 3):** a worker-thread query (`withTempDb`) selects the next ≤5 ids, newest first, where:
-  - `decent_replace_pending = 1`, OR (`decent_uploaded_at IS NULL` AND `decent_rejected_status IS NULL`)
-  - and the beverage type is not a maintenance type
-  - and the duration is at least the minimum
-
-  Replacements are ordered first. Each id is loaded and serialized on a worker thread, then posted back queued; the POST itself is async on the main thread through the shared QNAM. After a batch of 5, the next batch is scheduled ≥30 s later. That is a periodic rate limit, which the timer rule allows; it is not a guard.
-- **Idle gate (Stage 3):** a boolean `m_machineBusy`, set from `MachineState::phaseChanged`. Busy = EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater, Flushing, Refill, Descaling, Cleaning, Transport. Idle = Disconnected, Sleep, Idle, Heating, Ready. A transition to idle is a backlog trigger. Before each request the uploader checks the flag, and stops issuing when busy (event-based, per CLAUDE.md).
-- **Retry:** transport error, 404, 405, 408, 410, 429, 5xx, or a 2xx without `"ok":true` → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). After that the shot is left untouched for a later pass, and the drain pauses until the next trigger (phase→idle, new shot, settings change), which keeps it from spinning offline.
+- **Missing shots (Stage 3):** tracked failures and a button, not automatic — see D14.
+- **Retry:** transport error, 404, 405, 408, 410, 429, 5xx, or a 2xx without `"ok":true` → up to 3 attempts at 2 s then 4 s (Decaid's `RETRY_DELAY_MS * (i+1)`). The attempts are made by `ShotUploads`; after the third the shot is recorded as `decent_failed_at` (D15).
   - 401 → `DecentAccount::reportAuthFailure()`, which persists `needsSignIn` and stops everything.
-  - 403 → in-memory `m_pausedNotRegistered` with the serial; a status message names it; cleared on re-link or restart.
-  - Other 4xx → `decent_rejected_status` and `decent_rejected_at`; clear `decent_replace_pending`.
+  - 403 → a status message names the serial; `ShotUploads` drops the destination's queue and ends any run (D15).
+  - Other 4xx → `decent_rejected_status` and `decent_rejected_at`, written by `ShotUploads` (D15).
   - 2xx with `"ok":true` on a first upload (including `duplicate`) → write `decent_uploaded_at`, `decent_shot_id` (server `id`, falling back to uuid), `decent_serial`; clear pending and rejection.
   - A replace answered `duplicate` → the server kept its earlier copy: set `decent_replace_pending`, record nothing, report NotReplaced.
 - **Unlink or disable:** clear the queue, abort any queued-not-sent work, ignore a late reply's scheduling (its state write still lands, since it is true).
@@ -115,11 +109,11 @@ The columns are carried by `importDatabaseStatic` (spec: data-transfer-coverage)
 
 ### D7. Logging
 New registered subsystem `DECENT` ("Decent") in `src/core/logtags.h` (two edits), used through `DIAG_*` per `docs/CLAUDE_MD/LOGGING.md`. Tiers by audience:
-- `INFO`: link/unlink, successful uploads, not-sent outcomes (no machine, not linked, ineligible); in Stage 3 backlog start/finish and pause reasons.
+- `INFO`: link/unlink, successful uploads, not-sent outcomes (no machine, not linked, ineligible); in Stage 3 a run's start, pause and end, and queued shots dropped, under the destination's marker.
 - `WARN`: transient failure after retries exhausted, 403, 401.
 - `DEBUG`: per-attempt detail.
 
-Never log the Authorization header, the encrypted password, or request bodies. The resolution of a fault (e.g. "backlog resumed") is logged at the same tier as the fault.
+Never log the Authorization header, the encrypted password, or request bodies. The resolution of a fault (e.g. "run resumed") is logged at the same tier as the fault.
 
 ### D8. Shot Upload tab layout
 `SettingsVisualizerTab.qml` is rebuilt; its tab id stays `visualizer` so deep links and the search index keep working, and the label becomes "Shot Upload".
@@ -162,14 +156,14 @@ Implementation lands in three PRs, each gated on a check against the live server
    - The single Upload button.
    - Decent ignores the shared automatic settings until Stage 2.
 2. **Automatic upload and replace-on-edit for Decent**, plus web and MCP parity.
-3. **Backlog drain.**
+3. **Missing shots:** failed uploads tracked, and an upload button per destination (D14).
 
 Why this order: the payload is the only part that depends on a server we do not control, and a wrong document multiplied by a whole history is the expensive failure. Stage 1 proves the document on a handful of shots a person checked by eye before anything uploads unattended. Stage 3 is held until automatic upload has run in daily use.
 
-Until Stage 3, a live upload that fails transiently is simply left un-uploaded; the Upload button retries it. Nothing in Stages 1-2 is thrown away by Stage 3: the drain reuses the same request core, response classes and state columns.
+Until Stage 3, a live upload that fails transiently is simply left un-uploaded; the Upload button retries it. Nothing in Stages 1-2 is thrown away by Stage 3: the history run reuses the same request core and state columns.
 
 ### D13. `ShotUploads`: one path for every destination (Stage 2)
-`src/network/shotuploads.{h,cpp}` is the only place that decides when a shot is sent. It applies `SettingsUpload` once and queues the shot per active destination; each destination implements `ShotUploadDestination` (`isActive`, `busy`, `sendSavedShot(id, UploadOrUpdate|UpdateOnly)`, `noteEdited`). `VisualizerUploader` and `DecentShotUploader` are the two implementations.
+`src/network/shotuploads.{h,cpp}` is the only place that decides when a shot is sent. It applies `SettingsUpload` once and queues the shot per active destination; each destination implements `ShotUploadDestination` (`isActive`, `holdsShot`, `heldCondition`/`unsentEditCondition`, `attemptSavedShot(id, UploadOrUpdate|UpdateOnly)`, `sendFinished`, `noteEdited`). `VisualizerUploader` and `DecentShotUploader` are the two implementations.
 - **Triggers:** `shotSaved` (MainController's save callback, when auto-upload is on); `ShotHistoryStorage::shotMetadataUpdated(id, true)` from any editor (when auto-update is on); `uploadNow` (Upload button, the "Upload last shot" layout action, MCP `shots_upload`). The review page holds its shot while open (`holdUpdates`/`expectHeldEdit`/`releaseUpdates`): only ITS saves, each announced before it is written, wait and go out once on close — the event-based replacement for its old pending flag. An edit from anywhere else goes out at once. Upload absorbs the page saves still being written, so closing after it sends nothing more.
 - **Queue:** one shot at a time per destination, FIFO, a shot queued once (an UpdateOnly upgraded to UploadOrUpdate). A destination switched off or signed out has its queue dropped. Visualizer had no queue before: overlapping requests overwrote its per-upload state.
 - **No duplicates:** each destination reads the saved row after queued writes. Visualizer PATCHes a shot with a `visualizer_id` and uploads otherwise; the id write after an upload is queued before the next read, so a second request patches. A PATCH answered 404 (deleted on visualizer.coffee) clears the dead link and, for an upload, sends the shot afresh. Decent replaces an uploaded shot; an edit landing while its upload is out keeps the shot replace-pending.
@@ -179,11 +173,29 @@ Until Stage 3, a live upload that fails transiently is simply left un-uploaded; 
 - **Edits reach Visualizer from every editor now.** Before, only the review page and MCP PATCHed it; ShotServer, the AI advisor and the change-beans dialog did not. One trigger for both destinations makes that uniform.
 - **Web:** Connect on the ShotServer page calls `VisualizerUploader::connectAccount` / `DecentAccount::link`, the app's verified connect, replacing the page's own Visualizer test request and its unverified credential save. Every `link()` ends with `linkFinished`, `Cancelled` when Disconnect interrupts it, so a waiting web request is always answered.
 
+### D14. Missing shots: tracked failures and an upload button per destination (Stage 3)
+Nothing already saved is uploaded automatically beyond a shot's own 3 attempts. Each destination card on the Shot Upload tab (and its ShotServer counterpart) offers an **Upload missing shots** button whenever that destination is missing shots, and only then.
+- **Failed uploads are tracked:** an upload that ends Failed after its 3 automatic attempts (a timeout, no connection, a 5xx; from any trigger) is recorded on the shot for that destination — `decent_failed_at`, `visualizer_failed_at` (schema migration 44; #1994 took 43) — and cleared when the shot uploads. There is no later automatic retry: 3 attempts are enough (Jeff, 2026-10-04, after decentespresso.com took ~46 s to answer and sign-ins timed out at 60 s). A rejection (permanent 4xx) is not a failure; it stays rejected, on both destinations: migration 44 also adds `visualizer_rejected_at`/`_status`, matching Decent's (D15).
+- **When the button shows:** while the destination is switched on and connected and has at least one missing shot: eligible (`uploadIneligibility`: no maintenance cycles, nothing under the minimum length), not held by that destination, not rejected. Before the first press that is the whole history; afterwards it is the shots whose upload failed, plus any saved while automatic upload was off. The card shows how many, and how many of them failed. With none missing, there is no button.
+- **Which shots a press sends:** edits that missed the destination first — `decent_replace_pending`, `visualizer_dirty` (#1994) — then the missing shots. Newest first. Each destination supplies its selection; the run itself is one implementation in `ShotUploads`.
+- **How:** through `ShotUploads` as `UploadOrUpdate`, so nothing is duplicated (a held shot is never selected) and the queue stays one at a time. Batches of 5 with at least 30 s between, only while the machine is idle: a boolean set from `MachineState::phaseChanged` through `MachineState::isOperating()`, the rule the portal already used (every phase but Disconnected, Sleep, Idle, Heating, Ready and Refill, which can stay latched while the tank is topped up); no new batch starts while it is operating, and a return to idle resumes. The 30 s spacing is a periodic rate limit (Decaid's cadence), which the timer rule allows; it is not a guard. Selection and counting run on a worker thread (`withTempDb`).
+- **Progress:** while a run is going the card shows "Uploading N of M" in place of the button. The run is user-requested, so it survives a restart: an unfinished run resumes at app start, when idle (Jeff, 2026-10-05). Each shot gets its usual 3 attempts; one that still fails is tracked and the run moves on, so the button comes back afterwards with what is left.
+- **Shots filed under the connected machine:** a first upload uses the connected DE1's serial (Decaid's rule for shots saved before it recorded the machine). Accepted, and stated next to the Decent button (Jeff, 2026-10-05). On the ShotServer card a sign-in error stays until the next attempt instead of clearing after 4 s.
+- *Alternatives considered:* the automatic idle drain of the original plan (and of Decaid), rejected by Jeff — saved shots go up when the owner chooses; and a later automatic retry of failed uploads, rejected by Jeff — 3 attempts are enough, the button offers the rest.
+
+### D15. Decent and Visualizer behave the same (Stage 3)
+Jeff, 2026-10-05: "lets make Decent and Visualizer behave the same". Before this, Decent made 3 attempts 2 s and 4 s apart, Visualizer's first upload 3 back to back and its PATCH 1; Decent recorded rejections and Visualizer did not; 429 was a retry on one and a stop on the other.
+- **One attempt policy, in `ShotUploads`:** every send, first upload or update, to either destination, gets 3 attempts, 2 s then 4 s apart (Decaid's spacing). A destination makes one attempt and reports a shared result: `Sent`, `NothingToSend`, `Transient`, `AuthFailed`, `AccountRefused`, `Rejected(status)`. Retries move out of `DecentShotUploader` and `VisualizerUploader`.
+- **One outcome record, in `ShotUploads`:** `Transient` on the third attempt sets `<dest>_failed_at`; `Rejected` sets `<dest>_rejected_at`/`_status`; `Sent` clears both. `AuthFailed` and `AccountRefused` touch no shot: the account needs attention, and the destination stops until it is fixed.
+- **Per destination, only what the server defines:** the status-code table (a Decent 403 is an unregistered machine, a Visualizer 403 a refused account), the payload, and server-specific follow-ups (a Visualizer PATCH 404 relinks and uploads again; a Decent replace answered "duplicate" is `NotReplaced`). Where the servers agree the table is the same: transport error, 408, 429 and 5xx are `Transient`; 401 `AuthFailed`; other 4xx `Rejected`, except a 404/405/410 on the upload endpoint, which says the endpoint is wrong, not the shot (`Transient`).
+- **Lost edits:** `decent_replace_pending` and `visualizer_dirty` are the same idea, an edit the destination has not received; both are offered by the missing-shots button (D14).
+- *Unchanged:* Visualizer's reconciliation back-sync and its stop-the-pass rule for statuses that cannot differ per shot (429, 401) are a pass over the whole library, not a send, and keep their own handling.
+
 ## Risks / Trade-offs
 
 - **[Serial MMR read returns 0 on old firmware or some boards]** → no serial means no upload (spec). The About tab shows "unknown". Verify on Jeff's DE1 before relying on it, and log the raw read at INFO once per connect.
-- **[Backlog filed under the currently connected machine]** → every first upload uses the connected DE1's serial (Decaid's legacy-shot rule). An owner who replaced their DE1 gets the old machine's history filed under the new serial when it drains; the server rejects serials not in the account (403). Accepted — the same outcome Decaid gives every shot saved before it captured machine identity.
-- **[Large backlog]** → 5 shots per ≥30 s is ~600/hour while idle. A 3,000-shot history drains in an afternoon of idle time. This is Decaid's cadence: it also sends 5 per batch and continues after 30 s while a batch fills.
+- **[History filed under the currently connected machine]** → every first upload uses the connected DE1's serial (Decaid's legacy-shot rule). An owner who replaced their DE1 gets the old machine's history filed under the new serial when the history run sends it; the server rejects serials not in the account (403). Accepted — the same outcome Decaid gives every shot saved before it captured machine identity.
+- **[Large history]** → batches of 5, at least 30 s apart and one shot at a time, so the server's latency sets the pace: at the 25-29 s per upload Decent took on 2026-10-04, about 130 shots an hour, a day of idle time for 3,000. Visualizer answers faster. Decaid sends the same batches.
 - **[`cryptpw` in plain QSettings]** → same exposure as the Visualizer password today. Excluded from backup, migration, web and MCP. Keychain is a tracked follow-up.
 - **[Edit paths that bypass `shotMetadataUpdated`]** → `coffeebagstorage.cpp` writes to `shots` in four places. Audit them during implementation; any that changes uploaded fields must also mark replace-pending.
 - **[A bad upload lands in the user's real account]** → recoverable. A content mistake is corrected by re-sending the same `id` with `?replace=1`. A shot that should not be there is trashed by id with `shot_trash` (recoverable until `purge`). Only a wrong serial is beyond replace, because it files the shot under another machine; Stage 1 verifies the serial before the first upload, and uploads one shot and inspects it before any more. Each request body is saved to `last_decent_upload.json` for inspection.

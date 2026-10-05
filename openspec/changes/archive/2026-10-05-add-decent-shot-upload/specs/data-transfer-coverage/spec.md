@@ -15,8 +15,8 @@ The linked Decent account's email and encrypted password SHALL be treated as sen
 
 ### Requirement: Decent upload state travels with the shots
 
-The per-shot Decent upload state (upload time, server shot id, uploaded-under serial, pending replacement, rejection) SHALL be carried with each shot when shot-history databases are merged during device migration and `.dcbackup` restore. A shot that was uploaded on the source device SHALL be recognised as uploaded on the destination and not uploaded again.
+The per-shot upload state (Decent: upload time, server shot id, uploaded-under serial, pending replacement, rejection, failure; Visualizer: rejection and failure) SHALL be carried with each shot when shot-history databases are merged during device migration and `.dcbackup` restore. A shot that was uploaded on the source device SHALL be recognised as uploaded on the destination and not uploaded again.
 
 #### Scenario: Migrated history is not re-uploaded
 - **WHEN** a history containing 500 uploaded shots is migrated and the user links the same Decent account on the new device
-- **THEN** the backlog drain does not re-upload any of those 500 shots
+- **THEN** Upload missing shots does not offer any of those 500 shots

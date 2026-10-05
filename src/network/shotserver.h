@@ -247,6 +247,9 @@ private:
     // Settings test/connect endpoints
     void handleAccountConnect(QTcpSocket* socket, const QByteArray& body, const QString& destination);
     void handleAccountDisconnect(QTcpSocket* socket, const QString& destination);
+    // Upload missing shots for a destination, and its count and progress (ShotUploads::missing).
+    void handleUploadMissing(QTcpSocket* socket, const QString& destination);
+    void handleGetUploadMissing(QTcpSocket* socket);
     void handleAiTest(QTcpSocket* socket, const QByteArray& body);
     void handleMqttConnect(QTcpSocket* socket, const QByteArray& body);
     void handleMqttDisconnect(QTcpSocket* socket);

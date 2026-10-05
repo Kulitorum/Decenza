@@ -106,6 +106,10 @@ public:
     bool isFlowing() const;
     bool isHeating() const;
     bool isReady() const;
+    // The machine is carrying out an operation (espresso, steam, hot water, flush,
+    // descale, clean, transport). Refill is not one: it can stay latched while the
+    // user tops up the tank.
+    bool isOperating() const;
     double shotTime() const;
     double targetWeight() const { return m_targetWeight; }
     // A target of zero disables stop-at-weight, so a live decrease must stop above it.

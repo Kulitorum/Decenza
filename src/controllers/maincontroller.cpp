@@ -18,6 +18,7 @@
 #include "../core/settings_calibration.h"
 #include "../core/settings_mqtt.h"
 #include "../core/settings_hardware.h"
+#include "../core/settings_decent.h"
 #include "../core/settings_visualizer.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
@@ -354,6 +355,23 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
     m_visualizer->setStorage(m_shotHistory);
     m_shotUploads = new ShotUploads(m_settings->upload(), m_shotHistory, {m_visualizer, m_decentUploader}, this);
+    if (m_machineState) {
+        const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };
+        connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);
+        operating();
+    }
+    // A destination switched on or off, or signed in or out, changes what it is
+    // missing, and one back on picks up a run it could not resume at startup.
+    for (auto changed : {&ShotUploads::refreshMissing, &ShotUploads::resumeMissingRuns}) {
+        connect(m_settings->visualizer(), &SettingsVisualizer::visualizerActiveChanged, m_shotUploads, changed);
+        connect(m_settings->decent(), &SettingsDecent::activeChanged, m_shotUploads, changed);
+    }
+    // An Upload missing shots run a restart interrupted resumes once the history is readable.
+    if (m_shotHistory->isReady())
+        m_shotUploads->resumeMissingRuns();
+    connect(m_shotHistory, &ShotHistoryStorage::readyChanged, m_shotUploads, [this]() {
+        if (m_shotHistory->isReady()) m_shotUploads->resumeMissingRuns();
+    });
 
     // profile-usage-history: ProfileManager owns the usage data (profileUsage,
     // fed to the picker and usage-mode favorites resort); ShotHistoryStorage

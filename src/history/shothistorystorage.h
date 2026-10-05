@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 43;
+    static constexpr int kCurrentSchemaVersion = 44;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -114,13 +114,23 @@ public:
     // `stillPending`: an edit landed while the upload was out, so it may not be in it.
     void requestRecordDecentUpload(qint64 shotId, const QString& serverShotId, const QString& serial,
                                    bool stillPending);
-    void requestRecordDecentRejection(qint64 shotId, int httpStatus);
     // Only for a shot already uploaded: its latest edit still has to reach Decent.
     void requestMarkDecentReplacePending(qint64 shotId);
     // Emits decentUploadStateReady(shotId, {uploaded, serverShotId, serial,
     // replacePending, rejected, rejectedStatus}) for the shot pages.
     Q_INVOKABLE void requestDecentUploadState(qint64 shotId);
     static bool loadDecentUploadStateStatic(QSqlDatabase& db, qint64 shotId, DecentUploadState* out);
+
+    // The outcome every upload destination records the same way (D15), in
+    // <destination>_failed_at and <destination>_rejected_at/_status. Column names
+    // are built from ShotUploadDestination::name(), so only "decent" and
+    // "visualizer" are accepted: a third destination needs the allow-list in
+    // requestRecordUploadOutcome, requestClearUploadRejections and a migration.
+    enum class UploadOutcome { Sent, Failed, Rejected };
+    void requestRecordUploadOutcome(qint64 shotId, const QString& destination, UploadOutcome outcome,
+                                    int httpStatus = 0);
+    // An edit may make a refused shot acceptable, so it clears every destination's rejection.
+    void requestClearUploadRejections(qint64 shotId);
     // Runs `task` on the serial DB worker, after every write already queued —
     // so a reader sees an edit the user just saved (the post-shot review page
     // saves, then uploads). The task opens its own connection with withTempDb.
@@ -673,6 +683,7 @@ signals:
     void backupFinished(bool success, const QString& resultPath);
     void visualizerInfoUpdated(qint64 shotId, bool success);
     void decentUploadStateUpdated(qint64 shotId, bool success);
+    void uploadOutcomeUpdated(qint64 shotId, bool success);
     void decentUploadStateReady(qint64 shotId, const QVariantMap& state);
     // Emitted after requestReconcileVisualizerLinks finishes. `ok` is
     // false if the DB could not be opened or a SQL step failed — the
@@ -698,7 +709,11 @@ private:
     // marshals results back to the main thread itself. Heavy one-shot ops
     // (backup/import) deliberately stay on their own threads.
     void runOnDbThread(std::function<void()> task);
-    // `ifLost` is the consequence of a failed write, logged with it.
+    // One UPDATE of a shot's upload state on the DB thread. `ifLost` is the
+    // consequence of a failed write, logged with it; `report` runs back on the
+    // storage's own thread with the result.
+    void runUploadStateWrite(qint64 shotId, const QString& what, const char* ifLost,
+                             std::function<bool(QSqlQuery&)> bindAndExec, std::function<void(bool)> report);
     void runDecentStateWrite(qint64 shotId, const char* what, const char* ifLost,
                              std::function<bool(QSqlQuery&)> bindAndExec);
 

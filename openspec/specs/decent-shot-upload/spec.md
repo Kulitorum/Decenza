@@ -1,12 +1,13 @@
-## Purpose
+# decent-shot-upload Specification
 
+## Purpose
 Uploads the user's espresso shots to their linked Decent account, so they appear in the account's shot history alongside shots from de1app and Decaid. Covers the payload, new shots, edited shots, the history backlog, and the per-shot record of what was sent.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Decent switch and shared upload settings
 
-Uploading to Decent SHALL have its own on/off switch, off until an account is linked; linking switches it on, and the user can switch it off. Automatic behaviour SHALL follow the Shot Upload tab's shared Upload settings ("Auto-upload shots", "Auto-update shots", "Minimum Duration"), which also govern Visualizer; Decent SHALL NOT have separate copies of them. No shot SHALL be sent to Decent while its switch is off or no account is linked. Turning the switch on with a linked account SHALL start the backlog drain.
+Uploading to Decent SHALL have its own on/off switch, off until an account is linked; linking switches it on, and the user can switch it off. Automatic behaviour SHALL follow the Shot Upload tab's shared Upload settings ("Auto-upload shots", "Auto-update shots", "Minimum Duration"), which also govern Visualizer; Decent SHALL NOT have separate copies of them. No shot SHALL be sent to Decent while its switch is off or no account is linked. Turning the switch on SHALL NOT send saved shots by itself; they are offered by Upload missing shots.
 
 #### Scenario: Linked but switched off
 - **WHEN** a user links a Decent account and then switches Decent off
@@ -14,7 +15,7 @@ Uploading to Decent SHALL have its own on/off switch, off until an account is li
 
 #### Scenario: Switching Decent off
 - **WHEN** the user switches Decent off
-- **THEN** no further Decent upload or backlog request is started
+- **THEN** no further Decent upload is started, including an Upload missing shots run
 
 #### Scenario: One minimum length
 - **WHEN** the shared minimum shot length is 6 seconds and both destinations are on
@@ -34,7 +35,7 @@ A shot SHALL be uploaded automatically only when all of these hold: it is a save
 
 ### Requirement: Machine identity in the payload
 
-Every uploaded document SHALL carry `machine.serialNumber`, and SHALL carry `machine.firmwareVersion` and `machine.model` when known. For a first upload these SHALL come from the DE1 connected at the time of upload; the serial is not stored with the shot itself. A replacement of an already-uploaded shot SHALL reuse the serial the shot was first uploaded under, so it lands on the same machine in the account. If no DE1 is connected when a first upload is due, the shot SHALL wait for a later pass and SHALL NOT be marked rejected. In simulation mode the machine reports the fixed serial `SIM-DE1`. It is not a number, so no Decent account can own it, and the server refuses its uploads (403): the simulator exercises sign-in, the request and the response handling, and with `SIM-DE1` no simulated shot can reach an account. For testing a full upload, MCP `settings_set` `simulatorSerialNumber` SHALL make the simulator report a given serial until the app restarts. It SHALL never be saved and SHALL have no on-screen control; an empty value restores `SIM-DE1`.
+Every uploaded document SHALL carry `machine.serialNumber`, and SHALL carry `machine.firmwareVersion` and `machine.model` when known. For a first upload these SHALL come from the DE1 connected at the time of upload; the serial is not stored with the shot itself. A replacement of an already-uploaded shot SHALL reuse the serial the shot was first uploaded under, so it lands on the same machine in the account. If no DE1 is connected when a first upload is due, the shot SHALL NOT be sent or marked rejected, and stays offered by Upload missing shots. In simulation mode the machine reports the fixed serial `SIM-DE1`. It is not a number, so no Decent account can own it, and the server refuses its uploads (403): the simulator exercises sign-in, the request and the response handling, and with `SIM-DE1` no simulated shot can reach an account. For testing a full upload, MCP `settings_set` `simulatorSerialNumber` SHALL make the simulator report a given serial until the app restarts. It SHALL never be saved and SHALL have no on-screen control; an empty value restores `SIM-DE1`.
 
 #### Scenario: Shot uploaded right after it is pulled
 - **WHEN** an eligible shot is saved while a real DE1 is connected
@@ -46,7 +47,7 @@ Every uploaded document SHALL carry `machine.serialNumber`, and SHALL carry `mac
 
 #### Scenario: No machine connected
 - **WHEN** a never-uploaded shot is due and no real DE1 is connected
-- **THEN** it is not sent and remains eligible for a later pass
+- **THEN** it is not sent and remains offered by Upload missing shots
 
 #### Scenario: Replacement after switching machines
 - **WHEN** a shot first uploaded under serial A is edited while a machine with serial B is connected
@@ -89,7 +90,7 @@ With the Decent switch on and the shared "Auto-upload shots" setting on, the sys
 
 #### Scenario: Two shots back to back while offline
 - **WHEN** two shots are saved while the Decent server is unreachable
-- **THEN** both are uploaded later by the backlog drain, and neither is marked rejected
+- **THEN** both are recorded as failed and offered by Upload missing shots, and neither is marked rejected
 
 ### Requirement: Edited shots are re-uploaded with replace
 
@@ -102,46 +103,54 @@ When the metadata of a shot that has already been uploaded changes — from the 
 
 #### Scenario: Edit while offline
 - **WHEN** an uploaded shot is edited while the Decent server is unreachable
-- **THEN** the replacement is sent on a later pass once the server is reachable
+- **THEN** the shot stays marked replace-pending and is offered by Upload missing shots
 
 #### Scenario: Recording upload state
 - **WHEN** the uploader records a successful upload on a shot
 - **THEN** that write does not cause another upload of the same shot
 
-### Requirement: Backlog drain runs only while the machine is idle
+### Requirement: Missing shots are tracked and offered for upload per destination
 
-With the Decent switch on, the shared "Auto-upload shots" setting on, and an account linked, the system SHALL upload eligible shots that were never uploaded, and pending replacements, newest shot first. It SHALL run only while no espresso, steam, hot water or flush operation is in progress, and SHALL stop starting new requests as soon as one begins. It SHALL send at most 5 shots per batch, with at least 30 seconds between batches. It SHALL start when the Decent switch or the shared automatic upload is turned on, when an account is linked or re-linked, at app start, and whenever the machine returns to idle or sleep, and SHALL continue batch by batch until no eligible shot remains.
+The system SHALL NOT retry an upload automatically beyond its 3 attempts. An upload that still fails after them (no response, no connection, a server error) SHALL be recorded on the shot for that destination and cleared when the shot uploads; a permanent rejection is not a failure. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload missing shots button while that destination is switched on and connected and is missing at least one eligible, non-rejected shot, showing how many and how many of them failed; with none missing it SHALL offer no button. Pressing it SHALL send edits the destination missed first (Decent: replace-pending; Visualizer: unsent edits), then those shots, newest first, through the shared upload path, at most 5 per batch with at least 30 seconds between batches, only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button.
 
-#### Scenario: Enabling with existing history
-- **WHEN** a user with 1,000 never-uploaded shots switches Decent on while the machine is idle
-- **THEN** shots are uploaded newest first, at most 5 per batch, with at least 30 seconds between batches
+#### Scenario: Upload fails three times
+- **WHEN** a new shot's Decent upload gets no response on all 3 attempts
+- **THEN** the shot is recorded as failed for Decent, nothing retries it automatically, and the Decent card offers Upload missing shots with 1 failed
 
-#### Scenario: Shot started mid-drain
-- **WHEN** the user starts an espresso while the backlog is draining
+#### Scenario: Pressing the button
+- **WHEN** a user with 1,000 shots the Decent account does not hold presses Upload missing shots while the machine is idle
+- **THEN** shots are uploaded newest first, at most 5 per batch, with at least 30 seconds between batches, and the card shows the progress
+
+#### Scenario: Shot started mid-run
+- **WHEN** the user starts an espresso while missing shots are uploading
 - **THEN** no new upload request is started until the machine is idle again
-- **AND** the drain resumes where it stopped
+- **AND** the run resumes where it stopped
 
-#### Scenario: Backlog completes
+#### Scenario: Nothing missing
 - **WHEN** every eligible shot is uploaded or rejected
-- **THEN** the drain stops and makes no further requests until a new trigger
+- **THEN** the card offers no button until a shot is missing again
+
+#### Scenario: Never automatic
+- **WHEN** a destination is switched on, an account is linked or the app starts, and the button was not pressed
+- **THEN** no saved shot is uploaded by the history mechanism
 
 ### Requirement: Retry and rejection rules
 
-A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot as uploaded, including a first upload answered `"duplicate":true`, which means the server already holds that id; a 2xx without `"ok":true` stored nothing and SHALL be transient. A replace answered `"duplicate":true` kept the server's earlier copy: the shot SHALL stay marked as having an edit to send, and the user SHALL be told the edit was not saved. A transport failure or timeout, or HTTP 404, 405, 408, 410, 429 or 5xx (an endpoint or server problem, not the shot), SHALL be transient: the request SHALL be retried up to 3 attempts with increasing delay, and after that the shot SHALL be left for a later drain pass, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL stop automatic uploads, tell the user that machine serial is not in their Decent account, and resume on re-link or the next app start. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
+A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot as uploaded, including a first upload answered `"duplicate":true`, which means the server already holds that id; a 2xx without `"ok":true` stored nothing and SHALL be transient. A replace answered `"duplicate":true` kept the server's earlier copy: the shot SHALL stay marked as having an edit to send, and the user SHALL be told the edit was not saved. A transport failure or timeout, or HTTP 404, 405, 408, 410, 429 or 5xx (an endpoint or server problem, not the shot), SHALL be transient: the request SHALL be retried up to 3 attempts, 2 s then 4 s apart, and after that the shot SHALL be recorded as failed for that destination and offered by Upload missing shots, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL drop what is queued for Decent and end any Upload missing shots run, and tell the user that machine serial is not in their Decent account. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
 
 #### Scenario: Server error
 - **WHEN** an upload returns HTTP 503 three times
 - **THEN** the shot is not marked rejected
-- **AND** a later drain pass retries it
+- **AND** it is recorded as failed and offered by Upload missing shots
 
 #### Scenario: Invalid document
 - **WHEN** an upload returns HTTP 400
 - **THEN** the shot is recorded as rejected with status 400
-- **AND** the drain moves on to the next shot and never offers this one again automatically
+- **AND** a missing-shots run moves on to the next shot and never offers this one again
 
 #### Scenario: Machine not in account
 - **WHEN** an upload returns HTTP 403
-- **THEN** automatic uploads stop and the user sees that the machine's serial is not registered to their Decent account
+- **THEN** shots queued for Decent are dropped, any Upload missing shots run ends, and the user sees that the machine's serial is not registered to their Decent account
 
 #### Scenario: Already on the server
 - **WHEN** the server responds `"stored":false,"duplicate":true`
@@ -149,11 +158,11 @@ A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot a
 
 ### Requirement: Per-shot upload state is persistent
 
-Each shot SHALL durably record: when it was last uploaded successfully, the server's shot id, the machine serial it was uploaded under, whether a replacement is pending, and any permanent rejection with its HTTP status and time. This state SHALL survive app restarts and SHALL be the only basis for deciding what the backlog drain still needs to send.
+Each shot SHALL durably record: when it was last uploaded successfully, the server's shot id, the machine serial it was uploaded under, whether a replacement is pending, any permanent rejection with its HTTP status and time, and when its upload last failed. This state SHALL survive app restarts and SHALL be the only basis for deciding what Upload missing shots offers.
 
-#### Scenario: Restart mid-backlog
-- **WHEN** the app is restarted partway through a backlog drain
-- **THEN** shots already uploaded are not uploaded again, and the drain continues with the rest
+#### Scenario: Restart mid-run
+- **WHEN** the app is restarted partway through an Upload missing shots run
+- **THEN** shots already uploaded are not uploaded again, and the run resumes with the rest
 
 ### Requirement: Upload status and links are visible
 
@@ -189,5 +198,4 @@ The ShotServer settings page SHALL let the user link and unlink the Decent accou
 
 #### Scenario: Switch Decent on from the web
 - **WHEN** the user switches Decent on from the ShotServer settings page
-- **THEN** the in-app switch reflects it and the backlog drain starts
-
+- **THEN** the in-app switch reflects it

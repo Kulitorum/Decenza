@@ -7,7 +7,7 @@ Decent now stores owners' shots in their Decent account at decentespresso.com, w
 - **Link a Decent account.** A settings section where the user enters their decentespresso.com email and password once. Decenza calls `GET /support/api/login_test`, keeps only the encrypted password the server returns (`cryptpw`), and discards the plaintext. This is exactly what Decaid (`DecentAccountService.login`) and de1app do. Later calls authenticate with HTTP Basic `email:cryptpw`. Unlink clears both values. OAuth2/PKCE is out of scope: neither Decent app uses it, and it needs a client registration from Decent.
 - **Auto-upload new shots.** Decent gets its own on/off switch, off by default as in Decaid. When it is on, each saved espresso shot that passes the shared minimum length is POSTed to `/support/api/shot_upload` as a Decaid `ShotRecord` JSON document carrying the machine serial.
 - **Re-upload edited shots.** When an already-uploaded shot's metadata changes (beans, grinder, notes, rating, TDS…) and automatic update is on, Decenza re-posts it with `?replace=1`, so the account copy matches the local one.
-- **Backlog drain.** As both Decent apps do, Decenza works through existing history that was never uploaded, in small throttled batches, only while the machine is idle or asleep. Transient failures retry; permanent 4xx rejections are recorded per shot and not retried automatically.
+- **Missing shots.** Unlike both Decent apps, saved shots are never uploaded automatically beyond a shot's own 3 attempts. An upload that still fails is recorded, and each destination's card offers **Upload missing shots** whenever that destination is missing any — the whole history before the first press, failed uploads afterwards. The run goes in small throttled batches, only while the machine is idle; permanent 4xx rejections are recorded per shot and not retried.
 - **Per-shot upload state.** Each shot row records when it was uploaded, the server's shot id, the serial it was uploaded under, and any permanent rejection. This is what keeps backlog drain and replace idempotent across restarts.
 - **View in account.** A "View my shots on decentespresso.com" action calls `GET /support/api/authenticated_redirect` and opens the one-time URL in the browser, already signed in. Each uploaded shot also gets a direct link (`/support/espressomachine?view=chart&sn=<sn>&id=<id>`) on the shot detail.
 - **One Upload button.** The review page's Visualizer button becomes a single Upload button. It sends the shot to every destination that is switched on and connected, and also retries a shot Decent skipped or rejected.
@@ -16,7 +16,7 @@ Decent now stores owners' shots in their Decent account at decentespresso.com, w
 - **Surface parity.** The account link, both switches and the shared settings appear on the ShotServer web settings page and in MCP `settings_get`/`settings_set`. The encrypted password is never exposed by either.
 - The wiki manual gets a short entry for the new setting.
 
-Implementation is staged and gated on the live server: manual upload first, then automatic upload, then the backlog drain (design D12).
+Implementation is staged and gated on the live server: manual upload first, then automatic upload, then tracked failures and the missing-shots button (design D12, D14).
 
 No breaking changes. Visualizer upload is untouched and independent; a user can upload to both.
 
@@ -24,7 +24,7 @@ No breaking changes. Visualizer upload is untouched and independent; a user can 
 
 ### New Capabilities
 - `decent-account-link`: linking and unlinking a decentespresso.com account (login_test exchange, encrypted-credential storage, auth-failure state, authenticated browser redirect), reusable by later Decent API features.
-- `decent-shot-upload`: uploading shots to the linked account — the payload contract, auto-upload of new shots, replace-on-edit, idle-only backlog drain, retry/rejection rules, per-shot upload state, and the manual and view actions.
+- `decent-shot-upload`: uploading shots to the linked account — the payload contract, auto-upload of new shots, replace-on-edit, failed-upload tracking and the missing-shots button, retry/rejection rules, per-shot upload state, and the manual and view actions.
 
 ### Modified Capabilities
 - `data-transfer-coverage`: the Decent account credentials SHALL be excluded from backup and device migration (they are an account secret, like the Visualizer password). Per-shot upload state SHALL travel with the shot rows, so a migrated history does not re-upload.

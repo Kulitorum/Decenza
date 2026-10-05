@@ -102,7 +102,8 @@ class VisualizerUploader : public QObject, public ShotUploadDestination {
 public:
     explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
-    bool isUploading() const { return m_uploading; }
+    // A request is out, or a ShotUploads send is in progress (reading, sending or waiting to retry).
+    bool isUploading() const { return m_uploading || m_jobShotId != 0; }
     // True when a queue snapshot was dropped because a pass was already
     // draining. The caller re-reads the queue on beanRepairFinished when set;
     // accepting any later snapshot clears it.
@@ -117,9 +118,12 @@ public:
     // is already on Visualizer.
     QString name() const override { return QStringLiteral("visualizer"); }
     bool isActive() const override;
-    bool busy() const override { return m_jobShotId != 0; }
     bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
-    void sendSavedShot(qint64 shotId, Send how) override;
+    QString heldCondition() const override { return QStringLiteral("COALESCE(visualizer_id, '') != ''"); }
+    QString unsentEditCondition() const override { return QStringLiteral("visualizer_dirty != 0"); }
+    void attemptSavedShot(qint64 shotId, Send how) override;
+    // Publishes the send's result: savedShotFinished, and a failure's status.
+    void sendFinished(qint64 shotId, Attempt last) override;
 
     // Inject the TranslationManager so user-visible upload/status/error strings
     // localize (mirrors VisualizerImporter). Wired from
@@ -128,7 +132,7 @@ public:
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
-    // false if nothing was sent. Outside sendSavedShot only for the migration-16
+    // false if nothing was sent. Outside ShotUploads only for the migration-16
     // back-sync, which carries its own id.
     bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
     // The {"shot": ...} object of that PATCH. Pure, so the field-subset rule is
@@ -236,7 +240,6 @@ public:
     // blob→API field mapping and the fill-blanks contract are unit-tested.
     static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
 
-
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -264,8 +267,8 @@ signals:
     // migration-16 drain is safe by construction: it listens only to the
     // PATCH-correlated updateFailed, which upload-policy skips never emit.
     void uploadSkipped(const QString& reason);
-    // One sendSavedShot job is done: an empty error and skip reason mean it was
-    // uploaded, updated, or had nothing to send.
+    // A send ShotUploads made is over, after its last attempt: an empty error and
+    // skip reason mean it was uploaded, updated, or had nothing to send.
     void savedShotFinished(qint64 shotId, const QString& error, const QString& skipReason);
     void accountConnectFinished(AccountLink::Error error);
     void connectingChanged();
@@ -294,8 +297,11 @@ private slots:
 private:
     // False if nothing was sent (unreadable or ineligible shot, no account).
     bool uploadShotFromHistory(const ShotProjection& shotData);
-    // Ends the sendSavedShot job for this shot, if it is the running one.
-    void endJob(qint64 shotId);
+    // Ends this attempt of the job's send with `outcome` (ShotUploads may retry it).
+    void endAttempt(qint64 shotId, Outcome outcome, int httpStatus = 0);
+    void setUploading(bool uploading);
+    // True when the job's failed attempt is left for sendFinished to announce (ShotUploads may retry it).
+    bool jobAttemptMayRetry(Outcome outcome, const QString& visualizerId = QString()) const;
     // Clears the fields the running job sent from the shot's unsent edits, if
     // their seq was read.
     void clearJobDirty();
@@ -453,21 +459,11 @@ private:
     // uploadSucceededForShot. ShotUploads sends one shot at a time.
     qint64 m_uploadingDbShotId = 0;
 
-    // Bounded auto-retry for the upload POST on a transient failure (transport
-    // error/timeout or 5xx — never auth/validation/429). Same single-in-flight
-    // assumption as m_uploadingDbShotId. m_uploadRetries is reset in
-    // uploadShotFromHistory; m_lastUploadJson is refreshed in
-    // sendUpload() before every POST (including retries) so the re-POST needs no
-    // shot state.
-    QByteArray m_lastUploadJson;
-    int m_uploadRetries = 0;
-    static constexpr int kMaxUploadRetries = 2;
-
     // Coffee Management sync state (see CmState above).
     CmState m_cmState = CmState::Unknown;
     QString m_localDbPath;
     ShotHistoryStorage* m_storage = nullptr;
-    // The shot sendSavedShot is working on; 0 when idle.
+    // The shot ShotUploads is sending, from its first attempt until sendFinished; 0 when idle.
     qint64 m_jobShotId = 0;
     Send m_jobHow = Send::UploadOrUpdate;
     QString m_jobError;
@@ -483,6 +479,8 @@ private:
     // read (-1 if unread): a success clears those fields only if no edit landed since.
     quint32 m_jobFields = 0;
     qint64 m_jobDirtySeq = -1;
+    // The send already re-uploaded after a PATCH 404 (at most once).
+    bool m_jobRelinked = false;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
     static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";

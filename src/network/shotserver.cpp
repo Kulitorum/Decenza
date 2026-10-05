@@ -2175,6 +2175,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if ((path == "/api/settings/visualizer/disconnect" || path == "/api/settings/decent/disconnect") && method == "POST") {
         handleAccountDisconnect(socket, path.section(QLatin1Char('/'), 3, 3));
     }
+    else if ((path == "/api/settings/visualizer/upload-missing" || path == "/api/settings/decent/upload-missing")
+             && method == "POST") {
+        handleUploadMissing(socket, path.section(QLatin1Char('/'), 3, 3));
+    }
+    else if (path == "/api/settings/upload-missing") {
+        handleGetUploadMissing(socket);
+    }
     else if (path == "/api/settings/ai/test" && method == "POST") {
         qsizetype bodyStart = request.indexOf("\r\n\r\n");
         if (bodyStart != -1) {

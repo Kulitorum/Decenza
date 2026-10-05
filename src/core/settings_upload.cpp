@@ -44,3 +44,16 @@ void SettingsUpload::setMinDuration(double seconds) {
         emit minDurationChanged();
     }
 }
+
+qint64 SettingsUpload::missingRunStartedAt(const QString& destination) const {
+    return m_settings.value(QStringLiteral("upload/missingRun/") + destination, 0).toLongLong();
+}
+
+void SettingsUpload::setMissingRunStartedAt(const QString& destination, qint64 secsSinceEpoch) {
+    const QString key = QStringLiteral("upload/missingRun/") + destination;
+    if (secsSinceEpoch > 0)
+        m_settings.setValue(key, secsSinceEpoch);
+    else
+        m_settings.remove(key);
+}
+

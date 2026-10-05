@@ -27,6 +27,7 @@
 #include "core/diagnosticlogging.h"
 #include "core/logfields.h"
 #include "visualizeruploader.h"
+#include "network/shotuploads.h"
 #include "beanbase_blob.h"
 #include "roastdate.h"
 #include "tastecvamap.h"
@@ -97,12 +98,18 @@ bool VisualizerUploader::isActive() const
     return m_settings->visualizer()->visualizerActive();
 }
 
-void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
+void VisualizerUploader::attemptSavedShot(qint64 shotId, Send how)
 {
-    if (busy()) return;
-    if (shotId <= 0 || !m_storage) { notifyIdle(); return; }
+    if (shotId <= 0 || !m_storage) { finishAttempt({Outcome::NothingToSend, 0}); return; }
+    const bool wasUploading = isUploading();
     m_jobShotId = shotId;
     m_jobHow = how;
+    m_jobError.clear();
+    m_jobSkipReason.clear();
+    m_jobVisualizerId.clear();
+    m_jobFields = 0;
+    m_jobDirtySeq = -1;
+    if (isUploading() != wasUploading) emit uploadingChanged();
     const QString dbPath = m_storage->databasePath();
     QPointer<VisualizerUploader> self(this);
     m_storage->runAfterQueuedWrites([self, dbPath, shotId, how]() {
@@ -136,7 +143,7 @@ void VisualizerUploader::sendSavedShot(qint64 shotId, Send how)
                 self->m_jobFields = VisualizerSync::kAllFields;
                 sent = self->uploadShotFromHistory(shot);
             }
-            if (!sent) self->endJob(shotId);
+            if (!sent) self->endAttempt(shotId, Outcome::NothingToSend);
         }, Qt::QueuedConnection);
     });
 }
@@ -161,18 +168,48 @@ void VisualizerUploader::noteJobFailure(const QString& message, const QString& v
         m_jobError = message;
 }
 
-void VisualizerUploader::endJob(qint64 shotId)
+void VisualizerUploader::setUploading(bool uploading)
+{
+    const bool wasUploading = isUploading();
+    m_uploading = uploading;
+    if (isUploading() != wasUploading) emit uploadingChanged();
+}
+
+bool VisualizerUploader::jobAttemptMayRetry(Outcome outcome, const QString& visualizerId) const
+{
+    return outcome == Outcome::Transient && m_jobShotId != 0
+           && (visualizerId.isEmpty() || visualizerId == m_jobVisualizerId);
+}
+
+void VisualizerUploader::endAttempt(qint64 shotId, Outcome outcome, int httpStatus)
 {
     if (m_jobShotId == 0 || m_jobShotId != shotId) return;
+    m_jobVisualizerId.clear();
+    finishAttempt({outcome, httpStatus});
+}
+
+void VisualizerUploader::sendFinished(qint64 shotId, Attempt last)
+{
+    if (m_jobShotId != shotId) return;
     const QString error = m_jobError, skipReason = m_jobSkipReason;
-    m_jobShotId = 0;
+    // A transient failure is announced once, when no attempt follows it.
+    if (last.outcome == Outcome::Transient) {
+        m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(error);
+        emit lastUploadStatusChanged();
+        emit uploadFailed(error);
+        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("shot %1 not uploaded after %2 attempts (HTTP %3: %4)")
+            .arg(shotId).arg(ShotUploads::kAttempts).arg(last.httpStatus).arg(error);
+    }
     m_jobVisualizerId.clear();
     m_jobError.clear();
     m_jobSkipReason.clear();
     m_jobFields = 0;
     m_jobDirtySeq = -1;
+    m_jobRelinked = false;
+    const bool wasUploading = isUploading();
+    m_jobShotId = 0;
+    if (isUploading() != wasUploading) emit uploadingChanged();
     emit savedShotFinished(shotId, error, skipReason);
-    notifyIdle();
 }
 
 bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
@@ -196,7 +233,6 @@ bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
         machineState["headless"] = m_device->isHeadless() ? 1 : 0;
     }
     m_uploadingDbShotId = shotData.id;
-    m_uploadRetries = 0;
     ++m_shotPushGeneration[shotData.id];
     // Visualizer reads uploaded notes as Markdown, so escape them to read as
     // typed. Here, not in buildHistoryShotJson, which also writes local exports.
@@ -306,8 +342,7 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         return false;
     }
 
-    m_uploading = true;
-    emit uploadingChanged();
+    setUploading(true);
     m_lastUploadStatus = tr_("visualizer.status.updating", "Updating...");
     emit lastUploadStatusChanged();
 
@@ -344,12 +379,12 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 
 void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& visualizerId)
 {
-    m_uploading = false;
-    emit uploadingChanged();
+    setUploading(false);
 
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray response = reply->readAll();
 
+    Outcome outcome = Outcome::Sent;
     if (reply->error() == QNetworkReply::NoError) {
         m_lastUploadStatus = tr_("visualizer.status.updateSuccess", "Update successful");
         emit lastUploadStatusChanged();
@@ -361,36 +396,39 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         const QString errorMsg = statusCode == 404
             ? tr_("visualizer.error.shotNotFound", "Shot not found on Visualizer")
             : apiErrorMessage(statusCode, response, reply->errorString());
-
-        m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
-        emit lastUploadStatusChanged();
+        // 404: the shot is gone from Visualizer, so it no longer holds it (below).
+        outcome = statusCode == 404 ? Outcome::NothingToSend : responseOutcome(statusCode, statusCode == 0);
         noteJobFailure(errorMsg, visualizerId);
-        emit uploadFailed(errorMsg);
-        // 404 is the one terminal outcome: the shot is gone from (or was
-        // never on) Visualizer, so no retry can ever succeed. Everything
-        // else — offline, 5xx, 401 (fixable credentials), 422 — is worth
-        // retrying on a later boot.
+        if (jobAttemptMayRetry(outcome, visualizerId)) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << QStringLiteral("Update attempt failed: remoteShotId=%1 httpStatus=%2 networkError=%3")
+                .arg(DecenzaLog::field(visualizerId)).arg(statusCode).arg(int(reply->error()));
+        } else {
+            m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
+            emit lastUploadStatusChanged();
+            emit uploadFailed(errorMsg);
+            DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Update failed: remoteShotId=%1 httpStatus=%2 networkError=%3")
+                .arg(DecenzaLog::field(visualizerId)).arg(statusCode).arg(int(reply->error()));
+        }
+        // The migration-16 back-sync, which PATCHes outside ShotUploads, retries
+        // on a later boot unless the shot is gone.
         emit updateFailed(visualizerId, statusCode == 404, errorMsg);
-        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Update failed: remoteShotId=%1 httpStatus=%2 networkError=%3")
-            .arg(DecenzaLog::field(visualizerId)).arg(statusCode).arg(int(reply->error()));
     }
 
     reply->deleteLater();
     if (m_jobVisualizerId.isEmpty() || visualizerId != m_jobVisualizerId) return;
     if (statusCode == 404) {
         // Deleted on visualizer.coffee: drop the dead link, and upload the shot again
-        // if the job was an upload. The clear is queued before the re-read.
-        const qint64 shotId = m_jobShotId;
-        m_storage->requestClearStaleVisualizerLink(shotId, visualizerId);
-        if (m_jobHow == Send::UploadOrUpdate) {
-            m_jobShotId = 0;
-            m_jobVisualizerId.clear();
-            m_jobError.clear();
-            sendSavedShot(shotId, Send::UploadOrUpdate);
+        // within this attempt if the job was an upload. The clear is queued before the
+        // re-read. Once per send: if the clear failed, the re-read would PATCH again.
+        m_storage->requestClearStaleVisualizerLink(m_jobShotId, visualizerId);
+        if (m_jobHow == Send::UploadOrUpdate && !m_jobRelinked) {
+            m_jobRelinked = true;
+            attemptSavedShot(m_jobShotId, Send::UploadOrUpdate);
             return;
         }
+        if (m_jobRelinked) outcome = Outcome::Transient;
     }
-    endJob(m_jobShotId);
+    endAttempt(m_jobShotId, outcome, statusCode);
 }
 
 void VisualizerUploader::connectAccount(const QString& username, const QString& password)
@@ -444,8 +482,7 @@ void VisualizerUploader::disconnectAccount()
 void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 {
     const qint64 diagnosticShotId = m_uploadingDbShotId; // Result signals may start another upload.
-    m_uploading = false;
-    emit uploadingChanged();
+    setUploading(false);
 
     // Save response to debug file
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -459,6 +496,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         file.close();
     }
 
+    Outcome outcome = Outcome::Sent;
     if (reply->error() == QNetworkReply::NoError) {
         QJsonDocument doc = QJsonDocument::fromJson(response);
         QJsonObject obj = doc.object();
@@ -486,46 +524,39 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // local shot row never gets its visualizer_id and the bag sync
             // chain never runs. Surface it so the user sees an error and a
             // retry path, instead of a benign-looking "completed" status.
-            m_lastUploadStatus = tr_("visualizer.error.noShotIdReturned", "Upload returned no shot id (unexpected response)");
-            emit lastUploadStatusChanged();
-            DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
-                .arg(diagnosticShotId).arg(statusCode);
-            noteJobFailure(m_lastUploadStatus);
-            emit uploadFailed(m_lastUploadStatus);
+            // The row stays unlinked and the bag sync never runs, so it is retried;
+            // if Visualizer did store it, a retry may duplicate it.
+            outcome = Outcome::Transient;
+            const QString message = tr_("visualizer.error.noShotIdReturned", "Upload returned no shot id (unexpected response)");
+            const QString line = QStringLiteral("Upload failed: reason=missingShotId shotId=%1 httpStatus=%2")
+                                     .arg(diagnosticShotId).arg(statusCode);
+            if (jobAttemptMayRetry(outcome))
+                DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << line;
+            else
+                DIAG_WARN(VISUALIZER, "VisualizerUploader") << line;
+            noteJobFailure(message);
         }
     } else {
-        // Transient failures (transport error/timeout = no HTTP status, or a 5xx
-        // server blip) auto-retry the same payload a bounded number of times.
-        // Auth (401), validation (422), and rate-limit (429 — retrying worsens
-        // it) are permanent here; the once-per-device reconciliation backfill
-        // recovers anything that still slips through.
-        const bool transient = (statusCode == 0 || statusCode >= 500);
-        if (transient && m_uploadRetries < kMaxUploadRetries && !m_lastUploadJson.isEmpty()) {
-            ++m_uploadRetries;
-            DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload retry: shotId=%1 httpStatus=%2 networkError=%3 attempt=%4 limit=%5")
-                .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()))
-                .arg(m_uploadRetries).arg(kMaxUploadRetries);
-            reply->deleteLater();
-            sendUpload(m_lastUploadJson);  // keeps m_uploadingDbShotId for the retry
-            return;
-        }
-
+        outcome = responseOutcome(statusCode, statusCode == 0);
         const QString errorMsg = apiErrorMessage(statusCode, response, reply->errorString());
-
-        m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
-        emit lastUploadStatusChanged();
         noteJobFailure(errorMsg);
-        emit uploadFailed(errorMsg);
-        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: shotId=%1 httpStatus=%2 networkError=%3")
-            .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()));
+        if (jobAttemptMayRetry(outcome)) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload attempt failed: shotId=%1 httpStatus=%2 networkError=%3")
+                .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()));
+        } else {
+            m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
+            emit lastUploadStatusChanged();
+            emit uploadFailed(errorMsg);
+            DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Upload failed: shotId=%1 httpStatus=%2 networkError=%3")
+                .arg(diagnosticShotId).arg(statusCode).arg(int(reply->error()));
+        }
     }
 
-    // Clear the per-upload id on every terminal outcome (success,
-    // no-id, or failure) so a subsequent upload can't inherit a stale
-    // correlation. ShotUploads never overlaps uploads; m_uploading is UI-only.
+    // Cleared at every attempt's end, so a later upload cannot inherit a stale
+    // correlation. ShotUploads never overlaps uploads.
     m_uploadingDbShotId = 0;
     reply->deleteLater();
-    endJob(diagnosticShotId);
+    endAttempt(diagnosticShotId, outcome, statusCode);
 }
 
 void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
@@ -1230,8 +1261,7 @@ bool VisualizerUploader::validateUpload(const ShotProjection& shot)
         return false;
     }
 
-    m_uploading = true;
-    emit uploadingChanged();
+    setUploading(true);
     m_lastUploadStatus = tr_("visualizer.status.uploading", "Uploading...");
     emit lastUploadStatusChanged();
     return true;
@@ -1249,10 +1279,6 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     } else {
         DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Failed to save debug JSON to" << debugFile;
     }
-
-    // Retain the payload so onUploadFinished can re-POST it on a transient
-    // failure without rebuilding from (possibly-gone) shot state.
-    m_lastUploadJson = jsonData;
 
     // Build multipart form data
     QString boundary = QUuid::createUuid().toString(QUuid::WithoutBraces);

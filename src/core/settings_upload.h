@@ -24,6 +24,12 @@ public:
     double minDuration() const;
     void setMinDuration(double seconds);
 
+    // When this device's unfinished Upload missing shots run for `destination`
+    // started, in seconds since the epoch; 0 when there is none. Device state, so
+    // settings export leaves it out.
+    qint64 missingRunStartedAt(const QString& destination) const;
+    void setMissingRunStartedAt(const QString& destination, qint64 secsSinceEpoch);
+
 signals:
     void autoUploadChanged();
     void autoUpdateChanged();
