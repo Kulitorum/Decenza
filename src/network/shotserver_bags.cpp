@@ -729,6 +729,23 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
 
+        // POST /api/bag/<id>/restore — a finished bag back into inventory
+        if (action == "restore") {
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
+                [conn, bagId, respondJson](qint64 updatedId, bool success) {
+                    if (updatedId != bagId)
+                        return;
+                    disconnect(*conn);
+                    if (success)
+                        respondJson(QJsonObject{{"restored", true}, {"bagId", bagId}});
+                    else
+                        respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
+                });
+            bagStorage->requestUpdateBag(bagId, {{QStringLiteral("inInventory"), true}});
+            return;
+        }
+
         // POST /api/bag/<id>/delete — mistaken creations only (storage
         // refuses when any shot references the bag).
         if (action == "delete") {
@@ -1096,6 +1113,7 @@ QString ShotServer::generateBeansPage() const
                 // A finished bag offers only its way back, and its details.
                 let fin = '<div class="actions">'
                     + '<button class="primary" onclick="restockBag(' + b.id + ')">Restock</button>'
+                    + '<button onclick="restoreBag(' + b.id + ')">Restore</button>'
                     + '<button onclick="openEditor(' + b.id + ')">Edit</button>';
                 if (linked)
                     fin += '<button onclick="showInfo(' + b.id + ')">Info</button>';
@@ -1153,10 +1171,29 @@ QString ShotServer::generateBeansPage() const
         // Restock: a new bag of the same coffee, as the app's re-buy form —
         // identity, details and dial-in carry over; dates and notes belong to
         // the finished bag, which stays finished.
-        function restockBag(id) {
+        function restockBag(id, forRecipe) {
             const src = bags.find(x => x.id === id) || {};
+            restockForRecipe = forRecipe || 0;
             openEditor(0, src.kind, false, Object.assign({}, src, {
                 roastDate: '', frozenDate: '', defrostDate: '', openedDate: '', notes: '', startWeightG: 0 }));
+        }
+        function restoreBag(id) {
+            post('/api/bag/' + id + '/restore').then(load).catch(e => status(e.message));
+        }
+        // The Recipes page's Restock lands here as /beans?restock=<bag>&recipe=<id>:
+        // the saved bag becomes that recipe's bag, and the page goes back.
+        let restockForRecipe = 0;
+        function openRestockFromUrl() {
+            const q = new URLSearchParams(location.search);
+            const bagId = parseInt(q.get('restock'), 10) || 0;
+            if (!bagId) return;
+            history.replaceState(null, '', location.pathname);
+            getJson('/api/bag/' + bagId)
+                .then(b => {
+                    if (!bags.some(x => x.id === b.id)) bags.push(b);
+                    restockBag(b.id, parseInt(q.get('recipe'), 10) || 0);
+                })
+                .catch(e => status('Could not open the bag to restock: ' + e.message));
         }
 
         function activate(id) { post('/api/bag/' + id + '/activate').then(load).catch(e => status(e.message)); }
@@ -1622,10 +1659,18 @@ QString ShotServer::generateBeansPage() const
             if (!editingId) bodyData.kind = editingKind;
 
             const req = editingId ? post('/api/bag/' + editingId, bodyData) : post('/api/bags', bodyData);
-            req.then(() => { el('editor').close(); load(); }).catch(e => editorStatus(e.message));
+            const forRecipe = editingId ? 0 : restockForRecipe;
+            restockForRecipe = 0;
+            req.then(saved => {
+                el('editor').close();
+                if (!forRecipe || !saved.id) { load(); return; }
+                return post('/api/recipe/' + forRecipe, { bagId: saved.id })
+                    .then(() => { location.href = '/recipes'; });
+            }).catch(e => editorStatus(e.message));
         }
 
         load();
+        openRestockFromUrl();
     </script>
 </body>
 </html>)HTML";

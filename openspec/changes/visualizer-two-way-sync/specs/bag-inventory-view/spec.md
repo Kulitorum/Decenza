@@ -2,12 +2,16 @@
 
 ### Requirement: Finished bags are listed and can be restocked
 
-The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag has `inInventory = false`, that lists the finished bags as dimmed cards in most-recently-used order. Tapping a finished card SHALL open it for editing. A finished card's actions SHALL be Restock, Edit and (for a linked bag) bean details. Restock SHALL open the new-bag form prefilled from the finished bag — identity, bean details, equipment and dial-in — with the roast date, freezer dates, opened date and notes left blank; saving it SHALL create a new bag. The finished bag SHALL stay finished, with its shots.
+The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag has `inInventory = false`, that lists the finished bags as dimmed cards in most-recently-used order. Tapping a finished card SHALL open it for editing. A finished card's actions SHALL be Restock, Restore, Edit and (for a linked bag) bean details. Restore SHALL return that bag to inventory. Restock SHALL open the new-bag form prefilled from the finished bag — identity, bean details, equipment and dial-in — with the roast date, freezer dates, opened date and notes left blank; saving it SHALL create a new bag. The finished bag SHALL stay finished, with its shots.
 
 #### Scenario: Restocking a coffee whose bag was finished
 - **GIVEN** a finished bag of Saka Gran Bar with a recipe linked to it
 - **WHEN** the user opens Show finished, taps Restock on it, enters the new roast date and saves
 - **THEN** a new Saka Gran Bar bag is in inventory with the old bag's details and dial-in, and the old bag is still finished
+
+#### Scenario: Restoring a bag finished by mistake
+- **WHEN** the user taps Restore on a finished bag
+- **THEN** that same bag is back in inventory, with its dates and shots
 
 #### Scenario: No finished bags
 - **WHEN** every bag is in inventory

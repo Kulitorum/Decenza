@@ -202,6 +202,20 @@ T.Page {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) { recipesPage._bags = bags }
+        function onBagReady(bagId, bag) {
+            if (!recipesPage._restockRecipe || bagId !== recipesPage._restockRecipe.bagId) return
+            if (!bag || bag.id === undefined) {
+                recipesPage._restockRecipe = null
+                recipesPage.showToast(trRestockFailed.text)
+                return
+            }
+            restockDialog.openRestock(bag)
+        }
+        function onBagReadFailed(bagId) {
+            if (!recipesPage._restockRecipe || bagId !== recipesPage._restockRecipe.bagId) return
+            recipesPage._restockRecipe = null
+            recipesPage.showToast(trRestockFailed.text)
+        }
         function onBagsChanged() { MainController.bagStorage.requestInventory() }
     }
 
@@ -321,6 +335,26 @@ T.Page {
         copy.clonedFromRecipeId = recipe.id
         copy.name = trCopyOf.text.arg(recipe.name)
         AppShell.recipeWizardRequested("create", { prefill: copy })
+    }
+
+    // Restock a recipe's finished bag: the new-bag form prefilled from it; the
+    // saved bag becomes this recipe's bag.
+    property var _restockRecipe: null
+    function restockRecipeBag(recipe) {
+        _restockRecipe = recipe
+        MainController.bagStorage.requestBag(recipe.bagId)
+    }
+    Tr { id: trRestockFailed; key: "recipes.restock.failed"; fallback: "Couldn't read this recipe's bag"; visible: false }
+    ChangeBeansDialog {
+        id: restockDialog
+        context: "inventory"
+        onBagSelected: function(bagId, bag) {
+            if (!recipesPage._restockRecipe) return
+            recipesPage._repointPendingId = recipesPage._restockRecipe.id
+            MainController.recipeStorage.requestRelinkRecipeToBag(recipesPage._restockRecipe.id, bagId)
+            recipesPage._restockRecipe = null
+        }
+        onClosed: recipesPage._restockRecipe = null
     }
 
     // The stale card's one-tap re-point: an open-bag picker scoped to one
@@ -479,6 +513,18 @@ T.Page {
             footer: Flow {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
+
+                // The recipe's bag is finished: a new bag of the same coffee.
+                AccessibleButton {
+                    visible: card.stale && (card.recipe.bagId || 0) > 0
+                    height: Theme.scaled(36)
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: TranslationManager.translate("recipes.restock", "Restock")
+                    accessibleName: TranslationManager.translate("recipes.accessible.restock", "Restock: add a new bag of this recipe's coffee")
+                    onClicked: recipesPage.restockRecipeBag(card.recipe)
+                }
 
                 // recipe-auto-load: pin this recipe as the auto-load target.
                 // Reuses pin.svg (ProfileSelectorPage's auto-load glyph) and

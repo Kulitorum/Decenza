@@ -920,14 +920,19 @@ QString ShotServer::generateRecipesPage() const
         }
 
         function cardHtml(r) {
-            const actions = r.archived
+            // The recipe's bag is finished: a new bag of the same coffee, made
+            // in the /beans editor, which then hands it back to this recipe.
+            const restock = (r.bagStale && r.bagId > 0)
+                ? '<button onclick="location.href=\'/beans?restock=' + r.bagId + '&recipe=' + r.id + '\'">Restock</button>'
+                : '';
+            const actions = restock + (r.archived
                 ? '<button onclick="archiveRecipe(' + r.id + ', true)">Restore</button>'
                 : '<button class="primary" onclick="activate(' + r.id + ')"' + (r.isActive ? ' disabled' : '') + '>Activate</button>'
                   + '<button onclick="openEditor(' + r.id + ')">Edit</button>'
                   + '<button onclick="cloneRecipe(' + r.id + ')">Clone</button>'
                   + (r.shotCount > 0
                       ? '<button onclick="archiveRecipe(' + r.id + ', false)">Archive</button>'
-                      : '<button class="danger" onclick="deleteRecipe(' + r.id + ')">Delete</button>');
+                      : '<button class="danger" onclick="deleteRecipe(' + r.id + ')">Delete</button>'));
             const drink = drinkLine(r);
             const bean = beanLine(r);
             const plan = planLine(r);

@@ -15,7 +15,8 @@ import Decenza
 // count was stale.
 //
 // A finished bag (finishedCard) is shown dimmed; tapping it opens the editor,
-// and its actions are Restock (a new bag of the same coffee), Edit and details.
+// and its actions are Restock (a new bag of the same coffee), Restore (this bag
+// back into inventory, as Restore does for an archived recipe), Edit and details.
 Rectangle {
     id: card
 
@@ -505,6 +506,17 @@ Rectangle {
                 text: TranslationManager.translate("bagcard.restock", "Restock")
                 accessibleName: TranslationManager.translate("bagcard.accessible.restock", "Restock: add a new bag of this coffee")
                 onClicked: card.restockRequested(card.bag)
+            }
+
+            AccessibleButton {
+                visible: card.finishedCard
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.restore", "Restore")
+                accessibleName: TranslationManager.translate("bagcard.accessible.restore", "Restore: put this bag back in inventory")
+                onClicked: MainController.bagStorage.requestUpdateBag(card.bag.id, { "inInventory": true })
             }
 
             AccessibleButton {
