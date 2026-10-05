@@ -31,9 +31,12 @@
 
 ## 6. Verify
 
-- [ ] 6.1 Full suite through Qt Creator.
-- [ ] 6.2 Live: edit a shot's grind and rating in Visualizer's Journal, confirm both arrive in Decenza within a pass; edit a different field in Decenza and confirm the Journal values survive.
-- [ ] 6.3 Live: archive a synced bag on Visualizer, confirm it is marked finished in Decenza; restore it, confirm it is back in inventory. Mark a bag finished in Decenza, confirm it is archived on Visualizer.
-- [ ] 6.5 Live: a synced bag with a cached photo gets it on Visualizer; a Visualizer bag photo appears on a bag that had none.
-- [ ] 6.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`).
-- [ ] 6.4 Live: fill a synced bag with AI on the desktop app before any shot upload, confirm the fields reach Visualizer.
+- [x] 6.1 Full suite through Qt Creator: 119/119 passed.
+- [ ] 6.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). Local build with Visualizer disconnected or Auto-update off.
+
+Held for the next beta: 6.2-6.5 run against Jeff's one paid Visualizer account, so they happen on his production Android tablet, not on a desktop or simulator build, which would fill that account with test data. They are not passed until that beta confirms them.
+
+- [ ] 6.2 Live (beta, tablet): edit a shot's grind and rating in Visualizer's Journal, confirm both arrive in Decenza within a pass; edit a different field in Decenza and confirm the Journal values survive.
+- [ ] 6.3 Live (beta, tablet): archive a synced bag on Visualizer, confirm it is marked finished in Decenza; restore it, confirm it is back in inventory. Mark a bag finished in Decenza, confirm it is archived on Visualizer.
+- [ ] 6.4 Live (beta, tablet): fill a synced bag with AI before any shot upload that session, confirm the fields reach Visualizer.
+- [ ] 6.5 Live (beta, tablet): a synced bag with a cached photo gets it on Visualizer; a Visualizer bag photo appears on a bag that had none.
