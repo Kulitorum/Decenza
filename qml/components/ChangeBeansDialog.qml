@@ -45,8 +45,8 @@ DecenzaDialog {
     property string mode: "search"
     // "create" -> requestCreateBag on confirm; "edit" -> requestUpdateBag
     property string formMode: "create"
-    // Bag kind (add-recipe-wizard-tea): stamped by the entry point ("Add
-    // Coffee" / "Add Tea" / edit's bag row) and immutable after creation.
+    // Bag kind (add-recipe-wizard-tea): stamped by the entry point ("Bag of
+    // Coffee" / "Bag of Tea" / edit's bag row) and immutable after creation.
     // Tea mode is SUBTRACTION over the coffee form: the Visualizer canonical
     // lane is suppressed (coffee-only database), identity labels read
     // Brand/Tea, and roast level + grind/rpm + canonical-link affordances
@@ -750,14 +750,18 @@ DecenzaDialog {
         open()
     }
 
-    function openManualEntry() {
+    // `typed`: what the user searched for and did not find; it becomes the
+    // coffee name rather than being thrown away.
+    function openManualEntry(typed) {
         resetForm()
         formMode = "create"
         editBagId = -1
+        if (typed)
+            fCoffee = String(typed).trim()
         mode = "form"
     }
 
-    // "Add Tea" entry point (add-recipe-wizard-tea): tea mode, opening on the
+    // "Bag of Tea" entry point (add-recipe-wizard-tea): tea mode, opening on the
     // past-tea-bags search when any exist (the re-buy flow) or straight on
     // the form when none do. The caller decides via hasTeaBags — it has the
     // inventory list; the dialog would only know it async.
@@ -1282,6 +1286,19 @@ DecenzaDialog {
                 Layout.margins: Theme.scaled(16)
                 spacing: Theme.scaled(10)
 
+                // Stays visible while typing, when the placeholder is gone.
+                Text {
+                    Layout.fillWidth: true
+                    // Tea searches past tea bags only (no Bean Base for tea).
+                    text: root.isTea
+                        ? TranslationManager.translate("changebeans.search.labelTea", "Search your past tea bags")
+                        : TranslationManager.translate("changebeans.search.label", "Search your bags and the Loffee Labs Bean Base")
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.Wrap
+                    Accessible.ignored: true  // the field below carries the name
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
@@ -1521,7 +1538,7 @@ DecenzaDialog {
                                 accessibleItem: manualRow
                                 onAccessibleClicked: {
                                     Keyboard.commit()
-                                    root.openManualEntry()
+                                    root.openManualEntry(searchField.text)
                                 }
                             }
                         }

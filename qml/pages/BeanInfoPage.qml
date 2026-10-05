@@ -120,7 +120,7 @@ T.Page {
                     id: addTeaButton
                     Layout.preferredHeight: Theme.scaled(44)
                     icon.source: "qrc:/icons/tea.svg"
-                    text: TranslationManager.translate("beaninfo.inventory.addTea", "Add Tea")
+                    text: TranslationManager.translate("beaninfo.inventory.bagOfTea", "Bag of Tea")
                     accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addTea", "Add a new bag of tea")
                     onClicked: {
                         var hasTea = false
@@ -139,7 +139,7 @@ T.Page {
                     primary: true
                     Layout.preferredHeight: Theme.scaled(44)
                     icon.source: "qrc:/icons/plus.svg"
-                    text: TranslationManager.translate("beaninfo.inventory.addCoffee", "Add Coffee")
+                    text: TranslationManager.translate("beaninfo.inventory.bagOfCoffee", "Bag of Coffee")
                     accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addBag", "Add a new bag of beans")
                     onClicked: {
                         changeBeansDialog.bagKind = "coffee"
