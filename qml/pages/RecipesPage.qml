@@ -181,13 +181,6 @@ T.Page {
         return null
     }
 
-    // Grid column math (BeanInfoPage pattern: fixed base width, computed
-    // columns) — one implementation for both card grids.
-    function cardWidth(avail) {
-        var columns = Math.max(1, Math.floor(avail / Theme.scaled(380)))
-        return (avail - (columns - 1) * Theme.spacingMedium) / columns
-    }
-
     Component.onCompleted: {
         MainController.recipeStorage.requestInventory()
         MainController.recipeStorage.requestArchived()
@@ -202,6 +195,24 @@ T.Page {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) { recipesPage._bags = bags }
+        function onBagReady(bagId, bag) {
+            // Only the read restockRecipeBag asked for: a later bagReady for the
+            // same bag (SettingsDye reloading it) must not reset an open form.
+            if (!recipesPage._restockAwaitingBag || bagId !== recipesPage._restockRecipe.bagId) return
+            recipesPage._restockAwaitingBag = false
+            if (!bag || bag.id === undefined) {
+                recipesPage._restockRecipe = null
+                recipesPage.showToast(trRestockFailed.text)
+                return
+            }
+            restockDialog.openRestock(bag)
+        }
+        function onBagReadFailed(bagId) {
+            if (!recipesPage._restockAwaitingBag || bagId !== recipesPage._restockRecipe.bagId) return
+            recipesPage._restockAwaitingBag = false
+            recipesPage._restockRecipe = null
+            recipesPage.showToast(trRestockFailed.text)
+        }
         function onBagsChanged() { MainController.bagStorage.requestInventory() }
     }
 
@@ -323,6 +334,33 @@ T.Page {
         AppShell.recipeWizardRequested("create", { prefill: copy })
     }
 
+    // Restock a recipe's finished bag: the new-bag form prefilled from it; the
+    // saved bag becomes this recipe's bag.
+    property var _restockRecipe: null
+    property bool _restockAwaitingBag: false
+    function restockRecipeBag(recipe) {
+        _restockRecipe = recipe
+        _restockAwaitingBag = true
+        MainController.bagStorage.requestBag(recipe.bagId)
+    }
+    Tr { id: trRestockFailed; key: "recipes.restock.failed"; fallback: "Couldn't read this recipe's bag"; visible: false }
+    ChangeBeansDialog {
+        id: restockDialog
+        context: "inventory"
+        // The new bag goes to the recipe; the active bag stays as the user left it.
+        activateOnSave: false
+        onBagSelected: function(bagId, bag) {
+            if (!recipesPage._restockRecipe) return
+            recipesPage._repointPendingId = recipesPage._restockRecipe.id
+            MainController.recipeStorage.requestRelinkRecipeToBag(recipesPage._restockRecipe.id, bagId)
+            recipesPage._restockRecipe = null
+        }
+        onClosed: {
+            recipesPage._restockRecipe = null
+            recipesPage._restockAwaitingBag = false
+        }
+    }
+
     // The stale card's one-tap re-point: an open-bag picker scoped to one
     // recipe (recipe-bag-lifecycle "manual re-point"). Selecting a bag only
     // moves the bag link (the recipe's own grind is untouched by construction).
@@ -425,16 +463,10 @@ T.Page {
                 MainController.activateRecipe(card.recipe.id)
         }
 
-        // Bean photo cache key: canonical Bean Base id when the recipe has
-        // one, else the linked BAG's key ("bag-<id>") — a manual bag's photo
-        // is cached under the bag key.
-        imageKey: {
-            if (recipe && recipe.beanBaseId && String(recipe.beanBaseId).length > 0)
-                return String(recipe.beanBaseId)
-            if (recipe && (recipe.bagId || 0) > 0)
-                return "bag-" + recipe.bagId
-            return ""
-        }
+        // Bean photo cache key (BeanBaseClient::imageKeyFor).
+        imageKey: recipe ? MainController.beanbase.bagImageKey(recipe.bagId || 0,
+                                                               recipe.beanBaseId ? String(recipe.beanBaseId) : "")
+                         : ""
         // Product-page link from the linked bag's blob (lets the cache
         // backfill a manual bag's photo, same as BagCard).
         imageLink: {
@@ -485,6 +517,18 @@ T.Page {
             footer: Flow {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
+
+                // The recipe's bag is finished: a new bag of the same coffee.
+                AccessibleButton {
+                    visible: card.stale && (card.recipe.bagId || 0) > 0
+                    height: Theme.scaled(36)
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: TranslationManager.translate("recipes.restock", "Restock")
+                    accessibleName: TranslationManager.translate("recipes.accessible.restock", "Restock: add a new bag of this recipe's coffee")
+                    onClicked: recipesPage.restockRecipeBag(card.recipe)
+                }
 
                 // recipe-auto-load: pin this recipe as the auto-load target.
                 // Reuses pin.svg (ProfileSelectorPage's auto-load glyph) and
@@ -861,7 +905,7 @@ T.Page {
                         required property var modelData
 
                         recipe: modelData
-                        width: recipesPage.cardWidth(flickable.width)
+                        width: Theme.cardGridWidth(flickable.width)
                     }
                 }
             }
@@ -920,7 +964,7 @@ T.Page {
 
                         recipe: modelData
                         archivedCard: true
-                        width: recipesPage.cardWidth(flickable.width)
+                        width: Theme.cardGridWidth(flickable.width)
                     }
                 }
             }

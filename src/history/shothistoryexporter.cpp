@@ -38,6 +38,11 @@ ShotHistoryExporter::ShotHistoryExporter(Settings* settings,
             this, &ShotHistoryExporter::onShotSaved);
     connect(m_storage, &ShotHistoryStorage::shotMetadataUpdated,
             this, &ShotHistoryExporter::onShotMetadataUpdated);
+    connect(m_storage, &ShotHistoryStorage::shotPulledFromVisualizer, this,
+            [this](qint64 shotId, const QVariantMap&, const QVariantMap& written) {
+                if (!written.isEmpty())
+                    onShotMetadataUpdated(shotId, true);
+            });
     // shotsDeleted fires in addition to per-id shotDeleted for batch deletes,
     // so we intentionally subscribe only to shotDeleted to avoid N+1 racing
     // threads trying to remove the same files.

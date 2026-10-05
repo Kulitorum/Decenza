@@ -4,6 +4,7 @@
 Governs the Beans window's bag-inventory list that replaced the old preset list: cards that show less when more is known (canonical vs. partial data), the single life-stage-appropriate removal action per card (delete before any shot, "Bag finished" after), the idle-page MRU bag-pill widget, and in-place editing that never disturbs existing shots' immutable bean snapshots.
 
 ## Requirements
+
 ### Requirement: Beans window shows bag inventory
 The Beans window SHALL display a list of bags where `inInventory = true`, replacing the current preset list.
 
@@ -120,3 +121,32 @@ Each bag card SHALL show exactly ONE removal action, chosen by whether shots ref
 - **WHEN** the first shot is saved against a bag
 - **THEN** the card SHALL show "Bag finished" instead of delete (inventory refreshes via bagsChanged)
 
+### Requirement: Finished bags are listed and can be restocked
+
+The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag has `inInventory = false`, that lists the finished bags as dimmed cards in most-recently-used order. Tapping a finished card SHALL open it for editing. A finished card's actions SHALL be Restock, Restore, Edit and (for a linked bag) bean details. Restore SHALL return that bag to inventory. A bag in inventory SHALL offer Restock as well. Restock SHALL open the new-bag form prefilled from the finished bag — identity, bean details, equipment and dial-in — with the roast date, freezer dates, opened date and notes left blank; saving it SHALL create a new bag. The finished bag SHALL stay finished, with its shots.
+
+#### Scenario: Restocking a coffee whose bag was finished
+- **GIVEN** a finished bag of Saka Gran Bar with a recipe linked to it
+- **WHEN** the user opens Show finished, taps Restock on it, enters the new roast date and saves
+- **THEN** a new Saka Gran Bar bag is in inventory with the old bag's details and dial-in, and the old bag is still finished
+
+#### Scenario: Restoring a bag finished by mistake
+- **WHEN** the user taps Restore on a finished bag
+- **THEN** that same bag is back in inventory, with its dates and shots
+
+#### Scenario: Restocking a bag still in use
+- **WHEN** the user taps Restock on a bag in inventory, enters the new roast date and saves
+- **THEN** a new bag of that coffee is added, and the original bag stays in inventory
+
+#### Scenario: No finished bags
+- **WHEN** every bag is in inventory
+- **THEN** no Show finished toggle is shown
+
+### Requirement: A failed bag read is not an empty inventory or a missing bag
+
+A bag query that fails, or a database that does not open, SHALL be reported as a failure: the inventory SHALL NOT be shown as empty, and the active bag selection SHALL NOT be cleared. Only a bag row that is genuinely absent SHALL count as not found.
+
+#### Scenario: Bag table cannot be read
+- **GIVEN** a database whose bag table cannot be queried
+- **WHEN** the Beans window opens and the active bag is reloaded
+- **THEN** the window says the bags could not be read, not "No bags yet", and the active bag stays selected

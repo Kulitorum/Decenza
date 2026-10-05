@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-recipes. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Bags REST API
 The ShotServer SHALL expose, behind the existing authentication gate (`shotserver_bags.cpp`): `GET /api/bags` (inventory, open bags by default with a filter for finished), `GET /api/bag/<id>` (full detail including Bean Base snapshot), `POST /api/bags` (create), `POST /api/bag/<id>` (update, using the same write-through semantics as app edits), `POST /api/bag/<id>/finish` (mark empty), and `POST /api/bag/<id>/activate` (set active bag). All handlers SHALL route through `CoffeeBagStorage`; the bag lifecycle rule SHALL be enforced (hard delete only for bags with zero shots).
 
@@ -78,3 +80,10 @@ All create/edit/finish/activate behavior, the existing REST endpoints, auth gate
 - **WHEN** the user uses "get info from page" with a roaster URL on the `/beans` form
 - **THEN** the form is prefilled with the extracted bean fields, matching the app's behavior
 
+### Requirement: Finished bags on the web Beans page
+
+`GET /api/bags/finished` SHALL return the finished bags in the same shape as `GET /api/bags`. `POST /api/bag/<id>/restore` SHALL return a finished bag to inventory. The `/beans` page SHALL show a "Show finished (N)" toggle listing them as dimmed cards with Restock, Restore, Edit and Info, and Restock SHALL open the new-bag editor prefilled from the finished bag as the app does; open bags SHALL offer Restock too. A failed bag read SHALL answer 500, never an empty list or "Bag not found".
+
+#### Scenario: Restock from the web
+- **WHEN** the user taps Restock on a finished bag on the web Beans page
+- **THEN** the editor opens as a new bag with that bag's identity and details, its dates and notes blank

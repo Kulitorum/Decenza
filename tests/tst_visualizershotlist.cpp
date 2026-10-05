@@ -31,6 +31,7 @@ private:
             QJsonObject o;
             o["id"] = s.first;
             o["clock"] = static_cast<double>(s.second);
+            o["updated_at"] = static_cast<double>(s.second + 7);
             data.append(o);
         }
         QJsonObject paging;
@@ -80,6 +81,7 @@ private slots:
         QCOMPARE(r.inWindow.size(), 2);
         QCOMPARE(r.inWindow[0].visualizerId, QStringLiteral("b"));
         QCOMPARE(r.inWindow[0].clockEpoch, qint64(2000));
+        QCOMPARE(r.inWindow[0].updatedAtEpoch, qint64(2007));   // the pull's cursor
         QCOMPARE(r.inWindow[1].visualizerId, QStringLiteral("c"));
     }
 

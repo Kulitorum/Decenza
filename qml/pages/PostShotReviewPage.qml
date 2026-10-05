@@ -356,7 +356,8 @@ T.Page {
             // moment this page opens. Re-running the block below would repopulate every
             // edit field from the database and reset the upload status, which is the same
             // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
-            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId) return
+            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
+                return
             postShotReviewPage.editShotData = shot
             postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
             MainController.shotHistory.requestDecentUploadState(shotId)
@@ -420,6 +421,9 @@ T.Page {
                 // empty baseline vs. dose defaulted from Settings).
                 postShotReviewPage._committedState = postShotReviewPage.captureEditState()
                 postShotReviewPage._editLoaded = true
+                // Show what Visualizer holds now, not as of the last sync pass.
+                if (postShotReviewPage._visualizerId !== "")
+                    MainController.visualizerSync.refreshShot(shotId)
                 // Quality badges already arrived recomputed in `shot` via
                 // loadShotRecordStatic, which also persists drift to the DB
                 // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
@@ -438,8 +442,8 @@ T.Page {
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             // Success needs no reload: saveEditedShot() already advanced the
-            // in-memory baseline optimistically. Reloading here would race an
-            // autosave from another field and clobber an in-progress edit.
+            // in-memory baseline optimistically, and a reload would clobber an
+            // in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
             } else {
@@ -449,6 +453,10 @@ T.Page {
                     AccessibilityManager.announce(TranslationManager.translate(
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
+        }
+        function onShotPulledFromVisualizer(shotId, previous, written) {
+            if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
+                postShotReviewPage.mergePulledChanges(previous, written)
         }
         function onHistoryDataChanged() {
             if (postShotReviewPage._baristaHistoryLoaded)
@@ -832,38 +840,92 @@ T.Page {
         Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
     }
 
+    // The fields this page saves: the metadata key, the captureEditState()
+    // key, and the shot-record property it mirrors. `pulled` marks the ones a
+    // Visualizer pull can change underneath an open page.
+    readonly property var _fieldSpecs: [
+        { meta: "beanBrand",      state: "beanBrand",      shot: "beanBrand",       def: "" },
+        { meta: "beanType",       state: "beanType",       shot: "beanType",        def: "" },
+        { meta: "roastDate",      state: "roastDate",      shot: "roastDate",       def: "",  date: true },
+        { meta: "roastLevel",     state: "roastLevel",     shot: "roastLevel",      def: "" },
+        { meta: "grinderSetting", state: "grinderSetting", shot: "grinderSetting",  def: "",  pulled: true },
+        { meta: "rpm",            state: "rpm",            shot: "rpm",             def: 0,   pulled: true },
+        { meta: "equipmentId",    state: "equipmentId",    shot: "equipmentId",     def: -1,  orDef: true },
+        { meta: "barista",        state: "barista",        shot: "barista",         def: "",  pulled: true },
+        { meta: "doseWeight",     state: "doseWeight",     shot: "doseWeightG",     def: 0,   pulled: true },
+        { meta: "finalWeight",    state: "drinkWeight",    shot: "finalWeightG",    def: 0,   pulled: true },
+        { meta: "drinkTds",       state: "drinkTds",       shot: "drinkTdsPct",     def: 0,   pulled: true },
+        { meta: "drinkEy",        state: "drinkEy",        shot: "drinkEyPct",      def: 0,   pulled: true },
+        { meta: "espressoNotes",  state: "notes",          shot: "espressoNotes",   def: "",  pulled: true },
+        { meta: "beverageType",   state: "beverageType",   shot: "beverageType",    def: "espresso" },
+        { meta: "beanBaseJson",   state: "beanBaseJson",   shot: "beanBaseJson",    def: "" },
+        { meta: "enjoyment",      state: "enjoyment",      shot: "enjoyment0to100", def: 0,   pulled: true },
+        { meta: "tasteBalance",   state: "tasteBalance",   shot: "tasteBalance",    def: "",  pulled: true },
+        { meta: "tasteBody",      state: "tasteBody",      shot: "tasteBody",       def: "",  pulled: true }
+    ]
+
+    // A stored value in the form a spec's edit field holds.
+    function _asField(spec, v) {
+        v = (typeof spec.def === "string" || spec.orDef) ? (v || spec.def) : (v ?? spec.def)
+        return spec.date ? DateUtils.normalizeDateString(v) : v
+    }
+    function _stored(spec, shot) { return _asField(spec, shot[spec.shot]) }
+
+    // A Visualizer pull rewrote stored fields (`previous` -> `written`, keyed by
+    // metadata key). Each field still showing its old value takes the new one;
+    // a field edited here keeps the edit, which the next save sends. Undo frames
+    // holding the old value move too, so Undo cannot write it back.
+    function mergePulledChanges(previous, written) {
+        var state = captureEditState()
+        var nb = clonePersistedShot(editShotData)
+        var shownChanged = false
+        for (var i = 0; i < _fieldSpecs.length; ++i) {
+            var spec = _fieldSpecs[i]
+            if (!spec.pulled || written[spec.meta] === undefined) continue
+            var before = _asField(spec, previous[spec.meta])
+            var after = _asField(spec, written[spec.meta])
+            var baseline = _stored(spec, editShotData)
+            // The dose field shows the DYE dose when the shot has none.
+            var shown = (spec.meta === "doseWeight" && !(baseline > 0)) ? Settings.dye.dyeBeanWeight : baseline
+            nb[spec.shot] = written[spec.meta]
+            if (state[spec.state] === shown) {
+                state[spec.state] = after
+                shownChanged = true
+            }
+            var frames = _undoStack.concat([_committedState])
+            for (var f = 0; f < frames.length; ++f)
+                if (frames[f][spec.state] === before) frames[f][spec.state] = after
+        }
+        editShotData = nb
+        if (!shownChanged) return
+        applyEditState(state)
+        _committedState = captureEditState()
+    }
+
     function saveEditedShot() {
         Keyboard.commit()
         if (editShotId <= 0) return
+        // Only the fields that differ from the stored record, so a value pulled
+        // from Visualizer while this page was open is not written back over by
+        // the page's older copy. A retry after a failed write cannot tell what
+        // that write carried (the baseline already advanced), so it sends all.
+        var state = captureEditState()
+        var metadata = {}
+        for (var i = 0; i < _fieldSpecs.length; ++i) {
+            var spec = _fieldSpecs[i]
+            if (_saveFailed || state[spec.state] !== _stored(spec, editShotData))
+                metadata[spec.meta] = state[spec.state]
+        }
+        if (Object.keys(metadata).length === 0) return
+        // Keep the indexed canonical id in lockstep with the blob — the
+        // backend does NOT derive beanbase_id from beanbase_json on a
+        // metadata update (updateShotMetadataStatic), so a link made here
+        // (e.g. the lightweight LinkBeanBaseDialog path) would otherwise
+        // leave beanbase_id stale and break the history search lane.
+        if (metadata.beanBaseJson !== undefined)
+            metadata["beanBaseId"] = beanBaseLinked ? String(activeBeanBase.id) : ""
         pendingVisualizerUpdate = true
         pendingDecentUpdate = true
-        var metadata = {
-            "beanBrand": editBeanBrand,
-            "beanType": editBeanType,
-            "roastDate": editRoastDate,
-            "roastLevel": editRoastLevel,
-            // Grinder identity resolves from equipmentId.
-            "grinderSetting": editGrinderSetting,
-            "rpm": editRpm,
-            "equipmentId": editEquipmentId,
-            "barista": editBarista,
-            "doseWeight": editDoseWeight,
-            "finalWeight": editDrinkWeight,
-            "drinkTds": editDrinkTds,
-            "drinkEy": editDrinkEy,
-            "espressoNotes": editNotes,
-            "beverageType": editBeverageType,
-            "beanBaseJson": editBeanBaseJson,
-            // Keep the indexed canonical id in lockstep with the blob — the
-            // backend does NOT derive beanbase_id from beanbase_json on a
-            // metadata update (updateShotMetadataStatic), so a link made here
-            // (e.g. the lightweight LinkBeanBaseDialog path) would otherwise
-            // leave beanbase_id stale and break the history search lane.
-            "beanBaseId": beanBaseLinked ? String(activeBeanBase.id) : ""
-        }
-        metadata["enjoyment"] = editEnjoyment
-        metadata["tasteBalance"] = editTasteBalance
-        metadata["tasteBody"] = editTasteBody
         // Held while the page is open: this save reaches the destinations on close.
         if (_heldShotId === editShotId) MainController.shotUploads.expectHeldEdit(editShotId)
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)

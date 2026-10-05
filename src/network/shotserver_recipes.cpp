@@ -139,8 +139,10 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         // state, never a gate). Grind is the recipe's own value
         // (fix-recipe-grind-integrity); nothing resolves from the bag.
         if (r.bagId > 0) {
-            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
-            if (!bag.isValid() || !bag.inInventory)
+            QString readError;
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId, &readError);
+            // An unreadable bag is not a finished one: no Restock offered for it.
+            if (readError.isEmpty() && (!bag.isValid() || !bag.inInventory))
                 o["bagStale"] = true;
         } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty()
                    || !r.coffeeName.isEmpty()) {
@@ -920,14 +922,19 @@ QString ShotServer::generateRecipesPage() const
         }
 
         function cardHtml(r) {
-            const actions = r.archived
+            // The recipe's bag is finished: a new bag of the same coffee, made
+            // in the /beans editor, which then hands it back to this recipe.
+            const restock = (r.bagStale && r.bagId > 0)
+                ? '<button onclick="location.href=\'/beans?restock=' + r.bagId + '&recipe=' + r.id + '\'">Restock</button>'
+                : '';
+            const actions = restock + (r.archived
                 ? '<button onclick="archiveRecipe(' + r.id + ', true)">Restore</button>'
                 : '<button class="primary" onclick="activate(' + r.id + ')"' + (r.isActive ? ' disabled' : '') + '>Activate</button>'
                   + '<button onclick="openEditor(' + r.id + ')">Edit</button>'
                   + '<button onclick="cloneRecipe(' + r.id + ')">Clone</button>'
                   + (r.shotCount > 0
                       ? '<button onclick="archiveRecipe(' + r.id + ', false)">Archive</button>'
-                      : '<button class="danger" onclick="deleteRecipe(' + r.id + ')">Delete</button>');
+                      : '<button class="danger" onclick="deleteRecipe(' + r.id + ')">Delete</button>'));
             const drink = drinkLine(r);
             const bean = beanLine(r);
             const plan = planLine(r);

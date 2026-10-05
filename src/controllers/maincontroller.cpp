@@ -28,6 +28,8 @@
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
+#include "../network/visualizersync.h"
+#include "../network/visualizershotsync.h"
 #include "../ai/aimanager.h"
 #include "../ai/shotanalysis.h"
 #include "../history/equipmentlogging.h"
@@ -584,8 +586,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Push a bag edit to its already-synced Visualizer bag, gated on the SAME
     // toggle as shot metadata updates (bag sync follows shot sync). The signal
     // fires only when a Visualizer-stored field changed (CoffeeBagStorage owns
-    // that test); updateBagOnVisualizer additionally no-ops unless CM is Active
-    // and the bag has a visualizerBagId. Create/link still rides auto-upload via
+    // that test); updateBagOnVisualizer additionally no-ops for an account
+    // without Coffee Management and for a bag with no visualizerBagId. Create/link still rides auto-upload via
     // the post-upload sync chain — this handles the edit-an-existing-bag case.
     connect(m_bagStorage, &CoffeeBagStorage::bagVisualizerFieldsChanged, this,
             [this](qint64 bagId) {
@@ -626,6 +628,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // independent of the migration16 drain above — see OpenSpec change
     // persist-visualizer-id-in-controller.
     processVisualizerReconciliation();
+
+    // Edits made on visualizer.coffee come back: a pass now, every 30 minutes,
+    // and as soon as an account is connected.
+    m_visualizerSync = new VisualizerShotSync(m_visualizer, m_shotHistory, m_bagStorage, m_beanbase,
+                                              m_networkManager, m_settings, this);
+    m_visualizerSync->start();
+    connect(m_visualizer, &VisualizerUploader::accountConnectFinished, this,
+            [this](AccountLink::Error error) {
+        if (error == AccountLink::Error::None)
+            m_visualizerSync->start();
+    });
 
     // The bean-repair queue's result handler: connected ONCE here, because
     // processVisualizerBeanRepair can run many times a session (startup, and
@@ -5387,7 +5400,8 @@ void MainController::dispatchNextPendingVisualizerSync()
         }
         DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync — re-PATCHing visualizerId" << visualizerId
                  << "with corrected enjoyment" << shot.enjoyment0to100;
-        self->m_visualizer->updateShotOnVisualizer(visualizerId, shot);
+        // The rating alone: anything else may have been edited on Visualizer since.
+        self->m_visualizer->updateShotOnVisualizer(visualizerId, shot, VisualizerSync::Enjoyment);
     });
     m_shotHistory->requestShot(shotId);
 }

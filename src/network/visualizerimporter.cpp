@@ -242,6 +242,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
 
     if (reply->error() != QNetworkReply::NoError) {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool shareCode = m_requestType == RequestType::ShareCode;
         m_importing = false;
         m_fetching = false;
         m_requestType = RequestType::None;
@@ -250,6 +251,8 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
 
         if (statusCode == 401) {
             m_lastError = tr_("visualizer.error.credentialsInvalid", "Invalid Visualizer credentials");
+        } else if (statusCode == 404 && shareCode) {
+            m_lastError = tr_("visualizer.error.shareCodeNotFound", "No shared shot has that code");
         } else {
             m_lastError = tr_("visualizer.error.network", "Network error: %1").arg(reply->errorString());
         }

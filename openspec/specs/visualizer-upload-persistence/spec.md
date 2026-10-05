@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the authoritative, UI-independent path by which a successful Visualizer upload's returned shot id and URL are written back to the originating local `shots` row from `MainController`, plus the one-time bounded reconciliation pass that relinks pre-existing uploads missing that id and corrects stale cloud ratings, and the upload payload's grinder, rpm, and coffee_bag_id resolution rules.
+
 ## Requirements
+
 ### Requirement: A successful Visualizer upload SHALL persist its returned id to the originating local shot via a non-UI path
 
 When a Visualizer upload succeeds and returns a shot id, the application SHALL persist that id and its shot URL to the local `shots` row of the shot that was uploaded, through a code path that does NOT depend on any QML page being instantiated, visible, or still alive. The persistence SHALL be driven from `MainController` (C++), correlating the result to the originating shot by an explicit DB shot id threaded through the uploader — not by reading mutable shared state at signal time, and not by any timer or delay.
@@ -198,3 +200,18 @@ Uploaded shot JSON SHALL carry `temperature.mix_goal` alongside `temperature.goa
 - **WHEN** a stored shot carrying measured mix temperature data is re-uploaded from history
 - **THEN** `temperature.mix` SHALL be present, as it is on the live upload path
 
+### Requirement: Barista and notes reach Visualizer as written
+
+The upload SHALL carry the barista as `app.data.settings.my_name`, the key Visualizer's parser reads. Notes SHALL be sent Markdown-escaped on upload (Visualizer renders them as Markdown) and as HTML paragraphs and line breaks on a shot or bag PATCH (Visualizer reads them as HTML). Notes read from Visualizer, including by shot recovery, SHALL be converted from HTML to plain text. A request Visualizer refuses with a JSON `error` SHALL show that message.
+
+#### Scenario: Multi-line note edited
+- **WHEN** the user edits a note to two lines and the update is sent
+- **THEN** Visualizer shows the note on two lines
+
+#### Scenario: Barista uploaded
+- **WHEN** a shot with a barista is uploaded
+- **THEN** the Visualizer shot shows that barista
+
+#### Scenario: Disabled account
+- **WHEN** Visualizer refuses an upload with 403 and a JSON error
+- **THEN** the upload status shows Visualizer's message rather than "HTTP 403"

@@ -2500,8 +2500,8 @@ T.Page {
                                             Layout.preferredHeight: Theme.scaled(90)
                                             imageKey: {
                                                 if (bagTile.isGhost) return ""
-                                                return bagTile.modelData.beanBaseId && String(bagTile.modelData.beanBaseId).length > 0
-                                                    ? String(bagTile.modelData.beanBaseId) : "bag-" + bagTile.modelData.id
+                                                return MainController.beanbase.bagImageKey(bagTile.modelData.id,
+                                                    bagTile.modelData.beanBaseId ? String(bagTile.modelData.beanBaseId) : "")
                                             }
                                             fallbackName: bagTile.isGhost ? "" : (bagTile.modelData.coffeeName || "")
                                             link: {
@@ -3402,9 +3402,7 @@ T.Page {
                             profileTempC: wizardPage.fProfileTempC
                             profileYieldG: wizardPage.fProfileYieldG
                             profileStepTemps: wizardPage.fProfileStepTemps
-                            imageKey: wizardPage.fBeanBaseId !== ""
-                                ? wizardPage.fBeanBaseId
-                                : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")
+                            imageKey: MainController.beanbase.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
                         }
 
                         GridLayout {
@@ -3424,9 +3422,7 @@ T.Page {
                                 ? TranslationManager.translate("recipes.wizard.rowTea", "Tea")
                                 : TranslationManager.translate("recipes.wizard.rowBean", "Bean")
                             showThumbnail: wizardPage.hasBean
-                            thumbnailKey: wizardPage.fBeanBaseId !== ""
-                                ? wizardPage.fBeanBaseId
-                                : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")
+                            thumbnailKey: MainController.beanbase.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
                             thumbnailLink: wizardPage.bagImageLink()
                             thumbnailFallback: wizardPage.fCoffee
                             thumbnailIcon: wizardPage.isTeaDrink

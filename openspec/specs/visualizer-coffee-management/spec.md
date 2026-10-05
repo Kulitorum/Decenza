@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines how Decenza detects whether a user's Visualizer account has Coffee Management (CM) enabled via a probe PATCH, and — only while CM is active — find-or-creates the matching remote roaster and coffee bag, links each uploaded shot to it, and keeps local bag edits pushed to the linked Visualizer bag, all idempotently and without disturbing server-owned CM enable/disable lifecycle.
+
 ## Requirements
+
 ### Requirement: Coffee Management capability detection via probe PATCH
 The system SHALL detect the CM state with a single-field probe PATCH against the app's
 own just-uploaded shot: body `{"shot": {"coffee_bag_id": "<id>"}}` with
@@ -70,12 +72,22 @@ The server owns mass link/unlink: enabling CM auto-creates bags from the user's 
 
 ### Requirement: Bag edits auto-push to the linked Visualizer bag
 
-When a bag save (bag editor confirm or MCP `bag_update`) changes any Visualizer-mapped field and the bag carries a non-empty `visualizerBagId` and Visualizer credentials exist, the system SHALL send `PATCH /api/coffee_bags/{visualizerBagId}` with the mapped field set at current values (last-writer-wins for fields we hold; empty local values are omitted, never sent as null, so a local clear does not wipe a server-side value — distinct from the upload-time enrichment, which remains blank-fill-only). The mapping: `coffeeName`→`name`, `roastDate`→`roast_date`, `roastLevel`→`roast_level`, `frozenDate`→`frozen_date`, `defrostDate`→`defrosted_date`, `notes`→`notes`, `origin`→`country`, `region`→`region`, `farm`→`farm`, `producer`→`farmer`, `variety`→`variety`, `elevation`→`elevation`, `process`→`processing`, `harvest`→`harvest_time`, `qualityScore`→`quality_score`, `placeOfPurchase`→`place_of_purchase`, `tastingNotes`→`tasting_notes`, `link`→`url`, `beanBaseId`→`canonical_coffee_bag_id`. A roaster name change re-resolves the roaster (find-or-create by name, as the shipped push already does) and re-points `roaster_id` when it changed. Dose/grind write-through writes SHALL NOT trigger a push (they are not Visualizer-stored fields — the shipped `touchesVisualizerFields` gate).
+When a bag save (bag editor confirm or MCP `bag_update`) changes any Visualizer-mapped field and the bag carries a non-empty `visualizerBagId` and Visualizer credentials exist, the system SHALL send `PATCH /api/coffee_bags/{visualizerBagId}` carrying only the mapped fields whose local value differs from the value Visualizer was last known to hold (`coffee_bags.visualizer_seen`); a field cleared locally SHALL be sent as `null`, except the name and the canonical link, which SHALL NOT be sent as `null`. A field Visualizer has never been seen to hold SHALL be sent only when it is set locally, so a bag that predates this tracking never wipes a server-side value. After a 200 the sent values SHALL be recorded as seen. When nothing differs and no roaster or archive change is due, no PATCH SHALL be sent. The mapping: `coffeeName`→`name`, `roastDate`→`roast_date`, `roastLevel`→`roast_level`, `frozenDate`→`frozen_date`, `defrostDate`→`defrosted_date`, `notes`→`notes` (as HTML), `origin`→`country`, `region`→`region`, `farm`→`farm`, `producer`→`farmer`, `variety`→`variety`, `elevation`→`elevation`, `process`→`processing`, `harvest`→`harvest_time`, `qualityScore`→`quality_score`, `placeOfPurchase`→`place_of_purchase`, `tastingNotes`→`tasting_notes`, `link`→`url`, `beanBaseId`→`canonical_coffee_bag_id`. A roaster name change re-resolves the roaster and re-points `roaster_id` when it changed. Dose/grind write-through writes SHALL NOT trigger a push (they are not Visualizer-stored fields — the shipped `touchesVisualizerFields` gate).
 
 #### Scenario: Successful push on edit
 - **WHEN** the user edits a linked bag's tasting notes and URL in the bag editor and saves, and the PATCH returns 200
-- **THEN** the Visualizer bag SHALL carry the new values
+- **THEN** the PATCH carries those two fields only, the Visualizer bag carries the new values
 - **AND** `visualizerSyncPending` SHALL be false
+
+#### Scenario: Local clear reaches Visualizer
+- **GIVEN** a bag whose notes Visualizer was last seen to hold
+- **WHEN** the user clears the notes in Decenza
+- **THEN** the PATCH sends `notes: null`, and a later pull does not restore them
+
+#### Scenario: An unpulled Visualizer edit survives
+- **GIVEN** the user changed the bag's region on Visualizer since the last pull
+- **WHEN** the user edits its tasting notes in Decenza
+- **THEN** the PATCH carries the tasting notes and not the region
 
 #### Scenario: Bag without a remote id
 - **WHEN** a bag with no `visualizerBagId` is edited
@@ -87,11 +99,15 @@ When a bag save (bag editor confirm or MCP `bag_update`) changes any Visualizer-
 
 ### Requirement: Edit-push failure handling
 
-A retryable push failure (network error, 429, 5xx) SHALL set the bag's `visualizerSyncPending` flag; the next upload cycle SHALL re-push pending bags with the same full-body PATCH and clear the flag on success (event-driven, no timers). A 403 SHALL clear the flag and cache CM state as `NO_COFFEE_MANAGEMENT` (bag CRUD is premium-gated — same handling as the shipped create/enrich paths; a connection test resets it). A 404 SHALL clear the flag (stale remote id; the next shot upload re-creates and re-links). A 422 (e.g. name+roast_date uniqueness collision, defrost-before-frozen) SHALL clear the flag and surface a non-blocking notification with the server's message — local values stay as edited, no retry loop.
+A retryable push failure (network error, 429, 5xx) SHALL set the bag's `visualizerSyncPending` flag; the bag SHALL be re-pushed after the next shot upload and at the end of each edit-pull pass, with the fields that still differ from what Visualizer was last seen to hold, and the flag cleared on success (event-driven, no timers). A 403 SHALL clear the flag and cache CM state as `NO_COFFEE_MANAGEMENT` (bag CRUD is premium-gated — same handling as the shipped create/enrich paths; a connection test resets it). A 404 SHALL clear the flag (stale remote id; the next shot upload re-creates and re-links). A 422 (e.g. name+roast_date uniqueness collision, defrost-before-frozen) SHALL clear the flag and surface a non-blocking notification with the server's message — local values stay as edited, no retry loop.
 
 #### Scenario: Offline edit retried at next upload
 - **WHEN** a bag edit's PATCH fails with a network error and a shot is later uploaded
 - **THEN** the upload cycle SHALL re-send the bag PATCH and clear `visualizerSyncPending` on 200
+
+#### Scenario: Offline edit retried without a shot upload
+- **WHEN** a bag edit's PATCH fails with a network error and an edit-pull pass later completes
+- **THEN** the bag PATCH is re-sent and `visualizerSyncPending` cleared on 200
 
 #### Scenario: Rename collides with an existing remote bag
 - **WHEN** the push returns 422 for a name+roast_date collision
@@ -189,3 +205,11 @@ A pass SHALL report itself incomplete only when work was genuinely left queued, 
 - **WHEN** a write is refused as unauthorized or the shot is gone
 - **THEN** that shot alone SHALL be settled and the pass SHALL continue
 
+### Requirement: A bag edit is pushed without waiting for a shot upload
+
+A bag edit that changes a Visualizer-mapped field (from the bag editor, an AI fill or MCP `bag_update`) SHALL be pushed to the linked Visualizer bag at once unless Coffee Management is known to be off for the account. It SHALL NOT wait for a shot upload to confirm Coffee Management. While Coffee Management is unconfirmed, a roaster rename SHALL re-point only to an existing roaster and SHALL NOT create one. A bag whose push failed SHALL be retried after a shot upload and at the end of each edit-pull pass.
+
+#### Scenario: AI fill on a device that does not upload shots
+- **GIVEN** the desktop app, with no shot uploaded this session
+- **WHEN** the user fills a synced bag's details with AI and saves
+- **THEN** the bag's fields reach Visualizer without any shot being uploaded

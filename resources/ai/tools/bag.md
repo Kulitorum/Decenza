@@ -29,6 +29,9 @@ call is rejected. `0` clears the yield entirely.
 ## Grind memory
 
 `grinderSetting` and `rpm` are bean-scoped: they are this bag's dial, paired. `inInventory:
-false` marks the bag empty; `list` hides those unless `includeEmpty` is set.
+false` marks the bag finished and `true` restores it; `list` hides finished bags unless
+`includeEmpty` is set. To restock a finished bag (a new bag of the same coffee), `create` one
+with its roaster, coffee, roast level and details and the new roast date; don't restore the old
+bag, whose dates and shots belong to the earlier bag.
 
 Parsing a photographed bag label is a different tool: `bag_extract_details`.

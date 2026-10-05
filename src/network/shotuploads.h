@@ -6,6 +6,7 @@
 #include <QList>
 #include <QObject>
 #include <QStringList>
+#include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class QSqlDatabase;
@@ -17,8 +18,9 @@ class ShotHistoryStorage;
 // active destination, which receives one shot at a time.
 //
 //  - shotSaved: a finished shot, when automatic upload is on.
-//  - an edit (ShotHistoryStorage::shotMetadataUpdated), when automatic update
-//    is on: only destinations already holding the shot are updated.
+//  - an edit (ShotHistoryStorage::shotMetadataUpdated, or one pulled from
+//    Visualizer), when automatic update is on: only destinations already
+//    holding the shot are updated.
 //  - uploadNow: the Upload button, the layout action and MCP.
 //  - holdUpdates/expectHeldEdit/releaseUpdates: the review page saves on every
 //    field, so while it is open ITS saves are collected and sent once when it
@@ -58,6 +60,7 @@ private:
     };
 
     void onShotEdited(qint64 shotId, bool success);
+    void onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written);
     void enqueue(qint64 shotId, Send how);
     void pump(ShotUploadDestination* destination);
 

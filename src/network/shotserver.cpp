@@ -25,6 +25,7 @@
 #include "../core/memorymonitor.h"
 #include "../mcp/mcpserver.h"
 #include "../mcp/mcptoolregistry.h"
+#include "../controllers/maincontroller.h"
 #include "version.h"
 
 #include <QThread>
@@ -1874,6 +1875,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 400, "text/plain", "Invalid shot ID");
             return;
         }
+        // Same as the app's shot pages: read it from Visualizer now, so the next
+        // view (the page reloads after a save) shows what Visualizer holds.
+        if (m_mainController && m_mainController->visualizerSync())
+            m_mainController->visualizerSync()->refreshShot(shotId);
         QPointer<QTcpSocket> socketGuard(socket);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
@@ -2706,7 +2711,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/recipes") {
         sendHtml(socket, generateRecipesPage());
     }
-    else if (path == "/beans") {
+    else if (path == "/beans" || path.startsWith("/beans?")) {  // ?restock=<bag>&recipe=<id> from /recipes
+        // As the app's bean inventory: the bags as Visualizer holds them now.
+        if (m_mainController && m_mainController->visualizerSync())
+            m_mainController->visualizerSync()->refreshBags();
         sendHtml(socket, generateBeansPage());
     }
     else if (path == "/equipment") {
@@ -2718,7 +2726,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
         handleRecipesApi(socket, method, path, body);
     }
-    else if (path == "/api/bags" || path.startsWith("/api/bag/")
+    else if (path == "/api/bags" || path == "/api/bags/finished" || path.startsWith("/api/bag/")
              || path.startsWith("/api/beans/")) {
         qsizetype headerEndPos = request.indexOf("\r\n\r\n");
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();

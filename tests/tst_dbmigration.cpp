@@ -13,6 +13,7 @@
 #include <QSettings>
 
 #include "history/shothistorystorage.h"
+#include "network/visualizersync.h"
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
 #include "core/appsettings.h"
@@ -882,6 +883,102 @@ private slots:
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toString(), QStringLiteral("sour"));  // unchanged
             QCOMPARE(q.value(1).toInt(), 80);                          // written
+        });
+    }
+
+    // visualizer-two-way-sync: an edit marks only the Visualizer fields whose
+    // value it changes (a form re-saving everything must not), a send clears
+    // only what it carried and only if no edit landed since, and a pull writes
+    // around a field edited here and not yet sent without marking anything.
+    void visualizerDirty_marksClearsAndGuardsPulls() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        using namespace VisualizerSync;
+
+        qint64 shotId = 0;
+        withRawDb(path, "vizdirty_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, enjoyment, "
+                           "grinder_setting) VALUES ('viz-dirty', 1000, 'P', 25.0, 70, '2.4')"));
+            shotId = q.lastInsertId().toLongLong();
+        });
+        QVERIFY(shotId > 0);
+
+        withRawDb(path, "vizdirty_run", [&](QSqlDatabase& db) {
+            quint32 dirty = 0;
+            qint64 seq = 0;
+            // Same rating (as a double and as a string), an empty barista over
+            // NULL, a zero TDS over NULL: nothing moved, so neither the fields
+            // nor the seq do.
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(
+                db, shotId, {{"enjoyment", 70.0}, {"barista", QString()}, {"grinderSetting", "2.4"},
+                             {"drinkTds", 0.0}}));
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId, {{"enjoyment", "70"}}));
+            QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
+            QCOMPARE(dirty, 0u);
+            QCOMPARE(seq, qint64(0));
+
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId, {{"enjoyment", 85}, {"barista", "Jeff"}}));
+            QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
+            QCOMPARE(dirty, quint32(Enjoyment | Barista));
+
+            // An edit after the send read its seq keeps every bit.
+            const qint64 sentSeq = seq;
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId, {{"enjoyment", 90}}));
+            QVERIFY(ShotHistoryStorage::clearVisualizerDirtyStatic(db, shotId, Enjoyment | Barista, sentSeq));
+            QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
+            QCOMPARE(dirty, quint32(Enjoyment | Barista));
+            QVERIFY(ShotHistoryStorage::clearVisualizerDirtyStatic(db, shotId, Barista, seq));
+            QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
+            QCOMPARE(dirty, quint32(Enjoyment));
+
+            // The pull takes the grind changed there and keeps the unsent rating.
+            QVariantMap written;
+            QVariantMap previous;
+            QVERIFY(ShotHistoryStorage::applyVisualizerPullStatic(
+                db, shotId, {{"enjoyment", 60}, {"grinderSetting", "2.6"}}, &written, &previous));
+            QCOMPARE(written.keys(), QStringList{QStringLiteral("grinderSetting")});
+            QCOMPARE(previous.value("grinderSetting").toString(), QStringLiteral("2.4"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QString("SELECT enjoyment, grinder_setting, visualizer_dirty FROM shots WHERE id = %1")
+                               .arg(shotId)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 90);
+            QCOMPARE(q.value(1).toString(), QStringLiteral("2.6"));
+            QCOMPARE(q.value(2).toUInt(), quint32(Enjoyment));
+        });
+    }
+
+    // Migration 43 adds the sync columns to an existing database, with existing
+    // shots starting clean (nothing unsent) and bags never seen.
+    void v42ToV43AddsVisualizerSyncColumns() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        qint64 shotId = 0;
+        withRawDb(path, "v43_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (42)"));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN visualizer_dirty"));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN visualizer_dirty_seq"));
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_seen"));
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('m43-a', 2000, 'P', 25.0)"));
+            shotId = q.lastInsertId().toLongLong();
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v43_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            quint32 dirty = 1;
+            qint64 seq = 1;
+            QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
+            QCOMPARE(dirty, 0u);
+            QCOMPARE(seq, qint64(0));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT visualizer_seen FROM coffee_bags LIMIT 0"));
         });
     }
 

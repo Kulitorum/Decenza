@@ -5,6 +5,8 @@
 #include <QNetworkReply>
 #include <QVector>
 #include <QPointF>
+#include <QElapsedTimer>
+#include <QHash>
 #include <functional>
 
 #include "../history/shotprojection.h"
@@ -125,9 +127,41 @@ public:
     // English fallback.
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
-    // PATCH an already-uploaded shot; false if nothing was sent. Outside
-    // sendSavedShot only for the migration-16 back-sync, which carries its own id.
-    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
+    // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
+    // false if nothing was sent. Outside sendSavedShot only for the migration-16
+    // back-sync, which carries its own id.
+    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
+    // The {"shot": ...} object of that PATCH. Pure, so the field-subset rule is
+    // unit-tested.
+    static QJsonObject buildShotUpdateBody(const ShotProjection& shotData, quint32 fields);
+
+    // An authenticated JSON request to the Visualizer API path (shared with
+    // VisualizerShotSync, which pulls through the same account).
+    QNetworkRequest makeApiJsonRequest(const QString& path) const;
+    // The user-facing message for a failed API reply: the server's own `error`
+    // text when it sent one, which is how a disabled account (403) or the rate
+    // limit (429) explains itself.
+    QString apiErrorMessage(int status, const QByteArray& body, const QString& transportError) const;
+
+    // One request per 4 s, derived from the server's published limits rather
+    // than guessed at: Api::BaseController declares 50/minute per IP, 200/10
+    // minutes per IP and 200/10 minutes per user, so the sustained budget is
+    // 0.33 req/s and the burst budget 0.83. 4 s is 15/min and 150 per 10
+    // minutes, which leaves the 10-minute budget room for ordinary shot uploads:
+    // those share the same limit, so an unpaced background pass can 429 a
+    // user's actual espresso uploads for the rest of the window. Every
+    // background pass (bean repair, VisualizerShotSync) paces by it.
+    static constexpr int kApiRequestIntervalMs = 4000;
+    // Runs `send` at the next free slot of that interval, shared by every
+    // background pass, so two passes together still keep to it. Dropped if
+    // `context` is destroyed first.
+    void paceApiRequest(QObject* context, std::function<void()> send);
+
+    // Counts the pushes started for a shot or bag. A pull compares it from
+    // before its read to just before applying: a push in between makes the
+    // read possibly older than Visualizer, so the pull skips that item.
+    quint64 shotPushGeneration(qint64 shotId) const { return m_shotPushGeneration.value(shotId); }
+    quint64 bagPushGeneration(qint64 bagId) const { return m_bagPushGeneration.value(bagId); }
 
     // Checks the credentials against visualizer.coffee and saves them only if
     // they work; connecting switches Visualizer on. Answers with
@@ -144,19 +178,31 @@ public:
     // on the next upload.
     enum class CmState { Unknown, Active, NoCoffeeManagement, PremiumNoCm };
     CmState cmState() const { return m_cmState; }
+    // Whether a bag edit is pushed in this state: only a definitive CM-off
+    // stops it. Unknown pushes: only a bag Coffee Management created has a
+    // visualizerBagId, so the PATCH answers for itself (200 lands, 403 caches
+    // not-premium) instead of waiting for a shot upload to confirm CM.
+    static bool bagEditPushAllowed(CmState state)
+    {
+        return state != CmState::NoCoffeeManagement && state != CmState::PremiumNoCm;
+    }
     // Shot history DB path — needed to read the uploaded shot's bag row and
     // persist visualizerBagId/visualizerRoasterId back. Set by MainController.
     void setLocalDbPath(const QString& dbPath) { m_localDbPath = dbPath; }
 
     // Push a local bag edit to its already-synced Visualizer bag (PATCH
-    // /api/coffee_bags/:id). No-op unless CM is Active and the bag has a
-    // visualizerBagId (an unsynced bag is created later, on its next shot
+    // /api/coffee_bags/:id). No-op when CM is known to be off, or the bag has
+    // no visualizerBagId (an unsynced bag is created later, on its next shot
     // upload). When the bag has a roaster name, re-resolves the roaster by that
     // name so a rename re-points roaster_id; with no roaster name it PATCHes the
     // descriptive fields alone. Caller (MainController) gates on
     // visualizerActive + upload autoUpdate and only invokes this for Visualizer-stored field
     // edits (CoffeeBagStorage::bagVisualizerFieldsChanged).
     Q_INVOKABLE void updateBagOnVisualizer(qint64 localBagId);
+    // Re-push every sync-pending bag: from the upload read-back, and at the end
+    // of each VisualizerShotSync pass so a parked edit reaches Visualizer on a
+    // device that never uploads a shot.
+    void retrySyncPendingBags();
 
     // One-time reconciliation support: fetch the user's shot list
     // (GET /api/shots, paged) for shots whose start time (clock) is at
@@ -173,7 +219,7 @@ public:
     //
     // Each shot is READ first and only written when the server actually
     // disagrees; `beanRepairSettled(shotId)` then clears its flag. One request
-    // per kBeanRepairIntervalMs (see there — it is derived from the server's
+    // per kApiRequestIntervalMs (see there — it is derived from the server's
     // published limits, not chosen); the first 429 or 401 abandons the pass and
     // the flags keep the remainder for next boot.
     void repairShotBeans(const QVector<BeanRepair>& repairs);
@@ -190,13 +236,6 @@ public:
     // blob→API field mapping and the fill-blanks contract are unit-tested.
     static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
 
-    // Every Visualizer-stored descriptive field from a bag map (name +
-    // roast/lifecycle/canonical + the beanBaseData blob attributes), added to
-    // `body` at CURRENT values (empty locals omitted — never sent as null).
-    // Omits roaster_id — the caller sets that. Used by the bag-edit path
-    // (patchRemoteBag), which overwrites the full set on an explicit user
-    // edit. Pure + public so the blob→API mapping is unit-tested.
-    static void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag);
 
 signals:
     void uploadingChanged();
@@ -257,6 +296,9 @@ private:
     bool uploadShotFromHistory(const ShotProjection& shotData);
     // Ends the sendSavedShot job for this shot, if it is the running one.
     void endJob(qint64 shotId);
+    // Clears the fields the running job sent from the shot's unsent edits, if
+    // their seq was read.
+    void clearJobDirty();
     // Records a failure as the running job's result; a PATCH failure only when it
     // is the job's own (the migration-16 back-sync PATCHes outside jobs).
     void noteJobFailure(const QString& message, const QString& visualizerId = QString());
@@ -281,7 +323,7 @@ private:
     // Take the next queued shot: GET it, compare against the app's values, and
     // PATCH only on a real difference. Emits beanRepairFinished when the queue
     // drains. Serial by construction — one request in flight at a time, spaced
-    // by kBeanRepairIntervalMs.
+    // by kApiRequestIntervalMs.
     void sendNextBeanRepair();
     void sendBeanRepairPatch(const BeanRepair& repair);
     // The names-free half of the repair, for a shot whose local bean fields are
@@ -324,16 +366,6 @@ public:
     enum class RemoteBagState { Absent, Present, Unreadable };
     static RemoteBagState remoteCoffeeBagState(const QJsonObject& remote);
 private:
-    // One request per 4 s, derived from the server's published limits rather
-    // than guessed at: Api::BaseController declares 50/minute per IP, 200/10
-    // minutes per IP and 200/10 minutes per user, so the sustained budget is
-    // 0.33 req/s and the burst budget 0.83. The previous 1 s was over the
-    // per-minute limit on its own — and paced SHOTS, so a repaired shot sent
-    // two requests back to back at ~2/s. 4 s is 15/min and 150 per 10 minutes,
-    // which leaves the 10-minute budget with room for ordinary shot uploads:
-    // those share the same controller, so an unthrottled repair pass at boot
-    // can 429 a user's actual espresso uploads for the rest of the window.
-    static constexpr int kBeanRepairIntervalMs = 4000;
     QVector<BeanRepair> m_beanRepairQueue;
     // Split because one number labelled "corrected" was three different account
     // states: names actually restored, a borrowed link cleared, and shots the
@@ -376,7 +408,8 @@ private:
     // mode: attaches a known coffee to a shot with no personal bag.
     void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId);
     // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
-    // on success (not called on empty name or HTTP/parse failure). Carries the
+    // on success (not called on empty name or HTTP/parse failure). Creates only
+    // while CM is Active; otherwise an unmatched name resolves to "". Carries the
     // canonical roaster UUID onto a freshly-created roaster for the verified
     // badge. A 403 on create caches NoCoffeeManagement (CRUD is premium-gated).
     // Used by the bag-edit path (updateBagOnVisualizer).
@@ -392,19 +425,15 @@ private:
                            const QString& visualizerRoasterId);
     // Set/clear coffee_bags.visualizer_sync_pending (background write, no
     // signals). Park-first contract: updateBagOnVisualizer SETS it before any
-    // network I/O (and when parking during CM-Unknown); it is CLEARED only by
-    // an outcome — patchRemoteBag's reply (200/403/404/422) or the not-synced-
-    // yet skip. Failures that never produce a reply (roaster-list GET dying
-    // offline, roaster create dropped, bag load failure) therefore leave it
-    // set for the next upload cycle's retry. One deliberate leak: a roaster-
-    // create 403 flips CM off with the flag still set — inert (retry requires
-    // Active) and self-draining if premium returns.
+    // network I/O; it is CLEARED only by an outcome — patchRemoteBag's reply
+    // (200/403/404/422), nothing left to send, or the not-synced-yet skip. Failures that never produce
+    // a reply (roaster-list GET dying offline, roaster create dropped, bag load
+    // failure) therefore leave it set for the next retry. One deliberate leak: a
+    // roaster-create 403 flips CM off with the flag still set — inert (retry
+    // skips CM-off) and self-draining if premium returns.
     void persistBagSyncPending(qint64 localBagId, bool pending);
-    // Re-push every sync-pending bag. Called from the upload read-back once CM
-    // is confirmed Active (add-bag-detail-editing) — the event-driven retry for
-    // offline/5xx-failed edit pushes.
-    void retrySyncPendingBags();
-    QNetworkRequest makeApiJsonRequest(const QString& path) const;
+    // Records the fields a bag push set as what Visualizer now holds.
+    void persistBagSeen(qint64 localBagId, const QVariantMap& sent);
 
     // Single mutation point for m_cmState — every CM-probe transition flows
     // through here so there is one place to log old->new. The CM probing is
@@ -446,6 +475,14 @@ private:
     // The visualizer id that job is PATCHing, so the migration-16 back-sync's
     // PATCH does not end it.
     QString m_jobVisualizerId;
+    QHash<qint64, quint64> m_shotPushGeneration;
+    QHash<qint64, quint64> m_bagPushGeneration;
+    QElapsedTimer m_apiPaceClock;
+    qint64 m_nextApiSlotMs = 0;
+    // The fields that job sends, and the shot's visualizer_dirty_seq when it was
+    // read (-1 if unread): a success clears those fields only if no edit landed since.
+    quint32 m_jobFields = 0;
+    qint64 m_jobDirtySeq = -1;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
     static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";

@@ -29,8 +29,9 @@
 //   - default order is `scope :by_start_time, -> { order(start_time: :desc) }`;
 //   - the `clock` field this filters on is `start_time.to_i` — i.e. the exact
 //     value the window is expressed in;
-//   - the only other ordering is the opt-in `?sort=updated_at`, which neither
-//     caller sends.
+//   - the only other ordering is the opt-in `?sort=updated_at`, which only
+//     VisualizerShotSync sends — with fromEpoch 0, so the early stop never fires
+//     and it pages to the end.
 // So a whole page older than the window start guarantees every later page is
 // older too. As a belt-and-braces backstop regardless, the kMaxPages ceiling
 // bounds the loop and turns an over-long run into a loud PageCeiling failure
@@ -50,6 +51,7 @@ namespace VisualizerShotList {
 struct Entry {
     QString visualizerId;
     qint64 clockEpoch = 0;
+    qint64 updatedAtEpoch = 0;  // last change on visualizer.coffee, Unix seconds
 };
 
 // What the caller should do after this page.
@@ -118,7 +120,7 @@ inline PageResult processPage(const QByteArray& body, int page, int maxPages,
         minClockThisPage = qMin(minClockThisPage, clock);
         if (clock < fromEpoch || clock > toEpoch)
             continue;  // outside the requested window
-        result.inWindow.append({id, clock});
+        result.inWindow.append({id, clock, s.value("updated_at").toVariant().toLongLong()});
     }
 
     // Newest-first sort: once a whole page predates the window start, every later

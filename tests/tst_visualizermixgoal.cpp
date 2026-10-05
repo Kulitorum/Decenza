@@ -5,6 +5,8 @@
 
 #include "network/visualizeruploader.h"
 #include "history/shotprojection.h"
+#include "network/visualizernotes.h"
+#include "network/visualizersync.h"
 
 // Guards the mix temperature goal in the shot JSON uploaded to Visualizer.
 //
@@ -99,6 +101,36 @@ private slots:
         QJsonObject temp = temperatureOf(p);
 
         QVERIFY(!temp.contains("mix"));
+    }
+
+    // Visualizer's upload parser reads the barista from settings.my_name only
+    // (Parsers::Base#build_shot). Notes stay as typed here: this builder also
+    // writes local exports, so the Markdown escaping happens at upload.
+    void historyUploadSendsBaristaAsMyName() {
+        ShotProjection p = baseProjection();
+        p.barista = QStringLiteral("Jeff");
+        p.espressoNotes = QStringLiteral("*very* sour");
+        const QJsonObject root = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(p)).object();
+        const QJsonObject settings = root["app"].toObject()["data"].toObject()["settings"].toObject();
+        QCOMPARE(settings["my_name"].toString(), QStringLiteral("Jeff"));
+        QCOMPARE(settings["espresso_notes"].toString(), QStringLiteral("*very* sour"));
+        QCOMPARE(VisualizerNotes::escapeMarkdown(p.espressoNotes), QStringLiteral("\\*very\\* sour"));
+    }
+
+    // An automatic update sends only the fields edited here, so an edit made on
+    // visualizer.coffee to any other field survives it; a field it does send
+    // carries a local clear as null, and notes go as HTML.
+    void updateBodyCarriesOnlyTheGivenFields() {
+        ShotProjection p = baseProjection();
+        p.beanBrand = QStringLiteral("Sweet Bloom");
+        p.enjoyment0to100 = 0;
+        p.espressoNotes = QStringLiteral("sour\ntry finer");
+        const QJsonObject body = VisualizerUploader::buildShotUpdateBody(
+            p, VisualizerSync::Enjoyment | VisualizerSync::EspressoNotes);
+        QCOMPARE(body.keys(), (QStringList{"espresso_enjoyment", "espresso_notes"}));
+        QVERIFY(body["espresso_enjoyment"].isNull());
+        QCOMPARE(body["espresso_notes"].toString(), QStringLiteral("<p>sour<br>try finer</p>"));
+        QVERIFY(VisualizerUploader::buildShotUpdateBody(p, VisualizerSync::kAllFields).contains("bean_brand"));
     }
 };
 

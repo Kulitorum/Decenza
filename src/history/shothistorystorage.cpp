@@ -20,6 +20,7 @@
 #include "profile/profile.h"
 #include "network/visualizeruploader.h"
 #include "network/beanbase_blob.h"
+#include "network/visualizersync.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -37,6 +38,7 @@
 #include <QThread>
 #include <algorithm>
 #include <array>
+#include <tuple>
 #include <cmath>
 #include "core/dbutils.h"
 
@@ -995,11 +997,11 @@ bool ShotHistoryStorage::runMigrations()
     // untasted shot carries now, so that is what these rows get.
     //
     // The back-sync clears them to Unrated rather than "Rated 0/100" because
-    // updateShotOnVisualizer() sends JSON null for enjoyment <= 0. Note this
-    // has been true since #1155 — it is not a behaviour that changed to make
-    // the reset safe, and the create-path builder in the same file omits the
-    // field instead, so check updateShotOnVisualizer() specifically before
-    // concluding otherwise.
+    // VisualizerUploader::buildShotUpdateBody() sends JSON null for enjoyment
+    // <= 0. Note this has been true since #1155 — it is not a behaviour that
+    // changed to make the reset safe, and the create-path builder in the same
+    // file omits the field instead, so check buildShotUpdateBody() specifically
+    // before concluding otherwise.
     //
     // Resetting these rows is not rewriting user data: the whole point of
     // enjoyment_source='inferred' is that the app computed the value and
@@ -2316,6 +2318,55 @@ bool ShotHistoryStorage::runMigrations()
             } else {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 42 incomplete - will retry next launch"
                               " (Decent upload is unavailable until it completes)";
+            }
+        }
+    }
+
+    // Migration 43: two-way Visualizer sync (visualizer-two-way-sync).
+    // shots.visualizer_dirty holds a VisualizerSync::Field bit per field edited
+    // here and not yet sent; visualizer_dirty_seq counts edits, so a send clears
+    // only the bits it carried and only if no edit landed meanwhile.
+    // coffee_bags.visualizer_seen is what Visualizer was last known to hold, so
+    // each side syncs its own changes rather than its state. Unfilled: no shot
+    // has an unsent edit, no bag has been seen. Schema facts, so the bump is
+    // gated on all three.
+    if (currentVersion >= 42 && currentVersion < 43) {
+        query.finish();
+        static const QList<std::tuple<QString, QString, QString>> kColumns = {
+            {QStringLiteral("shots"), QStringLiteral("visualizer_dirty"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+            {QStringLiteral("shots"), QStringLiteral("visualizer_dirty_seq"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+            {QStringLiteral("coffee_bags"), QStringLiteral("visualizer_seen"), QStringLiteral("TEXT")},
+        };
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 43 visualizer sync columns", 1);
+        if (!txn.ok()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 43 could not start a transaction"
+                          " - will retry next launch";
+        } else {
+            bool ok = true;
+            for (const auto& [table, name, type] : kColumns) {
+                const std::optional<bool> present = columnPresent(table, name);
+                if (!present.has_value()) {
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 43 could not inspect" << table;
+                    ok = false;
+                    break;
+                }
+                if (!*present && !query.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, name, type))) {
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 43 add" << table << "." << name
+                                                             << "failed -" << query.lastError().text();
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok)
+                ok = query.exec("DELETE FROM schema_version")
+                     && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (43)"));
+            if (ok && txn.commit()) {
+                currentVersion = 43;
+                // INFO: its failure is a WARN that promises a retry, and the resolution belongs beside it.
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 43 complete";
+            } else {
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 43 incomplete - will retry next launch."
+                              " Until it completes, editing a shot and reading coffee bags fail";
             }
         }
     }
@@ -4177,6 +4228,35 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         return false;
     }
 
+    // Mark each Visualizer field whose value this edit actually changes. Compared
+    // in SQL against the row's current value, so a form that re-saves every field
+    // marks only what moved, without a read before the write. The seq moves only
+    // when something did, so a no-op re-save during a send does not stop that
+    // send clearing what it carried. Each comparison binds its own copies
+    // (:d_/:s_<col>) rather than reusing :<col>, which would lean on
+    // QSQLiteResult's duplicate-placeholder pruning (qsql_sqlite.cpp:465-499).
+    auto changedFields = [&](const QString& prefix) {
+        QStringList terms;
+        for (const auto& [metaKey, dbCol] : fieldMap) {
+            const VisualizerSync::Column* column = VisualizerSync::columnNamed(dbCol);
+            if (column && metadata.contains(metaKey))
+                // IFNULL drops the column's affinity, so the cast compares a
+                // number bound as text ("18") as the number it is.
+                terms << QString("(CASE WHEN CAST(IFNULL(%1, %2) AS %5) IS NOT CAST(IFNULL(:%4%1, %2) AS %5) "
+                                 "THEN %3 ELSE 0 END)")
+                             .arg(dbCol, column->numeric ? QStringLiteral("0") : QStringLiteral("''"))
+                             .arg(column->field).arg(prefix)
+                             .arg(column->numeric ? QStringLiteral("REAL") : QStringLiteral("TEXT"));
+        }
+        return terms.join(" | ");
+    };
+    const QString dirtyTerms = changedFields(QStringLiteral("d_"));
+    if (!dirtyTerms.isEmpty()) {
+        setClauses << QString("visualizer_dirty = visualizer_dirty | %1").arg(dirtyTerms);
+        setClauses << QString("visualizer_dirty_seq = visualizer_dirty_seq + (CASE WHEN (%1) != 0 THEN 1 ELSE 0 END)")
+                          .arg(changedFields(QStringLiteral("s_")));
+    }
+
     setClauses << "updated_at = strftime('%s', 'now')";
 
     QString sql = QString("UPDATE shots SET %1 WHERE id = :id").arg(setClauses.join(", "));
@@ -4197,6 +4277,10 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         if (dbCol == QLatin1String("equipment_id") && v.toLongLong() <= 0)
             v = QVariant();
         query.bindValue(QString(":%1").arg(dbCol), v);
+        if (VisualizerSync::columnNamed(dbCol)) {
+            query.bindValue(QString(":d_%1").arg(dbCol), v);
+            query.bindValue(QString(":s_%1").arg(dbCol), v);
+        }
     }
     query.bindValue(":id", shotId);
 
@@ -4216,6 +4300,176 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "No shot with id" << shotId << "to update";
         return false;
     }
+    return true;
+}
+
+bool ShotHistoryStorage::readVisualizerDirtyStatic(QSqlDatabase& db, qint64 shotId, quint32* dirty, qint64* seq)
+{
+    QSqlQuery q(db);
+    if (!q.prepare("SELECT visualizer_dirty, visualizer_dirty_seq FROM shots WHERE id = :id")) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer edit state of shot" << shotId
+                                                 << "unreadable:" << q.lastError().text();
+        return false;
+    }
+    q.bindValue(":id", shotId);
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer edit state of shot" << shotId
+                                                 << "unreadable:" << q.lastError().text();
+        return false;
+    }
+    if (!q.next()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer edit state of shot" << shotId
+                                                 << "unreadable: no such shot";
+        return false;
+    }
+    *dirty = static_cast<quint32>(q.value(0).toLongLong());
+    *seq = q.value(1).toLongLong();
+    return true;
+}
+
+bool ShotHistoryStorage::clearVisualizerDirtyStatic(QSqlDatabase& db, qint64 shotId, quint32 fields, qint64 seq)
+{
+    QSqlQuery q(db);
+    if (!q.prepare("UPDATE shots SET visualizer_dirty = visualizer_dirty & ~:fields "
+                   "WHERE id = :id AND visualizer_dirty_seq = :seq")) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "clearing Visualizer edit state failed:" << q.lastError().text();
+        return false;
+    }
+    q.bindValue(":fields", static_cast<qint64>(fields));
+    q.bindValue(":id", shotId);
+    q.bindValue(":seq", seq);
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "clearing Visualizer edit state failed:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+void ShotHistoryStorage::requestClearVisualizerDirty(qint64 shotId, quint32 fields, qint64 seq)
+{
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath, shotId, fields, seq]() {
+        bool ok = false;
+        withTempDb(dbPath, "shs_vizclean", [&](QSqlDatabase& db) {
+            ok = clearVisualizerDirtyStatic(db, shotId, fields, seq);
+        });
+        // The fields stay marked: the next update of this shot sends them again.
+        if (!ok)
+            DIAG_WARN(VISUALIZER, "ShotHistoryStorage") << "shot" << shotId
+                << "sent to Visualizer but its edits are still marked unsent - the next update resends them";
+    });
+}
+
+bool ShotHistoryStorage::applyVisualizerPullStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& remote,
+                                                   QVariantMap* written, QVariantMap* previous)
+{
+    written->clear();
+    previous->clear();
+    QStringList columns;
+    for (const VisualizerSync::Column& c : VisualizerSync::kColumns)
+        columns << QString::fromLatin1(c.column);
+
+    DbWriteTxn txn = DbWriteTxn::begin(db, "Visualizer pull");
+    if (!txn.ok())
+        return false;
+    QVariantMap local;
+    quint32 dirty = 0;
+    {
+        QSqlQuery q(db);
+        if (!q.prepare(QString("SELECT %1, visualizer_dirty FROM shots WHERE id = :id").arg(columns.join(", ")))) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull read failed:" << q.lastError().text();
+            return false;
+        }
+        q.bindValue(":id", shotId);
+        if (!q.exec()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull read failed:" << q.lastError().text();
+            return false;
+        }
+        if (!q.next())
+            return txn.commit();  // deleted here since: nothing to apply
+        for (qsizetype i = 0; i < columns.size(); ++i)
+            local.insert(QString::fromLatin1(VisualizerSync::kColumns[i].key), q.value(int(i)));
+        dirty = static_cast<quint32>(q.value(int(columns.size())).toLongLong());
+    }
+
+    const QVariantMap changes = VisualizerSync::shotPullChanges(remote, local, dirty);
+    if (changes.isEmpty())
+        return txn.commit();
+
+    QStringList sets;
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+        sets << QString("%1 = :%1").arg(QString::fromLatin1(VisualizerSync::columnForKey(it.key())->column));
+    sets << "updated_at = strftime('%s', 'now')";
+    QSqlQuery q(db);
+    if (!q.prepare(QString("UPDATE shots SET %1 WHERE id = :id").arg(sets.join(", ")))) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull write failed:" << q.lastError().text();
+        return false;
+    }
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+        q.bindValue(QString(":%1").arg(QString::fromLatin1(VisualizerSync::columnForKey(it.key())->column)), it.value());
+    q.bindValue(":id", shotId);
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull write failed:" << q.lastError().text();
+        return false;
+    }
+    if (!txn.commit())
+        return false;
+    *written = changes;
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+        previous->insert(it.key(), local.value(it.key()));
+    return true;
+}
+
+void ShotHistoryStorage::requestApplyVisualizerPull(qint64 shotId, const QVariantMap& remote,
+                                                    std::function<void(bool ok)> done)
+{
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, shotId, remote, destroyed, done = std::move(done)]() {
+        bool ok = false;
+        QVariantMap written;
+        QVariantMap previous;
+        withTempDb(dbPath, "shs_vizpull", [&](QSqlDatabase& db) {
+            ok = applyVisualizerPullStatic(db, shotId, remote, &written, &previous);
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shotId, ok, written, previous, destroyed, done]() {
+            if (*destroyed) return;
+            if (ok && !written.isEmpty()) {
+                DIAG_INFO(VISUALIZER, "ShotHistoryStorage") << "shot" << shotId << "updated from Visualizer:"
+                                                            << written.keys().join(QStringLiteral(", "));
+                emit historyDataChanged();
+                emit shotPulledFromVisualizer(shotId, previous, written);
+            }
+            if (done)
+                done(ok);
+        }, Qt::QueuedConnection);
+    });
+}
+
+bool ShotHistoryStorage::shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const QStringList& visualizerIds,
+                                                      QHash<QString, qint64>* out)
+{
+    out->clear();
+    if (visualizerIds.isEmpty())
+        return true;
+    QStringList placeholders;
+    for (qsizetype i = 0; i < visualizerIds.size(); ++i)
+        placeholders << QStringLiteral("?");
+    QSqlQuery q(db);
+    if (!q.prepare(QString("SELECT visualizer_id, id FROM shots WHERE visualizer_id IN (%1)")
+                       .arg(placeholders.join(", ")))) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "linked-shot lookup failed:" << q.lastError().text();
+        return false;
+    }
+    for (const QString& id : visualizerIds)
+        q.addBindValue(id);
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "linked-shot lookup failed:" << q.lastError().text();
+        return false;
+    }
+    while (q.next())
+        out->insert(q.value(0).toString(), q.value(1).toLongLong());
     return true;
 }
 
@@ -4842,6 +5096,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             const int idxDecentReplacePending = srcRecord.indexOf("decent_replace_pending");
             const int idxDecentRejectedStatus = srcRecord.indexOf("decent_rejected_status");
             const int idxDecentRejectedAt = srcRecord.indexOf("decent_rejected_at");
+            // Visualizer edits not yet sent (migration 43): carried with
+            // visualizer_id so a migrated history still sends them, and so a pull
+            // there does not overwrite them. Older sources resolve to 0.
+            const int idxVisualizerDirty = srcRecord.indexOf("visualizer_dirty");
+            const int idxVisualizerDirtySeq = srcRecord.indexOf("visualizer_dirty_seq");
             auto srcValueOrNull = [&srcShots](int idx) {
                 return idx >= 0 ? srcShots.value(idx) : QVariant();
             };
@@ -4879,8 +5138,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         recipe_id, steam_json, hot_water_json,
                         flow_calibration,
                         decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending,
-                        decent_rejected_status, decent_rejected_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        decent_rejected_status, decent_rejected_at,
+                        visualizer_dirty, visualizer_dirty_seq)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 // KEEP THE SHOT'S OWN ID wherever it is free.
@@ -5006,6 +5266,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxDecentReplacePending).toInt());
                 insert.addBindValue(srcValueOrNull(idxDecentRejectedStatus));
                 insert.addBindValue(srcValueOrNull(idxDecentRejectedAt));
+                insert.addBindValue(srcValueOrNull(idxVisualizerDirty).toLongLong());
+                insert.addBindValue(srcValueOrNull(idxVisualizerDirtySeq).toLongLong());
 
                 if (!insert.exec()) {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import shot:" << insert.lastError().text();

@@ -411,8 +411,8 @@ KeyboardAwareContainer {
                             }
                             Tr {
                                 Layout.fillWidth: true
-                                key: "settings.upload.autoUpdateDesc"
-                                fallback: "Re-send a shot after you edit it"
+                                key: "settings.upload.autoUpdateTwoWayDesc"
+                                fallback: "Re-send a shot after you edit it, and bring back edits made on Visualizer"
                                 color: Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 wrapMode: Text.WordWrap

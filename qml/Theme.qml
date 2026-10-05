@@ -52,6 +52,13 @@ QtObject {
     property real doseLiveNetG: -1
     property bool doseCaptureFlash: false
 
+    // Width of one card in a Beans / Recipes / Equipment card grid `avail` wide:
+    // as many ~380 px columns as fit, gaps included.
+    function cardGridWidth(avail: real): real {
+        const columns = Math.max(1, Math.floor(avail / scaled(380)))
+        return (avail - (columns - 1) * spacingMedium) / columns
+    }
+
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
     // Returns "" when no asset is bundled — see _emojiAssetPath.

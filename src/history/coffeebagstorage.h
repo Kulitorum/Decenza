@@ -11,6 +11,8 @@
 #include <functional>
 #include <memory>
 
+#include "network/visualizersync.h"
+
 #include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
 class QJsonArray;
@@ -127,6 +129,9 @@ struct CoffeeBag {
     // harmlessly. Not a Visualizer-synced field itself (visualizer=false in
     // kCols, so writing it never triggers a push).
     bool visualizerSyncPending = false;
+    // JSON object of each attribute's value as Visualizer was last known to hold
+    // it, keyed by API name, "archived_at" included (VisualizerSync bag rules).
+    QString visualizerSeen;
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 
@@ -196,6 +201,8 @@ public:
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
     Q_INVOKABLE void requestInventory();                   // inInventory = true, MRU order
+    Q_INVOKABLE void requestFinishedBags();                // inInventory = false, MRU order
+    Q_INVOKABLE void requestFinishedBagCount();            // finishedBagCountReady()
     Q_INVOKABLE void requestBag(qint64 bagId);             // bagReady()
 
     // Async writes — all emit bagsChanged() on success.
@@ -209,6 +216,15 @@ public:
     Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                       bool propagateBeanBase = false); // bagUpdated()
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
+    // Applies a Visualizer pull: `decide` runs on the bag worker with the row as
+    // it stands and returns what to write (VisualizerSync::bag*PullChanges); the
+    // fields and the seen values commit together. A change emits bagsChanged,
+    // bagPulledFromVisualizer and the inventory lifecycle signals — never
+    // bagUpdated, whose listeners take it as the result of their own write, nor
+    // bagVisualizerFieldsChanged, since pushing the values back would only echo.
+    void requestApplyVisualizerPull(qint64 bagId, std::function<VisualizerSync::BagPull(const QVariantMap&)> decide);
+    // Records remote values in coffee_bags.visualizer_seen, keyed by API name.
+    static bool mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& seen);
     // Stamp "the AI product-page search already ran for this bag" into the
     // stored blob (add-beanbase-archive-link-fallback). Its own key, not
     // linkDead: a bag whose URL died is precisely the one the search must
@@ -226,8 +242,13 @@ public:
     static bool ensureTableStatic(QSqlDatabase& db);
 
     static qint64 insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag);
-    static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId);
-    static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db);
+    // An invalid bag means not found, unless `readError` is set: a failed query
+    // is not a missing row. A failure is logged here.
+    static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId, QString* readError = nullptr);
+    // The open bags, or the finished ones. A failed query returns no bags and
+    // sets `readError`, so a caller can tell it from an empty shelf.
+    static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db, bool finished = false,
+                                                     QString* readError = nullptr);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
 
@@ -345,7 +366,13 @@ signals:
     // that waits for "loaded" before deciding what to render would otherwise
     // wait forever and show neither bags nor an empty state.
     void inventoryFailed();
+    void finishedBagsReady(const QVariantList& bags);
+    void finishedBagsFailed();
+    void finishedBagCountReady(int count);
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
+    // requestBag could not read the database. Not "not found": a listener that
+    // acts on a missing bag (SettingsDye clears the selection) must not act on this.
+    void bagReadFailed(qint64 bagId);
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
     // A write failed in a way the user must know about. bagUpdated carries the
@@ -370,10 +397,16 @@ signals:
     // Visualizer stores on the bean — see touchesVisualizerFields(). The
     // MainController gates on visualizerActive + upload autoUpdate + CM-active before PATCHing.
     void bagVisualizerFieldsChanged(qint64 bagId);
+    // A Visualizer pull changed this bag's fields.
+    void bagPulledFromVisualizer(qint64 bagId);
     // Coarse "something changed" signal so views can re-request the inventory.
     void bagsChanged();
 
 private:
+    void requestShelf(bool finished);  // requestInventory / requestFinishedBags
+    void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
+    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success);
+    void emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields);
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is
     // false (open failure → empty result that must not be read as not-found).

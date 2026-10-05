@@ -81,6 +81,19 @@ public:
     // Emits bagImageReady(canonicalId, filePath) on success, and re-emits it
     // (deferred) when the file already exists.
     Q_INVOKABLE QString bagImagePath(const QString& canonicalId) const;
+    // The cache key for a bag's photo: its canonical id when linked (every bag
+    // on that bean shares the photo), else "bag-<rowid>"; empty for an unsaved
+    // bag. The one place this rule lives — QML calls bagImageKey().
+    static QString imageKeyFor(qint64 bagId, const QString& beanBaseId)
+    {
+        if (!beanBaseId.isEmpty())
+            return beanBaseId;
+        return bagId > 0 ? QStringLiteral("bag-%1").arg(bagId) : QString();
+    }
+    Q_INVOKABLE QString bagImageKey(qint64 bagId, const QString& beanBaseId) const
+    {
+        return imageKeyFor(bagId, beanBaseId);
+    }
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl);
