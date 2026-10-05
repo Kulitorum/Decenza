@@ -663,14 +663,14 @@ T.Page {
                             Keys.onLeftPressed: function(event) {
                                 for (let i = livePitcherPill.index - 1; i >= 0; i--) {
                                     let prior = livePresetRepeater.itemAt(i)
-                                    if (prior && prior.visible) { prior.forceActiveFocus(); break }
+                                    if (prior && prior.visible) { prior.forceActiveFocus(Qt.TabFocusReason); break }
                                 }
                                 event.accepted = true
                             }
                             Keys.onRightPressed: function(event) {
                                 for (let j = livePitcherPill.index + 1; j < livePresetRepeater.count; j++) {
                                     let candidate = livePresetRepeater.itemAt(j)
-                                    if (candidate && candidate.visible) { candidate.forceActiveFocus(); break }
+                                    if (candidate && candidate.visible) { candidate.forceActiveFocus(Qt.TabFocusReason); break }
                                 }
                                 event.accepted = true
                             }
@@ -684,7 +684,7 @@ T.Page {
                                              ?? steamPage.firstLiveControlAfterPresets()
                                              ?? steamPage.firstVisiblePresetPill()
                                 if (target) {
-                                    target.forceActiveFocus()
+                                    target.forceActiveFocus(Qt.TabFocusReason)
                                     event.accepted = true
                                 }
                             }
@@ -698,7 +698,7 @@ T.Page {
                                            ?? steamPage.lastLiveActionButton()
                                            ?? steamPage.lastVisiblePresetPill()
                                 if (back) {
-                                    back.forceActiveFocus()
+                                    back.forceActiveFocus(Qt.TabFocusReason)
                                     event.accepted = true
                                 }
                             }
@@ -776,7 +776,7 @@ T.Page {
                         var next = steamPage.firstVisiblePresetPill()
                                    ?? steamPage.firstLiveControlAfterPresets()
                         if (next) {
-                            next.forceActiveFocus()
+                            next.forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                     }
@@ -784,7 +784,7 @@ T.Page {
                         var prev = steamPage.lastVisiblePresetPill()
                                    ?? steamPage.lastLiveActionButton()
                         if (prev) {
-                            prev.forceActiveFocus()
+                            prev.forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                     }
@@ -1204,7 +1204,7 @@ T.Page {
                 Keys.onTabPressed: function(event) {
                     var next = steamPage.firstVisiblePresetPill()
                     if (next) {
-                        next.forceActiveFocus()
+                        next.forceActiveFocus(Qt.TabFocusReason)
                         event.accepted = true
                     }
                 }
@@ -1219,7 +1219,7 @@ T.Page {
                                ? steamingFlowSlider
                                : steamPage.lastVisiblePresetPill()
                     if (back) {
-                        back.forceActiveFocus()
+                        back.forceActiveFocus(Qt.TabFocusReason)
                         event.accepted = true
                     }
                 }
@@ -1471,16 +1471,16 @@ T.Page {
                                         if (pitcherDelegate.index < pitcherRepeater.count - 1)
                                             steamPage.focusPitcherAt(pitcherDelegate.index + 1)
                                         else
-                                            addPitcherButton.forceActiveFocus()
+                                            addPitcherButton.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
                                     Keys.onBacktabPressed: function(event) {
                                         if (pitcherDelegate.index > 0)
                                             steamPage.focusPitcherAt(pitcherDelegate.index - 1)
                                         else if (steamPage.realScaleConnected)
-                                            savePitcherWeightBtn.forceActiveFocus()
+                                            savePitcherWeightBtn.forceActiveFocus(Qt.TabFocusReason)
                                         else
-                                            steamTempSlider.forceActiveFocus()
+                                            steamTempSlider.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
 

@@ -173,29 +173,29 @@ T.Page {
                         Keys.onReturnPressed: function(event) { liveVesselArea.clicked(null); event.accepted = true }
                         Keys.onSpacePressed:  function(event) { liveVesselArea.clicked(null); event.accepted = true }
                         Keys.onLeftPressed: function(event) {
-                            if (liveVesselPill.index > 0) liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus()
+                            if (liveVesselPill.index > 0) liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onRightPressed: function(event) {
-                            if (liveVesselPill.index < liveVesselRepeater.count - 1) liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus()
+                            if (liveVesselPill.index < liveVesselRepeater.count - 1) liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onTabPressed: function(event) {
                             if (liveVesselPill.index < liveVesselRepeater.count - 1)
-                                liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus()
+                                liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus(Qt.TabFocusReason)
                             else if (hotWaterStopButton.visible)
-                                hotWaterStopButton.forceActiveFocus()
+                                hotWaterStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                liveVesselRepeater.itemAt(0).forceActiveFocus()
+                                liveVesselRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onBacktabPressed: function(event) {
                             if (liveVesselPill.index > 0)
-                                liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus()
+                                liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus(Qt.TabFocusReason)
                             else if (hotWaterStopButton.visible)
-                                hotWaterStopButton.forceActiveFocus()
+                                hotWaterStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus()
+                                liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
 
@@ -331,11 +331,11 @@ T.Page {
                 Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
-                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus()
+                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
                 Keys.onBacktabPressed: function(event) {
-                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus()
+                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
 
@@ -454,14 +454,14 @@ T.Page {
                                         if (vesselDelegate.index < vesselRepeater.count - 1)
                                             page.focusVesselAt(vesselDelegate.index + 1)
                                         else
-                                            addVesselButton.forceActiveFocus()
+                                            addVesselButton.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
                                     Keys.onBacktabPressed: function(event) {
                                         if (vesselDelegate.index > 0)
                                             page.focusVesselAt(vesselDelegate.index - 1)
                                         else
-                                            flowRateInput.forceActiveFocus()
+                                            flowRateInput.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
 

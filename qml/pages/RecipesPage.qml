@@ -697,7 +697,7 @@ T.Page {
             width: flickable.width
             spacing: Theme.spacingMedium
 
-            // Header row: title + Add Recipe (BeanInfoPage pattern)
+            // Header row: title + "Add [Recipe]" (the Beans and Equipment pattern)
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
@@ -710,11 +710,12 @@ T.Page {
                     Accessible.name: text
                 }
                 Item { Layout.fillWidth: true }
+                AddLabel {}
                 AccessibleButton {
                     id: addRecipeButton
-                    primary: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("recipes.addButton", "Add Recipe")
+                    icon.source: "qrc:/icons/cup.svg"
+                    text: TranslationManager.translate("recipes.addButton.recipe", "Recipe")
                     accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
                     onClicked: AppShell.recipeWizardRequested("create", {})
                 }

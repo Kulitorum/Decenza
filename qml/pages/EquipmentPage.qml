@@ -10,7 +10,7 @@ import QtQuick.Layouts
 import Decenza
 
 // Equipment inventory (add-equipment-packages): mirrors BeanInfoPage. Shows all
-// packages with inInventory = true as cards; "Add Equipment" opens the create
+// packages with inInventory = true as cards; "Add [Equipment]" opens the create
 // dialog. Equipment is switched per-bag from Brew Settings, so there is no
 // global selection here — cards are informational + edit/remove.
 T.Page {
@@ -76,12 +76,13 @@ T.Page {
 
                 Item { Layout.fillWidth: true }
 
+                AddLabel {}
+
                 AccessibleButton {
                     id: addEquipmentButton
-                    primary: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    icon.source: "qrc:/icons/plus.svg"
-                    text: TranslationManager.translate("equipment.inventory.add", "Add Equipment")
+                    icon.source: "qrc:/icons/grind.svg"
+                    text: TranslationManager.translate("equipment.inventory.addButton", "Equipment")
                     accessibleName: TranslationManager.translate("equipment.inventory.accessible.add", "Add a new equipment package")
                     onClicked: switchEquipmentDialog.openForCreate()
                 }

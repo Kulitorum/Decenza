@@ -114,6 +114,9 @@ Screen reader users navigate by swiping, but keyboard users (and some switch-acc
    - **Pages** (pushed onto `pageStack`): `Component.onCompleted: firstControl.forceActiveFocus()`
    - **Dialogs/Popups**: `onOpened: firstControl.forceActiveFocus()` — `Component.onCompleted` fires before the dialog is open and is unreliable for focus.
 4. Wrap related groups of controls (e.g. a dialog's action buttons) in a `FocusScope`.
+5. A key handler that moves focus passes `Qt.TabFocusReason` (`forceActiveFocus(Qt.TabFocusReason)`). The focus ring (`FocusIndicator`) shows only for keyboard focus (Qt's `visualFocus`), or any focus while a screen reader is on, so the initial focus in step 3 draws no ring for touch and mouse users. A move made with a bare `forceActiveFocus()` is invisible to a keyboard user.
+
+On macOS, Tab moves between buttons only when **Full Keyboard Access** (System Settings → Keyboard → Keyboard navigation) is on; otherwise Qt follows the Mac rule of text fields and lists only (`qcocoatheme.mm:446-448`). Test keyboard order there with it on.
 
 ```qml
 // Full pattern for a page
@@ -154,7 +157,7 @@ FocusScope {
 // Repeater-based rows (e.g. preset pills) — KeyNavigation.tab can't reference
 // dynamic delegates statically. Instead:
 // 1. Expose focusTarget on the delegate Item
-// 2. Use Keys.onTabPressed with forceActiveFocus()
+// 2. Use Keys.onTabPressed with forceActiveFocus(Qt.TabFocusReason)
 // 3. Add Keys.onLeftPressed/RightPressed for arrow navigation within the row
 Repeater {
     id: myRepeater
@@ -175,23 +178,23 @@ Repeater {
             Keys.onReturnPressed: { selectItem(index); event.accepted = true }
             Keys.onSpacePressed:  { selectItem(index); event.accepted = true }
             Keys.onLeftPressed: {
-                if (index > 0) myRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                if (index > 0) myRepeater.itemAt(index - 1).focusTarget.forceActiveFocus(Qt.TabFocusReason)
                 event.accepted = true
             }
             Keys.onRightPressed: {
-                if (index < myRepeater.count - 1) myRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                if (index < myRepeater.count - 1) myRepeater.itemAt(index + 1).focusTarget.forceActiveFocus(Qt.TabFocusReason)
                 event.accepted = true
             }
             Keys.onTabPressed: {
                 if (index < myRepeater.count - 1)
-                    myRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                    myRepeater.itemAt(index + 1).focusTarget.forceActiveFocus(Qt.TabFocusReason)
                 else
-                    nextControlAfterRow.forceActiveFocus()
+                    nextControlAfterRow.forceActiveFocus(Qt.TabFocusReason)
                 event.accepted = true
             }
             Keys.onBacktabPressed: {
                 if (index > 0)
-                    myRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                    myRepeater.itemAt(index - 1).focusTarget.forceActiveFocus(Qt.TabFocusReason)
                 else
                     prevControlBeforeRow.forceActiveFocus()
                 event.accepted = true
