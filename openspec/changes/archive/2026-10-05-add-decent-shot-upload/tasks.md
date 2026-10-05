@@ -98,8 +98,18 @@ Started 2026-10-05 (hold lifted). Decided with Jeff: migration 44; Visualizer re
 
 ### 11. Docs, review and merge
 
-- [ ] 11.1 Complete `docs/CLAUDE_MD/DECENT_UPLOAD.md`, started in 5.5 (endpoint, auth, payload mapping, retry classes, the replace-pending mechanism, why the serial is taken at upload time, and the staged rollout), (already listed in the CLAUDE.md reference table). Verify: the doc names the golden-file test and the live-accepted capture date.
+- [x] 11.1 Complete `docs/CLAUDE_MD/DECENT_UPLOAD.md`, started in 5.5 (endpoint, auth, payload mapping, retry classes, the replace-pending mechanism, why the serial is taken at upload time, and the staged rollout), (already listed in the CLAUDE.md reference table). Verify: the doc names the golden-file test and the live-accepted capture date.
 - [ ] 11.2 Wiki manual: rename the Visualizer section to Shot Upload with one short paragraph per destination, and note the serial on About. Write it short, then cut it by half. Verify: reviewed with Jeff before pushing (wiki edits are held for release).
-- [ ] 11.3 Run the full suite (scope `all`), with no new WARN lines, and confirm `openspec validate add-decent-shot-upload --strict` passes.
-- [ ] 11.4 Open the Stage 3 PR, read `text-invariants.yml`, run `/pr-review-toolkit:review-pr`, and address the findings. Then archive with `openspec archive add-decent-shot-upload --yes` as the PR's final commit, push, read that commit's checks, and merge.
+  - Approved by Jeff 2026-10-05 (Shot Upload section, serial on About, settings table row); held, unpushed, for the release push per the wiki-timing convention.
+- [x] 11.3 Run the full suite (scope `all`), with no new WARN lines, and confirm `openspec validate add-decent-shot-upload --strict` passes.
+- [x] 11.4 Open the Stage 3 PR, read `text-invariants.yml`, run `/pr-review-toolkit:review-pr`, and address the findings. Then archive with `openspec archive add-decent-shot-upload --yes` as the PR's final commit, push, read that commit's checks, and merge.
   - PR #1996 opened 2026-10-05. `/pr-review-toolkit:review-pr` (code, tests, comments, silent failures, types) found and this round fixed: a run stuck after a refusal on a send outside it; Visualizer unsent edits sent as full updates (now `UpdateOnly`, edited fields only); never-uploaded edited shots counted as unsent edits; a duplicate send of the shot in flight; an unbounded PATCH-404 relink; a failed read hiding the button and wiping a resumed run; retries after a switch-off; the shot page not refreshing on a Decent rejection; the web poll stopping after one failure; no run logging. Specs and design no longer describe the old drain. New coverage: Visualizer PATCH rows, the 404 relink, the batch-spacing wait, a nothing-to-send edit, switch-off and account refusal mid-run, device transfer of the migration 43/44 columns; each fix's test seen failing with the fix reverted. 119/119, no warnings.
+
+## Holds at archive (2026-10-05, Jeff: "archive and merge it")
+
+Archived with these open, not passed:
+- 10.4 live checks on the production Android tablet: a press uploading in batches, a shot pausing the run, a restart resuming it, the button leaving and returning; and a TalkBack double-tap switching a Settings tab. Not run on the Mac by Jeff's rule (no uploads there).
+- 9.1 several days of automatic upload in daily use.
+- 7.2 replace (`?replace=1`) waits on Decent's server fix; built as documented.
+- 11.2 wiki entry approved, pushed with the release.
+
