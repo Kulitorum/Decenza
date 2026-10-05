@@ -1,39 +1,4 @@
-# shotserver-bags Specification
-
-## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Bags REST API
-The ShotServer SHALL expose, behind the existing authentication gate (`shotserver_bags.cpp`): `GET /api/bags` (inventory, open bags by default with a filter for finished), `GET /api/bag/<id>` (full detail including Bean Base snapshot), `POST /api/bags` (create), `POST /api/bag/<id>` (update, using the same write-through semantics as app edits), `POST /api/bag/<id>/finish` (mark empty), and `POST /api/bag/<id>/activate` (set active bag). All handlers SHALL route through `CoffeeBagStorage`; the bag lifecycle rule SHALL be enforced (hard delete only for bags with zero shots).
-
-To support full feature parity on the `/beans` page, the API SHALL additionally expose, behind the same auth gate:
-- `GET /api/beans/search?q=<query>` — a read-only Bean Base lookup returning candidate canonical records, reusing the same backend as the app's search (`BeanBaseClient` / the MCP `bean_search` tool). The search SHALL run off the request thread and return results as JSON.
-- `POST /api/beans/extract` — an **async** "get info from page" extraction that takes a roaster URL (and/or pasted page text) and returns extracted bean fields, reusing the app's extraction backend (`BeanBaseClient` / the MCP `bag_extract_details` tool). It SHALL follow the established async ShotServer pattern (`QPointer<QTcpSocket>` + fired-guard + timeout) and always emit an error response on timeout or rejection rather than hanging.
-- `GET /api/bag/<id>/image` (or an equivalent bean-image route) — serving the bag's photo/thumbnail for the web card, or a suitable placeholder when none exists.
-
-`POST /api/bags` create and `POST /api/bag/<id>` update SHALL accept the full app field set — including `kind` (coffee|tea, create-only), the yield anchor (`yieldG` or `yieldRatio`, mutually exclusive), `rpmPinned`, the per-bag equipment link, the freeze-lifecycle dates, and the full bean attributes — and `POST /api/bag/<id>` SHALL support linking/unlinking a Bean Base canonical record so the web can set the same linkage the app sets.
-
-#### Scenario: Finish a bag via web
-- **WHEN** a client POSTs to `/api/bag/<id>/finish` for a used bag
-- **THEN** the bag is marked empty (not deleted) and leaves the app's inventory pills
-
-#### Scenario: Delete guard
-- **WHEN** a client attempts to delete a bag that has shots
-- **THEN** the API refuses, mirroring the in-app rule
-
-#### Scenario: Bean Base search from the web
-- **WHEN** a client GETs `/api/beans/search?q=<roaster or coffee>`
-- **THEN** the response returns Bean Base candidate records equivalent to the app's search, computed off the request thread
-
-#### Scenario: AI page-extraction from the web
-- **WHEN** a client POSTs a roaster URL to `/api/beans/extract`
-- **THEN** the server runs the same extraction the app runs and returns the extracted bean fields, or an error response on timeout/rejection (never a hung request)
-
-#### Scenario: Link a bag to a Bean Base record from the web
-- **WHEN** a client updates a bag with a Bean Base canonical id via the web API
-- **THEN** the bag is linked to that canonical record exactly as an in-app link would, and the link is reflected in the app
+## MODIFIED Requirements
 
 ### Requirement: /beans web management page
 The ShotServer SHALL serve a `/beans` page listing the bag inventory (open bags by default, active bag highlighted, roast dates/freshness shown) with create, edit, finish, and activate actions.
@@ -79,11 +44,3 @@ All create/edit/finish/activate behavior, the existing REST endpoints, auth gate
 #### Scenario: AI-import bean details on the web
 - **WHEN** the user uses "get info from page" with a roaster URL on the `/beans` form
 - **THEN** the form is prefilled with the extracted bean fields, matching the app's behavior
-
-### Requirement: Finished bags on the web Beans page
-
-`GET /api/bags/finished` SHALL return the finished bags in the same shape as `GET /api/bags`. `POST /api/bag/<id>/restore` SHALL return a finished bag to inventory. The `/beans` page SHALL show a "Show finished (N)" toggle listing them as dimmed cards with Restock, Restore, Edit and Info, and Restock SHALL open the new-bag editor prefilled from the finished bag as the app does; open bags SHALL offer Restock too. A failed bag read SHALL answer 500, never an empty list or "Bag not found".
-
-#### Scenario: Restock from the web
-- **WHEN** the user taps Restock on a finished bag on the web Beans page
-- **THEN** the editor opens as a new bag with that bag's identity and details, its dates and notes blank

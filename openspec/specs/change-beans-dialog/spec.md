@@ -100,6 +100,7 @@ After selecting any result, the dialog SHALL show a Bag Details form pre-filled 
 #### Scenario: Manual entry
 - **WHEN** the user selects "Enter manually"
 - **THEN** all fields SHALL be shown as editable: roaster, coffee name, roast date, roast level, grinder setting, dose
+- **AND** the text typed into the search before choosing it SHALL prefill the coffee name, not be discarded
 - **AND** the collapsed Bean details section SHALL be available for optional detail entry
 
 #### Scenario: Canonical linking available in create mode
@@ -156,14 +157,14 @@ What happens when a bag is selected SHALL depend on where the dialog was opened:
 - **AND** `activeBagId` SHALL remain unchanged
 
 ### Requirement: Tea creation mode
-The Change Beans dialog SHALL support a tea mode used by the "Add Tea" entry point. In tea mode: the Visualizer canonical search lane SHALL be suppressed (the canonical database is coffee-only and returns coffee false-positives for tea terms); the past-bags lane SHALL search only tea bags (re-buy flow); when no tea bags exist the dialog SHALL open directly on the form. The tea form SHALL relabel roaster → "Brand" and coffee → "Tea", SHALL hide roast level, grinder setting/rpm, and all canonical-link affordances, and SHALL keep the URL field, "Get info from page", photo resolution, weight/remaining, and show-on-idle. Tea mode is subtraction over the existing form — one mode property, not a parallel form.
+The Change Beans dialog SHALL support a tea mode used by the "Bag of Tea" entry point. In tea mode: the Visualizer canonical search lane SHALL be suppressed (the canonical database is coffee-only and returns coffee false-positives for tea terms); the past-bags lane SHALL search only tea bags (re-buy flow); when no tea bags exist the dialog SHALL open directly on the form. The search field SHALL carry a label that stays visible while typing, naming what is searched (past tea bags in tea mode; past bags and the Loffee Labs Bean Base otherwise). The tea form SHALL relabel roaster → "Brand" and coffee → "Tea", SHALL hide roast level, grinder setting/rpm, and all canonical-link affordances, and SHALL keep the URL field, "Get info from page", photo resolution, weight/remaining, and show-on-idle. Tea mode is subtraction over the existing form — one mode property, not a parallel form.
 
 #### Scenario: No Visualizer results for tea
 - **WHEN** the user types "earl grey" in tea mode
 - **THEN** only past tea bags are searched and no canonical coffee results appear
 
 #### Scenario: First tea goes straight to the form
-- **WHEN** the user taps "Add Tea" with no tea bags in history
+- **WHEN** the user taps "Bag of Tea" with no tea bags in history
 - **THEN** the form opens directly with tea labels and without roast-level or grind fields
 
 #### Scenario: Re-buying a tea
