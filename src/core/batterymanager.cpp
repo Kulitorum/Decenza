@@ -113,14 +113,9 @@ void BatteryManager::setChargingMode(int mode) {
     if (m_settings)
         m_settings->setValue("smartBatteryCharging", mode);
 
-    // Switching to Off means "always charge" — turn the port on immediately so the
-    // user doesn't have to wait for the next 60-second tick.
-    if (mode == Off && m_usbChargerEnabled && m_device)
-        m_device->setUsbChargerOn(true);
-
     emit chargingModeChanged();
 
-    // Recompute the correct port state for the new mode right away.
+    // Apply the new mode's port state now rather than at the next 60 s tick.
     checkBattery();
 }
 
@@ -544,13 +539,12 @@ void BatteryManager::applySmartCharging() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::ensureChargerOn() {
-    // Called on app exit or suspend. Re-enables the DE1 USB port unconditionally so
-    // the tablet can charge while the app is not running to manage it. Without this,
-    // if smart charging had turned the port off (battery > 65 %, say), the DE1 would
-    // keep the port off for up to 10 minutes after the app exits — the tablet would
-    // drain unnecessarily. Matches de1app's app_exit behaviour.
-    // A user who switched the charger off does not get it switched back on here.
-    // The DE1 firmware still re-enables its port ~10 min after the last command.
+    // Called on app exit or suspend. Re-enables the DE1 USB port so the tablet can
+    // charge while the app is not running to manage it. Without this, if smart
+    // charging had turned the port off (battery > 65 %, say), the DE1 would keep it
+    // off for up to 10 minutes after the app exits. Matches de1app's app_exit.
+    // Skipped when the user switched the USB charger off; the DE1 firmware still
+    // re-enables its port ~10 min after the last command.
     if (!m_usbChargerEnabled)
         return;
     if (m_device && m_device->isConnected()) {

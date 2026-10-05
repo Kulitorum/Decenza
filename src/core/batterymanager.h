@@ -27,7 +27,7 @@ class Settings;
 // not charged from the DE1. Persisted, so it survives restarts.
 //
 // Smart charging modes (apply only while usbChargerEnabled)
-// ────────────────────
+// ─────────────────────────────────────────────────────────
 // Off   — DE1 USB port always on. Battery charges freely to 100%.
 // On    — Cycles between 55 % and 65 %. Port turns off at 65 %, back on at 55 %.
 //         Extends long-term battery lifespan by avoiding constant top-up charging.
@@ -146,8 +146,8 @@ private:
     // event loop. There's nothing useful for the poll to do in that window:
     // ensureChargerOn() runs later in the same suspend handler — before the
     // event loop can deliver a gated tick — and commands the DE1 USB port ON
-    // when the DE1 is connected (when it isn't, the DE1's own 10-minute
-    // auto-enable restores the port by itself); the UI isn't visible; and
+    // when the DE1 is connected and the USB charger is enabled (otherwise the
+    // DE1's own 10-minute auto-enable restores the port); the UI isn't visible; and
     // main.cpp re-runs checkBattery() on resume. Skipping also keeps JNI work
     // out of the suspend window — the poll's JNI allocation is where crash
     // #1408 surfaced (its stack aborts inside ART's AddGlobalRef, whose FATAL
