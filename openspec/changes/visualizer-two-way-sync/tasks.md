@@ -42,7 +42,7 @@
 
 - [x] 6.1 Shot Upload tab and ShotServer settings: "Auto-update shots" description mentions bringing edits back.
 - [x] 6.2 `docs/CLAUDE_MD/VISUALIZER.md`.
-- [ ] 6.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving.
+- [x] 6.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving, plus Show finished / Restock / Restore under the bag cards (wiki `ce5385d`).
 
 ## 7. Verify
 
