@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   build-macos:
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout code
@@ -81,6 +81,11 @@ jobs:
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
           cache: true
           cache-key-prefix: 'qt-macos-v2'
+
+      - name: Set up Xcode (pin + deployment-target shims)
+        uses: ./.github/actions/setup-xcode
+        with:
+          xcode-version: '26.4.1'
 
       - name: Set up ccache
         uses: ./.github/actions/setup-compiler-cache
