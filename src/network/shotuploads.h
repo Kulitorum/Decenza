@@ -53,6 +53,16 @@ public:
     Q_INVOKABLE void expectHeldEdit(qint64 shotId);
     Q_INVOKABLE void releaseUpdates(qint64 shotId);
 
+    // What a destination is missing (D14): edits it has not received, then shots
+    // it does not hold, newest first; never a rejected or ineligible shot.
+    struct Missing {
+        QList<qint64> shotIds;   // unsent edits first, then missing shots
+        int unsentEdits = 0;
+        int failed = 0;          // of the missing shots, those whose upload failed
+    };
+    // Reads only `db`, so it runs on a worker thread.
+    static Missing findMissing(QSqlDatabase& db, const ShotUploadDestination& destination, double minDurationSec);
+
     static constexpr int kAttempts = 3;
     // The first retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }

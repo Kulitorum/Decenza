@@ -71,6 +71,8 @@ public:
     QString name() const override { return QStringLiteral("decent"); }
     bool isActive() const override;
     bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
+    QString heldCondition() const override { return QStringLiteral("decent_uploaded_at IS NOT NULL"); }
+    QString unsentEditCondition() const override { return QStringLiteral("decent_replace_pending = 1"); }
     // An already-uploaded shot is re-sent with ?replace=1 under the serial it was
     // first uploaded with; a rejected shot is tried again.
     void attemptSavedShot(qint64 shotId, Send how) override;

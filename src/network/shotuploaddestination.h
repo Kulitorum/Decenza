@@ -54,6 +54,10 @@ public:
     // Whether the shot is already uploaded here. Reads only `db`, so it runs on a
     // worker thread.
     virtual bool holdsShot(QSqlDatabase& db, qint64 shotId) const = 0;
+    // SQL conditions on `shots`, for Upload missing shots (D14): the shot is
+    // uploaded here, and it has an edit this destination has not received.
+    virtual QString heldCondition() const = 0;
+    virtual QString unsentEditCondition() const = 0;
     // One attempt: reads the saved row, after any write already queued, sends
     // it, and ends with finishAttempt(). A retry calls it again.
     virtual void attemptSavedShot(qint64 shotId, Send how) = 0;

@@ -16,6 +16,9 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUuid>
+#include <QSqlError>
+#include <QSqlQuery>
 
 #include "core/dbutils.h"
 #include "core/settings.h"
@@ -48,6 +51,8 @@ struct FakeDestination : ShotUploadDestination {
     QString name() const override { return label; }
     bool isActive() const override { return active; }
     bool holdsShot(QSqlDatabase&, qint64) const override { return false; }
+    QString heldCondition() const override { return QStringLiteral("0"); }
+    QString unsentEditCondition() const override { return QStringLiteral("0"); }
     void attemptSavedShot(qint64 shotId, Send how) override {
         sent.append({shotId, how});
         if (!holding) finish();
@@ -747,6 +752,72 @@ private slots:
         vz->setVisualizerEnabled(vzEnabled);
         vz->setVisualizerUsername(vzUser);
         vz->setVisualizerPassword(vzPassword);
+    }
+
+    // D14: what each destination is missing, chosen by one selection over each
+    // destination's own columns.
+    void missingShotsAreChosenTheSameWayForBoth_data() {
+        QTest::addColumn<QString>("destination");
+        QTest::addColumn<QString>("markHeld");      // SET clause
+        QTest::addColumn<QString>("markUnsent");    // SET clause, on a held shot
+        QTest::newRow("decent") << "decent" << "decent_uploaded_at = 1" << "decent_replace_pending = 1";
+        QTest::newRow("visualizer") << "visualizer" << "visualizer_id = 'v'" << "visualizer_dirty = 1";
+    }
+    void missingShotsAreChosenTheSameWayForBoth() {
+        QFETCH(QString, destination);
+        QFETCH(QString, markHeld);
+        QFETCH(QString, markUnsent);
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath(QStringLiteral("missing-%1.db").arg(destination))));
+        // Oldest first, so ids and timestamps rise together.
+        auto add = [&storage](qint64 timestamp, double duration, const QString& beverage) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = timestamp;
+            r.summary.duration = duration;
+            r.summary.beverageType = beverage;
+            return storage.importShotRecord(r, false);
+        };
+        const qint64 failed = add(1000, 30, QStringLiteral("espresso"));
+        const qint64 held = add(2000, 30, QStringLiteral("espresso"));
+        const qint64 rejected = add(3000, 30, QStringLiteral("espresso"));
+        const qint64 cleaning = add(4000, 300, QStringLiteral("cleaning"));
+        const qint64 tooShort = add(5000, 2, QStringLiteral("espresso"));
+        const qint64 unsent = add(6000, 30, QStringLiteral("espresso"));
+        const qint64 newest = add(7000, 30, QStringLiteral("espresso"));
+        Q_UNUSED(cleaning);
+        Q_UNUSED(tooShort);
+        (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+
+        CannedNam nam;
+        SettingsDecent decentSettings;
+        Settings settings;
+        DecentAccount account(&nam, &decentSettings);
+        DecentShotUploader decent(&nam, &account, &storage);
+        VisualizerUploader visualizer(&nam, &settings);
+        const ShotUploadDestination& target = destination == QLatin1String("decent")
+            ? static_cast<const ShotUploadDestination&>(decent) : visualizer;
+
+        ShotUploads::Missing missing;
+        withTempDb(storage.databasePath(), "tst_missing", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            const auto set = [&q](const QString& clause, qint64 id) {
+                QVERIFY2(q.exec(QStringLiteral("UPDATE shots SET %1 WHERE id = %2").arg(clause).arg(id)),
+                         qPrintable(q.lastError().text()));
+            };
+            set(QStringLiteral("%1_failed_at = 1").arg(destination), failed);
+            set(markHeld, held);
+            set(QStringLiteral("%1_rejected_at = 1, %1_rejected_status = 400").arg(destination), rejected);
+            set(markHeld + QStringLiteral(", ") + markUnsent, unsent);
+            missing = ShotUploads::findMissing(db, target, 6.0);
+        });
+
+        // Unsent edits first, then the missing shots newest first; held, rejected,
+        // maintenance and too-short shots are not offered.
+        QCOMPARE(missing.shotIds, (QList<qint64>{unsent, newest, failed}));
+        QCOMPARE(missing.unsentEdits, 1);
+        QCOMPARE(missing.failed, 1);
+        closeStorage(storage);
     }
 
     void firstUploadNeedsAConnectedMachine() {

@@ -119,6 +119,8 @@ public:
     QString name() const override { return QStringLiteral("visualizer"); }
     bool isActive() const override;
     bool holdsShot(QSqlDatabase& db, qint64 shotId) const override;
+    QString heldCondition() const override { return QStringLiteral("COALESCE(visualizer_id, '') != ''"); }
+    QString unsentEditCondition() const override { return QStringLiteral("visualizer_dirty != 0"); }
     void attemptSavedShot(qint64 shotId, Send how) override;
     // Publishes the send's result: savedShotFinished, and a failure's status.
     void sendFinished(qint64 shotId, Attempt last) override;

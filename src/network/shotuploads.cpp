@@ -1,7 +1,12 @@
 #include "shotuploads.h"
 
 #include "core/settings_upload.h"
+#include "core/diagnosticlogging.h"
 #include "history/shothistorystorage.h"
+#include "network/shotpayloadhelpers.h"
+
+#include <QSqlError>
+#include <QSqlQuery>
 
 #include <QTimer>
 #include <algorithm>
@@ -184,3 +189,37 @@ void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
     destination->sendFinished(shotId, last);
     QMetaObject::invokeMethod(this, [this, destination]() { pump(destination); }, Qt::QueuedConnection);
 }
+
+ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUploadDestination& destination,
+                                              double minDurationSec) {
+    Missing missing;
+    const QString held = destination.heldCondition(), unsent = destination.unsentEditCondition();
+    // The profile snapshot is read only where the beverage-type column is empty,
+    // which uploadBeverageType falls back to; the import fills that column.
+    QSqlQuery q(db);
+    const QString sql = QStringLiteral(
+        "SELECT id, beverage_type, duration_seconds, "
+        "CASE WHEN COALESCE(beverage_type, '') = '' THEN profile_json END, "
+        "(%2) AS unsent, %1_failed_at IS NOT NULL "
+        "FROM shots WHERE %1_rejected_at IS NULL AND (NOT (%3) OR (%2)) "
+        "ORDER BY unsent DESC, timestamp DESC, id DESC").arg(destination.name(), unsent, held);
+    if (!q.prepare(sql) || !q.exec()) {
+        DIAG_WARN(STORAGE, "ShotUploads") << "missing shots for" << destination.name()
+                                          << "could not be read -" << q.lastError().text();
+        return missing;
+    }
+    while (q.next()) {
+        ShotProjection shot;
+        shot.beverageType = q.value(1).toString();
+        shot.durationSec = q.value(2).toDouble();
+        shot.profileJson = q.value(3).toString();
+        if (uploadIneligibility(shot, minDurationSec) != UploadIneligible::None) continue;
+        missing.shotIds.append(q.value(0).toLongLong());
+        if (q.value(4).toBool())
+            ++missing.unsentEdits;
+        else if (q.value(5).toBool())
+            ++missing.failed;
+    }
+    return missing;
+}
+
