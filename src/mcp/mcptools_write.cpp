@@ -63,6 +63,7 @@ int scaledSettingValue(double realWorldValue, double scale)
 #include <QSet>
 #include <QDebug>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QThread>
 #include <QMetaObject>
@@ -1930,22 +1931,32 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([dbPath, includeEmpty, bagToJson, respond]() {
                 QJsonArray bags;
+                QString readError;
                 const bool opened = withTempDb(dbPath, "mcp_bags", [&](QSqlDatabase& db) {
                     QSqlQuery query(db);
                     const QString sql = includeEmpty
                         ? QStringLiteral("SELECT id FROM coffee_bags ORDER BY in_inventory DESC, last_used DESC, id DESC")
                         : QStringLiteral("SELECT id FROM coffee_bags WHERE in_inventory = 1 ORDER BY last_used DESC, id DESC");
-                    if (!query.exec(sql))
+                    if (!query.exec(sql)) {
+                        readError = query.lastError().text();
                         return;
+                    }
                     while (query.next()) {
-                        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, query.value(0).toLongLong());
+                        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, query.value(0).toLongLong(), &readError);
+                        if (!readError.isEmpty())
+                            return;
                         if (bag.isValid())
                             bags.append(bagToJson(bag));
                     }
                 });
-                QMetaObject::invokeMethod(qApp, [opened, bags, respond]() {
+                QMetaObject::invokeMethod(qApp, [opened, bags, readError, respond]() {
                     if (!opened) {
                         respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
+                    // A failed read is not an empty inventory.
+                    if (!readError.isEmpty()) {
+                        respond(QJsonObject{{"error", "Could not read the bags: " + readError}});
                         return;
                     }
                     respond(QJsonObject{{"bags", bags}, {"count", bags.size()}});
@@ -2473,7 +2484,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"doseWeightG", QJsonObject{{"type", "number"}, {"description", "Dose in grams"}}},
                 {"yieldG", QJsonObject{{"type", "number"}, {"description", "update only: absolute yield target in grams. Excludes yieldRatio; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "update only: yield as a multiple of dose (0.5-100). Excludes yieldG; 0 clears"}}},
-                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "update only: false marks the bag empty"}}},
+                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "update only: false marks the bag finished, true restores it to inventory"}}},
                 {"notes", QJsonObject{{"type", "string"}, {"description", "Free-text notes"}}},
                 {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},
                 {"region", QJsonObject{{"type", "string"}, {"description", "Growing region"}}},

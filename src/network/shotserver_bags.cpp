@@ -1238,6 +1238,9 @@ QString ShotServer::generateBeansPage() const
         // `source`: a bag to prefill a NEW bag from (restock).
         function openEditor(id, kind, focusSearch, source) {
             editingId = id;
+            // A recipe's restock belongs to the editor it opened; any other
+            // editor (after a cancelled restock) must not relink that recipe.
+            if (!source) restockForRecipe = 0;
             const b = source || bags.find(x => x.id === id) || {};
             editingKind = kind || b.kind || 'coffee';
             editorGeneration++;
