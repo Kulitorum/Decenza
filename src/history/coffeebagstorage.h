@@ -132,6 +132,9 @@ struct CoffeeBag {
     // restore there carries over once and a local finish or restock is never
     // undone by the remote state. Not a Visualizer-synced field itself.
     QString visualizerArchivedAt;
+    // JSON object of the attribute values Visualizer was last known to hold,
+    // keyed by API name (VisualizerSync::bagPushBody / bagFieldPullChanges).
+    QString visualizerSeen;
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 
@@ -214,10 +217,14 @@ public:
     Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                       bool propagateBeanBase = false); // bagUpdated()
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
-    // Writes what a Visualizer pull brought back (VisualizerSync::bag*PullChanges)
-    // like requestUpdateBag, but never emits bagVisualizerFieldsChanged: the
-    // values came from Visualizer, so pushing them back would only echo.
-    void requestApplyVisualizerPull(qint64 bagId, const QVariantMap& fields);
+    // Applies a Visualizer pull: `decide` runs on the bag worker with the row as
+    // it stands and returns the fields to write (VisualizerSync::bag*PullChanges),
+    // plus an optional "visualizerSeen" map of remote values to record. Emits what
+    // requestUpdateBag does except bagVisualizerFieldsChanged: the values came
+    // from Visualizer, so pushing them back would only echo.
+    void requestApplyVisualizerPull(qint64 bagId, std::function<QVariantMap(const QVariantMap&)> decide);
+    // Records remote values in coffee_bags.visualizer_seen, keyed by API name.
+    static bool mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& seen);
     // Stamp "the AI product-page search already ran for this bag" into the
     // stored blob (add-beanbase-archive-link-fallback). Its own key, not
     // linkDead: a bag whose URL died is precisely the one the search must
@@ -383,7 +390,8 @@ signals:
     void bagsChanged();
 
 private:
-    void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase, bool pushToVisualizer);
+    void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
+    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success, bool pushToVisualizer);
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is
     // false (open failure → empty result that must not be read as not-found).

@@ -2100,7 +2100,12 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             editBar.classList.add('visible');
             editBtn.style.display = 'none';
             document.querySelector('.container').style.paddingBottom = '5rem';
+            editStartData = collectEdits();
         }
+
+        // The form as edit mode opened it: a save sends only what changed from
+        // it, so a value Visualizer changed meanwhile is not written back over.
+        var editStartData = {};
 
         function cancelEdit() {
             if (!isEditMode) return;
@@ -2126,11 +2131,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             }
         }
 
-        function saveChanges() {
+        function collectEdits() {
             var ratingValue = parseInt(document.getElementById('editRating').value) || 0;
             ratingValue = Math.max(0, Math.min(100, ratingValue));
 
-            var data = {
+            return {
                 beanBrand: document.getElementById('editBrand').value,
                 beanType: document.getElementById('editType').value,
                 roastDate: document.getElementById('editRoastDate').value,
@@ -2149,6 +2154,18 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                 drinkTds: parseFloat(document.getElementById('editTds').value) || 0,
                 drinkEy: parseFloat(document.getElementById('editEy').value) || 0
             };
+        }
+
+        function saveChanges() {
+            var edits = collectEdits();
+            var data = {};
+            Object.keys(edits).forEach(function(key) {
+                if (edits[key] !== editStartData[key]) data[key] = edits[key];
+            });
+            if (Object.keys(data).length === 0) {
+                cancelEdit();
+                return;
+            }
 
             var btn = document.querySelector('.save-btn');
             btn.textContent = 'Saving...';

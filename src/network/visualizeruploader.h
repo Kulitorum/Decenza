@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QVector>
 #include <QPointF>
+#include <QElapsedTimer>
 #include <functional>
 
 #include "../history/shotprojection.h"
@@ -150,6 +151,10 @@ public:
     // user's actual espresso uploads for the rest of the window. Every
     // background pass (bean repair, VisualizerShotSync) paces by it.
     static constexpr int kApiRequestIntervalMs = 4000;
+    // Runs `send` at the next free slot of that interval, shared by every
+    // background pass, so two passes together still keep to it. Dropped if
+    // `context` is destroyed first.
+    void paceApiRequest(QObject* context, std::function<void()> send);
 
     // Checks the credentials against visualizer.coffee and saves them only if
     // they work; connecting switches Visualizer on. Answers with
@@ -222,13 +227,6 @@ public:
     // blob→API field mapping and the fill-blanks contract are unit-tested.
     static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
 
-    // Every Visualizer-stored descriptive field from a bag map (name +
-    // roast/lifecycle/canonical + the beanBaseData blob attributes), added to
-    // `body` at CURRENT values (empty locals omitted — never sent as null).
-    // Omits roaster_id — the caller sets that. Used by the bag-edit path
-    // (patchRemoteBag), which overwrites the full set on an explicit user
-    // edit. Pure + public so the blob→API mapping is unit-tested.
-    static void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag);
 
 signals:
     void uploadingChanged();
@@ -398,7 +396,8 @@ private:
     // mode: attaches a known coffee to a shot with no personal bag.
     void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId);
     // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
-    // on success (not called on empty name or HTTP/parse failure). Carries the
+    // on success (not called on empty name or HTTP/parse failure). Creates only
+    // while CM is Active; otherwise an unmatched name resolves to "". Carries the
     // canonical roaster UUID onto a freshly-created roaster for the verified
     // badge. A 403 on create caches NoCoffeeManagement (CRUD is premium-gated).
     // Used by the bag-edit path (updateBagOnVisualizer).
@@ -423,6 +422,8 @@ private:
     void persistBagSyncPending(qint64 localBagId, bool pending);
     // Records the archived_at a bag push set (coffee_bags.visualizer_archived_at).
     void persistBagArchivedAt(qint64 localBagId, const QString& archivedAt);
+    // Records the fields a bag push set as what Visualizer now holds.
+    void persistBagSeen(qint64 localBagId, const QVariantMap& sent);
 
     // Single mutation point for m_cmState — every CM-probe transition flows
     // through here so there is one place to log old->new. The CM probing is
@@ -464,6 +465,8 @@ private:
     // The visualizer id that job is PATCHing, so the migration-16 back-sync's
     // PATCH does not end it.
     QString m_jobVisualizerId;
+    QElapsedTimer m_apiPaceClock;
+    qint64 m_nextApiSlotMs = 0;
     // The fields that job sends, and the shot's visualizer_dirty_seq when it was
     // read (-1 if unread): a success clears those fields only if no edit landed since.
     quint32 m_jobFields = 0;

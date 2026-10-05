@@ -2326,16 +2326,17 @@ bool ShotHistoryStorage::runMigrations()
     // shots.visualizer_dirty holds a VisualizerSync::Field bit per field edited
     // here and not yet sent; visualizer_dirty_seq counts edits, so a send clears
     // only the bits it carried and only if no edit landed meanwhile.
-    // coffee_bags.visualizer_archived_at is the archived_at last acted on, so a
-    // pull reacts to an archive or restore on visualizer.coffee, not to its state.
-    // Unfilled: no shot has an unsent edit, no bag has an archive acted on.
-    // Schema facts, so the bump is gated on all three.
+    // coffee_bags.visualizer_archived_at and visualizer_seen are what Visualizer
+    // was last known to hold, so each side syncs its own changes rather than its
+    // state. Unfilled: no shot has an unsent edit, no bag has been seen.
+    // Schema facts, so the bump is gated on all four.
     if (currentVersion >= 42 && currentVersion < 43) {
         query.finish();
         static const QList<std::tuple<QString, QString, QString>> kColumns = {
             {QStringLiteral("shots"), QStringLiteral("visualizer_dirty"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
             {QStringLiteral("shots"), QStringLiteral("visualizer_dirty_seq"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
             {QStringLiteral("coffee_bags"), QStringLiteral("visualizer_archived_at"), QStringLiteral("TEXT")},
+            {QStringLiteral("coffee_bags"), QStringLiteral("visualizer_seen"), QStringLiteral("TEXT")},
         };
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 43 visualizer sync columns", 1);
         if (!txn.ok()) {
@@ -4226,20 +4227,27 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
 
     // Mark each Visualizer field whose value this edit actually changes. Compared
     // in SQL against the row's current value, so a form that re-saves every field
-    // marks only what moved, without a read before the write. The comparison binds
-    // its own copy (:d_<col>) rather than reusing :<col>, which would lean on
+    // marks only what moved, without a read before the write. The seq moves only
+    // when something did, so a no-op re-save during a send does not stop that
+    // send clearing what it carried. Each comparison binds its own copies
+    // (:d_/:s_<col>) rather than reusing :<col>, which would lean on
     // QSQLiteResult's duplicate-placeholder pruning (qsql_sqlite.cpp:465-499).
-    QStringList dirtyTerms;
-    for (const auto& [metaKey, dbCol] : fieldMap) {
-        const VisualizerSync::Column* column = VisualizerSync::columnNamed(dbCol);
-        if (column && metadata.contains(metaKey))
-            dirtyTerms << QString("(CASE WHEN IFNULL(%1, %2) IS NOT IFNULL(:d_%1, %2) THEN %3 ELSE 0 END)")
-                              .arg(dbCol, column->numeric ? QStringLiteral("0") : QStringLiteral("''"))
-                              .arg(column->field);
-    }
+    auto changedFields = [&](const QString& prefix) {
+        QStringList terms;
+        for (const auto& [metaKey, dbCol] : fieldMap) {
+            const VisualizerSync::Column* column = VisualizerSync::columnNamed(dbCol);
+            if (column && metadata.contains(metaKey))
+                terms << QString("(CASE WHEN IFNULL(%1, %2) IS NOT IFNULL(:%4%1, %2) THEN %3 ELSE 0 END)")
+                             .arg(dbCol, column->numeric ? QStringLiteral("0") : QStringLiteral("''"))
+                             .arg(column->field).arg(prefix);
+        }
+        return terms.join(" | ");
+    };
+    const QString dirtyTerms = changedFields(QStringLiteral("d_"));
     if (!dirtyTerms.isEmpty()) {
-        setClauses << QString("visualizer_dirty = visualizer_dirty | %1").arg(dirtyTerms.join(" | "));
-        setClauses << "visualizer_dirty_seq = visualizer_dirty_seq + 1";
+        setClauses << QString("visualizer_dirty = visualizer_dirty | %1").arg(dirtyTerms);
+        setClauses << QString("visualizer_dirty_seq = visualizer_dirty_seq + (CASE WHEN (%1) != 0 THEN 1 ELSE 0 END)")
+                          .arg(changedFields(QStringLiteral("s_")));
     }
 
     setClauses << "updated_at = strftime('%s', 'now')";
@@ -4262,8 +4270,10 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         if (dbCol == QLatin1String("equipment_id") && v.toLongLong() <= 0)
             v = QVariant();
         query.bindValue(QString(":%1").arg(dbCol), v);
-        if (VisualizerSync::columnNamed(dbCol))
+        if (VisualizerSync::columnNamed(dbCol)) {
             query.bindValue(QString(":d_%1").arg(dbCol), v);
+            query.bindValue(QString(":s_%1").arg(dbCol), v);
+        }
     }
     query.bindValue(":id", shotId);
 

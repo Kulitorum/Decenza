@@ -25,6 +25,7 @@
 #include "../core/memorymonitor.h"
 #include "../mcp/mcpserver.h"
 #include "../mcp/mcptoolregistry.h"
+#include "../controllers/maincontroller.h"
 #include "version.h"
 
 #include <QThread>
@@ -1874,6 +1875,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 400, "text/plain", "Invalid shot ID");
             return;
         }
+        // Same as the app's shot pages: read it from Visualizer now, so the next
+        // view (the page reloads after a save) shows what Visualizer holds.
+        if (m_mainController && m_mainController->visualizerSync())
+            m_mainController->visualizerSync()->refreshShot(shotId);
         QPointer<QTcpSocket> socketGuard(socket);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
@@ -2707,6 +2712,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         sendHtml(socket, generateRecipesPage());
     }
     else if (path == "/beans") {
+        // As the app's bean inventory: pull archive, freeze and photo state.
+        if (m_mainController && m_mainController->visualizerSync())
+            m_mainController->visualizerSync()->refreshBags();
         sendHtml(socket, generateBeansPage());
     }
     else if (path == "/equipment") {

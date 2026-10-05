@@ -94,6 +94,7 @@ T.Page {
 
     // Decent account upload state for this shot (decentUploadStateReady).
     property var decentState: ({})
+    property int _refreshedShotId: 0
 
     function loadShot() {
         decentState = ({})
@@ -109,6 +110,12 @@ T.Page {
         function onShotReady(id, shot) {
             if (id !== shotDetailPage.shotId) return
             shotDetailPage.shotData = shot
+            // Show what Visualizer holds now: a change there reloads this page
+            // through onShotMetadataUpdated. Once per shot shown.
+            if (shot.visualizerId && shotDetailPage._refreshedShotId !== id) {
+                shotDetailPage._refreshedShotId = id
+                MainController.visualizerSync.refreshShot(id)
+            }
             var wasNavigating = shotDetailPage.navigating
             shotDetailPage.navigating = false
             // Defer both calls until after layout has updated: returnToBounds() needs

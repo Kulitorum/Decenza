@@ -76,6 +76,15 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
     , m_networkManager(networkManager)
 {
     Q_ASSERT(networkManager);
+    m_apiPaceClock.start();
+}
+
+void VisualizerUploader::paceApiRequest(QObject* context, std::function<void()> send)
+{
+    const qint64 now = m_apiPaceClock.elapsed();
+    const qint64 slot = std::max(now, m_nextApiSlotMs);
+    m_nextApiSlotMs = slot + kApiRequestIntervalMs;
+    QTimer::singleShot(int(slot - now), context, std::move(send));
 }
 
 QString VisualizerUploader::tr_(const char* key, const char* fallback) const {
@@ -1053,7 +1062,7 @@ void VisualizerUploader::scheduleBeanRepairRequest(std::function<void()> send)
     // whole point: the interval used to gate only the next shot, while a shot
     // that needed repairing fired its GET and then its PATCH back to back, so
     // the real rate was double the documented one.
-    QTimer::singleShot(kApiRequestIntervalMs, this, std::move(send));
+    paceApiRequest(this, std::move(send));
 }
 
 QJsonObject VisualizerUploader::buildAppInfoJson()
@@ -1747,14 +1756,15 @@ QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag,
         if (blank)
             body[QLatin1String(apiKey)] = localValue;
     };
-    const QJsonObject blob = QJsonDocument::fromJson(
-        bag.value("beanBaseData").toString().toUtf8()).object();
-    for (const VisualizerSync::BagBlobField& f : VisualizerSync::kBagBlobFields)
-        fillBlank(f.apiKey, blob.value(QLatin1StringView(f.blobKey)).toString());
-    fillBlank("notes",                   VisualizerNotes::plainToHtml(bag.value("notes").toString()));
-    fillBlank("frozen_date",             bag.value("frozenDate").toString());
-    fillBlank("defrosted_date",          bag.value("defrostDate").toString());
-    fillBlank("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
+    // Server-managed name/roast_date/roast_level excluded.
+    const QMap<QString, QString> local = VisualizerSync::bagLocalValues(bag);
+    for (auto it = local.cbegin(); it != local.cend(); ++it) {
+        if (it.key() == QLatin1StringView("name") || it.key() == QLatin1StringView("roast_date")
+            || it.key() == QLatin1StringView("roast_level"))
+            continue;
+        fillBlank(it.key().toLatin1().constData(),
+                  it.key() == QLatin1StringView("notes") ? VisualizerNotes::plainToHtml(it.value()) : it.value());
+    }
     return body;
 }
 
@@ -1850,10 +1860,14 @@ void VisualizerUploader::enrichRemoteRoaster(const QString& roasterId, const QSt
 void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
                                           std::function<void(const QString&)> onResolved)
 {
+    // Creating is for an account known to use Coffee Management: while that is
+    // unconfirmed (Unknown), an unmatched name resolves to "" (roaster left as
+    // is) rather than adding a roaster to a list that may be dormant.
+    const bool mayCreate = m_cmState == CmState::Active;
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters?items=100"));
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, roasterName, canonicalRoasterId, onResolved = std::move(onResolved)]() {
+            [this, reply, roasterName, canonicalRoasterId, mayCreate, onResolved = std::move(onResolved)]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: roaster list failed - retry next time";
@@ -1869,6 +1883,10 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
             }
         }
 
+        if (!mayCreate) {
+            onResolved(QString());
+            return;
+        }
         // Create the roaster; carry the canonical roaster UUID when present
         // (verified-badge linking on visualizer.coffee).
         QJsonObject body;
@@ -1895,37 +1913,6 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
             }
         });
     });
-}
-
-// static
-void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag)
-{
-    // Field names spike-verified (note defrosted_date). startWeightG is
-    // local-only: no server field, and `metadata` is the user's own space.
-    // The canonical id is a LINK, not a substitute for the attributes — the
-    // server does not auto-fill them, so we always send the blob fields.
-    // EVERY field (name included) is omitted when locally empty, never sent
-    // as ""/null: a roaster-only local bag must not blank (name: 422s) or
-    // clear a server-side value the user set on visualizer.coffee.
-    auto setIf = [&body](const char* key, const QString& value) {
-        if (!value.isEmpty())
-            body[QLatin1String(key)] = value;
-    };
-    setIf("name", bag.value("coffeeName").toString());
-    // No RoastDate::toIso() here, unlike the shot paths: a CoffeeBag's roastDate
-    // is ISO yyyy-MM-dd by construction (ChangeBeansDialog only stores a 10-char
-    // yyyy-mm-dd), which is exactly what the server's roast_date column expects.
-    setIf("roast_date", bag.value("roastDate").toString());
-    setIf("roast_level", bag.value("roastLevel").toString());
-    setIf("frozen_date", bag.value("frozenDate").toString());
-    setIf("defrosted_date", bag.value("defrostDate").toString());
-    // A bag PATCH reads notes as HTML, like a shot PATCH.
-    setIf("notes", VisualizerNotes::plainToHtml(bag.value("notes").toString()));
-    setIf("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
-    const QJsonObject blob = QJsonDocument::fromJson(
-        bag.value("beanBaseData").toString().toUtf8()).object();
-    for (const VisualizerSync::BagBlobField& f : VisualizerSync::kBagBlobFields)
-        setIf(f.apiKey, blob.value(QLatin1StringView(f.blobKey)).toString());
 }
 
 void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
@@ -2030,8 +2017,8 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     if (bagUuid.isEmpty())
         return;
 
-    QJsonObject body;
-    addBagDescriptiveFields(body, bag);
+    QVariantMap sent;
+    QJsonObject body = VisualizerSync::bagPushBody(bag, &sent);
     QJsonValue archivedAt;
     const bool sendsArchive = VisualizerSync::bagArchiveForPush(bag, QDateTime::currentDateTimeUtc(), &archivedAt);
     if (sendsArchive)
@@ -2042,6 +2029,11 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
         body["roaster_id"] = roasterId;
 
     const qint64 localBagId = bag.value("id").toLongLong();
+    if (body.isEmpty()) {
+        // Nothing changed here since Visualizer was last seen.
+        persistBagSyncPending(localBagId, false);
+        return;
+    }
     const QString bagDisplayName = QStringList{bag.value("roasterName").toString(),
                                                bag.value("coffeeName").toString()}
                                        .join(QLatin1Char(' ')).trimmed();
@@ -2049,12 +2041,13 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, sendsArchive]() {
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName, sendsArchive, sent]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: updated coffee bag" << bagUuid;
             persistBagSyncPending(localBagId, false);
+            persistBagSeen(localBagId, sent);
             // Recorded only when this push set it: a reply to any other edit may
             // carry an archive made there that the next pull has yet to apply here.
             if (sendsArchive)
@@ -2109,6 +2102,22 @@ void VisualizerUploader::persistBagSyncPending(qint64 localBagId, bool pending)
             if (!CoffeeBagStorage::updateBagFieldsStatic(
                     db, localBagId, {{QStringLiteral("visualizerSyncPending"), pending}}))
                 DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Visualizer CM: failed to persist sync-pending for bag" << localBagId;
+        });
+    });
+    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void VisualizerUploader::persistBagSeen(qint64 localBagId, const QVariantMap& sent)
+{
+    if (localBagId <= 0 || m_localDbPath.isEmpty() || sent.isEmpty())
+        return;
+    const QString dbPath = m_localDbPath;
+    QThread* thread = QThread::create([dbPath, localBagId, sent]() {
+        withTempDb(dbPath, "viz_bagseen", [&](QSqlDatabase& db) {
+            // A failed write leaves these fields to be sent again on the next edit.
+            if (!CoffeeBagStorage::mergeVisualizerSeenStatic(db, localBagId, sent))
+                DIAG_WARN(VISUALIZER, "VisualizerUploader") << "Visualizer CM: failed to record pushed fields for bag" << localBagId;
         });
     });
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);

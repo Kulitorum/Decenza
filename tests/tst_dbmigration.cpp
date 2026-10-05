@@ -907,11 +907,13 @@ private slots:
         withRawDb(path, "vizdirty_run", [&](QSqlDatabase& db) {
             quint32 dirty = 0;
             qint64 seq = 0;
-            // Same rating, and an empty barista over NULL: nothing moved.
+            // Same rating, and an empty barista over NULL: nothing moved, so
+            // neither the fields nor the seq do.
             QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(
                 db, shotId, {{"enjoyment", 70}, {"barista", QString()}, {"grinderSetting", "2.4"}}));
             QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));
             QCOMPARE(dirty, 0u);
+            QCOMPARE(seq, qint64(0));
 
             QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId, {{"enjoyment", 85}, {"barista", "Jeff"}}));
             QVERIFY(ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq));

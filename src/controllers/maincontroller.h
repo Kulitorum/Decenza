@@ -14,6 +14,7 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
+#include "../network/visualizershotsync.h"
 #include "../network/decentaccount.h"
 #include "../network/decentshotuploader.h"
 #include "../network/shotuploads.h"
@@ -66,7 +67,6 @@ class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
 class TranslationManager;
-class VisualizerShotSync;
 class ScaleDeviceProxy;
 struct ShotSample;
 
@@ -125,6 +125,7 @@ class MainController : public QObject {
     // currently chained; that is inert where it is not needed and immune to this trap.
     // Nothing subclasses MainController today.
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT FINAL)
+    Q_PROPERTY(VisualizerShotSync* visualizerSync READ visualizerSync CONSTANT FINAL)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
     Q_PROPERTY(DecentAccount* decentAccount READ decentAccount CONSTANT FINAL)
     Q_PROPERTY(DecentShotUploader* decentUploader READ decentUploader CONSTANT FINAL)
@@ -231,6 +232,7 @@ public:
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
     double filteredGoalFlow() const { return m_filteredGoalFlow; }
     VisualizerUploader* visualizer() const { return m_visualizer; }
+    VisualizerShotSync* visualizerSync() const { return m_visualizerSync; }
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
     DecentAccount* decentAccount() const { return m_decentAccount; }
     DecentShotUploader* decentUploader() const { return m_decentUploader; }

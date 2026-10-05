@@ -660,6 +660,33 @@ DecenzaDialog {
         errorMessage = ""
     }
 
+    // formFields() as the edit form opened, so a save sends only what changed.
+    property var _openedFields: ({})
+
+    // The bag being edited changed underneath the dialog (a Visualizer pull).
+    // Re-read it, and refill the form if nothing has been typed into it yet.
+    Connections {
+        target: MainController.bagStorage
+        enabled: root.visible && root.formMode === "edit" && root.editBagId > 0
+        function onBagUpdated(bagId, success) {
+            if (success && bagId === root.editBagId)
+                MainController.bagStorage.requestBag(bagId)
+        }
+        function onBagReady(bagId, bag) {
+            if (bagId !== root.editBagId || !bag || bag.id === undefined) return
+            if (JSON.stringify(root.formFields()) !== JSON.stringify(root._openedFields)) return
+            root.prefillFromBag(bag)
+            root.fRoastDate = bag.roastDate || ""
+            root.fNotes = bag.notes || ""
+            root.fFrozenDate = bag.frozenDate || ""
+            root.fDefrostDate = bag.defrostDate || ""
+            root.fFreeze = root.fFrozenDate.length > 0
+            root.fStorageHint = bag.storageHint || ""
+            root.fOpenedDate = bag.openedDate || ""
+            root._openedFields = root.formFields()
+        }
+    }
+
     function prefillFromBag(bag) {
         fRoaster = bag.roasterName || ""
         fCoffee = bag.coffeeName || ""
@@ -749,9 +776,13 @@ DecenzaDialog {
         fFreeze = fFrozenDate.length > 0
         fStorageHint = bag.storageHint || ""
         fOpenedDate = bag.openedDate || ""
+        _openedFields = formFields()
         mode = "form"
         _armedForm = true
         open()
+        // Show what Visualizer holds now; onBagReady below takes it while the
+        // form is untouched.
+        MainController.visualizerSync.refreshBag(bag.id)
         if (fBeanBaseId.length === 0)
             editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
         // Last rung: this bag has no URL, so nothing deterministic can find it
@@ -842,9 +873,6 @@ DecenzaDialog {
                 "changebeans.form.identityRequired", "Enter a roaster or coffee name")
             return
         }
-        // Merge the edited detail fields into the blob (canonical snapshot
-        // captured on the first edit of a linked bag; cleared fields removed).
-        var mergedBlob = stagedBlob
         // A URL changed to a non-empty value re-resolves the bag image — the
         // cached og:image pixels describe the old page. Linked bags key the
         // cache by canonical id; manual bags by their row id (create mode
@@ -852,6 +880,36 @@ DecenzaDialog {
         var imageKey = MainController.beanbase.bagImageKey(formMode === "edit" ? editBagId : 0, fBeanBaseId)
         if (imageKey.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
             MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
+        var fields = formFields()
+        if (formMode === "edit") {
+            // Only what was changed here since the dialog opened: a field Visualizer
+            // (or another screen) changed meanwhile is not written back over by the
+            // form's older copy, nor pushed to Visualizer as an edit.
+            var changed = {}
+            for (var key in fields) {
+                if (fields[key] !== _openedFields[key])
+                    changed[key] = fields[key]
+            }
+            // A link change fixes the whole bag: propagate the (new or
+            // cleared) canonical link onto every shot referencing it.
+            if (Object.keys(changed).length > 0)
+                MainController.bagStorage.requestUpdateBag(editBagId, changed, fLinkDirty)
+            // If this is the active bag, sync the active equipment selection so
+            // Brew Settings reflects the change.
+            if (editBagId === Settings.dye.activeBagId)
+                Settings.dye.activeEquipmentId = fEquipmentId > 0 ? fEquipmentId : -1
+            root.close()
+        } else {
+            _awaitingCreate = true
+            MainController.bagStorage.requestCreateBag(fields)
+        }
+    }
+
+    // The bag fields the form holds, as requestUpdateBag/requestCreateBag take them.
+    function formFields() {
+        // Merge the edited detail fields into the blob (canonical snapshot
+        // captured on the first edit of a linked bag; cleared fields removed).
+        var mergedBlob = stagedBlob
         var fields = {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
@@ -900,25 +958,13 @@ DecenzaDialog {
             // freeze axis: a bag frozen, later thawed, then moved to a counter
             // jar carries both.
             fields["openedDate"] = fOpenedDate.length === 10 ? fOpenedDate : ""
-            // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
-            fields["equipmentId"] = fEquipmentId
-            // A link change fixes the whole bag: propagate the (new or
-            // cleared) canonical link onto every shot referencing it.
-            MainController.bagStorage.requestUpdateBag(editBagId, fields, fLinkDirty)
-            // If this is the active bag, sync the active equipment selection so
-            // Brew Settings reflects the change.
-            if (editBagId === Settings.dye.activeBagId)
-                Settings.dye.activeEquipmentId = fEquipmentId > 0 ? fEquipmentId : -1
-            root.close()
         } else {
             fields["defrostDate"] = ""
             fields["inInventory"] = true
-            // Persist the equipment package picked in the create form too (the
-            // picker row is shown in both modes); <=0 -> NULL via the column hook.
-            fields["equipmentId"] = fEquipmentId
-            _awaitingCreate = true
-            MainController.bagStorage.requestCreateBag(fields)
         }
+        // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
+        fields["equipmentId"] = fEquipmentId
+        return fields
     }
 
     // Revert confirmation: local edits (including a user-added URL the

@@ -41,12 +41,35 @@ The application SHALL keep, per synced bag, the `archived_at` visualizer.coffee 
 
 ### Requirement: Other coffee bag state on Visualizer is pulled into Decenza
 
-During the same pass, the application SHALL read each synced bag still in inventory (`GET /api/coffee_bags/:id`). A new `frozen_date` SHALL be taken together with its `defrosted_date`; otherwise a differing `defrosted_date` SHALL be taken. Descriptive fields SHALL fill only local blanks. A bag with an unsent local edit SHALL keep its fields. A bag photo that one side has and the other lacks SHALL be copied to the other; neither side's photo SHALL be replaced.
+During the same pass, the application SHALL read each synced bag still in inventory (`GET /api/coffee_bags/:id`). A pulled field (roast date, roast level, frozen and defrosted dates, notes, and the descriptive attributes) whose remote value differs from the value Visualizer was last known to hold SHALL be taken when the local value still equals that last-known value, and kept when it was also changed locally. A field never seen SHALL only fill a local blank. Either way the remote value SHALL be recorded as seen. The decision SHALL be made against the bag row as it stands when the write runs. A bag photo that one side has and the other lacks SHALL be copied to the other; neither side's photo SHALL be replaced. Pulled changes SHALL NOT be pushed back.
 
 #### Scenario: Frozen on Visualizer
 - **WHEN** the user taps Freeze on a synced bag on visualizer.coffee
 - **THEN** the local bag's frozen date becomes that date and its defrost date is cleared
 
+#### Scenario: A local clear is not undone
+- **GIVEN** a bag whose tasting notes the user cleared in Decenza
+- **WHEN** a pass reads the bag before that clear has reached Visualizer, or after
+- **THEN** the local tasting notes stay empty
+
 #### Scenario: Photo only in Decenza
 - **WHEN** a synced bag has a photo in Decenza and none on Visualizer
 - **THEN** the photo is uploaded to the Visualizer bag
+
+### Requirement: Synced data is fresh when viewed
+
+A screen showing a Visualizer-linked shot (post-shot review, shot detail, the web shot page) SHALL read that shot from Visualizer when it opens; the bag editor SHALL read its bag; the bean inventory (in the app and on the web) SHALL read every bag's archive state and the bags in use. An editor SHALL save only the fields edited in it, and while open SHALL take a pulled change into any field not yet edited. Background requests SHALL share one pacer, so concurrent passes together keep to the request interval.
+
+#### Scenario: Review page opened after a Journal edit
+- **GIVEN** the user changed a shot's rating in Visualizer's Journal a minute ago
+- **WHEN** the user opens that shot's review page in Decenza
+- **THEN** within a few seconds the page shows the new rating, without waiting for the next pass
+
+#### Scenario: Editing one field does not revert another
+- **GIVEN** the review page is open and a pull changes the shot's grind setting
+- **WHEN** the user then changes the rating
+- **THEN** the grind field shows the pulled value, and the save writes and sends only the rating
+
+#### Scenario: Shot list shrinks mid-pass
+- **WHEN** a shot is deleted on Visualizer while a pass is paging the changed-shot list
+- **THEN** the pass does not advance its cursor, so no changed shot is skipped

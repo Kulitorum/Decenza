@@ -181,6 +181,7 @@ const BagCol kCols[] = {
     COL_STR  ("visualizer_roaster_id", visualizerRoasterId, false),
     COL_BOOL ("visualizer_sync_pending", visualizerSyncPending),
     COL_STR  ("visualizer_archived_at", visualizerArchivedAt, false),
+    COL_STR  ("visualizer_seen",       visualizerSeen,      false),
     COL_EPOCH("last_used",             lastUsedEpoch),
 };
 
@@ -419,16 +420,70 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                         bool propagateBeanBase)
 {
-    updateBag(bagId, fields, propagateBeanBase, true);
+    updateBag(bagId, fields, propagateBeanBase);
 }
 
-void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId, const QVariantMap& fields)
+void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
+                                                  std::function<QVariantMap(const QVariantMap&)> decide)
 {
-    updateBag(bagId, fields, false, false);
+    if (m_dbPath.isEmpty())
+        return;
+    auto changes = std::make_shared<QVariantMap>();
+    auto success = std::make_shared<bool>(false);
+    // Decided on the bag worker against the row as it stands, so a local edit
+    // queued before this job wins over a pull read from an older snapshot.
+    runAsync("bags_vizpull",
+        [bagId, decide = std::move(decide), changes, success](QSqlDatabase& db) {
+            const CoffeeBag bag = loadBagStatic(db, bagId);
+            if (!bag.isValid())
+                return;
+            *changes = decide(bag.toVariantMap());
+            const QVariantMap seen = changes->take(QStringLiteral("visualizerSeen")).toMap();
+            *success = (changes->isEmpty() || updateBagFieldsStatic(db, bagId, *changes))
+                       && mergeVisualizerSeenStatic(db, bagId, seen);
+        },
+        [this, bagId, changes, success](bool) {
+            if (changes->isEmpty())
+                return;
+            if (!*success) {
+                DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
+                    << "changes from Visualizer not saved - the next pull retries";
+                return;
+            }
+            QString what = changes->keys().join(QStringLiteral(", "));
+            if (changes->contains(QStringLiteral("inInventory")))
+                what = changes->value(QStringLiteral("inInventory")).toBool()
+                    ? QStringLiteral("restored on Visualizer - back in inventory")
+                    : QStringLiteral("archived on Visualizer - marked finished");
+            DIAG_INFO(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId << "updated from Visualizer:" << what;
+            finishBagUpdate(bagId, *changes, true, false);
+        });
 }
 
-void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase,
-                                 bool pushToVisualizer)
+bool CoffeeBagStorage::mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& seen)
+{
+    if (seen.isEmpty())
+        return true;
+    // One statement, so a push recording what it sent and a pull recording what
+    // it read cannot lose each other's keys (json_set: SQLite JSON1, built in
+    // since 3.38).
+    QStringList args;
+    for (qsizetype i = 0; i < seen.size(); ++i)
+        args << QStringLiteral("?, ?");
+    QSqlQuery q(db);
+    if (!q.prepare(QStringLiteral("UPDATE coffee_bags SET visualizer_seen = "
+                                  "json_set(IFNULL(visualizer_seen, '{}'), %1) WHERE id = ?")
+                       .arg(args.join(QStringLiteral(", ")))))
+        return false;
+    for (auto it = seen.cbegin(); it != seen.cend(); ++it) {
+        q.addBindValue(QStringLiteral("$.\"%1\"").arg(it.key()));
+        q.addBindValue(it.value().toString());
+    }
+    q.addBindValue(bagId);
+    return q.exec();
+}
+
+void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase)
 {
     // Guarantee a terminal bagUpdated even when uninitialized: runAsync drops
     // the job (no done callback) if m_dbPath is empty, and callers like the MCP
@@ -450,32 +505,35 @@ void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool p
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success, pushToVisualizer](bool) {
-            emit bagUpdated(bagId, *success);
-            if (!*success) {
-                // The dialog has already closed and bagsChanged() is not
-                // emitted, so the card still shows the old value — without
-                // this the user reads that as "I forgot to pick it", retries,
-                // and fails again. Covers every surface: dialog save, the
-                // card's Thaw / Mark Opened quick actions, MCP and web writes.
-                emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
-            }
-            if (*success) {
-                emit bagsChanged();
-                if (pushToVisualizer && touchesVisualizerFields(fields))
-                    emit bagVisualizerFieldsChanged(bagId);
-                // Inventory lifecycle events, whichever surface wrote them
-                // (the card's Bag Finished button funnels through
-                // requestMarkEmpty; MCP and web updates land here too):
-                // exit → roll-on-finish, return → wake-on-restock.
-                if (fields.contains(QStringLiteral("inInventory"))) {
-                    if (fields.value(QStringLiteral("inInventory")).toBool())
-                        emit bagRestocked(bagId);
-                    else
-                        emit bagFinished(bagId);
-                }
-            }
-        });
+        [this, bagId, fields, success](bool) { finishBagUpdate(bagId, fields, *success, true); });
+}
+
+void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
+                                       bool pushToVisualizer)
+{
+    emit bagUpdated(bagId, success);
+    if (!success) {
+        // The dialog has already closed and bagsChanged() is not
+        // emitted, so the card still shows the old value — without
+        // this the user reads that as "I forgot to pick it", retries,
+        // and fails again. Covers every surface: dialog save, the
+        // card's Thaw / Mark Opened quick actions, MCP and web writes.
+        emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
+        return;
+    }
+    emit bagsChanged();
+    if (pushToVisualizer && touchesVisualizerFields(fields))
+        emit bagVisualizerFieldsChanged(bagId);
+    // Inventory lifecycle events, whichever surface wrote them
+    // (the card's Bag Finished button funnels through
+    // requestMarkEmpty; MCP and web updates land here too):
+    // exit → roll-on-finish, return → wake-on-restock.
+    if (fields.contains(QStringLiteral("inInventory"))) {
+        if (fields.value(QStringLiteral("inInventory")).toBool())
+            emit bagRestocked(bagId);
+        else
+            emit bagFinished(bagId);
+    }
 }
 
 void CoffeeBagStorage::requestMarkEmpty(qint64 bagId)
@@ -614,6 +672,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             visualizer_roaster_id TEXT,
             visualizer_sync_pending INTEGER NOT NULL DEFAULT 0,
             visualizer_archived_at TEXT,
+            visualizer_seen TEXT,
             last_used INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))

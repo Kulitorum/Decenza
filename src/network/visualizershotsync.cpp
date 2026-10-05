@@ -80,7 +80,7 @@ void VisualizerShotSync::saveCursor(qint64 cursor) const
 
 void VisualizerShotSync::paced(std::function<void()> send)
 {
-    QTimer::singleShot(VisualizerUploader::kApiRequestIntervalMs, this, std::move(send));
+    m_uploader->paceApiRequest(this, std::move(send));
 }
 
 void VisualizerShotSync::start()
@@ -90,11 +90,12 @@ void VisualizerShotSync::start()
     m_running = true;
     m_cursor = loadCursor();
     m_newestChange = m_cursor;
+    m_listCount = -1;
     m_changedIds.clear();
     m_shotQueue.clear();
     m_bagQueue.clear();
     m_shotsRead = 0;
-    fetchListPage(1);
+    paced([this]() { fetchListPage(1); });
 }
 
 void VisualizerShotSync::fetchListPage(int page)
@@ -121,6 +122,19 @@ void VisualizerShotSync::fetchListPage(int page)
                                    .arg(page).arg(result.totalPages));
             return;
         }
+        // Pages are offsets into a list that moves while it is read. A row
+        // added (a shot changed meanwhile) only repeats one; a row deleted there
+        // shifts one past unseen, behind a cursor that would then skip it — so a
+        // shrinking list ends the pass without advancing the cursor.
+        const qint64 count = QJsonDocument::fromJson(body).object()
+                                 .value(QStringLiteral("paging")).toObject().value(QStringLiteral("count")).toInteger(-1);
+        if (page == 1)
+            m_listCount = count;
+        else if (count >= 0 && count < m_listCount) {
+            DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "changed-shot list shrank mid-pass - reread next pass";
+            finishShots(false, QString());
+            return;
+        }
         for (const Entry& e : result.inWindow) {
             m_changedIds << e.visualizerId;
             m_newestChange = qMax(m_newestChange, e.updatedAtEpoch);
@@ -134,6 +148,7 @@ void VisualizerShotSync::fetchListPage(int page)
 
 void VisualizerShotSync::lookUpLinkedShots()
 {
+    m_changedIds.removeDuplicates();
     if (m_changedIds.isEmpty()) {
         finishShots(true, QString());
         return;
@@ -169,53 +184,99 @@ void VisualizerShotSync::readNextShot()
         finishShots(true, QString());
         return;
     }
-    const ShotToRead shot = m_shotQueue.takeFirst();
-    paced([this, shot]() {
+    readShot(m_shotQueue.takeFirst(), [this](const QString& failure) {
+        if (!failure.isEmpty()) {
+            finishShots(false, failure);
+            return;
+        }
+        ++m_shotsRead;
+        readNextShot();
+    });
+}
+
+void VisualizerShotSync::readShot(const ShotToRead& shot, std::function<void(const QString&)> done)
+{
+    paced([this, shot, done = std::move(done)]() {
         // essentials drops the chart data (shots_controller.rb, include_information).
         QNetworkReply* reply = m_networkManager->get(
             m_uploader->makeApiJsonRequest(QStringLiteral("/api/shots/%1?essentials=1").arg(shot.visualizerId)));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, shot]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, shot, done]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QByteArray body = reply->readAll();
             if (status == 404) {
-                readNextShot();  // deleted there since the list was read
+                done(QString());  // deleted there
                 return;
             }
             if (reply->error() != QNetworkReply::NoError) {
-                finishShots(false, QStringLiteral("shot %1: %2").arg(DecenzaLog::field(shot.visualizerId),
-                                   m_uploader->apiErrorMessage(status, body, reply->errorString())));
+                done(QStringLiteral("shot %1: %2").arg(DecenzaLog::field(shot.visualizerId),
+                     m_uploader->apiErrorMessage(status, body, reply->errorString())));
                 return;
             }
             QJsonParseError parseError{};
             const QJsonObject remote = QJsonDocument::fromJson(body, &parseError).object();
             if (parseError.error != QJsonParseError::NoError) {
-                finishShots(false, QStringLiteral("shot %1 unreadable").arg(DecenzaLog::field(shot.visualizerId)));
+                done(QStringLiteral("shot %1 unreadable").arg(DecenzaLog::field(shot.visualizerId)));
                 return;
             }
-            ++m_shotsRead;
             m_shots->requestApplyVisualizerPull(shot.shotId, VisualizerSync::remoteShotValues(remote));
-            readNextShot();
+            done(QString());
         });
+    });
+}
+
+void VisualizerShotSync::refreshShot(qint64 shotId)
+{
+    if (shotId <= 0 || !enabled() || !m_shots || !m_shots->isReady())
+        return;
+    const QString dbPath = m_shots->databasePath();
+    QPointer<VisualizerShotSync> self(this);
+    m_shots->runAfterQueuedWrites([self, dbPath, shotId]() {
+        QString visualizerId;
+        withTempDb(dbPath, "viz_refresh_shot", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT IFNULL(visualizer_id, '') FROM shots WHERE id = :id"));
+            q.bindValue(QStringLiteral(":id"), shotId);
+            if (q.exec() && q.next())
+                visualizerId = q.value(0).toString();
+        });
+        if (visualizerId.isEmpty())
+            return;
+        QMetaObject::invokeMethod(qApp, [self, visualizerId, shotId]() {
+            if (!self) return;
+            self->readShot({visualizerId, shotId}, [self](const QString& failure) {
+                if (self && !failure.isEmpty())
+                    self->noteFailure(&self->m_lastShotFailure, failure);
+            });
+        }, Qt::QueuedConnection);
     });
 }
 
 void VisualizerShotSync::finishShots(bool complete, const QString& failure)
 {
     if (complete) {
-        // Advanced only over a complete pass: a failed one is re-read whole
+        // Advanced only over a complete pass: anything else is re-read whole
         // next time, which is safe because applying a pull twice writes nothing.
         if (m_newestChange > m_cursor)
             saveCursor(m_newestChange);
         DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "pull:" << m_changedIds.size()
                  << "shot(s) changed on Visualizer," << m_shotsRead << "linked here and read";
         m_lastShotFailure.clear();
-        startBags();
-    } else {
+    } else if (!failure.isEmpty()) {
         // The bags would meet the same offline network or account refusal.
         noteFailure(&m_lastShotFailure, failure);
         endPass();
+        return;
     }
+    startBags();
+}
+
+void VisualizerShotSync::refreshBags()
+{
+    if (m_running || !enabled() || !m_shots || !m_shots->isReady())
+        return;
+    m_running = true;
+    startBags();
 }
 
 void VisualizerShotSync::startBags()
@@ -227,19 +288,15 @@ void VisualizerShotSync::startBags()
     const QString dbPath = m_shots->databasePath();
     QPointer<VisualizerShotSync> self(this);
     m_shots->runAfterQueuedWrites([self, dbPath]() {
-        QList<QVariantMap> bags;
+        QList<BagToRead> bags;
         withTempDb(dbPath, "viz_pull_bags", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            if (!q.exec("SELECT id FROM coffee_bags WHERE IFNULL(visualizer_bag_id, '') != ''"))
+            if (!q.exec("SELECT id, visualizer_bag_id, IFNULL(beanbase_id, ''), in_inventory FROM coffee_bags "
+                        "WHERE IFNULL(visualizer_bag_id, '') != ''"))
                 return;
-            QList<qint64> ids;
             while (q.next())
-                ids << q.value(0).toLongLong();
-            for (qint64 id : ids) {
-                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, id);
-                if (bag.isValid())
-                    bags << bag.toVariantMap();
-            }
+                bags.append({q.value(0).toLongLong(), q.value(1).toString(), q.value(2).toString(),
+                             q.value(3).toInt() != 0});
         });
         QMetaObject::invokeMethod(qApp, [self, bags]() {
             if (!self) return;
@@ -287,30 +344,21 @@ void VisualizerShotSync::fetchBagListPage(int page)
 
 void VisualizerShotSync::applyBagArchiveState()
 {
-    QList<QVariantMap> stillInInventory;
-    for (QVariantMap bag : std::as_const(m_bagQueue)) {
-        const QString remoteId = bag.value(QStringLiteral("visualizerBagId")).toString();
+    QList<BagToRead> inUse;
+    for (const BagToRead& bag : std::as_const(m_bagQueue)) {
         // Not listed: deleted there. The next shot upload re-creates and relinks it.
-        if (!m_remoteArchivedAt.contains(remoteId))
+        const auto remote = m_remoteArchivedAt.constFind(bag.visualizerBagId);
+        if (remote == m_remoteArchivedAt.constEnd())
             continue;
-        const QVariantMap changes = VisualizerSync::bagArchivePullChanges(m_remoteArchivedAt.value(remoteId), bag);
-        if (!changes.isEmpty()) {
-            const qint64 bagId = bag.value(QStringLiteral("id")).toLongLong();
-            if (changes.contains(QStringLiteral("inInventory"))) {
-                DIAG_INFO(VISUALIZER, "VisualizerShotSync") << "bag" << bagId
-                    << (changes.value(QStringLiteral("inInventory")).toBool()
-                            ? "restored on Visualizer - back in inventory"
-                            : "archived on Visualizer - marked finished");
-            }
-            m_bags->requestApplyVisualizerPull(bagId, changes);
-            for (auto it = changes.cbegin(); it != changes.cend(); ++it)
-                bag.insert(it.key(), it.value());
-        }
-        // Freezer state and blank fields matter only for a bag still in use.
-        if (bag.value(QStringLiteral("inInventory")).toBool())
-            stillInInventory << bag;
+        const QString archivedAt = *remote;
+        m_bags->requestApplyVisualizerPull(bag.bagId, [archivedAt](const QVariantMap& current) {
+            return VisualizerSync::bagArchivePullChanges(archivedAt, current);
+        });
+        // The other fields matter only for a bag still in use on both sides.
+        if (bag.inInventory && archivedAt.isEmpty())
+            inUse << bag;
     }
-    m_bagQueue = stillInInventory;
+    m_bagQueue = inUse;
     readNextBag();
 }
 
@@ -321,66 +369,108 @@ void VisualizerShotSync::readNextBag()
         endPass();
         return;
     }
-    const QVariantMap bag = m_bagQueue.takeFirst();
-    paced([this, bag]() {
-        const QString remoteId = bag.value(QStringLiteral("visualizerBagId")).toString();
+    readBag(m_bagQueue.takeFirst(), false, [this](const QString& failure) {
+        if (!failure.isEmpty()) {
+            noteFailure(&m_lastBagFailure, failure);
+            endPass();
+            return;
+        }
+        readNextBag();
+    });
+}
+
+void VisualizerShotSync::refreshBag(qint64 bagId)
+{
+    if (bagId <= 0 || !enabled() || !m_shots || !m_shots->isReady() || !m_bags)
+        return;
+    const QString dbPath = m_shots->databasePath();
+    QPointer<VisualizerShotSync> self(this);
+    m_shots->runAfterQueuedWrites([self, dbPath, bagId]() {
+        BagToRead bag{bagId, QString(), QString(), true};
+        withTempDb(dbPath, "viz_refresh_bag", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT IFNULL(visualizer_bag_id, ''), IFNULL(beanbase_id, ''), in_inventory "
+                                     "FROM coffee_bags WHERE id = :id"));
+            q.bindValue(QStringLiteral(":id"), bagId);
+            if (q.exec() && q.next())
+                bag = {bagId, q.value(0).toString(), q.value(1).toString(), q.value(2).toInt() != 0};
+        });
+        if (bag.visualizerBagId.isEmpty())
+            return;
+        QMetaObject::invokeMethod(qApp, [self, bag]() {
+            if (!self) return;
+            self->readBag(bag, true, [self](const QString& failure) {
+                if (self && !failure.isEmpty())
+                    self->noteFailure(&self->m_lastBagFailure, failure);
+            });
+        }, Qt::QueuedConnection);
+    });
+}
+
+void VisualizerShotSync::readBag(const BagToRead& bag, bool withArchive, std::function<void(const QString&)> done)
+{
+    paced([this, bag, withArchive, done = std::move(done)]() {
         QNetworkReply* reply = m_networkManager->get(
-            m_uploader->makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + remoteId));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, remoteId]() {
+            m_uploader->makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bag.visualizerBagId));
+        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, withArchive, done]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QByteArray body = reply->readAll();
             if (status == 404) {
-                readNextBag();
+                done(QString());  // deleted there: the next shot upload re-creates and relinks it
                 return;
             }
             if (reply->error() != QNetworkReply::NoError) {
-                noteFailure(&m_lastBagFailure, QStringLiteral("bag %1: %2").arg(DecenzaLog::field(remoteId),
-                            m_uploader->apiErrorMessage(status, body, reply->errorString())));
-                endPass();
+                // 403 = not Premium, 429/401 = account-wide: no other bag would fare better.
+                done(QStringLiteral("bag %1: %2").arg(DecenzaLog::field(bag.visualizerBagId),
+                     m_uploader->apiErrorMessage(status, body, reply->errorString())));
                 return;
             }
             const QJsonObject remote = QJsonDocument::fromJson(body).object();
-            const qint64 bagId = bag.value(QStringLiteral("id")).toLongLong();
-            const QVariantMap changes = VisualizerSync::bagFieldPullChanges(remote, bag);
-            if (!changes.isEmpty()) {
-                DIAG_INFO(VISUALIZER, "VisualizerShotSync") << "bag" << bagId << "updated from Visualizer:"
-                                                            << changes.keys().join(QStringLiteral(", "));
-                m_bags->requestApplyVisualizerPull(bagId, changes);
+            if (remote.isEmpty()) {
+                done(QString());
+                return;
             }
-            syncBagPhoto(bagId, bag.value(QStringLiteral("beanBaseId")).toString(), remoteId,
-                         remote.value(QStringLiteral("image_url")).toString());
+            const QString archivedAt = remote.value(QStringLiteral("archived_at")).toString();
+            m_bags->requestApplyVisualizerPull(bag.bagId, [remote, withArchive, archivedAt](const QVariantMap& current) {
+                QVariantMap changes = withArchive ? VisualizerSync::bagArchivePullChanges(archivedAt, current)
+                                                  : QVariantMap();
+                const QVariantMap fields = VisualizerSync::bagFieldPullChanges(remote, current);
+                for (auto it = fields.cbegin(); it != fields.cend(); ++it)
+                    changes.insert(it.key(), it.value());
+                return changes;
+            });
+            syncBagPhoto(bag, remote.value(QStringLiteral("image_url")).toString(), [done]() { done(QString()); });
         });
     });
 }
 
 // A photo fills whichever side lacks one; neither side's photo is replaced.
-void VisualizerShotSync::syncBagPhoto(qint64 bagId, const QString& beanBaseId, const QString& remoteId,
-                                      const QString& remoteImageUrl)
+void VisualizerShotSync::syncBagPhoto(const BagToRead& bag, const QString& remoteImageUrl, std::function<void()> done)
 {
-    const QString key = BeanBaseClient::imageKeyFor(bagId, beanBaseId);
+    const QString key = BeanBaseClient::imageKeyFor(bag.bagId, bag.beanBaseId);
     const QString localPath = (m_beanbase && !key.isEmpty()) ? m_beanbase->bagImagePath(key) : QString();
     if (!m_beanbase || key.isEmpty() || (remoteImageUrl.isEmpty() == localPath.isEmpty())) {
-        readNextBag();
+        done();
         return;
     }
     if (!remoteImageUrl.isEmpty()) {
         // A signed link that expires in 5 minutes (openapi.yaml), so fetched now.
         m_beanbase->cacheBagImageFromUrl(key, remoteImageUrl);
-        readNextBag();
+        done();
         return;
     }
     const QMimeType mime = QMimeDatabase().mimeTypeForFile(localPath, QMimeDatabase::MatchContent);
     // Visualizer takes raster images only.
     if (!mime.name().startsWith(QLatin1String("image/")) || mime.name() == QLatin1String("image/svg+xml")) {
-        readNextBag();
+        done();
         return;
     }
-    paced([this, bagId, remoteId, localPath, mime]() {
+    paced([this, bag, localPath, mime, done = std::move(done)]() {
         auto* file = new QFile(localPath);
         if (!file->open(QIODevice::ReadOnly)) {
             delete file;
-            readNextBag();
+            done();
             return;
         }
         auto* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -392,22 +482,22 @@ void VisualizerShotSync::syncBagPhoto(qint64 bagId, const QString& beanBaseId, c
         part.setBodyDevice(file);
         file->setParent(multiPart);
         multiPart->append(part);
-        QNetworkRequest request = m_uploader->makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + remoteId);
+        QNetworkRequest request = m_uploader->makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bag.visualizerBagId);
         // Unset, so Qt writes the multipart type and boundary
         // (QNetworkAccessManagerPrivate::prepareMultipart, qnetworkaccessmanager.cpp:1786).
         request.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
         QNetworkReply* reply = m_networkManager->sendCustomRequest(request, "PATCH", multiPart);
         multiPart->setParent(reply);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, bagId]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, done]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 200) {
-                DIAG_INFO(VISUALIZER, "VisualizerShotSync") << "bag" << bagId << "photo uploaded to Visualizer";
+                DIAG_INFO(VISUALIZER, "VisualizerShotSync") << "bag" << bag.bagId << "photo uploaded to Visualizer";
             } else {
-                noteFailure(&m_lastBagFailure, QStringLiteral("bag %1 photo: %2").arg(bagId).arg(
+                noteFailure(&m_lastBagFailure, QStringLiteral("bag %1 photo: %2").arg(bag.bagId).arg(
                             m_uploader->apiErrorMessage(status, reply->readAll(), reply->errorString())));
             }
-            readNextBag();
+            done();
         });
     });
 }

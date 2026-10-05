@@ -23,23 +23,34 @@
 - [x] 4.2 Finishing / restocking a bag pushes `archived_at` when it disagrees with Visualizer's last known state (`bagArchiveForPush`); `inInventory` becomes a Visualizer-pushed field. Verify: `tst_visualizershotparse`, `tst_coffeebags::touchesVisualizerFieldsMembership`.
 - [x] 4.3 One bag photo key helper (`BeanBaseClient::imageKeyFor` / `bagImageKey`) replaces the eight hand-written copies.
 
-## 5. Surfaces and docs
+## 5. Review fixes and freshness
 
-- [x] 5.1 Shot Upload tab and ShotServer settings: "Auto-update shots" description mentions bringing edits back.
-- [x] 5.2 `docs/CLAUDE_MD/VISUALIZER.md`.
-- [ ] 5.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving.
+- [x] 5.1 Bag fields sync off `coffee_bags.visualizer_seen` (last value known on Visualizer): pushes send only fields changed here (a clear as null), pulls take only fields changed there; a local clear is never refilled. Verify: `tst_coffeebags::patchBody_mapsAllFieldsAtCurrentValues`, `tst_visualizershotparse::bag_pull_takes_only_changes_made_there`.
+- [x] 5.2 Pull decisions for bags run on the bag worker against the current row.
+- [x] 5.3 The review page, bag editor and web shot editor save only the fields edited there, and take pulled changes into untouched fields while open.
+- [x] 5.4 Refresh on view: review/detail pages and the web shot page refresh their shot; the bag editor its bag; the bean inventory (app and web) all bags.
+- [x] 5.5 Notes rendered from Markdown before uploads escaped it are not mistaken for an edit. Verify: `tst_visualizershotparse::legacy_markdown_notes_are_not_an_edit`.
+- [x] 5.6 No roaster is created while Coffee Management is unconfirmed.
+- [x] 5.7 The edit seq moves only when a field changed. Verify: `tst_dbmigration::visualizerDirty_marksClearsAndGuardsPulls`.
+- [x] 5.8 One request pacer for every background pass; a changed-shot list that shrinks mid-pass leaves the cursor; the bag phase reads its bags in one query.
 
-## 6. Verify
+## 6. Surfaces and docs
 
-- [x] 6.1 Full suite through Qt Creator: 119/119 passed.
-- [ ] 6.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). The web /beans page already shows them; the three QML screens open by long press.
-- [x] 6.7 Mac dev build, 2026-10-05: migration 43 ran on the real desktop database; an edit marks only changed fields, a re-save marks nothing, and an empty value over an unset one is not a change (checked in the DB); the web settings page shows the new description; no QML warnings in the log.
+- [x] 6.1 Shot Upload tab and ShotServer settings: "Auto-update shots" description mentions bringing edits back.
+- [x] 6.2 `docs/CLAUDE_MD/VISUALIZER.md`.
+- [ ] 6.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving.
 
-A Mac dev run with the account connected (2026-10-05 08:11) already completed one real pass: 54 changed shots listed, 29 linked read, one roast level pulled with no echo PATCH; the bag list read; one defrost date pulled; five bag photos uploaded and visible on visualizer.coffee; a second pass read only the one shot changed since. This exercised every request shape against the live server, but it is not a substitute for 6.2-6.5.
+## 7. Verify
 
-Held for the next beta: 6.2-6.5 run against Jeff's one paid Visualizer account, so they happen on his production Android tablet, not on a desktop or simulator build, which would fill that account with test data. They are not passed until that beta confirms them.
+- [x] 7.1 Full suite through Qt Creator after the review fixes: 119/119 passed, no warnings; QML lint gate clean (252/252).
+- [ ] 7.6 Open the Beans, Recipes and Recipe Wizard screens and confirm bag photos still show (the key moved to `bagImageKey()`). The web /beans page already shows them; the three QML screens open by long press.
+- [x] 7.7 Mac dev build, 2026-10-05: migration 43 ran on the real desktop database; an edit marks only changed fields, a re-save marks nothing, and an empty value over an unset one is not a change (checked in the DB); the web settings page shows the new description; no QML warnings in the log.
 
-- [ ] 6.2 Live (beta, tablet): edit a shot's grind and rating in Visualizer's Journal, confirm both arrive in Decenza within a pass; edit a different field in Decenza and confirm the Journal values survive.
-- [ ] 6.3 Live (beta, tablet): archive a synced bag on Visualizer, confirm it is marked finished in Decenza; restore it, confirm it is back in inventory. Mark a bag finished in Decenza, confirm it is archived on Visualizer.
-- [ ] 6.4 Live (beta, tablet): fill a synced bag with AI before any shot upload that session, confirm the fields reach Visualizer.
-- [ ] 6.5 Live (beta, tablet): a synced bag with a cached photo gets it on Visualizer; a Visualizer bag photo appears on a bag that had none.
+A Mac dev run with the account connected (2026-10-05 08:11) already completed one real pass: 54 changed shots listed, 29 linked read, one roast level pulled with no echo PATCH; the bag list read; one defrost date pulled; five bag photos uploaded and visible on visualizer.coffee; a second pass read only the one shot changed since. This exercised every request shape against the live server, but it is not a substitute for 7.2-7.5.
+
+Held for the next beta: 7.2-7.5 run against Jeff's one paid Visualizer account, so they happen on his production Android tablet, not on a desktop or simulator build, which would fill that account with test data. They are not passed until that beta confirms them.
+
+- [ ] 7.2 Live (beta, tablet): edit a shot's grind and rating in Visualizer's Journal, confirm both arrive in Decenza within a pass; edit a different field in Decenza and confirm the Journal values survive.
+- [ ] 7.3 Live (beta, tablet): archive a synced bag on Visualizer, confirm it is marked finished in Decenza; restore it, confirm it is back in inventory. Mark a bag finished in Decenza, confirm it is archived on Visualizer.
+- [ ] 7.4 Live (beta, tablet): fill a synced bag with AI before any shot upload that session, confirm the fields reach Visualizer.
+- [ ] 7.5 Live (beta, tablet): a synced bag with a cached photo gets it on Visualizer; a Visualizer bag photo appears on a bag that had none.

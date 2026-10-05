@@ -258,27 +258,62 @@ private slots:
         QVERIFY(!VisualizerSync::bagArchiveForPush(bag(false, at), now, &sent));
     }
 
-    // Freeze there resets the defrost date; descriptive fields only fill blanks;
-    // a bag with an unsent local edit keeps its fields.
-    void bag_pull_freezer_and_blanks()
+    // Bag fields sync off what Visualizer was last seen to hold: a change there
+    // is taken when the field is unchanged here, a local edit (a clear included)
+    // is never undone by Visualizer's older value, and a field never seen only
+    // fills a local blank.
+    void bag_pull_takes_only_changes_made_there()
     {
+        auto seenJson = [](const QJsonObject& o) { return QString::fromUtf8(QJsonDocument(o).toJson()); };
         QJsonObject remote;
         remote.insert("frozen_date", "2026-10-02");
-        remote.insert("defrosted_date", QJsonValue(QJsonValue::Null));
+        remote.insert("defrosted_date", QJsonValue(QJsonValue::Null));   // Freeze clears it
         remote.insert("country", "Colombia");
         remote.insert("region", "Huila");
-        QVariantMap local{{"inInventory", true}, {"frozenDate", "2026-09-01"}, {"defrostDate", "2026-09-10"},
+        remote.insert("notes", "<p>washed</p>");
+        QVariantMap local{{"frozenDate", "2026-07-26"}, {"defrostDate", "2026-07-30"}, {"notes", QString()},
                           {"beanBaseData", QStringLiteral(R"({"region":"Nariño"})")}};
 
-        const QVariantMap c = VisualizerSync::bagFieldPullChanges(remote, local);
-        QCOMPARE(c.value("frozenDate").toString(), QStringLiteral("2026-10-02"));
-        QCOMPARE(c.value("defrostDate").toString(), QString());
-        const QJsonObject blob = QJsonDocument::fromJson(c.value("beanBaseData").toString().toUtf8()).object();
+        // Never seen: blanks fill, set values stay, everything is recorded.
+        QVariantMap c = VisualizerSync::bagFieldPullChanges(remote, local);
+        QCOMPARE(c.value("notes").toString(), QStringLiteral("washed"));
+        QVERIFY(!c.contains("frozenDate"));
+        QJsonObject blob = QJsonDocument::fromJson(c.value("beanBaseData").toString().toUtf8()).object();
         QCOMPARE(blob.value("origin").toString(), QStringLiteral("Colombia"));
         QCOMPARE(blob.value("region").toString(), QStringLiteral("Nariño"));
+        QCOMPARE(c.value("visualizerSeen").toMap().value("frozen_date").toString(), QStringLiteral("2026-10-02"));
 
-        local.insert("visualizerSyncPending", true);
-        QVERIFY(VisualizerSync::bagFieldPullChanges(remote, local).isEmpty());
+        // Seen as it still is there: a local clear of the notes stays cleared.
+        QJsonObject seen{{"frozen_date", "2026-10-02"}, {"defrosted_date", ""}, {"country", "Colombia"},
+                         {"region", "Huila"}, {"notes", "washed"}};
+        local.insert("visualizerSeen", seenJson(seen));
+        c = VisualizerSync::bagFieldPullChanges(remote, local);
+        c.remove("visualizerSeen");   // fields never seen (all empty) are recorded once
+        QVERIFY(c.isEmpty());
+
+        // Frozen there since: taken, with the defrost date it cleared.
+        seen.insert("frozen_date", "2026-07-26");
+        seen.insert("defrosted_date", "2026-07-30");
+        local.insert("visualizerSeen", seenJson(seen));
+        c = VisualizerSync::bagFieldPullChanges(remote, local);
+        QCOMPARE(c.value("frozenDate").toString(), QStringLiteral("2026-10-02"));
+        QVERIFY(c.contains("defrostDate"));
+        QCOMPARE(c.value("defrostDate").toString(), QString());
+
+        // Changed on both sides: the local edit stays, and goes out on the next push.
+        local.insert("defrostDate", "2026-08-15");
+        c = VisualizerSync::bagFieldPullChanges(remote, local);
+        QVERIFY(!c.contains("defrostDate"));
+        QCOMPARE(c.value("visualizerSeen").toMap().value("defrosted_date").toString(), QString());
+    }
+
+    // A note uploaded before uploads escaped Markdown came back rendered; that
+    // is the same note, not an edit made on Visualizer.
+    void legacy_markdown_notes_are_not_an_edit()
+    {
+        QVERIFY(VisualizerNotes::sameNotes(QStringLiteral("1. finer\n*very* sour"),
+                                           QStringLiteral("<ol><li>finer<br><em>very</em> sour</li></ol>")));
+        QVERIFY(!VisualizerNotes::sameNotes(QStringLiteral("finer"), QStringLiteral("<p>coarser</p>")));
     }
 };
 

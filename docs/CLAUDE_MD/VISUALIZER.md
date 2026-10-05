@@ -43,6 +43,9 @@ Since 2026-08-02 Visualizer stores notes as HTML, and each route reads them diff
 | Shot / bag PATCH | HTML (a bare newline is whitespace) | `plainToHtml()` — `<p>`, `<br>` |
 | Every read (shot, bag, recovery) | returns HTML | `htmlToPlain()` on the way in |
 
+Notes uploaded before the escaping came back rendered ("1. finer" as a list). `sameNotes()`
+ignores Markdown syntax and list numbering, so a pull does not mistake that for an edit.
+
 #### Barista is `my_name`
 
 Visualizer's parser reads the barista from `app.data.settings.my_name` only (de1app's key,
@@ -61,7 +64,9 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
 - **Shots**: `GET /api/shots?updated_after=<cursor>&sort=updated_at`, then
   `GET /api/shots/:id?essentials=1` for each one linked to a local shot. The cursor
   (`visualizer/pullCursor`, per account) advances only over a complete pass; the first pass on an
-  account looks back 14 days. Our own uploads and PATCHes come back too and write nothing.
+  account looks back 14 days. Our own uploads and PATCHes come back too and write nothing. The
+  list is paged by offset over a moving sort: a list that shrinks mid-pass (a shot deleted there)
+  could hide a row, so the pass ends without advancing the cursor.
 - **What a pull writes** (`shotPullChanges`): a field whose remote value differs from local, unless
   it is dirty here. A missing or null remote value never clears a local one (CVA needs Premium;
   barista never reached Visualizer before the `my_name` fix). Grinder identity and the canonical
@@ -69,7 +74,7 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
   comes back off the `"2.4 1400rpm"` suffix.
 - **Dirty tracking** (migration 43): `updateShotMetadataStatic` sets a `VisualizerSync::Field` bit
   in `shots.visualizer_dirty` for each field whose value an edit changes (compared in SQL, NULL and
-  "" equal) and bumps `visualizer_dirty_seq`. A successful send clears only the bits it carried, and
+  "" equal) and, only then, bumps `visualizer_dirty_seq`. A successful send clears only the bits it carried, and
   only if the seq is unchanged — an edit that landed while the request was out keeps its bits. A
   pull does not mark anything. Both columns travel with backups.
 - **Coffee bags**:
@@ -82,20 +87,36 @@ shots — come back to Decenza. `src/network/visualizershotsync.{h,cpp}`, rules 
     inventory state here disagrees with that value (`bagArchiveForPush`: now, or null to
     restore), and records what the reply says; so an edit to anything else never moves an
     archive the pull has not applied yet. `inInventory` is therefore a Visualizer-pushed field.
-  - **Fields** (`bagFieldPullChanges`), for each bag still in inventory, from
-    `GET /api/coffee_bags/:id`: a new `frozen_date` is taken with its `defrosted_date`
-    (Visualizer's Freeze clears it), otherwise a differing `defrosted_date`; descriptive
-    fields fill local blanks only. A bag with `visualizerSyncPending` keeps its fields.
+  - **Fields, both ways**: `coffee_bags.visualizer_seen` is a JSON object of each attribute's
+    value as Visualizer was last known to hold it. A side *changed* a field when its value
+    differs from that. A push (`bagPushBody`) sends only fields changed here — a clear as
+    `null` — and records them as seen once accepted. A pull (`bagFieldPullChanges`, each bag
+    still in inventory, `GET /api/coffee_bags/:id`) takes a field changed there and not here;
+    changed on both sides, the local edit stays and goes out next. A field never seen (a bag
+    synced before this existed) is pushed only when set here and pulled only into a blank.
+    Name and the canonical link are pushed but never pulled.
   - **Photo**: whichever side lacks one gets the other's. Visualizer's signed `image_url`
     (expires in 5 min) goes into the bag photo cache under `BeanBaseClient::imageKeyFor()`; a
     cached photo is uploaded as `coffee_bag[image]` multipart. Neither side's photo is replaced.
-  - Pulled values are written through `CoffeeBagStorage::requestApplyVisualizerPull`, which
-    emits everything `requestUpdateBag` does except the push back to Visualizer.
+  - Pulled values are decided and written on the bag worker against the row as it stands
+    (`CoffeeBagStorage::requestApplyVisualizerPull`), so a local edit queued first wins; it emits
+    everything `requestUpdateBag` does except the push back to Visualizer.
+
+### Fresh when viewed
+
+A screen showing synced data reads it from Visualizer when it opens, instead of waiting for the
+next pass: the review and detail pages call `VisualizerShotSync::refreshShot`, the bag editor
+`refreshBag`, the bean inventory `refreshBags` (also the web `/shot/<id>` and `/beans` pages).
+Editors never write back what they did not change: the review page, the bag editor and the
+web shot editor save only the fields edited there, and while open they take a pulled change into
+any field not yet touched. All background requests share one pacer
+(`VisualizerUploader::paceApiRequest`), so concurrent passes keep to the rate budget together.
 
 ### Bag edits reach Visualizer without a shot upload
 
 A bag edit (editor, AI fill, MCP `bag_update`) is pushed at once unless Coffee Management is
-known to be off. It used to wait for a shot upload to confirm CM, so on a device that never uploads
+known to be off. While CM is unconfirmed a roaster rename re-points only to an existing roaster;
+none is created. It used to wait for a shot upload to confirm CM, so on a device that never uploads
 a shot an edit never arrived. A parked (failed) push is retried after each upload and at the end of
 each sync pass.
 

@@ -102,17 +102,31 @@ inline QString htmlToPlain(const QString& html)
 }
 
 // Whether two notes say the same thing once each is reduced to what the other
-// side can store: whitespace runs and leading indentation do not survive the
-// upload's Markdown rendering, so they are not a difference.
+// side can store. Notes uploaded before uploads escaped Markdown were rendered
+// by Visualizer ("1. finer" became a list, "*very*" emphasis), so Markdown
+// syntax, list numbering and whitespace runs are not a difference; without
+// this, pulling such a shot would rewrite its note into the rendered text.
 inline bool sameNotes(const QString& a, const QString& b)
 {
+    static const QRegularExpression escape(QStringLiteral("\\\\([\\\\.*_+`<>()\\[\\]{}#!:|\"'$=~-])"));
+    static const QRegularExpression link(QStringLiteral("\\[([^\\]]*)\\]\\([^)]*\\)"));
+    static const QRegularExpression listMarker(QStringLiteral("^(?:\\d+[.)]|[-*+])\\s+"));
+    static const QRegularExpression blockMarker(QStringLiteral("^(?:#{1,6}|>)\\s*"));
+    static const QRegularExpression emphasis(QStringLiteral("[*_~`]"));
     static const QRegularExpression spaceRun(QStringLiteral("[ \\t]+"));
     static const QRegularExpression blankRun(QStringLiteral("\\n{2,}"));
     auto normalize = [](const QString& s) {
         QStringList lines = htmlToPlain(s).split(QLatin1Char('\n'));
-        for (QString& line : lines)
+        for (QString& line : lines) {
+            line = line.trimmed();
+            line.replace(listMarker, QStringLiteral("- "));
+            line.remove(blockMarker);
+            line.replace(link, QStringLiteral("\\1"));
+            line.replace(escape, QStringLiteral("\\1"));
+            line.remove(emphasis);
             line = line.replace(spaceRun, QStringLiteral(" ")).trimmed();
-        return lines.join(QLatin1Char('\n')).replace(blankRun, QStringLiteral("\n\n")).trimmed();
+        }
+        return lines.join(QLatin1Char('\n')).replace(blankRun, QStringLiteral("\n")).trimmed();
     };
     return normalize(a) == normalize(b);
 }

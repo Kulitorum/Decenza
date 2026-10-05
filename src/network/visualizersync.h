@@ -10,10 +10,12 @@
 #include <QAnyStringView>
 #include <QDateTime>
 #include <QLatin1StringView>
+#include <QMap>
 #include <QRegularExpression>
 #include <QVariantMap>
 
 #include <cmath>
+#include <functional>
 
 // Two-way sync of a shot's editable fields with visualizer.coffee, and of a
 // coffee bag's state back from it. Pure: no I/O, so the rules that decide what
@@ -249,56 +251,133 @@ inline bool bagArchiveForPush(const QVariantMap& bag, const QDateTime& now, QJso
     return true;
 }
 
-// The local writes that bring a Visualizer bag's fields (GET
-// /api/coffee_bags/:id) back to Decenza, as CoffeeBag variant-map keys. None for
-// a bag with an unsent local edit (visualizerSyncPending).
-//  - Freezer: a frozen_date that differs from local is taken with its
-//    defrosted_date (Visualizer's Freeze clears the defrost date); otherwise a
-//    differing defrosted_date is taken. Never cleared from a null.
-//  - Descriptive fields fill local blanks only, never overwrite. The canonical
-//    link is not filled: it carries the borrowed-record rules in BeanBaseBlob,
-//    which a bare id would bypass.
-inline QVariantMap bagFieldPullChanges(const QJsonObject& remote, const QVariantMap& local)
+// The bag attributes synced both ways, as plain text keyed by API name ("" =
+// unset). Notes are plain here; each route converts them (visualizernotes.h).
+// Name and the canonical link are pushed but never pulled: locally they are the
+// bag's identity and carry the borrowed-record rules in BeanBaseBlob.
+inline QMap<QString, QString> bagLocalValues(const QVariantMap& bag)
 {
-    QVariantMap changes;
-    if (local.value(QStringLiteral("visualizerSyncPending")).toBool())
-        return changes;
-    auto remoteText = [&](const char* apiKey) {
-        return remote.value(QLatin1StringView(apiKey)).toString().trimmed();
-    };
+    QMap<QString, QString> v;
+    auto text = [&](const char* key) { return bag.value(QLatin1StringView(key)).toString().trimmed(); };
+    v.insert(QStringLiteral("name"), text("coffeeName"));
+    v.insert(QStringLiteral("roast_date"), text("roastDate"));
+    v.insert(QStringLiteral("roast_level"), text("roastLevel"));
+    v.insert(QStringLiteral("frozen_date"), text("frozenDate"));
+    v.insert(QStringLiteral("defrosted_date"), text("defrostDate"));
+    v.insert(QStringLiteral("notes"), bag.value(QStringLiteral("notes")).toString());
+    v.insert(QStringLiteral("canonical_coffee_bag_id"), text("beanBaseId"));
+    const QJsonObject blob = QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8()).object();
+    for (const BagBlobField& f : kBagBlobFields)
+        v.insert(QString::fromLatin1(f.apiKey), blob.value(QLatin1StringView(f.blobKey)).toString().trimmed());
+    return v;
+}
 
-    const QString frozen = remoteText("frozen_date");
-    const QString defrosted = remoteText("defrosted_date");
-    if (!frozen.isEmpty() && frozen != local.value(QStringLiteral("frozenDate")).toString()) {
-        changes.insert(QStringLiteral("frozenDate"), frozen);
-        if (defrosted != local.value(QStringLiteral("defrostDate")).toString())
-            changes.insert(QStringLiteral("defrostDate"), defrosted);
-    } else if (!defrosted.isEmpty() && defrosted != local.value(QStringLiteral("defrostDate")).toString()) {
-        changes.insert(QStringLiteral("defrostDate"), defrosted);
+inline QMap<QString, QString> bagRemoteValues(const QJsonObject& remote)
+{
+    QMap<QString, QString> v;
+    for (auto it = remote.constBegin(); it != remote.constEnd(); ++it)
+        v.insert(it.key(), it.value().toString().trimmed());
+    v.insert(QStringLiteral("notes"), VisualizerNotes::htmlToPlain(remote.value(QStringLiteral("notes")).toString()));
+    return v;
+}
+
+inline bool sameBagValue(const QString& key, const QString& a, const QString& b)
+{
+    return key == QLatin1StringView("notes") ? VisualizerNotes::sameNotes(a, b) : a == b;
+}
+
+inline QVariantMap bagSeen(const QVariantMap& bag)
+{
+    return QJsonDocument::fromJson(bag.value(QStringLiteral("visualizerSeen")).toString().toUtf8())
+        .object().toVariantMap();
+}
+
+// Bag fields sync both ways off visualizerSeen: the value of each attribute
+// Visualizer was last known to hold. A side "changed" a field when its value
+// differs from that, so neither side's stale copy can overwrite the other's
+// edit, and a clear on either side carries over like any other edit.
+
+// Push: the PATCH body for the fields changed here since Visualizer was last
+// seen — a clear goes as null. A field never seen (a bag synced before this
+// existed) is sent only when set here, as before. `sent` gets the plain values
+// sent, to record as seen once the server accepts them.
+inline QJsonObject bagPushBody(const QVariantMap& bag, QVariantMap* sent)
+{
+    const QMap<QString, QString> local = bagLocalValues(bag);
+    const QVariantMap seen = bagSeen(bag);
+    QJsonObject body;
+    for (auto it = local.cbegin(); it != local.cend(); ++it) {
+        const QString& key = it.key();
+        const QString& value = it.value();
+        if (seen.contains(key) ? sameBagValue(key, value, seen.value(key).toString()) : value.isEmpty())
+            continue;
+        if (value.isEmpty() && key == QLatin1StringView("name"))
+            continue;  // a bag must keep a name (the server 422s)
+        if (value.isEmpty())
+            body.insert(key, QJsonValue(QJsonValue::Null));
+        else
+            body.insert(key, key == QLatin1StringView("notes") ? VisualizerNotes::plainToHtml(value) : value);
+        sent->insert(key, value);
     }
+    return body;
+}
 
-    auto fillBlank = [&](const char* key, const QString& value) {
-        if (!value.isEmpty() && local.value(QLatin1StringView(key)).toString().trimmed().isEmpty())
-            changes.insert(QLatin1StringView(key), value);
+// Pull: the local writes for the fields changed on Visualizer since last seen,
+// as CoffeeBag variant-map keys, plus "visualizerSeen" — the seen values to
+// record. A field changed on both sides keeps the local edit, which the next
+// push sends. A field never seen only fills a local blank.
+inline QVariantMap bagFieldPullChanges(const QJsonObject& remoteBag, const QVariantMap& bag)
+{
+    static const QList<QPair<QString, QString>> kPulled = {
+        {QStringLiteral("roast_date"), QStringLiteral("roastDate")},
+        {QStringLiteral("roast_level"), QStringLiteral("roastLevel")},
+        {QStringLiteral("frozen_date"), QStringLiteral("frozenDate")},
+        {QStringLiteral("defrosted_date"), QStringLiteral("defrostDate")},
+        {QStringLiteral("notes"), QStringLiteral("notes")},
     };
-    fillBlank("roastDate", remoteText("roast_date"));
-    fillBlank("roastLevel", remoteText("roast_level"));
-    fillBlank("notes", VisualizerNotes::htmlToPlain(remoteText("notes")));
-
-    QJsonObject blob = QJsonDocument::fromJson(
-        local.value(QStringLiteral("beanBaseData")).toString().toUtf8()).object();
+    const QMap<QString, QString> remote = bagRemoteValues(remoteBag);
+    const QMap<QString, QString> local = bagLocalValues(bag);
+    const QVariantMap seen = bagSeen(bag);
+    QVariantMap changes;
+    QVariantMap seenUpdates;
+    QJsonObject blob = QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8()).object();
     bool blobChanged = false;
-    for (const BagBlobField& f : kBagBlobFields) {
-        const QString value = remoteText(f.apiKey);
-        const QString blobKey = QString::fromLatin1(f.blobKey);
-        if (!value.isEmpty() && blob.value(blobKey).toString().trimmed().isEmpty()) {
-            blob.insert(blobKey, value);
-            blobChanged = true;
+
+    auto consider = [&](const QString& apiKey, const std::function<void(const QString&)>& apply) {
+        const QString r = remote.value(apiKey);
+        const QString l = local.value(apiKey);
+        if (seen.contains(apiKey)) {
+            const QString s = seen.value(apiKey).toString();
+            if (sameBagValue(apiKey, r, s))
+                return;                       // unchanged there
+            seenUpdates.insert(apiKey, r);
+            if (sameBagValue(apiKey, l, s) && !sameBagValue(apiKey, l, r))
+                apply(r);                     // changed there only
+        } else {
+            seenUpdates.insert(apiKey, r);
+            if (l.isEmpty() && !r.isEmpty())
+                apply(r);
         }
+    };
+    for (const auto& field : kPulled) {
+        const QString localKey = field.second;
+        consider(field.first, [&changes, localKey](const QString& r) { changes.insert(localKey, r); });
+    }
+    for (const BagBlobField& f : kBagBlobFields) {
+        const QString blobKey = QString::fromLatin1(f.blobKey);
+        consider(QString::fromLatin1(f.apiKey), [&, blobKey](const QString& r) {
+            if (r.isEmpty())
+                blob.remove(blobKey);
+            else
+                blob.insert(blobKey, r);
+            blobChanged = true;
+        });
     }
     if (blobChanged)
         changes.insert(QStringLiteral("beanBaseData"),
                        QString::fromUtf8(QJsonDocument(blob).toJson(QJsonDocument::Compact)));
+    if (!seenUpdates.isEmpty())
+        changes.insert(QStringLiteral("visualizerSeen"), seenUpdates);
     return changes;
 }
 

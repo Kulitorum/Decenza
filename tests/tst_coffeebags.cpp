@@ -21,6 +21,7 @@
 #include "core/settings_dye.h"
 #include "shotrowfixtures.h"
 #include "network/visualizeruploader.h"
+#include "network/visualizersync.h"
 #include "network/beanbase_blob.h"
 
 using Tier = UnifiedBeanSearchModel::Tier;
@@ -1885,7 +1886,7 @@ private slots:
             "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
             "doseWeightG", "yieldValue", "yieldMode", "startWeightG", "lastUsedEpoch",
             "visualizerBagId", "visualizerRoasterId",
-            "visualizerSyncPending", "visualizerArchivedAt"};
+            "visualizerSyncPending", "visualizerArchivedAt", "visualizerSeen"};
         for (const QString& key : localKeys)
             QVERIFY2(!CoffeeBagStorage::touchesVisualizerFields({{key, "x"}}),
                      qPrintable("expected " + key + " to be local-only"));
@@ -2603,10 +2604,9 @@ private slots:
         QCOMPARE(body.value("url").toString(), QStringLiteral("https://roaster.example/bag"));
     }
 
-    // VisualizerUploader::addBagDescriptiveFields — the full-value body the
-    // bag-edit push PATCHes (last-writer-wins for fields we hold; empty locals
-    // omitted, never sent as null). Locks the blob->API mapping incl. the
-    // add-bag-detail-editing fields.
+    // VisualizerSync::bagPushBody for a bag Visualizer has not been seen for:
+    // every field set here, empty ones omitted. Locks the blob->API mapping incl.
+    // the add-bag-detail-editing fields.
     void patchBody_mapsAllFieldsAtCurrentValues() {
         QVariantMap bag;
         bag.insert("coffeeName", "First Batch");
@@ -2623,8 +2623,8 @@ private slots:
             "\"placeOfPurchase\":\"Roaster site\",\"tastingNotes\":\"cherry\",\"elevation\":\"1900 m\","
             "\"link\":\"https://roaster.example/bag\",\"canonical\":{\"origin\":\"Colombia\"}}"));
 
-        QJsonObject body;
-        VisualizerUploader::addBagDescriptiveFields(body, bag);
+        QVariantMap sent;
+        const QJsonObject body = VisualizerSync::bagPushBody(bag, &sent);
 
         QCOMPARE(body.value("name").toString(), QStringLiteral("First Batch"));
         QCOMPARE(body.value("roast_date").toString(), QStringLiteral("2026-06-01"));
@@ -2648,14 +2648,26 @@ private slots:
         QVERIFY(!body.contains("roaster_id"));   // caller-owned
         QVERIFY(!body.contains("canonical"));    // snapshot never leaves the device
 
-        // Empty local values are OMITTED — a local clear must not null a
-        // server-side value the user set on visualizer.coffee.
+        // Never seen: an empty field is OMITTED, since Decenza cannot know it
+        // was cleared rather than never set — and must not null a value the user
+        // set on visualizer.coffee.
         QVariantMap sparse;
         sparse.insert("coffeeName", "Bare");
-        QJsonObject sparseBody;
-        VisualizerUploader::addBagDescriptiveFields(sparseBody, sparse);
+        QVariantMap sparseSent;
+        const QJsonObject sparseBody = VisualizerSync::bagPushBody(sparse, &sparseSent);
         QCOMPARE(sparseBody.value("name").toString(), QStringLiteral("Bare"));
         QCOMPARE(sparseBody.size(), 1);
+
+        // Seen: only what changed here goes, and a clear goes as null.
+        QVariantMap seenBag = bag;
+        seenBag.insert("visualizerSeen", QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(sent)).toJson()));
+        seenBag.insert("notes", QString());
+        seenBag.insert("roastLevel", "Dark");
+        QVariantMap seenSent;
+        const QJsonObject delta = VisualizerSync::bagPushBody(seenBag, &seenSent);
+        QCOMPARE(delta.keys(), (QStringList{"notes", "roast_level"}));
+        QVERIFY(delta.value("notes").isNull());
+        QCOMPARE(delta.value("roast_level").toString(), QStringLiteral("Dark"));
     }
 
     // A bag may carry a canonical id only while its own roaster/coffee still
