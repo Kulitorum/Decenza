@@ -36,13 +36,13 @@
 - [x] 5.9 Second review round: shots no longer pull bean fields (Visualizer rewrites them from the bag); pulls announce themselves with `shotPulledFromVisualizer` / `bagPulledFromVisualizer` (forwarded to Decent, the exporter, SettingsDye, the open screens) instead of the edit signals; a shot pull waits for its write before the cursor moves; archive first sight records without acting; the review page merges from the pull's previous/written values and moves its undo frames; the bag editor saves its detail blob key by key; a read overtaken by a push of the same item is dropped; the bean inventory re-reads bags at most every 3 min; a bad shot is skipped rather than ending the pass; past 50 list pages the cursor re-baselines; a pass that outlives its account drops its cursor; failures log once and their recovery with a repeat count. Verify: `tst_visualizershotparse`, `tst_dbmigration::v42ToV43AddsVisualizerSyncColumns`, `tst_coffeebags::visualizerPullDecidesOnCurrentRowAndSignalsAsAPull`, `tst_visualizershotlist`.
 
 - [x] 5.10 A failed bag read is reported as a failure, not as an empty inventory or a missing bag, so the active bag survives it (a dev database missing a column cleared it). Verify: `tst_coffeebags::settingsDyeKeepsActiveBagWhenItsReadFails`.
-- [x] 5.11 Finished bags: "Show finished (N)" on the Beans page and the web `/beans` page; Restock opens the new-bag form prefilled from the finished bag, Restore puts the bag back in inventory. A recipe card whose bag is finished offers Restock too; the saved bag becomes the recipe's (web: via `/beans?restock=<bag>&recipe=<id>`). Verify: `tst_coffeebags::inventoryLifecycleSignals` (finished shelf); the QML is checked by hand (7.8).
+- [x] 5.11 Finished bags: "Show finished (N)" on the Beans page and the web `/beans` page; Restock opens the new-bag form prefilled from the finished bag, Restore puts the bag back in inventory. Bags in inventory offer Restock too. A recipe card whose bag is finished offers Restock too; the saved bag becomes the recipe's (web: via `/beans?restock=<bag>&recipe=<id>`). Verify: `tst_coffeebags::inventoryLifecycleSignals` (finished shelf); the QML is checked by hand (7.8).
 
 ## 6. Surfaces and docs
 
 - [x] 6.1 Shot Upload tab and ShotServer settings: "Auto-update shots" description mentions bringing edits back.
 - [x] 6.2 `docs/CLAUDE_MD/VISUALIZER.md`.
-- [x] 6.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving, plus Show finished / Restock / Restore under the bag cards (wiki `ce5385d`).
+- [x] 6.3 Wiki manual: a short entry under Visualizer for two-way sync and bag archiving, plus Show finished / Restock / Restore under the bag cards (wiki `ce5385d`, `7e42bcf`).
 
 ## 7. Verify
 

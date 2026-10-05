@@ -211,6 +211,7 @@ T.Page {
                         width: Theme.cardGridWidth(flickable.width)
                         onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
                         onLinkRequested: function(b) { changeBeansDialog.openForEditAndLink(b) }
+                        onRestockRequested: function(b) { changeBeansDialog.openRestock(b) }
                     }
                 }
             }

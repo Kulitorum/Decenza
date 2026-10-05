@@ -1098,7 +1098,7 @@ QString ShotServer::generateBeansPage() const
             body += '</div>';
 
             if (finished) {
-                // A finished bag offers only its way back, and its details.
+                // A finished bag offers only Restock, Restore and its details.
                 let fin = '<div class="actions">'
                     + '<button class="primary" onclick="restockBag(' + b.id + ')">Restock</button>'
                     + '<button onclick="restoreBag(' + b.id + ')">Restore</button>'
@@ -1112,7 +1112,8 @@ QString ShotServer::generateBeansPage() const
 
             let acts = '<div class="actions">'
                 + '<button class="primary" onclick="activate(' + b.id + ')"' + (b.isActive ? ' disabled' : '') + '>Activate</button>'
-                + '<button onclick="openEditor(' + b.id + ')">Edit</button>';
+                + '<button onclick="openEditor(' + b.id + ')">Edit</button>'
+                + '<button onclick="restockBag(' + b.id + ')">Restock</button>';
             if (!linked && b.kind !== 'tea')
                 acts += '<button onclick="openEditor(' + b.id + ',null,true)">Find in Bean Base</button>';
             if (linked)

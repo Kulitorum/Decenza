@@ -5,7 +5,8 @@ import Decenza
 // Inventory bag card (bean-bag-inventory). Adaptive content: canonical-linked
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
-// selects the bag (sets activeBagId). Action row: Thaw (frozen bags),
+// selects the bag (sets activeBagId). Action row: Restock (a new bag of the
+// same coffee, prefilled from this one), Thaw (frozen bags),
 // Mark Opened (once a portion is out of the freezer — includes thawed bags,
 // so a thawed bag shows both), Edit, and ONE removal action that follows the
 // bag's life: a trash icon
@@ -15,8 +16,8 @@ import Decenza
 // count was stale.
 //
 // A finished bag (finishedCard) is shown dimmed; tapping it opens the editor,
-// and its actions are Restock (a new bag of the same coffee), Restore (this bag
-// back into inventory, as Restore does for an archived recipe), Edit and details.
+// and its actions are Restock, Restore (this bag back into inventory, as Restore
+// does for an archived recipe), Edit and details.
 Rectangle {
     id: card
 
@@ -494,11 +495,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: Theme.scaled(6)
 
-            // Unlinked bag: one tap opens the edit dialog with the Bean Base
-            // search already run for this coffee (was a passive hint before).
             AccessibleButton {
-                visible: card.finishedCard
-                primary: true
+                primary: card.finishedCard
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -519,6 +517,8 @@ Rectangle {
                 onClicked: MainController.bagStorage.requestUpdateBag(card.bag.id, { "inInventory": true })
             }
 
+            // Unlinked bag: one tap opens the edit dialog with the Bean Base
+            // search already run for this coffee (was a passive hint before).
             AccessibleButton {
                 visible: !card.finishedCard && !card.hasCanonical
                 height: Theme.scaled(36)
