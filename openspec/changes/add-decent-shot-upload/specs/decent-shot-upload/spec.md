@@ -110,7 +110,7 @@ When the metadata of a shot that has already been uploaded changes — from the 
 
 ### Requirement: Missing shots are tracked and offered for upload per destination
 
-The system SHALL NOT retry an upload automatically beyond its 3 attempts. An upload that still fails after them (no response, no connection, a server error) SHALL be recorded on the shot for that destination and cleared when the shot uploads; a permanent rejection is not a failure. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload missing shots button while that destination is switched on and connected and is missing at least one eligible, non-rejected shot, showing how many and how many of them failed; with none missing it SHALL offer no button. Pressing it SHALL upload those shots — for Decent also the shots marked replace-pending, replacements first — newest first, through the shared upload path, at most 5 per batch with at least 30 seconds between batches, only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button.
+The system SHALL NOT retry an upload automatically beyond its 3 attempts. An upload that still fails after them (no response, no connection, a server error) SHALL be recorded on the shot for that destination and cleared when the shot uploads; a permanent rejection is not a failure. Each destination's card on the Shot Upload tab, and on the ShotServer settings page, SHALL offer an Upload missing shots button while that destination is switched on and connected and is missing at least one eligible, non-rejected shot, showing how many and how many of them failed; with none missing it SHALL offer no button. Pressing it SHALL send edits the destination missed first (Decent: replace-pending; Visualizer: unsent edits), then those shots, newest first, through the shared upload path, at most 5 per batch with at least 30 seconds between batches, only while no espresso, steam, hot water or flush operation is in progress, resuming when the machine is idle again and after an app restart. While it runs the card SHALL show its progress in place of the button.
 
 #### Scenario: Upload fails three times
 - **WHEN** a new shot's Decent upload gets no response on all 3 attempts
@@ -135,17 +135,17 @@ The system SHALL NOT retry an upload automatically beyond its 3 attempts. An upl
 
 ### Requirement: Retry and rejection rules
 
-A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot as uploaded, including a first upload answered `"duplicate":true`, which means the server already holds that id; a 2xx without `"ok":true` stored nothing and SHALL be transient. A replace answered `"duplicate":true` kept the server's earlier copy: the shot SHALL stay marked as having an edit to send, and the user SHALL be told the edit was not saved. A transport failure or timeout, or HTTP 404, 405, 408, 410, 429 or 5xx (an endpoint or server problem, not the shot), SHALL be transient: the request SHALL be retried up to 3 attempts with increasing delay, and after that the shot SHALL be left for a later drain pass, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL stop automatic uploads, tell the user that machine serial is not in their Decent account, and resume on re-link or the next app start. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
+A 2xx response whose body is the API's `{"ok":true,...}` SHALL record the shot as uploaded, including a first upload answered `"duplicate":true`, which means the server already holds that id; a 2xx without `"ok":true` stored nothing and SHALL be transient. A replace answered `"duplicate":true` kept the server's earlier copy: the shot SHALL stay marked as having an edit to send, and the user SHALL be told the edit was not saved. A transport failure or timeout, or HTTP 404, 405, 408, 410, 429 or 5xx (an endpoint or server problem, not the shot), SHALL be transient: the request SHALL be retried up to 3 attempts, 2 s then 4 s apart, and after that the shot SHALL be recorded as failed for that destination and offered by Upload missing shots, never marked rejected. HTTP 401 SHALL put the account in the needs-sign-in state. HTTP 403 — the machine's serial is not registered to the account — SHALL stop automatic uploads, tell the user that machine serial is not in their Decent account, and resume on re-link or the next app start. Any other 4xx SHALL record the shot as permanently rejected with its status. A rejected shot SHALL NOT be retried automatically unless its metadata changes afterwards.
 
 #### Scenario: Server error
 - **WHEN** an upload returns HTTP 503 three times
 - **THEN** the shot is not marked rejected
-- **AND** a later drain pass retries it
+- **AND** it is recorded as failed and offered by Upload missing shots
 
 #### Scenario: Invalid document
 - **WHEN** an upload returns HTTP 400
 - **THEN** the shot is recorded as rejected with status 400
-- **AND** the drain moves on to the next shot and never offers this one again automatically
+- **AND** a missing-shots run moves on to the next shot and never offers this one again
 
 #### Scenario: Machine not in account
 - **WHEN** an upload returns HTTP 403
