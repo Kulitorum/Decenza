@@ -115,8 +115,29 @@ T.Page {
                 // is stamped at creation, so coffee and tea get their own
                 // buttons and flows — coffee keeps the Bean Base search-first
                 // dialog; tea searches past tea bags only (straight to the
-                // form when there are none). A matched pair: same style, each
-                // with its kind's icon.
+                // form when there are none). Shown as "Add [Bag of Coffee] [Bag
+                // of Tea]": one "Add" label, then a matched pair with each kind's
+                // icon. Screen readers get "Add a new bag of ..." from the buttons.
+                Tr {
+                    key: "beaninfo.inventory.add"
+                    fallback: "Add"
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    Accessible.ignored: true
+                }
+
+                AccessibleButton {
+                    id: addBagButton
+                    Layout.preferredHeight: Theme.scaled(44)
+                    icon.source: "qrc:/icons/coffeebeans.svg"
+                    text: TranslationManager.translate("beaninfo.inventory.bagOfCoffee", "Bag of Coffee")
+                    accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addBag", "Add a new bag of beans")
+                    onClicked: {
+                        changeBeansDialog.bagKind = "coffee"
+                        changeBeansDialog.open()
+                    }
+                }
+
                 AccessibleButton {
                     id: addTeaButton
                     Layout.preferredHeight: Theme.scaled(44)
@@ -132,18 +153,6 @@ T.Page {
                             }
                         }
                         changeBeansDialog.openTeaEntry(hasTea)
-                    }
-                }
-
-                AccessibleButton {
-                    id: addBagButton
-                    Layout.preferredHeight: Theme.scaled(44)
-                    icon.source: "qrc:/icons/coffeebeans.svg"
-                    text: TranslationManager.translate("beaninfo.inventory.bagOfCoffee", "Bag of Coffee")
-                    accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addBag", "Add a new bag of beans")
-                    onClicked: {
-                        changeBeansDialog.bagKind = "coffee"
-                        changeBeansDialog.open()
                     }
                 }
             }

@@ -4,7 +4,7 @@ User feedback on adding a bag: "Add Coffee" reads as adding a bean, not a bag; t
 
 ## What Changes
 
-- The Beans page (app and web) buttons read **Bag of Coffee** and **Bag of Tea**, styled alike (coffee was the filled "primary" button, tea secondary).
+- The Beans page (app and web) buttons read **Bag of Coffee** and **Bag of Tea**, styled alike with their kind's icon after an "Add" label (coffee was the filled "primary" button with a plus, tea secondary).
 - The Change Beans search shows a label that stays visible while typing, naming what it searches (past tea bags in tea mode).
 - **Enter manually** prefills the coffee name with the text you searched for.
 
