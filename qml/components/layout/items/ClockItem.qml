@@ -18,11 +18,7 @@ LayoutWidgetItem {
     // Re-evaluated each second by the timer below.
     property string timeText: ""
     function _refresh() {
-        var now = new Date()
-        // 24-hour branch uses HH (explicit 0-23) to match the other dedicated
-        // clocks (ScreensaverPage, ShotMapScreensaver). hh without an am/pm
-        // specifier is equivalent, but HH is unambiguous.
-        timeText = Qt.formatTime(now, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
+        timeText = Theme.clockTime(new Date())
     }
 
     Timer {

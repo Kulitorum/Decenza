@@ -435,6 +435,8 @@ QtObject {
     // Six of the seven now AOT-compile; formatTemperature still skips on `.toFixed`.
     // Global AOT coverage moved 60.6% -> 60.7%, so the point of this is removing a
     // false warning from the source, not the ~30 recovered bindings.
+    // A time of day as the app shows it: 12-hour or 24-hour, by the system setting.
+    function clockTime(date: var): string { return Qt.formatTime(date, Settings.app.use12HourTime ? "h:mmap" : "HH:mm") }
     function tempIsFahrenheit(): bool { return Settings.app.temperatureUnit === "fahrenheit" }
     function tempUnitSuffix(): string { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
     function cToDisplay(celsius: real): real { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }

@@ -408,7 +408,7 @@ Item {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(shotMapClock.currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Theme.clockTime(shotMapClock.currentTime)
         color: root.mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: Theme.scaled(48)
         font.bold: true

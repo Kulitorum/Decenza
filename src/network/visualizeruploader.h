@@ -157,9 +157,11 @@ public:
     // background pass (bean repair, VisualizerShotSync) paces by it.
     static constexpr int kApiRequestIntervalMs = 4000;
     // Runs `send` at the next free slot of that interval, shared by every
-    // background pass, so two passes together still keep to it. Dropped if
-    // `context` is destroyed first.
+    // background pass, so two passes together still keep to it, and not before a
+    // 429's wait ends. Dropped if `context` is destroyed first.
     void paceApiRequest(QObject* context, std::function<void()> send);
+    // Upload missing shots is a background pass too.
+    void paceBackground(QObject* context, std::function<void()> send) override { paceApiRequest(context, std::move(send)); }
 
     // Counts the pushes started for a shot or bag. A pull compares it from
     // before its read to just before applying: a push in between makes the

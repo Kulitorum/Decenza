@@ -41,7 +41,7 @@ ColumnLayout {
               ? TranslationManager.translate("settings.upload.missing.rateLimited",
                                              "%1 of %2 done. The server asked to slow down; continuing at %3")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
-                    .arg(Qt.formatTime(new Date(root.entry.resumeAtMs), Settings.app.use12HourTime ? "h:mm AP" : "HH:mm"))
+                    .arg(Theme.clockTime(new Date(root.entry.resumeAtMs)))
               : root.running
               ? TranslationManager.translate("settings.upload.missing.progress", "Uploading %1 of %2")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)

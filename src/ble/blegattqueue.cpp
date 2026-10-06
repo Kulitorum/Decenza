@@ -119,10 +119,10 @@ void BleGattQueue::dispatchNext() {
     // Queue DEPTH is deliberately not a trigger, only a payload, because the
     // app's own connect sequence is the deepest thing that ever happens here.
     // DE1Device::sendInitialSettings() enqueues five subscribes, the ready
-    // marker, four reads and then its initial MMR writes, and
-    // MainController::applyAllSettings() piles the profile upload on top from
-    // the initialSettingsComplete signal that sequence ends with — peaking the
-    // shared queue at 40 on an entirely healthy connect. That measurement, its
+    // marker, four reads and then its initial MMR writes, and the profile upload
+    // piles on top — from ProfileManager when the machine leaves Sleep, if it
+    // connected asleep — peaking the shared queue at 40 on an entirely healthy
+    // connect. That measurement, its
     // device and its composition are recorded on QUEUE_DEPTH_WARN in the header
     // rather than restated here, so there is one copy to re-derive. Any depth
     // trigger below that peak therefore fires on every single launch.

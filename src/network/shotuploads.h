@@ -6,18 +6,22 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class QSqlDatabase;
+class QTimer;
 class SettingsUpload;
 class ShotHistoryStorage;
 
 // The one path every shot upload takes, for every destination. It applies the
 // shared upload settings (SettingsUpload) once, then queues the shot for each
 // active destination, which receives one shot at a time. Every send gets the
-// same kAttempts attempts and its outcome is recorded the same way (D15).
+// same kAttempts attempts and its outcome is recorded the same way (D15), except
+// that a 429 ends the send at once: the destination's queue then waits until
+// SettingsUpload::rateLimitedUntilMs(), whoever got the 429.
 //
 //  - shotSaved: a finished shot, when automatic upload is on.
 //  - an edit (ShotHistoryStorage::shotMetadataUpdated, or one pulled from
@@ -34,8 +38,8 @@ class ShotUploads : public QObject {
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
     // Per active destination, by name: {count, failed, unsentEdits, running, done,
-    // total, resumeAtMs}, for the Upload missing shots button. Counted on a worker
-    // thread. resumeAtMs (ms since the epoch) is set while a rate limit pauses the run.
+    // sent, total, resumeAtMs}, for the Upload missing shots button. Counted on a
+    // worker thread. resumeAtMs (ms since the epoch) is set while a 429 holds the queue.
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -75,10 +79,10 @@ public:
 
     // Upload missing shots (D14): sends what findMissing lists for the
     // destination through its queue, kBatchSize at a time, batches at least the
-    // batch spacing apart, starting none while the machine is operating. A shot
-    // that fails its attempts is recorded and the run moves on; one that fails
-    // on a rate limit (HTTP 429) also pauses it, and the batch's untried shots go
-    // first after the pause; a sign-in or account refusal ends it. Never starts on its own: only from this, or from
+    // batch spacing apart, each send paced with the destination's other background
+    // requests (paceBackground), starting none while the machine is operating. A
+    // shot that fails its attempts is recorded and the run moves on; a sign-in or
+    // account refusal ends it. Never starts on its own: only from this, or from
     // resumeMissingRuns() for a run the user started before a restart.
     // False when it starts nothing: unknown or inactive destination, or a run already going.
     Q_INVOKABLE bool uploadMissing(const QString& destination);
@@ -99,9 +103,6 @@ public:
     static constexpr int kAttempts = 3;
     // The first retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
-    // Visualizer allows 200 API requests per user in 10 minutes (api/base_controller.rb:3-14)
-    // and sends no Retry-After, so a 429 waits out the whole window.
-    void setRateLimitPauseMs(int ms) { m_rateLimitPauseMs = ms; }
 
 signals:
     void missingChanged();
@@ -111,6 +112,7 @@ private:
     struct Job {
         qint64 shotId;
         Send how;
+        bool background;   // Upload missing shots: paced; anything else goes at once
     };
 
     using Attempt = ShotUploadDestination::Attempt;
@@ -126,7 +128,7 @@ private:
     void onShotPulled(qint64 shotId, const QVariantMap& previous, const QVariantMap& written);
     void noteEdited(qint64 shotId);
     void enqueue(qint64 shotId, Send how);
-    void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how);
+    void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background);
     void pump(ShotUploadDestination* destination);
     ShotUploadDestination* destinationNamed(const QString& name) const;
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
@@ -134,8 +136,8 @@ private:
     void endRun(ShotUploadDestination* destination, const QString& why);
     struct Run;
     void waitBeforeNextBatch(ShotUploadDestination* destination, Run& run, qint64 ms);
-    // A run's shot failed on a 429: the batch's untried shots go back first, after the pause.
-    void pauseForRateLimit(ShotUploadDestination* destination, Run& run);
+    // Holds or releases the destination's queue to match SettingsUpload::rateLimitedUntilMs().
+    void followRateLimit(ShotUploadDestination* destination);
     // Drops what is queued for a destination, and its run; logs how many and why.
     void dropQueue(ShotUploadDestination* destination, const QString& why);
     // findMissing over a destination's name and conditions, which a worker can hold by value.
@@ -150,14 +152,14 @@ private:
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
     QHash<ShotUploadDestination*, Current> m_current;
     int m_retryDelayMs = 2000;
-    int m_rateLimitPauseMs = 10 * 60 * 1000;
+    QSet<ShotUploadDestination*> m_rateLimited;              // queue held until rateLimitedUntilMs()
+    QHash<ShotUploadDestination*, QTimer*> m_rateLimitTimers;   // ends each hold
 
     struct Run {
-        int id = 0;                   // a wait's timer acts only on the run that set it
+        int id = 0;                   // the batch-spacing timer acts only on the run that set it
         bool selecting = true;        // findMissing is still running
-        bool waiting = false;         // a batch-spacing or rate-limit wait is pending
+        bool waiting = false;         // a batch-spacing wait is pending
         bool paused = false;          // waiting for the machine to stop operating (logged once)
-        qint64 resumeAtMs = 0;        // during a rate-limit wait: when it ends, ms since the epoch
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
         QList<Job> outstanding;       // the batch being sent, in order

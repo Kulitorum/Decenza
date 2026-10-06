@@ -1,5 +1,7 @@
 #include "settings_upload.h"
 
+#include <QDateTime>
+
 namespace {
 // Pre-split keys, kept so stored values carry over.
 const QString kAutoUploadKey = QStringLiteral("visualizer/autoUpload");
@@ -47,6 +49,24 @@ void SettingsUpload::setMinDuration(double seconds) {
 
 qint64 SettingsUpload::missingRunStartedAt(const QString& destination) const {
     return m_settings.value(QStringLiteral("upload/missingRun/") + destination, 0).toLongLong();
+}
+
+qint64 SettingsUpload::rateLimitedUntilMs(const QString& destination) const {
+    return m_settings.value(QStringLiteral("upload/rateLimitedUntil/") + destination, 0).toLongLong();
+}
+
+void SettingsUpload::setRateLimitedUntilMs(const QString& destination, qint64 msSinceEpoch) {
+    const QString key = QStringLiteral("upload/rateLimitedUntil/") + destination;
+    if (msSinceEpoch > 0)
+        m_settings.setValue(key, msSinceEpoch);
+    else
+        m_settings.remove(key);
+    emit rateLimitedUntilChanged(destination);
+}
+
+void SettingsUpload::noteRateLimited(const QString& destination) {
+    const qint64 until = QDateTime::currentMSecsSinceEpoch() + kRateLimitWaitMs;
+    if (until > rateLimitedUntilMs(destination)) setRateLimitedUntilMs(destination, until);
 }
 
 void SettingsUpload::setMissingRunStartedAt(const QString& destination, qint64 secsSinceEpoch) {

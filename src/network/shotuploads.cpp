@@ -43,6 +43,11 @@ ShotUploads::ShotUploads(SettingsUpload* settings, ShotHistoryStorage* storage,
     connect(storage, &ShotHistoryStorage::shotsDeleted, this, &ShotUploads::refreshMissing);
     connect(storage, &ShotHistoryStorage::shotPulledFromVisualizer, this, &ShotUploads::refreshMissing);
     connect(settings, &SettingsUpload::minDurationChanged, this, &ShotUploads::refreshMissing);
+    connect(settings, &SettingsUpload::rateLimitedUntilChanged, this, [this](const QString& name) {
+        if (ShotUploadDestination* destination = destinationNamed(name)) followRateLimit(destination);
+    });
+    // A wait stored before a restart still holds.
+    for (ShotUploadDestination* destination : std::as_const(m_destinations)) followRateLimit(destination);
     // The history may already be ready (MainController initializes it first): readyChanged would not come.
     refreshMissing();
 }
@@ -145,16 +150,18 @@ void ShotUploads::noteEdited(qint64 shotId) {
 
 void ShotUploads::enqueue(qint64 shotId, Send how) {
     for (ShotUploadDestination* destination : std::as_const(m_destinations))
-        if (destination->isActive()) enqueueTo(destination, shotId, how);
+        if (destination->isActive()) enqueueTo(destination, shotId, how, false);
 }
 
-void ShotUploads::enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how) {
+void ShotUploads::enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background) {
     QList<Job>& queue = m_queues[destination];
     auto queued = std::find_if(queue.begin(), queue.end(), [shotId](const Job& job) { return job.shotId == shotId; });
-    if (queued == queue.end())
-        queue.append({shotId, how});
-    else if (how == Send::UploadOrUpdate)
-        queued->how = how;
+    if (queued == queue.end()) {
+        queue.append({shotId, how, background});
+    } else {
+        if (how == Send::UploadOrUpdate) queued->how = how;
+        queued->background = queued->background && background;
+    }
     pump(destination);
 }
 
@@ -176,11 +183,26 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
         dropQueue(destination, QStringLiteral("switched off or signed out"));
         return;
     }
+    if (m_rateLimited.contains(destination)) return;   // followRateLimit() pumps when the wait ends
     QList<Job>& queue = m_queues[destination];
     if (queue.isEmpty()) return;
     const Job job = queue.takeFirst();
     m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
-    destination->attemptSavedShot(job.shotId, job.how);
+    if (!job.background) {
+        destination->attemptSavedShot(job.shotId, job.how);
+        return;
+    }
+    destination->paceBackground(this, [this, destination, job]() {
+        if (m_current.value(destination).shotId != job.shotId) return;
+        if (m_rateLimited.contains(destination) || !destination->isActive()) {
+            // Held or switched off while it waited for its turn: back to the front for pump() to decide.
+            m_current.remove(destination);
+            m_queues[destination].prepend(job);
+            pump(destination);
+            return;
+        }
+        destination->attemptSavedShot(job.shotId, job.how);
+    });
 }
 
 void ShotUploads::dropQueue(ShotUploadDestination* destination, const QString& why) {
@@ -195,7 +217,10 @@ void ShotUploads::dropQueue(ShotUploadDestination* destination, const QString& w
 void ShotUploads::onAttempt(ShotUploadDestination* destination, Attempt attempt) {
     const auto current = m_current.find(destination);
     if (current == m_current.end() || current->shotId == 0) return;
-    if (attempt.outcome == Outcome::Transient && current->attempt < kAttempts) {
+    attempt.attempts = current->attempt;
+    // A retry seconds later cannot get past a rate limit measured in minutes.
+    const bool rateLimited = attempt.outcome == Outcome::Transient && attempt.httpStatus == 429;
+    if (attempt.outcome == Outcome::Transient && !rateLimited && current->attempt < kAttempts) {
         const int delayMs = m_retryDelayMs * current->attempt;
         ++current->attempt;
         current->last = attempt;
@@ -232,6 +257,9 @@ void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
         break;
     }
     destination->sendFinished(shotId, last);
+    // Before the run moves on, so its next batch waits with the rest of the queue.
+    if (last.outcome == Outcome::Transient && last.httpStatus == 429)
+        m_settings->noteRateLimited(destination->name());
     const bool refused = last.outcome == Outcome::AuthFailed || last.outcome == Outcome::AccountRefused;
     const auto run = m_runs.find(destination);
     if (run != m_runs.end() && run->outstanding.removeIf([shotId](const Job& job) { return job.shotId == shotId; }) > 0) {
@@ -239,10 +267,7 @@ void ShotUploads::finishSend(ShotUploadDestination* destination, Attempt last) {
         if (last.outcome == Outcome::Sent) ++run->sent;
         else if (last.outcome != Outcome::NothingToSend) ++run->failed;
         emit missingChanged();
-        if (last.outcome == Outcome::Transient && last.httpStatus == 429)
-            pauseForRateLimit(destination, *run);
-        else if (!refused && run->outstanding.isEmpty())
-            nextBatch(destination);
+        if (!refused && run->outstanding.isEmpty()) nextBatch(destination);
     }
     // The account needs attention: nothing queued for it can succeed until then,
     // whichever send was refused.
@@ -296,9 +321,11 @@ QVariantMap ShotUploads::missing() const {
         entry[QStringLiteral("running")] = run != m_runs.constEnd();
         if (run != m_runs.constEnd()) {
             entry[QStringLiteral("done")] = run->done;
+            entry[QStringLiteral("sent")] = run->sent;
             entry[QStringLiteral("total")] = run->total;
-            if (run->resumeAtMs > 0) entry[QStringLiteral("resumeAtMs")] = run->resumeAtMs;
         }
+        if (m_rateLimited.contains(destination))
+            entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
         all[destination->name()] = entry;
     }
     return all;
@@ -418,9 +445,9 @@ void ShotUploads::nextBatch(ShotUploadDestination* destination) {
         // edits made on the destination's side are not overwritten.
         const Send how = run->unsentLeft > 0 ? Send::UpdateOnly : Send::UploadOrUpdate;
         if (run->unsentLeft > 0) --run->unsentLeft;
-        run->outstanding.append({shotId, how});
+        run->outstanding.append({shotId, how, true});
         // Already being sent: its finish counts for the run, and a second send would repeat it.
-        if (shotId != sending) enqueueTo(destination, shotId, how);
+        if (shotId != sending) enqueueTo(destination, shotId, how, true);
     }
 }
 
@@ -441,39 +468,43 @@ void ShotUploads::waitBeforeNextBatch(ShotUploadDestination* destination, Run& r
         const auto waited = m_runs.find(destination);
         if (waited == m_runs.end() || waited->id != id) return;
         waited->waiting = false;
-        if (waited->resumeAtMs > 0) {
-            waited->resumeAtMs = 0;
-            emit missingChanged();
-            logUploads(destination->name(), QStringLiteral("Upload missing shots continuing after the rate-limit pause"));
-        }
         nextBatch(destination);
     });
 }
 
-void ShotUploads::pauseForRateLimit(ShotUploadDestination* destination, Run& run) {
-    if (run.outstanding.isEmpty() && run.pending.isEmpty()) {   // nothing left to wait for
-        nextBatch(destination);
+void ShotUploads::followRateLimit(ShotUploadDestination* destination) {
+    const QString name = destination->name();
+    const qint64 until = m_settings->rateLimitedUntilMs(name);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 left = until - now;
+    if (left > SettingsUpload::kRateLimitWaitMs) {   // the clock went back since it was stored
+        m_settings->setRateLimitedUntilMs(name, now + SettingsUpload::kRateLimitWaitMs);   // comes back here
         return;
     }
-    // The batch's untried shots leave the queue; nothing else queued does.
-    QList<Job>& queue = m_queues[destination];
-    queue.removeIf([&run](const Job& queued) {
-        return std::any_of(run.outstanding.cbegin(), run.outstanding.cend(),
-                           [&queued](const Job& job) { return job.shotId == queued.shotId; });
-    });
-    // The batch was taken from the front in order, unsent edits first, so it goes back the same way.
-    for (auto job = run.outstanding.crbegin(); job != run.outstanding.crend(); ++job) {
-        run.pending.prepend(job->shotId);
-        if (job->how == Send::UpdateOnly) ++run.unsentLeft;
+    QTimer*& timer = m_rateLimitTimers[destination];
+    if (left > 0) {
+        if (!timer) {
+            timer = new QTimer(this);
+            timer->setSingleShot(true);
+            connect(timer, &QTimer::timeout, this, [this, destination]() { followRateLimit(destination); });
+        }
+        timer->start(int(left));
+        if (!m_rateLimited.contains(destination)) {
+            m_rateLimited.insert(destination);
+            emit missingChanged();
+            logUploads(name, QStringLiteral("uploads wait %1 min: the server asked to slow down (HTTP 429); "
+                                            "%2 queued shot(s) go when it ends")
+                                 .arg((left + 59999) / 60000).arg(m_queues.value(destination).size()));
+        }
+        return;
     }
-    const qsizetype returned = run.outstanding.size();
-    run.outstanding.clear();
-    run.resumeAtMs = QDateTime::currentMSecsSinceEpoch() + m_rateLimitPauseMs;
-    waitBeforeNextBatch(destination, run, m_rateLimitPauseMs);
+    if (timer) timer->stop();
+    const bool wasHeld = m_rateLimited.remove(destination);
+    if (until > 0) m_settings->setRateLimitedUntilMs(name, 0);   // comes back here with nothing to do
+    if (!wasHeld) return;
     emit missingChanged();
-    logUploads(destination->name(), QStringLiteral("Upload missing shots paused for %1 min: the server asked to slow down "
-                                                   "(HTTP 429); the batch's %2 other shot(s) go first when it continues")
-                                        .arg(qMax(1, m_rateLimitPauseMs / 60000)).arg(returned));
+    logUploads(name, QStringLiteral("uploads continuing after the server's wait"));
+    pump(destination);
 }
 
 ShotUploads::Missing ShotUploads::findMissing(QSqlDatabase& db, const ShotUploadDestination& destination,

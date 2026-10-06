@@ -302,7 +302,7 @@ LayoutWidgetItem {
             MACHINE_CONNECTED: function() { return statusImg(machineOn()) },
             SCALE_CONNECTED: function() { return statusImg(ScaleDevice.connected && !ScaleDevice.isFlowScale) },
             // Time
-            TIME: function() { return Qt.formatTime(new Date(), Settings.app.use12HourTime ? "h:mmap" : "hh:mm") },
+            TIME: function() { return Theme.clockTime(new Date()) },
             DATE: function() { return Qt.formatDate(new Date(), "yyyy-MM-dd") }
         }
         result = result.replace(/%([A-Z_]+)%/g, function(token, name) {

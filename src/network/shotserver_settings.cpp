@@ -979,6 +979,7 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('uploadAutomatically').checked = !!data.uploadAutomatically;
                 document.getElementById('updateAutomatically').checked = !!data.updateAutomatically;
                 document.getElementById('uploadMinDurationSec').value = data.uploadMinDurationSec ?? 0;
+                showMissing.hour12 = data.use12HourTime;   // the app's clock format, not the browser's
                 showMissing(data.missing);
 
                 document.getElementById('openaiApiKey').value = data.openaiApiKey || '';
@@ -1291,7 +1292,7 @@ QString ShotServer::generateSettingsPage() const
                 button.textContent = 'Upload missing shots (' + count + ')';
                 document.getElementById(dest + '-missing-detail').textContent = m.running && m.resumeAtMs
                     ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at '
-                        + new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
+                        + new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', hour12: !!showMissing.hour12})
                     : m.running
                     ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
                     : failed > 0 ? failed + ' of them could not be uploaded before' : '';
@@ -1640,6 +1641,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["uploadAutomatically"] = m_settings->upload()->autoUpload();
     obj["updateAutomatically"] = m_settings->upload()->autoUpdate();
     obj["uploadMinDurationSec"] = m_settings->upload()->minDuration();
+    obj["use12HourTime"] = m_settings->app()->use12HourTime();
     if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
         obj["missing"] = QJsonObject::fromVariantMap(uploads->missing());
 

@@ -27,7 +27,6 @@
 #include "core/diagnosticlogging.h"
 #include "core/logfields.h"
 #include "visualizeruploader.h"
-#include "network/shotuploads.h"
 #include "beanbase_blob.h"
 #include "roastdate.h"
 #include "tastecvamap.h"
@@ -79,12 +78,20 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
 {
     Q_ASSERT(networkManager);
     m_apiPaceClock.start();
+    // Every request shares the API's limit, so a 429 to any of them (an upload,
+    // the pull, bean repair) holds them all; see SettingsUpload::noteRateLimited().
+    connect(networkManager, &QNetworkAccessManager::finished, this, [this](QNetworkReply* reply) {
+        if (m_settings && reply->url().host() == QLatin1String("visualizer.coffee")
+            && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 429)
+            m_settings->upload()->noteRateLimited(name());
+    });
 }
 
 void VisualizerUploader::paceApiRequest(QObject* context, std::function<void()> send)
 {
     const qint64 now = m_apiPaceClock.elapsed();
-    const qint64 slot = std::max(now, m_nextApiSlotMs);
+    const qint64 held = m_settings ? m_settings->upload()->rateLimitedUntilMs(name()) - QDateTime::currentMSecsSinceEpoch() : 0;
+    const qint64 slot = std::max({now, m_nextApiSlotMs, now + held});
     m_nextApiSlotMs = slot + kApiRequestIntervalMs;
     QTimer::singleShot(int(slot - now), context, std::move(send));
 }
@@ -197,8 +204,8 @@ void VisualizerUploader::sendFinished(qint64 shotId, Attempt last)
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(error);
         emit lastUploadStatusChanged();
         emit uploadFailed(error);
-        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("shot %1 not uploaded after %2 attempts (HTTP %3: %4)")
-            .arg(shotId).arg(ShotUploads::kAttempts).arg(last.httpStatus).arg(error);
+        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("shot %1 not uploaded after %2 attempt(s) (HTTP %3: %4)")
+            .arg(shotId).arg(last.attempts).arg(last.httpStatus).arg(error);
     }
     m_jobVisualizerId.clear();
     m_jobError.clear();

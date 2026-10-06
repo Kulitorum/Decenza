@@ -63,6 +63,8 @@ struct FakeDestination : ShotUploadDestination {
     }
     void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
+    int paced = 0;
+    void paceBackground(QObject*, std::function<void()> send) override { ++paced; send(); }
     void finish() { finishAttempt({answer, status}); }
 };
 
@@ -245,7 +247,12 @@ private slots:
         // developer's real one.
         QStandardPaths::setTestModeEnabled(true);
     }
-    void init() { QTest::failOnWarning(); }
+    void init() {
+        QTest::failOnWarning();
+        // A 429's wait is stored, so one left by an earlier test would hold this one's queue.
+        SettingsUpload upload;
+        for (const char* destination : {"decent", "visualizer"}) upload.setRateLimitedUntilMs(QString::fromLatin1(destination), 0);
+    }
 
     void payloadKeepsTextAndAlignsSeries() {
         ShotRecord record = makeShot();
@@ -445,14 +452,14 @@ private slots:
         QVERIFY(rig.shotId > 0);
 
         rig.nam.replies = {{503, {}}};
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempt"));
         QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
 
         // A 2xx that is not the API's answer (a captive portal) stored nothing,
         // and its body is logged once, not per attempt.
         rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's answer <html>"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempts \\(HTTP 200 that is not"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempt\\(s\\) \\(HTTP 200 that is not"));
         QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
 
         rig.nam.replies = {{403, R"({"ok":false,"error":"not your machine"})"}};
@@ -662,10 +669,12 @@ private slots:
         QTest::addColumn<int>("attempts");
         QTest::addColumn<QString>("record");         // failed, rejected or nothing
         QTest::addColumn<QStringList>("warnings");   // Decent's, then Visualizer's
-        const QString gaveUp = QStringLiteral("not uploaded after 3 attempts");
+        const QString gaveUp = QStringLiteral("not uploaded after 3 attempt");
+        const QString rateLimited = QStringLiteral("not uploaded after 1 attempt");
         QTest::newRow("server error") << QList<int>{503} << false << 3 << "failed" << QStringList{gaveUp, gaveUp};
         QTest::newRow("offline") << QList<int>{0} << false << 3 << "failed" << QStringList{gaveUp, gaveUp};
-        QTest::newRow("rate limited") << QList<int>{429} << false << 3 << "failed" << QStringList{gaveUp, gaveUp};
+        // A retry seconds later cannot get past the limit's window.
+        QTest::newRow("rate limited") << QList<int>{429} << false << 1 << "failed" << QStringList{rateLimited, rateLimited};
         QTest::newRow("recovers") << QList<int>{503, 200} << false << 2 << "" << QStringList{};
         QTest::newRow("refused shot") << QList<int>{400} << false << 1 << "rejected"
                                       << QStringList{"rejected \\(HTTP 400", "Upload failed: shotId=\\d+ httpStatus=400"};
@@ -965,6 +974,7 @@ private slots:
         step();
         QCOMPARE(sentIds().mid(5), (QList<qint64>{newestFirst.at(5), newestFirst.at(5), newestFirst.at(5), newestFirst.at(6)}));
         QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("done").toInt(), 6);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("sent").toInt(), 5);
         decent.answer = Outcome::Sent;
         step();
         QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("running").toBool(), false);
@@ -1001,60 +1011,81 @@ private slots:
         closeStorage(storage);
     }
 
-    // A shot that fails on a 429 is recorded like any failure, and pauses the run
-    // instead of walking the rest of the batch into the rate limit; afterwards the
-    // batch's untried shots go first, in order.
-    void missingShotsPauseOnARateLimit() {
+    // A 429 is final on its first attempt and holds the destination's whole
+    // queue, run and user sends alike, until the stored wait ends, including
+    // across a restart; nothing queued is dropped. Run sends are paced, user
+    // sends are not.
+    void rateLimitHoldsTheDestination() {
         using Outcome = ShotUploadDestination::Outcome;
         SettingsUpload upload;
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(m_dir.filePath("ratelimit.db")));
-        QList<qint64> newestFirst;
-        for (int i = 1; i <= 7; ++i) {
+        const auto add = [&storage](qint64 timestamp, double duration) {
             ShotRecord r = makeShot();
             r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            r.summary.timestamp = 1000 * i;
-            newestFirst.prepend(storage.importShotRecord(r, false));
-        }
+            r.summary.timestamp = timestamp;
+            r.summary.duration = duration;
+            return storage.importShotRecord(r, false);
+        };
+        QList<qint64> newestFirst;
+        for (int i = 1; i <= 7; ++i) newestFirst.prepend(add(1000 * i, 30));
+        const qint64 userShot = add(100, 2);   // too short to be offered, so outside the run
         FakeDestination decent(QStringLiteral("decent"));
         decent.holding = true;
-        ShotUploads uploads(&upload, &storage, {&decent});
-        uploads.setRetryDelayMs(0);
-        uploads.setBatchSpacingMs(0);
-        uploads.setRateLimitPauseMs(500);
         upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
-        const auto entry = [&uploads]() { return uploads.missing().value(QStringLiteral("decent")).toMap(); };
         const auto sentIds = [&decent]() {
             QList<qint64> ids;
             for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
             return ids;
         };
         const auto step = [&decent]() { decent.finish(); settle(); };
+        const auto heldUntil = [&upload]() { return upload.rateLimitedUntilMs(QStringLiteral("decent")); };
+        {
+            ShotUploads uploads(&upload, &storage, {&decent});
+            uploads.setRetryDelayMs(0);
+            uploads.setBatchSpacingMs(0);
+            const auto entry = [&uploads]() { return uploads.missing().value(QStringLiteral("decent")).toMap(); };
 
-        QTRY_COMPARE(entry().value("count").toInt(), 7);
-        uploads.uploadMissing(QStringLiteral("decent"));
-        QTRY_COMPARE(decent.sent.size(), 1);
-        step();   // the first goes through
-        decent.answer = Outcome::Transient;
-        decent.status = 429;
-        for (int i = 0; i < ShotUploads::kAttempts; ++i) step();
+            QTRY_COMPARE(entry().value("count").toInt(), 7);
+            uploads.uploadMissing(QStringLiteral("decent"));
+            QTRY_COMPARE(decent.sent.size(), 1);
+            step();
+            decent.answer = Outcome::Transient;
+            decent.status = 429;
+            step();
 
-        // Paused: the rest of the batch is not sent into the limit.
-        const QList<qint64> beforePause = sentIds();
-        QCOMPARE(beforePause, (QList<qint64>{newestFirst.at(0), newestFirst.at(1), newestFirst.at(1), newestFirst.at(1)}));
-        settle();
-        QCOMPARE(sentIds(), beforePause);
-        QVERIFY(entry().value("running").toBool());
-        QVERIFY(entry().value("resumeAtMs").toLongLong() > QDateTime::currentMSecsSinceEpoch());
-        QCOMPARE(entry().value("done").toInt(), 2);
+            // One attempt, then nothing more: not the batch, not a send the user asks for.
+            QVERIFY(heldUntil() > QDateTime::currentMSecsSinceEpoch());
+            QCOMPARE(entry().value("resumeAtMs").toLongLong(), heldUntil());
+            uploads.uploadNow(userShot);
+            settle();
+            QCOMPARE(sentIds(), (QList<qint64>{newestFirst.at(0), newestFirst.at(1)}));
+            QCOMPARE(entry().value("done").toInt(), 2);
+            QCOMPARE(entry().value("sent").toInt(), 1);
 
-        // After the pause the untried shots go first, in order, and the run finishes.
-        decent.answer = Outcome::Sent;
-        decent.status = 0;
-        QTRY_COMPARE(decent.sent.size(), beforePause.size() + 1);
-        while (entry().value("running").toBool() && decent.sent.size() < 20) step();
-        QCOMPARE(sentIds().mid(beforePause.size()), newestFirst.mid(2));
-        QVERIFY(!entry().contains("resumeAtMs"));
+            // When the wait ends, everything queued goes, in order.
+            decent.answer = Outcome::Sent;
+            decent.status = 0;
+            upload.setRateLimitedUntilMs(QStringLiteral("decent"), 0);
+            while (entry().value("running").toBool() && decent.sent.size() < 20) step();
+            QCOMPARE(sentIds().mid(2), (QList<qint64>{newestFirst.at(2), newestFirst.at(3), newestFirst.at(4), userShot,
+                                                      newestFirst.at(5), newestFirst.at(6)}));
+            QCOMPARE(decent.paced, 7);
+            QVERIFY(!entry().contains("resumeAtMs"));
+        }
+
+        // A stored wait holds a new instance's queue, as after a restart.
+        upload.setRateLimitedUntilMs(QStringLiteral("decent"), QDateTime::currentMSecsSinceEpoch() + 60 * 1000);
+        decent.sent.clear();
+        {
+            ShotUploads uploads(&upload, &storage, {&decent});
+            uploads.uploadNow(userShot);
+            settle();
+            QVERIFY(decent.sent.isEmpty());
+            upload.setRateLimitedUntilMs(QStringLiteral("decent"), 0);
+            QTRY_COMPARE(decent.sent.size(), 1);
+            step();
+        }
 
         (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
         withTempDb(storage.databasePath(), "tst_ratelimit", [&](QSqlDatabase& db) {
