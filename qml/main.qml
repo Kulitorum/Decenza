@@ -4248,6 +4248,10 @@ T.ApplicationWindow {
         if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage")
             return
         WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
+        // Before raising the flag: onCurrentItemChanged treats any other page under a raised
+        // flag as having left the screensaver, so popping to home after it cleared the flag
+        // at once, leaving the status bar over the screensaver and auto-sleep re-firing.
+        root.showHome()
         screensaverActive = true
         // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
         // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
@@ -4301,7 +4305,6 @@ T.ApplicationWindow {
         // Pushed over the home screen, not replacing the stack, so waking is a pop rather
         // than a rebuild (~190 ms per wake on a Galaxy Tab A9+, #1976). The home screen's
         // own popups would stay above the screensaver, so they are closed too.
-        root.showHome()
         PopupCloser.closeAllUnder(pageStack.currentItem)
         pageStack.push(screensaverPage)
     }
