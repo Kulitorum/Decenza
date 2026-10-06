@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "shotserver.h"
+#include "shotserveruploadroute.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
 #include "localnetworkaccess.h"
@@ -797,13 +798,10 @@ void ShotServer::onReadyRead()
                 pending.contentLength = 0;
             }
 
-            // Check if this is a media upload (POST to /upload/media)
-            pending.isMediaUpload = requestLine.contains("POST") && requestLine.contains("/upload/media");
-            pending.isBackupRestore = requestLine.contains("POST") && requestLine.contains("/api/backup/restore");
-            // APK upload: POST /upload (not /upload/anything-else)
-            pending.isApkUpload = requestLine.contains("POST") &&
-                                  requestLine.contains("/upload") &&
-                                  !requestLine.contains("/upload/");
+            const StreamedUpload streamed = streamedUploadKind(requestLine);
+            pending.isMediaUpload = streamed == StreamedUpload::Media;
+            pending.isBackupRestore = streamed == StreamedUpload::BackupRestore;
+            pending.isApkUpload = streamed == StreamedUpload::Apk;
 
             // Check upload size limit for media and APK uploads
             if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.contentLength > MAX_UPLOAD_SIZE) {
