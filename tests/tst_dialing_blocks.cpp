@@ -1585,6 +1585,41 @@ private slots:
                  QStringLiteral("unclear"));
     }
 
+    // A shot with no stored target (imported, or the profile's own) carries it in
+    // the profile JSON; the model saw that effective target, so adherence scores it.
+    void recentAdvice_targetWeightUsesTheProfileTarget()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        withRawDb(dbPath, "adh_yield_profile", [&](QSqlDatabase& db) {
+            const qint64 priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "9.0", .profileJson = R"({"target_weight": 36})"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 28, .finalWeight = 32, .doseWeight = 18,
+                .grinderSetting = "9.0", .profileJson = R"({"target_weight": 32})"
+            });
+            QJsonObject sn = sampleStructuredNext();
+            sn.remove(QStringLiteral("grinderSetting"));
+            sn["targetWeightG"] = 32;
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+            QCOMPARE(ur.value("targetWeightG").toDouble(), 32.0);
+        });
+    }
+
     // With nothing recommended, a changed yield target means the predicted
     // repeat did not happen; a sub-tolerance change is not a decision.
     void recentAdvice_rangesOnlyTargetWeightChangeRespectsTolerance()

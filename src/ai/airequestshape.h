@@ -84,8 +84,7 @@ inline QJsonObject geminiThinkingConfig(const QString& model)
     if (model.startsWith(QLatin1String("gemini-2")))
         config["thinkingBudget"] = 0;
     else
-        config["thinkingLevel"] = model == QLatin1String("gemini-3.8-flash") ? QStringLiteral("low")
-                                                                              : QStringLiteral("minimal");
+        config["thinkingLevel"] = QStringLiteral("low");
     return config;
 }
 

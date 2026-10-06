@@ -193,8 +193,10 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     // A background send goes only when its pacer turn comes, one at a time, and not while the machine
     // is operating (setMachineOperating(false) pumps again); sends the user asked for go meanwhile.
     const bool backgroundMayGo = !m_machineOperating && !m_pacing.contains(destination);
-    const auto next = std::find_if(queue.begin(), queue.end(), [backgroundMayGo, destination](const Job& job) {
-        return !job.background || (backgroundMayGo && destination->backgroundSendReady(job.how));
+    const bool uploadReady = backgroundMayGo && destination->backgroundSendReady(Send::UploadOrUpdate);
+    const bool updateReady = backgroundMayGo && destination->backgroundSendReady(Send::UpdateOnly);
+    const auto next = std::find_if(queue.begin(), queue.end(), [uploadReady, updateReady](const Job& job) {
+        return !job.background || (job.how == Send::UpdateOnly ? updateReady : uploadReady);
     });
     if (next == queue.end()) return;
     const Job job = *next;
@@ -329,6 +331,19 @@ void ShotUploads::readinessChanged() {
     for (ShotUploadDestination* destination : std::as_const(m_destinations)) pump(destination);
 }
 
+// Background sends are queued, nothing is in flight, and none of them may go
+// until the destination is ready (Decent: no DE1 for a first upload).
+bool ShotUploads::waitingUntilReady(ShotUploadDestination* destination) const {
+    if (m_current.value(destination).shotId != 0 || m_pacing.contains(destination)) return false;
+    bool anyBackground = false;
+    for (const Job& job : m_queues.value(destination)) {
+        if (!job.background) continue;
+        if (destination->backgroundSendReady(job.how)) return false;
+        anyBackground = true;
+    }
+    return anyBackground;
+}
+
 QVariantMap ShotUploads::missing() const {
     QVariantMap all;
     for (ShotUploadDestination* destination : m_destinations) {
@@ -342,14 +357,20 @@ QVariantMap ShotUploads::missing() const {
             entry[QStringLiteral("failed")] = count->failed;
             entry[QStringLiteral("unsentEdits")] = count->unsentEdits;
         }
-        entry[QStringLiteral("running")] = run != m_runs.constEnd();
-        if (run != m_runs.constEnd()) {
+        const bool running = run != m_runs.constEnd();
+        entry[QStringLiteral("running")] = running;
+        if (running) {
             entry[QStringLiteral("done")] = run->done;
             entry[QStringLiteral("sent")] = run->sent;
             entry[QStringLiteral("total")] = run->total;
-            entry[QStringLiteral("waitingForMachine")] = !destination->backgroundSendReady(Send::UploadOrUpdate);
         }
         if (held) entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
+        const int failed = count != m_counts.constEnd() ? count->failed : 0;
+        entry[QStringLiteral("status")] = held                                       ? QStringLiteral("slowedDown")
+                                        : running && waitingUntilReady(destination) ? QStringLiteral("waitingForMachine")
+                                        : running                                   ? QStringLiteral("uploading")
+                                        : failed > 0                                ? QStringLiteral("failedBefore")
+                                                                                     : QString();
         all[destination->name()] = entry;
     }
     return all;

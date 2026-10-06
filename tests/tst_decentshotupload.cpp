@@ -1065,6 +1065,7 @@ private slots:
             // One attempt, then nothing more: not the batch, not a send the user asks for.
             QVERIFY(heldUntil() > QDateTime::currentMSecsSinceEpoch());
             QCOMPARE(entry().value("resumeAtMs").toLongLong(), heldUntil());
+            QCOMPARE(entry().value("status").toString(), QStringLiteral("slowedDown"));
             uploads.uploadNow(userShot);
             settle();
             QCOMPARE(sentIds(), (QList<qint64>{newestFirst.at(0), newestFirst.at(1)}));
@@ -1232,13 +1233,14 @@ private slots:
         QTRY_COMPARE(entry().value("total").toInt(), 2);
         settle();
         QVERIFY(decent.sent.isEmpty());
-        QVERIFY(entry().value("waitingForMachine").toBool());
+        QCOMPARE(entry().value("status").toString(), QStringLiteral("waitingForMachine"));
         uploads.uploadNow(userShot);
         settle();
         QCOMPARE(sentIds(), QList<qint64>{userShot});
 
         decent.ready = true;
         uploads.readinessChanged();
+        QCOMPARE(entry().value("status").toString(), QStringLiteral("uploading"));
         QTRY_COMPARE(sentIds(), (QList<qint64>{userShot, newer, older}));
         QTRY_VERIFY(!entry().value("running").toBool());
         closeStorage(storage);

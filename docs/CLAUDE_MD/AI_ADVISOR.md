@@ -64,7 +64,7 @@ still works, exactly as before.
 | Anthropic | Sonnet 5.5 | `thinking: between_tools` | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
 | OpenAI | GPT-6.1 Sol, GPT-6 Luna | `reasoning_effort`: `low` (Sol), `none` (Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
 | Google Gemini | 3.8 Flash | `thinkingLevel`: `low` | Implicit, automatic (system prompt first); it did not hit on 3.8 Flash in testing | Cloud |
-| OpenRouter | User-entered (default `anthropic/claude-sonnet-5.5`) | none sent | Passes through | Cloud |
+| OpenRouter | User-entered (default `anthropic/claude-sonnet-4`) | none sent — so the default stays a model whose reasoning is optional; OpenRouter lists Sonnet 5.5 as mandatory reasoning at `high` effort | Passes through | Cloud |
 | Ollama | User-selected | none sent | N/A | Local/free |
 
 The thinking settings live in one table, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` fails if a catalogued model has no live-verified form. A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`).

@@ -883,8 +883,10 @@ bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& ac
     if (prior.doseWeightG > 0.0 && actual.doseWeightG > 0.0
         && std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9)
         return true;
-    if (prior.targetWeightG > 0.0 && actual.targetWeightG > 0.0
-        && std::abs(actual.targetWeightG - prior.targetWeightG) > kYieldToleranceG + 1e-9)
+    const double priorTarget = effectiveTargetWeightG(prior);
+    const double actualTarget = effectiveTargetWeightG(actual);
+    if (priorTarget > 0.0 && actualTarget > 0.0
+        && std::abs(actualTarget - priorTarget) > kYieldToleranceG + 1e-9)
         return true;
     return false;
 }
@@ -949,8 +951,9 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
 
     double recommendedYield = 0.0;
     fold(classifyPositiveNumberField(sn, "targetWeightG", recommendedYield), [&] {
-        return numberMatches(recommendedYield, actual.targetWeightG, prior.targetWeightG,
-                             kYieldToleranceG);
+        // The effective target, as dialInSessions showed the model.
+        return numberMatches(recommendedYield, effectiveTargetWeightG(actual),
+                             effectiveTargetWeightG(prior), kYieldToleranceG);
     });
 
     QString recommendedProfile;
@@ -1109,8 +1112,8 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         if (actual.rpm > 0)
             userResponse["rpm"] = actual.rpm;  // RPM half of what the user actually did
         userResponse["doseG"] = actual.doseWeightG;
-        if (actual.targetWeightG > 0)
-            userResponse["targetWeightG"] = actual.targetWeightG;
+        if (const double target = effectiveTargetWeightG(actual); target > 0)
+            userResponse["targetWeightG"] = target;
         userResponse["adherence"] = computeAdherence(turn.structuredNext, actual, prior);
         if (actual.enjoyment0to100 > 0)
             userResponse["outcomeRating0to100"] = actual.enjoyment0to100;

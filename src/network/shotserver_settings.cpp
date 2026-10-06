@@ -729,7 +729,7 @@ QString ShotServer::generateSettingsPage() const
                     </div>
                     <div class="form-group">
                         <label class="form-label">Model</label>
-                        <input type="text" class="form-input" id="openrouterModel" placeholder="anthropic/claude-sonnet-5.5">
+                        <input type="text" class="form-input" id="openrouterModel" placeholder="anthropic/claude-sonnet-4">
                         <div class="help-text">Enter model ID from <a href="https://openrouter.ai/models" target="_blank" style="color:var(--accent)">openrouter.ai/models</a></div>
                     </div>
                 </div>
@@ -1293,15 +1293,18 @@ QString ShotServer::generateSettingsPage() const
                 const button = document.getElementById(dest + '-missing-button');
                 button.style.display = (m.running || count === 0) ? 'none' : '';
                 button.textContent = 'Upload missing shots (' + count + ')';
-                document.getElementById(dest + '-missing-detail').textContent = m.running && resumesAt
-                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at ' + resumesAt
-                    : resumesAt
+                // Which line is ShotUploads' decision (missing().status), shared with the app.
+                const done = (m.done || 0) + ' of ' + (m.total || 0);
+                document.getElementById(dest + '-missing-detail').textContent =
+                    m.status === 'slowedDown' && m.running
+                    ? done + ' done. The server asked to slow down; continuing at ' + resumesAt
+                    : m.status === 'slowedDown'
                     ? 'The server asked to slow down; uploads continue at ' + resumesAt
-                    : m.running && m.waitingForMachine
-                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. Waiting for the machine to connect'
-                    : m.running
-                    ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
-                    : failed > 0 ? failed + ' of them could not be uploaded before' : '';
+                    : m.status === 'waitingForMachine'
+                    ? done + ' done. Waiting for the machine to connect'
+                    : m.status === 'uploading'
+                    ? 'Uploading ' + done
+                    : m.status === 'failedBefore' ? failed + ' of them could not be uploaded before' : '';
             }
             // Polled only while a run is going or uploads are waiting.
             clearTimeout(showMissing.timer);

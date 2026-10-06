@@ -38,9 +38,10 @@ class ShotUploads : public QObject {
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
     // Per active destination, by name: {count, failed, unsentEdits, running, done,
-    // sent, total, resumeAtMs, waitingForMachine}, for the Upload missing shots
-    // button. Counted on a worker thread. resumeAtMs (ms since the epoch) is set
-    // while a 429 holds the queue; waitingForMachine while a run waits for the DE1.
+    // sent, total, resumeAtMs, status}, for the Upload missing shots button.
+    // Counted on a worker thread. resumeAtMs (ms since the epoch) is set while a
+    // 429 holds the queue. status picks the line under the button, for the app and
+    // the web page alike: slowedDown, waitingForMachine, uploading, failedBefore or "".
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -146,6 +147,7 @@ private:
     // findMissing over a destination's name and conditions, which a worker can hold by value.
     static Missing findMissingFor(QSqlDatabase& db, const QString& name, const QString& held, const QString& unsent,
                                   double minDurationSec, qint64 skipFailedSince);
+    bool waitingUntilReady(ShotUploadDestination* destination) const;
     void onAttempt(ShotUploadDestination* destination, Attempt attempt);
     void finishSend(ShotUploadDestination* destination, Attempt last);
 

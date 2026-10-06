@@ -1012,13 +1012,7 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     if (!shot.isValid()) return question;
 
     // The shot's own payload, from the same builder ai_advisor_invoke uses.
-    ShotSummary summary = m_summarizer->summarizeFromHistory(shot);
-    QJsonParseError err{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(m_summarizer->buildUserPrompt(summary).toUtf8(), &err);
-    QJsonObject payload = (err.error == QJsonParseError::NoError && doc.isObject())
-                              ? doc.object()
-                              : QJsonObject();
+    QJsonObject payload = buildUserPromptObjectForShot(shot);
 
     // Context blocks, only when they were resolved for THIS shot. A mismatch means
     // the user opened another shot while the request was in flight; sending the
