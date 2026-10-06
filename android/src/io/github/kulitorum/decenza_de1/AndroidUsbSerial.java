@@ -368,7 +368,9 @@ public class AndroidUsbSerial {
      * Close the USB connection and stop the read thread.
      */
     public static void close() {
-        DiagnosticLog.d("DE1", TAG, "Closing USB serial connection");
+        // Startup closes unconditionally; only a real close is worth a line.
+        final boolean wasOpen = sConnection != null || sReadThread != null;
+        if (wasOpen) DiagnosticLog.d("DE1", TAG, "Closing USB serial connection");
         sReading = false;
 
         if (sReadThread != null) {
@@ -396,7 +398,7 @@ public class AndroidUsbSerial {
             sReadBuffer.reset();
         }
 
-        DiagnosticLog.d("DE1", TAG, "USB serial closed");
+        if (wasOpen) DiagnosticLog.d("DE1", TAG, "USB serial closed");
     }
 
     /**

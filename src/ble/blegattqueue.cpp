@@ -122,7 +122,7 @@ void BleGattQueue::dispatchNext() {
     // marker, four reads and then its initial MMR writes, and
     // MainController::applyAllSettings() piles the profile upload on top from
     // the initialSettingsComplete signal that sequence ends with — peaking the
-    // shared queue at 35 on an entirely healthy connect. That measurement, its
+    // shared queue at 40 on an entirely healthy connect. That measurement, its
     // device and its composition are recorded on QUEUE_DEPTH_WARN in the header
     // rather than restated here, so there is one copy to re-derive. Any depth
     // trigger below that peak therefore fires on every single launch.

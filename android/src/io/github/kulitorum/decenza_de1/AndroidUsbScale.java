@@ -302,7 +302,9 @@ public class AndroidUsbScale {
 
     /** Close the USB scale connection. */
     public static void close() {
-        DiagnosticLog.d("Scale", TAG, "Closing USB scale connection");
+        // Startup closes unconditionally; only a real close is worth a line.
+        final boolean wasOpen = sConnection != null || sReadThread != null;
+        if (wasOpen) DiagnosticLog.d("Scale", TAG, "Closing USB scale connection");
         sReading = false;
 
         if (sReadThread != null) {
@@ -330,7 +332,7 @@ public class AndroidUsbScale {
             sReadBuffer.reset();
         }
 
-        DiagnosticLog.d("Scale", TAG, "USB scale closed");
+        if (wasOpen) DiagnosticLog.d("Scale", TAG, "USB scale closed");
     }
 
     /** Check if the scale connection is open and active. */

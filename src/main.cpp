@@ -4794,7 +4794,7 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &shotHistoryExporter]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &bleManager, &shotHistoryExporter]() {
         DIAG_DEBUG(APP, "main") << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
@@ -4915,6 +4915,8 @@ int main(int argc, char *argv[])
         de1ReconnectTimer.stop();
         QObject::disconnect(&de1Device, &DE1Device::connectedChanged, nullptr, nullptr);
         scaleReconnectTimer.stop();
+        // The scale disconnect below asks for the reconnect ramp, which would restart the timer.
+        QObject::disconnect(&bleManager, &BLEManager::scaleReconnectRampRestartRequested, nullptr, nullptr);
 
         // Let the database write workers finish before the storages are
         // destroyed. The BLE work above protects the machine; this protects the

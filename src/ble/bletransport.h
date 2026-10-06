@@ -190,6 +190,8 @@ private:
     void completeOperation(const QBluetoothUuid& uuid);
     /** Emit queueDrained() if this transport has nothing left anywhere. */
     void emitQueueDrainedIfIdle();
+    /** Android: clears the shutdown service's DE1 address and stops the BLE keepalive service, if started. */
+    void stopAndroidKeepalive();
     /** The CCCD of `uuid`, or an invalid descriptor if there isn't one. */
     QLowEnergyDescriptor cccdFor(const QBluetoothUuid& uuid) const;
 
@@ -201,6 +203,10 @@ private:
     QLowEnergyService* m_service = nullptr;
     QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
     bool m_characteristicsReady = false;
+#ifdef Q_OS_ANDROID
+    // The keepalive service is running and the shutdown service holds the address.
+    bool m_androidKeepalive = false;
+#endif
     // True once disconnected() has been emitted for the current connection
     // attempt (either via Qt's native signal on a Connected→Disconnected
     // transition, or synthesized by us when a connection attempt fails and

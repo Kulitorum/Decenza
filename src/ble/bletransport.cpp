@@ -164,6 +164,17 @@ BleTransport::~BleTransport() {
     disconnect();
 }
 
+// Once per connection: a link that drops and is then torn down (or destroyed at
+// exit) reaches both stop paths.
+void BleTransport::stopAndroidKeepalive() {
+#ifdef Q_OS_ANDROID
+    if (!m_androidKeepalive) return;
+    m_androidKeepalive = false;
+    clearDE1AddressForShutdown();
+    stopBleConnectionService();
+#endif
+}
+
 // -- DE1Transport interface implementation --
 
 void BleTransport::write(const QBluetoothUuid& uuid, const QByteArray& data) {
@@ -282,10 +293,7 @@ void BleTransport::disconnect() {
         m_controller = nullptr;
     }
 
-#ifdef Q_OS_ANDROID
-    clearDE1AddressForShutdown();
-    stopBleConnectionService();
-#endif
+    stopAndroidKeepalive();
 
     emit disconnected();
     // Reset the synthesis flag AFTER the emit so any listener that re-enters
@@ -456,10 +464,7 @@ void BleTransport::onControllerConnected() {
 
 void BleTransport::onControllerDisconnected() {
     info(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
-#ifdef Q_OS_ANDROID
-    clearDE1AddressForShutdown();
-    stopBleConnectionService();
-#endif
+    stopAndroidKeepalive();
 
     // Clear pending BLE operations to prevent writes against a dead connection,
     // which causes DeadObjectException crashes on Android (issue #189)
@@ -736,6 +741,7 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         }
         // Start foreground service to prevent Samsung/OEM app killing
         startBleConnectionService();
+        m_androidKeepalive = true;
 #endif
 
         // connected() is emitted by the ready marker subscribeAll() queues

@@ -425,7 +425,10 @@ private:
     // not keeping up" about a radio that drained all 35 in ~1.5 s. A warning
     // that is guaranteed on a healthy start is one a reader learns to skip.
     //
-    // 40 leaves headroom over that measured peak, so what reaches this now is
-    // work piling up faster than it drains rather than one device starting up.
-    static constexpr qsizetype QUEUE_DEPTH_WARN = 40;
+    // Since the profile upload waits for the machine to leave Sleep, it lands on
+    // top of the connect burst: the same tablet peaked at exactly 40 on two of
+    // three connects (builds 3612 and 3613, 2026-10-05), every one drained in
+    // ~4.5 s. 50 keeps headroom over that, so what reaches this is work piling
+    // up faster than it drains rather than devices starting up.
+    static constexpr qsizetype QUEUE_DEPTH_WARN = 50;
 };

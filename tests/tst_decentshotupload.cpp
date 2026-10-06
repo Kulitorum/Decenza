@@ -46,6 +46,7 @@ struct FakeDestination : ShotUploadDestination {
     bool active = true;
     bool holding = false;
     Outcome answer = Outcome::Sent;
+    int status = 0;   // the HTTP status that goes with `answer`
     QList<Sent> sent;
     QList<qint64> edited;
 
@@ -62,7 +63,7 @@ struct FakeDestination : ShotUploadDestination {
     }
     void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
-    void finish() { finishAttempt({answer, 0}); }
+    void finish() { finishAttempt({answer, status}); }
 };
 
 // Drains the queued hops ShotUploads posts (attempt -> finishSend -> pump).
@@ -997,6 +998,72 @@ private slots:
             QCOMPARE(decent.sent.size(), 1);
         }
 
+        closeStorage(storage);
+    }
+
+    // A shot that fails on a 429 is recorded like any failure, and pauses the run
+    // instead of walking the rest of the batch into the rate limit; afterwards the
+    // batch's untried shots go first, in order.
+    void missingShotsPauseOnARateLimit() {
+        using Outcome = ShotUploadDestination::Outcome;
+        SettingsUpload upload;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("ratelimit.db")));
+        QList<qint64> newestFirst;
+        for (int i = 1; i <= 7; ++i) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = 1000 * i;
+            newestFirst.prepend(storage.importShotRecord(r, false));
+        }
+        FakeDestination decent(QStringLiteral("decent"));
+        decent.holding = true;
+        ShotUploads uploads(&upload, &storage, {&decent});
+        uploads.setRetryDelayMs(0);
+        uploads.setBatchSpacingMs(0);
+        uploads.setRateLimitPauseMs(500);
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
+        const auto entry = [&uploads]() { return uploads.missing().value(QStringLiteral("decent")).toMap(); };
+        const auto sentIds = [&decent]() {
+            QList<qint64> ids;
+            for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
+            return ids;
+        };
+        const auto step = [&decent]() { decent.finish(); settle(); };
+
+        QTRY_COMPARE(entry().value("count").toInt(), 7);
+        uploads.uploadMissing(QStringLiteral("decent"));
+        QTRY_COMPARE(decent.sent.size(), 1);
+        step();   // the first goes through
+        decent.answer = Outcome::Transient;
+        decent.status = 429;
+        for (int i = 0; i < ShotUploads::kAttempts; ++i) step();
+
+        // Paused: the rest of the batch is not sent into the limit.
+        const QList<qint64> beforePause = sentIds();
+        QCOMPARE(beforePause, (QList<qint64>{newestFirst.at(0), newestFirst.at(1), newestFirst.at(1), newestFirst.at(1)}));
+        settle();
+        QCOMPARE(sentIds(), beforePause);
+        QVERIFY(entry().value("running").toBool());
+        QVERIFY(entry().value("resumeAtMs").toLongLong() > QDateTime::currentMSecsSinceEpoch());
+        QCOMPARE(entry().value("done").toInt(), 2);
+
+        // After the pause the untried shots go first, in order, and the run finishes.
+        decent.answer = Outcome::Sent;
+        decent.status = 0;
+        QTRY_COMPARE(decent.sent.size(), beforePause.size() + 1);
+        while (entry().value("running").toBool() && decent.sent.size() < 20) step();
+        QCOMPARE(sentIds().mid(beforePause.size()), newestFirst.mid(2));
+        QVERIFY(!entry().contains("resumeAtMs"));
+
+        (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+        withTempDb(storage.databasePath(), "tst_ratelimit", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("SELECT id FROM shots WHERE decent_failed_at IS NOT NULL")));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toLongLong(), newestFirst.at(1));
+            QVERIFY(!q.next());
+        });
         closeStorage(storage);
     }
 

@@ -6,7 +6,6 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
-#include <QSet>
 #include <QStringList>
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -35,7 +34,8 @@ class ShotUploads : public QObject {
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
     // Per active destination, by name: {count, failed, unsentEdits, running, done,
-    // total}, for the Upload missing shots button. Counted on a worker thread.
+    // total, resumeAtMs}, for the Upload missing shots button. Counted on a worker
+    // thread. resumeAtMs (ms since the epoch) is set while a rate limit pauses the run.
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -76,8 +76,9 @@ public:
     // Upload missing shots (D14): sends what findMissing lists for the
     // destination through its queue, kBatchSize at a time, batches at least the
     // batch spacing apart, starting none while the machine is operating. A shot
-    // that fails its attempts is recorded and the run moves on; a sign-in or
-    // account refusal ends it. Never starts on its own: only from this, or from
+    // that fails its attempts is recorded and the run moves on; one that fails
+    // on a rate limit (HTTP 429) also pauses it, and the batch's untried shots go
+    // first after the pause; a sign-in or account refusal ends it. Never starts on its own: only from this, or from
     // resumeMissingRuns() for a run the user started before a restart.
     // False when it starts nothing: unknown or inactive destination, or a run already going.
     Q_INVOKABLE bool uploadMissing(const QString& destination);
@@ -98,6 +99,9 @@ public:
     static constexpr int kAttempts = 3;
     // The first retry waits this long, the second twice as long (Decaid: 2 s, 4 s).
     void setRetryDelayMs(int ms) { m_retryDelayMs = ms; }
+    // Visualizer allows 200 API requests per user in 10 minutes (api/base_controller.rb:3-14)
+    // and sends no Retry-After, so a 429 waits out the whole window.
+    void setRateLimitPauseMs(int ms) { m_rateLimitPauseMs = ms; }
 
 signals:
     void missingChanged();
@@ -128,6 +132,10 @@ private:
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
     void nextBatch(ShotUploadDestination* destination);
     void endRun(ShotUploadDestination* destination, const QString& why);
+    struct Run;
+    void waitBeforeNextBatch(ShotUploadDestination* destination, Run& run, qint64 ms);
+    // A run's shot failed on a 429: the batch's untried shots go back first, after the pause.
+    void pauseForRateLimit(ShotUploadDestination* destination, Run& run);
     // Drops what is queued for a destination, and its run; logs how many and why.
     void dropQueue(ShotUploadDestination* destination, const QString& why);
     // findMissing over a destination's name and conditions, which a worker can hold by value.
@@ -142,18 +150,24 @@ private:
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
     QHash<ShotUploadDestination*, Current> m_current;
     int m_retryDelayMs = 2000;
+    int m_rateLimitPauseMs = 10 * 60 * 1000;
 
     struct Run {
+        int id = 0;                   // a wait's timer acts only on the run that set it
         bool selecting = true;        // findMissing is still running
-        bool waiting = false;         // a batch-spacing wait is pending
+        bool waiting = false;         // a batch-spacing or rate-limit wait is pending
         bool paused = false;          // waiting for the machine to stop operating (logged once)
+        qint64 resumeAtMs = 0;        // during a rate-limit wait: when it ends, ms since the epoch
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
-        QSet<qint64> outstanding;     // the batch being sent
-        int done = 0;
+        QList<Job> outstanding;       // the batch being sent, in order
+        int done = 0;                 // finished, however they went
+        int sent = 0;
+        int failed = 0;
         int total = 0;
         QElapsedTimer sinceBatch;
     };
+    int m_nextRunId = 0;
     QHash<ShotUploadDestination*, Run> m_runs;
     QHash<QString, Missing> m_counts;   // by destination name, active ones only
     bool m_counting = false;

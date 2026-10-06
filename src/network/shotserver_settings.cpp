@@ -1289,7 +1289,10 @@ QString ShotServer::generateSettingsPage() const
                 const button = document.getElementById(dest + '-missing-button');
                 button.style.display = m.running ? 'none' : '';
                 button.textContent = 'Upload missing shots (' + count + ')';
-                document.getElementById(dest + '-missing-detail').textContent = m.running
+                document.getElementById(dest + '-missing-detail').textContent = m.running && m.resumeAtMs
+                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at '
+                        + new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
+                    : m.running
                     ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
                     : failed > 0 ? failed + ' of them could not be uploaded before' : '';
             }

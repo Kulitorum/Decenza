@@ -58,8 +58,10 @@ Nothing retries a failed upload on its own after its 3 attempts. Each destinatio
   so only their edited fields go; then shots it does not hold, newest first. Rejected shots and those `uploadIneligibility` excludes are never offered.
 - **How:** 5 at a time through the destination's queue, batches at least 30 s apart, none while
   `MachineState::isOperating()`. A shot that fails its attempts is recorded (`<dest>_failed_at`) and the run moves on;
-  a sign-in or account refusal, from any send, ends it and clears that queue. Start, pause and end are logged at
-  INFO under the destination's marker.
+  if it failed on a 429 the run first pauses 10 minutes (Visualizer's window: 200 API requests per user, no
+  Retry-After), the batch's untried shots going first after it. A sign-in or account refusal, from any send, ends the
+  run and clears that queue. Start, pause and end (with sent and failed counts) are logged at INFO under the
+  destination's marker.
 - **Restart:** the run's start is kept in `upload/missingRun/<dest>` (device-local, not exported). At startup, or
   when the destination comes back on, the run resumes, leaving out shots that failed since it started. A history
   that cannot be read starts nothing and keeps the run for later.
