@@ -90,6 +90,7 @@ extern "C" const char* __ubsan_default_options()
 #include <QFontInfo>
 #include <QFontMetrics>
 #include <QAccessible>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -643,6 +644,18 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     CrashHandler::refreshDeviceLine();
+
+#ifdef Q_OS_IOS
+    // Stops the iOS "Allow Paste" prompt on every return to the app. When the
+    // pasteboard changed while backgrounded, Qt emits dataChanged on becoming
+    // active (qiosclipboard.mm:40-43, 64-72), and every live editable
+    // TextInput/TextEdit — visible or not, e.g. the always-built BrewDialog —
+    // reads the clipboard text to refresh canPaste (qquicktextinput.cpp:2894,
+    // 3008-3009; qquicktextedit.cpp:2824). That read is what prompts. Nothing
+    // here reads canPaste or listens to the signal, and user-initiated paste
+    // goes through UIKit's paste: action, not this signal.
+    QGuiApplication::clipboard()->blockSignals(true);
+#endif
 
     // --- Bundled UI font (issues #1469, #1537) -----------------------------
     // Decenza ships its own UI font so text glyph metrics are deterministic
