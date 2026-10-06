@@ -1,8 +1,9 @@
 import QtQuick
 import Decenza
 
-// The one wording for a Decent upload's progress and outcome. With shotId set,
-// results show only for that shot; progress shows for any upload.
+// The one wording for a Decent upload's progress and problems; success shows
+// nothing, as for Visualizer (the Upload button's fill says it is in sync). With
+// shotId set, problems show only for that shot; progress shows for any upload.
 Text {
     id: root
 
@@ -11,12 +12,11 @@ Text {
     readonly property var uploader: MainController.decentUploader
     readonly property bool forThisShot: !root.shotId || (root.uploader && root.uploader.lastShotId === root.shotId)
     readonly property int result: root.uploader ? root.uploader.lastResult : DecentShotUploader.Result.None
-    readonly property bool succeeded: root.result === DecentShotUploader.Result.Uploaded
 
     visible: text.length > 0
     wrapMode: Text.WordWrap
     font: Theme.captionFont
-    color: root.succeeded || (root.uploader && root.uploader.uploading) ? Theme.textSecondaryColor : Theme.errorColor
+    color: root.uploader && root.uploader.uploading ? Theme.textSecondaryColor : Theme.errorColor
     Accessible.role: Accessible.StaticText
     Accessible.name: text
 
@@ -26,8 +26,6 @@ Text {
             return TranslationManager.translate("decent.upload.uploading", "Uploading to your Decent account…")
         if (!root.forThisShot) return ""
         switch (root.result) {
-        case DecentShotUploader.Result.Uploaded:
-            return TranslationManager.translate("decent.upload.done", "Uploaded to your Decent account")
         case DecentShotUploader.Result.NotReplaced:
             return TranslationManager.translate("decent.upload.notReplaced",
                 "Decent kept its earlier copy — the edit was not saved")
