@@ -46,6 +46,10 @@ ColumnLayout {
               : root.resumesAt.length > 0
               ? TranslationManager.translate("settings.upload.waiting",
                                              "The server asked to slow down; uploads continue at %1").arg(root.resumesAt)
+              : root.running && root.entry.waitingForMachine === true
+              ? TranslationManager.translate("settings.upload.missing.waitingForMachine",
+                                             "%1 of %2 done. Waiting for the machine to connect")
+                    .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
               : root.running
               ? TranslationManager.translate("settings.upload.missing.progress", "Uploading %1 of %2")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)

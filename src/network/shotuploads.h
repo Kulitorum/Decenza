@@ -38,8 +38,9 @@ class ShotUploads : public QObject {
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
     // Per active destination, by name: {count, failed, unsentEdits, running, done,
-    // sent, total, resumeAtMs}, for the Upload missing shots button. Counted on a
-    // worker thread. resumeAtMs (ms since the epoch) is set while a 429 holds the queue.
+    // sent, total, resumeAtMs, waitingForMachine}, for the Upload missing shots
+    // button. Counted on a worker thread. resumeAtMs (ms since the epoch) is set
+    // while a 429 holds the queue; waitingForMachine while a run waits for the DE1.
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -91,6 +92,8 @@ public:
     void resumeMissingRuns();
     // MachineState::isOperating(): no Upload missing shots send starts while it is true.
     void setMachineOperating(bool operating);
+    // A destination's backgroundSendReady() may have changed (Decent: the DE1 connected).
+    void readinessChanged();
     QVariantMap missing() const;
     // Counts what each active destination is missing again; a call while a count
     // is running counts once more after it.

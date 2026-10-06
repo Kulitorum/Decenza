@@ -63,6 +63,8 @@ struct FakeDestination : ShotUploadDestination {
     }
     void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
+    bool ready = true;   // backgroundSendReady()
+    bool backgroundSendReady(Send) const override { return ready; }
     int paced = 0;
     bool holdTurns = false;                  // keep pacer turns until the test runs them
     QList<std::function<void()>> turns;
@@ -1195,6 +1197,58 @@ private slots:
         settle();
         QCOMPARE(sentIds(), (QList<qint64>{userShot, newer, older}));
         closeStorage(storage);
+    }
+
+    // A run's sends wait while the destination is not ready (Decent: no DE1) and
+    // go when it is; a send the user asks for is not held. Decent is ready for an
+    // update without a machine, but not for a first upload.
+    void missingShotsWaitUntilTheDestinationIsReady() {
+        SettingsUpload upload;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("ready.db")));
+        const auto add = [&storage](qint64 timestamp, double duration) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = timestamp;
+            r.summary.duration = duration;
+            return storage.importShotRecord(r, false);
+        };
+        const qint64 older = add(1000, 30), newer = add(2000, 30);
+        const qint64 userShot = add(100, 2);   // too short to be offered, so outside the run
+        FakeDestination decent(QStringLiteral("decent"));
+        decent.ready = false;
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
+        ShotUploads uploads(&upload, &storage, {&decent});
+        uploads.setBatchSpacingMs(0);
+        const auto entry = [&uploads]() { return uploads.missing().value(QStringLiteral("decent")).toMap(); };
+        const auto sentIds = [&decent]() {
+            QList<qint64> ids;
+            for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
+            return ids;
+        };
+
+        QTRY_COMPARE(entry().value("count").toInt(), 2);
+        uploads.uploadMissing(QStringLiteral("decent"));
+        QTRY_COMPARE(entry().value("total").toInt(), 2);
+        settle();
+        QVERIFY(decent.sent.isEmpty());
+        QVERIFY(entry().value("waitingForMachine").toBool());
+        uploads.uploadNow(userShot);
+        settle();
+        QCOMPARE(sentIds(), QList<qint64>{userShot});
+
+        decent.ready = true;
+        uploads.readinessChanged();
+        QTRY_COMPARE(sentIds(), (QList<qint64>{userShot, newer, older}));
+        QTRY_VERIFY(!entry().value("running").toBool());
+        closeStorage(storage);
+
+        Rig rig(m_dir.filePath("ready-decent.db"));
+        rig.serial.clear();
+        QVERIFY(!rig.uploader.backgroundSendReady(ShotUploadDestination::Send::UploadOrUpdate));
+        QVERIFY(rig.uploader.backgroundSendReady(ShotUploadDestination::Send::UpdateOnly));
+        rig.serial = QStringLiteral("1234");
+        QVERIFY(rig.uploader.backgroundSendReady(ShotUploadDestination::Send::UploadOrUpdate));
     }
 
     // A 429 to any Visualizer request starts its wait, and the background pacer

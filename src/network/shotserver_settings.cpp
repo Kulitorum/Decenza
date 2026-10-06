@@ -1297,6 +1297,8 @@ QString ShotServer::generateSettingsPage() const
                     ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at ' + resumesAt
                     : resumesAt
                     ? 'The server asked to slow down; uploads continue at ' + resumesAt
+                    : m.running && m.waitingForMachine
+                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. Waiting for the machine to connect'
                     : m.running
                     ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
                     : failed > 0 ? failed + ' of them could not be uploaded before' : '';

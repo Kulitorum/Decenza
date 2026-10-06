@@ -59,6 +59,10 @@ public:
     void setMachineIdentityProvider(std::function<DecentMachineIdentity()> provider) {
         m_machineIdentity = std::move(provider);
     }
+    // A first upload needs the connected machine's serial; an update goes to the one stored.
+    bool backgroundSendReady(Send how) const override {
+        return how == Send::UpdateOnly || (m_machineIdentity && !m_machineIdentity().serialNumber.isEmpty());
+    }
     // The shared minimum shot length (SettingsUpload::minDuration), read when an upload starts.
     void setMinDurationProvider(std::function<double()> provider) { m_minDuration = std::move(provider); }
 

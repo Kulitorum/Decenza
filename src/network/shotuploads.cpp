@@ -193,8 +193,9 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     // A background send goes only when its pacer turn comes, one at a time, and not while the machine
     // is operating (setMachineOperating(false) pumps again); sends the user asked for go meanwhile.
     const bool backgroundMayGo = !m_machineOperating && !m_pacing.contains(destination);
-    const auto next = std::find_if(queue.begin(), queue.end(),
-                                   [backgroundMayGo](const Job& job) { return !job.background || backgroundMayGo; });
+    const auto next = std::find_if(queue.begin(), queue.end(), [backgroundMayGo, destination](const Job& job) {
+        return !job.background || (backgroundMayGo && destination->backgroundSendReady(job.how));
+    });
     if (next == queue.end()) return;
     const Job job = *next;
     queue.erase(next);
@@ -209,7 +210,7 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
         if (pacing == m_pacing.end() || pacing->shotId != shotId) return;   // sent now, or dropped
         const Job turn = m_pacing.take(destination);
         if (m_current.value(destination).shotId != 0 || m_rateLimitWaits.contains(destination)
-            || m_machineOperating || !destination->isActive()) {
+            || m_machineOperating || !destination->isActive() || !destination->backgroundSendReady(turn.how)) {
             // Not its moment after all: back to the front for pump() to decide.
             m_queues[destination].prepend(turn);
             pump(destination);
@@ -323,6 +324,11 @@ void ShotUploads::setMachineOperating(bool operating) {
     for (ShotUploadDestination* destination : m_runs.keys()) nextBatch(destination);
 }
 
+void ShotUploads::readinessChanged() {
+    emit missingChanged();
+    for (ShotUploadDestination* destination : std::as_const(m_destinations)) pump(destination);
+}
+
 QVariantMap ShotUploads::missing() const {
     QVariantMap all;
     for (ShotUploadDestination* destination : m_destinations) {
@@ -341,6 +347,7 @@ QVariantMap ShotUploads::missing() const {
             entry[QStringLiteral("done")] = run->done;
             entry[QStringLiteral("sent")] = run->sent;
             entry[QStringLiteral("total")] = run->total;
+            entry[QStringLiteral("waitingForMachine")] = !destination->backgroundSendReady(Send::UploadOrUpdate);
         }
         if (held) entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
         all[destination->name()] = entry;
