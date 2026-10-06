@@ -132,29 +132,29 @@ T.Page {
                         Keys.onReturnPressed: function(event) { livePresetArea.clicked(null); event.accepted = true }
                         Keys.onSpacePressed: function(event) { livePresetArea.clicked(null); event.accepted = true }
                         Keys.onLeftPressed: function(event) {
-                            if (index > 0) livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                            if (index > 0) livePresetRepeater.itemAt(index - 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onRightPressed: function(event) {
-                            if (index < livePresetRepeater.count - 1) livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                            if (index < livePresetRepeater.count - 1) livePresetRepeater.itemAt(index + 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onTabPressed: function(event) {
                             if (index < livePresetRepeater.count - 1)
-                                livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                                livePresetRepeater.itemAt(index + 1).forceActiveFocus(Qt.TabFocusReason)
                             else if (flushStopButton.visible)
-                                flushStopButton.forceActiveFocus()
+                                flushStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                livePresetRepeater.itemAt(0).forceActiveFocus()
+                                livePresetRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onBacktabPressed: function(event) {
                             if (index > 0)
-                                livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                                livePresetRepeater.itemAt(index - 1).forceActiveFocus(Qt.TabFocusReason)
                             else if (flushStopButton.visible)
-                                flushStopButton.forceActiveFocus()
+                                flushStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                                livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
 
@@ -236,11 +236,11 @@ T.Page {
                 Keys.onReturnPressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onSpacePressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
-                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
                 Keys.onBacktabPressed: function(event) {
-                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
 
@@ -374,14 +374,14 @@ T.Page {
                                         if (presetDelegate.index < presetRepeater.count - 1)
                                             flushPage.focusPresetAt(presetDelegate.index + 1)
                                         else
-                                            addPresetButton.forceActiveFocus()
+                                            addPresetButton.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
                                     Keys.onBacktabPressed: function(event) {
                                         if (presetDelegate.index > 0)
                                             flushPage.focusPresetAt(presetDelegate.index - 1)
                                         else
-                                            flowInput.forceActiveFocus()
+                                            flowInput.forceActiveFocus(Qt.TabFocusReason)
                                         event.accepted = true
                                     }
 

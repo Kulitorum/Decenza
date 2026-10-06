@@ -1,11 +1,12 @@
 import QtQuick
+import QtQuick.Templates as T
 import Decenza
 
 Rectangle {
     id: focusIndicator
 
-    // Parent must have focus-related properties
-    property Item targetItem: parent
+    // The Button / TabButton / RoundButton this ring belongs to: a Control, for visualFocus.
+    property T.Control targetItem: parent as T.Control
 
     // Corner radius of the control this ring surrounds, so the ring follows its shape.
     // Every caller is a Button/TabButton/RoundButton, whose radius lives on its `background`
@@ -18,7 +19,13 @@ Rectangle {
     anchors.fill: parent
     anchors.margins: -Theme.focusMargin
 
-    visible: focusIndicator.targetItem.activeFocus
+    // Keyboard focus only, as a browser's :focus-visible: Qt sets visualFocus when
+    // focus arrived by Tab, Backtab or a shortcut (qquickcontrol.cpp:124-127,
+    // 1433-1437), so a page's initial forceActiveFocus() draws no ring for
+    // mouse and touch users. Key handlers that move focus pass Qt.TabFocusReason.
+    // With a screen reader on, any focus shows. Users must not override `visible`.
+    visible: focusIndicator.targetItem.visualFocus === true
+             || (focusIndicator.targetItem.activeFocus && AccessibilityManager.enabled)
     color: "transparent"
     border.width: Theme.focusBorderWidth
     border.color: Theme.focusColor

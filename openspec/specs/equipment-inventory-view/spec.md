@@ -4,12 +4,13 @@
 Defines the user-facing Equipment window and idle-page entry point for browsing, adding, and removing-from-inventory the equipment packages a user owns, including how each package's basket and puck-prep components are summarized on its card and info dialog. Covers the idempotent layout migration that injects the Equipment button into existing users' saved layouts.
 
 ## Requirements
+
 ### Requirement: Equipment window
-The system SHALL provide an `EquipmentPage.qml` that lists equipment packages with `inInventory = true` as cards, mirroring `BeanInfoPage.qml`. When no packages exist it SHALL show an empty state plus an "Add Equipment" button.
+The system SHALL provide an `EquipmentPage.qml` that lists equipment packages with `inInventory = true` as cards, mirroring `BeanInfoPage.qml`. When no packages exist it SHALL show an empty state plus the "Add [Equipment]" create button. Like the Beans and Recipes pages, the create control is an "Add" label followed by a button naming the kind with its icon, in the same style as those pages.
 
 #### Scenario: Empty inventory
 - **WHEN** the Equipment window is opened with no packages in inventory
-- **THEN** it SHALL show an empty-state message and an "Add Equipment" button only
+- **THEN** it SHALL show an empty-state message and the "Add [Equipment]" create button only
 
 #### Scenario: Populated inventory
 - **WHEN** the Equipment window is opened with packages in inventory
@@ -95,4 +96,3 @@ is an AI-only signal (advisor + MCP) and is kept out of all user-visible surface
 - **WHEN** the info dialog opens for a package with puck prep
 - **THEN** it SHALL show the set flags
 - **AND** it SHALL NOT show the derived distribution
-

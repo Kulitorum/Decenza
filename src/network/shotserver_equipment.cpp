@@ -279,7 +279,8 @@ QString ShotServer::generateEquipmentPage() const
     html += R"HTML(
     <div class="container">
         <div class="toolbar">
-            <button class="primary" onclick="openEditor(null)">+ Add Equipment</button>
+            <span>Add</span>
+            <button onclick="openEditor(null)">Equipment</button>
         </div>
         <div id="status"></div>
         <div id="list"></div>

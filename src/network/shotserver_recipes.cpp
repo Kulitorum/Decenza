@@ -679,7 +679,8 @@ QString ShotServer::generateRecipesPage() const
     html += R"HTML(
     <div class="container">
         <div class="toolbar">
-            <button class="primary" onclick="openEditor(null)">+ Add Recipe</button>
+            <span>Add</span>
+            <button onclick="openEditor(null)">Recipe</button>
         </div>
         <div class="searchbar" id="searchbar" style="display:none"></div>
         <div id="status"></div>

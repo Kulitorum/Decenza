@@ -183,16 +183,9 @@ T.Page {
                     // is stamped at creation, so coffee and tea get their own
                     // buttons and flows — coffee keeps the Bean Base search-first
                     // dialog; tea searches past tea bags only (straight to the
-                    // form when there are none). Shown as "Add [Bag of Coffee] [Bag
-                    // of Tea]": one "Add" label, then a matched pair with each kind's
-                    // icon. Screen readers get "Add a new bag of ..." from the buttons.
-                    Tr {
-                        key: "beaninfo.inventory.add"
-                        fallback: "Add"
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        Accessible.ignored: true
-                    }
+                    // form when there are none). A matched pair after AddLabel, each
+                    // with its kind's icon.
+                    AddLabel {}
 
                     AccessibleButton {
                         id: addBagButton
