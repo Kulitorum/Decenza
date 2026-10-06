@@ -88,4 +88,20 @@ inline QJsonObject geminiThinkingConfig(const QString& model)
     return config;
 }
 
+// OpenRouter reasoning per catalog model, live 2026-10-06 on real advisor
+// prompts. openai/gpt-6-luna takes "none" (1.1-1.4K reasoning tokens per reply
+// without it). Sol, Sonnet 5.5, 3.8 Flash and GLM-5.3 Flash make reasoning
+// mandatory and 400 on "none"; at "low" the first three reasoned 0-62 tokens.
+// GLM and Gemma 4 gave wrong grind advice with reasoning off or at their
+// default and right advice at these settings. Only catalog models reach here.
+inline const QString kOpenRouterDefaultModel = QStringLiteral("openai/gpt-6-luna");
+inline const QString kOpenRouterGemmaModel = QStringLiteral("google/gemma-4-31b-it");
+inline void disableOpenRouterReasoning(QJsonObject& requestBody, const QString& model)
+{
+    if (model == kOpenRouterGemmaModel)
+        requestBody["reasoning"] = QJsonObject{{QStringLiteral("enabled"), true}};
+    else
+        requestBody["reasoning"] = QJsonObject{{QStringLiteral("effort"),
+            model == kOpenRouterDefaultModel ? QStringLiteral("none") : QStringLiteral("low")}};
+}
 }  // namespace AIRequestShape

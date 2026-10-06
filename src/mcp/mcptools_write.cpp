@@ -582,7 +582,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"ollamaModel", QJsonObject{{"type", "string"}, {"description", "Ollama model name"}}},
                 {"openaiEndpoint", QJsonObject{{"type", "string"}, {"description", "Custom OpenAI-compatible endpoint URL (empty for default)"}}},
                 {"anthropicEndpoint", QJsonObject{{"type", "string"}, {"description", "Custom Anthropic-compatible endpoint URL (empty for default)"}}},
-                {"openrouterModel", QJsonObject{{"type", "string"}, {"description", "OpenRouter model name"}}},
                 // MQTT
                 {"mqttEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable MQTT"}}},
                 {"mqttBrokerHost", QJsonObject{{"type", "string"}, {"description", "MQTT broker hostname"}}},
@@ -705,12 +704,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 const QVariantList catalog = aiManager->availableModels(aiModelTargetProvider);
                 if (catalog.isEmpty()) {
-                    // OpenAI, Anthropic and Gemini have catalogs; OpenRouter and
-                    // Ollama have their own free-text model fields.
+                    // Every cloud provider has a catalog; Ollama has its own
+                    // free-text model field.
                     QString hint;
-                    if (aiModelTargetProvider == QStringLiteral("openrouter"))
-                        hint = QStringLiteral(" Set openrouterModel instead.");
-                    else if (aiModelTargetProvider == QStringLiteral("ollama"))
+                    if (aiModelTargetProvider == QStringLiteral("ollama"))
                         hint = QStringLiteral(" Set ollamaModel instead.");
                     else
                         hint = QStringLiteral(" Unknown provider.");
@@ -1202,11 +1199,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QString v = args["ollamaModel"].toString();
                     addSetter([a, v]() { a->setOllamaModel(v); });
                     updated << "ollamaModel";
-                }
-                if (args.contains("openrouterModel")) {
-                    QString v = args["openrouterModel"].toString();
-                    addSetter([a, v]() { a->setOpenrouterModel(v); });
-                    updated << "openrouterModel";
                 }
             }
             if (args.contains("mcpEnabled")) {

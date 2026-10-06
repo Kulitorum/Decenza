@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/settings.h"
+#include "core/settings_ai.h"
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
@@ -479,6 +480,23 @@ private slots:
         SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"portal", QJsonObject{}}}, {"portal"});
         QCOMPARE(raw.value(keys[0]).toString(), QString("AA:BB:CC:DD:EE:FF"));
         QCOMPARE(raw.value(keys[2]), QVariant(false));
+    }
+
+    void aiModelChoicesSurviveBackup() {
+        auto* ai = m_settings.ai();
+        const QJsonObject original = ai->providerModels();
+        const auto restore = qScopeGuard([&] {
+            for (const QString& id : {QStringLiteral("openai"), QStringLiteral("openrouter")})
+                ai->setProviderModel(id, original.value(id).toString());
+        });
+        ai->setProviderModel("openai", "gpt-6-luna");
+        ai->setProviderModel("openrouter", "openai/gpt-6.1-sol");
+        const QJsonObject backup = SettingsSerializer::exportToJson(&m_settings, false)["ai"].toObject();
+        ai->setProviderModel("openai", QString());
+        ai->setProviderModel("openrouter", QString());
+        SettingsSerializer::importFromJson(&m_settings, QJsonObject{{"ai", backup}});
+        QCOMPARE(ai->providerModel("openai"), QString("gpt-6-luna"));
+        QCOMPARE(ai->providerModel("openrouter"), QString("openai/gpt-6.1-sol"));
     }
 
     // ==========================================

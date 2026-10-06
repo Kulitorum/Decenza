@@ -185,8 +185,8 @@ void AIManager::createProviders()
 
     // Create OpenRouter provider
     QString openrouterKey = m_settings->ai()->openrouterApiKey();
-    QString openrouterModel = m_settings->ai()->openrouterModel();
-    auto* openrouter = new OpenRouterProvider(m_networkManager, openrouterKey, openrouterModel, this);
+    auto* openrouter = new OpenRouterProvider(m_networkManager, openrouterKey, this);
+    openrouter->setModel(savedModelFor(openrouter));  // empty → keeps default
     connect(openrouter, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openrouter, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(openrouter, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -1597,7 +1597,7 @@ void AIManager::onSettingsChanged()
     auto* openrouter = dynamic_cast<OpenRouterProvider*>(m_openrouterProvider.get());
     if (openrouter) {
         openrouter->setApiKey(m_settings->ai()->openrouterApiKey());
-        openrouter->setModel(m_settings->ai()->openrouterModel());
+        openrouter->setModel(savedModelFor(openrouter));  // empty → keeps default
     }
 
     auto* ollama = dynamic_cast<OllamaProvider*>(m_ollamaProvider.get());

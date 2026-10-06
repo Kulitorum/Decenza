@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QJsonObject>
 #include "appsettings.h"
 #include <QString>
 
@@ -17,7 +18,6 @@ class SettingsAI : public QObject {
     Q_PROPERTY(QString openaiEndpoint READ openaiEndpoint WRITE setOpenaiEndpoint NOTIFY openaiEndpointChanged FINAL)
     Q_PROPERTY(QString anthropicEndpoint READ anthropicEndpoint WRITE setAnthropicEndpoint NOTIFY anthropicEndpointChanged FINAL)
     Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged FINAL)
-    Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged FINAL)
     // When true (default), tapping AI Advice opens the tap-only taste intake
     // picker before the conversation; when false, it opens the conversation
     // directly (pre-existing behavior). See add-ai-taste-intake.
@@ -53,19 +53,17 @@ public:
     QString openrouterApiKey() const;
     void setOpenrouterApiKey(const QString& key);
 
-    QString openrouterModel() const;
-    void setOpenrouterModel(const QString& model);
-
     bool tasteIntakeOnAsk() const;
     void setTasteIntakeOnAsk(bool enabled);
 
-    // Per-provider selected model, stored generically under ai/model/<providerId>.
-    // Works for any provider that exposes multiple models (see
-    // AIProvider::availableModels). Empty string = unset → the provider uses its
-    // own default. OpenRouter/Ollama keep their dedicated free-text/list fields
-    // above; this covers fixed-catalog cloud providers (Gemini today, others later).
+    // Per-provider selected model, stored under ai/model/<providerId>, for every
+    // provider with a catalog (AIProvider::availableModels). Empty = unset → the
+    // provider's default. Ollama keeps its own ollamaModel field.
     Q_INVOKABLE QString providerModel(const QString& providerId) const;
     Q_INVOKABLE void setProviderModel(const QString& providerId, const QString& modelId);
+    // Every stored selection, {providerId: modelId}, for backup and restore.
+    QJsonObject providerModels() const;
+    void setProviderModels(const QJsonObject& models);
 
 signals:
     void aiProviderChanged();
@@ -77,7 +75,6 @@ signals:
     void openaiEndpointChanged();
     void anthropicEndpointChanged();
     void openrouterApiKeyChanged();
-    void openrouterModelChanged();
     void tasteIntakeOnAskChanged();
     void providerModelChanged();
 

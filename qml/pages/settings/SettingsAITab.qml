@@ -13,7 +13,7 @@ import Decenza
 
 KeyboardAwareContainer {
     id: aiTab
-    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField, customUrlField, claudeRcUrlField]
+    textFields: [apiKeyField, ollamaEndpointField, customUrlField, claudeRcUrlField]
     targetFlickable: aiFlickable
 
     property string testResultMessage: ""
@@ -25,7 +25,7 @@ KeyboardAwareContainer {
             case "openai": return Settings.ai.openaiApiKey.length > 0
             case "anthropic": return Settings.ai.anthropicApiKey.length > 0
             case "gemini": return Settings.ai.geminiApiKey.length > 0
-            case "openrouter": return Settings.ai.openrouterApiKey.length > 0 && Settings.ai.openrouterModel.length > 0
+            case "openrouter": return Settings.ai.openrouterApiKey.length > 0
             case "ollama": return Settings.ai.ollamaEndpoint.length > 0 && Settings.ai.ollamaModel.length > 0
             default: return false
         }
@@ -326,38 +326,6 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // OpenRouter model settings
-                ColumnLayout {
-                    visible: Settings.ai.aiProvider === "openrouter"
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Tr {
-                        key: "settings.ai.openrouterModel"
-                        fallback: "Model"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
-                        font.bold: true
-                    }
-
-                    StyledTextField {
-                        id: openrouterModelField
-                        Layout.fillWidth: true
-                        placeholderText: "anthropic/claude-sonnet-4"
-                        text: Settings.ai.openrouterModel
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.ai.openrouterModel = text
-                    }
-
-                    Text {
-                        text: TranslationManager.translate("settings.ai.openroutermodelhint", "Enter model ID from openrouter.ai/models (e.g., anthropic/claude-sonnet-4, openai/gpt-4o)")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-                }
-
                 // Ollama settings
                 ColumnLayout {
                     visible: Settings.ai.aiProvider === "ollama"
@@ -424,12 +392,7 @@ KeyboardAwareContainer {
                 // visible to the text rather than to the provider alone.
                 Text {
                     visible: Settings.ai.aiProvider !== "ollama" && text.length > 0
-                    text: {
-                        if (Settings.ai.aiProvider === "openrouter")
-                            return TranslationManager.translate("settings.ai.cost.openrouter",
-                                "Cost varies by model")
-                        return MainController.aiManager ? MainController.aiManager.selectedCostHint : ""
-                    }
+                    text: MainController.aiManager ? MainController.aiManager.selectedCostHint : ""
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap

@@ -78,7 +78,15 @@ def gemini_thinking(model: str) -> dict:
     return {"thinkingLevel": "low" if model == "gemini-3.8-flash" else "minimal"}
 
 def provider_of(model: str) -> str:
+    if "/" in model:                       # OpenRouter ids are vendor/model
+        return "openrouter"
     return "anthropic" if model.startswith("claude-") else "gemini" if model.startswith("gemini-") else "openai"
+
+# AIRequestShape::disableOpenRouterReasoning: "none" for Luna, "enabled" for
+# Gemma, "low" for the app's other OpenRouter models. A candidate outside the
+# catalog is sent nothing, i.e. the model's own default.
+OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
+                          "google/gemini-3.8-flash", "z-ai/glm-5.3-flash"}
 
 # Mirror of OpenAIProvider::analyze() — keep in step with src/ai/aiprovider.cpp.
 MAX_OUTPUT_TOKENS = 4096          # src/ai/aiprovider.h MAX_OUTPUT_TOKENS
@@ -167,7 +175,8 @@ local shots matching each shape and record the ids you used in the run notes.
 
 KEY_SOURCES = {"openai": ("OPENAI_API_KEY", "ai.openaiKey"),
                "anthropic": ("ANTHROPIC_API_KEY", "ai.anthropicKey"),
-               "gemini": ("GEMINI_API_KEY", "ai.geminiKey")}
+               "gemini": ("GEMINI_API_KEY", "ai.geminiKey"),
+               "openrouter": ("OPENROUTER_API_KEY", "ai.openrouterKey")}
 
 
 def api_key(provider: str) -> str:
@@ -262,6 +271,29 @@ def call(key: str, model: str, effort: str, system: str, user: str):
             finish = cand.get("finishReason")
             return (text or None), (None if text else f"no text ({finish})"), usage, \
                 ("length" if finish == "MAX_TOKENS" else finish)
+        if provider == "openrouter":
+            # OpenRouterProvider::analyze(): OpenAI-compatible, max_tokens.
+            body = {"model": model,
+                    "messages": [{"role": "system", "content": system},
+                                 {"role": "user", "content": user}],
+                    "max_tokens": MAX_OUTPUT_TOKENS}
+            if model == "openai/gpt-6-luna":
+                body["reasoning"] = {"effort": "none"}
+            elif model == "google/gemma-4-31b-it":
+                body["reasoning"] = {"enabled": True}
+            elif model in OPENROUTER_CATALOG_LOW:
+                body["reasoning"] = {"effort": "low"}
+            payload = post_json("https://openrouter.ai/api/v1/chat/completions",
+                                {"Authorization": "Bearer " + key}, body)
+            choice = payload["choices"][0]
+            text = choice["message"].get("content")
+            u = payload.get("usage", {})
+            usage = {"prompt_tokens": u.get("prompt_tokens", 0),
+                     "completion_tokens": u.get("completion_tokens", 0),
+                     "reasoning_tokens": (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0),
+                     "cached_tokens": (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
+                     "cost": u.get("cost")}
+            return (text or None), (None if text else "no text"), usage, choice.get("finish_reason")
     except urllib.error.HTTPError as e:
         return None, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}", {}, None
     except Exception as e:                       # noqa: BLE001 — see call_openai()
@@ -339,6 +371,8 @@ def audit_block(text: str) -> dict:
 
 
 def spend(model: str, usage: dict) -> float:
+    if usage.get("cost") is not None:      # OpenRouter bills and reports it per call
+        return float(usage["cost"])
     if model not in PRICES:
         # Silence here would report $0.0000 for exactly the case this harness
         # exists to serve: a model too new to be in the table.
@@ -437,7 +471,7 @@ def run(args) -> None:
                 flag = "  <-- TRUNCATED" if finish == "length" else ""
                 print(f"  {tag:30s} {verdict} [reasoning={reasoning} in={usage.get('prompt_tokens', 0)} "
                       f"cached={usage.get('cached_tokens', 0)} out={usage.get('completion_tokens', 0)}]{flag}")
-                path = os.path.join(outdir, f"{scen['key']}__{model}__{effort}.md")
+                path = os.path.join(outdir, f"{scen['key']}__{model.replace('/', '_')}__{effort}.md")
                 header = (f"# {scen['key']} — {scen['description']}\n"
                           f"# model: {model}  effort: {effort}\n"
                           f"# reasoning_tokens: {reasoning}  finish: {finish}\n\n")

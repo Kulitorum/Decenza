@@ -2,7 +2,7 @@
 // AI Advisor's model picker and settings round-trip depend on.
 //
 // Each provider that offers a user-selectable model (OpenAI, Anthropic,
-// Gemini) exposes availableModels() as the single source of truth for both
+// Gemini, OpenRouter) exposes availableModels() as the single source of truth for both
 // the UI list and the wire model. AIManager reads Settings.ai.providerModel()
 // (which may be empty when unset, or a stale id after a catalog change) and
 // feeds it to setModel() on every settings change, so the guard branches
@@ -14,8 +14,7 @@
 //   - modelHint()   → non-empty and mentions every catalog entry by name
 //
 // Those catalog methods are pure (no network I/O) and public, so no mocking or
-// friend-class access is needed. Gemini is covered too — it shipped the
-// pattern this test also guards, previously untested.
+// friend-class access is needed.
 //
 // The suite also pins the Anthropic REQUEST SHAPE (#1691), which does need a
 // canned-response server: what broke there was an absent field in the posted
@@ -149,8 +148,7 @@ using Catalog = QList<QPair<QString, QString>>;  // (id, displayName), UI order
 
 // Exercise the full catalog + setModel guard contract for one concrete
 // provider type against its expected catalog. Templated because setModel()
-// is declared per-derived-class, not as a base virtual, so it can't be
-// called through an AIProvider*.
+// is declared per-derived-class, not as a base virtual.
 template <typename ProviderT>
 void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
 {
@@ -212,7 +210,7 @@ private slots:
         FakeProviderServer server;
         server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
         server.failNextRequest(503);
-        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        OpenRouterProvider provider(&nam, "test-key");
         provider.setBaseUrl(server.baseUrl());
         const auto operation = AIOperationLog::begin("advisor", false, 0, 71);
         operation->useProvider("openrouter", "fake/model", "providerText");
@@ -244,7 +242,7 @@ private slots:
         FakeProviderServer server;
         server.respondWith("{\"choices\":[{\"error\":{\"code\":\"secret-code\","
                            "\"message\":\"secret-prompt-and-api-key\"}}]}");
-        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        OpenRouterProvider provider(&nam, "test-key");
         provider.setBaseUrl(server.baseUrl());
         const auto operation = AIOperationLog::begin("bagExtraction", true, 71);
         operation->useProvider("openrouter", "fake/model", "providerText");
@@ -393,6 +391,32 @@ private slots:
         }
     }
 
+    // Every OpenRouter catalog model gets its verified reasoning setting:
+    // "none" for Luna, "enabled" for Gemma, "low" for the rest, which 400 on "none".
+    void openRouterSendsEachModelItsLowestReasoning()
+    {
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
+        OpenRouterProvider provider(&nam, "key");
+        provider.setBaseUrl(server.baseUrl());
+        for (const AIProvider::ModelOption& opt : provider.availableModels()) {
+            provider.setModel(opt.id);
+            QSignalSpy completed(&provider, &AIProvider::analysisComplete);
+            provider.analyze("system", "user");
+            QVERIFY(completed.wait(5000));
+            const QJsonObject body = server.lastRequest();
+            QCOMPARE(body["model"].toString(), opt.id);
+            const QJsonObject reasoning = body["reasoning"].toObject();
+            if (opt.id == AIRequestShape::kOpenRouterGemmaModel)
+                QCOMPARE(reasoning, (QJsonObject{{"enabled", true}}));
+            else
+                QCOMPARE(reasoning["effort"].toString(),
+                         opt.id == AIRequestShape::kOpenRouterDefaultModel ? QStringLiteral("none")
+                                                                           : QStringLiteral("low"));
+        }
+    }
+
     void init() { QTest::failOnWarning(); }
     void openAiCatalogAndSelection()
     {
@@ -419,6 +443,19 @@ private slots:
         });
     }
 
+    void openRouterCatalogAndSelection()
+    {
+        QNetworkAccessManager nam;
+        checkProvider<OpenRouterProvider>(nam, {
+            { "openai/gpt-6-luna", "GPT-6 Luna" },
+            { "openai/gpt-6.1-sol", "GPT-6.1 Sol" },
+            { "anthropic/claude-sonnet-5.5", "Sonnet 5.5" },
+            { "google/gemini-3.8-flash", "Gemini 3.8 Flash" },
+            { "z-ai/glm-5.3-flash", "GLM-5.3 Flash" },
+            { "google/gemma-4-31b-it", "Gemma 4 31B" },
+        });
+    }
+
     // Stage-2 URL extraction feature matrix (add-recipe-wizard-tea): the
     // three cloud providers with a server-side web tool support analyzeUrl;
     // Ollama (local) and OpenRouter don't. ChangeBeansDialog gates the
@@ -429,7 +466,7 @@ private slots:
         QVERIFY(OpenAIProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(AnthropicProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(GeminiProvider(&nam, "key").supportsUrlAnalysis());
-        QVERIFY(!OpenRouterProvider(&nam, "key", "model").supportsUrlAnalysis());
+        QVERIFY(!OpenRouterProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(!OllamaProvider(&nam, "http://localhost:11434", "model").supportsUrlAnalysis());
     }
 
@@ -688,7 +725,7 @@ private slots:
             g->setBaseUrl(server.baseUrl());
             p.reset(g);
         } else if (provider == QLatin1String("openrouter")) {
-            auto* r = new OpenRouterProvider(&nam, QStringLiteral("key"), QStringLiteral("some/model"));
+            auto* r = new OpenRouterProvider(&nam, QStringLiteral("key"));
             r->setBaseUrl(server.baseUrl());
             p.reset(r);
         } else {

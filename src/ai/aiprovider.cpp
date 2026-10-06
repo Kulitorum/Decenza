@@ -7,6 +7,7 @@
 #include "airequestshape.h"
 #include "../core/translationmanager.h"
 #include <QJsonDocument>
+#include <algorithm>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
@@ -164,6 +165,35 @@ bool AIProvider::tryScheduleRetry(QNetworkReply* reply)
     return true;
 }
 
+QString AIProvider::shortModelName() const
+{
+    const QString model = modelName();
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == model)
+            return opt.displayName;
+    }
+    return model;
+}
+
+QString AIProvider::defaultCatalogModel() const
+{
+    const QList<ModelOption> models = availableModels();
+    return models.isEmpty() ? QString() : models.first().id;
+}
+
+void AIProvider::selectCatalogModel(QString& model, const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;
+    const QList<ModelOption> models = availableModels();
+    if (std::any_of(models.cbegin(), models.cend(),
+                    [&modelId](const ModelOption& m) { return m.id == modelId; })) {
+        model = modelId;
+        return;
+    }
+    PROVIDER_WARN("AIProvider") << name() << "ignoring unknown model id:" << modelId;
+}
+
 void AIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     // Default fallback: flatten messages into a single string and call analyze()
@@ -196,13 +226,7 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
-    // Default to the recommended model = first catalog entry. Keeps the default
-    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
-    // sync with the list order). availableModels() dispatches to this class
-    // since the object under construction is an OpenAIProvider.
-    const QList<ModelOption> models = availableModels();
-    if (!models.isEmpty())
-        m_model = models.first().id;
+    m_model = defaultCatalogModel();
 }
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
@@ -240,31 +264,9 @@ QString OpenAIProvider::costHintFor(const QString& modelId) const
 
 QString OpenAIProvider::modelHint() const
 {
-    return tr_("ai.hint.openai",
+    return QStringLiteral(
                "GPT-6.1 Sol is recommended: OpenAI's newest, concise and careful. GPT-6 Luna costs "
                "about a twentieth as much, the best value of any model tested, with shorter replies.");
-}
-
-void OpenAIProvider::setModel(const QString& modelId)
-{
-    if (modelId.isEmpty())
-        return;  // unset → keep the current default
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == modelId) {
-            m_model = modelId;
-            return;
-        }
-    }
-    PROVIDER_WARN("OpenAIProvider") << "setModel ignoring unknown model id:" << modelId;
-}
-
-QString OpenAIProvider::shortModelName() const
-{
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == m_model)
-            return opt.displayName;
-    }
-    return m_model;
 }
 
 void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
@@ -484,7 +486,6 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
     // A conversation turn is prose the user reads, so a cut-off reply still has
     // value — show it with a notice rather than discarding it (see
     // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
@@ -666,13 +667,7 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
-    // Default to the recommended model = first catalog entry. Keeps the default
-    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
-    // sync with the list order). availableModels() dispatches to this class
-    // since the object under construction is an AnthropicProvider.
-    const QList<ModelOption> models = availableModels();
-    if (!models.isEmpty())
-        m_model = models.first().id;
+    m_model = defaultCatalogModel();
 }
 
 QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
@@ -700,30 +695,8 @@ QString AnthropicProvider::costHintFor(const QString& modelId) const
 
 QString AnthropicProvider::modelHint() const
 {
-    return tr_("ai.hint.anthropic",
+    return QStringLiteral(
                "Sonnet 5.5: the most thorough dial-in reasoning, with the longest replies.");
-}
-
-void AnthropicProvider::setModel(const QString& modelId)
-{
-    if (modelId.isEmpty())
-        return;  // unset → keep the current default
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == modelId) {
-            m_model = modelId;
-            return;
-        }
-    }
-    PROVIDER_WARN("AnthropicProvider") << "setModel ignoring unknown model id:" << modelId;
-}
-
-QString AnthropicProvider::shortModelName() const
-{
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == m_model)
-            return opt.displayName;
-    }
-    return m_model;
 }
 
 void AnthropicProvider::sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature)
@@ -865,7 +838,6 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
     // A conversation turn is prose the user reads, so a cut-off reply still has
     // value — show it with a notice rather than discarding it (see
     // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
@@ -1130,13 +1102,7 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
-    // Default to the recommended model = first catalog entry. Keeps the default
-    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
-    // sync with the list order). availableModels() dispatches to this class
-    // since the object under construction is a GeminiProvider.
-    const QList<ModelOption> models = availableModels();
-    if (!models.isEmpty())
-        m_model = models.first().id;
+    m_model = defaultCatalogModel();
 }
 
 QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
@@ -1162,30 +1128,8 @@ QString GeminiProvider::costHintFor(const QString& modelId) const
 
 QString GeminiProvider::modelHint() const
 {
-    return tr_("ai.hint.gemini",
+    return QStringLiteral(
                "3.8 Flash: Google's newest Flash, sound advice at a low price.");
-}
-
-void GeminiProvider::setModel(const QString& modelId)
-{
-    if (modelId.isEmpty())
-        return;  // unset → keep the current default
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == modelId) {
-            m_model = modelId;
-            return;
-        }
-    }
-    PROVIDER_WARN("GeminiProvider") << "setModel ignoring unknown model id:" << modelId;
-}
-
-QString GeminiProvider::shortModelName() const
-{
-    for (const ModelOption& opt : availableModels()) {
-        if (opt.id == m_model)
-            return opt.displayName;
-    }
-    return m_model;
 }
 
 QString GeminiProvider::apiUrl() const
@@ -1354,7 +1298,6 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
     // A conversation turn is prose the user reads, so a cut-off reply still has
     // value — show it with a notice rather than discarding it (see
     // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
@@ -1581,21 +1524,75 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
 
 OpenRouterProvider::OpenRouterProvider(QNetworkAccessManager* networkManager,
                                          const QString& apiKey,
-                                         const QString& model,
                                          QObject* parent)
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
-    , m_model(model)
 {
+    m_model = defaultCatalogModel();
+}
+
+QList<AIProvider::ModelOption> OpenRouterProvider::availableModels() const
+{
+    // The direct providers' models, Luna first as the default, plus the two
+    // cheap models that gave right grind advice with reasoning on. The others
+    // tried gave wrong advice or no reply (tools/ai_model_eval/README.md,
+    // 2026-10-06).
+    return {
+        { AIRequestShape::kOpenRouterDefaultModel, "GPT-6 Luna" },
+        { "openai/gpt-6.1-sol", "GPT-6.1 Sol" },
+        { "anthropic/claude-sonnet-5.5", "Sonnet 5.5" },
+        { "google/gemini-3.8-flash", "Gemini 3.8 Flash" },
+        { "z-ai/glm-5.3-flash", "GLM-5.3 Flash" },
+        { AIRequestShape::kOpenRouterGemmaModel, "Gemma 4 31B" },
+    };
+}
+
+// See the note above OpenAIProvider::costHintFor(). OpenRouter passes the
+// per-token price through (the cost it reported on the 2026-10-06 probe);
+// its card fee on credits is extra and named in modelHint().
+QString OpenRouterProvider::costHintFor(const QString& modelId) const
+{
+    if (modelId == AIRequestShape::kOpenRouterDefaultModel)
+        return tr_("ai.cost.openai.luna6",
+                   "About $0.0015 per shot — roughly $0.13/month at 3 shots a day.");
+    if (modelId == QLatin1String("openai/gpt-6.1-sol"))
+        return tr_("ai.cost.openai.sol61",
+                   "About $0.03 per shot — roughly $2.75/month at 3 shots a day.");
+    if (modelId == QLatin1String("anthropic/claude-sonnet-5.5"))
+        return tr_("ai.cost.openrouter.sonnet55",
+                   "About $0.05 per shot — roughly $4.50/month at 3 shots a day.");
+    if (modelId == QLatin1String("google/gemini-3.8-flash"))
+        return tr_("ai.cost.gemini.flash38",
+                   "About $0.012 per shot — roughly $1.10/month at 3 shots a day.");
+    if (modelId == QLatin1String("z-ai/glm-5.3-flash"))
+        return tr_("ai.cost.openrouter.glm53flash",
+                   "About $0.001 per shot — roughly $0.10/month at 3 shots a day.");
+    if (modelId == AIRequestShape::kOpenRouterGemmaModel)
+        return tr_("ai.cost.openrouter.gemma4",
+                   "About $0.002 per shot — roughly $0.17/month at 3 shots a day.");
+    return {};
+}
+
+QString OpenRouterProvider::modelHint() const
+{
+    return QStringLiteral(
+               "GPT-6 Luna is the best value of any model tested. GPT-6.1 Sol, Sonnet 5.5 and "
+               "Gemini 3.8 Flash are the same models the direct providers offer, at the same "
+               "price. GLM-5.3 Flash and Gemma 4 31B cost about what Luna does, with less "
+               "testing behind them. OpenRouter adds a 5.5% fee when you buy credits.");
+}
+
+QUrl OpenRouterProvider::chatCompletionsUrl() const
+{
+    return QUrl(m_baseUrl.isEmpty()
+        ? QString::fromLatin1(API_URL)
+        : m_baseUrl + QStringLiteral("/api/v1/chat/completions"));
 }
 
 void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
 {
-    QUrl url(m_baseUrl.isEmpty()
-        ? QString::fromLatin1(API_URL)
-        : m_baseUrl + QStringLiteral("/api/v1/chat/completions"));
     QNetworkRequest req;
-    req.setUrl(url);
+    req.setUrl(chatCompletionsUrl());
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     // Attribution headers for OpenRouter leaderboard
@@ -1615,7 +1612,7 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
 void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed(tr_("ai.openrouter.keyOrModelMissing", "OpenRouter API key or model not configured"));
+        emit analysisFailed(tr_("ai.openrouter.keyMissing", "OpenRouter API key not configured"));
         return;
     }
 
@@ -1638,6 +1635,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1645,14 +1643,13 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
 void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed(tr_("ai.openrouter.keyOrModelMissing", "OpenRouter API key or model not configured"));
+        emit analysisFailed(tr_("ai.openrouter.keyMissing", "OpenRouter API key not configured"));
         return;
     }
 
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
     // A conversation turn is prose the user reads, so a cut-off reply still has
     // value — show it with a notice rather than discarding it (see
     // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
@@ -1663,6 +1660,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1723,11 +1721,9 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    // finish_reason "length" = the answer hit max_tokens. This matters most on
-    // OpenRouter: the model is a free-text user string, so it can point at a
-    // reasoning model whose hidden tokens eat the cap the way #1691's did.
-    // "content_filter" and "error" likewise mean the text in hand is not the
-    // whole answer.
+    // finish_reason "length" = the answer hit max_tokens, e.g. when hidden
+    // reasoning tokens eat the cap the way #1691's did. "content_filter" and
+    // "error" likewise mean the text in hand is not the whole answer.
     const QString finishReason = choice["finish_reason"].toString();
     const QJsonObject message = choice["message"].toObject();
     QString content = message["content"].toString();
@@ -1753,7 +1749,7 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
 void OpenRouterProvider::testConnection()
 {
     if (!isConfigured()) {
-        emit testResult(false, tr_("ai.openrouter.testKeyOrModel", "API key or model not configured"));
+        emit testResult(false, tr_("ai.openrouter.testKey", "API key not configured"));
         return;
     }
 
@@ -1767,10 +1763,10 @@ void OpenRouterProvider::testConnection()
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 10;
+    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
 
-    QUrl url(QString::fromLatin1(API_URL));
     QNetworkRequest req;
-    req.setUrl(url);
+    req.setUrl(chatCompletionsUrl());
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
@@ -1900,7 +1896,6 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
-    m_truncationPolicy = TruncationPolicy::Fail;
     // A conversation turn is prose the user reads, so a cut-off reply still has
     // value — show it with a notice rather than discarding it (see
     // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:

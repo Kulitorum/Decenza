@@ -37,7 +37,8 @@ public:
     virtual QString name() const = 0;
     virtual QString id() const = 0;  // "openai", "anthropic", "gemini", "ollama"
     virtual QString modelName() const = 0;
-    virtual QString shortModelName() const { return modelName(); }
+    // The catalog display name for modelName(), else modelName() itself.
+    virtual QString shortModelName() const;
     virtual bool isConfigured() const = 0;
     virtual bool isLocal() const { return false; }
 
@@ -143,6 +144,13 @@ protected:
     std::weak_ptr<AIOperationLog> m_logOperation;
     void setStatus(Status status);
 
+    // For providers with a catalog: the first entry is the recommended default,
+    // so the C++ default and the pickers' "unset → first entry" are one fact.
+    QString defaultCatalogModel() const;
+    // Empty keeps the current model; an id the catalog does not offer is logged
+    // and ignored, so a stale stored value can't break a request.
+    void selectCatalogModel(QString& model, const QString& modelId);
+
     // Map Qt network errors to user-friendly messages (localized via tr_).
     QString friendlyNetworkError(QNetworkReply* reply) const;
 
@@ -235,7 +243,6 @@ public:
     QString name() const override { return "OpenAI"; }
     QString id() const override { return "openai"; }
     QString modelName() const override { return m_model; }
-    QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
@@ -244,10 +251,7 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
-    // Select the wire model. Ignores empty (keeps current default) and any id
-    // not in availableModels(), so a stale/unknown stored value can't break the
-    // request.
-    void setModel(const QString& modelId);
+    void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -275,10 +279,7 @@ private:
 
     QString m_apiKey;
     QString m_baseUrl;
-    // Selected wire model. Defaulted in the constructor to the first
-    // availableModels() entry (the recommended default), so the C++ default and
-    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
-    QString m_model;
+    QString m_model;  // defaultCatalogModel() until the user picks one
     static constexpr const char* API_URL = "https://api.openai.com/v1/chat/completions";
     static constexpr const char* RESPONSES_API_URL = "https://api.openai.com/v1/responses";
 };
@@ -295,7 +296,6 @@ public:
     QString name() const override { return "Anthropic"; }
     QString id() const override { return "anthropic"; }
     QString modelName() const override { return m_model; }
-    QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
@@ -304,10 +304,7 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
-    // Select the wire model. Ignores empty (keeps current default) and any id
-    // not in availableModels(), so a stale/unknown stored value can't break the
-    // request.
-    void setModel(const QString& modelId);
+    void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -338,10 +335,7 @@ private:
 
     QString m_apiKey;
     QString m_baseUrl;
-    // Selected wire model. Defaulted in the constructor to the first
-    // availableModels() entry (the recommended default), so the C++ default and
-    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
-    QString m_model;
+    QString m_model;  // defaultCatalogModel() until the user picks one
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
 };
 
@@ -357,7 +351,6 @@ public:
     QString name() const override { return "Google Gemini"; }
     QString id() const override { return "gemini"; }
     QString modelName() const override { return m_model; }
-    QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
@@ -368,10 +361,7 @@ public:
     // the truncation/finish-reason handling is reachable from a test against a
     // canned-response server (the branch shipped untested and was broken).
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
-    // Select the wire model. Ignores empty (keeps current default) and any id
-    // not in availableModels(), so a stale/unknown stored value can't break the
-    // request URL.
-    void setModel(const QString& modelId);
+    void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -393,10 +383,7 @@ private:
 
     QString m_apiKey;
     QString m_baseUrl;
-    // Selected wire model. Defaulted in the constructor to the first
-    // availableModels() entry (the recommended default), so the C++ default and
-    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
-    QString m_model;
+    QString m_model;  // defaultCatalogModel() until the user picks one
     QString apiUrl() const;
 };
 
@@ -407,17 +394,18 @@ class OpenRouterProvider : public AIProvider {
 public:
     explicit OpenRouterProvider(QNetworkAccessManager* networkManager,
                                  const QString& apiKey,
-                                 const QString& model,
                                  QObject* parent = nullptr);
 
     QString name() const override { return "OpenRouter"; }
     QString id() const override { return "openrouter"; }
     QString modelName() const override { return m_model; }
-    QString shortModelName() const override { return "Multi"; }
-    bool isConfigured() const override { return !m_apiKey.isEmpty() && !m_model.isEmpty(); }
+    bool isConfigured() const override { return !m_apiKey.isEmpty(); }
+    QList<ModelOption> availableModels() const override;
+    QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
-    void setModel(const QString& model) { m_model = model; }
+    void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }
     // empty → keeps default upstream URL. See GeminiProvider::setBaseUrl for
     // why this exists.
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
@@ -432,10 +420,11 @@ private slots:
 
 private:
     void sendRequest(const QJsonObject& requestBody);
+    QUrl chatCompletionsUrl() const;
 
     QString m_apiKey;
     QString m_baseUrl;
-    QString m_model;
+    QString m_model;  // defaultCatalogModel() until the user picks one
     static constexpr const char* API_URL = "https://openrouter.ai/api/v1/chat/completions";
 };
 

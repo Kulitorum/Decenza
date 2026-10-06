@@ -114,7 +114,8 @@ python3 replay.py reveal   --run blind
 python3 replay.py emission --models gpt-6.1-sol@low --captured captured_v2 --label v2
 ```
 
-Keys come from `$OPENAI_API_KEY` / `$ANTHROPIC_API_KEY` / `$GEMINI_API_KEY`, else
+A `vendor/model` id runs through OpenRouter. Keys come from `$OPENAI_API_KEY` /
+`$ANTHROPIC_API_KEY` / `$GEMINI_API_KEY` / `$OPENROUTER_API_KEY`, else
 Decenza's own configured keys on macOS. Capture prompts from the production
 tablet (the de1 MCP), whose shot ids `scenarios.json` points at.
 
@@ -124,6 +125,27 @@ checked on 2026-07-30 and found wrong — one listed Terra at $2.50/$15 against 
 actual $2.00/$12.
 
 ## Findings log
+
+### 2026-10-06 — OpenRouter: the direct models plus GLM-5.3 Flash and Gemma 4
+
+OpenRouter's model became a fixed list. Probe on `bitter-47s` and `sour` (real
+prompts): Luna reasons 1.1–1.4K tokens with no `reasoning` field and 0 at
+`none`; Sol, Sonnet 5.5 and 3.8 Flash make reasoning mandatory (`none` is a
+400) and reasoned 0–62 tokens at `low`, each returning the block with the grind
+direction it gives direct. Costs match the direct providers.
+
+Cheap candidates, one or two calls each on `bitter-47s` (needs one step
+coarser, 6.75) and `worst-score` (score 40 at 8; anchor back to the 6.5 shot
+that scored 75 is right, since a score exists). Reasoning off or default: Command A+ went
+6.5 → 6.25 calling it coarser; Mistral Small 8 → 8.25 calling it finer, with an
+invented taste; DeepSeek V4 Pro jumped two steps; Qwen 3.8 Flash picked 6.0 for
+coarser and left its working in the reply; MiniMax M3 reasoned through the
+4,096-token cap. Reasoning on ($0.023 for 12 calls): DeepSeek V4.1 Flash called
+6.0 coarser; Qwen hit the cap twice; Mistral Small expected a coarser shot to run
+longer and jumped two steps; GLM-5.3 Flash (`low`) and Gemma 4 31B were right on
+both, each stating a guessed taste. Both were added on the maintainer's call,
+with reasoning on: two scenarios is thin evidence, and they cost about what
+Luna does.
 
 ### 2026-10-05 — system prompt trimmed, contradictions removed
 
