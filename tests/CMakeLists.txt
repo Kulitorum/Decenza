@@ -1288,7 +1288,9 @@ add_decenza_test(tst_decentshotupload
     ${CMAKE_SOURCE_DIR}/src/network/decentshotuploader.cpp
     $<TARGET_OBJECTS:decenza_testairesources>
 )
-target_link_libraries(tst_decentshotupload PRIVATE decenza_shotlib)
+# NetworkPrivate: QDecompressHelper decodes the gzip upload body.
+find_package(Qt6 REQUIRED COMPONENTS NetworkPrivate)
+target_link_libraries(tst_decentshotupload PRIVATE decenza_shotlib Qt6::NetworkPrivate)
 target_include_directories(tst_decentshotupload PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---

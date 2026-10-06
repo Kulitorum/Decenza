@@ -21,6 +21,8 @@ https://decentespresso.com/support/api/
 trimmed). Sign-in and uploads time out after 60 s (on 2026-10-04 the server took 25-29 s per upload and 33-38 s per page). Each sign-in outcome is logged with its duration, HTTP status and Qt error code. No OAuth: neither Decent app uses it, and it needs a client
 registration.
 
+**Body.** The `ShotRecord` JSON is sent gzipped with `Content-Encoding: gzip`, as Decent asked (2026-10-06; not yet in their API docs). `Gzip::compress` (`src/core/gzip.h`) re-wraps `qCompress`'s deflate data, so there is no zlib dependency; a body that cannot be compressed goes plain. `last_decent_upload.json` keeps the uncompressed document.
+
 **Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`), cleared on disconnect. It is not captured when a
 shot is saved: a first upload uses the connected machine's serial (Decaid's rule for legacy shots), and only the serial an
 upload was filed under is kept (`decent_serial`), so a replacement lands on the same machine. With no machine connected, a

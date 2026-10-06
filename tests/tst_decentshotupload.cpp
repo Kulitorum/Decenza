@@ -4,6 +4,7 @@
 // path every destination is reached through.
 
 #include <QtTest>
+#include <QtNetwork/private/qdecompresshelper_p.h>
 #include <QFile>
 #include <QJsonArray>
 #include <QSet>
@@ -152,6 +153,22 @@ protected:
     }
 };
 
+// Decodes a gzip upload body with Qt's own decoder, which checks the CRC and
+// length trailer; empty if it is not valid gzip.
+QByteArray gunzip(const QByteArray& gzipped) {
+    QDecompressHelper helper;
+    if (!helper.setEncoding("gzip")) return {};
+    helper.feed(gzipped);
+    QByteArray out;
+    char buffer[4096];
+    while (helper.hasData()) {
+        const qsizetype n = helper.read(buffer, sizeof(buffer));
+        if (n <= 0) break;
+        out.append(buffer, n);
+    }
+    return helper.isValid() ? out : QByteArray();
+}
+
 QVariantList series(std::initializer_list<QPointF> points) {
     QVariantList out;
     for (const QPointF& p : points) out.append(QVariantMap{{"x", p.x()}, {"y", p.y()}});
@@ -243,7 +260,10 @@ class tst_DecentShotUpload : public QObject {
             });
             return s;
         }
-        QJsonObject sentDocument(qsizetype i) const { return QJsonDocument::fromJson(nam.bodies.at(i)).object(); }
+        QJsonObject sentDocument(qsizetype i) const {
+            const bool gzipped = nam.requests.at(i).rawHeader("Content-Encoding") == "gzip";
+            return QJsonDocument::fromJson(gzipped ? gunzip(nam.bodies.at(i)) : nam.bodies.at(i)).object();
+        }
     };
 
 private slots:
@@ -384,6 +404,9 @@ private slots:
         QCOMPARE(rig.nam.requests.at(0).url().query(), QString());
         QCOMPARE(rig.nam.requests.at(0).rawHeader("Authorization"), basic("owner@example.com", "token"));
         QCOMPARE(rig.nam.requests.at(0).header(QNetworkRequest::ContentTypeHeader).toString(), QStringLiteral("application/json"));
+        // Gzip, as Decent asked: the gzip magic, and a body Qt's own decoder accepts.
+        QCOMPARE(rig.nam.requests.at(0).rawHeader("Content-Encoding"), QByteArray("gzip"));
+        QVERIFY(rig.nam.bodies.at(0).startsWith("\x1f\x8b"));
         QCOMPARE(rig.sentDocument(0)["machine"].toObject()["model"].toString(), QStringLiteral("DE1PRO"));
 
         // An edit made while an upload is out may not be in it: it stays pending.

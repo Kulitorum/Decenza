@@ -1,4 +1,5 @@
 #include "decentshotuploader.h"
+#include "core/gzip.h"
 
 #include "core/dbutils.h"
 #include "core/diagnosticlogging.h"
@@ -136,8 +137,14 @@ void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
             p.body = DecentShotRecord::build(shot, machine);
             p.error = Result::None;
         });
-        if (p.error == Result::None && !p.skip)
+        if (p.error == Result::None && !p.skip) {
             writeDebugFile(QStringLiteral("last_decent_upload.json"), QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
+            // Decent asked for gzip uploads. A body that cannot be compressed goes plain.
+            if (QByteArray gzipped = Gzip::compress(p.body); !gzipped.isEmpty()) {
+                p.body = std::move(gzipped);
+                p.gzipped = true;
+            }
+        }
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, destroyed, p]() {
             if (!*destroyed) onPrepared(p);
@@ -165,6 +172,7 @@ void DecentShotUploader::send() {
     // Exactly what Decaid's proxy and Decent's API docs send. JSON is UTF-8 by
     // definition (RFC 8259), so a charset parameter adds nothing.
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (m_current.gzipped) request.setRawHeader("Content-Encoding", "gzip");
     request.setTransferTimeout(kUploadTimeoutMs);
     if (!m_account->applyAuth(request)) {
         // Signed out or refused while the row was being read.
