@@ -151,6 +151,7 @@ private:
     QList<ShotUploadDestination*> m_destinations;
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
     QHash<ShotUploadDestination*, Current> m_current;
+    QHash<ShotUploadDestination*, Job> m_pacing;   // a background send waiting for its pacer turn
     int m_retryDelayMs = 2000;
     // A destination's queue is held while it has an entry here; the timer ends the hold.
     QHash<ShotUploadDestination*, QTimer*> m_rateLimitWaits;

@@ -64,7 +64,13 @@ struct FakeDestination : ShotUploadDestination {
     void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
     int paced = 0;
-    void paceBackground(QObject*, std::function<void()> send) override { ++paced; send(); }
+    bool holdTurns = false;                  // keep pacer turns until the test runs them
+    QList<std::function<void()>> turns;
+    void paceBackground(QObject*, std::function<void()> send) override {
+        ++paced;
+        if (holdTurns) turns.append(std::move(send));
+        else send();
+    }
     void finish() { finishAttempt({answer, status}); }
 };
 
@@ -1141,6 +1147,53 @@ private slots:
         QTRY_COMPARE(decent.sent.size(), 3);
         QCOMPARE(sentIds().last(), newestFirst.at(1));
         step();
+        closeStorage(storage);
+    }
+
+    // A send the user asks for does not wait for a background send's pacer turn;
+    // asked for the shot that is waiting, it goes now, once.
+    void userSendsDoNotWaitForABackgroundTurn() {
+        SettingsUpload upload;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("turns.db")));
+        const auto add = [&storage](qint64 timestamp, double duration) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = timestamp;
+            r.summary.duration = duration;
+            return storage.importShotRecord(r, false);
+        };
+        const qint64 older = add(1000, 30), newer = add(2000, 30);
+        const qint64 userShot = add(100, 2);   // too short to be offered, so outside the run
+        FakeDestination decent(QStringLiteral("decent"));
+        decent.holdTurns = true;
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
+        ShotUploads uploads(&upload, &storage, {&decent});
+        uploads.setBatchSpacingMs(0);
+        const auto sentIds = [&decent]() {
+            QList<qint64> ids;
+            for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
+            return ids;
+        };
+
+        QTRY_COMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("count").toInt(), 2);
+        uploads.uploadMissing(QStringLiteral("decent"));
+        QTRY_COMPARE(decent.turns.size(), 1);
+        QVERIFY(decent.sent.isEmpty());
+        uploads.uploadNow(userShot);
+        settle();
+        QCOMPARE(sentIds(), QList<qint64>{userShot});
+
+        // The waiting shot, asked for now: it goes at once and its turn sends nothing.
+        uploads.uploadNow(newer);
+        settle();
+        decent.turns.takeFirst()();
+        settle();
+        QCOMPARE(sentIds(), (QList<qint64>{userShot, newer}));
+        QTRY_COMPARE(decent.turns.size(), 1);
+        decent.turns.takeFirst()();
+        settle();
+        QCOMPARE(sentIds(), (QList<qint64>{userShot, newer, older}));
         closeStorage(storage);
     }
 

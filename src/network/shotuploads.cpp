@@ -156,7 +156,12 @@ void ShotUploads::enqueue(qint64 shotId, Send how) {
 void ShotUploads::enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background) {
     QList<Job>& queue = m_queues[destination];
     auto queued = std::find_if(queue.begin(), queue.end(), [shotId](const Job& job) { return job.shotId == shotId; });
-    if (queued == queue.end()) {
+    const auto pacing = m_pacing.constFind(destination);
+    if (!background && pacing != m_pacing.cend() && pacing->shotId == shotId) {
+        // Asked for now while it waits for a background turn: it goes now, once.
+        queue.prepend({shotId, how == Send::UploadOrUpdate ? how : pacing->how, false});
+        m_pacing.erase(pacing);
+    } else if (queued == queue.end()) {
         queue.append({shotId, how, background});
     } else {
         if (how == Send::UploadOrUpdate) queued->how = how;
@@ -185,26 +190,32 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     }
     if (m_rateLimitWaits.contains(destination)) return;   // followRateLimit() pumps when the wait ends
     QList<Job>& queue = m_queues[destination];
-    // While the machine is operating only sends the user asked for go; setMachineOperating(false) pumps again.
+    // A background send goes only when its pacer turn comes, one at a time, and not while the machine
+    // is operating (setMachineOperating(false) pumps again); sends the user asked for go meanwhile.
+    const bool backgroundMayGo = !m_machineOperating && !m_pacing.contains(destination);
     const auto next = std::find_if(queue.begin(), queue.end(),
-                                   [this](const Job& job) { return !(m_machineOperating && job.background); });
+                                   [backgroundMayGo](const Job& job) { return !job.background || backgroundMayGo; });
     if (next == queue.end()) return;
     const Job job = *next;
     queue.erase(next);
-    m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
     if (!job.background) {
+        m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
         destination->attemptSavedShot(job.shotId, job.how);
         return;
     }
-    destination->paceBackground(this, [this, destination, job]() {
-        if (m_current.value(destination).shotId != job.shotId) return;
-        if (m_rateLimitWaits.contains(destination) || m_machineOperating || !destination->isActive()) {
-            // Things changed while it waited for its turn: back to the front for pump() to decide.
-            m_current.remove(destination);
+    m_pacing.insert(destination, job);
+    destination->paceBackground(this, [this, destination, shotId = job.shotId]() {
+        const auto pacing = m_pacing.find(destination);
+        if (pacing == m_pacing.end() || pacing->shotId != shotId) return;   // sent now, or dropped
+        const Job job = m_pacing.take(destination);
+        if (m_current.value(destination).shotId != 0 || m_rateLimitWaits.contains(destination)
+            || m_machineOperating || !destination->isActive()) {
+            // Not its moment after all: back to the front for pump() to decide.
             m_queues[destination].prepend(job);
             pump(destination);
             return;
         }
+        m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
         destination->attemptSavedShot(job.shotId, job.how);
     });
 }
@@ -215,6 +226,7 @@ void ShotUploads::dropQueue(ShotUploadDestination* destination, const QString& w
         logUploads(destination->name(), QStringLiteral("%1 queued shot(s) not sent (%2); Upload missing shots offers them")
                                             .arg(queue.size()).arg(why));
     queue.clear();
+    m_pacing.remove(destination);
     if (m_runs.contains(destination)) endRun(destination, why);
 }
 
@@ -444,6 +456,7 @@ void ShotUploads::nextBatch(ShotUploadDestination* destination) {
     run->paused = false;
     run->sinceBatch.start();
     const qint64 sending = m_current.value(destination).shotId;
+    const qint64 pacing = m_pacing.value(destination).shotId;
     for (int i = 0; i < kBatchSize && !run->pending.isEmpty(); ++i) {
         const qint64 shotId = run->pending.takeFirst();
         // Unsent edits come first, and go as updates: only their edited fields, so
@@ -452,7 +465,7 @@ void ShotUploads::nextBatch(ShotUploadDestination* destination) {
         if (run->unsentLeft > 0) --run->unsentLeft;
         run->outstanding.insert(shotId);
         // Already being sent: its finish counts for the run, and a second send would repeat it.
-        if (shotId != sending) enqueueTo(destination, shotId, how, true);
+        if (shotId != sending && shotId != pacing) enqueueTo(destination, shotId, how, true);
     }
 }
 
