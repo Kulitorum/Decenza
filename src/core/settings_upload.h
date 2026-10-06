@@ -35,7 +35,11 @@ public:
     // Device state, so settings export leaves it out.
     qint64 rateLimitedUntilMs(const QString& destination) const;
     void setRateLimitedUntilMs(const QString& destination, qint64 msSinceEpoch);
-    // A 429 from `destination`: no requests for kRateLimitWaitMs from now.
+    // How long the wait has left, in ms; 0 when there is none. The one test every sender uses.
+    qint64 rateLimitRemainingMs(const QString& destination) const;
+    // A 429 from `destination`: no requests for kRateLimitWaitMs from now. A 429
+    // during a wait does not extend it: the server's window is fixed from its
+    // first request (Solid Cache's increment keeps the entry's expiry, store/api.rb).
     void noteRateLimited(const QString& destination);
     // Visualizer allows 200 API requests per user in 10 minutes and sends no
     // Retry-After (api/base_controller.rb:3-14), so a 429 waits out the window.

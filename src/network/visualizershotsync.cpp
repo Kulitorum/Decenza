@@ -99,9 +99,7 @@ void VisualizerShotSync::start()
 {
     if (m_running || !enabled() || !m_shots || !m_shots->isReady())
         return;
-    // Waiting out a 429 (SettingsUpload::noteRateLimited): this pass is skipped, the next one runs.
-    if (m_settings->upload()->rateLimitedUntilMs(m_uploader->name()) > QDateTime::currentMSecsSinceEpoch())
-        return;
+    if (m_uploader->rateLimitWait() > 0) return;   // waiting out a 429: the next pass runs
     m_running = true;
     m_passAccount = m_settings->value("visualizer/username").toString();
     m_cursor = loadCursor();
@@ -273,7 +271,8 @@ void VisualizerShotSync::readShot(const ShotToRead& shot, std::function<void(con
 
 void VisualizerShotSync::refreshShot(qint64 shotId)
 {
-    if (shotId <= 0 || !enabled() || !m_shots || !m_shots->isReady())
+    // Waiting out a 429, the page shows what is stored here.
+    if (shotId <= 0 || !enabled() || !m_shots || !m_shots->isReady() || m_uploader->rateLimitWait() > 0)
         return;
     const QString dbPath = m_shots->databasePath();
     QPointer<VisualizerShotSync> self(this);
@@ -470,7 +469,7 @@ void VisualizerShotSync::readNextBag()
 
 void VisualizerShotSync::refreshBag(qint64 bagId)
 {
-    if (bagId <= 0 || !enabled() || !m_shots || !m_shots->isReady() || !m_bags)
+    if (bagId <= 0 || !enabled() || !m_shots || !m_shots->isReady() || !m_bags || m_uploader->rateLimitWait() > 0)
         return;
     const QString dbPath = m_shots->databasePath();
     QPointer<VisualizerShotSync> self(this);

@@ -89,7 +89,7 @@ public:
     // At startup: picks up runs a restart interrupted, leaving out the shots that
     // already failed during them.
     void resumeMissingRuns();
-    // MachineState::isOperating(): no batch starts while it is true.
+    // MachineState::isOperating(): no Upload missing shots send starts while it is true.
     void setMachineOperating(bool operating);
     QVariantMap missing() const;
     // Counts what each active destination is missing again; a call while a count
@@ -152,8 +152,8 @@ private:
     QHash<ShotUploadDestination*, QList<Job>> m_queues;
     QHash<ShotUploadDestination*, Current> m_current;
     int m_retryDelayMs = 2000;
-    QSet<ShotUploadDestination*> m_rateLimited;              // queue held until rateLimitedUntilMs()
-    QHash<ShotUploadDestination*, QTimer*> m_rateLimitTimers;   // ends each hold
+    // A destination's queue is held while it has an entry here; the timer ends the hold.
+    QHash<ShotUploadDestination*, QTimer*> m_rateLimitWaits;
 
     struct Run {
         int id = 0;                   // the batch-spacing timer acts only on the run that set it
@@ -162,7 +162,7 @@ private:
         bool paused = false;          // waiting for the machine to stop operating (logged once)
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
-        QList<Job> outstanding;       // the batch being sent, in order
+        QSet<qint64> outstanding;     // the batch being sent
         int done = 0;                 // finished, however they went
         int sent = 0;
         int failed = 0;

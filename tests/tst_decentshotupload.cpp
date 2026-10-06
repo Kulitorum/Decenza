@@ -1098,6 +1098,83 @@ private slots:
         closeStorage(storage);
     }
 
+    // While the machine is operating, a run's queued sends wait and a send the
+    // user asks for still goes; the run carries on when the machine stops.
+    void missingShotsWaitForTheMachineMidBatch() {
+        SettingsUpload upload;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_dir.filePath("operating.db")));
+        const auto add = [&storage](qint64 timestamp, double duration) {
+            ShotRecord r = makeShot();
+            r.summary.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            r.summary.timestamp = timestamp;
+            r.summary.duration = duration;
+            return storage.importShotRecord(r, false);
+        };
+        QList<qint64> newestFirst;
+        for (int i = 1; i <= 5; ++i) newestFirst.prepend(add(1000 * i, 30));
+        const qint64 userShot = add(100, 2);   // too short to be offered, so outside the run
+        FakeDestination decent(QStringLiteral("decent"));
+        decent.holding = true;
+        upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
+        ShotUploads uploads(&upload, &storage, {&decent});
+        uploads.setBatchSpacingMs(0);
+        const auto sentIds = [&decent]() {
+            QList<qint64> ids;
+            for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
+            return ids;
+        };
+        const auto step = [&decent]() { decent.finish(); settle(); };
+
+        QTRY_COMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("count").toInt(), 5);
+        uploads.uploadMissing(QStringLiteral("decent"));
+        QTRY_COMPARE(decent.sent.size(), 1);
+        uploads.setMachineOperating(true);
+        step();
+        uploads.uploadNow(userShot);
+        settle();
+        QCOMPARE(sentIds(), (QList<qint64>{newestFirst.at(0), userShot}));
+        step();
+        QCOMPARE(decent.sent.size(), 2);
+
+        uploads.setMachineOperating(false);
+        QTRY_COMPARE(decent.sent.size(), 3);
+        QCOMPARE(sentIds().last(), newestFirst.at(1));
+        step();
+        closeStorage(storage);
+    }
+
+    // A 429 to any Visualizer request starts its wait, and the background pacer
+    // waits it out; a 429 from another host does not.
+    void visualizerWaitsOutA429() {
+        CannedNam nam;
+        Settings settings;
+        VisualizerUploader visualizer(&nam, &settings);
+        const auto answer = [&nam](const char* url) {
+            QNetworkReply* reply = nam.get(QNetworkRequest(QUrl(QString::fromLatin1(url))));
+            QTRY_VERIFY(reply->isFinished());
+            reply->deleteLater();
+        };
+        nam.replies = {{429, R"({"error":"Too many requests. Please try again later."})"}};
+
+        answer("https://www.decentespresso.com/support/api/shot_upload");
+        QCOMPARE(visualizer.rateLimitWait(), 0);
+        QObject context;
+        bool ran = false;
+        visualizer.paceApiRequest(&context, [&ran]() { ran = true; });
+        QTRY_VERIFY(ran);
+
+        answer("https://visualizer.coffee/api/shots");
+        QVERIFY(visualizer.rateLimitWait() > 0);
+        // A second uploader has no pacing backlog, so only the wait can hold it back.
+        VisualizerUploader fresh(&nam, &settings);
+        ran = false;
+        fresh.paceApiRequest(&context, [&ran]() { ran = true; });
+        settle();
+        QVERIFY(!ran);
+        settings.upload()->setRateLimitedUntilMs(QStringLiteral("visualizer"), 0);
+    }
+
     // A run sends unsent edits as updates, never repeats the shot being sent,
     // ends when a send outside it is refused, and ends when switched off.
     void missingShotsRunAlongsideOtherSends() {

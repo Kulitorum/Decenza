@@ -1285,19 +1285,23 @@ QString ShotServer::generateSettingsPage() const
             for (const dest of ['visualizer', 'decent']) {
                 const m = (missing || {})[dest] || {};
                 const count = m.count || 0, failed = m.failed || 0;
-                running = running || !!m.running;
-                document.getElementById(dest + '-missing').style.display = (m.running || count > 0) ? '' : 'none';
+                running = running || !!m.running || !!m.resumeAtMs;
+                const resumesAt = m.resumeAtMs
+                    ? new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', hour12: !!showMissing.hour12})
+                    : '';
+                document.getElementById(dest + '-missing').style.display = (m.running || count > 0 || resumesAt) ? '' : 'none';
                 const button = document.getElementById(dest + '-missing-button');
-                button.style.display = m.running ? 'none' : '';
+                button.style.display = (m.running || count === 0) ? 'none' : '';
                 button.textContent = 'Upload missing shots (' + count + ')';
-                document.getElementById(dest + '-missing-detail').textContent = m.running && m.resumeAtMs
-                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at '
-                        + new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', hour12: !!showMissing.hour12})
+                document.getElementById(dest + '-missing-detail').textContent = m.running && resumesAt
+                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at ' + resumesAt
+                    : resumesAt
+                    ? 'The server asked to slow down; uploads continue at ' + resumesAt
                     : m.running
                     ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
                     : failed > 0 ? failed + ' of them could not be uploaded before' : '';
             }
-            // Progress is polled only while a run is going.
+            // Polled only while a run is going or uploads are waiting.
             clearTimeout(showMissing.timer);
             if (running) showMissing.timer = setTimeout(refreshMissing, 5000);
         }

@@ -64,9 +64,13 @@ void SettingsUpload::setRateLimitedUntilMs(const QString& destination, qint64 ms
     emit rateLimitedUntilChanged(destination);
 }
 
+qint64 SettingsUpload::rateLimitRemainingMs(const QString& destination) const {
+    return qMax<qint64>(0, rateLimitedUntilMs(destination) - QDateTime::currentMSecsSinceEpoch());
+}
+
 void SettingsUpload::noteRateLimited(const QString& destination) {
-    const qint64 until = QDateTime::currentMSecsSinceEpoch() + kRateLimitWaitMs;
-    if (until > rateLimitedUntilMs(destination)) setRateLimitedUntilMs(destination, until);
+    if (rateLimitRemainingMs(destination) == 0)
+        setRateLimitedUntilMs(destination, QDateTime::currentMSecsSinceEpoch() + kRateLimitWaitMs);
 }
 
 void SettingsUpload::setMissingRunStartedAt(const QString& destination, qint64 secsSinceEpoch) {

@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-// Upload missing shots on a destination card (D14): shown only while the
-// destination is missing shots, with how many and how many failed; while the run
-// goes, its progress in place of the button.
+// Upload missing shots on a destination card (D14): shown while the destination
+// is missing shots, with how many and how many failed; while the run goes, its
+// progress in place of the button. While a 429 holds its uploads, when they resume.
 ColumnLayout {
     id: root
 
@@ -17,12 +17,14 @@ ColumnLayout {
     readonly property bool running: root.entry !== undefined && root.entry.running === true
     readonly property int count: root.entry !== undefined ? (root.entry.count ?? 0) : 0
     readonly property int failed: root.entry !== undefined ? (root.entry.failed ?? 0) : 0
+    readonly property string resumesAt: root.entry !== undefined && root.entry.resumeAtMs
+                                        ? Theme.clockTime(new Date(root.entry.resumeAtMs)) : ""
 
-    visible: root.running || root.count > 0
+    visible: root.running || root.count > 0 || root.resumesAt.length > 0
     spacing: Theme.spacingSmall
 
     AccessibleButton {
-        visible: !root.running
+        visible: !root.running && root.count > 0
         text: TranslationManager.translate("settings.upload.missing.button", "Upload missing shots (%1)").arg(root.count)
         accessibleName: TranslationManager.translate("settings.upload.missing.accessible",
                                                      "Upload %1 missing shots").arg(root.count)
@@ -34,14 +36,16 @@ ColumnLayout {
         visible: text.length > 0
         wrapMode: Text.WordWrap
         font: Theme.captionFont
-        color: root.failed > 0 && !root.running ? Theme.errorColor : Theme.textSecondaryColor
+        color: root.failed > 0 && !root.running && root.resumesAt.length === 0 ? Theme.errorColor : Theme.textSecondaryColor
         Accessible.role: Accessible.StaticText
         Accessible.name: text
-        text: root.running && root.entry.resumeAtMs
+        text: root.running && root.resumesAt.length > 0
               ? TranslationManager.translate("settings.upload.missing.rateLimited",
                                              "%1 of %2 done. The server asked to slow down; continuing at %3")
-                    .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
-                    .arg(Theme.clockTime(new Date(root.entry.resumeAtMs)))
+                    .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0).arg(root.resumesAt)
+              : root.resumesAt.length > 0
+              ? TranslationManager.translate("settings.upload.waiting",
+                                             "The server asked to slow down; uploads continue at %1").arg(root.resumesAt)
               : root.running
               ? TranslationManager.translate("settings.upload.missing.progress", "Uploading %1 of %2")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)

@@ -160,6 +160,10 @@ public:
     // background pass, so two passes together still keep to it, and not before a
     // 429's wait ends. Dropped if `context` is destroyed first.
     void paceApiRequest(QObject* context, std::function<void()> send);
+    // How long a 429's wait has left, in ms (0: none). Background requests that are
+    // not paced check it and wait for their next turn instead of sending.
+    qint64 rateLimitWait() const;
+    static constexpr const char* VISUALIZER_BASE_URL = "https://visualizer.coffee";
     // Upload missing shots is a background pass too.
     void paceBackground(QObject* context, std::function<void()> send) override { paceApiRequest(context, std::move(send)); }
 
@@ -484,7 +488,4 @@ private:
     // The send already re-uploaded after a PATCH 404 (at most once).
     bool m_jobRelinked = false;
 
-    static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
-    static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";
-    static constexpr const char* VISUALIZER_SHOT_URL = "https://visualizer.coffee/shots/";
 };

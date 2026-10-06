@@ -54,6 +54,7 @@ int scaledSettingValue(double realWorldValue, double scale)
 #include "../core/batterymanager.h"
 #include "../screensaver/screensavervideomanager.h"
 
+#include <QDateTime>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -347,12 +348,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         break;
                     }
                     shotUploads->uploadNow(shotId);
-                    respond(QJsonObject{
+                    QJsonObject result{
                         {"success", true},
                         {"destinations", QJsonArray::fromStringList(destinations)},
                         {"message", QString("Upload queued for shot %1; each destination records it when its "
                                             "answer arrives (visualizer_id, Decent upload state)").arg(shotId)}
-                    });
+                    };
+                    // A destination waiting out a 429 sends nothing until then.
+                    QJsonObject waiting;
+                    for (const QString& destination : destinations) {
+                        if (const qint64 left = settings->upload()->rateLimitRemainingMs(destination); left > 0) {
+                            const QDateTime at = QDateTime::currentDateTime().addMSecs(left);
+                            waiting[destination] = at.toOffsetFromUtc(at.offsetFromUtc()).toString(Qt::ISODate);
+                        }
+                    }
+                    if (!waiting.isEmpty()) result["rateLimitedUntil"] = waiting;
+                    respond(result);
                 }, Qt::QueuedConnection);
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
