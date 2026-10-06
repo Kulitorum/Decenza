@@ -1,7 +1,7 @@
 # shotserver-bags Specification
 
 ## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
+The ShotServer web `/beans` page: the bag inventory as the app shows it, with the same fields and actions, served by the running app to a browser on the network.
 
 ## Requirements
 

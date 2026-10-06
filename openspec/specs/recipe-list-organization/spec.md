@@ -1,7 +1,7 @@
 # recipe-list-organization Specification
 
 ## Purpose
-TBD - created by archiving change add-recipe-search-sort. Update Purpose after archive.
+Search and sort for the recipe list, in the app and on the web `/recipes` page, so a long recipe library stays easy to find things in.
 
 ## Requirements
 
