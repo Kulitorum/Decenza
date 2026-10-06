@@ -34,7 +34,9 @@ T.Page {
         Layout.preferredWidth: Theme.scaled(72)
         Layout.preferredHeight: Theme.touchTargetMedium
         Layout.alignment: Qt.AlignVCenter
-        primary: true
+        // The blue accent is an opaque slab on the glass chrome; there it takes the
+        // neutral bordered fill, like the bar it sits on.
+        primary: !Theme.glassChrome
         topInset: 0
         bottomInset: 0
         leftPadding: Theme.scaled(12)
@@ -684,7 +686,12 @@ T.Page {
         height: weightAdjustmentGrid.visible
                 ? weightAdjustmentGrid.implicitHeight + 2 * Theme.spacingMedium
                 : Theme.scaled(100)
-        color: Qt.darker(Theme.surfaceColor, 1.3)
+        color: Theme.glassChrome
+               ? Theme.chromeFill(Theme.surfaceColor)
+               : Qt.darker(Theme.surfaceColor, 1.3)
+        // opacity < 1 forces the scrim through the alpha pass — QML_GOTCHAS.md
+        // "Translucent element renders opaque".
+        opacity: Theme.glassChrome ? 0.99 : 1.0
 
         RowLayout {
             id: infoBarRow

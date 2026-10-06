@@ -52,7 +52,8 @@ T.Button {
         if (root.destructive) return Theme.errorColor
         if (root.warning) return Theme.warningButtonColor
         if (root.primary) return Theme.primaryColor
-        return Theme.surfaceColor
+        // cardBackgroundColor is surfaceColor with the glass chrome off, its scrim with it on.
+        return Theme.cardBackgroundColor
     }
 
     // Foreground (icon + label) for the enabled state.
@@ -162,7 +163,7 @@ T.Button {
             } else if (root.destructive || root.warning || root.primary) {
                 fill = showPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
             } else {
-                fill = showPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+                fill = showPressed ? Qt.darker(root._fillColor, 1.2) : root._fillColor
             }
             // Fade the fill when disabled, not just the label. Filled variants draw no
             // border, so without this a disabled button keeps a full-strength background
