@@ -322,35 +322,18 @@ T.Page {
                             font: Theme.subtitleFont
                         }
 
+                        // The same per-model estimate as Settings → AI (AIProvider::costHintFor),
+                        // so the two pages cannot disagree.
                         Text {
-                            text: {
-                                var modelName = MainController.aiManager ? MainController.aiManager.currentModelName : ""
-                                switch(Settings.ai.aiProvider) {
-                                    case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.006 per analysis") + " (" + modelName + ")"
-                                    case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01 per analysis") + " (" + modelName + ")"
-                                    case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "<$0.001 per analysis") + " (" + modelName + ")"
-                                    case "ollama": return TranslationManager.translate("aisettings.cost.ollama", "Free (runs locally on your computer)")
-                                    default: return ""
-                                }
-                            }
+                            text: Settings.ai.aiProvider === "ollama"
+                                  ? TranslationManager.translate("aisettings.cost.ollama", "Free (runs locally on your computer)")
+                                  : (MainController.aiManager ? MainController.aiManager.selectedCostHint : "")
                             color: Theme.textSecondaryColor
                             font: Theme.bodyFont
-                        }
-
-                        Text {
-                            visible: Settings.ai.aiProvider !== "ollama"
-                            text: {
-                                switch(Settings.ai.aiProvider) {
-                                    case "openai": return TranslationManager.translate("aisettings.cost.monthly.openai", "Under $1/month at 3 shots per day")
-                                    case "anthropic": return TranslationManager.translate("aisettings.cost.monthly.anthropic", "Under $1/month at 3 shots per day")
-                                    case "gemini": return TranslationManager.translate("aisettings.cost.monthly.gemini", "About $0.05/month at 3 shots per day — practically free")
-                                    default: return ""
-                                }
-                            }
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
                         }
                     }
                 }

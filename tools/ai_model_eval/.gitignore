@@ -4,4 +4,5 @@
 # notes, timestamps, grinder settings — and this is a public repository. The
 # method for regenerating them is in README.md ("Capture real prompts").
 captured/
+captured_*/
 runs/

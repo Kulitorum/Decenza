@@ -59,56 +59,55 @@ still works, exactly as before.
 
 ### Providers
 
-| Provider | Model | Caching | Cost |
-|----------|-------|---------|------|
-| Anthropic | User-selected (Sonnet 5 default, or Sonnet 4.6) | Explicit `cache_control` on system prompt AND first user message. 1-hour TTL (2x write surcharge, break-even at 2 reads), ~90% discount on cached input | Cloud |
-| OpenAI | User-selected (GPT-5.6 Terra default; Luna, GPT-5.4, GPT-5.4 mini); `reasoning_effort: none` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
-| Google Gemini | User-selected (2.5 Flash default, or 3.5 Flash) | Implicit caching automatic (stable system prompt sent first); explicit Context Caching not implemented | Cloud |
-| OpenRouter | User-selected | Passes through to underlying provider | Cloud |
-| Ollama | User-selected | N/A — local, no cost | Local/free |
+| Provider | Models (first = default) | Thinking off | Caching | Cost |
+|----------|-------------------------|--------------|---------|------|
+| Anthropic | Sonnet 5.5 | `thinking: between_tools` | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
+| OpenAI | GPT-6.1 Sol, GPT-6 Luna | `reasoning_effort`: `low` (Sol), `none` (Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
+| Google Gemini | 3.8 Flash | `thinkingLevel`: `low` | Implicit, automatic (system prompt first); it did not hit on 3.8 Flash in testing | Cloud |
+| OpenRouter | User-entered (default `anthropic/claude-sonnet-5.5`) | none sent | Passes through | Cloud |
+| Ollama | User-selected | none sent | N/A | Local/free |
 
-#### Model-selection rationale (Anthropic / OpenAI catalogs)
+The thinking settings live in one table, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` fails if a catalogued model has no live-verified form. A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`).
 
-Each provider's `availableModels()` catalog lists the recommended model first (existing users keep their explicitly-chosen model regardless of order; only users who never picked a model get the first entry). Anthropic and Gemini are two entries — a quality-recommended default plus one cheaper/faster opt-in. OpenAI is four: the 5.6 pair plus the 5.4 pair retained as known-quantity fallbacks.
+#### Model-selection rationale (2026-10-05)
 
-- **OpenAI**: `gpt-5.6-terra` ($2.00/$12 per 1M in/out) default → `gpt-5.6-luna` ($0.20/$1.20, 10× cheaper) → `gpt-5.4` ($2.50/$15) → `gpt-5.4-mini` ($0.75/$4.50). Terra leads because it is **cheaper than GPT-5.4 on both axes and a generation newer**. **GPT-5.6 Sol** ($5/$30, frontier reasoning this task doesn't need) and **GPT-5.4 nano** (strictly dominated by Luna: same input price, higher output price, older) are intentionally omitted.
+One **balanced** and one **value** pick per provider, each the newest of its tier unless an older model is much cheaper. Flagship tiers (Opus 5.5 at $4/$20 with thinking that cannot be turned off, GPT-6 Astra, Gemini Pro) cost two or more times the balanced pick for no gain on this task.
 
-  Evidence (live replay against the app's real assembled prompts, 2026-07-30 — method below): on a shot whose recent history contained a 64.3 g / 8.5 s blowout, **both 5.6 models flagged it and both 5.4 models missed it** — the split was generational, not tier. GPT-5.4-mini additionally reproduced its documented failure mode, inventing a grind trend that did not exist. Luna measured at least as well as Terra and costs 10× less; it is not the default only because six scenarios of single runs is too thin a base to promote the smallest tier, and prior testing established that tier as the weak one. Revisit with a wider scenario set.
+- **OpenAI**: `gpt-6.1-sol` ($2/$10) and `gpt-6-luna` ($0.10/$0.50) replace Terra, Luna 5.6, 5.4 and 5.4 mini — the same or lower price, a generation newer. Luna is the only value-tier model with no bad advice on the final prompt, which makes it the best value overall. Sol rejects `reasoning_effort: "none"` (lowest is `"low"`) and, at that effort, any `temperature` but the default; the translator omits temperature for it (`setOpenAITemperature`).
+- **Anthropic**: `claude-sonnet-5-5` only. Haiku 4.5 ($1/$5), the only cheaper tier, reversed the grind direction on two of three tasted scenarios (6.0 called "coarser" from 6.5; 11 on a sour shot, anchored on a different bean). Haiku 5.5 is announced for "the coming weeks"; probe and replay it as the value pick when it ships. Sonnet 5.5 rejects `thinking: disabled` and asks for `between_tools`.
+- **Gemini**: `gemini-3.8-flash` ($0.75/$3.75, half of 3.5 Flash) only. A value pick must not give bad advice: on the final prompt 3.5 Flash-Lite reversed a grind direction and advised on an untasted blowout, 3.1 Flash-Lite jumped three steps on a prep failure, and 2.5 Flash went finer on a bitter shot. 3.8 Flash rejects `thinkingLevel: "minimal"`; `"low"` reported no thinking tokens. Google's page flags a price change for 3.8 Flash on January 1, 2027.
 
-  **`reasoning_effort` is `"none"`, and raising it is a regression.** A 4-model × 4-scenario × 2-effort matrix emitted the trailing `nextShot` JSON block **16/16 at `"none"` and lost 5 of 16 at `"low"`** — counts re-verified against the app's real acceptance rule (`AIManager::parseStructuredNext`: last fence pair, closer followed only by whitespace), where every rejection was a genuinely absent block rather than a malformed one. Note this is *not* the token-budget mechanism this document and the code both used to claim: no run hit `finish_reason: "length"` (reasoning ran 208–1245 tokens against a 4096 cap). The models finish cleanly and simply omit the block while reasoning. The `analyzeUrl()` path still sends `"low"` because the 5.4 generation rejects `web_search` at `"none"`; 5.6 accepts it, so that floor is a catalog-compatibility choice, not a `web_search` requirement. This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
+Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings log, 2026-10-05). Every candidate emitted the `nextShot` block on all four tasted scenarios except the three GPT-6 models on `bitter-over`, where each recommended a stop-weight change in prose instead.
 
-  **Known model defect — models write unusable values into `structuredNext.grinderSetting`.** Two shapes seen: prose (Terra "a touch coarser than 9", mini "slightly coarser than 9"; Luna and GPT-5.4 never did in this sample), and — by inspection of the contract, not observed live — an unquoted JSON number, which `QJsonValue::toString()` reads as an empty string.
+**Caching: 5 minutes, not 1 hour, on Anthropic.** On Sonnet 5.5's ~15.4K cached tokens: one analysis plus two quick follow-ups costs $0.045 at 5m, $0.068 at 1h, $0.093 uncached; a lone analysis $0.039 / $0.062 / $0.031. 1h only wins when the next question comes 5–60 minutes later (a 10-minute dial-in rhythm), judged the uncommon case. Each read restarts the TTL. Sonnet 5.5's tokenizer counts ~50% more tokens than OpenAI's for the same prompt (20.9K vs 13.1K).
+
+#### Known model defects
+
+  **Models write unusable values into `structuredNext.grinderSetting`.** Two shapes seen: prose (2026-07: Terra "a touch coarser than 9", mini "slightly coarser than 9"; 2026-10: GPT-6 Sol, GPT-6.1 Sol and GPT-6 Luna, "a touch coarser than 6.5"), and — by inspection of the contract, not observed live — an unquoted JSON number, which `QJsonValue::toString()` reads as an empty string.
 
   Neither can be scored: prose matches no recorded setting, and an empty read looks like "grind unchanged". `computeAdherence()` classifies both as **unscoreable** and returns the verdict `"unclear"`, which has its own instruction in the system prompt — telling the model to treat it like `"ignored"`, not assume the experiment ran, and give the setting as a concrete value next time. (The exact wording lives in `ShotSummarizer`; don't restate it here, it will drift.)
 
-  **The same classification applies to every axis, not just grind.** `rpm`, `doseG` and `profileTitle` each go through a classify step too. That uniformity is the fix for a real defect: the first version guarded `grinderSetting` alone, and `rpm` went on failing *open* — `QJsonValue::toInt()` returns `0` for a JSON string or null, and the matcher treated `<= 0` as a free match, so a malformed `rpm` scored `"followed"`.
+  **The same classification applies to every axis, not just grind.** `rpm`, `doseG`, `targetWeightG` and `profileTitle` each go through a classify step too. That uniformity is the fix for a real defect: the first version guarded `grinderSetting` alone, and `rpm` went on failing *open* — `QJsonValue::toInt()` returns `0` for a JSON string or null, and the matcher treated `<= 0` as a free match, so a malformed `rpm` scored `"followed"`.
 
   Two traps, both found in review of the first attempt at this guard, both worth not repeating:
   - **It must not fall through to the ranges-only `"followed"`.** The prompt reads `"followed"` as "the experiment ran", so a false `"followed"` is *worse* than the false `"ignored"` the guard was written to prevent — it makes the model revise direction or commit harder on an experiment that never ran.
     - **The ranges-only branch itself had the same defect, and it was the last path still exempt.** A turn recommending only ranges still sets an experiment — "run this again, here is what I expect" — so `computeAdherence()` now compares the follow-up shot's setup against the prior shot's via `setupChangedFromPrior()` and returns `"ignored"` when the user regrinded, redosed or switched profile. It returned `"followed"` unconditionally from #1501 until then, which told the model a controlled repeat had happened whenever the user changed something nobody asked them to change. Two rules keep that from over-firing: the comparison uses the same tolerances as scoring, so scale noise is not a decision, and a field is only compared when BOTH shots record it — a blank grinder setting is missing data, not a regrind.
   - **Whitespace does not mean prose.** Compound notation writes `"1 + 4"`, used by every Eureka Mignon and 1Zpresso entry in the catalog. `GrinderAliases::looksLikeSetting()` is the shared authority for what a setting looks like. Its numeric and compound regexes live in `GrinderAliases::detail` and are shared with `parseGrinderSetting()`, so those two cannot drift. Its third shape — lettered dials like `"3F"` — is deliberately local: `parseGrinderSetting()` rejects lettered settings outright, so there is no second caller to stay in step with, and adherence compares them by exact string equality in `grinderMatches()`.
-- **Anthropic**: `claude-sonnet-5` default → `claude-sonnet-4-6` opt-in. Sonnet 5 leads because it is both more capable and **cheaper** at its current $2/$10 per 1M (vs $3/$15 for 4.6) — that rate is nominally introductory, but the GPT-5.6 generation reset the floor beneath it, so list is treated as a ceiling. Thinking is explicitly DISABLED on every request via `AIRequestShape::disableAnthropicThinking()`; omitting the field would run adaptive thinking on Sonnet 5 and can return a reply with no text block at all (#1691). That Sonnet 5 accepts the disabled form *and* still returns text was verified live (2026-07-30, `tools/ai_model_eval/probe_request_shape.py`), which is what makes defaulting to it safe.
-
-Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth. Verify against <https://developers.openai.com/api/docs/pricing>; third-party pricing pages were checked and found **wrong** (one listed Terra at $2.50/$15).
 
 #### Running-cost estimates (`AIProvider::costHintFor`)
 
-The AI settings tab and the ShotServer settings page both show a per-shot cost line under the model picker. It comes from `costHintFor(modelId)`, which lives beside `availableModels()` so a catalog change puts the price in the same diff.
+The AI settings tab, the legacy AI settings page and the ShotServer settings page all show this per-model line; it lives beside `availableModels()` so a catalog change puts the price in the same diff. From the tokens each model used in the 2026-10-05 replay of the trimmed prompt with compact shot data (cold cache), at published rates; monthly assumes 3 shots a day.
 
-Derived from a measured shot-analysis request — **~17K input tokens, ~300 output**, cold cache — at each model's published rate. Repeat shots on the same profile cost less (the system prompt caches at ~90% off). Monthly figures assume 3 shots/day.
+Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
 
-| Model | Per shot | Per month |
-|---|---|---|
-| `gpt-5.6-luna` | $0.004 | $0.34 |
-| `gemini-2.5-flash` | $0.006 | $0.53 |
-| `gpt-5.4-mini` | $0.014 | $1.27 |
-| `gemini-3.5-flash` | $0.028 | $2.54 |
-| `claude-sonnet-5` | $0.037 | $3.33 |
-| `gpt-5.6-terra` | $0.038 | $3.38 |
-| `gpt-5.4` | $0.047 | $4.23 |
-| `claude-sonnet-4-6` | $0.056 | $4.99 |
+| Model | Quality in replay | $/1M in / out | Tokens in / out | Per shot | Per month |
+|---|---|---|---|---|---|
+| `claude-sonnet-5-5` | Right grind direction on every scenario; usable block every time | 2.00 / 10.00 | 20.9K / 0.95K | $0.059 (incl. 5m cache write) | $5.30 |
+| `gpt-6.1-sol` | Usable block every time on the trimmed prompt; never skipped the taste gate | 2.00 / 10.00 | 13.1K / 0.41K | $0.030 | $2.75 |
+| `gemini-3.8-flash` | Usable block every time; on the old prompt moved the grind on an untasted blowout | 0.75 / 3.75 | 13.8K / 0.49K | $0.012 | $1.10 |
+| `gpt-6-luna` | Usable block on 7 of 8 tasted shots, right direction every time, asked before advising on untasted shots | 0.10 / 0.50 | 12.9K / 0.32K | $0.0015 | $0.13 |
 
-**These replaced per-provider hardcoded strings in QML that were wrong by 5×–8×** — they claimed `~$0.01/shot` for Anthropic (actually $0.056 on Sonnet 4.6, 5.6×) and `~$0.006/shot` for OpenAI (actually $0.038 on Terra, 6.3×, or $0.047 on GPT-5.4, 7.8×), plus "under $1/month at 3 shots per day" for a combination costing about $5. The lesson is structural, not arithmetic: a figure keyed on *provider* cannot survive a catalog that spans 10×, and nothing tied those strings to the models they described. Keep the estimate keyed by model, and keep it next to the catalog.
+A figure keyed on provider rather than model was once wrong by 5–8× in QML; keep the estimate keyed by model and next to the catalog.
 
 #### How to re-run the model comparison
 
@@ -211,9 +210,9 @@ Note: `dialing_get_context` (the MCP read tool) calls the same `DialingBlocks::b
 
 ### Structured `nextShot` output (issue #1054)
 
-The shot-analysis system prompt asks the model to append a fenced ` ```json ` block named `nextShot` at the very end of any response that recommends a concrete parameter change (grind / dose / profile). The block carries:
+The shot-analysis system prompt asks the model to append a fenced ` ```json ` block named `nextShot` at the very end of any response that recommends a concrete parameter change (grind / RPM / dose / yield target / profile). The block carries:
 
-- `grinderSetting`, `rpm`, `doseG`, `profileTitle` — present only on the field(s) the recommendation moves. `rpm` (integer) is the motor-RPM half of the dial-in, offered only for variable-RPM grinders and independent of `grinderSetting`; `computeAdherence`/`summarizeStructuredNext` score and render it the same way as grind. Per-shot `rpm` also rides on `dialInSessions[]`, `bestRecentShot`, the `changeFromPrev`/`changeFromBest` diffs, and `grinderContext` (observed RPMs + `rpmStepSize`), all gated on the shot actually having an RPM.
+- `grinderSetting`, `rpm`, `doseG`, `targetWeightG`, `profileTitle` — present only on the field(s) the recommendation moves. `targetWeightG` is the stop-at-weight yield, scored against the follow-up shot's target within ±0.5 g. `rpm` (integer) is the motor-RPM half of the dial-in, offered only for variable-RPM grinders and independent of `grinderSetting`; `computeAdherence`/`summarizeStructuredNext` score and render it the same way as grind. Per-shot `rpm` also rides on `dialInSessions[]`, `bestRecentShot`, the `changeFromPrev`/`changeFromBest` diffs, and `grinderContext` (observed RPMs + `rpmStepSize`), all gated on the shot actually having an RPM.
 - `expectedDurationSec`, `expectedFlowMlPerSec` — required `[low, high]` ranges
 - `expectedPeakPressureBar` — optional `[low, high]` range when the advice targets pressure
 - `successCondition` — short natural-language predicate (stored verbatim)

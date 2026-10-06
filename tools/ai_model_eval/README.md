@@ -7,14 +7,11 @@ comparison.
 
 | Script | Question | Providers |
 |---|---|---|
-| `replay.py` | Does this model give good dial-in advice, and does it emit a usable `nextShot` block? | **OpenAI only** — it posts to `chat/completions` and has no provider branching |
+| `replay.py` | Does this model give good dial-in advice, and does it emit a usable `nextShot` block? | OpenAI, Anthropic, Gemini (by model-id prefix) |
 | `probe_request_shape.py` | Do the thinking/reasoning knobs we send actually work on this model? | OpenAI, Anthropic, Gemini |
 
-The split matters: `replay.py` decides *which* model to pick, and it only knows
-how to talk to OpenAI. Adding an Anthropic or Gemini model to a catalog means
-running `probe_request_shape.py` (its request-shape INVARIANTs are the thing
-that breaks silently), and judging advice quality some other way until
-`replay.py` grows provider branching.
+Probe first: a model the probe has not passed 400s every request in the app.
+Then replay to judge the advice.
 
 **Read this before swapping a model in any catalog.** The rationale for the
 current catalogs lives in `docs/CLAUDE_MD/AI_ADVISOR.md`; this directory is how
@@ -76,9 +73,10 @@ emission. `scenarios.json` marks this with `hasTasteFeedback`, and
 
 ### 3. Replay byte-for-byte
 
-`replay.py` mirrors the request shape in `OpenAIProvider::analyze()` — same
-`max_completion_tokens`, same `reasoning_effort`. If that shape changes in
-`src/ai/aiprovider.cpp`, update the constants at the top of `replay.py`.
+`replay.py` mirrors each provider's `analyze()` request — the output cap, the
+per-model thinking setting (`src/ai/airequestshape.h`) and Anthropic's cache
+markers. If that shape changes, update the helpers at the top of `replay.py`.
+`model@effort` pins an OpenAI model's effort (`gpt-6.1-sol@low`).
 
 It also mirrors the app's **acceptance** rule, which is a separate thing and
 easy to get wrong. `extract_structured_next()` is a port of
@@ -112,9 +110,13 @@ python3 replay.py capture-help
 python3 replay.py emission --models gpt-5.6-terra,gpt-5.6-luna --efforts none,low
 python3 replay.py blind    --models gpt-5.6-terra,gpt-5.6-luna
 python3 replay.py reveal   --run blind
+# Compare a prompt change: same shot data, new system prompt in captured_v2/
+python3 replay.py emission --models gpt-6.1-sol@low --captured captured_v2 --label v2
 ```
 
-Key comes from `$OPENAI_API_KEY`, else Decenza's own configured key on macOS.
+Keys come from `$OPENAI_API_KEY` / `$ANTHROPIC_API_KEY` / `$GEMINI_API_KEY`, else
+Decenza's own configured keys on macOS. Capture prompts from the production
+tablet (the de1 MCP), whose shot ids `scenarios.json` points at.
 
 Prices in `replay.py` **rot**. Verify at
 <https://developers.openai.com/api/docs/pricing>. Third-party pricing pages were
@@ -122,6 +124,63 @@ checked on 2026-07-30 and found wrong — one listed Terra at $2.50/$15 against 
 actual $2.00/$12.
 
 ## Findings log
+
+### 2026-10-05 — system prompt trimmed, contradictions removed
+
+The system prompt went from 46.4K to 40.2K characters: repetition cut, plus
+contradictions fixed (a 4-8 ml/s "pour", absolute gusher/choker times, "analyze
+without taste" against the ask-first rule, a "directional only" grind rule that
+predated `grinderContext`). The block gained `targetWeightG`, and its tag rule
+moved to the first sentence after gpt-6-luna fenced one as ```nextShot.
+Comparison: the new system prompt from a Mac dry run paired with the same tablet
+payloads (compacted), so only the prompt varied. MCP and in-app payloads for one
+shot were diffed field by field first: identical apart from `question` and
+`shotLabel`.
+
+Sol, Sonnet 5.5 and 3.8 Flash, two runs per prompt: usable blocks (present,
+real setting values) went from 17/24 to 24/24 on the tasted scenarios (Sol's
+prose `grinderSetting` gone; it now moves one `stepSize`). On `bitter-over` all three now recommend a `targetWeightG`
+instead of a prose stop-weight change. On the untasted blowout, blocks went from
+3 of 6 samples (two moved the grind) to 0 of 6. Input tokens fell 14% (Sonnet)
+to 18% (Sol, Flash) against the indented MCP captures. All three now go one step
+coarser on `sour`, citing the 10.2-bar peak and the bean's own acidity.
+
+Value picks on the final prompt, two runs: gpt-6-luna went from 1/4 usable
+blocks (intermediate prompt, one ```nextShot fence) to 7/8, right direction
+throughout, and asked first on both untasted scenarios. 3.5 Flash-Lite emitted
+8/8 but called 6.5 → 6 "coarser" again and moved the grind on the untasted
+blowout in both runs. The other cheap models, same set: 3.1 Flash-Lite jumped
+three steps finer on the blowout (a prep failure); 2.5 Flash went finer on
+`bitter-over` twice and advised on 3 of 4 untasted shots; Haiku 4.5 reversed
+direction and went coarser on the gusher; gpt-5.6-luna reversed direction and
+advised on the untasted blowout twice.
+
+Outcome: a value pick must give no bad advice. gpt-6-luna is the only one that
+passes, so Gemini ships 3.8 Flash alone. Quality order: Sonnet 5.5, gpt-6.1-sol,
+3.8 Flash, gpt-6-luna.
+
+### 2026-10-05 — catalogs moved to the newest models
+
+Probe: Sonnet 5.5 rejects `thinking: disabled` (wants `between_tools`); Gemini
+3.8 Flash rejects `thinkingLevel: minimal` (`low` reports no thinking);
+gpt-6.1-sol rejects `reasoning_effort: none` and, at `low`, any non-default
+`temperature`. Haiku 4.5, 3.5 Flash-Lite and gpt-6-luna take the old forms.
+
+Replay (12 models, four tasted tablet scenarios, $1.14): every model emitted
+the block on all four except the GPT-6 models on `bitter-over`, where each
+recommended a stop-weight change in prose. On grind direction, Sonnet 5.5 and
+Sonnet 5 were right on all three scenarios that test it; Haiku 4.5 reversed it
+twice (6.0 called "coarser" from 6.5; 11 on a sour shot, anchored on a different
+bean). Every Gemini and OpenAI model said one step coarser on `sour`, with a
+defensible reason (a 10.2-bar peak above the profile's 6–9 bar band), so that
+scenario no longer has one right answer.
+
+Caching: OpenAI hit on 11K of 15.7K tokens, Anthropic on 17.8K of 24.4K after
+the first call, Gemini Flash-Lite on 8–12K; Gemini 2.5 and 3.8 Flash never hit.
+
+Outcome: OpenAI gpt-6.1-sol + gpt-6-luna, Anthropic Sonnet 5.5 only, Gemini 3.8
+Flash + 3.5 Flash-Lite (docs/CLAUDE_MD/AI_ADVISOR.md). A first run against a dev
+machine's database was void: the scenario ids pointed at other, untasted shots.
 
 ### 2026-07-30 — GPT-5.6 family evaluated, Terra adopted as default
 

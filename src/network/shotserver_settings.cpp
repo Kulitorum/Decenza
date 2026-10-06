@@ -729,7 +729,7 @@ QString ShotServer::generateSettingsPage() const
                     </div>
                     <div class="form-group">
                         <label class="form-label">Model</label>
-                        <input type="text" class="form-input" id="openrouterModel" placeholder="anthropic/claude-sonnet-4">
+                        <input type="text" class="form-input" id="openrouterModel" placeholder="anthropic/claude-sonnet-5.5">
                         <div class="help-text">Enter model ID from <a href="https://openrouter.ai/models" target="_blank" style="color:var(--accent)">openrouter.ai/models</a></div>
                     </div>
                 </div>

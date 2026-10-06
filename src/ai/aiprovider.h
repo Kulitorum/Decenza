@@ -332,14 +332,8 @@ private:
     static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
 
     // Wrap the first user message's content in a structured block carrying
-    // cache_control: ephemeral when its content is currently a plain string.
-    // Multi-turn conversations on the same shot reuse the cached per-shot
-    // payload across follow-up turns within the 1-hour TTL, paying the 2x
-    // cache-write surcharge once and amortizing it across reads (break-even
-    // is 2 reads per write). This said "5-minute TTL" and "~25% surcharge"
-    // for as long as it took someone to open the .cpp: the implementation
-    // has sent ttl="1h" since the switch away from the 5-minute tier, and
-    // 1h writes cost 2x base, not the 1.25x the 5-minute tier charges.
+    // cache_control when its content is a plain string, so follow-up turns on
+    // the same shot read the per-shot payload from cache (TTL: ephemeralCache()).
     static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
 
     QString m_apiKey;

@@ -38,6 +38,7 @@
 #include <memory>
 
 #include "ai/aiprovider.h"
+#include "ai/airequestshape.h"
 #include "helpers/diagnosticcapture.h"
 #include "core/translationmanager.h"
 
@@ -153,8 +154,6 @@ using Catalog = QList<QPair<QString, QString>>;  // (id, displayName), UI order
 template <typename ProviderT>
 void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
 {
-    QVERIFY2(expected.size() >= 2, "test assumes a >1 entry catalog (picker only shows then)");
-
     ProviderT p(&nam, QString(), nullptr);
 
     // availableModels() is the catalog, in UI order.
@@ -171,19 +170,18 @@ void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
     QCOMPARE(p.shortModelName(), expected.first().second);
 
     // modelHint() is the guidance line shown under the model picker in both
-    // the app and the ShotServer web page. A multi-model provider must have
-    // one (both UIs gate on non-empty), and it must mention every catalog
+    // the app and the ShotServer web page, and it must mention every catalog
     // entry by display name — a catalog bump that forgets the hint would ship
     // stale model-comparison advice to both UIs at once.
     const QString hint = p.modelHint();
-    QVERIFY2(!hint.isEmpty(), "multi-model provider must provide a modelHint()");
+    QVERIFY2(!hint.isEmpty(), "provider must provide a modelHint()");
     for (const AIProvider::ModelOption& opt : models) {
         QVERIFY2(hint.contains(opt.displayName),
                  qPrintable(QStringLiteral("modelHint() does not mention catalog model '%1'")
                                 .arg(opt.displayName)));
     }
 
-    // Selecting the opt-in (last) model switches the wire model and its label.
+    // Selecting the last model switches the wire model and its label.
     const QString optId = expected.last().first;
     const QString optName = expected.last().second;
     p.setModel(optId);
@@ -353,15 +351,55 @@ private slots:
         QVERIFY(gemini.costHintFor(QStringLiteral("gemini-2-something")).isEmpty());
     }
 
+    // Every catalogued model must send a thinking/reasoning "off" that was
+    // verified live (tools/ai_model_eval/probe_request_shape.py, 2026-10-05):
+    // the accepted form differs by model and a wrong one 400s every request.
+    // The table is that record; a model added to a catalog fails here until it
+    // has been probed and recorded, rather than shipping on a guessed form.
+    void everyCataloguedModelSendsAVerifiedThinkingOff()
+    {
+        const QHash<QString, QString> verified = {
+            {"gpt-6.1-sol", "reasoning_effort=low"},
+            {"gpt-6-luna", "reasoning_effort=none"},
+            {"claude-sonnet-5-5", "thinking=between_tools"},
+            {"gemini-3.8-flash", "thinkingLevel=low"},
+        };
+        const auto sent = [](const QString& provider, const QString& model) {
+            QJsonObject body;
+            if (provider == QLatin1String("openai")) {
+                AIRequestShape::disableOpenAIReasoning(body, model);
+                return "reasoning_effort=" + body["reasoning_effort"].toString();
+            }
+            if (provider == QLatin1String("anthropic")) {
+                AIRequestShape::disableAnthropicThinking(body, model);
+                return "thinking=" + body["thinking"].toObject()["type"].toString();
+            }
+            const QJsonObject config = AIRequestShape::geminiThinkingConfig(model);
+            return config.contains("thinkingBudget")
+                ? "thinkingBudget=" + QString::number(config["thinkingBudget"].toInt())
+                : "thinkingLevel=" + config["thinkingLevel"].toString();
+        };
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QString());
+        AnthropicProvider anthropic(&nam, QString());
+        GeminiProvider gemini(&nam, QString());
+        for (AIProvider* provider : {static_cast<AIProvider*>(&openai), static_cast<AIProvider*>(&anthropic),
+                                     static_cast<AIProvider*>(&gemini)}) {
+            for (const AIProvider::ModelOption& m : provider->availableModels()) {
+                QVERIFY2(verified.contains(m.id),
+                         qPrintable(m.id + " has no live-verified thinking form; probe it first"));
+                QCOMPARE(sent(provider->id(), m.id), verified.value(m.id));
+            }
+        }
+    }
+
     void init() { QTest::failOnWarning(); }
     void openAiCatalogAndSelection()
     {
         QNetworkAccessManager nam;
         checkProvider<OpenAIProvider>(nam, {
-            { "gpt-5.6-terra", "GPT-5.6 Terra" },
-            { "gpt-5.6-luna", "GPT-5.6 Luna" },
-            { "gpt-5.4", "GPT-5.4" },
-            { "gpt-5.4-mini", "GPT-5.4 mini" },
+            { "gpt-6.1-sol", "GPT-6.1 Sol" },
+            { "gpt-6-luna", "GPT-6 Luna" },
         });
     }
 
@@ -369,8 +407,7 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<AnthropicProvider>(nam, {
-            { "claude-sonnet-5", "Sonnet 5" },
-            { "claude-sonnet-4-6", "Sonnet 4.6" },
+            { "claude-sonnet-5-5", "Sonnet 5.5" },
         });
     }
 
@@ -378,8 +415,7 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<GeminiProvider>(nam, {
-            { "gemini-2.5-flash", "2.5 Flash" },
-            { "gemini-3.5-flash", "3.5 Flash" },
+            { "gemini-3.8-flash", "3.8 Flash" },
         });
     }
 
@@ -399,12 +435,10 @@ private slots:
 
     // #1691: EVERY Anthropic request must turn thinking OFF explicitly.
     //
-    // The default is not stable across models — claude-sonnet-4-6 runs without
-    // thinking when the field is omitted, claude-sonnet-5 runs adaptive. Since
-    // max_tokens bounds thinking + text together, an omitted field on Sonnet 5
-    // let thinking eat the whole budget and the reply carried no text block at
-    // all, failing 100% of the time. Nothing in the request URL shows this, so
-    // the assertion has to be on the posted JSON.
+    // Newer models run ADAPTIVE thinking when the field is omitted, and since
+    // max_tokens bounds thinking + text together it could eat the whole budget,
+    // leaving no text block at all. The catalog default, Sonnet 5.5, takes
+    // "between_tools" as its off. The assertion has to be on the posted JSON.
     //
     // All four request paths, not just the reported one: deleting the call from
     // any single builder must fail this test.
@@ -421,7 +455,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 1);
         QJsonObject body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
 
         // analyzeConversation() is the path the in-app advisor uses
@@ -435,7 +469,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 2);
         body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
 
         // analyzeUrl() — the recipe-wizard stage-2 extraction path.
@@ -443,7 +477,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 3);
         body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
     }
 
@@ -464,7 +498,7 @@ private slots:
         QVERIFY(tested.wait(5000));
 
         const QJsonObject body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 10);
     }
 

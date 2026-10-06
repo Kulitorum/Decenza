@@ -115,7 +115,7 @@ void SettingsAI::setAnthropicEndpoint(const QString& endpoint) {
 }
 
 QString SettingsAI::openrouterModel() const {
-    return m_settings.value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
+    return m_settings.value("ai/openrouterModel", "anthropic/claude-sonnet-5.5").toString();
 }
 
 void SettingsAI::setOpenrouterModel(const QString& model) {

@@ -469,7 +469,7 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
 // Defined inline for the same cross-binary-reuse reason as the other
 // helpers in this header.
 struct StructuredNextSummary {
-    QStringList predictedParts;  // "grinder 4.75", "dose 18.0g", "profile X"
+    QStringList predictedParts;  // "grinder 4.75", "dose 18.0g", "stop at 36.0g", "profile X"
     QStringList expectedParts;   // "32-38s", "1.0-1.5 ml/s", "6.0-9.0 bar"
 };
 
@@ -482,6 +482,8 @@ inline StructuredNextSummary summarizeStructuredNext(const QJsonObject& sn)
         out.predictedParts << QStringLiteral("%1 RPM").arg(sn.value("rpm").toInt());
     if (sn.contains(QStringLiteral("doseG")))
         out.predictedParts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
+    if (sn.contains(QStringLiteral("targetWeightG")))
+        out.predictedParts << QStringLiteral("stop at %1g").arg(sn.value("targetWeightG").toDouble(), 0, 'f', 1);
     if (sn.contains(QStringLiteral("profileTitle")))
         out.predictedParts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());
 

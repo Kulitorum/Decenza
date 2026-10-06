@@ -14,10 +14,10 @@ Three INVARIANTs are asserted in code but were never checked against the API:
      low/high). If 3.5 Flash rejects "minimal" that's a 400; if it ignores it,
      thinking runs at the default and is billed at the output rate.
 
-  3. src/core/translationmanager.cpp sends temperature 0.3 to OpenAI, and the
-     translator's model now defaults to gpt-5.6-terra. Sampling parameters are
-     accepted per-model; a rejected one 400s every batch instead of degrading,
-     so the pairing is probed rather than assumed.
+  3. OpenAI: the advisor sends max_completion_tokens + reasoning_effort "none",
+     the translator sends temperature 0.3 with it, and the URL/search features
+     use the Responses API with web_search. Parameters are accepted per-model;
+     a rejected one 400s every request instead of degrading.
 
 Prints PASS/FAIL per check. Never echoes a key. Costs a few cents.
 """
@@ -28,9 +28,11 @@ import sys
 import urllib.error
 import urllib.request
 
-ANTHROPIC_MODELS = ["claude-sonnet-4-6", "claude-sonnet-5"]     # aiprovider.cpp catalog
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash"]        # aiprovider.cpp catalog
-OPENAI_MODEL = "gpt-5.6-terra"                                  # translator default
+# The aiprovider.cpp catalogs, plus any candidates being considered. Override
+# with --anthropic / --gemini / --openai (comma-separated) to probe others.
+ANTHROPIC_MODELS = ["claude-sonnet-5-5", "claude-haiku-4-5"]
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"]
+OPENAI_MODELS = ["gpt-6.1-sol", "gpt-6-luna"]
 
 
 def setting(key: str) -> str:
@@ -88,6 +90,21 @@ def check_anthropic() -> None:
                   f"{'' if has_text else '  <-- no text block (the #1691 symptom)'}")
         else:
             print(f"  FAIL  {model} ({status}): {msg(payload)}")
+        # AnthropicProvider::analyzeUrl()/searchWeb(): server tools with thinking disabled.
+        for tool, beta in (({"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 2,
+                             "max_content_tokens": 20000}, "web-fetch-2025-09-10"),
+                           ({"type": "web_search_20250305", "name": "web_search", "max_uses": 3}, None)):
+            headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
+                       "Content-Type": "application/json"}
+            if beta:
+                headers["anthropic-beta"] = beta
+            status, payload = post(
+                "https://api.anthropic.com/v1/messages", headers,
+                {"model": model, "max_tokens": 1024, "thinking": {"type": "disabled"},
+                 "tools": [tool],
+                 "messages": [{"role": "user", "content": "What is on https://decentespresso.com ? One line."}]})
+            print(f"  {'PASS' if status == 200 else 'FAIL'}  {model} + {tool['name']}"
+                  f"{'' if status == 200 else f' ({status}): ' + msg(payload)}")
 
 
 def check_gemini() -> None:
@@ -117,40 +134,57 @@ def check_gemini() -> None:
         note = "" if thoughts == 0 else "  <-- thinking ran anyway; knob ignored"
         print(f"  {verdict}  {model} {knob}: thoughtsTokenCount={thoughts}{note}")
 
-    # Is "minimal" even a legal value here? Compare against a documented one.
-    print("  -- control: does 3.5 Flash accept thinkingLevel 'low'? --")
-    status, payload = post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
-        {"x-goog-api-key": key, "Content-Type": "application/json"},
-        {"contents": [{"parts": [{"text": "Reply with the single word: ok"}]}],
-         "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"},
-                              "maxOutputTokens": 4096}})
-    print(f"     low -> {status} {'' if status == 200 else msg(payload)}")
+    # The URL and search tools run alongside the same thinking knob.
+    for model in GEMINI_MODELS:
+        cfg = ({"thinkingBudget": 0} if model.startswith("gemini-2")
+               else {"thinkingLevel": "minimal"})
+        for tool in ("url_context", "google_search"):
+            status, payload = post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                {"x-goog-api-key": key, "Content-Type": "application/json"},
+                {"contents": [{"parts": [{"text": "What is on https://decentespresso.com ? One line."}]}],
+                 "tools": [{tool: {}}],
+                 "generationConfig": {"thinkingConfig": cfg, "maxOutputTokens": 4096}})
+            print(f"  {'PASS' if status == 200 else 'FAIL'}  {model} + {tool}"
+                  f"{'' if status == 200 else f' ({status}): ' + msg(payload)}")
 
 
-def check_openai_temperature() -> None:
+def check_openai() -> None:
     key = setting("ai.openaiKey")
-    print("\n== OpenAI: translator's body (temperature 0.3 + reasoning_effort none) ==")
+    print("\n== OpenAI: advisor, translator and web-search bodies ==")
     if not key:
         print("  SKIP — no OpenAI key configured in Decenza")
         return
-    for body, label in (
-        ({"model": OPENAI_MODEL, "temperature": 0.3, "reasoning_effort": "none",
-          "messages": [{"role": "user", "content": "Reply with the single word: ok"}]},
-         "temperature=0.3 + reasoning_effort=none"),
-        ({"model": OPENAI_MODEL, "reasoning_effort": "none",
-          "messages": [{"role": "user", "content": "Reply with the single word: ok"}]},
-         "reasoning_effort=none only (control)"),
-    ):
-        status, payload = post("https://api.openai.com/v1/chat/completions",
-                               {"Authorization": "Bearer " + key,
-                                "Content-Type": "application/json"}, body)
-        print(f"  {'PASS' if status == 200 else 'FAIL'}  {label}"
+    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    ok = [{"role": "user", "content": "Reply with the single word: ok"}]
+    for model in OPENAI_MODELS:
+        for body, label in (
+            # OpenAIProvider::analyze()
+            ({"model": model, "max_completion_tokens": 4096, "reasoning_effort": "none",
+              "messages": ok}, "advisor: max_completion_tokens + reasoning_effort=none"),
+            # TranslationManager
+            ({"model": model, "temperature": 0.3, "reasoning_effort": "none",
+              "messages": ok}, "translator: temperature=0.3 + reasoning_effort=none"),
+        ):
+            status, payload = post("https://api.openai.com/v1/chat/completions", headers, body)
+            print(f"  {'PASS' if status == 200 else 'FAIL'}  {model} {label}"
+                  f"{'' if status == 200 else f' ({status}): ' + msg(payload)}")
+        # OpenAIProvider::analyzeUrl()/searchWeb(): Responses API + web_search
+        status, payload = post("https://api.openai.com/v1/responses", headers,
+                               {"model": model, "input": "What is on https://decentespresso.com ? One line.",
+                                "tools": [{"type": "web_search"}], "reasoning": {"effort": "low"},
+                                "max_output_tokens": 4096})
+        print(f"  {'PASS' if status == 200 else 'FAIL'}  {model} responses + web_search (effort low)"
               f"{'' if status == 200 else f' ({status}): ' + msg(payload)}")
 
 
 if __name__ == "__main__":
+    for i, arg in enumerate(sys.argv[1:-1], start=1):
+        value = [m.strip() for m in sys.argv[i + 1].split(",") if m.strip()]
+        if arg == "--anthropic": ANTHROPIC_MODELS = value
+        elif arg == "--gemini": GEMINI_MODELS = value
+        elif arg == "--openai": OPENAI_MODELS = value
     check_anthropic()
     check_gemini()
-    check_openai_temperature()
+    check_openai()
     print("\nDone.", file=sys.stderr)

@@ -34,59 +34,59 @@ namespace AIRequestShape {
 // repeated per call site.
 constexpr int kMaxOutputTokens = 4096;
 
-// Turn Anthropic extended thinking OFF, explicitly, on every request.
+// Turn model thinking/reasoning OFF, explicitly, on every request — per model,
+// because the accepted "off" differs by model and a wrong one 400s every request.
 //
-// This has to be explicit because the default is NOT stable across models.
-// Per Anthropic's thinking documentation (checked 2026-07-29): omitting the
-// `thinking` field runs NO thinking on claude-sonnet-4-6, but runs ADAPTIVE
-// thinking on claude-sonnet-5. Since max_tokens caps thinking + response text
-// together, omitting it on Sonnet 5 lets thinking consume the entire budget
-// and the reply carries no text block at all.
+// Off is right for both callers: dial-in advice and bulk translation need
+// little chain-of-thought, hidden thinking is billed at the output rate, and
+// on OpenAI reasoning measurably costs the advisor its trailing `nextShot`
+// block (counts in docs/CLAUDE_MD/AI_ADVISOR.md). Omitting the field is not an
+// option on Anthropic: newer models then run ADAPTIVE thinking, which can use
+// the whole max_tokens budget and return no text block (#1691).
 //
-// That is the mechanism behind #1691, whose user-visible symptom was
-// "Anthropic returned empty response content" on every request. Note the issue
-// itself reports only the symptom — it names no model and carries no wire
-// capture. The mechanism is inferred from the documented defaults.
-//
-// Off (not merely bounded) is the right setting for both callers: dial-in
-// advice and bulk translation both need little chain-of-thought, and hidden
-// thinking tokens are billed at the output rate.
-//
-// VERIFIED live 2026-07-30 for both current catalog entries: claude-sonnet-4-6
-// and claude-sonnet-5 each accept type "disabled" AND return a `text` block
-// (a thinking-only reply with no text block is the #1691 symptom, so the block
-// types are the thing to check, not just the HTTP status).
-//
-// INVARIANT, still live for anything ADDED later: newer Anthropic models may
-// reject the disabled form outright (thinking always on, omit the field
-// instead) or accept it only at or below a given effort level. Such a model
-// would turn EVERY Anthropic request into a 400 — a worse #1691 than #1691.
-// Re-run tools/ai_model_eval/ probes when the catalog changes.
-inline void disableAnthropicThinking(QJsonObject& requestBody)
+// Each value below was verified live on 2026-10-05 with
+// tools/ai_model_eval/probe_request_shape.py — accepted, and for Anthropic still
+// returning a text block, for Gemini reporting no thinking tokens. A model added
+// to a catalog must be probed and added here; the fallbacks are the older
+// generations' forms, which a new model may reject.
+
+// claude-sonnet-5-5 rejects {"type":"disabled"} and asks for "between_tools"
+// (no thinking before the reply); older models take "disabled".
+inline void disableAnthropicThinking(QJsonObject& requestBody, const QString& model)
 {
     QJsonObject thinking;
-    thinking["type"] = QStringLiteral("disabled");
+    thinking["type"] = model == QLatin1String("claude-sonnet-5-5") ? QStringLiteral("between_tools")
+                                                                     : QStringLiteral("disabled");
     requestBody["thinking"] = thinking;
 }
 
-// Turn OpenAI reasoning off on a chat/completions request.
-//
-// The GPT-5 family are reasoning models. Reasoning measurably costs the
-// advisor the trailing `nextShot` JSON block, and for translation it is spend
-// with no upside. NOT because reasoning tokens overrun the output cap — that
-// was the original rationale here and a replay refuted it; the models finish
-// cleanly and simply omit the block while reasoning. Counts, method and the
-// refutation live in docs/CLAUDE_MD/AI_ADVISOR.md and tools/ai_model_eval/,
-// so they don't rot in a comment.
-//
-// The 5.4 generation REPLACED the value "minimal" with "none" (live-caught
-// 400: supported = none/low/medium/high); 5.6 accepts "none" as well.
-//
-// INVARIANT: assumes every model either caller can select is a reasoning model
-// that accepts "none" — guard/branch here if the catalog gains one that isn't.
-inline void disableOpenAIReasoning(QJsonObject& requestBody)
+// gpt-6.1-sol accepts low/medium/high/xhigh only; the rest take "none".
+inline void disableOpenAIReasoning(QJsonObject& requestBody, const QString& model)
 {
-    requestBody["reasoning_effort"] = QStringLiteral("none");
+    requestBody["reasoning_effort"] = model == QLatin1String("gpt-6.1-sol") ? QStringLiteral("low")
+                                                                             : QStringLiteral("none");
+}
+
+// A non-default temperature, where the model takes one: gpt-6.1-sol at its
+// lowest effort accepts only the default (1) and 400s on anything else.
+inline void setOpenAITemperature(QJsonObject& requestBody, const QString& model, double temperature)
+{
+    if (model != QLatin1String("gpt-6.1-sol"))
+        requestBody["temperature"] = temperature;
+}
+
+// generationConfig.thinkingConfig. The 2.x family takes an integer budget (0 =
+// off); 3.x takes thinkingLevel, whose legal values vary by model —
+// gemini-3.8-flash rejects "minimal" and reports no thinking at "low".
+inline QJsonObject geminiThinkingConfig(const QString& model)
+{
+    QJsonObject config;
+    if (model.startsWith(QLatin1String("gemini-2")))
+        config["thinkingBudget"] = 0;
+    else
+        config["thinkingLevel"] = model == QLatin1String("gemini-3.8-flash") ? QStringLiteral("low")
+                                                                              : QStringLiteral("minimal");
+    return config;
 }
 
 }  // namespace AIRequestShape

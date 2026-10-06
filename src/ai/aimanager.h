@@ -432,6 +432,7 @@ private slots:
 
 private:
     void createProviders();
+    QString savedModelFor(const AIProvider* provider);
     // Translate a user-visible string via the injected TranslationManager,
     // falling back to the English source when none is set.
     QString tr_(const char* key, const char* fallback) const;

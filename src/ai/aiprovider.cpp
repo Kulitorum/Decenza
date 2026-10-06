@@ -207,69 +207,42 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. GPT-5.6 Terra
-    // leads: it is cheaper than GPT-5.4 on both input and output AND a
-    // generation newer, and in live replay testing the 5.6 pair caught a
-    // 64.3g/8.5s blowout in recent history that BOTH 5.4 models missed — the
-    // split was generational, not tier. Luna is the cheap opt-in and measured
-    // at least as well as Terra; it is not the default only because six
-    // scenarios is too thin a base to crown the smallest tier. The two 5.4
-    // entries stay as known-quantity fallbacks.
-    //
-    // Pricing figures, the replay methodology and the per-model defects live in
-    // docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in code. Revisit as models
-    // land.
+    // Order = UI order; first entry is the recommended default. One balanced
+    // and one value pick, each the newest of its tier (tools/ai_model_eval,
+    // 2026-10-05 replay: both reasoned the grind direction correctly on the
+    // bitter-shot scenario, and replace Terra/Luna at the same or lower price).
+    // Rationale and measurements: docs/CLAUDE_MD/AI_ADVISOR.md.
     return {
-        { "gpt-5.6-terra", "GPT-5.6 Terra" },
-        { "gpt-5.6-luna", "GPT-5.6 Luna" },
-        { "gpt-5.4", "GPT-5.4" },
-        { "gpt-5.4-mini", "GPT-5.4 mini" },
+        { "gpt-6.1-sol", "GPT-6.1 Sol" },
+        { "gpt-6-luna", "GPT-6 Luna" },
     };
 }
 
-// Per-shot cost estimates.
+// Per-shot cost estimates, from the tokens each model used on a real
+// shot-analysis request in the 2026-10-05 replay (system + user prompt, cold
+// cache), at the provider's published rate. Monthly = 3 shots a day. Follow-up
+// questions read the cached system prompt and cost much less.
 //
-// Derived from a measured shot-analysis request — ~17K input tokens (the
-// assembled system + user prompt) and ~300 output — priced at each model's
-// published rate. Cold cache: repeat shots on the same profile cost less,
-// because the system prompt is cached at ~90% off. Rounded to the cent the
-// user would actually notice, except where a cent would round the figure to
-// "$0.00" and say nothing at all — Luna ($0.004) and Gemini 2.5 Flash
-// ($0.006) are quoted to a tenth of a cent for that reason. Monthly figures
-// are the nearest nickel to the derivation table in AI_ADVISOR.md.
-//
-// These WILL rot. They live beside availableModels() so a catalog change puts
-// the cost line in the same diff; docs/CLAUDE_MD/AI_ADVISOR.md carries the
-// per-million rates they were computed from.
-//
-// Every catalogued model gets its OWN case and an unknown id returns nothing.
-// The tempting shape — fall through to the default model's price — quietly
-// promises a specific spend for a model nobody priced, and the size of that
-// error is unbounded: Luna and GPT-5.4 differ by 12x inside this one catalog.
-// A missing cost line is a gap the user can see; a wrong one is not.
+// These rot. They sit beside availableModels() so a catalog change puts the
+// cost line in the same diff; AI_ADVISOR.md carries the rates and token counts.
+// Every catalogued model has its own case and an unknown id returns nothing: a
+// missing cost line is a gap the user can see, a borrowed one is a wrong promise.
 QString OpenAIProvider::costHintFor(const QString& modelId) const
 {
-    if (modelId == QLatin1String("gpt-5.6-terra"))
-        return tr_("ai.cost.openai.terra",
-                   "About $0.04 per shot — roughly $3.40/month at 3 shots a day.");
-    if (modelId == QLatin1String("gpt-5.6-luna"))
-        return tr_("ai.cost.openai.luna",
-                   "About $0.004 per shot — roughly $0.35/month at 3 shots a day.");
-    if (modelId == QLatin1String("gpt-5.4-mini"))
-        return tr_("ai.cost.openai.mini",
-                   "About $0.01 per shot — roughly $1.25/month at 3 shots a day.");
-    if (modelId == QLatin1String("gpt-5.4"))
-        return tr_("ai.cost.openai.gpt54",
-                   "About $0.05 per shot — roughly $4.25/month at 3 shots a day.");
+    if (modelId == QLatin1String("gpt-6.1-sol"))
+        return tr_("ai.cost.openai.sol61",
+                   "About $0.03 per shot — roughly $2.75/month at 3 shots a day.");
+    if (modelId == QLatin1String("gpt-6-luna"))
+        return tr_("ai.cost.openai.luna6",
+                   "About $0.0015 per shot — roughly $0.13/month at 3 shots a day.");
     return {};
 }
 
 QString OpenAIProvider::modelHint() const
 {
-    return QStringLiteral(
-        "GPT-5.6 Terra is recommended. GPT-5.6 Luna is much cheaper and did as well in testing. "
-        "GPT-5.4 and GPT-5.4 mini are the older generation — both missed a failed shot the 5.6 "
-        "models caught, and mini gives the weakest dial-in advice.");
+    return tr_("ai.hint.openai",
+               "GPT-6.1 Sol is recommended: OpenAI's newest, concise and careful. GPT-6 Luna costs "
+               "about a twentieth as much, the best value of any model tested, with shorter replies.");
 }
 
 void OpenAIProvider::setModel(const QString& modelId)
@@ -344,10 +317,9 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // Reasoning off — rationale and INVARIANT in
-    // AIRequestShape::disableOpenAIReasoning() (src/ai/airequestshape.h),
+    // Reasoning off, per model: AIRequestShape::disableOpenAIReasoning(),
     // shared with the bulk translator so the two cannot drift.
-    AIRequestShape::disableOpenAIReasoning(requestBody);
+    AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -374,14 +346,11 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     QJsonObject searchTool;
     searchTool["type"] = QString("web_search");
     requestBody["tools"] = QJsonArray{searchTool};
-    // Reasoning "low", not the "none" floor: the gpt-5.4 generation rejects
-    // web_search below "low". The 5.6 generation accepts web_search at "none"
-    // (verified live 2026-07-30, all three tiers), so this is a 5.4-generation
-    // floor kept because it is valid for every catalog entry — not a universal
-    // web_search requirement. max_output_tokens covers reasoning + the JSON answer.
-    //
-    // Unlike analyze(), the effort here is NOT a nextShot-block risk: this path
-    // extracts recipe JSON from a URL and never emits that block.
+    // Reasoning "low": the lowest value every catalog entry accepts here
+    // (gpt-6.1-sol rejects "none"; both entries verified with web_search at
+    // "low", 2026-10-05). max_output_tokens covers reasoning + the JSON answer.
+    // Unlike analyze(), effort is no nextShot-block risk: this path extracts
+    // recipe JSON from a URL and never emits that block.
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;
@@ -529,7 +498,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     // Rationale and INVARIANT in AIRequestShape::disableOpenAIReasoning().
     // This is the dial-in conversation path — the one that emits the trailing
     // nextShot block that rationale is written about — so it matters most here.
-    AIRequestShape::disableOpenAIReasoning(requestBody);
+    AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -708,52 +677,31 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. Sonnet 5 leads:
-    // it is both more capable and CHEAPER than Sonnet 4.6 at its current rate
-    // ($2/$10 vs $3/$15 per 1M), so there is no longer a reason to lead with the
-    // older model. See costHintFor() for why the promotional rate is treated as
-    // the working number.
-    //
-    // Safe to default to specifically because of the #1691 mechanism: omitting
-    // the `thinking` field runs ADAPTIVE thinking on Sonnet 5, which can consume
-    // the whole max_tokens budget and return no text block. Every Anthropic
-    // request goes through AIRequestShape::disableAnthropicThinking(), and that
-    // Sonnet 5 accepts `{"type": "disabled"}` AND still returns a text block was
-    // verified live (2026-07-30) rather than assumed — see
-    // tools/ai_model_eval/probe_request_shape.py.
+    // One pick this release. Haiku 4.5, the only cheaper tier, reversed the
+    // grind direction on two of three scenarios in the 2026-10-05 replay;
+    // Haiku 5.5 is announced, and is the value pick to probe when it ships.
     return {
-        { "claude-sonnet-5", "Sonnet 5" },
-        { "claude-sonnet-4-6", "Sonnet 4.6" },
+        { "claude-sonnet-5-5", "Sonnet 5.5" },
     };
 }
 
-// See the note above OpenAIProvider::costHintFor() for how these are derived.
-//
-// Sonnet 5 is priced here at its introductory $2/$10 per 1M rather than the
-// $3/$15 list rate. That is a judgement call, not an oversight: the intro rate
-// is nominally dated, but the GPT-5.6 generation reset the price floor
-// underneath it, so list is treated as a ceiling that is unlikely to be
-// charged. If Anthropic does revert, this number goes UP — which is the safe
-// direction for a promise made to a user about spend.
+// See the note above OpenAIProvider::costHintFor(). Sonnet 5.5's tokenizer
+// counts ~50% more tokens than OpenAI's for the same prompt, and the first call
+// writes the 5-minute cache at 1.25x, so it costs more per shot than its
+// per-token rate (same as GPT-6.1 Sol) suggests.
 QString AnthropicProvider::costHintFor(const QString& modelId) const
 {
-    if (modelId == QLatin1String("claude-sonnet-5"))
-        return tr_("ai.cost.anthropic.sonnet5",
-                   "About $0.04 per shot — roughly $3.35/month at 3 shots a day.");
-    // The comparative line is why this case must be exact rather than a
-    // fallthrough: "Sonnet 5 is both newer and cheaper" is a claim ABOUT
-    // Sonnet 4.6, and shown against any other model it is simply false.
-    if (modelId == QLatin1String("claude-sonnet-4-6"))
-        return tr_("ai.cost.anthropic.sonnet46",
-                   "About $0.06 per shot — roughly $5/month at 3 shots a day. "
-                   "Sonnet 5 is both newer and cheaper.");
+    if (modelId == QLatin1String("claude-sonnet-5-5"))
+        return tr_("ai.cost.anthropic.sonnet55",
+                   "About $0.06 per shot — roughly $5.30/month at 3 shots a day. "
+                   "Follow-up questions within a few minutes cost much less.");
     return {};
 }
 
 QString AnthropicProvider::modelHint() const
 {
-    return QStringLiteral("Sonnet 5 is recommended — more capable than Sonnet 4.6 and currently cheaper. "
-                          "Sonnet 4.6 is the previous generation.");
+    return tr_("ai.hint.anthropic",
+               "Sonnet 5.5: the most thorough dial-in reasoning, with the longest replies.");
 }
 
 void AnthropicProvider::setModel(const QString& modelId)
@@ -793,11 +741,7 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody, const QByteA
     // everything else — the header is per-feature, not a blanket flag.
     if (!betaFeature.isEmpty())
         req.setRawHeader("anthropic-beta", betaFeature);
-    // 1-hour cache TTL is set on each cache_control block in the request
-    // body (see buildCachedSystemPrompt + messagesWithCachedFirstUser).
-    // The 1-hour TTL tier is GA — no beta header required. Cache writes
-    // cost 2x base input (vs 1.25x for 5-min); reads stay at 0.1x.
-    // Break-even is ~2 reads per write, easily met for any iterative dial-in.
+    // Caching is per block in the body: see ephemeralCache().
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
@@ -824,7 +768,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody);
+    disableAnthropicThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -851,7 +795,7 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody);
+    disableAnthropicThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -891,7 +835,7 @@ void AnthropicProvider::searchWeb(const QString& systemPrompt, const QString& us
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody);
+    disableAnthropicThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -931,20 +875,30 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody);
+    disableAnthropicThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
     sendRequest(requestBody);
 }
 
+// The cache_control every cached block carries. 5 minutes, not 1 hour: a
+// 5-minute write costs 1.25x input against 2x, reads cost 0.1x either way, and
+// each read restarts the TTL, so back-to-back questions stay cached. 1 hour
+// only pays when the next question comes 5-60 minutes later, the uncommon
+// case here (2026-10-05; the arithmetic is in AI_ADVISOR.md).
+static QJsonObject ephemeralCache()
+{
+    QJsonObject cacheControl;
+    cacheControl["type"] = QString("ephemeral");
+    cacheControl["ttl"] = QString("5m");  // Anthropic API: Literal["5m", "1h"]
+    return cacheControl;
+}
+
 QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& messages)
 {
-    // The first user message carries the per-shot context, which is stable
-    // across follow-up turns within the cache TTL. Wrap its content in a
-    // structured block with cache_control so subsequent turns read from
-    // cache instead of re-billing the per-shot payload. A 1-hour TTL covers
-    // a typical iterative dial-in spread across an hour-long session.
+    // The first user message carries the per-shot context, which follow-up
+    // turns resend: cache it so they read it at 0.1x.
     //
     // No-op when messages[0] isn't a plain-string user message (caller
     // pre-wrapped, or first message isn't from user) — preserves input.
@@ -953,14 +907,10 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
     if (first.value("role").toString() != "user") return messages;
     if (!first.value("content").isString()) return messages;
 
-    QJsonObject cacheControl;
-    cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = QString("1h");  // Anthropic API: Literal["5m", "1h"]
-
     QJsonObject block;
     block["type"] = QString("text");
     block["text"] = first.value("content").toString();
-    block["cache_control"] = cacheControl;
+    block["cache_control"] = ephemeralCache();
 
     QJsonArray contentArr;
     contentArr.append(block);
@@ -975,20 +925,11 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
 
 QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)
 {
-    // Cache the system prompt with the 1-hour extended TTL. Anthropic
-    // caches give ~90% off input cost on hits; a 1-hour TTL covers most
-    // dial-in patterns (back-to-back, "let me try again in 20 minutes",
-    // and the typical morning-pull-evening-pull iteration). Cache writes
-    // cost 2x base for the 1-hour tier (vs 1.25x for 5-min); break-even
-    // is 2 reads per write — easily met for any iterative user.
-    QJsonObject cacheControl;
-    cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = QString("1h");  // Anthropic API: Literal["5m", "1h"]
-
+    // The system prompt is the same for every shot, so it caches across shots too.
     QJsonObject block;
     block["type"] = QString("text");
     block["text"] = systemPrompt;
-    block["cache_control"] = cacheControl;
+    block["cache_control"] = ephemeralCache();
 
     QJsonArray systemArray;
     systemArray.append(block);
@@ -1099,7 +1040,7 @@ void AnthropicProvider::testConnection()
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = 10;
-    disableAnthropicThinking(requestBody);
+    disableAnthropicThinking(requestBody, m_model);
     QJsonArray messages;
     QJsonObject userMsg;
     userMsg["role"] = QString("user");
@@ -1200,37 +1141,29 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. 2.5 Flash leads
-    // as the lowest-cost sensible default for shot analysis — thinking adds
-    // little here and 2.5 can disable it entirely (thinkingBudget 0), plus it
-    // has more provisioned capacity (fewer 503s). 3.5 Flash is the opt-in
-    // "more capable" choice. Revisit as new models / pricing land.
+    // 3.8 Flash only: it costs half of 3.5 Flash, and every cheaper Gemini
+    // (3.5 and 3.1 Flash-Lite, 2.5 Flash) gave wrong grind advice in the
+    // 2026-10-05 replay (tools/ai_model_eval/README.md).
     return {
-        { "gemini-2.5-flash", "2.5 Flash" },
-        { "gemini-3.5-flash", "3.5 Flash" },
+        { "gemini-3.8-flash", "3.8 Flash" },
     };
 }
 
-// See the note above OpenAIProvider::costHintFor() for how these are derived.
+// See the note above OpenAIProvider::costHintFor(). 3.8 Flash is at the price
+// Google lists until the end of 2026; the pricing page flags a change on
+// January 1, 2027.
 QString GeminiProvider::costHintFor(const QString& modelId) const
 {
-    // Deliberately NOT "the cheapest of the three cloud providers" — that was
-    // true when Gemini's catalog was the only cheap one, and the same change
-    // that wrote it added GPT-5.6 Luna at $0.004. Compare within Gemini, where
-    // the claim stays true without tracking every other provider's catalog.
-    if (modelId == QLatin1String("gemini-2.5-flash"))
-        return tr_("ai.cost.gemini.flash25",
-                   "About $0.006 per shot — roughly $0.55/month at 3 shots a day. "
-                   "The cheaper of Gemini's two models.");
-    if (modelId == QLatin1String("gemini-3.5-flash"))
-        return tr_("ai.cost.gemini.flash35",
-                   "About $0.03 per shot — roughly $2.55/month at 3 shots a day.");
+    if (modelId == QLatin1String("gemini-3.8-flash"))
+        return tr_("ai.cost.gemini.flash38",
+                   "About $0.012 per shot — roughly $1.10/month at 3 shots a day.");
     return {};
 }
 
 QString GeminiProvider::modelHint() const
 {
-    return QStringLiteral("3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).");
+    return tr_("ai.hint.gemini",
+               "3.8 Flash: Google's newest Flash, sound advice at a low price.");
 }
 
 void GeminiProvider::setModel(const QString& modelId)
@@ -1273,36 +1206,9 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
-    // Thinking config differs by model family: the 2.5 family uses the integer
-    // thinkingBudget (0 disables thinking), while 3.x+ uses the thinkingLevel
-    // enum and ignores thinkingBudget — sending the wrong knob lets thinking
-    // default to "medium" (billed at the $9/MTok output rate). Pick by family
-    // so each selectable model keeps thinking minimal/off.
-    //
-    // VERIFIED live 2026-07-30 for both catalog entries — not merely accepted,
-    // but actually off: gemini-2.5-flash with thinkingBudget 0 and
-    // gemini-3.5-flash with thinkingLevel "minimal" each reported
-    // usageMetadata.thoughtsTokenCount == 0. Checking the status alone would
-    // not have been enough; a silently ignored knob still bills thinking.
-    //
-    // INVARIANT for anything added later: the legal thinkingLevel values VARY
-    // BY MODEL (Google's thinking docs — gemini-3-pro-preview accepts only
-    // low/high, while 3.6 Flash accepts minimal/low/medium/high). "minimal" is
-    // NOT a safe default for every 3.x model. Probe a new entry before adding
-    // it; tools/ai_model_eval/ has the shape.
     QJsonObject bodyWithConfig = requestBody;
-    QJsonObject thinkingConfig;
-    // Gate on the gemini-2.x prefix — 2.5 Flash is the only 2.x model in the
-    // catalog today, so this selects it exactly. If a future gemini-2.x model
-    // with different thinking semantics is added, prefer encoding the thinking
-    // API in ModelOption over widening this string check.
-    if (m_model.startsWith(QStringLiteral("gemini-2"))) {
-        thinkingConfig["thinkingBudget"] = 0;       // 2.x: integer budget knob, 0 = off
-    } else {
-        thinkingConfig["thinkingLevel"] = "minimal"; // 3.x+: thinkingLevel enum
-    }
     QJsonObject generationConfig;
-    generationConfig["thinkingConfig"] = thinkingConfig;
+    generationConfig["thinkingConfig"] = AIRequestShape::geminiThinkingConfig(m_model);
     generationConfig["maxOutputTokens"] = MAX_OUTPUT_TOKENS;  // also bounds thinking tokens; matches other providers
     bodyWithConfig["generationConfig"] = generationConfig;
 

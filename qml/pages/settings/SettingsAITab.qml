@@ -343,14 +343,14 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: openrouterModelField
                         Layout.fillWidth: true
-                        placeholderText: "anthropic/claude-sonnet-4"
+                        placeholderText: "anthropic/claude-sonnet-5.5"
                         text: Settings.ai.openrouterModel
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
                         onTextChanged: Settings.ai.openrouterModel = text
                     }
 
                     Text {
-                        text: TranslationManager.translate("settings.ai.openroutermodelhint", "Enter model ID from openrouter.ai/models (e.g., anthropic/claude-sonnet-4, openai/gpt-4o)")
+                        text: TranslationManager.translate("settings.ai.openroutermodelhint", "Enter model ID from openrouter.ai/models (e.g., anthropic/claude-sonnet-5.5, openai/gpt-6.1-sol)")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.Wrap
