@@ -34,10 +34,16 @@ gives back the crash it prevents — 9 reports in roughly 8 months across a user
 judged not to justify a permanent fork with an ABI lock and a rebuild obligation on every Qt bump.
 
 **The upstream fix, if it lands, supersedes this.** Gerrit
-[735089](https://codereview.qt-project.org/c/qt/qtbase/+/735089) — "Android: drop deadlock protector
-from EGL/Vk surface paths" — removes the protector from these paths entirely, which is the better
-fix. It is not in 6.12.0 (above). As of 2026-08-18 it was `NEW` on `dev` with no `Pick-to:`
-footer; a pick to `6.12` would land it in a 6.12 patch release and make this file dead.
+[775580](https://codereview.qt-project.org/c/qt/qtbase/+/775580) — "Android: rewrite surface
+lifecycle for single-thread ownership" — moves surface ownership to the GUI thread so the protector
+no longer guards these paths, which is the better fix. It carries `Fixes: QTBUG-140490` /
+`QTBUG-144207` and `Pick-to: 6.12`, so once merged it lands in a 6.12 patch release and makes this
+file dead. As of 2026-10-06 it is `NEW` on `dev`. It replaced Gerrit 735089, abandoned 2026-09-28,
+which the patch's commit message still cites.
+
+**Field status** is tracked on [#1663](https://github.com/Kulitorum/Decenza/issues/1663): since
+v2.0.4 ships without the patch, a report carrying `Failed to acquire deadlock protector` is the
+signal to reconsider.
 
 **If it has to come back.** Rebuild the Android platform plugin from qtbase at the tag Decenza
 builds against:
