@@ -35,8 +35,8 @@ DecenzaDialog {
     }
 
     onOpened: {
-        searchField.text = ""
-        searchField.forceActiveFocus()
+        searchField.setTextSilently("")
+        searchField.field.forceActiveFocus()
     }
 
     // Levenshtein distance for fuzzy matching
@@ -96,7 +96,7 @@ DecenzaDialog {
     property var filteredEntries: {
         // Read `displayText` (not `text`) so the filter binding re-evaluates on every
         // IME preedit change on Android, not just after the IME commits the word.
-        var query = searchField.displayText.trim().toLowerCase()
+        var query = searchField.field.displayText.trim().toLowerCase()
         if (query.length === 0) return allEntries
 
         var results = []
@@ -147,14 +147,11 @@ DecenzaDialog {
                 Accessible.ignored: true
             }
 
-            StyledTextField {
+            SearchField {
                 id: searchField
                 Layout.fillWidth: true
                 placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings")
                 accessibleName: TranslationManager.translate("settings.search.placeholder", "Search settings")
-                // Hint the Android IME away from autocorrect; some IMEs ignore this,
-                // so the filter above also reads displayText rather than text.
-                inputMethodHints: Qt.ImhNoPredictiveText
             }
         }
 

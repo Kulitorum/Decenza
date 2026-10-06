@@ -11,6 +11,7 @@
 #include "../core/settings_mqtt.h"
 #include "../core/settings_ai.h"
 #include "../core/settings_visualizer.h"
+#include "../core/settings_network.h"
 #include "../controllers/maincontroller.h"
 #include "decentaccount.h"
 #include "visualizeruploader.h"
@@ -1773,6 +1774,12 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 
     // Shot Upload switches and shared settings; accounts go through Connect.
     if (obj.contains("visualizerEnabled")) m_settings->visualizer()->setVisualizerEnabled(obj["visualizerEnabled"].toBool());
+    // List sort, shared with the app's Recipes and Beans pages; an unknown value
+    // shows as the page's first field (SortControls.effectiveField).
+    if (obj.contains("recipeSortField")) m_settings->network()->setRecipeSortField(obj["recipeSortField"].toString());
+    if (obj.contains("recipeSortDirection")) m_settings->network()->setRecipeSortDirection(obj["recipeSortDirection"].toString());
+    if (obj.contains("bagSortField")) m_settings->network()->setBagSortField(obj["bagSortField"].toString());
+    if (obj.contains("bagSortDirection")) m_settings->network()->setBagSortDirection(obj["bagSortDirection"].toString());
     if (obj.contains("decentEnabled")) m_settings->decent()->setEnabled(obj["decentEnabled"].toBool());
     if (obj.contains("uploadAutomatically")) m_settings->upload()->setAutoUpload(obj["uploadAutomatically"].toBool());
     if (obj.contains("updateAutomatically")) m_settings->upload()->setAutoUpdate(obj["updateAutomatically"].toBool());

@@ -1,22 +1,16 @@
-// Guards the Recipes-page search matcher on BOTH surfaces that implement it:
+// Guards list search and sort on BOTH surfaces that implement them:
 //
-//   1. The in-app path — qml/components/RecipeSearch.js (normalize/tokenize/matches),
-//      used by RecipesPage.filterAndSort.
-//   2. The ShotServer web /recipes path — the normalizeSearch/matchesFilter functions
-//      embedded in generateRecipesPage() (src/network/shotserver_recipes.cpp).
+//   1. The app: qml/components/RecipeSearch.js, used by RecipesPage and BeanInfoPage.
+//   2. The ShotServer web pages: normalizeSearch, tokenizeSearch and sortedCopy in
+//      webtemplates/management_js.h, matchesFilter in shotserver_recipes.cpp and
+//      bagHaystack in shotserver_bags.cpp.
 //
-// The two are separate implementations (QML JS vs browser JS served as a string) that
-// must stay behaviorally in sync. Both are loaded from their REAL shipping source
-// (read from DECENZA_SOURCE_DIR, evaluated in a QJSEngine) rather than a C++ copy, so
-// this file guards the actual code and FAILS if either surface drifts — same approach
-// as tst_textescaping.
+// Both are loaded from their REAL shipping source (read from DECENZA_SOURCE_DIR,
+// evaluated in a QJSEngine), so a drift on either surface fails here.
 //
-// The bug this exists for: typing "Yirg Df" on the Recipes page found nothing, even
-// though the coffee is a Yirgacheffe and the profile is "D-Flow / Q". The old matcher
-// tested the whole query as one contiguous substring (`hay.indexOf(query)`), so a
-// cross-field, multi-token query could never match, and "df" could not reach "D-Flow".
-// The fix tokenizes the query and DELETES `-` `/` `.` (collapsing "D-Flow" to "dflow"),
-// requiring every token to be found (AND).
+// The bug this exists for: "Yirg Df" found nothing on Recipes although the coffee is
+// a Yirgacheffe and the profile "D-Flow / Q". The match now tokenizes the query and
+// DELETES `-` `/` `.` ("D-Flow" -> "dflow"), requiring every token (AND).
 
 #include <QtTest>
 #include <QJSEngine>
@@ -47,10 +41,21 @@ private slots:
     void webMatcherAgreesOnSharedCases();
     void webSearchesDrinkType();
 
+    // Beans page: every text value a bag holds, never its ids or links; app and web agree
+    void bagSearchCoversAllTextAndAgreesWithWeb();
+    void bagSearchSkipsBookkeepingAtEveryDepth();
+
+    // Recipes and Beans order: blanks last both ways, ties by id; app and web agree
+    void sortedCopyBlanksLastAndAgreesWithWeb();
+
 private:
     QJSEngine m_engine;
     QJSValue m_lib;   // RecipeSearch.js
     QJSValue m_web;   // extracted web matcher
+    QJSValue m_webBagHaystack;   // bagHaystack from shotserver_bags.cpp
+    QJSValue m_webSortedCopy;    // sortedCopy from management_js.h
+    // Both surfaces' haystacks for one bag, after checking they are identical.
+    QString bagHaystack(const QJSValue& bag, const QString& kindLabel);
     bool match(const QString& haystack, const QString& query);
     // Web matcher: builds a recipe {name, profileTitle, roaster, coffee, drinkType}
     // and returns matchesFilter against the tokenized query.
@@ -102,7 +107,9 @@ void TestRecipeSearch::initTestCase()
                                  QRegularExpression::MultilineOption));
     const QString libProgram =
         QStringLiteral("(function(){ %1\n return { tokenize: tokenize, matches: matches,"
-                       "     normalize: normalize, buildHaystack: buildHaystack }; })()").arg(js);
+                       "     normalize: normalize, buildHaystack: buildHaystack,"
+                       "     buildBagHaystack: buildBagHaystack, bagSkipKeys: _bagSkipKeys,"
+                       "     sortedCopy: sortedCopy }; })()").arg(js);
     m_lib = m_engine.evaluate(libProgram);
     QVERIFY2(!m_lib.isError(), qPrintable(m_lib.toString()));
     QVERIFY2(m_lib.property("matches").isCallable(), "matches() not found in RecipeSearch.js");
@@ -112,11 +119,14 @@ void TestRecipeSearch::initTestCase()
     // --- Web matcher: extracted from generateRecipesPage() in shotserver_recipes.cpp ---
     const QString cpp = readSource("/src/network/shotserver_recipes.cpp");
     QVERIFY2(!cpp.isEmpty(), "could not read shotserver_recipes.cpp");
-    const QString normalizeSearch = extractFunction(cpp, "normalizeSearch");
-    const QString tokenizeSearch = extractFunction(cpp, "tokenizeSearch");
+    // The tokenizer is shared by the web /recipes and /beans pages (WEB_JS_MANAGEMENT).
+    const QString sharedJs = readSource("/src/network/webtemplates/management_js.h");
+    QVERIFY2(!sharedJs.isEmpty(), "could not read management_js.h");
+    const QString normalizeSearch = extractFunction(sharedJs, "normalizeSearch");
+    const QString tokenizeSearch = extractFunction(sharedJs, "tokenizeSearch");
     const QString matchesFilter = extractFunction(cpp, "matchesFilter");
-    QVERIFY2(!normalizeSearch.isEmpty(), "normalizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
-    QVERIFY2(!tokenizeSearch.isEmpty(), "tokenizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
+    QVERIFY2(!normalizeSearch.isEmpty(), "normalizeSearch() not found (or ambiguous) in management_js.h");
+    QVERIFY2(!tokenizeSearch.isEmpty(), "tokenizeSearch() not found (or ambiguous) in management_js.h");
     QVERIFY2(!matchesFilter.isEmpty(), "matchesFilter() not found (or ambiguous) in shotserver_recipes.cpp");
 
     // matchesFilter references drinkLabel(); stub it to echo the raw drink type so the
@@ -136,6 +146,32 @@ void TestRecipeSearch::initTestCase()
     m_web = m_engine.evaluate(webProgram);
     QVERIFY2(!m_web.isError(), qPrintable(m_web.toString()));
     QVERIFY2(m_web.property("webMatch").isCallable(), "web matcher failed to build");
+
+    const QString bagHaystack = extractFunction(readSource("/src/network/shotserver_bags.cpp"), "bagHaystack");
+    QVERIFY2(!bagHaystack.isEmpty(), "bagHaystack() not found (or ambiguous) in shotserver_bags.cpp");
+    m_webBagHaystack = m_engine.evaluate(QStringLiteral("(function(){ %1\n return bagHaystack; })()").arg(bagHaystack));
+    QVERIFY2(m_webBagHaystack.isCallable(), qPrintable(m_webBagHaystack.toString()));
+
+    const QString sortedCopy = extractFunction(sharedJs, "sortedCopy");
+    QVERIFY2(!sortedCopy.isEmpty(), "sortedCopy() not found (or ambiguous) in management_js.h");
+    m_webSortedCopy = m_engine.evaluate(QStringLiteral("(function(){ %1\n return sortedCopy; })()").arg(sortedCopy));
+    QVERIFY2(m_webSortedCopy.isCallable(), qPrintable(m_webSortedCopy.toString()));
+}
+
+QString TestRecipeSearch::bagHaystack(const QJSValue& bag, const QString& kindLabel)
+{
+    const QJSValue app = m_lib.property("buildBagHaystack").call({bag, QJSValue(kindLabel)});
+    const QJSValue web = m_webBagHaystack.call({bag, QJSValue(kindLabel)});
+    if (app.isError() || web.isError()) {
+        qWarning("haystack threw: app %s, web %s", qPrintable(app.toString()), qPrintable(web.toString()));
+        return QString();
+    }
+    if (app.toString() != web.toString()) {
+        qWarning("app and web haystacks differ:\n  app: %s\n  web: %s",
+                 qPrintable(app.toString()), qPrintable(web.toString()));
+        return QString();
+    }
+    return app.toString();
 }
 
 // The full pipeline as the in-app page uses it: tokenize the query, then match.
@@ -283,6 +319,74 @@ void TestRecipeSearch::webSearchesDrinkType()
              "web: a drink-type token must match via the drink label field");
     QVERIFY2(!webMatch("House milk", "Cremina", "", "Ethiopia", "espresso", "latte"),
              "web: a drink-type token must NOT match a recipe of a different type");
+}
+
+// A bag as the inventory hands it over: its own fields, and a details blob with a
+// nested canonical snapshot, a link and ids. Every text value is searchable, and its
+// kind through the label; identifiers, links and enums are not.
+void TestRecipeSearch::bagSearchCoversAllTextAndAgreesWithWeb()
+{
+    const QJSValue bag = m_engine.evaluate(QStringLiteral(
+        "({ id: 7, kind: 'tea', roasterName: 'Saka', coffeeName: 'Gran Bar', notes: 'for milk drinks',"
+        "   visualizerBagId: 'abc-123', yieldMode: 'none',"
+        "   beanBaseData: JSON.stringify({ region: 'Minas Gerais', canonical: { producer: 'Saka Caffe' },"
+        "                                  link: 'https://example.com/gran-bar', id: 'canon-99' }) })"));
+    QVERIFY(!bag.isError());
+    const QString hay = bagHaystack(bag, QStringLiteral("Tea"));
+    QVERIFY(!hay.isEmpty());
+    for (const char* q : {"saka gran", "milk", "minas", "caffe", "tea"})
+        QVERIFY2(match(hay, q), q);
+    for (const char* q : {"example", "canon", "abc", "none"})
+        QVERIFY2(!match(hay, q), q);
+
+    // An unreadable blob costs only its own details, never the bag (or the list).
+    const QJSValue corrupt = m_engine.evaluate(QStringLiteral(
+        "({ id: 8, roasterName: 'Saka', beanBaseData: '{not json' })"));
+    const QString corruptHay = bagHaystack(corrupt, QStringLiteral("Coffee"));
+    QVERIFY(match(corruptHay, "saka coffee"));
+}
+
+// Every key the app skips, placed on the bag, on its blob and one level inside the
+// blob, with a value no field could otherwise hold: none of it may be searchable on
+// either surface. Built from the app's own list, so a key dropped from the web's copy
+// fails here too.
+void TestRecipeSearch::bagSearchSkipsBookkeepingAtEveryDepth()
+{
+    const QJSValue build = m_engine.evaluate(QStringLiteral(
+        "(function(keys) { var blob = { canonical: {} }, bag = { roasterName: 'Saka' };"
+        "  keys.forEach(function(k) { bag[k] = blob[k] = blob.canonical[k] = 'zq' + k; });"
+        "  bag.beanBaseData = JSON.stringify(blob); return bag; })"));
+    const QJSValue bag = build.call({m_lib.property("bagSkipKeys")});
+    QVERIFY(!bag.isError());
+    const QString hay = bagHaystack(bag, QString());
+    QVERIFY(match(hay, "saka"));
+    QVERIFY2(!hay.contains(QStringLiteral("zq")), qPrintable(hay));
+}
+
+void TestRecipeSearch::sortedCopyBlanksLastAndAgreesWithWeb()
+{
+    struct Case { const char* list; const char* direction; const char* ids; };
+    const Case cases[] = {
+        {"[{id:1,k:0},{id:2,k:5},{id:3,k:9},{id:4,k:5}]", "ASC",  "2,4,3,1"},
+        {"[{id:1,k:0},{id:2,k:5},{id:3,k:9},{id:4,k:5}]", "DESC", "3,4,2,1"},
+        {"[{id:1,k:''},{id:2,k:'b'},{id:3,k:'a'}]",       "ASC",  "3,2,1"},
+        {"[{id:1,k:''},{id:2,k:'b'},{id:3,k:'a'}]",       "DESC", "2,3,1"},
+        // Anything but ASC is descending, as Shot History's query reads it.
+        {"[{id:1,k:1},{id:2,k:2}]",                       "",     "2,1"},
+    };
+    const QJSValue keyOf = m_engine.evaluate(QStringLiteral("(function(x) { return x.k; })"));
+    const QJSValue ids = m_engine.evaluate(QStringLiteral(
+        "(function(l) { return l.map(function(x) { return x.id; }).join(','); })"));
+    for (const Case& c : cases) {
+        for (const QJSValue& fn : {m_lib.property("sortedCopy"), m_webSortedCopy}) {
+            const QJSValue list = m_engine.evaluate(QStringLiteral("(%1)").arg(QLatin1String(c.list)));
+            const QString before = ids.call({list}).toString();
+            const QJSValue sorted = fn.call({list, keyOf, QJSValue(QLatin1String(c.direction))});
+            QVERIFY2(!sorted.isError(), qPrintable(sorted.toString()));
+            QCOMPARE(ids.call({sorted}).toString(), QLatin1String(c.ids));
+            QCOMPARE(ids.call({list}).toString(), before);   // a copy: the page's own list keeps its order
+        }
+    }
 }
 
 QTEST_MAIN(TestRecipeSearch)

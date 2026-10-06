@@ -1,9 +1,4 @@
-# recipe-list-organization Specification
-
-## Purpose
-Search and sort for the recipe list, in the app and on the web `/recipes` page, so a long recipe library stays easy to find things in.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Recipe search
 The recipes management page SHALL provide a search field that filters the displayed recipe cards to those whose name, coffee/bean identity (roaster name or coffee name), profile title, or drink-type label match the entered text. Matching SHALL be token-based: the query SHALL be split into tokens on whitespace, and a recipe SHALL match only when every token appears as a substring in its combined searchable text (name, roaster name, coffee name, profile title, and drink-type label). Before matching, the query and the searchable text SHALL both have the punctuation characters `-`, `/`, and `.` removed, so a token like `df` matches text like `D-Flow / Q` (which collapses to `dflow  q`). A single token MAY appear in one field while another token appears in a different field. Matching SHALL be case-insensitive and SHALL update on every edit, the input method's in-progress word included. The field SHALL provide a clear control that empties the search and restores the full list. The search filter SHALL apply to both the active and archived recipe grids.
@@ -47,25 +42,6 @@ The recipes management page SHALL provide a search field that filters the displa
 #### Scenario: Matches only among archived recipes
 - **WHEN** the search text matches only archived recipes
 - **THEN** the page does not say nothing matches, and "Show archived (N)" counts the matches
-
-### Requirement: Recipe sort
-The recipes management page SHALL provide a control to choose the order of the recipe cards. The available sort keys SHALL be: date used, date created, coffee/bean, profile, and name. The page SHALL also provide a control to toggle between ascending and descending order. The chosen order SHALL apply to both the active and archived recipe grids. Sorting SHALL be combined with the active search filter (the visible cards are the search matches, in the chosen order).
-
-#### Scenario: Sorting by a chosen key
-- **WHEN** the user selects a sort key
-- **THEN** the recipe cards are reordered by that key in the current direction
-
-#### Scenario: Toggling direction
-- **WHEN** the user toggles the sort direction
-- **THEN** the recipe cards reverse between ascending and descending order for the current sort key
-
-#### Scenario: Default order
-- **WHEN** the user has never chosen a sort order
-- **THEN** the cards are ordered by date used, most recent first, matching the page's prior behavior
-
-#### Scenario: Sort applies within search results
-- **WHEN** a search filter is active and a sort key or direction is set
-- **THEN** the cards that match the search are shown in the chosen sort order
 
 ### Requirement: Sort preference persistence
 The recipes management page SHALL persist the chosen sort key and sort direction across app sessions. The web `/recipes` page SHALL open in the same saved order and offer the same sort keys, and a sort chosen there SHALL be saved as the same preference. A saved sort key the page does not offer SHALL show and sort as date used. The search text SHALL NOT be persisted and SHALL start empty on each visit to the page.

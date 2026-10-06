@@ -9,6 +9,7 @@
 #include "shotserver.h"
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
+#include "../core/settings_network.h"
 #include "../core/settings_dye.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
@@ -795,6 +796,7 @@ QString ShotServer::generateBeansPage() const
             <button onclick="openEditor(null, 'coffee')">Bag of Coffee</button>
             <button onclick="openEditor(null, 'tea')">Bag of Tea</button>
         </div>
+        <div class="searchbar" id="searchbar" style="display:none"></div>
         <div id="status"></div>
         <div id="list"></div>
         <div class="section-head" id="finishedHead" style="display:none">
@@ -1002,7 +1004,11 @@ QString ShotServer::generateBeansPage() const
                     equipmentList = [];
                 });
             getJson('/api/bags')
-                .then(d => { render(d.bags || []); status(''); })
+                .then(d => {
+                    status('');
+                    try { render(d.bags || []); }
+                    catch (e) { console.error(e); status('Could not show bags: ' + e.message); }
+                })
                 .then(loadFinished)
                 .catch(e => status('Could not load bags: ' + e.message));
         }
@@ -1132,31 +1138,98 @@ QString ShotServer::generateBeansPage() const
                 + '<div class="card-head">' + thumb + body + '</div>' + acts + '</div>';
         }
 
-        function render(list) {
-            bags = list.concat(finishedBags);
-            el('list').innerHTML = list.length
-                ? '<div class="grid">' + list.map(b => cardHtml(b, false)).join('') + '</div>'
-                : '<div class="empty"><h2>No bags yet</h2>'
-                  + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+        // --- Search + sort, as the app's Beans page (initListControls) ---
+        let openBags = [];
+        // Keys and default directions as BeanInfoPage.qml.
+        const BAG_SORTS = [
+            ['dateUsed', 'Last used', 'DESC'],
+            ['roastDate', 'Roast date', 'DESC'],
+            ['coffee', 'Coffee', 'ASC'],
+            ['roaster', 'Roaster', 'ASC'],
+        ];
+        function bagSortKey(b) {
+            if (listView.field === 'roastDate') return String(b.roastDate || '');
+            if (listView.field === 'coffee') return String(b.coffeeName || '').toLowerCase();
+            if (listView.field === 'roaster') return String(b.roasterName || '').toLowerCase();
+            return Number(b.lastUsedEpoch) || 0;
+        }
+
+        // Every text value a bag holds, as RecipeSearch.buildBagHaystack in the app
+        // (tests/tst_recipesearch.cpp checks they agree). No braces inside strings
+        // here: the test extracts this function by brace matching.
+        function bagHaystack(b, kindLabel) {
+            const skip = ['id', 'kind', 'beanBaseId', 'beanBaseData', 'equipmentId',
+                'visualizerBagId', 'visualizerRoasterId', 'visualizerSeen', 'visualizerSyncPending',
+                'link', 'source', 'canonicalRoasterId', 'visualizerCanonicalId',
+                'linkChecked', 'linkDead', 'aiPageSearched', 'yieldMode'];
+            const parts = [kindLabel || ''];
+            const collect = (o) => {
+                for (const key in o) {
+                    if (skip.indexOf(key) !== -1) continue;
+                    const v = o[key];
+                    if (typeof v === 'string') parts.push(v);
+                    else if (v && typeof v === 'object') collect(v);
+                }
+            };
+            collect(b || ({}));
+            let blob = ({});
+            try {
+                if (b && b.beanBaseData) blob = JSON.parse(b.beanBaseData);
+            } catch (e) {
+                // Unreadable: the bag's own fields still match. cardHtml warns.
+            }
+            collect(blob);
+            return parts.join(' ');
+        }
+        // The bags of list matching the search, in the chosen order.
+        function shownBags(list) {
+            const tokens = tokenizeSearch(listView.query);
+            const hit = tokens.length ? list.filter(b => {
+                const hay = normalizeSearch(bagHaystack(b, b.kind === 'tea' ? 'Tea' : 'Coffee'));
+                return tokens.every(t => hay.indexOf(t) !== -1);
+            }) : list;
+            return sortedCopy(hit, bagSortKey, listView.dir);
+        }
+
+        function render(list) { openBags = list; showBags(); }
+        function showBags() {
+            const open = shownBags(openBags);
+            const finished = shownBags(finishedBags);
+            bags = openBags.concat(finishedBags);
+            el('searchbar').style.display = (openBags.length || finishedBags.length) ? '' : 'none';
+            el('list').innerHTML = open.length
+                ? '<div class="grid">' + open.map(b => cardHtml(b, false)).join('') + '</div>'
+                : listView.query
+                    // Only once the finished shelf has answered: until then, or if
+                    // its read failed, a match may be there.
+                    ? (finished.length || finishedState !== 'ready' ? ''
+                       : '<p class="muted">No bags match &ldquo;' + esc(listView.query) + '&rdquo;.</p>')
+                    : '<div class="empty"><h2>No bags yet</h2>'
+                      + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+            renderFinished(finished);
         }
 
         // Finished bags: hidden behind a toggle, as Recipes hides archived ones.
         let finishedBags = [];
+        let finishedState = 'loading';   // 'ready' or 'failed' once the read answers
         let showFinished = false;
-        function renderFinished() {
-            bags = bags.filter(b => !finishedBags.some(f => f.id === b.id)).concat(finishedBags);
+        // The search applies here too, so the count is of the matches.
+        function renderFinished(shown) {
             const btn = el('finishedToggle');
-            el('finishedHead').style.display = finishedBags.length ? '' : 'none';
-            btn.textContent = (showFinished ? 'Hide finished' : 'Show finished') + ' (' + finishedBags.length + ')';
+            el('finishedHead').style.display = shown.length ? '' : 'none';
+            btn.textContent = (showFinished ? 'Hide finished' : 'Show finished') + ' (' + shown.length + ')';
             btn.setAttribute('aria-expanded', showFinished ? 'true' : 'false');
-            el('finishedList').innerHTML = showFinished && finishedBags.length
-                ? '<div class="grid">' + finishedBags.map(b => cardHtml(b, true)).join('') + '</div>' : '';
+            el('finishedList').innerHTML = showFinished && shown.length
+                ? '<div class="grid">' + shown.map(b => cardHtml(b, true)).join('') + '</div>' : '';
         }
-        function toggleFinished() { showFinished = !showFinished; renderFinished(); }
+        function toggleFinished() { showFinished = !showFinished; showBags(); }
         function loadFinished() {
             return getJson('/api/bags/finished')
-                .then(d => { finishedBags = d.bags || []; renderFinished(); })
-                .catch(e => status('Could not load finished bags: ' + e.message));
+                .then(d => { finishedBags = d.bags || []; finishedState = 'ready'; showBags(); })
+                .catch(e => {
+                    finishedState = 'failed';
+                    status('Could not load finished bags: ' + e.message);
+                });
         }
         // Restock: a new bag of the same coffee, as the app's re-buy form —
         // identity, details and dial-in carry over; dates and notes belong to
@@ -1662,6 +1735,12 @@ QString ShotServer::generateBeansPage() const
             }).catch(e => editorStatus(e.message));
         }
 
+        initListControls(Object.assign({ placeholder: 'Search bags…', sorts: BAG_SORTS,
+                                         settingPrefix: 'bag', onChange: showBags }, )HTML";
+    html += m_settings ? webListSortJson(m_settings->network()->bagSortField(),
+                                         m_settings->network()->bagSortDirection())
+                       : QStringLiteral("{}");
+    html += R"HTML());
         load();
         openRestockFromUrl();
     </script>
