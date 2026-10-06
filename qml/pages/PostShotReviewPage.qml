@@ -992,8 +992,12 @@ T.Page {
         function onUploadFinished(shotId, result) {
             if (shotId !== postShotReviewPage.editShotId) return
             if (result !== DecentShotUploader.Result.Uploaded) postShotReviewPage.pendingDecentUpdate = true
-            if (AccessibilityManager.enabled && decentUploadStatus.text.length > 0)
-                AccessibilityManager.announce(decentUploadStatus.text, true)
+            // Success is not shown, but is spoken, as Visualizer's is.
+            const spoken = result === DecentShotUploader.Result.Uploaded
+                ? TranslationManager.translate("decent.upload.done", "Uploaded to your Decent account")
+                : decentUploadStatus.text
+            if (AccessibilityManager.enabled && spoken.length > 0)
+                AccessibilityManager.announce(spoken, true)
         }
     }
 
