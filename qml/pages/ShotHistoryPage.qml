@@ -16,18 +16,6 @@ T.Page {
     objectName: "shotHistoryPage"
     background: ThemedPageBackground {}
 
-    // Tap outside to dismiss keyboard
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        onClicked: {
-            if (searchField.activeFocus) {
-                searchField.focus = false
-                Keyboard.hide()
-            }
-        }
-    }
-
     property var selectedShots: []
     property int currentOffset: 0
     property int pageSize: 50
@@ -55,7 +43,6 @@ T.Page {
 
     // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
     property var initialFilter: null
-    property bool _populatingSearch: false
 
     // Sort settings
     property string sortField: Settings.network.shotHistorySortField
@@ -184,10 +171,10 @@ T.Page {
 
     function buildFilter() {
         var filter = {}
-        // Read displayText (not text) so the in-progress IME preedit on Gboard/Samsung
-        // is included — matches the onDisplayTextChanged trigger that scheduled this run.
-        if (searchField.displayText.length > 0) {
-            let searchText = searchField.displayText
+        // displayText, not text, so the IME's in-progress word is searched too, as
+        // SearchField reports it.
+        if (searchBar.field.displayText.length > 0) {
+            let searchText = searchBar.field.displayText
 
             // Parse numeric keyword filters from search text
             // Syntax: keyword:N (exact), keyword:N-M (range), keyword:N+ (min only)
@@ -358,16 +345,6 @@ T.Page {
         applyInitialFilter({ "recipeId": recipeId, "recipeName": recipeName || "" })
     }
 
-    // ONE writer for the search box. The flag suppresses onTextEdited, which
-    // would otherwise null initialFilter as a side effect of us setting the text;
-    // three hand-written copies of that dance is how one of them ends up missing
-    // the reset.
-    function _setSearchText(str) {
-        _populatingSearch = true
-        searchField.text = str
-        searchField.lastTriggeredText = str.trim()
-        _populatingSearch = false
-    }
 
     // Mirror a filter's human-readable terms into the search box so the user can
     // edit or save it. ONE definition, used by both entry points: the push path
@@ -388,7 +365,7 @@ T.Page {
         if (f.grinderBrand) parts.push(f.grinderBrand)
         if (f.grinderModel) parts.push(f.grinderModel)
         if (f.grinderSetting) parts.push(f.grinderSetting)
-        _setSearchText(parts.join(" "))
+        searchBar.setTextSilently(parts.join(" "))
     }
 
     // Apply an arbitrary initialFilter — used both by the in-page tap-throughs
@@ -470,815 +447,760 @@ T.Page {
     }
 
     // Filter bar
-    ColumnLayout {
+    // Keyboard handling for the search field, tap-outside dismissal included.
+    KeyboardAwareContainer {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: bottomBar.top
-        anchors.leftMargin: Theme.standardMargin
-        anchors.rightMargin: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin
-        spacing: Theme.spacingMedium
+        textFields: [searchBar.field]
 
-        // Header row with selection count and compare button
-        RowLayout {
-            Layout.fillWidth: true
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.standardMargin
+            anchors.rightMargin: Theme.standardMargin
+            anchors.topMargin: Theme.pageTopMargin
             spacing: Theme.spacingMedium
-            visible: shotHistoryPage.selectedShots.length > 0
 
-            Text {
-                text: shotHistoryPage.selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                Layout.fillWidth: true
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.clear", "Clear")
-                accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
-                onClicked: shotHistoryPage.clearSelection()
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.delete", "Delete")
-                accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
-                destructive: true
-                onClicked: bulkDeleteConfirmDialog.open()
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.compare", "Compare")
-                accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
-                primary: true
-                enabled: shotHistoryPage.selectedShots.length >= 2
-                onClicked: shotHistoryPage.openComparison()
-            }
-        }
-
-        // Filter row
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingSmall
-
-            StyledTextField {
-                id: searchField
-                Layout.fillWidth: true
-                placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
-                rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
-                // Hint the Android IME away from autocorrect. Some IMEs (notably Gboard)
-                // ignore this, so we also drive the filter from `displayText` below —
-                // displayText includes the IME preedit composing text, so the filter
-                // updates per keystroke instead of waiting for a word commit.
-                inputMethodHints: Qt.ImhNoPredictiveText
-                property string lastTriggeredText: ""
-                onDisplayTextChanged: {
-                    var trimmed = displayText.trim()
-                    if (trimmed !== lastTriggeredText) {
-                        lastTriggeredText = trimmed
-                        // User edited the search field — drop exact-match filter, use FTS
-                        if (!shotHistoryPage._populatingSearch && shotHistoryPage.initialFilter)
-                            shotHistoryPage.initialFilter = null
-                        if (!shotHistoryPage._populatingSearch)
-                            searchTimer.restart()
-                    }
-                }
-
-                // Clear button (inline, hidden in accessibility mode to avoid overlapping elements)
-                Item {
-                    id: searchClearButton
-                    width: Theme.scaled(20)
-                    height: Theme.scaled(20)
-                    visible: searchField.displayText.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.scaled(10)
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    ColoredIcon {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/cross.svg"
-                        iconWidth: Theme.scaled(14)
-                        iconHeight: Theme.scaled(14)
-                        iconColor: Theme.textSecondaryColor
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        anchors.margins: -Theme.scaled(6)
-                        onClicked: {
-                            searchField.text = ""
-                            searchField.focus = false
-                        }
-                    }
-                }
-            }
-
-            // Accessible clear button (outside TextField bounds for TalkBack discoverability)
-            AccessibleButton {
-                visible: searchField.displayText.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
-                accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
-                icon.source: "qrc:/icons/cross.svg"
-                onClicked: {
-                    searchField.text = ""
-                    searchField.focus = false
-                }
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.keywords", "Keywords")
-                accessibleName: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
-                onClicked: searchHelpDialog.open()
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.save", "Save")
-                accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
-                enabled: searchField.text.trim().length > 0
-                         && Settings.network.savedSearches.indexOf(searchField.text.trim()) === -1
-                onClicked: Settings.network.addSavedSearch(searchField.text.trim())
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.saved", "Saved")
-                accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
-                icon.source: "qrc:/icons/list.svg"
-                enabled: Settings.network.savedSearches.length > 0
-                onClicked: savedSearchesDialog.open()
-            }
-
-            // Sort field button
-            AccessibleButton {
-                text: shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
-                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField]
-                                  || TranslationManager.translate("shothistory.sort.date", "Date"))
-                onClicked: sortPickerDialog.open()
-            }
-
-            // Sort direction button
-            AccessibleButton {
-                icon.source: shotHistoryPage.sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
-                tintIcon: true
-                accessibleName: shotHistoryPage.sortDirection === "DESC"
-                    ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
-                    : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
-                onClicked: {
-                    shotHistoryPage.sortDirection = (shotHistoryPage.sortDirection === "DESC") ? "ASC" : "DESC"
-                    Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
-                    shotHistoryPage.loadShots()
-                }
-            }
-
-            Timer {
-                id: searchTimer
-                interval: 300
-                onTriggered: shotHistoryPage.loadShots()
-            }
-        }
-
-        // Filter banner (shown when initialFilter is active)
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
-            radius: Theme.scaled(8)
-            color: Qt.alpha(Theme.primaryColor, 0.15)
-            visible: shotHistoryPage.initialFilter !== null
-
+            // Header row with selection count and compare button
             RowLayout {
-                id: filterBannerRow
-                anchors.fill: parent
-                anchors.margins: Theme.spacingSmall
-                spacing: Theme.spacingSmall
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+                visible: shotHistoryPage.selectedShots.length > 0
 
                 Text {
-                    text: {
-                        if (!shotHistoryPage.initialFilter) return ""
-                        var parts = []
-                        if (shotHistoryPage.initialFilter.recipeName) parts.push(shotHistoryPage.initialFilter.recipeName)
-                        if (shotHistoryPage.initialFilter.bagLabel) parts.push(shotHistoryPage.initialFilter.bagLabel)
-                        if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
-                        if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
-                        if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)
-                        // Equipment, then the grind setting, as SEPARATE clauses.
-                        // They used to be one: the setting was nested inside a
-                        // guard on grinderBrand/grinderModel. An auto-favourite
-                        // card now filters by `equipmentId` and sends no brand or
-                        // model, so that guard went false and the banner claimed
-                        // a narrower filter than the query was applying — the
-                        // user's shots on their other basket absent, with nothing
-                        // on screen saying why. `equipmentLabel` is banner-only:
-                        // it names the package the id selects.
-                        var pkg = shotHistoryPage.initialFilter.equipmentLabel
-                            || ((shotHistoryPage.initialFilter.grinderBrand || "") + " "
-                                + (shotHistoryPage.initialFilter.grinderModel || "")).trim()
-                        if (pkg) parts.push(pkg)
-                        if (shotHistoryPage.initialFilter.grinderSetting)
-                            parts.push(TranslationManager.translate("shothistory.filter.grind", "grind %1")
-                                       .arg(shotHistoryPage.initialFilter.grinderSetting))
-                        if (shotHistoryPage.initialFilter.minDose !== undefined && shotHistoryPage.initialFilter.maxDose !== undefined) {
-                            let mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
-                            parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
-                        }
-                        if (shotHistoryPage.initialFilter.targetWeight !== undefined && shotHistoryPage.initialFilter.targetWeight >= 0) {
-                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(shotHistoryPage.initialFilter.targetWeight.toFixed(1)))
-                        }
-                        return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00B7 ")
-                    }
-                    font.family: Theme.labelFont.family
-                    font.pixelSize: Theme.labelFont.pixelSize
-                    color: Theme.primaryColor
-                    elide: Text.ElideRight
+                    text: shotHistoryPage.selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
                     Layout.fillWidth: true
-                    Accessible.ignored: true
                 }
 
                 AccessibleButton {
-                    text: TranslationManager.translate("shothistory.clearFilter", "Clear")
-                    accessibleName: TranslationManager.translate("shothistory.clearFilterAccessible", "Clear favorites filter")
-                    icon.source: "qrc:/icons/cross.svg"
-                    onClicked: shotHistoryPage.clearInitialFilter()
+                    text: TranslationManager.translate("shothistory.clear", "Clear")
+                    accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
+                    onClicked: shotHistoryPage.clearSelection()
                 }
-            }
-        }
 
-        // Shot count
-        Text {
-            text: {
-                var loaded = shotListModel.count
-                var filtered = shotHistoryPage.filteredTotalCount
-                var total = MainController.shotHistory.totalShots
-                var countText = loaded + " " + TranslationManager.translate("shothistory.shots", "shots")
-                if (filtered > loaded) {
-                    countText += " (" + TranslationManager.translate("shothistory.of", "of") + " " + filtered + ")"
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.delete", "Delete")
+                    accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
+                    destructive: true
+                    onClicked: bulkDeleteConfirmDialog.open()
                 }
-                if (filtered < total) {
-                    countText += " [" + TranslationManager.translate("shothistory.filtered", "filtered") + "]"
-                }
-                return countText
-            }
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-        }
 
-        // Shot list
-        ListView {
-            id: shotListView
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            model: shotListModel
-            spacing: Theme.spacingSmall
-            boundsBehavior: Flickable.StopAtBounds
-
-            // Dismiss keyboard when user starts scrolling
-            onMovementStarted: {
-                if (searchField.activeFocus) {
-                    searchField.focus = false
-                    Keyboard.hide()
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.compare", "Compare")
+                    accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
+                    primary: true
+                    enabled: shotHistoryPage.selectedShots.length >= 2
+                    onClicked: shotHistoryPage.openComparison()
                 }
             }
 
-            // Infinite scroll - load more when near bottom
-            onContentYChanged: {
-                if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
-                    let threshold = contentHeight - height - Theme.scaled(200)
-                    if (contentY > threshold) {
-                        loadMoreTimer.restart()
+            // Filter row
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                SearchField {
+                    id: searchBar
+                    Layout.fillWidth: true
+                    placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
+                    // An edit drops the exact-match filter a caller opened the page
+                    // with; the text search takes over. One query per edit: a reply
+                    // overtaken by a newer query is dropped (m_filterSerial in
+                    // ShotHistoryStorage::requestShotsFiltered).
+                    onQueryChanged: {
+                        if (shotHistoryPage.initialFilter)
+                            shotHistoryPage.initialFilter = null
+                        shotHistoryPage.loadShots()
+                    }
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.keywords", "Keywords")
+                    accessibleName: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
+                    onClicked: searchHelpDialog.open()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.save", "Save")
+                    accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
+                    enabled: searchBar.field.text.trim().length > 0
+                             && Settings.network.savedSearches.indexOf(searchBar.field.text.trim()) === -1
+                    onClicked: Settings.network.addSavedSearch(searchBar.field.text.trim())
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.saved", "Saved")
+                    accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
+                    icon.source: "qrc:/icons/list.svg"
+                    enabled: Settings.network.savedSearches.length > 0
+                    onClicked: savedSearchesDialog.open()
+                }
+
+                SortControls {
+                    keys: shotHistoryPage.sortFieldKeys
+                    labels: shotHistoryPage.sortFieldLabels
+                    defaultDirections: shotHistoryPage.defaultSortDirections
+                    field: shotHistoryPage.sortField
+                    direction: shotHistoryPage.sortDirection
+                    onSortChanged: function(field, direction) {
+                        shotHistoryPage.sortField = field
+                        shotHistoryPage.sortDirection = direction
+                        Settings.network.shotHistorySortField = field
+                        Settings.network.shotHistorySortDirection = direction
+                        shotHistoryPage.loadShots()
                     }
                 }
             }
 
-            Timer {
-                id: loadMoreTimer
-                interval: 100
-                onTriggered: shotHistoryPage.loadMoreShots()
-            }
-
-            delegate: Rectangle {
-                id: shotDelegate
-
-                // The ListView's model role object, declared rather than injected.
-                required property var model
-
-                width: shotListView.width
-                height: Math.max(Theme.scaled(90), shotContentRow.implicitHeight + Theme.spacingMedium * 2)
-                radius: Theme.cardRadius
-                color: shotHistoryPage.isSelected(model.id) ? Qt.darker(Theme.cardBackgroundColor, 1.2) : Theme.cardBackgroundColor
-                border.color: shotHistoryPage.isSelected(model.id) ? Theme.primaryColor : "transparent"
-                border.width: shotHistoryPage.isSelected(model.id) ? 2 : 0
-
-                property int shotEnjoyment: model.enjoyment0to100 || 0
-
-                // Accessibility: row is a button whose primary action opens shot detail.
-                // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail
-                // because detail view is the more useful primary action for screen reader users.
-                // A shot made with a recipe (history-recipe-identity). The name
-                // and drink type ride in with the shot list itself (one LEFT
-                // JOIN in requestShotsFiltered), NOT resolved per delegate.
-                // Gated on the NAME resolving, not just on the id. The invariant
-                // that a shot-linked recipe is never hard-deleted is enforced in
-                // exactly one function (RecipeStorage::requestDeleteRecipe) and
-                // there is no FK behind it, while a non-merge import does a
-                // wholesale DELETE FROM recipes. If an id ever fails to resolve,
-                // falling back to the profile row is a correct-looking row; an
-                // id-only gate would instead render an EMPTY identity line with
-                // the profile already demoted away from it.
-                property bool hasRecipe: (model.recipeId || 0) > 0 && !!model.recipeName
-                property bool recipeIsArchived: hasRecipe && (model.recipeArchived === true)
-
-                // Profile plus the shot's temperature override. Rendered on the
-                // identity line for a recipe-less shot and at the head of the
-                // secondary line otherwise — one function so the two placements
-                // cannot drift.
-                function profileText() {
-                    var name = model.profileName || ""
-                    var tempOvr = model.temperatureOverrideC || 0
-                    if (tempOvr > 0)
-                        return name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
-                    return name
-                }
-
-                function beanText() {
-                    return (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
-                }
-
-                // Everything on the secondary line except the pinned grind. The
-                // profile leads it only when the recipe took the identity slot.
-                function secondaryText() {
-                    var bean = beanText()
-                    if (!hasRecipe)
-                        return bean
-                    var profile = profileText()
-                    if (profile && bean) return profile + " · " + bean
-                    return profile || bean
-                }
-
-                // Grind, with the RPM half paired when recorded (variable-RPM
-                // grinders). Always labelled — it sits among other numbers on the
-                // metrics line, where a bare "8.75 · 1500" identifies nothing.
-                function grindText() {
-                    var grind = model.grinderSetting || ""
-                    if (!grind) return ""
-                    if (model.rpm > 0) grind += " · " + model.rpm
-                    return TranslationManager.translate("shothistory.metric.grind", "Grind") + " " + grind
-                }
-
-                Accessible.role: Accessible.Button
-                Accessible.name: {
-                    var parts = []
-                    // Recipe first: for a user who named it themselves it is the
-                    // strongest identity on the row, and it is the only thing here
-                    // the profile/bean text cannot imply.
-                    if (shotDelegate.hasRecipe) {
-                        // The archived state is DIMMED visually, so it has to be
-                        // spoken too — colour is never the only carrier.
-                        parts.push(model.recipeArchived
-                                   ? TranslationManager.translate("shothistory.accessible.recipeArchived",
-                                                                  "%1 (archived recipe)").arg(model.recipeName)
-                                   : model.recipeName)
-                    }
-                    if (model.profileName) parts.push(model.profileName)
-                    if (model.dateTime) parts.push(model.dateTime)
-                    var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
-                    if (bean) parts.push(bean)
-                    var doseVal = model.doseWeightG || 0
-                    var yieldVal = model.finalWeightG || 0
-                    if (doseVal > 0 && yieldVal > 0)
-                        parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
-                    // Pre-existing gap: the grind is on the row but was never spoken,
-                    // so the one number a dialing-in user scans for was unreachable by
-                    // screen reader. Same helper as the visible metric, so the two
-                    // cannot word it differently.
-                    var grindSpoken = shotDelegate.grindText()
-                    if (grindSpoken) parts.push(grindSpoken)
-                    if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
-                    // Same keys the visible QualityBadges use, so the spoken row and the
-                    // badges cannot drift apart or disagree in a translated locale. These
-                    // were four hardcoded English strings until this change.
-                    var issues = []
-                    if (model.pourTruncatedDetected)
-                        issues.push(TranslationManager.translate("badges.puckFailed", "Puck failed"))
-                    if (model.channelingDetected)
-                        issues.push(TranslationManager.translate("badges.channeling", "Channeling detected"))
-                    if (model.grindIssueDetected)
-                        issues.push(TranslationManager.translate("badges.grindIssue", "Grind issue"))
-                    if (model.skipFirstFrameDetected)
-                        issues.push(TranslationManager.translate("badges.skipFirstFrame", "First step skipped"))
-                    if (issues.length > 0) parts.push(issues.join(", "))
-                    // The cloud icon is the only thing carrying "uploaded" in this row, and it
-                    // is Accessible.ignored — without this the state was unreachable by screen
-                    // reader, which is the failure CLAUDE.md means by "never the only carrier".
-                    if (model.hasVisualizerUpload)
-                        parts.push(TranslationManager.translate("shotdetail.uploadedtovisualizer",
-                                                                "Uploaded to Visualizer"))
-                    return parts.join(", ")
-                }
-                Accessible.focusable: true
-                Accessible.onPressAction: shotHistoryPage.openShotDetail(model.id)
+            // Filter banner (shown when initialFilter is active)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
+                radius: Theme.scaled(8)
+                color: Qt.alpha(Theme.primaryColor, 0.15)
+                visible: shotHistoryPage.initialFilter !== null
 
                 RowLayout {
-                    id: shotContentRow
+                    id: filterBannerRow
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingMedium
+                    anchors.margins: Theme.spacingSmall
+                    spacing: Theme.spacingSmall
 
-                    // Selection checkbox
-                    CheckBox {
-                        id: checkBox
-                        checked: shotHistoryPage.isSelected(shotDelegate.model.id)
-                        onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
-                        Accessible.role: Accessible.CheckBox
-                        Accessible.name: TranslationManager.translate("shothistory.accessible.compare", "Compare")
-                        Accessible.checked: checked
-                        Accessible.focusable: true
-
-                        indicator: Rectangle {
-                            implicitWidth: Theme.scaled(24)
-                            implicitHeight: Theme.scaled(24)
-                            radius: Theme.scaled(4)
-                            color: checkBox.checked ? Theme.primaryColor : "transparent"
-                            border.color: checkBox.checked ? Theme.primaryColor : Theme.borderColor
-                            border.width: 2
-
-                            ColoredIcon {
-                                anchors.centerIn: parent
-                                source: "qrc:/icons/tick.svg"
-                                iconWidth: Theme.scaled(16)
-                                iconHeight: Theme.scaled(16)
-                                // primaryContrastColor, not primaryColor: the indicator's fill is
-                                // Theme.primaryColor when checked, so a primaryColor tick is drawn
-                                // blue-on-blue and cannot be seen. Same class as SettingsPage's
-                                // white-on-white search icon — visible only by looking at the app.
-                                iconColor: Theme.primaryContrastColor
-                                visible: checkBox.checked
+                    Text {
+                        text: {
+                            if (!shotHistoryPage.initialFilter) return ""
+                            var parts = []
+                            if (shotHistoryPage.initialFilter.recipeName) parts.push(shotHistoryPage.initialFilter.recipeName)
+                            if (shotHistoryPage.initialFilter.bagLabel) parts.push(shotHistoryPage.initialFilter.bagLabel)
+                            if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
+                            if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
+                            if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)
+                            // Equipment, then the grind setting, as SEPARATE clauses.
+                            // They used to be one: the setting was nested inside a
+                            // guard on grinderBrand/grinderModel. An auto-favourite
+                            // card now filters by `equipmentId` and sends no brand or
+                            // model, so that guard went false and the banner claimed
+                            // a narrower filter than the query was applying — the
+                            // user's shots on their other basket absent, with nothing
+                            // on screen saying why. `equipmentLabel` is banner-only:
+                            // it names the package the id selects.
+                            var pkg = shotHistoryPage.initialFilter.equipmentLabel
+                                || ((shotHistoryPage.initialFilter.grinderBrand || "") + " "
+                                    + (shotHistoryPage.initialFilter.grinderModel || "")).trim()
+                            if (pkg) parts.push(pkg)
+                            if (shotHistoryPage.initialFilter.grinderSetting)
+                                parts.push(TranslationManager.translate("shothistory.filter.grind", "grind %1")
+                                           .arg(shotHistoryPage.initialFilter.grinderSetting))
+                            if (shotHistoryPage.initialFilter.minDose !== undefined && shotHistoryPage.initialFilter.maxDose !== undefined) {
+                                let mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
+                                parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
                             }
+                            if (shotHistoryPage.initialFilter.targetWeight !== undefined && shotHistoryPage.initialFilter.targetWeight >= 0) {
+                                parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(shotHistoryPage.initialFilter.targetWeight.toFixed(1)))
+                            }
+                            return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00B7 ")
                         }
+                        font.family: Theme.labelFont.family
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        color: Theme.primaryColor
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                        Accessible.ignored: true
                     }
 
-                    // Shot info — all text is decorative (already summarized in row Accessible.name)
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
+                    AccessibleButton {
+                        text: TranslationManager.translate("shothistory.clearFilter", "Clear")
+                        accessibleName: TranslationManager.translate("shothistory.clearFilterAccessible", "Clear favorites filter")
+                        icon.source: "qrc:/icons/cross.svg"
+                        onClicked: shotHistoryPage.clearInitialFilter()
+                    }
+                }
+            }
 
-                        // Identity line. A recipe-driven shot puts the recipe here
-                        // — for a user who named the recipe themselves it is the
-                        // strongest handle on the row, and the profile is machinery
-                        // by comparison. The profile is not dropped, it moves to the
-                        // secondary line below, carrying its own temperature
-                        // override with it (the override belongs to the profile, not
-                        // to the recipe, whose stored temperature is a baseline).
-                        RowLayout {
+            // Shot count
+            Text {
+                text: {
+                    var loaded = shotListModel.count
+                    var filtered = shotHistoryPage.filteredTotalCount
+                    var total = MainController.shotHistory.totalShots
+                    var countText = loaded + " " + TranslationManager.translate("shothistory.shots", "shots")
+                    if (filtered > loaded) {
+                        countText += " (" + TranslationManager.translate("shothistory.of", "of") + " " + filtered + ")"
+                    }
+                    if (filtered < total) {
+                        countText += " [" + TranslationManager.translate("shothistory.filtered", "filtered") + "]"
+                    }
+                    return countText
+                }
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+            }
+
+            // Shot list
+            ListView {
+                id: shotListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: shotListModel
+                spacing: Theme.spacingSmall
+                boundsBehavior: Flickable.StopAtBounds
+
+                // Dismiss keyboard when user starts scrolling
+                onMovementStarted: {
+                    if (searchBar.field.activeFocus) {
+                        searchBar.field.focus = false
+                        Keyboard.hide()
+                    }
+                }
+
+                // Infinite scroll - load more when near bottom
+                onContentYChanged: {
+                    if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
+                        let threshold = contentHeight - height - Theme.scaled(200)
+                        if (contentY > threshold) {
+                            loadMoreTimer.restart()
+                        }
+                    }
+                }
+
+                Timer {
+                    id: loadMoreTimer
+                    interval: 100
+                    onTriggered: shotHistoryPage.loadMoreShots()
+                }
+
+                delegate: Rectangle {
+                    id: shotDelegate
+
+                    // The ListView's model role object, declared rather than injected.
+                    required property var model
+
+                    width: shotListView.width
+                    height: Math.max(Theme.scaled(90), shotContentRow.implicitHeight + Theme.spacingMedium * 2)
+                    radius: Theme.cardRadius
+                    color: shotHistoryPage.isSelected(model.id) ? Qt.darker(Theme.cardBackgroundColor, 1.2) : Theme.cardBackgroundColor
+                    border.color: shotHistoryPage.isSelected(model.id) ? Theme.primaryColor : "transparent"
+                    border.width: shotHistoryPage.isSelected(model.id) ? 2 : 0
+
+                    property int shotEnjoyment: model.enjoyment0to100 || 0
+
+                    // Accessibility: row is a button whose primary action opens shot detail.
+                    // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail
+                    // because detail view is the more useful primary action for screen reader users.
+                    // A shot made with a recipe (history-recipe-identity). The name
+                    // and drink type ride in with the shot list itself (one LEFT
+                    // JOIN in requestShotsFiltered), NOT resolved per delegate.
+                    // Gated on the NAME resolving, not just on the id. The invariant
+                    // that a shot-linked recipe is never hard-deleted is enforced in
+                    // exactly one function (RecipeStorage::requestDeleteRecipe) and
+                    // there is no FK behind it, while a non-merge import does a
+                    // wholesale DELETE FROM recipes. If an id ever fails to resolve,
+                    // falling back to the profile row is a correct-looking row; an
+                    // id-only gate would instead render an EMPTY identity line with
+                    // the profile already demoted away from it.
+                    property bool hasRecipe: (model.recipeId || 0) > 0 && !!model.recipeName
+                    property bool recipeIsArchived: hasRecipe && (model.recipeArchived === true)
+
+                    // Profile plus the shot's temperature override. Rendered on the
+                    // identity line for a recipe-less shot and at the head of the
+                    // secondary line otherwise — one function so the two placements
+                    // cannot drift.
+                    function profileText() {
+                        var name = model.profileName || ""
+                        var tempOvr = model.temperatureOverrideC || 0
+                        if (tempOvr > 0)
+                            return name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
+                        return name
+                    }
+
+                    function beanText() {
+                        return (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                    }
+
+                    // Everything on the secondary line except the pinned grind. The
+                    // profile leads it only when the recipe took the identity slot.
+                    function secondaryText() {
+                        var bean = beanText()
+                        if (!hasRecipe)
+                            return bean
+                        var profile = profileText()
+                        if (profile && bean) return profile + " · " + bean
+                        return profile || bean
+                    }
+
+                    // Grind, with the RPM half paired when recorded (variable-RPM
+                    // grinders). Always labelled — it sits among other numbers on the
+                    // metrics line, where a bare "8.75 · 1500" identifies nothing.
+                    function grindText() {
+                        var grind = model.grinderSetting || ""
+                        if (!grind) return ""
+                        if (model.rpm > 0) grind += " · " + model.rpm
+                        return TranslationManager.translate("shothistory.metric.grind", "Grind") + " " + grind
+                    }
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: {
+                        var parts = []
+                        // Recipe first: for a user who named it themselves it is the
+                        // strongest identity on the row, and it is the only thing here
+                        // the profile/bean text cannot imply.
+                        if (shotDelegate.hasRecipe) {
+                            // The archived state is DIMMED visually, so it has to be
+                            // spoken too — colour is never the only carrier.
+                            parts.push(model.recipeArchived
+                                       ? TranslationManager.translate("shothistory.accessible.recipeArchived",
+                                                                      "%1 (archived recipe)").arg(model.recipeName)
+                                       : model.recipeName)
+                        }
+                        if (model.profileName) parts.push(model.profileName)
+                        if (model.dateTime) parts.push(model.dateTime)
+                        var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                        if (bean) parts.push(bean)
+                        var doseVal = model.doseWeightG || 0
+                        var yieldVal = model.finalWeightG || 0
+                        if (doseVal > 0 && yieldVal > 0)
+                            parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
+                        // Pre-existing gap: the grind is on the row but was never spoken,
+                        // so the one number a dialing-in user scans for was unreachable by
+                        // screen reader. Same helper as the visible metric, so the two
+                        // cannot word it differently.
+                        var grindSpoken = shotDelegate.grindText()
+                        if (grindSpoken) parts.push(grindSpoken)
+                        if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
+                        // Same keys the visible QualityBadges use, so the spoken row and the
+                        // badges cannot drift apart or disagree in a translated locale. These
+                        // were four hardcoded English strings until this change.
+                        var issues = []
+                        if (model.pourTruncatedDetected)
+                            issues.push(TranslationManager.translate("badges.puckFailed", "Puck failed"))
+                        if (model.channelingDetected)
+                            issues.push(TranslationManager.translate("badges.channeling", "Channeling detected"))
+                        if (model.grindIssueDetected)
+                            issues.push(TranslationManager.translate("badges.grindIssue", "Grind issue"))
+                        if (model.skipFirstFrameDetected)
+                            issues.push(TranslationManager.translate("badges.skipFirstFrame", "First step skipped"))
+                        if (issues.length > 0) parts.push(issues.join(", "))
+                        // The cloud icon is the only thing carrying "uploaded" in this row, and it
+                        // is Accessible.ignored — without this the state was unreachable by screen
+                        // reader, which is the failure CLAUDE.md means by "never the only carrier".
+                        if (model.hasVisualizerUpload)
+                            parts.push(TranslationManager.translate("shotdetail.uploadedtovisualizer",
+                                                                    "Uploaded to Visualizer"))
+                        return parts.join(", ")
+                    }
+                    Accessible.focusable: true
+                    Accessible.onPressAction: shotHistoryPage.openShotDetail(model.id)
+
+                    RowLayout {
+                        id: shotContentRow
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingMedium
+                        spacing: Theme.spacingMedium
+
+                        // Selection checkbox
+                        CheckBox {
+                            id: checkBox
+                            checked: shotHistoryPage.isSelected(shotDelegate.model.id)
+                            onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: TranslationManager.translate("shothistory.accessible.compare", "Compare")
+                            Accessible.checked: checked
+                            Accessible.focusable: true
+
+                            indicator: Rectangle {
+                                implicitWidth: Theme.scaled(24)
+                                implicitHeight: Theme.scaled(24)
+                                radius: Theme.scaled(4)
+                                color: checkBox.checked ? Theme.primaryColor : "transparent"
+                                border.color: checkBox.checked ? Theme.primaryColor : Theme.borderColor
+                                border.width: 2
+
+                                ColoredIcon {
+                                    anchors.centerIn: parent
+                                    source: "qrc:/icons/tick.svg"
+                                    iconWidth: Theme.scaled(16)
+                                    iconHeight: Theme.scaled(16)
+                                    // primaryContrastColor, not primaryColor: the indicator's fill is
+                                    // Theme.primaryColor when checked, so a primaryColor tick is drawn
+                                    // blue-on-blue and cannot be seen. Same class as SettingsPage's
+                                    // white-on-white search icon — visible only by looking at the app.
+                                    iconColor: Theme.primaryContrastColor
+                                    visible: checkBox.checked
+                                }
+                            }
+                        }
+
+                        // Shot info — all text is decorative (already summarized in row Accessible.name)
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall
+                            spacing: Theme.scaled(2)
 
-                            Text {
-                                text: shotDelegate.model.dateTime || ""
-                                font: Theme.subtitleFont
-                                color: Theme.textColor
-                                Accessible.ignored: true
+                            // Identity line. A recipe-driven shot puts the recipe here
+                            // — for a user who named the recipe themselves it is the
+                            // strongest handle on the row, and the profile is machinery
+                            // by comparison. The profile is not dropped, it moves to the
+                            // secondary line below, carrying its own temperature
+                            // override with it (the override belongs to the profile, not
+                            // to the recipe, whose stored temperature is a baseline).
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingSmall
+
+                                Text {
+                                    text: shotDelegate.model.dateTime || ""
+                                    font: Theme.subtitleFont
+                                    color: Theme.textColor
+                                    Accessible.ignored: true
+                                }
+
+                                // Themed SVG, not an emoji — a colour glyph in a plain
+                                // Text crashes the render thread on macOS.
+                                //
+                                // ThemedIcon, NOT ColoredIcon: the latter is a Button
+                                // that absorbs clicks by design (ColoredIcon.qml:35),
+                                // which would punch a dead spot into the row where
+                                // tap-to-select works everywhere else.
+                                ThemedIcon {
+                                    visible: shotDelegate.hasRecipe
+                                    source: DrinkType.icon(shotDelegate.model.recipeDrinkType || "")
+                                    iconSize: Theme.scaled(16)
+                                    color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
+                                                                         : Theme.primaryColor
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    id: identityText
+                                    textFormat: Text.StyledText
+                                    text: Theme.replaceEmojiWithImg(
+                                              shotDelegate.hasRecipe ? (shotDelegate.model.recipeName || "")
+                                                                     : shotDelegate.profileText(),
+                                              Theme.labelFont.pixelSize)
+                                    font: Theme.labelFont
+                                    // Archived recipes dim. The row's Accessible.name says
+                                    // "archived" as well, so the colour is not the only
+                                    // carrier of the state.
+                                    color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
+                                                                         : Theme.primaryColor
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+
+                                    // Tap the recipe name to see every shot made with it.
+                                    // A real action, so it is its own focusable stop rather
+                                    // than being folded into the row's summary; on a
+                                    // recipe-less row this collapses and the profile name
+                                    // stays plain text as before.
+                                    Accessible.ignored: !shotDelegate.hasRecipe
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: TranslationManager.translate(
+                                                         "shothistory.accessible.showRecipeShots",
+                                                         "Show all shots using %1").arg(shotDelegate.model.recipeName || "")
+                                    Accessible.focusable: shotDelegate.hasRecipe
+                                    Accessible.onPressAction: shotHistoryPage.filterByRecipe(
+                                                                  shotDelegate.model.recipeId,
+                                                                  shotDelegate.model.recipeName)
+
+                                    // Sized to the PAINTED TEXT, not to the item: this Text
+                                    // is Layout.fillWidth, so anchors.fill would claim the
+                                    // whole remaining strip of the row. That stole two
+                                    // things from every recipe row — a tap on the blank
+                                    // space right of a short name (previously: toggle
+                                    // selection) and press-and-hold anywhere on that strip
+                                    // (previously: open detail), because the row's own
+                                    // MouseArea sits at z: -1 and never sees a press this
+                                    // one accepts.
+                                    MouseArea {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: Math.min(parent.width, parent.implicitWidth)
+                                        enabled: shotDelegate.hasRecipe
+                                        onClicked: shotHistoryPage.filterByRecipe(
+                                                       shotDelegate.model.recipeId,
+                                                       shotDelegate.model.recipeName)
+                                        // Forwarded so the row's gesture still works over
+                                        // the name itself, not just around it.
+                                        onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
+                                    }
+                                }
                             }
 
-                            // Themed SVG, not an emoji — a colour glyph in a plain
-                            // Text crashes the render thread on macOS.
-                            //
-                            // ThemedIcon, NOT ColoredIcon: the latter is a Button
-                            // that absorbs clicks by design (ColoredIcon.qml:35),
-                            // which would punch a dead spot into the row where
-                            // tap-to-select works everywhere else.
-                            ThemedIcon {
-                                visible: shotDelegate.hasRecipe
-                                source: DrinkType.icon(shotDelegate.model.recipeDrinkType || "")
-                                iconSize: Theme.scaled(16)
-                                color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
-                                                                     : Theme.primaryColor
-                                Layout.alignment: Qt.AlignVCenter
-                                Accessible.ignored: true
-                            }
-
+                            // Secondary line: identity only (profile · bean). The grind
+                            // used to trail it here as a "(8)" parenthetical, where a long
+                            // roaster name silently elided it away — it now sits on the
+                            // metrics line below, beside the other dial-in numbers.
                             Text {
-                                id: identityText
+                                id: secondaryIdentity
                                 textFormat: Text.StyledText
-                                text: Theme.replaceEmojiWithImg(
-                                          shotDelegate.hasRecipe ? (shotDelegate.model.recipeName || "")
-                                                                 : shotDelegate.profileText(),
-                                          Theme.labelFont.pixelSize)
+                                text: Theme.replaceEmojiWithImg(shotDelegate.secondaryText(),
+                                                                Theme.labelFont.pixelSize)
                                 font: Theme.labelFont
-                                // Archived recipes dim. The row's Accessible.name says
-                                // "archived" as well, so the colour is not the only
-                                // carrier of the state.
-                                color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
-                                                                     : Theme.primaryColor
+                                color: Theme.textSecondaryColor
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
-
-                                // Tap the recipe name to see every shot made with it.
-                                // A real action, so it is its own focusable stop rather
-                                // than being folded into the row's summary; on a
-                                // recipe-less row this collapses and the profile name
-                                // stays plain text as before.
-                                Accessible.ignored: !shotDelegate.hasRecipe
-                                Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate(
-                                                     "shothistory.accessible.showRecipeShots",
-                                                     "Show all shots using %1").arg(shotDelegate.model.recipeName || "")
-                                Accessible.focusable: shotDelegate.hasRecipe
-                                Accessible.onPressAction: shotHistoryPage.filterByRecipe(
-                                                              shotDelegate.model.recipeId,
-                                                              shotDelegate.model.recipeName)
-
-                                // Sized to the PAINTED TEXT, not to the item: this Text
-                                // is Layout.fillWidth, so anchors.fill would claim the
-                                // whole remaining strip of the row. That stole two
-                                // things from every recipe row — a tap on the blank
-                                // space right of a short name (previously: toggle
-                                // selection) and press-and-hold anywhere on that strip
-                                // (previously: open detail), because the row's own
-                                // MouseArea sits at z: -1 and never sees a press this
-                                // one accepts.
-                                MouseArea {
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    width: Math.min(parent.width, parent.implicitWidth)
-                                    enabled: shotDelegate.hasRecipe
-                                    onClicked: shotHistoryPage.filterByRecipe(
-                                                   shotDelegate.model.recipeId,
-                                                   shotDelegate.model.recipeName)
-                                    // Forwarded so the row's gesture still works over
-                                    // the name itself, not just around it.
-                                    onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
-                                }
-                            }
-                        }
-
-                        // Secondary line: identity only (profile · bean). The grind
-                        // used to trail it here as a "(8)" parenthetical, where a long
-                        // roaster name silently elided it away — it now sits on the
-                        // metrics line below, beside the other dial-in numbers.
-                        Text {
-                            id: secondaryIdentity
-                            textFormat: Text.StyledText
-                            text: Theme.replaceEmojiWithImg(shotDelegate.secondaryText(),
-                                                            Theme.labelFont.pixelSize)
-                            font: Theme.labelFont
-                            color: Theme.textSecondaryColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            visible: text !== ""
-                            Accessible.ignored: true
-                        }
-
-                        RowLayout {
-                            spacing: Theme.spacingLarge
-
-                            Text {
-                                text: {
-                                    var dose = (shotDelegate.model.doseWeightG || 0).toFixed(1)
-                                    var actual = (shotDelegate.model.finalWeightG || 0).toFixed(1)
-                                    var yieldText = actual + "g"
-                                    var target = shotDelegate.model.targetWeightG || 0
-                                    if (target > 0 && Math.abs(target - shotDelegate.model.finalWeightG) > 0.5) {
-                                        yieldText = actual + "g (" + Math.round(target) + "g)"
-                                    }
-                                    return dose + "g \u2192 " + yieldText
-                                }
-                                font: Theme.labelFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: TranslationManager.translate("shothistory.metric.time", "Time")
-                                      + " " + (shotDelegate.model.durationSec || 0).toFixed(1) + "s"
-                                font: Theme.labelFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-
-                            // Grind lives on the metrics line with the other dial-in
-                            // numbers, labelled because "8.75 · 1500" says nothing on
-                            // its own. It sets no elide: on the identity line it used
-                            // to be a trailing "(8)" parenthetical that a long roaster
-                            // name silently ate, and this line carries only short
-                            // numbers so nothing crowds it out. (Not a guarantee —
-                            // a RowLayout can still squeeze an un-elided Text below
-                            // its implicit width and clip it. Add Layout.minimumWidth
-                            // if this ever needs to be one.)
-                            Text {
-                                text: shotDelegate.grindText()
-                                font: Theme.labelFont
-                                color: Theme.textSecondaryColor
                                 visible: text !== ""
                                 Accessible.ignored: true
                             }
 
-                            // "Uploaded to Visualizer". Chrome, so a themed icon rather than
-                            // the Twemoji cloud this used to reach for: that asset's fills are
-                            // baked in at #CCD6DD/#E1E8ED, near-white, which all but vanished
-                            // against a light-mode row and could not follow the theme at all.
-                            // Matches the same indicator on ShotDetailPage.
-                            ThemedIcon {
-                                source: "qrc:/icons/CloudUpload.svg"
-                                iconSize: Theme.scaled(16)
-                                color: Theme.successColor
-                                visible: shotDelegate.model.hasVisualizerUpload
-                                // Announced as part of the row's Accessible.name instead.
+                            RowLayout {
+                                spacing: Theme.spacingLarge
+
+                                Text {
+                                    text: {
+                                        var dose = (shotDelegate.model.doseWeightG || 0).toFixed(1)
+                                        var actual = (shotDelegate.model.finalWeightG || 0).toFixed(1)
+                                        var yieldText = actual + "g"
+                                        var target = shotDelegate.model.targetWeightG || 0
+                                        if (target > 0 && Math.abs(target - shotDelegate.model.finalWeightG) > 0.5) {
+                                            yieldText = actual + "g (" + Math.round(target) + "g)"
+                                        }
+                                        return dose + "g \u2192 " + yieldText
+                                    }
+                                    font: Theme.labelFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    text: TranslationManager.translate("shothistory.metric.time", "Time")
+                                          + " " + (shotDelegate.model.durationSec || 0).toFixed(1) + "s"
+                                    font: Theme.labelFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+
+                                // Grind lives on the metrics line with the other dial-in
+                                // numbers, labelled because "8.75 · 1500" says nothing on
+                                // its own. It sets no elide: on the identity line it used
+                                // to be a trailing "(8)" parenthetical that a long roaster
+                                // name silently ate, and this line carries only short
+                                // numbers so nothing crowds it out. (Not a guarantee —
+                                // a RowLayout can still squeeze an un-elided Text below
+                                // its implicit width and clip it. Add Layout.minimumWidth
+                                // if this ever needs to be one.)
+                                Text {
+                                    text: shotDelegate.grindText()
+                                    font: Theme.labelFont
+                                    color: Theme.textSecondaryColor
+                                    visible: text !== ""
+                                    Accessible.ignored: true
+                                }
+
+                                // "Uploaded to Visualizer". Chrome, so a themed icon rather than
+                                // the Twemoji cloud this used to reach for: that asset's fills are
+                                // baked in at #CCD6DD/#E1E8ED, near-white, which all but vanished
+                                // against a light-mode row and could not follow the theme at all.
+                                // Matches the same indicator on ShotDetailPage.
+                                ThemedIcon {
+                                    source: "qrc:/icons/CloudUpload.svg"
+                                    iconSize: Theme.scaled(16)
+                                    color: Theme.successColor
+                                    visible: shotDelegate.model.hasVisualizerUpload
+                                    // Announced as part of the row's Accessible.name instead.
+                                    Accessible.ignored: true
+                                }
+
+                                // Quality issue indicator dots. Order: red puckFailed first
+                                // (most severe — shot has no tuning signal), then channeling
+                                // (red), grind (orange), skipFirstFrame (red).
+                                Rectangle {
+                                    Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
+                                    color: Theme.errorColor
+                                    visible: shotDelegate.model.pourTruncatedDetected ?? false
+                                    Accessible.ignored: true
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
+                                    color: Theme.errorColor
+                                    visible: shotDelegate.model.channelingDetected ?? false
+                                    Accessible.ignored: true
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
+                                    color: Theme.warningColor
+                                    visible: shotDelegate.model.grindIssueDetected ?? false
+                                    Accessible.ignored: true
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
+                                    color: Theme.errorColor
+                                    visible: shotDelegate.model.skipFirstFrameDetected ?? false
+                                    Accessible.ignored: true
+                                }
+                            }
+                        }
+
+                        // Rating percentage
+                        Text {
+                            text: shotDelegate.shotEnjoyment > 0 ? shotDelegate.shotEnjoyment + "%" : ""
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                            color: Theme.warningColor
+                            Layout.preferredWidth: Theme.scaled(45)
+                            horizontalAlignment: Text.AlignRight
+                            visible: shotDelegate.shotEnjoyment > 0
+                            Accessible.ignored: true
+                        }
+
+                        // Load Profile button
+                        Rectangle {
+                            Layout.preferredWidth: loadButtonText.implicitWidth + Theme.scaled(20)
+                            Layout.preferredHeight: Theme.scaled(40)
+                            radius: Theme.scaled(20)
+                            color: Theme.warningColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("shothistory.accessible.load", "Load profile")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: loadArea.clicked(null)
+
+                            Text {
+                                id: loadButtonText
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("shotHistory.button.load", "Load")
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: Theme.primaryContrastColor
                                 Accessible.ignored: true
                             }
 
-                            // Quality issue indicator dots. Order: red puckFailed first
-                            // (most severe — shot has no tuning signal), then channeling
-                            // (red), grind (orange), skipFirstFrame (red).
-                            Rectangle {
-                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
-                                color: Theme.errorColor
-                                visible: shotDelegate.model.pourTruncatedDetected ?? false
+                            MouseArea {
+                                id: loadArea
+                                anchors.fill: parent
+                                onClicked: {
+                                    shotHistoryPage._waitingForShotLoad = true
+                                    MainController.loadShotWithMetadata(shotDelegate.model.id)
+                                }
+                            }
+                        }
+
+                        // Create-recipe button (promote this shot to a recipe —
+                        // opens the composer prefilled from the shot, add-recipes).
+                        // Hidden when the shot already came FROM a recipe: offering to
+                        // create one from it then reads as broken. Shot Detail has
+                        // gated this since shot-pages-card-cleanup; History, Auto
+                        // Favorites and the web list never got the same rule.
+                        Rectangle {
+                            visible: !shotDelegate.hasRecipe
+                            Layout.preferredWidth: recipeButtonText.implicitWidth + Theme.scaled(20)
+                            Layout.preferredHeight: Theme.scaled(40)
+                            radius: Theme.scaled(20)
+                            color: Theme.primaryColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("shothistory.accessible.recipe", "Create recipe from this shot")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: recipeArea.clicked(null)
+
+                            Text {
+                                id: recipeButtonText
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("shotHistory.button.recipe", "Recipe")
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: Theme.primaryContrastColor
                                 Accessible.ignored: true
                             }
-                            Rectangle {
-                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
-                                color: Theme.errorColor
-                                visible: shotDelegate.model.channelingDetected ?? false
+
+                            MouseArea {
+                                id: recipeArea
+                                anchors.fill: parent
+                                onClicked: {
+                                    AppShell.recipeWizardRequested("create", { promoteShotId: shotDelegate.model.id })
+                                }
+                            }
+                        }
+
+                        // Edit button (green circle with E)
+                        Rectangle {
+                            Layout.preferredWidth: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(40)
+                            radius: Theme.scaled(20)
+                            color: Theme.successColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: editArea.clicked(null)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "E"
+                                font.pixelSize: Theme.scaled(18)
+                                font.bold: true
+                                color: Theme.primaryContrastColor
                                 Accessible.ignored: true
                             }
-                            Rectangle {
-                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
-                                color: Theme.warningColor
-                                visible: shotDelegate.model.grindIssueDetected ?? false
+
+                            MouseArea {
+                                id: editArea
+                                anchors.fill: parent
+                                onClicked: {
+                                    AppShell.postShotReviewRequested(shotDelegate.model.id, false)
+                                }
+                            }
+                        }
+
+                        // Detail arrow
+                        Rectangle {
+                            Layout.preferredWidth: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(40)
+                            radius: Theme.scaled(20)
+                            color: Theme.primaryColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("shothistory.accessible.details", "View details")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: detailArea.clicked(null)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: ">"
+                                font.pixelSize: Theme.scaled(20)
+                                font.bold: true
+                                color: Theme.primaryContrastColor
                                 Accessible.ignored: true
                             }
-                            Rectangle {
-                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
-                                color: Theme.errorColor
-                                visible: shotDelegate.model.skipFirstFrameDetected ?? false
-                                Accessible.ignored: true
+
+                            MouseArea {
+                                id: detailArea
+                                anchors.fill: parent
+                                onClicked: shotHistoryPage.openShotDetail(shotDelegate.model.id)
                             }
                         }
                     }
 
-                    // Rating percentage
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
+                        onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
+                    }
+                }
+
+                footer: Item {
+                    width: shotListView.width
+                    height: shotHistoryPage.isLoadingMore ? Theme.scaled(50) : 0
+                    visible: shotHistoryPage.isLoadingMore
+
                     Text {
-                        text: shotDelegate.shotEnjoyment > 0 ? shotDelegate.shotEnjoyment + "%" : ""
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
-                        color: Theme.warningColor
-                        Layout.preferredWidth: Theme.scaled(45)
-                        horizontalAlignment: Text.AlignRight
-                        visible: shotDelegate.shotEnjoyment > 0
-                        Accessible.ignored: true
-                    }
-
-                    // Load Profile button
-                    Rectangle {
-                        Layout.preferredWidth: loadButtonText.implicitWidth + Theme.scaled(20)
-                        Layout.preferredHeight: Theme.scaled(40)
-                        radius: Theme.scaled(20)
-                        color: Theme.warningColor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.accessible.load", "Load profile")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: loadArea.clicked(null)
-
-                        Text {
-                            id: loadButtonText
-                            anchors.centerIn: parent
-                            text: TranslationManager.translate("shotHistory.button.load", "Load")
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: loadArea
-                            anchors.fill: parent
-                            onClicked: {
-                                shotHistoryPage._waitingForShotLoad = true
-                                MainController.loadShotWithMetadata(shotDelegate.model.id)
-                            }
-                        }
-                    }
-
-                    // Create-recipe button (promote this shot to a recipe —
-                    // opens the composer prefilled from the shot, add-recipes).
-                    // Hidden when the shot already came FROM a recipe: offering to
-                    // create one from it then reads as broken. Shot Detail has
-                    // gated this since shot-pages-card-cleanup; History, Auto
-                    // Favorites and the web list never got the same rule.
-                    Rectangle {
-                        visible: !shotDelegate.hasRecipe
-                        Layout.preferredWidth: recipeButtonText.implicitWidth + Theme.scaled(20)
-                        Layout.preferredHeight: Theme.scaled(40)
-                        radius: Theme.scaled(20)
-                        color: Theme.primaryColor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.accessible.recipe", "Create recipe from this shot")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: recipeArea.clicked(null)
-
-                        Text {
-                            id: recipeButtonText
-                            anchors.centerIn: parent
-                            text: TranslationManager.translate("shotHistory.button.recipe", "Recipe")
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: recipeArea
-                            anchors.fill: parent
-                            onClicked: {
-                                AppShell.recipeWizardRequested("create", { promoteShotId: shotDelegate.model.id })
-                            }
-                        }
-                    }
-
-                    // Edit button (green circle with E)
-                    Rectangle {
-                        Layout.preferredWidth: Theme.scaled(40)
-                        Layout.preferredHeight: Theme.scaled(40)
-                        radius: Theme.scaled(20)
-                        color: Theme.successColor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: editArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "E"
-                            font.pixelSize: Theme.scaled(18)
-                            font.bold: true
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: editArea
-                            anchors.fill: parent
-                            onClicked: {
-                                AppShell.postShotReviewRequested(shotDelegate.model.id, false)
-                            }
-                        }
-                    }
-
-                    // Detail arrow
-                    Rectangle {
-                        Layout.preferredWidth: Theme.scaled(40)
-                        Layout.preferredHeight: Theme.scaled(40)
-                        radius: Theme.scaled(20)
-                        color: Theme.primaryColor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.accessible.details", "View details")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: detailArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: ">"
-                            font.pixelSize: Theme.scaled(20)
-                            font.bold: true
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: detailArea
-                            anchors.fill: parent
-                            onClicked: shotHistoryPage.openShotDetail(shotDelegate.model.id)
-                        }
+                        anchors.centerIn: parent
+                        text: TranslationManager.translate("shothistory.loading", "Loading more...")
+                        font: Theme.labelFont
+                        color: Theme.textSecondaryColor
                     }
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    z: -1
-                    onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
-                    onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
-                }
-            }
-
-            footer: Item {
-                width: shotListView.width
-                height: shotHistoryPage.isLoadingMore ? Theme.scaled(50) : 0
-                visible: shotHistoryPage.isLoadingMore
-
-                Text {
+                // Empty state
+                Tr {
                     anchors.centerIn: parent
-                    text: TranslationManager.translate("shothistory.loading", "Loading more...")
-                    font: Theme.labelFont
+                    key: "shothistory.noshots"
+                    fallback: "No shots found"
+                    font: Theme.bodyFont
                     color: Theme.textSecondaryColor
+                    visible: shotListModel.count === 0
                 }
-            }
-
-            // Empty state
-            Tr {
-                anchors.centerIn: parent
-                key: "shothistory.noshots"
-                fallback: "No shots found"
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                visible: shotListModel.count === 0
             }
         }
     }
@@ -1365,13 +1287,13 @@ T.Page {
     }
 
     function insertSearchKeyword(keyword) {
-        var currentText = searchField.text
+        var currentText = searchBar.field.text
         if (currentText.length > 0 && !currentText.endsWith(" ")) {
             currentText += " "
         }
-        searchField.text = currentText + keyword
+        searchBar.field.text = currentText + keyword
         searchHelpDialog.close()
-        searchField.forceActiveFocus()
+        searchBar.field.forceActiveFocus()
         Keyboard.show()
     }
 
@@ -1506,7 +1428,7 @@ T.Page {
                         anchors.fill: parent
                         z: -1
                         onClicked: {
-                            searchField.text = savedSearchDelegate.modelData
+                            searchBar.field.text = savedSearchDelegate.modelData
                             savedSearchesDialog.close()
                         }
                     }
@@ -1526,20 +1448,6 @@ T.Page {
         }
     }
 
-    // Sort picker dialog
-    SelectionDialog {
-        id: sortPickerDialog
-        title: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
-        options: shotHistoryPage.sortFieldKeys.map(function(key) { return shotHistoryPage.sortFieldLabels[key] || key })
-        currentIndex: shotHistoryPage.sortFieldKeys.indexOf(shotHistoryPage.sortField)
-        onSelected: function(index, value) {
-            shotHistoryPage.sortField = shotHistoryPage.sortFieldKeys[index]
-            shotHistoryPage.sortDirection = shotHistoryPage.defaultSortDirections[shotHistoryPage.sortFieldKeys[index]] || "DESC"
-            Settings.network.shotHistorySortField = shotHistoryPage.sortField
-            Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
-            shotHistoryPage.loadShots()
-        }
-    }
 
     // Search syntax help dialog
     DecenzaDialog {

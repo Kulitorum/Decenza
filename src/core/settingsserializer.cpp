@@ -202,6 +202,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     recipes["sortDirection"] = settings->network()->recipeSortDirection();
     root["recipes"] = recipes;
 
+    // Beans page settings
+    QJsonObject bags;
+    bags["sortField"] = settings->network()->bagSortField();
+    bags["sortDirection"] = settings->network()->bagSortDirection();
+    root["bags"] = bags;
+
     // UI settings
     QJsonObject ui;
     ui["skin"] = settings->theme()->skin();
@@ -764,6 +770,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->network()->setRecipeSortField(recipes["sortField"].toString());
         if (recipes.contains("sortDirection"))
             settings->network()->setRecipeSortDirection(recipes["sortDirection"].toString());
+    }
+
+    // Beans page settings
+    if (json.contains("bags") && !excludeKeys.contains("bags")) {
+        QJsonObject bags = json["bags"].toObject();
+        if (bags.contains("sortField"))
+            settings->network()->setBagSortField(bags["sortField"].toString());
+        if (bags.contains("sortDirection"))
+            settings->network()->setBagSortDirection(bags["sortDirection"].toString());
     }
 
     // UI settings

@@ -28,8 +28,7 @@ T.Page {
 
     StackView.onActivated: {
         // Search is transient — clear it whenever the page becomes active.
-        searchField.text = ""
-        recipesPage.searchQuery = ""
+        searchBar.clear()
         // Drop the profile-number cache so a profile edited elsewhere while this
         // page stayed instantiated is re-resolved on re-entry.
         recipesPage._profileNumbersCache = ({})
@@ -60,14 +59,11 @@ T.Page {
         "dateUsed": "DESC", "dateCreated": "DESC", "coffee": "ASC", "profile": "ASC", "name": "ASC"
     })
 
-    // Filtered + sorted views the card grids render (never mutate the source
-    // arrays). Re-evaluates when the source list, query, field, or direction
-    // change — the binding tracks every property read here.
+    // Filtered + sorted copies the card grids render.
     readonly property var visibleRecipes: filterAndSort(recipes, searchQuery, sortField, sortDirection)
     readonly property var visibleArchivedRecipes: filterAndSort(archivedRecipes, searchQuery, sortField, sortDirection)
 
-    // Sort key for a recipe map under the chosen field. Numeric for date used,
-    // lower-cased string otherwise so comparison is case-insensitive.
+    // Sort key: epoch seconds for the dates, a lower-cased string otherwise.
     function _sortKey(r, field) {
         if (field === "dateCreated")
             return Number(r.createdEpoch) || 0
@@ -80,20 +76,8 @@ T.Page {
         return Number(r.lastUsedEpoch) || 0   // dateUsed (default)
     }
 
-    // A recipe with no value for the sort key (bean-less, never-used, etc.)
-    // sorts to the end regardless of direction so blanks never float to the top.
-    function _isBlankKey(k) {
-        return (typeof k === "number") ? (k <= 0) : (String(k).length === 0)
-    }
-
     function filterAndSort(list, query, field, dir) {
-        // Tokenized AND match (RecipeSearch.js): `-` `/` `.` deleted, query split on
-        // whitespace, every token must be a substring of the combined text. So a
-        // cross-field query like "Yirg Df" matches a Yirgacheffe recipe on a
-        // "D-Flow / Q" profile ("D-Flow" collapses to "dflow"). Empty query => all pass.
-        // The haystack spans the same five fields as the web /recipes matcher
-        // (shotserver_recipes.cpp): name, roaster, coffee, profile, and the drink-type
-        // label — so "latte" or "tea" narrows the list too.
+        // The drink-type label is searched too, so "latte" or "tea" narrows the list.
         var tokens = RecipeSearch.tokenize(query)
         var out = []
         for (let i = 0; i < list.length; ++i) {
@@ -106,17 +90,7 @@ T.Page {
             }
             out.push(r)
         }
-        var asc = (dir !== "DESC")
-        out.sort(function(a, b) {
-            var ka = _sortKey(a, field), kb = _sortKey(b, field)
-            var ba = _isBlankKey(ka), bb = _isBlankKey(kb)
-            if (ba !== bb) return ba ? 1 : -1   // blanks always last, both directions
-            var cmp = (typeof ka === "number") ? (ka - kb) : ka.localeCompare(kb)
-            // Deterministic tiebreak by id (Array.sort isn't guaranteed stable).
-            if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)
-            return asc ? cmp : -cmp
-        })
-        return out
+        return RecipeSearch.sortedCopy(out, function(r) { return _sortKey(r, field) }, dir)
     }
 
     // Cache of profile display numbers resolved from the installed-profile
@@ -681,308 +655,240 @@ T.Page {
             }
     }
 
-    Flickable {
-        id: flickable
+    // The search field is the page's only text input; this gives it the
+    // keyboard handling (and tap-outside dismissal) every text page gets.
+    KeyboardAwareContainer {
         anchors.fill: parent
-        anchors.topMargin: Theme.pageTopMargin
-        anchors.bottomMargin: Theme.bottomBarHeight
-        anchors.leftMargin: Theme.standardMargin
-        anchors.rightMargin: Theme.standardMargin
-        contentHeight: contentColumn.implicitHeight + Theme.scaled(20)
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
+        textFields: [searchBar.field]
+        targetFlickable: flickable
 
-        ColumnLayout {
-            id: contentColumn
-            width: flickable.width
-            spacing: Theme.spacingMedium
+        Flickable {
+            id: flickable
+            anchors.fill: parent
+            anchors.topMargin: Theme.pageTopMargin
+            anchors.bottomMargin: Theme.bottomBarHeight
+            anchors.leftMargin: Theme.standardMargin
+            anchors.rightMargin: Theme.standardMargin
+            contentHeight: contentColumn.implicitHeight + Theme.scaled(20)
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
-            // Header row: title + "Add [Recipe]" (the Beans and Equipment pattern)
-            RowLayout {
-                Layout.fillWidth: true
+            ColumnLayout {
+                id: contentColumn
+                width: flickable.width
                 spacing: Theme.spacingMedium
-                Tr {
-                    key: "recipes.title"
-                    fallback: "Recipes"
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                    Accessible.role: Accessible.Heading
-                    Accessible.name: text
-                }
-                Item { Layout.fillWidth: true }
-                AddLabel {}
-                AccessibleButton {
-                    id: addRecipeButton
-                    Layout.preferredHeight: Theme.scaled(44)
-                    icon.source: "qrc:/icons/cup.svg"
-                    text: TranslationManager.translate("recipes.addButton.recipe", "Recipe")
-                    accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
-                    onClicked: AppShell.recipeWizardRequested("create", {})
-                }
-            }
 
-            // Search + sort bar (recipe-list-organization): mirrors the
-            // ShotHistoryPage pattern. Shown once there is anything to organize;
-            // over the empty-library starter tiles it would be pointless clutter.
-            RowLayout {
-                Layout.fillWidth: true
-                visible: recipesPage.recipes.length > 0 || recipesPage.archivedRecipes.length > 0
-                spacing: Theme.spacingSmall
-
-                StyledTextField {
-                    id: searchField
+                // Header row: title + "Add [Recipe]" (the Beans and Equipment pattern)
+                RowLayout {
                     Layout.fillWidth: true
-                    placeholder: TranslationManager.translate("recipes.searchPlaceholder", "Search recipes...")
-                    rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
-                    // displayText includes the IME preedit so the filter updates
-                    // per keystroke; a short debounce keeps re-sorts cheap.
-                    inputMethodHints: Qt.ImhNoPredictiveText
-                    accessibleName: TranslationManager.translate("recipes.accessible.search", "Search recipes")
-                    onDisplayTextChanged: searchTimer.restart()
+                    spacing: Theme.spacingMedium
+                    Tr {
+                        key: "recipes.title"
+                        fallback: "Recipes"
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        Accessible.role: Accessible.Heading
+                        Accessible.name: text
+                    }
+                    Item { Layout.fillWidth: true }
+                    AddLabel {}
+                    AccessibleButton {
+                        id: addRecipeButton
+                        Layout.preferredHeight: Theme.scaled(44)
+                        icon.source: "qrc:/icons/cup.svg"
+                        text: TranslationManager.translate("recipes.addButton.recipe", "Recipe")
+                        accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
+                        onClicked: AppShell.recipeWizardRequested("create", {})
+                    }
+                }
 
-                    // Inline clear button (hidden in accessibility mode to avoid
-                    // overlapping elements — the standalone button below serves it).
-                    Item {
-                        id: searchClearButton
-                        width: Theme.scaled(20)
-                        height: Theme.scaled(20)
-                        visible: searchField.displayText.length > 0
-                                 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.scaled(10)
-                        anchors.verticalCenter: parent.verticalCenter
-                        ColoredIcon {
-                            anchors.centerIn: parent
-                            source: "qrc:/icons/cross.svg"
-                            iconWidth: Theme.scaled(14)
-                            iconHeight: Theme.scaled(14)
-                            iconColor: Theme.textSecondaryColor
+                // Search + sort, shown once there is anything to organize.
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: recipesPage.recipes.length > 0 || recipesPage.archivedRecipes.length > 0
+                    spacing: Theme.spacingSmall
+
+                    SearchField {
+                        id: searchBar
+                        Layout.fillWidth: true
+                        placeholder: TranslationManager.translate("recipes.searchPlaceholder", "Search recipes...")
+                        accessibleName: TranslationManager.translate("recipes.accessible.search", "Search recipes")
+                        onQueryChanged: function(query) { recipesPage.searchQuery = query }
+                    }
+
+                    SortControls {
+                        keys: recipesPage.sortFieldKeys
+                        labels: recipesPage.sortFieldLabels
+                        defaultDirections: recipesPage.defaultSortDirections
+                        field: recipesPage.sortField
+                        direction: recipesPage.sortDirection
+                        onSortChanged: function(field, direction) {
+                            recipesPage.sortField = field
+                            recipesPage.sortDirection = direction
+                            Settings.network.recipeSortField = field
+                            Settings.network.recipeSortDirection = direction
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -Theme.scaled(6)
-                            onClicked: {
-                                searchField.text = ""
-                                recipesPage.searchQuery = ""
-                                searchField.focus = false
+                    }
+                }
+
+                // Empty state: two starter tiles teach both creation paths —
+                // promote a good shot from history, or walk the wizard.
+                Flow {
+                    visible: recipesPage.recipes.length === 0
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingMedium
+                    spacing: Theme.spacingMedium
+
+                    component StarterTile: Rectangle {
+                        id: tile
+                        property string icon: ""
+                        property string title: ""
+                        property string subtitle: ""
+                        signal tapped()
+                        width: {
+                            var avail = flickable.width
+                            var columns = avail >= Theme.scaled(640) ? 2 : 1
+                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
+                        }
+                        implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingLarge
+                        radius: Theme.cardRadius
+                        color: Theme.cardBackgroundColor
+                        border.color: Theme.borderColor
+                        border.width: 1
+                        ColumnLayout {
+                            id: tileColumn
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: Theme.spacingLarge
+                            anchors.rightMargin: Theme.spacingLarge
+                            spacing: Theme.spacingSmall
+                            ColoredIcon {
+                                Layout.alignment: Qt.AlignHCenter
+                                source: tile.icon
+                                iconWidth: Theme.scaled(40)
+                                iconHeight: Theme.scaled(40)
+                                iconColor: Theme.primaryColor
+                                Accessible.ignored: true
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: tile.title
+                                font: Theme.subtitleFont
+                                color: Theme.textColor
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: tile.subtitle
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
                             }
                         }
-                    }
-                }
-
-                // Accessible clear button (outside the field for TalkBack discovery).
-                AccessibleButton {
-                    visible: searchField.displayText.length > 0
-                             && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
-                    accessibleName: TranslationManager.translate("recipes.accessible.clearSearch", "Clear search")
-                    icon.source: "qrc:/icons/cross.svg"
-                    onClicked: {
-                        searchField.text = ""
-                        recipesPage.searchQuery = ""
-                        searchField.focus = false
-                    }
-                }
-
-                // Sort field button
-                AccessibleButton {
-                    text: recipesPage.sortFieldLabels[recipesPage.sortField] || recipesPage.sortFieldLabels["dateUsed"]
-                    accessibleName: TranslationManager.translate("recipes.accessible.sortBy", "Sort by %1")
-                        .arg(recipesPage.sortFieldLabels[recipesPage.sortField] || "")
-                    onClicked: sortPickerDialog.open()
-                }
-
-                // Sort direction toggle
-                AccessibleButton {
-                    icon.source: recipesPage.sortDirection === "DESC"
-                        ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
-                    tintIcon: true
-                    accessibleName: recipesPage.sortDirection === "DESC"
-                        ? TranslationManager.translate("recipes.accessible.sortDescending", "Sort descending, tap to sort ascending")
-                        : TranslationManager.translate("recipes.accessible.sortAscending", "Sort ascending, tap to sort descending")
-                    onClicked: {
-                        recipesPage.sortDirection = (recipesPage.sortDirection === "DESC") ? "ASC" : "DESC"
-                        Settings.network.recipeSortDirection = recipesPage.sortDirection
-                    }
-                }
-
-                Timer {
-                    id: searchTimer
-                    interval: 250
-                    onTriggered: recipesPage.searchQuery = searchField.displayText.trim()
-                }
-            }
-
-            // Empty state: two starter tiles teach both creation paths —
-            // promote a good shot from history, or walk the wizard.
-            Flow {
-                visible: recipesPage.recipes.length === 0
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                component StarterTile: Rectangle {
-                    id: tile
-                    property string icon: ""
-                    property string title: ""
-                    property string subtitle: ""
-                    signal tapped()
-                    width: {
-                        var avail = flickable.width
-                        var columns = avail >= Theme.scaled(640) ? 2 : 1
-                        return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                    }
-                    implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingLarge
-                    radius: Theme.cardRadius
-                    color: Theme.cardBackgroundColor
-                    border.color: Theme.borderColor
-                    border.width: 1
-                    ColumnLayout {
-                        id: tileColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: Theme.spacingLarge
-                        anchors.rightMargin: Theme.spacingLarge
-                        spacing: Theme.spacingSmall
-                        ColoredIcon {
-                            Layout.alignment: Qt.AlignHCenter
-                            source: tile.icon
-                            iconWidth: Theme.scaled(40)
-                            iconHeight: Theme.scaled(40)
-                            iconColor: Theme.primaryColor
-                            Accessible.ignored: true
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            text: tile.title
-                            font: Theme.subtitleFont
-                            color: Theme.textColor
-                            wrapMode: Text.WordWrap
-                            Accessible.ignored: true
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            text: tile.subtitle
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
-                            Accessible.ignored: true
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: tile.title + ", " + tile.subtitle
+                            accessibleItem: tile
+                            onAccessibleClicked: tile.tapped()
                         }
                     }
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: tile.title + ", " + tile.subtitle
-                        accessibleItem: tile
-                        onAccessibleClicked: tile.tapped()
+
+                    StarterTile {
+                        icon: "qrc:/icons/history.svg"
+                        title: TranslationManager.translate("recipes.empty.fromShot", "Start from a good shot")
+                        subtitle: TranslationManager.translate("recipes.empty.fromShotHint",
+                            "Pick a shot you liked in history and save it as a recipe")
+                        onTapped: AppShell.shotHistoryRequested({})
+                    }
+                    StarterTile {
+                        icon: "qrc:/icons/plus.svg"
+                        title: TranslationManager.translate("recipes.empty.fromScratch", "Build from scratch")
+                        subtitle: TranslationManager.translate("recipes.empty.fromScratchHint",
+                            "Walk through drink, beans, profile, and details")
+                        onTapped: AppShell.recipeWizardRequested("create", {})
                     }
                 }
 
-                StarterTile {
-                    icon: "qrc:/icons/history.svg"
-                    title: TranslationManager.translate("recipes.empty.fromShot", "Start from a good shot")
-                    subtitle: TranslationManager.translate("recipes.empty.fromShotHint",
-                        "Pick a shot you liked in history and save it as a recipe")
-                    onTapped: AppShell.shotHistoryRequested({})
+                // Card grid (BeanInfoPage pattern: fixed base width, computed columns)
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    Repeater {
+                        model: recipesPage.visibleRecipes
+                        delegate: RecipeCard {
+                            required property var modelData
+
+                            recipe: modelData
+                            width: Theme.cardGridWidth(flickable.width)
+                        }
+                    }
                 }
-                StarterTile {
-                    icon: "qrc:/icons/plus.svg"
-                    title: TranslationManager.translate("recipes.empty.fromScratch", "Build from scratch")
-                    subtitle: TranslationManager.translate("recipes.empty.fromScratchHint",
-                        "Walk through drink, beans, profile, and details")
-                    onTapped: AppShell.recipeWizardRequested("create", {})
+
+                // No-matches state: a search that matches nothing anywhere —
+                // neither active nor archived (so a match hiding in the collapsed
+                // archived section never triggers a false "nothing matches"). The
+                // archived toggle below still shows its matching count so the user
+                // can reach any archived-only matches. Distinct from the "no
+                // recipes yet" starter tiles (a genuinely empty library).
+                Label {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingMedium
+                    visible: recipesPage.searchQuery.length > 0
+                             && (recipesPage.recipes.length + recipesPage.archivedRecipes.length) > 0
+                             && recipesPage.visibleRecipes.length === 0
+                             && recipesPage.visibleArchivedRecipes.length === 0
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    text: TranslationManager.translate("recipes.noMatches", "No recipes match your search")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
                 }
-            }
 
-            // Card grid (BeanInfoPage pattern: fixed base width, computed columns)
-            Flow {
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
+                // --- Archived section ---
+                // Count and visibility track the FILTERED archived set: with a
+                // search active the toggle only appears when archived recipes match
+                // and its count reflects the matches (with no search,
+                // visibleArchivedRecipes == archivedRecipes, so behaviour is
+                // unchanged).
+                AccessibleButton {
+                    visible: recipesPage.visibleArchivedRecipes.length > 0
+                    Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: (recipesPage.showArchived
+                           ? TranslationManager.translate("recipes.archived.hide", "Hide archived")
+                           : TranslationManager.translate("recipes.archived.show", "Show archived"))
+                          + " (" + recipesPage.visibleArchivedRecipes.length + ")"
+                    accessibleName: text
+                    onClicked: recipesPage.showArchived = !recipesPage.showArchived
+                }
 
-                Repeater {
-                    model: recipesPage.visibleRecipes
-                    delegate: RecipeCard {
-                        required property var modelData
+                Flow {
+                    visible: recipesPage.showArchived
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
 
-                        recipe: modelData
-                        width: Theme.cardGridWidth(flickable.width)
+                    Repeater {
+                        model: recipesPage.showArchived ? recipesPage.visibleArchivedRecipes : []
+                        delegate: RecipeCard {
+                            required property var modelData
+
+                            recipe: modelData
+                            archivedCard: true
+                            width: Theme.cardGridWidth(flickable.width)
+                        }
                     }
                 }
             }
-
-            // No-matches state: a search that matches nothing anywhere —
-            // neither active nor archived (so a match hiding in the collapsed
-            // archived section never triggers a false "nothing matches"). The
-            // archived toggle below still shows its matching count so the user
-            // can reach any archived-only matches. Distinct from the "no
-            // recipes yet" starter tiles (a genuinely empty library).
-            Label {
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingMedium
-                visible: recipesPage.searchQuery.length > 0
-                         && (recipesPage.recipes.length + recipesPage.archivedRecipes.length) > 0
-                         && recipesPage.visibleRecipes.length === 0
-                         && recipesPage.visibleArchivedRecipes.length === 0
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                text: TranslationManager.translate("recipes.noMatches", "No recipes match your search")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
-            }
-
-            // --- Archived section ---
-            // Count and visibility track the FILTERED archived set: with a
-            // search active the toggle only appears when archived recipes match
-            // and its count reflects the matches (with no search,
-            // visibleArchivedRecipes == archivedRecipes, so behaviour is
-            // unchanged).
-            AccessibleButton {
-                visible: recipesPage.visibleArchivedRecipes.length > 0
-                Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
-                _customFontSize: Theme.captionFont.pixelSize
-                leftPadding: Theme.scaled(10)
-                rightPadding: Theme.scaled(10)
-                text: (recipesPage.showArchived
-                       ? TranslationManager.translate("recipes.archived.hide", "Hide archived")
-                       : TranslationManager.translate("recipes.archived.show", "Show archived"))
-                      + " (" + recipesPage.visibleArchivedRecipes.length + ")"
-                accessibleName: text
-                onClicked: recipesPage.showArchived = !recipesPage.showArchived
-            }
-
-            Flow {
-                visible: recipesPage.showArchived
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-
-                Repeater {
-                    model: recipesPage.showArchived ? recipesPage.visibleArchivedRecipes : []
-                    delegate: RecipeCard {
-                        required property var modelData
-
-                        recipe: modelData
-                        archivedCard: true
-                        width: Theme.cardGridWidth(flickable.width)
-                    }
-                }
-            }
-        }
-    }
-
-    // Sort picker dialog (recipe-list-organization)
-    SelectionDialog {
-        id: sortPickerDialog
-        title: TranslationManager.translate("recipes.sortByTitle", "Sort By")
-        options: recipesPage.sortFieldKeys.map(function(key) { return recipesPage.sortFieldLabels[key] || key })
-        currentIndex: recipesPage.sortFieldKeys.indexOf(recipesPage.sortField)
-        onSelected: function(index, value) {
-            recipesPage.sortField = recipesPage.sortFieldKeys[index]
-            recipesPage.sortDirection = recipesPage.defaultSortDirections[recipesPage.sortField] || "DESC"
-            Settings.network.recipeSortField = recipesPage.sortField
-            Settings.network.recipeSortDirection = recipesPage.sortDirection
         }
     }
 

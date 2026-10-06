@@ -38,7 +38,7 @@ Item {
     // row; the host owns the menu it opens.
     property bool showAddButton: false
     // For a host's KeyboardAwareContainer.textFields.
-    property alias searchInput: searchField
+    property alias searchInput: searchField.field
 
     // The card drawn as "current" and pinned first under Recently used. The
     // selector marks what the machine has loaded; the wizard sets this to the
@@ -74,8 +74,7 @@ Item {
         picker.chipFavorites = false
         picker.chipSources = []
         picker.chipBeverages = []
-        picker.searchText = ""
-        searchField.text = ""
+        searchField.clear()
     }
 
     function toggleSourceChip(id) {
@@ -411,13 +410,13 @@ Item {
             Layout.fillWidth: true
             spacing: Theme.scaled(10)
 
-            StyledTextField {
+            SearchField {
                 id: searchField
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(44)
                 placeholder: TranslationManager.translate("profilepicker.search.placeholder", "Search profiles…")
-                inputMethodHints: Qt.ImhNoPredictiveText
-                onDisplayTextChanged: picker.searchText = displayText.toLowerCase()
+                accessibleName: TranslationManager.translate("profilepicker.search.placeholder", "Search profiles…")
+                onQueryChanged: function(query) { picker.searchText = query.toLowerCase() }
             }
 
             StyledComboBox {
