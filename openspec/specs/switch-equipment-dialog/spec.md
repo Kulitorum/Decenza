@@ -4,8 +4,9 @@
 Defines `SwitchEquipmentDialog.qml`, the dialog for picking or creating an equipment package (grinder identity, an optional vendor-first basket, and optional puck-prep flags) and setting it as the active bag's equipment. Covers dial pre-fill from the selected package's last grind setting/RPM, the basket model picker's differentiator subtitles, and the fork/edit-in-place/dedup package-identity semantics applied when editing an existing package's grinder, basket, or puck-prep fields.
 
 ## Requirements
+
 ### Requirement: Switch Equipment dialog
-The system SHALL provide a `SwitchEquipmentDialog.qml` (mirroring `ChangeBeansDialog.qml`) that lets the user pick an existing equipment package or create a new one. It SHALL be openable from the Equipment window ("Add Equipment") and from Brew Settings ("Switch Equipment").
+The system SHALL provide a `SwitchEquipmentDialog.qml` (mirroring `ChangeBeansDialog.qml`) that lets the user pick an existing equipment package or create a new one. It SHALL be openable from the Equipment window ("Add [Equipment]") and from Brew Settings ("Switch Equipment").
 
 #### Scenario: Pick an existing package
 - **WHEN** the user opens the dialog with packages in inventory
@@ -115,4 +116,3 @@ matching grinder + basket + puck-prep combination).
 #### Scenario: Changing puck prep on a used package
 - **WHEN** the user changes a puck-prep flag on a package that has recorded shots and saves
 - **THEN** the dialog flow SHALL result in the forked/deduped package per the identity rules, and set it active
-
