@@ -207,16 +207,16 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     destination->paceBackground(this, [this, destination, shotId = job.shotId]() {
         const auto pacing = m_pacing.find(destination);
         if (pacing == m_pacing.end() || pacing->shotId != shotId) return;   // sent now, or dropped
-        const Job job = m_pacing.take(destination);
+        const Job turn = m_pacing.take(destination);
         if (m_current.value(destination).shotId != 0 || m_rateLimitWaits.contains(destination)
             || m_machineOperating || !destination->isActive()) {
             // Not its moment after all: back to the front for pump() to decide.
-            m_queues[destination].prepend(job);
+            m_queues[destination].prepend(turn);
             pump(destination);
             return;
         }
-        m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
-        destination->attemptSavedShot(job.shotId, job.how);
+        m_current.insert(destination, Current{turn.shotId, turn.how, 1, {}});
+        destination->attemptSavedShot(turn.shotId, turn.how);
     });
 }
 
@@ -391,9 +391,9 @@ void ShotUploads::refreshMissing() {
 }
 
 void ShotUploads::startRun(ShotUploadDestination* destination, qint64 skipFailedSince) {
-    Run run;
-    run.id = ++m_nextRunId;
-    m_runs.insert(destination, run);
+    Run started;
+    started.id = ++m_nextRunId;
+    m_runs.insert(destination, started);
     emit missingChanged();
     const QString dbPath = m_storage->databasePath();
     const double minDuration = m_settings->minDuration();
