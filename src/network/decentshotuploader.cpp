@@ -1,4 +1,5 @@
 #include "decentshotuploader.h"
+#include "core/gzip.h"
 
 #include "core/dbutils.h"
 #include "core/diagnosticlogging.h"
@@ -136,8 +137,14 @@ void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
             p.body = DecentShotRecord::build(shot, machine);
             p.error = Result::None;
         });
-        if (p.error == Result::None && !p.skip)
+        if (p.error == Result::None && !p.skip) {
             writeDebugFile(QStringLiteral("last_decent_upload.json"), QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
+            // Decent asked for gzip uploads. A body that cannot be compressed goes plain.
+            if (QByteArray gzipped = Gzip::compress(p.body); !gzipped.isEmpty()) {
+                p.body = std::move(gzipped);
+                p.gzipped = true;
+            }
+        }
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, destroyed, p]() {
             if (!*destroyed) onPrepared(p);
@@ -165,6 +172,7 @@ void DecentShotUploader::send() {
     // Exactly what Decaid's proxy and Decent's API docs send. JSON is UTF-8 by
     // definition (RFC 8259), so a charset parameter adds nothing.
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (m_current.gzipped) request.setRawHeader("Content-Encoding", "gzip");
     request.setTransferTimeout(kUploadTimeoutMs);
     if (!m_account->applyAuth(request)) {
         // Signed out or refused while the row was being read.
@@ -173,6 +181,12 @@ void DecentShotUploader::send() {
     }
     QNetworkReply* reply = m_network->post(request, m_current.body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { onReplyFinished(reply); });
+}
+
+// A reply excerpt on one log line, with its size: a body of only "\n" logged
+// raw printed as a blank second line.
+static QString bodyForLog(const QByteArray& body) {
+    return QStringLiteral("(%1 bytes) %2").arg(body.size()).arg(QString::fromUtf8(body.left(300)).simplified());
 }
 
 void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
@@ -192,7 +206,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     if (answer == Outcome::Sent && !json.value(QStringLiteral("ok")).toBool()) {
         why = QStringLiteral("HTTP %1 that is not the upload API's answer").arg(status);
         if (!m_loggedOddAnswer)
-            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << QString::fromUtf8(body.left(300));
+            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << bodyForLog(body);
         m_loggedOddAnswer = true;
         answer = Outcome::Transient;
     }
@@ -237,7 +251,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
         return;
     case Outcome::Rejected:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "rejected (HTTP" << status << "):"
-                                                << QString::fromUtf8(body.left(300));
+                                                << bodyForLog(body);
         endAttempt(Result::Rejected, status);
         return;
     }

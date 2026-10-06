@@ -982,6 +982,37 @@ private slots:
         });
     }
 
+    // Migration 45 offers every shot already on the Decent account for
+    // re-upload (its times went as UTC), and no other shot.
+    void v44ToV45MarksDecentShotsForResend() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v45_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (44)"));
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, decent_uploaded_at) "
+                           "VALUES ('m45-uploaded', 2000, 'P', 25.0, 1000)"));
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('m45-not-uploaded', 3000, 'P', 25.0)"));
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v45_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT uuid, decent_replace_pending FROM shots WHERE uuid LIKE 'm45-%' ORDER BY uuid"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toString(), QStringLiteral("m45-not-uploaded"));
+            QCOMPARE(q.value(1).toInt(), 0);
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toString(), QStringLiteral("m45-uploaded"));
+            QCOMPARE(q.value(1).toInt(), 1);
+        });
+    }
+
     // ==========================================
     // Edge case: empty v1 DB migrates cleanly
     // ==========================================

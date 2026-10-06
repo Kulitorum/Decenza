@@ -98,6 +98,7 @@ private:
     struct Prepared {
         qint64 shotId = 0;
         QByteArray body;
+        bool gzipped = false;  // body is gzip, sent with Content-Encoding: gzip
         QString uuid;
         QString serial;
         bool replace = false;

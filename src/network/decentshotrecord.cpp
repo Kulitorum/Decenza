@@ -24,8 +24,12 @@ QVector<QPointF> toPoints(const QVariantList& points) {
     return out;
 }
 
-QString isoUtcMs(qint64 msSinceEpoch) {
-    return QDateTime::fromMSecsSinceEpoch(msSinceEpoch, QTimeZone::UTC).toString(Qt::ISODateWithMs);
+// ISO 8601 with the device's UTC offset ("…T09:15:38.000-06:00"): the same instant as
+// UTC with "Z", but decentespresso.com shows a "Z" time as UTC, and Decent asked for the
+// zone (2026-10-06). One offset per shot, taken at its start.
+QString isoMs(qint64 msSinceEpoch, int offsetSeconds) {
+    return QDateTime::fromMSecsSinceEpoch(msSinceEpoch, QTimeZone::fromSecondsAheadOfUtc(offsetSeconds))
+        .toString(Qt::ISODateWithMs);
 }
 
 void putString(QJsonObject& obj, const QString& key, const QString& value) {
@@ -73,6 +77,7 @@ QByteArray DecentShotRecord::build(const ShotProjection& shot, const DecentMachi
     // The saved timestamp, as Decenza's history and the Visualizer upload use it,
     // so the shot shows the same time on every surface.
     const qint64 baseMs = shot.timestamp * 1000;
+    const int utcOffset = QDateTime::fromMSecsSinceEpoch(baseMs).offsetFromUtc();
 
     // Pressure is the master timeline (as in the Visualizer payload); every other
     // series is resampled onto it so the measurement columns stay aligned.
@@ -92,7 +97,7 @@ QByteArray DecentShotRecord::build(const ShotProjection& shot, const DecentMachi
 
     QJsonArray measurements;
     for (qsizetype i = 0; i < pressure.size(); ++i) {
-        const QString ts = isoUtcMs(baseMs + qRound64(pressure[i].x() * 1000.0));
+        const QString ts = isoMs(baseMs + qRound64(pressure[i].x() * 1000.0), utcOffset);
         QJsonObject m;
         m["timestamp"] = ts;
         m["state"] = QJsonObject{{"state", "espresso"}, {"substate", "pouring"}};
@@ -162,7 +167,7 @@ QByteArray DecentShotRecord::build(const ShotProjection& shot, const DecentMachi
 
     QJsonObject root;
     root["id"] = shot.uuid;
-    root["timestamp"] = isoUtcMs(baseMs);
+    root["timestamp"] = isoMs(baseMs, utcOffset);
     root["measurements"] = measurements;
     root["workflow"] = workflow;
     root["annotations"] = annotations;

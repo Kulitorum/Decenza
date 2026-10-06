@@ -4,6 +4,7 @@
 // path every destination is reached through.
 
 #include <QtTest>
+#include <QtNetwork/private/qdecompresshelper_p.h>
 #include <QFile>
 #include <QJsonArray>
 #include <QSet>
@@ -152,6 +153,22 @@ protected:
     }
 };
 
+// Decodes a gzip upload body with Qt's own decoder, which checks the CRC and
+// length trailer; empty if it is not valid gzip.
+QByteArray gunzip(const QByteArray& gzipped) {
+    QDecompressHelper helper;
+    if (!helper.setEncoding("gzip")) return {};
+    helper.feed(gzipped);
+    QByteArray out;
+    char buffer[4096];
+    while (helper.hasData()) {
+        const qsizetype n = helper.read(buffer, sizeof(buffer));
+        if (n <= 0) break;
+        out.append(buffer, n);
+    }
+    return helper.isValid() ? out : QByteArray();
+}
+
 QVariantList series(std::initializer_list<QPointF> points) {
     QVariantList out;
     for (const QPointF& p : points) out.append(QVariantMap{{"x", p.x()}, {"y", p.y()}});
@@ -243,7 +260,10 @@ class tst_DecentShotUpload : public QObject {
             });
             return s;
         }
-        QJsonObject sentDocument(qsizetype i) const { return QJsonDocument::fromJson(nam.bodies.at(i)).object(); }
+        QJsonObject sentDocument(qsizetype i) const {
+            const bool gzipped = nam.requests.at(i).rawHeader("Content-Encoding") == "gzip";
+            return QJsonDocument::fromJson(gzipped ? gunzip(nam.bodies.at(i)) : nam.bodies.at(i)).object();
+        }
     };
 
 private slots:
@@ -288,8 +308,14 @@ private slots:
             QVERIFY(sample.toObject()["machine"].toObject().contains("targetGroupTemperature"));
             QVERIFY(sample.toObject().contains("scale"));
         }
-        QCOMPARE(m[1].toObject()["machine"].toObject()["timestamp"].toString(),
-                 QStringLiteral("2026-09-21T14:13:20.250Z"));
+        // The device's offset, not "Z": the same instant, shown in local time on the site.
+        for (const auto& [ts, ms] : {std::pair{doc["timestamp"].toString(), shot.timestamp * 1000},
+                                     std::pair{m[1].toObject()["machine"].toObject()["timestamp"].toString(),
+                                               shot.timestamp * 1000 + 250}}) {
+            const QDateTime parsed = QDateTime::fromString(ts, Qt::ISODateWithMs);
+            QCOMPARE(parsed.toMSecsSinceEpoch(), ms);
+            QCOMPARE(parsed.offsetFromUtc(), QDateTime::fromMSecsSinceEpoch(ms).offsetFromUtc());
+        }
     }
 
     // tests/data/decent/accepted_shotrecord.json is a body decentespresso.com
@@ -384,6 +410,9 @@ private slots:
         QCOMPARE(rig.nam.requests.at(0).url().query(), QString());
         QCOMPARE(rig.nam.requests.at(0).rawHeader("Authorization"), basic("owner@example.com", "token"));
         QCOMPARE(rig.nam.requests.at(0).header(QNetworkRequest::ContentTypeHeader).toString(), QStringLiteral("application/json"));
+        // Gzip, as Decent asked: the gzip magic, and a body Qt's own decoder accepts.
+        QCOMPARE(rig.nam.requests.at(0).rawHeader("Content-Encoding"), QByteArray("gzip"));
+        QVERIFY(rig.nam.bodies.at(0).startsWith("\x1f\x8b"));
         QCOMPARE(rig.sentDocument(0)["machine"].toObject()["model"].toString(), QStringLiteral("DE1PRO"));
 
         // An edit made while an upload is out may not be in it: it stays pending.
@@ -466,7 +495,7 @@ private slots:
         // A 2xx that is not the API's answer (a captive portal) stored nothing,
         // and its body is logged once, not per attempt.
         rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's answer <html>"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(R"(not the upload API's answer \(\d+ bytes\) <html>)"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempt\\(s\\) \\(HTTP 200 that is not"));
         QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
 
