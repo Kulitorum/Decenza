@@ -102,6 +102,12 @@ public:
     // One-line guidance comparing the provider's catalog models (see
     // AIProvider::modelHint). Empty when the provider has no hint.
     Q_INVOKABLE QString modelHint(const QString& providerId) const;
+    // Translation key for modelHint(). Bump its version when a hint is reworded:
+    // TranslationManager keeps the old translation under an unchanged key.
+    Q_INVOKABLE QString modelHintKey(const QString& providerId) const
+    {
+        return QStringLiteral("settings.ai.modelHint.v2.") + providerId;
+    }
     // Running-cost estimate (see AIProvider::costHintFor). Pass a modelId to
     // price a specific model, or leave it empty for the provider's current
     // selection. Depends on the model, so re-read it when the selection changes
@@ -432,6 +438,7 @@ private slots:
 
 private:
     void createProviders();
+    QString savedModelFor(const AIProvider* provider);
     // Translate a user-visible string via the injected TranslationManager,
     // falling back to the English source when none is set.
     QString tr_(const char* key, const char* fallback) const;

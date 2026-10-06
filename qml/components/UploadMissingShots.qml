@@ -39,17 +39,23 @@ ColumnLayout {
         color: root.failed > 0 && !root.running && root.resumesAt.length === 0 ? Theme.errorColor : Theme.textSecondaryColor
         Accessible.role: Accessible.StaticText
         Accessible.name: text
-        text: root.running && root.resumesAt.length > 0
+        // Which line is ShotUploads' decision (missing().status), shared with the web page.
+        readonly property string status: root.entry !== undefined ? (root.entry.status ?? "") : ""
+        text: status === "slowedDown" && root.running
               ? TranslationManager.translate("settings.upload.missing.rateLimited",
                                              "%1 of %2 done. The server asked to slow down; continuing at %3")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0).arg(root.resumesAt)
-              : root.resumesAt.length > 0
+              : status === "slowedDown"
               ? TranslationManager.translate("settings.upload.waiting",
                                              "The server asked to slow down; uploads continue at %1").arg(root.resumesAt)
-              : root.running
+              : status === "waitingForMachine"
+              ? TranslationManager.translate("settings.upload.missing.waitingForMachine",
+                                             "%1 of %2 done. Waiting for the machine to connect")
+                    .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
+              : status === "uploading"
               ? TranslationManager.translate("settings.upload.missing.progress", "Uploading %1 of %2")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
-              : root.failed > 0
+              : status === "failedBefore"
                 ? TranslationManager.translate("settings.upload.missing.failed", "%1 of them could not be uploaded before")
                       .arg(root.failed)
                 : ""

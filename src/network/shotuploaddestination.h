@@ -67,6 +67,9 @@ public:
     virtual void sendFinished(qint64 shotId, Attempt last) = 0;
     // Every successful edit of a saved shot, whether or not anything is sent.
     virtual void noteEdited(qint64 shotId) { Q_UNUSED(shotId); }
+    // Whether a background send (Upload missing shots) of this kind could go now;
+    // false holds it until ShotUploads::readinessChanged().
+    virtual bool backgroundSendReady(Send how) const { Q_UNUSED(how); return true; }
     // Runs `send` when a background send (Upload missing shots) may go, paced with
     // the destination's other background requests; dropped if `context` is destroyed.
     virtual void paceBackground(QObject* context, std::function<void()> send) { Q_UNUSED(context); send(); }

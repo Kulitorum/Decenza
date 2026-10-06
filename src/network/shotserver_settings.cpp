@@ -108,8 +108,6 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
     applySecretString(obj, "anthropicApiKey",  [a](const QString& v){ a->setAnthropicApiKey(v); });
     applySecretString(obj, "geminiApiKey",     [a](const QString& v){ a->setGeminiApiKey(v); });
     applySecretString(obj, "openrouterApiKey", [a](const QString& v){ a->setOpenrouterApiKey(v); });
-    if (obj.contains("openrouterModel"))
-        a->setOpenrouterModel(obj["openrouterModel"].toString());
     if (obj.contains("ollamaEndpoint"))
         a->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
     if (obj.contains("ollamaModel"))
@@ -118,8 +116,8 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
         a->setOpenaiEndpoint(obj["openaiEndpoint"].toString());
     if (obj.contains("anthropicEndpoint"))
         a->setAnthropicEndpoint(obj["anthropicEndpoint"].toString());
-    // Per-provider selected model for fixed-catalog providers (see
-    // SettingsAI::setProviderModel). Shape: {"gemini": "gemini-2.5-flash"}.
+    // Per-provider selected model for catalog providers (see
+    // SettingsAI::setProviderModel). Shape: {"gemini": "gemini-3.8-flash"}.
     if (obj["providerModels"].isObject()) {
         const QJsonObject models = obj["providerModels"].toObject();
         for (auto it = models.begin(); it != models.end(); ++it) {
@@ -710,14 +708,6 @@ QString ShotServer::generateSettingsPage() const
                     </div>
                     <div class="help-text">Get your API key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com</a></div>
                 </div>
-                <!-- Model picker for providers exposing a fixed catalog of >1 model
-                     (mirrors the in-app AI settings tab; OpenAI/Anthropic/Gemini today). -->
-                <div class="form-group" id="modelGroup" style="display:none;">
-                    <label class="form-label">Model</label>
-                    <select class="form-input" id="providerModelSelect" onchange="onModelSelected()"></select>
-                    <div class="help-text" id="modelHint" style="display:none;"></div>
-                    <div class="help-text" id="modelCost" style="display:none;"></div>
-                </div>
                 <div id="openrouterGroup" style="display:none;">
                     <div class="form-group">
                         <label class="form-label">OpenRouter API Key</label>
@@ -727,12 +717,15 @@ QString ShotServer::generateSettingsPage() const
                         </div>
                         <div class="help-text">Get your API key from <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent)">openrouter.ai</a></div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Model</label>
-                        <input type="text" class="form-input" id="openrouterModel" placeholder="anthropic/claude-sonnet-4">
-                        <div class="help-text">Enter model ID from <a href="https://openrouter.ai/models" target="_blank" style="color:var(--accent)">openrouter.ai/models</a></div>
-                    </div>
                 </div>
+                <!-- Model picker for providers with more than one model (mirrors the app). -->
+                <div class="form-group" id="modelGroup" style="display:none;">
+                    <label class="form-label">Model</label>
+                    <select class="form-input" id="providerModelSelect" onchange="onModelSelected()"></select>
+                </div>
+                <!-- Outside the picker, so single-model providers show them too. -->
+                <div class="help-text" id="modelHint" style="display:none;"></div>
+                <div class="help-text" id="modelCost" style="display:none;"></div>
                 <div id="ollamaGroup" style="display:none;">
                     <div class="form-row">
                         <div class="form-group">
@@ -986,7 +979,6 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('anthropicApiKey').value = data.anthropicApiKey || '';
                 document.getElementById('geminiApiKey').value = data.geminiApiKey || '';
                 document.getElementById('openrouterApiKey').value = data.openrouterApiKey || '';
-                document.getElementById('openrouterModel').value = data.openrouterModel || '';
                 document.getElementById('ollamaEndpoint').value = data.ollamaEndpoint || '';
                 document.getElementById('ollamaModel').value = data.ollamaModel || '';
                 document.getElementById('openaiEndpoint').value = data.openaiEndpoint || '';
@@ -1070,8 +1062,7 @@ QString ShotServer::generateSettingsPage() const
             const hint = document.getElementById('modelHint');
             hint.textContent = modelHints[selectedProvider] || '';
             hint.style.display = hint.textContent ? 'block' : 'none';
-            // Before the early return: a single-model provider still needs the
-            // stale line from the previous provider cleared.
+            // Before the early return: a single-model provider shows its cost too.
             updateModelCost();
             if (catalog.length <= 1) return;
             const sel = document.getElementById('providerModelSelect');
@@ -1087,9 +1078,7 @@ QString ShotServer::generateSettingsPage() const
             });
         }
 
-        // Running-cost line for the SELECTED model. Keyed by model, not
-        // provider: the OpenAI catalog alone spans 10x, so one figure per
-        // provider is wrong for most of it.
+        // Running-cost line for the SELECTED model: costs span 20x within one catalog.
         function updateModelCost() {
             const el = document.getElementById('modelCost');
             const perModel = modelCosts[selectedProvider] || {};
@@ -1124,7 +1113,7 @@ QString ShotServer::generateSettingsPage() const
                 case 'openai': return !!document.getElementById('openaiApiKey').value;
                 case 'anthropic': return !!document.getElementById('anthropicApiKey').value;
                 case 'gemini': return !!document.getElementById('geminiApiKey').value;
-                case 'openrouter': return !!document.getElementById('openrouterApiKey').value && !!document.getElementById('openrouterModel').value;
+                case 'openrouter': return !!document.getElementById('openrouterApiKey').value;
                 case 'ollama': return !!document.getElementById('ollamaEndpoint').value && !!document.getElementById('ollamaModel').value;
                 default: return false;
             }
@@ -1144,8 +1133,7 @@ QString ShotServer::generateSettingsPage() const
             document.getElementById('openaiBtnModel').textContent = providerModelLabel('openai', 'GPT');
             document.getElementById('anthropicBtnModel').textContent = providerModelLabel('anthropic', 'Claude');
             document.getElementById('geminiBtnModel').textContent = providerModelLabel('gemini', 'Gemini');
-            const orModel = document.getElementById('openrouterModel').value;
-            document.getElementById('openrouterBtnModel').textContent = orModel || 'Multi';
+            document.getElementById('openrouterBtnModel').textContent = providerModelLabel('openrouter', 'Multi');
             const olModel = document.getElementById('ollamaModel').value;
             document.getElementById('ollamaBtnModel').textContent = olModel || 'Local';
         }
@@ -1293,13 +1281,18 @@ QString ShotServer::generateSettingsPage() const
                 const button = document.getElementById(dest + '-missing-button');
                 button.style.display = (m.running || count === 0) ? 'none' : '';
                 button.textContent = 'Upload missing shots (' + count + ')';
-                document.getElementById(dest + '-missing-detail').textContent = m.running && resumesAt
-                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at ' + resumesAt
-                    : resumesAt
+                // Which line is ShotUploads' decision (missing().status), shared with the app.
+                const done = (m.done || 0) + ' of ' + (m.total || 0);
+                document.getElementById(dest + '-missing-detail').textContent =
+                    m.status === 'slowedDown' && m.running
+                    ? done + ' done. The server asked to slow down; continuing at ' + resumesAt
+                    : m.status === 'slowedDown'
                     ? 'The server asked to slow down; uploads continue at ' + resumesAt
-                    : m.running
-                    ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
-                    : failed > 0 ? failed + ' of them could not be uploaded before' : '';
+                    : m.status === 'waitingForMachine'
+                    ? done + ' done. Waiting for the machine to connect'
+                    : m.status === 'uploading'
+                    ? 'Uploading ' + done
+                    : m.status === 'failedBefore' ? failed + ' of them could not be uploaded before' : '';
             }
             // Polled only while a run is going or uploads are waiting.
             clearTimeout(showMissing.timer);
@@ -1347,7 +1340,6 @@ QString ShotServer::generateSettingsPage() const
                         anthropicApiKey: document.getElementById('anthropicApiKey').value,
                         geminiApiKey: document.getElementById('geminiApiKey').value,
                         openrouterApiKey: document.getElementById('openrouterApiKey').value,
-                        openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
                         ollamaModel: document.getElementById('ollamaModel').value,
                         openaiEndpoint: document.getElementById('openaiEndpoint').value,
@@ -1375,7 +1367,6 @@ QString ShotServer::generateSettingsPage() const
                         anthropicApiKey: document.getElementById('anthropicApiKey').value,
                         geminiApiKey: document.getElementById('geminiApiKey').value,
                         openrouterApiKey: document.getElementById('openrouterApiKey').value,
-                        openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
                         ollamaModel: document.getElementById('ollamaModel').value,
                         openaiEndpoint: document.getElementById('openaiEndpoint').value,
@@ -1597,7 +1588,7 @@ QString ShotServer::generateSettingsPage() const
         }
 
         // Update provider button styles live as user types API keys
-        document.querySelectorAll('#openaiApiKey,#anthropicApiKey,#geminiApiKey,#openrouterApiKey,#openrouterModel,#ollamaEndpoint,#ollamaModel,#openaiEndpoint,#anthropicEndpoint')
+        document.querySelectorAll('#openaiApiKey,#anthropicApiKey,#geminiApiKey,#openrouterApiKey,#ollamaEndpoint,#ollamaModel,#openaiEndpoint,#anthropicEndpoint')
             .forEach(el => el.addEventListener('input', updateProviderButtons));
 
         // Stop polling when page is not visible
@@ -1657,7 +1648,6 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         obj["anthropicApiKey"] = redactedSecret(a->anthropicApiKey());
         obj["geminiApiKey"] = redactedSecret(a->geminiApiKey());
         obj["openrouterApiKey"] = redactedSecret(a->openrouterApiKey());
-        obj["openrouterModel"] = a->openrouterModel();
         obj["ollamaEndpoint"] = a->ollamaEndpoint();
         obj["ollamaModel"] = a->ollamaModel();
         obj["openaiEndpoint"] = a->openaiEndpoint();
@@ -1666,8 +1656,8 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         // Per-provider model catalogs, stored selections, current display
         // names, and guidance hints, so the web page can offer the same model
         // picker as the in-app AI settings tab. Catalogs/hints only include
-        // providers with a non-empty catalog (OpenAI/Anthropic/Gemini today;
-        // the page shows the picker only for catalogs with >1 entry);
+        // providers with a non-empty catalog (all but Ollama; the page shows
+        // the picker only for catalogs with >1 entry);
         // providerModels round-trips through POST /api/settings.
         if (m_aiManager) {
             QJsonObject catalogs;

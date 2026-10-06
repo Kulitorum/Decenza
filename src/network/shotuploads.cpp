@@ -183,6 +183,11 @@ static void logUploads(const QString& destination, const QString& text, bool war
 }
 
 void ShotUploads::pump(ShotUploadDestination* destination) {
+    sendNext(destination);
+    noteWaitingUntilReady(destination);
+}
+
+void ShotUploads::sendNext(ShotUploadDestination* destination) {
     if (m_current.value(destination).shotId != 0) return;
     if (!destination->isActive()) {
         dropQueue(destination, QStringLiteral("switched off or signed out"));
@@ -193,8 +198,11 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
     // A background send goes only when its pacer turn comes, one at a time, and not while the machine
     // is operating (setMachineOperating(false) pumps again); sends the user asked for go meanwhile.
     const bool backgroundMayGo = !m_machineOperating && !m_pacing.contains(destination);
-    const auto next = std::find_if(queue.begin(), queue.end(),
-                                   [backgroundMayGo](const Job& job) { return !job.background || backgroundMayGo; });
+    const bool uploadReady = backgroundMayGo && destination->backgroundSendReady(Send::UploadOrUpdate);
+    const bool updateReady = backgroundMayGo && destination->backgroundSendReady(Send::UpdateOnly);
+    const auto next = std::find_if(queue.begin(), queue.end(), [uploadReady, updateReady](const Job& job) {
+        return !job.background || (job.how == Send::UpdateOnly ? updateReady : uploadReady);
+    });
     if (next == queue.end()) return;
     const Job job = *next;
     queue.erase(next);
@@ -209,7 +217,7 @@ void ShotUploads::pump(ShotUploadDestination* destination) {
         if (pacing == m_pacing.end() || pacing->shotId != shotId) return;   // sent now, or dropped
         const Job turn = m_pacing.take(destination);
         if (m_current.value(destination).shotId != 0 || m_rateLimitWaits.contains(destination)
-            || m_machineOperating || !destination->isActive()) {
+            || m_machineOperating || !destination->isActive() || !destination->backgroundSendReady(turn.how)) {
             // Not its moment after all: back to the front for pump() to decide.
             m_queues[destination].prepend(turn);
             pump(destination);
@@ -323,6 +331,34 @@ void ShotUploads::setMachineOperating(bool operating) {
     for (ShotUploadDestination* destination : m_runs.keys()) nextBatch(destination);
 }
 
+void ShotUploads::readinessChanged() {
+    for (ShotUploadDestination* destination : std::as_const(m_destinations)) pump(destination);
+}
+
+// Background sends are queued, nothing is in flight, and none of them may go
+// until the destination is ready (Decent: no DE1 for a first upload).
+void ShotUploads::noteWaitingUntilReady(ShotUploadDestination* destination) {
+    const auto run = m_runs.find(destination);
+    if (run == m_runs.end()) return;
+    const bool waiting = waitingUntilReady(destination);
+    if (waiting == run->waitingForReady) return;
+    run->waitingForReady = waiting;
+    logUploads(destination->name(), waiting ? QStringLiteral("Upload missing shots waiting for the machine to connect")
+                                            : QStringLiteral("Upload missing shots no longer waiting for the machine"));
+    emit missingChanged();
+}
+
+bool ShotUploads::waitingUntilReady(ShotUploadDestination* destination) const {
+    if (m_current.value(destination).shotId != 0 || m_pacing.contains(destination)) return false;
+    bool anyBackground = false;
+    for (const Job& job : m_queues.value(destination)) {
+        if (!job.background) continue;
+        if (destination->backgroundSendReady(job.how)) return false;
+        anyBackground = true;
+    }
+    return anyBackground;
+}
+
 QVariantMap ShotUploads::missing() const {
     QVariantMap all;
     for (ShotUploadDestination* destination : m_destinations) {
@@ -336,13 +372,20 @@ QVariantMap ShotUploads::missing() const {
             entry[QStringLiteral("failed")] = count->failed;
             entry[QStringLiteral("unsentEdits")] = count->unsentEdits;
         }
-        entry[QStringLiteral("running")] = run != m_runs.constEnd();
-        if (run != m_runs.constEnd()) {
+        const bool running = run != m_runs.constEnd();
+        entry[QStringLiteral("running")] = running;
+        if (running) {
             entry[QStringLiteral("done")] = run->done;
             entry[QStringLiteral("sent")] = run->sent;
             entry[QStringLiteral("total")] = run->total;
         }
         if (held) entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
+        const int failed = count != m_counts.constEnd() ? count->failed : 0;
+        entry[QStringLiteral("status")] = held                            ? QStringLiteral("slowedDown")
+                                        : running && run->waitingForReady ? QStringLiteral("waitingForMachine")
+                                        : running                        ? QStringLiteral("uploading")
+                                        : failed > 0                     ? QStringLiteral("failedBefore")
+                                                                          : QString();
         all[destination->name()] = entry;
     }
     return all;

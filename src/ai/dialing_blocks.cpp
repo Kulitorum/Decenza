@@ -615,9 +615,11 @@ namespace {
 // actual 5.0 — is caught by the prior-movement guard inside
 // grinderMatches, NOT by tightening this tolerance. Dose tolerance is
 // ±0.3g — tighter than measurement noise but wider than the user's
-// typical scale precision.
+// typical scale precision. Yield-target tolerance is ±0.5g, so a target
+// derived from a ratio (ratio × dose) still matches its rounded recommendation.
 constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
+constexpr double kYieldToleranceG = 0.5;
 
 // What a `structuredNext` field asks of adherence scoring. The fields are
 // authored by an LLM, so "the model recommended something we can check" is not
@@ -681,7 +683,8 @@ RecommendationKind classifyGrinderRecommendation(const QJsonObject& sn,
     return RecommendationKind::Scoreable;
 }
 
-// Classify a structuredNext field that must be a POSITIVE NUMBER (rpm, doseG).
+// Classify a structuredNext field that must be a POSITIVE NUMBER (rpm, doseG,
+// targetWeightG).
 //
 // Same hazard as grinderSetting and it must be handled the same way, because
 // the first version of this guard fixed only grinderSetting and left rpm
@@ -880,7 +883,24 @@ bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& ac
     if (prior.doseWeightG > 0.0 && actual.doseWeightG > 0.0
         && std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9)
         return true;
+    const double priorTarget = effectiveTargetWeightG(prior);
+    const double actualTarget = effectiveTargetWeightG(actual);
+    if (priorTarget > 0.0 && actualTarget > 0.0
+        && std::abs(actualTarget - priorTarget) > kYieldToleranceG + 1e-9)
+        return true;
     return false;
+}
+
+// A recommended number counts as followed when the actual shot landed within
+// tolerance of it AND something moved — the same no-movement guard as
+// grinderMatches, so a recommendation that equals where the user already was
+// does not score a free "followed".
+bool numberMatches(double recommended, double actual, double prior, double tolerance)
+{
+    const bool inTolerance = std::abs(recommended - actual) <= tolerance + 1e-9;
+    const bool moved = std::abs(actual - prior) > tolerance + 1e-9
+                    || std::abs(recommended - prior) > tolerance + 1e-9;
+    return inTolerance && moved;
 }
 
 QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
@@ -925,13 +945,20 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
 
     double recommendedDose = 0.0;
     fold(classifyPositiveNumberField(sn, "doseG", recommendedDose), [&] {
-        const bool inTolerance =
-            std::abs(recommendedDose - actual.doseWeightG) <= kDoseToleranceG + 1e-9;
-        // Same no-movement guard as grinderMatches.
-        const bool moved =
-            std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9
-            || std::abs(recommendedDose - prior.doseWeightG) > kDoseToleranceG + 1e-9;
-        return inTolerance && moved;
+        return numberMatches(recommendedDose, actual.doseWeightG, prior.doseWeightG,
+                             kDoseToleranceG);
+    });
+
+    double recommendedYield = 0.0;
+    RecommendationKind yieldKind = classifyPositiveNumberField(sn, "targetWeightG", recommendedYield);
+    // The effective target, as dialInSessions showed the model. A shot with no
+    // known target cannot show whether the yield moved.
+    const double actualTarget = yieldKind == RecommendationKind::Scoreable ? effectiveTargetWeightG(actual) : 0.0;
+    const double priorTarget = yieldKind == RecommendationKind::Scoreable ? effectiveTargetWeightG(prior) : 0.0;
+    if (yieldKind == RecommendationKind::Scoreable && (actualTarget <= 0.0 || priorTarget <= 0.0))
+        yieldKind = RecommendationKind::Unscoreable;
+    fold(yieldKind, [&] {
+        return numberMatches(recommendedYield, actualTarget, priorTarget, kYieldToleranceG);
     });
 
     QString recommendedProfile;
@@ -1090,6 +1117,8 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         if (actual.rpm > 0)
             userResponse["rpm"] = actual.rpm;  // RPM half of what the user actually did
         userResponse["doseG"] = actual.doseWeightG;
+        if (const double target = effectiveTargetWeightG(actual); target > 0)
+            userResponse["targetWeightG"] = target;
         userResponse["adherence"] = computeAdherence(turn.structuredNext, actual, prior);
         if (actual.enjoyment0to100 > 0)
             userResponse["outcomeRating0to100"] = actual.enjoyment0to100;

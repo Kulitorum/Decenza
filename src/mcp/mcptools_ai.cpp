@@ -231,8 +231,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             return;
                         }
                         aiLive->enrichUserPromptObject(userPromptObj, shot, blocks);
-                        userPrompt = QString::fromUtf8(
-                            QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
+                        userPrompt = ShotSummarizer::serializePayload(userPromptObj);
                     }
 
                     // Dry-run path: return the prompts without invoking

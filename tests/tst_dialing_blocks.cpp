@@ -1083,17 +1083,26 @@ private slots:
     }
 
     // summarizeStructuredNext renders a recommended rpm as a whole-number
-    // predicted part, alongside the grind (the advisor's RPM coaching output).
-    void summarizeStructuredNext_rendersRpm()
+    // predicted part, alongside the grind (the advisor's RPM coaching output),
+    // and a recommended stop-at-weight yield.
+    void summarizeStructuredNext_rendersRpmAndYield()
     {
         QJsonObject sn;
         sn["grinderSetting"] = QStringLiteral("8.5");
         sn["rpm"] = 1350;
+        sn["targetWeightG"] = 32;
         const DialingBlocks::StructuredNextSummary s =
             DialingBlocks::summarizeStructuredNext(sn);
         QVERIFY(s.predictedParts.contains(QStringLiteral("grinder 8.5")));
         QVERIFY2(s.predictedParts.contains(QStringLiteral("1350 RPM")),
                  "recommended rpm should appear as a whole-number predicted part");
+        QVERIFY(s.predictedParts.contains(QStringLiteral("stop at 32.0g")));
+
+        // A number written as a string or null is left out, not shown as 0.
+        sn["targetWeightG"] = QStringLiteral("32");
+        sn["doseG"] = QJsonValue::Null;
+        const QStringList parts = DialingBlocks::summarizeStructuredNext(sn).predictedParts;
+        QVERIFY2(!parts.join(' ').contains(QStringLiteral("0.0g")), qPrintable(parts.join(", ")));
     }
 
     // -------------------------------------------------------------------
@@ -1419,7 +1428,8 @@ private slots:
     QString adherenceForStructured(const QString& tag, const QJsonObject& sn,
                                    const QString& priorGrind, const QString& nextGrind,
                                    double priorDose = 18, double nextDose = 18,
-                                   qint64 priorRpm = 0, qint64 nextRpm = 0)
+                                   qint64 priorRpm = 0, qint64 nextRpm = 0,
+                                   double priorTarget = 0, double nextTarget = 0)
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
@@ -1431,13 +1441,13 @@ private slots:
                 .uuid = "u-prior", .timestamp = nowSec - 7200,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = priorDose,
-                .grinderSetting = priorGrind, .rpm = priorRpm
+                .grinderSetting = priorGrind, .rpm = priorRpm, .targetWeight = priorTarget
             });
             insertShot(db, ShotRow{
                 .uuid = "u-next", .timestamp = nowSec - 3600,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = nextDose,
-                .grinderSetting = nextGrind, .rpm = nextRpm
+                .grinderSetting = nextGrind, .rpm = nextRpm, .targetWeight = nextTarget
             });
 
             DialingBlocks::RecentAdviceInputs in;
@@ -1553,6 +1563,87 @@ private slots:
         // Unrecorded on one side is missing data, not a change.
         QCOMPARE(adherenceForStructured("adh_ranges_rpm_unset", sn, "9.0", "9.0",
                                         18, 18, 1400, 0),
+                 QStringLiteral("followed"));
+    }
+
+    // A recommended stop-at-weight yield is scored like dose: the follow-up's
+    // target must land within ±0.5g of it AND have moved from the prior.
+    void recentAdvice_targetWeightIsScored()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove(QStringLiteral("grinderSetting"));   // yield is the only axis
+        sn["targetWeightG"] = 32;
+        QCOMPARE(adherenceForStructured("adh_yield_followed", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 32),
+                 QStringLiteral("followed"));
+        QCOMPARE(adherenceForStructured("adh_yield_ignored", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 36),
+                 QStringLiteral("ignored"));
+        // A recommendation equal to where the user already was moves nothing.
+        QCOMPARE(adherenceForStructured("adh_yield_nomove", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 32, 32),
+                 QStringLiteral("ignored"));
+        // A shot with no known target cannot show whether the yield moved.
+        QCOMPARE(adherenceForStructured("adh_yield_noprior", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 0, 32),
+                 QStringLiteral("unclear"));
+        QCOMPARE(adherenceForStructured("adh_yield_noactual", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 0),
+                 QStringLiteral("unclear"));
+        sn["targetWeightG"] = QStringLiteral("32");
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("targetWeightG is not a JSON number"));
+        QCOMPARE(adherenceForStructured("adh_yield_string", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 32),
+                 QStringLiteral("unclear"));
+    }
+
+    // A shot with no stored target (imported, or the profile's own) carries it in
+    // the profile JSON; the model saw that effective target, so adherence scores it.
+    void recentAdvice_targetWeightUsesTheProfileTarget()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        withRawDb(dbPath, "adh_yield_profile", [&](QSqlDatabase& db) {
+            const qint64 priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "9.0", .profileJson = R"({"target_weight": 36})"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 28, .finalWeight = 32, .doseWeight = 18,
+                .grinderSetting = "9.0", .profileJson = R"({"target_weight": 32})"
+            });
+            QJsonObject sn = sampleStructuredNext();
+            sn.remove(QStringLiteral("grinderSetting"));
+            sn["targetWeightG"] = 32;
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+            QCOMPARE(ur.value("targetWeightG").toDouble(), 32.0);
+        });
+    }
+
+    // With nothing recommended, a changed yield target means the predicted
+    // repeat did not happen; a sub-tolerance change is not a decision.
+    void recentAdvice_rangesOnlyTargetWeightChangeRespectsTolerance()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove(QStringLiteral("grinderSetting"));
+        QCOMPARE(adherenceForStructured("adh_ranges_yield_big", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 32),
+                 QStringLiteral("ignored"));
+        QCOMPARE(adherenceForStructured("adh_ranges_yield_noise", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 36.3),
                  QStringLiteral("followed"));
     }
 

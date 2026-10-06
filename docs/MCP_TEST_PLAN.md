@@ -636,7 +636,7 @@ or pass `keys:["…"]` to bypass categories entirely.
 | `connections` | `machineAddress`, `scaleAddress`, `scaleName`, `scaleType`, `showScaleDialogs`, `usbSerialEnabled` |
 | `screensaver` | `screensaverType`, `dimDelayMinutes`, `dimPercent`, `cacheEnabled`, `flipClockUse3D`, `imageDisplayDuration`, `pipesSpeed`, `pipesCameraSpeed`, `pipesShowClock`, `videosShowClock`, `attractorShowClock`, `showDateOnPersonal`, `shotMapShape`, `shotMapTexture`, `shotMapShowClock`, `shotMapShowProfiles`, `shotMapShowTerminator` |
 | `accessibility` | `accessibilityEnabled`, `ttsEnabled`, `tickEnabled`, `tickSoundIndex`, `tickVolume`, `extractionAnnouncementsEnabled`, `extractionAnnouncementMode`, `extractionAnnouncementInterval` |
-| `ai` | `aiProvider`, `discussShotApp`, `discussShotCustomUrl`, `mcpAccessLevel`, `mcpConfirmationLevel`, `mcpEnabled`, `ollamaEndpoint`, `ollamaModel`, `openrouterModel` |
+| `ai` | `aiProvider`, `discussShotApp`, `discussShotCustomUrl`, `mcpAccessLevel`, `mcpConfirmationLevel`, `mcpEnabled`, `ollamaEndpoint`, `ollamaModel` |
 | `espresso` | `currentProfile`, `espressoTemperatureC`, `lastUsedRatio`, `targetWeightG` |
 | `steam` | `steamDisabled`, `steamFlowMlPerSec`, `steamTemperatureC`, `steamTimeoutSec` |
 | `water` | `hotWaterFlowRateMlPerSec`, `waterTemperatureC`, `waterVolumeMl`, `waterVolumeMode` |

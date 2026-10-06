@@ -1951,7 +1951,7 @@ int main(int argc, char *argv[])
     // strings with the translation registry.
     //
     // Model hints: SettingsAITab.qml builds these keys dynamically
-    // ("settings.ai.modelHint." + provider), which the QML string scanner
+    // (AIManager::modelHintKey), which the QML string scanner
     // cannot see; registering here keeps the batch-translation registry
     // complete while the English copy stays in AIProvider::modelHint().
     //
@@ -1965,7 +1965,7 @@ int main(int argc, char *argv[])
     for (const QString& providerId : aiManager.availableProviders()) {
         const QString hint = aiManager.modelHint(providerId);
         if (!hint.isEmpty())
-            translationManager.translateString("settings.ai.modelHint." + providerId, hint);
+            translationManager.translateString(aiManager.modelHintKey(providerId), hint);
         for (const QVariant& model : aiManager.availableModels(providerId)) {
             const QString modelId = model.toMap().value("id").toString();
             if (!modelId.isEmpty())

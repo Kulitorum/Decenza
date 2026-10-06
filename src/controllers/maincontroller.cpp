@@ -355,6 +355,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_decentUploader->setMinDurationProvider([this]() { return m_settings->upload()->minDuration(); });
     m_visualizer->setStorage(m_shotHistory);
     m_shotUploads = new ShotUploads(m_settings->upload(), m_shotHistory, {m_visualizer, m_decentUploader}, this);
+    if (m_device) {   // Decent's first uploads wait for the machine's serial
+        connect(m_device, &DE1Device::connectedChanged, m_shotUploads, &ShotUploads::readinessChanged);
+        connect(m_device, &DE1Device::serialNumberChanged, m_shotUploads, &ShotUploads::readinessChanged);
+    }
     if (m_machineState) {
         const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };
         connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);

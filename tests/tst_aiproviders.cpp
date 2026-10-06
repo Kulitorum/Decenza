@@ -2,7 +2,7 @@
 // AI Advisor's model picker and settings round-trip depend on.
 //
 // Each provider that offers a user-selectable model (OpenAI, Anthropic,
-// Gemini) exposes availableModels() as the single source of truth for both
+// Gemini, OpenRouter) exposes availableModels() as the single source of truth for both
 // the UI list and the wire model. AIManager reads Settings.ai.providerModel()
 // (which may be empty when unset, or a stale id after a catalog change) and
 // feeds it to setModel() on every settings change, so the guard branches
@@ -14,8 +14,7 @@
 //   - modelHint()   → non-empty and mentions every catalog entry by name
 //
 // Those catalog methods are pure (no network I/O) and public, so no mocking or
-// friend-class access is needed. Gemini is covered too — it shipped the
-// pattern this test also guards, previously untested.
+// friend-class access is needed.
 //
 // The suite also pins the Anthropic REQUEST SHAPE (#1691), which does need a
 // canned-response server: what broke there was an absent field in the posted
@@ -35,9 +34,11 @@
 #include <QPair>
 #include <QString>
 
+#include <functional>
 #include <memory>
 
 #include "ai/aiprovider.h"
+#include "ai/airequestshape.h"
 #include "helpers/diagnosticcapture.h"
 #include "core/translationmanager.h"
 
@@ -148,13 +149,10 @@ using Catalog = QList<QPair<QString, QString>>;  // (id, displayName), UI order
 
 // Exercise the full catalog + setModel guard contract for one concrete
 // provider type against its expected catalog. Templated because setModel()
-// is declared per-derived-class, not as a base virtual, so it can't be
-// called through an AIProvider*.
+// is declared per-derived-class, not as a base virtual.
 template <typename ProviderT>
 void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
 {
-    QVERIFY2(expected.size() >= 2, "test assumes a >1 entry catalog (picker only shows then)");
-
     ProviderT p(&nam, QString(), nullptr);
 
     // availableModels() is the catalog, in UI order.
@@ -170,35 +168,35 @@ void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
     QCOMPARE(p.modelName(), expected.first().first);
     QCOMPARE(p.shortModelName(), expected.first().second);
 
-    // modelHint() is the guidance line shown under the model picker in both
-    // the app and the ShotServer web page. A multi-model provider must have
-    // one (both UIs gate on non-empty), and it must mention every catalog
+    // modelHint() is the guidance line shown in the app's AI settings and on
+    // the ShotServer page, and it must mention every catalog
     // entry by display name — a catalog bump that forgets the hint would ship
     // stale model-comparison advice to both UIs at once.
     const QString hint = p.modelHint();
-    QVERIFY2(!hint.isEmpty(), "multi-model provider must provide a modelHint()");
+    QVERIFY2(!hint.isEmpty(), "provider must provide a modelHint()");
     for (const AIProvider::ModelOption& opt : models) {
         QVERIFY2(hint.contains(opt.displayName),
                  qPrintable(QStringLiteral("modelHint() does not mention catalog model '%1'")
                                 .arg(opt.displayName)));
     }
 
-    // Selecting the opt-in (last) model switches the wire model and its label.
+    // Selecting the last model switches the wire model and its label.
     const QString optId = expected.last().first;
     const QString optName = expected.last().second;
     p.setModel(optId);
     QCOMPARE(p.modelName(), optId);
     QCOMPARE(p.shortModelName(), optName);
 
-    // Empty id (settings unset) is a no-op — keeps the current selection.
-    p.setModel(QString());
-    QCOMPARE(p.modelName(), optId);
-
     // Unknown id (stale/renamed stored value) warns and is ignored — never
     // clobbers the current model with a dead id that would 400 every request.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("ignoring unknown model id"));
     p.setModel(QStringLiteral("model-that-does-not-exist"));
     QCOMPARE(p.modelName(), optId);
+
+    // Empty id (setting cleared, e.g. by a restore) returns to the default the
+    // pickers show, rather than keeping a model the user no longer sees.
+    p.setModel(QString());
+    QCOMPARE(p.modelName(), expected.first().first);
 }
 
 } // namespace
@@ -214,7 +212,7 @@ private slots:
         FakeProviderServer server;
         server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
         server.failNextRequest(503);
-        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        OpenRouterProvider provider(&nam, "test-key");
         provider.setBaseUrl(server.baseUrl());
         const auto operation = AIOperationLog::begin("advisor", false, 0, 71);
         operation->useProvider("openrouter", "fake/model", "providerText");
@@ -246,7 +244,7 @@ private slots:
         FakeProviderServer server;
         server.respondWith("{\"choices\":[{\"error\":{\"code\":\"secret-code\","
                            "\"message\":\"secret-prompt-and-api-key\"}}]}");
-        OpenRouterProvider provider(&nam, "test-key", "fake/model");
+        OpenRouterProvider provider(&nam, "test-key");
         provider.setBaseUrl(server.baseUrl());
         const auto operation = AIOperationLog::begin("bagExtraction", true, 71);
         operation->useProvider("openrouter", "fake/model", "providerText");
@@ -321,10 +319,12 @@ private slots:
         OpenAIProvider openai(&nam, QString());
         AnthropicProvider anthropic(&nam, QString());
         GeminiProvider gemini(&nam, QString());
+        OpenRouterProvider openrouter(&nam, QString());
 
         for (AIProvider* provider : {static_cast<AIProvider*>(&openai),
                                      static_cast<AIProvider*>(&anthropic),
-                                     static_cast<AIProvider*>(&gemini)}) {
+                                     static_cast<AIProvider*>(&gemini),
+                                     static_cast<AIProvider*>(&openrouter)}) {
             const QList<AIProvider::ModelOption> models = provider->availableModels();
             QVERIFY(!models.isEmpty());
             for (const AIProvider::ModelOption& m : models) {
@@ -351,6 +351,97 @@ private slots:
         QVERIFY(openai.costHintFor(QStringLiteral("gpt-9-imaginary")).isEmpty());
         QVERIFY(anthropic.costHintFor(QStringLiteral("claude-opus-9")).isEmpty());
         QVERIFY(gemini.costHintFor(QStringLiteral("gemini-2-something")).isEmpty());
+        // Priced elsewhere, but not offered here: the cost table is shared.
+        QVERIFY(openai.costHintFor(QStringLiteral("claude-sonnet-5-5")).isEmpty());
+        OpenRouterProvider openrouter(&nam, QString());
+        QVERIFY(openrouter.costHintFor(QStringLiteral("gpt-6-luna")).isEmpty());
+        QVERIFY(openrouter.costHintFor(QStringLiteral("openai/gpt-9-imaginary")).isEmpty());
+    }
+
+    // Every catalogued model must send a thinking setting (and, on OpenAI, a
+    // temperature or none) that was verified live (tools/ai_model_eval,
+    // 2026-10-05 and -06): the accepted values differ by model and a wrong one
+    // 400s every request. The table is that record; a model added to a catalog
+    // fails here until it has been probed and recorded.
+    void everyCataloguedModelSendsAVerifiedThinkingSetting()
+    {
+        const QHash<QString, QString> verified = {
+            {"gpt-6.1-sol", "reasoning_effort=low temperature=no"},
+            {"gpt-6-luna", "reasoning_effort=none temperature=yes"},
+            {"claude-sonnet-5-5", "thinking=between_tools"},
+            {"gemini-3.8-flash", "thinkingLevel=low"},
+            {"openai/gpt-6-luna", R"(reasoning={"effort":"none"})"},
+            {"openai/gpt-6.1-sol", R"(reasoning={"effort":"low"})"},
+            {"anthropic/claude-sonnet-5.5", R"(reasoning={"effort":"low"})"},
+            {"google/gemini-3.8-flash", R"(reasoning={"effort":"low"})"},
+            {"z-ai/glm-5.3-flash", R"(reasoning={"effort":"low"})"},
+            {"google/gemma-4-31b-it", R"(reasoning={"enabled":true})"},
+        };
+        const auto sent = [](const QString& provider, const QString& model) {
+            QJsonObject body;
+            if (provider == QLatin1String("openai")) {
+                AIRequestShape::disableOpenAIReasoning(body, model);
+                AIRequestShape::setOpenAITemperature(body, model, 0.3);
+                return "reasoning_effort=" + body["reasoning_effort"].toString()
+                     + (body.contains("temperature") ? " temperature=yes" : " temperature=no");
+            }
+            if (provider == QLatin1String("anthropic")) {
+                AIRequestShape::disableAnthropicThinking(body, model);
+                return "thinking=" + body["thinking"].toObject()["type"].toString();
+            }
+            if (provider == QLatin1String("openrouter")) {
+                AIRequestShape::setOpenRouterReasoning(body, model);
+                return "reasoning="
+                     + QString::fromUtf8(QJsonDocument(body["reasoning"].toObject()).toJson(QJsonDocument::Compact));
+            }
+            const QJsonObject config = AIRequestShape::geminiThinkingConfig(model);
+            return config.contains("thinkingBudget")
+                ? "thinkingBudget=" + QString::number(config["thinkingBudget"].toInt())
+                : "thinkingLevel=" + config["thinkingLevel"].toString();
+        };
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QString());
+        AnthropicProvider anthropic(&nam, QString());
+        GeminiProvider gemini(&nam, QString());
+        OpenRouterProvider openrouter(&nam, QString());
+        for (AIProvider* provider : {static_cast<AIProvider*>(&openai), static_cast<AIProvider*>(&anthropic),
+                                     static_cast<AIProvider*>(&gemini), static_cast<AIProvider*>(&openrouter)}) {
+            for (const AIProvider::ModelOption& m : provider->availableModels()) {
+                QVERIFY2(verified.contains(m.id),
+                         qPrintable(m.id + " has no live-verified thinking setting; probe it first"));
+                QCOMPARE(sent(provider->id(), m.id), verified.value(m.id));
+            }
+        }
+    }
+
+    // Every OpenRouter request path sends the model's setting from
+    // AIRequestShape (whose values the verified table above pins).
+    void openRouterRequestsCarryTheReasoningSetting()
+    {
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
+        OpenRouterProvider provider(&nam, "key");
+        provider.setBaseUrl(server.baseUrl());
+        QSignalSpy completed(&provider, &AIProvider::analysisComplete);
+        QSignalSpy tested(&provider, &AIProvider::testResult);
+        const QJsonArray turn{QJsonObject{{"role", "user"}, {"content", "hi"}}};
+        for (const AIProvider::ModelOption& opt : provider.availableModels()) {
+            provider.setModel(opt.id);
+            QJsonObject expected;
+            AIRequestShape::setOpenRouterReasoning(expected, opt.id);
+            const std::function<void()> paths[] = {
+                [&] { provider.analyze("system", "user"); QVERIFY(completed.wait(5000)); },
+                [&] { provider.analyzeConversation("system", turn); QVERIFY(completed.wait(5000)); },
+                [&] { provider.testConnection(); QVERIFY(tested.wait(5000)); },
+            };
+            for (const auto& send : paths) {
+                send();
+                const QJsonObject body = server.lastRequest();
+                QCOMPARE(body["model"].toString(), opt.id);
+                QCOMPARE(body["reasoning"].toObject(), expected["reasoning"].toObject());
+            }
+        }
     }
 
     void init() { QTest::failOnWarning(); }
@@ -358,10 +449,8 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<OpenAIProvider>(nam, {
-            { "gpt-5.6-terra", "GPT-5.6 Terra" },
-            { "gpt-5.6-luna", "GPT-5.6 Luna" },
-            { "gpt-5.4", "GPT-5.4" },
-            { "gpt-5.4-mini", "GPT-5.4 mini" },
+            { "gpt-6.1-sol", "GPT-6.1 Sol" },
+            { "gpt-6-luna", "GPT-6 Luna" },
         });
     }
 
@@ -369,8 +458,7 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<AnthropicProvider>(nam, {
-            { "claude-sonnet-5", "Sonnet 5" },
-            { "claude-sonnet-4-6", "Sonnet 4.6" },
+            { "claude-sonnet-5-5", "Sonnet 5.5" },
         });
     }
 
@@ -378,8 +466,20 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<GeminiProvider>(nam, {
-            { "gemini-2.5-flash", "2.5 Flash" },
-            { "gemini-3.5-flash", "3.5 Flash" },
+            { "gemini-3.8-flash", "3.8 Flash" },
+        });
+    }
+
+    void openRouterCatalogAndSelection()
+    {
+        QNetworkAccessManager nam;
+        checkProvider<OpenRouterProvider>(nam, {
+            { "openai/gpt-6-luna", "GPT-6 Luna" },
+            { "openai/gpt-6.1-sol", "GPT-6.1 Sol" },
+            { "anthropic/claude-sonnet-5.5", "Sonnet 5.5" },
+            { "google/gemini-3.8-flash", "Gemini 3.8 Flash" },
+            { "z-ai/glm-5.3-flash", "GLM-5.3 Flash" },
+            { "google/gemma-4-31b-it", "Gemma 4 31B" },
         });
     }
 
@@ -393,18 +493,16 @@ private slots:
         QVERIFY(OpenAIProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(AnthropicProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(GeminiProvider(&nam, "key").supportsUrlAnalysis());
-        QVERIFY(!OpenRouterProvider(&nam, "key", "model").supportsUrlAnalysis());
+        QVERIFY(!OpenRouterProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(!OllamaProvider(&nam, "http://localhost:11434", "model").supportsUrlAnalysis());
     }
 
     // #1691: EVERY Anthropic request must turn thinking OFF explicitly.
     //
-    // The default is not stable across models — claude-sonnet-4-6 runs without
-    // thinking when the field is omitted, claude-sonnet-5 runs adaptive. Since
-    // max_tokens bounds thinking + text together, an omitted field on Sonnet 5
-    // let thinking eat the whole budget and the reply carried no text block at
-    // all, failing 100% of the time. Nothing in the request URL shows this, so
-    // the assertion has to be on the posted JSON.
+    // Newer models run ADAPTIVE thinking when the field is omitted, and since
+    // max_tokens bounds thinking + text together it could eat the whole budget,
+    // leaving no text block at all. The catalog default, Sonnet 5.5, takes
+    // "between_tools" as its off. The assertion has to be on the posted JSON.
     //
     // All four request paths, not just the reported one: deleting the call from
     // any single builder must fail this test.
@@ -421,7 +519,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 1);
         QJsonObject body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
 
         // analyzeConversation() is the path the in-app advisor uses
@@ -435,7 +533,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 2);
         body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
 
         // analyzeUrl() — the recipe-wizard stage-2 extraction path.
@@ -443,7 +541,7 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(server.requestCount(), 3);
         body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 4096);
     }
 
@@ -464,7 +562,7 @@ private slots:
         QVERIFY(tested.wait(5000));
 
         const QJsonObject body = server.lastRequest();
-        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 10);
     }
 
@@ -654,7 +752,7 @@ private slots:
             g->setBaseUrl(server.baseUrl());
             p.reset(g);
         } else if (provider == QLatin1String("openrouter")) {
-            auto* r = new OpenRouterProvider(&nam, QStringLiteral("key"), QStringLiteral("some/model"));
+            auto* r = new OpenRouterProvider(&nam, QStringLiteral("key"));
             r->setBaseUrl(server.baseUrl());
             p.reset(r);
         } else {
@@ -679,6 +777,16 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(complete.first().first().toString(), QStringLiteral("Grind finer."));
         QCOMPARE(failed.size(), 1);  // still just the first one
+
+        // The model's thinking setting reaches the wire.
+        const QJsonObject body = server.lastRequest();
+        if (provider == QLatin1String("openai")) {
+            QJsonObject expected;
+            AIRequestShape::disableOpenAIReasoning(expected, p->modelName());
+            QCOMPARE(body["reasoning_effort"], expected["reasoning_effort"]);
+        } else if (provider == QLatin1String("gemini")) {
+            QCOMPARE(body["generationConfig"].toObject(), AIRequestShape::geminiGenerationConfig(p->modelName()));
+        }
     }
 };
 

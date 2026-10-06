@@ -204,6 +204,11 @@ public:
     QString buildUserPrompt(const ShotSummary& summary,
                             RenderMode mode = RenderMode::Standalone) const;
 
+    // The one serialization of an advisor payload, for every surface that sends
+    // one. Compact: indentation is ~20% of the payload's tokens on Sonnet 5.5,
+    // and this part changes every shot, so no cache spans shots.
+    static QString serializePayload(const QJsonObject& payload);
+
     // Same shape as `buildUserPrompt` but returns the unwrapped envelope so
     // callers with DB / Settings / ProfileManager scope (the in-app advisor's
     // bg-thread closure, ai_advisor_invoke) can append the four DB-scoped

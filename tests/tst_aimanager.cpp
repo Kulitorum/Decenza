@@ -364,16 +364,33 @@ private slots:
         const QString savedModel = settings.ai()->providerModel("openai");
         const auto restoreModel = qScopeGuard([&] { settings.ai()->setProviderModel("openai", savedModel); });
         settings.ai()->setAiProvider("openai");
-        settings.ai()->setProviderModel("openai", "gpt-5.6-terra");
+        settings.ai()->setProviderModel("openai", "gpt-6.1-sol");
         AIManager mgr(&nam, &settings);
-        const QVariant terraName = mgr.modelDisplayNames().value("openai");
-        QVERIFY(mgr.selectedCostHint().contains("$0.04 per shot"));
+        const QVariant solName = mgr.modelDisplayNames().value("openai");
+        QVERIFY(mgr.selectedCostHint().contains("$0.03 per shot"));
         QSignalSpy changed(&mgr, &AIManager::modelSummaryChanged);
 
-        settings.ai()->setProviderModel("openai", "gpt-5.6-luna");
+        settings.ai()->setProviderModel("openai", "gpt-6-luna");
         QVERIFY(changed.count() > 0);
-        QVERIFY(mgr.selectedCostHint().contains("$0.004 per shot"));
-        QVERIFY(mgr.modelDisplayNames().value("openai") != terraName);
+        QVERIFY(mgr.selectedCostHint().contains("$0.0015 per shot"));
+        QVERIFY(mgr.modelDisplayNames().value("openai") != solName);
+    }
+
+    // A saved model the catalog no longer offers is cleared at startup, so the
+    // translator (which reads the raw setting) cannot keep using it while the
+    // advisor and the picker fall back to the default. No warning on the way.
+    void retiredSavedModelIsCleared()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        const QString savedModel = settings.ai()->providerModel("openai");
+        const auto restoreModel = qScopeGuard([&] { settings.ai()->setProviderModel("openai", savedModel); });
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setProviderModel("openai", "gpt-5.6-terra");
+        AIManager mgr(&nam, &settings);
+        QCOMPARE(settings.ai()->providerModel("openai"), QString());
+        QCOMPARE(mgr.currentModelName(), QStringLiteral("gpt-6.1-sol"));
     }
 
     // The extraction request-type routing: ANY leak into recommendationReceived

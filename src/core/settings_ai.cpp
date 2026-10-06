@@ -114,18 +114,6 @@ void SettingsAI::setAnthropicEndpoint(const QString& endpoint) {
     }
 }
 
-QString SettingsAI::openrouterModel() const {
-    return m_settings.value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
-}
-
-void SettingsAI::setOpenrouterModel(const QString& model) {
-    if (openrouterModel() != model) {
-        m_settings.setValue("ai/openrouterModel", model);
-        emit openrouterModelChanged();
-        emit configurationChanged();
-    }
-}
-
 bool SettingsAI::tasteIntakeOnAsk() const {
     return m_settings.value("ai/tasteIntakeOnAsk", true).toBool();
 }
@@ -149,4 +137,18 @@ void SettingsAI::setProviderModel(const QString& providerId, const QString& mode
         emit providerModelChanged();
         emit configurationChanged();
     }
+}
+
+QJsonObject SettingsAI::providerModels() const {
+    QJsonObject out;
+    m_settings.beginGroup(QStringLiteral("ai/model"));
+    for (const QString& providerId : m_settings.childKeys())
+        out[providerId] = m_settings.value(providerId).toString();
+    m_settings.endGroup();
+    return out;
+}
+
+void SettingsAI::setProviderModels(const QJsonObject& models) {
+    for (auto it = models.constBegin(); it != models.constEnd(); ++it)
+        setProviderModel(it.key(), it.value().toString());
 }

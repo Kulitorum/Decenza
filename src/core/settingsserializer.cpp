@@ -325,7 +325,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     if (includeSensitive) {
         ai["openrouterApiKey"] = aiSettings->openrouterApiKey();
     }
-    ai["openrouterModel"] = aiSettings->openrouterModel();
+    ai["providerModels"] = aiSettings->providerModels();
     root["ai"] = ai;
 
     // DYE (Describe Your Espresso) metadata. Bean identity fields (brand,
@@ -912,7 +912,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (ai.contains("openrouterApiKey") && !excludeKeys.contains("openrouterApiKey")) {
             aiSettings->setOpenrouterApiKey(ai["openrouterApiKey"].toString());
         }
-        if (ai.contains("openrouterModel")) aiSettings->setOpenrouterModel(ai["openrouterModel"].toString());
+        if (ai["providerModels"].isObject()) aiSettings->setProviderModels(ai["providerModels"].toObject());
     }
 
     // DYE metadata. Bean identity fields (beanBrand/beanType/roastDate/

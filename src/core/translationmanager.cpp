@@ -2595,19 +2595,11 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("Authorization", ("Bearer " + m_settings->ai()->openaiApiKey()).toUtf8());
 
         QJsonObject json;
-        json["model"] = translationModelFor(provider, QString());
-        // temperature survives on the reasoning models this now defaults to —
-        // verified live 2026-07-30 on gpt-5.6-terra alongside
-        // reasoning_effort "none" (tools/ai_model_eval/probe_request_shape.py).
-        //
-        // Worth checking rather than assuming, because sampling parameters are
-        // accepted per-model and a rejected one 400s every batch rather than
-        // degrading. Re-probe when the translator's default model changes.
-        // (This previously justified the check by asserting reasoning models
-        // "have rejected temperature != 1 before". No such rejection is on
-        // record here, and it was cited to nothing — removed rather than
-        // repeated. The live probe is the evidence that matters.)
-        json["temperature"] = 0.3;
+        const QString openaiModel = translationModelFor(provider, QString());
+        json["model"] = openaiModel;
+        // Sampling parameters are accepted per model, and a rejected one 400s
+        // every batch; see airequestshape.h.
+        AIRequestShape::setOpenAITemperature(json, openaiModel, 0.3);
         QJsonArray messages;
         QJsonObject msg;
         msg["role"] = "user";
@@ -2619,7 +2611,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         // this file but not the AI stack), which is exactly how it came to be
         // missing — the model id was kept in step with the catalog by
         // tst_aiproviders, the request SHAPE was not.
-        AIRequestShape::disableOpenAIReasoning(json);
+        AIRequestShape::disableOpenAIReasoning(json, openaiModel);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "anthropic") {
@@ -2629,7 +2621,8 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("anthropic-version", "2023-06-01");
 
         QJsonObject json;
-        json["model"] = translationModelFor(provider, QString());
+        const QString anthropicModel = translationModelFor(provider, QString());
+        json["model"] = anthropicModel;
         json["max_tokens"] = AIRequestShape::kMaxOutputTokens;
         QJsonArray messages;
         QJsonObject msg;
@@ -2637,13 +2630,8 @@ void TranslationManager::sendNextAutoTranslateBatch()
         msg["content"] = prompt;
         messages.append(msg);
         json["messages"] = messages;
-        // Thinking OFF, explicitly. Without this, claude-sonnet-5 runs ADAPTIVE
-        // thinking, which shares the max_tokens budget above and can consume all
-        // of it — returning a reply with no text block at all (#1691). The model
-        // here comes from the SAME setting the advisor's model picker writes, so
-        // a user who selects Sonnet 5 for advice would otherwise hit that on
-        // every translation batch while being billed for it.
-        AIRequestShape::disableAnthropicThinking(json);
+        // Thinking OFF, explicitly (#1691); see airequestshape.h.
+        AIRequestShape::disableAnthropicThinking(json, anthropicModel);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "gemini") {
@@ -2666,6 +2654,8 @@ void TranslationManager::sendNextAutoTranslateBatch()
         content["parts"] = parts;
         contents.append(content);
         json["contents"] = contents;
+        // Same as the advisor; without it thinking runs at the model default, billed at the output rate.
+        json["generationConfig"] = AIRequestShape::geminiGenerationConfig(geminiModel);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "ollama") {
@@ -3479,9 +3469,9 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 // setting and never went stale, which is the argument for reading settings.
 QString TranslationManager::fallbackTranslationModel(const QString& providerId)
 {
-    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.6-terra");
-    if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-5");
-    if (providerId == QLatin1String("gemini"))    return QStringLiteral("gemini-2.5-flash");
+    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-6.1-sol");
+    if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-5-5");
+    if (providerId == QLatin1String("gemini"))    return QStringLiteral("gemini-3.8-flash");
     return {};   // ollama has no catalog — its model is user-supplied
 }
 

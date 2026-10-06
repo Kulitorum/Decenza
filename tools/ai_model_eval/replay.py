@@ -9,16 +9,19 @@ Two modes:
               system prompt requires it, and is the block well-formed?
 
 Both replay prompts captured from the running app (see README: capture step),
-using the exact request shape OpenAIProvider::analyze() builds. Reconstructing
-the prompt in this script instead would guarantee drift from the shipped one.
+using the request shape each provider's analyze() builds. Reconstructing the
+prompt in this script instead would guarantee drift from the shipped one.
 
 Usage:
     python3 replay.py capture-help
-    python3 replay.py emission --models gpt-5.6-terra,gpt-5.6-luna
-    python3 replay.py blind    --models gpt-5.6-terra,gpt-5.6-luna --efforts none
+    python3 replay.py emission --models gpt-6.1-sol,gpt-6-luna
+    python3 replay.py blind    --models gpt-6.1-sol,openai/gpt-6-luna
+    python3 replay.py emission --models gpt-6-luna --efforts none,low
     python3 replay.py reveal   --run blind
 
-API key: $OPENAI_API_KEY, else Decenza's own setting on macOS.
+API keys: $OPENAI_API_KEY / $ANTHROPIC_API_KEY / $GEMINI_API_KEY /
+$OPENROUTER_API_KEY, else
+Decenza's own settings on macOS.
 """
 
 import argparse
@@ -39,18 +42,62 @@ RESULTS = os.path.join(HERE, "runs")        # gitignored
 # Verify at https://developers.openai.com/api/docs/pricing before trusting a
 # cost figure — third-party pricing pages were checked on 2026-07-30 and found
 # wrong (one listed Terra at $2.50/$15 against an actual $2.00/$12).
+# Anthropic: https://platform.claude.com/docs/en/models/overview ; Gemini:
+# https://ai.google.dev/gemini-api/docs/pricing (checked 2026-10-05).
 PRICES = {
-    "gpt-5.6-sol":   (5.00, 30.00),
+    "gpt-6.1-sol":   (2.00, 10.00),
+    "gpt-6-sol":     (2.00, 10.00),
+    "gpt-6-luna":    (0.10, 0.50),
+    "gpt-5.6-sol":   (4.00, 20.00),
     "gpt-5.6-terra": (2.00, 12.00),
     "gpt-5.6-luna":  (0.20, 1.20),
     "gpt-5.4":       (2.50, 15.00),
     "gpt-5.4-mini":  (0.75, 4.50),
     "gpt-5.4-nano":  (0.20, 1.25),
+    "claude-opus-5-5":   (4.00, 20.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-sonnet-5":   (2.00, 10.00),
+    "claude-haiku-4-5":  (1.00, 5.00),
+    "gemini-3.8-flash":      (0.75, 3.75),
+    "gemini-3.5-flash":      (1.50, 9.00),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-2.5-flash":      (0.30, 2.50),
 }
+
+# The thinking knob the app sends per model (src/ai/airequestshape.h). Anthropic
+# and Gemini have no effort axis here: each model gets the one the app sends.
+def anthropic_thinking(model: str) -> dict:
+    """The thinking fields for the body. Opus 5.5 cannot switch thinking off;
+    adaptive at low effort is the closest it gets."""
+    if model == "claude-opus-5-5":
+        return {"output_config": {"effort": "low"}}
+    return {"thinking": {"type": "between_tools"} if model == "claude-sonnet-5-5" else {"type": "disabled"}}
+
+def gemini_thinking(model: str) -> dict:
+    if model.startswith("gemini-2"):
+        return {"thinkingBudget": 0}
+    return {"thinkingLevel": "low" if model == "gemini-3.8-flash" else "minimal"}
+
+def provider_of(model: str) -> str:
+    if "/" in model:                       # OpenRouter ids are vendor/model
+        return "openrouter"
+    return "anthropic" if model.startswith("claude-") else "gemini" if model.startswith("gemini-") else "openai"
+
+# AIRequestShape::setOpenRouterReasoning: "none" for Luna, "enabled" for
+# Gemma, "low" for the app's other OpenRouter models. A candidate outside the
+# catalog is sent nothing, i.e. the model's own default.
+OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
+                          "google/gemini-3.8-flash", "z-ai/glm-5.3-flash"}
 
 # Mirror of OpenAIProvider::analyze() — keep in step with src/ai/aiprovider.cpp.
 MAX_OUTPUT_TOKENS = 4096          # src/ai/aiprovider.h MAX_OUTPUT_TOKENS
-DEFAULT_EFFORT = "none"           # src/ai/aiprovider.cpp analyze()
+DEFAULT_EFFORT = "app"            # each model's own setting, as below
+
+
+def openai_app_effort(model: str) -> str:
+    """AIRequestShape::disableOpenAIReasoning: gpt-6.1-sol takes no "none"."""
+    return "low" if model == "gpt-6.1-sol" else "none"
 
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
@@ -133,23 +180,30 @@ local shots matching each shape and record the ids you used in the run notes.
 """
 
 
-def api_key() -> str:
-    key = os.environ.get("OPENAI_API_KEY", "").strip()
+KEY_SOURCES = {"openai": ("OPENAI_API_KEY", "ai.openaiKey"),
+               "anthropic": ("ANTHROPIC_API_KEY", "ai.anthropicKey"),
+               "gemini": ("GEMINI_API_KEY", "ai.geminiKey"),
+               "openrouter": ("OPENROUTER_API_KEY", "ai.openrouterKey")}
+
+
+def api_key(provider: str) -> str:
+    env, setting = KEY_SOURCES[provider]
+    key = os.environ.get(env, "").strip()
     if key:
         return key
     try:                                  # fall back to Decenza's own setting
         out = subprocess.run(
-            ["defaults", "read", "com.decentespresso.Decenza", "ai.openaiKey"],
+            ["defaults", "read", "com.decentespresso.Decenza", setting],
             capture_output=True, text=True, check=True)
         key = out.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         key = ""
     if not key:
-        sys.exit("No API key: set $OPENAI_API_KEY (or configure one in Decenza on macOS).")
+        sys.exit(f"No {provider} key: set ${env} (or configure one in Decenza on macOS).")
     return key
 
 
-def load_scenarios(path: str, mode: str) -> list:
+def load_scenarios(path: str, mode: str, captured: str) -> list:
     with open(path) as f:
         scenarios = json.load(f)["scenarios"]
     # The emission test REQUIRES taste feedback on the shot. Without it the
@@ -161,7 +215,7 @@ def load_scenarios(path: str, mode: str) -> list:
             sys.exit("emission mode needs scenarios with hasTasteFeedback: true")
     usable, missing = [], []
     for s in scenarios:
-        if os.path.exists(os.path.join(CAPTURED, s["key"] + ".json")):
+        if os.path.exists(os.path.join(captured, s["key"] + ".json")):
             usable.append(s)
         else:
             missing.append(s["key"])
@@ -173,7 +227,88 @@ def load_scenarios(path: str, mode: str) -> list:
     return usable
 
 
+def post_json(url: str, headers: dict, body: dict) -> dict:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={**headers, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        return json.loads(r.read())
+
+
 def call(key: str, model: str, effort: str, system: str, user: str):
+    """Returns (text, error, usage, finish). usage is normalised to OpenAI's
+    prompt_tokens / completion_tokens, plus reasoning_tokens."""
+    provider = provider_of(model)
+    try:
+        if provider == "anthropic":
+            # AnthropicProvider::analyze(): cached system prompt, thinking off.
+            payload = post_json("https://api.anthropic.com/v1/messages",
+                                {"x-api-key": key, "anthropic-version": "2023-06-01"},
+                                {"model": model, "max_tokens": MAX_OUTPUT_TOKENS,
+                                 **anthropic_thinking(model),
+                                 "system": [{"type": "text", "text": system,
+                                             "cache_control": {"type": "ephemeral", "ttl": "5m"}}],
+                                 "messages": [{"role": "user", "content": user}]})
+            text = "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
+            thought_blocks = sum(1 for b in payload.get("content", []) if b.get("type") == "thinking")
+            u = payload.get("usage", {})
+            usage = {"prompt_tokens": u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+                     + u.get("cache_read_input_tokens", 0),
+                     "completion_tokens": u.get("output_tokens", 0), "reasoning_tokens": thought_blocks,
+                     "cached_tokens": u.get("cache_read_input_tokens", 0),
+                     "cache_write_tokens": u.get("cache_creation_input_tokens", 0)}
+            return (text or None), (None if text else "no text block"), usage, payload.get("stop_reason")
+        if provider == "gemini":
+            # GeminiProvider::analyze()/sendRequest().
+            payload = post_json(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                {"x-goog-api-key": key},
+                {"system_instruction": {"parts": [{"text": system}]},
+                 "contents": [{"role": "user", "parts": [{"text": user}]}],
+                 "generationConfig": {"thinkingConfig": gemini_thinking(model),
+                                      "maxOutputTokens": MAX_OUTPUT_TOKENS}})
+            cand = (payload.get("candidates") or [{}])[0]
+            text = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])
+                           if not p.get("thought"))
+            u = payload.get("usageMetadata", {})
+            thoughts = u.get("thoughtsTokenCount", 0)
+            usage = {"prompt_tokens": u.get("promptTokenCount", 0),
+                     "completion_tokens": u.get("candidatesTokenCount", 0) + thoughts,
+                     "reasoning_tokens": thoughts,
+                     "cached_tokens": u.get("cachedContentTokenCount", 0)}
+            finish = cand.get("finishReason")
+            return (text or None), (None if text else f"no text ({finish})"), usage, \
+                ("length" if finish == "MAX_TOKENS" else finish)
+        if provider == "openrouter":
+            # OpenRouterProvider::analyze(): OpenAI-compatible, max_tokens.
+            body = {"model": model,
+                    "messages": [{"role": "system", "content": system},
+                                 {"role": "user", "content": user}],
+                    "max_tokens": MAX_OUTPUT_TOKENS}
+            if model == "openai/gpt-6-luna":
+                body["reasoning"] = {"effort": "none"}
+            elif model == "google/gemma-4-31b-it":
+                body["reasoning"] = {"enabled": True}
+            elif model in OPENROUTER_CATALOG_LOW:
+                body["reasoning"] = {"effort": "low"}
+            payload = post_json("https://openrouter.ai/api/v1/chat/completions",
+                                {"Authorization": "Bearer " + key}, body)
+            choice = payload["choices"][0]
+            text = choice["message"].get("content")
+            u = payload.get("usage", {})
+            usage = {"prompt_tokens": u.get("prompt_tokens", 0),
+                     "completion_tokens": u.get("completion_tokens", 0),
+                     "reasoning_tokens": (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0),
+                     "cached_tokens": (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
+                     "cost": u.get("cost")}
+            return (text or None), (None if text else "no text"), usage, choice.get("finish_reason")
+    except urllib.error.HTTPError as e:
+        return None, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}", {}, None
+    except Exception as e:                       # noqa: BLE001 — see call_openai()
+        return None, f"{type(e).__name__}: {str(e)[:200]}", {}, None
+    return call_openai(key, model, effort, system, user)
+
+
+def call_openai(key: str, model: str, effort: str, system: str, user: str):
     body = {"model": model,
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
@@ -194,7 +329,10 @@ def call(key: str, model: str, effort: str, system: str, user: str):
         content = choice["message"]["content"]
         if content is None:
             return None, "null content (refusal?)", payload.get("usage", {}), None
-        return content, None, payload.get("usage", {}), choice.get("finish_reason")
+        usage = payload.get("usage", {})
+        usage["reasoning_tokens"] = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+        usage["cached_tokens"] = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        return content, None, usage, choice.get("finish_reason")
     except urllib.error.HTTPError as e:
         return None, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}", {}, None
     except Exception as e:                       # noqa: BLE001 — see above
@@ -240,6 +378,8 @@ def audit_block(text: str) -> dict:
 
 
 def spend(model: str, usage: dict) -> float:
+    if usage.get("cost") is not None:      # OpenRouter bills and reports it per call
+        return float(usage["cost"])
     if model not in PRICES:
         # Silence here would report $0.0000 for exactly the case this harness
         # exists to serve: a model too new to be in the table.
@@ -257,23 +397,33 @@ def write_key(outdir: str, keymap: dict) -> None:
 
 
 def run(args) -> None:
-    key = api_key()
-    scenarios = load_scenarios(args.scenarios, args.mode)
-    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    scenarios = load_scenarios(args.scenarios, args.mode, args.captured)
+    # model[@effort]: an @ pins that model's effort (gpt-6.1-sol takes no "none").
+    specs = [m.strip() for m in args.models.split(",") if m.strip()]
     efforts = [e.strip() for e in args.efforts.split(",") if e.strip()]
-    outdir = os.path.join(RESULTS, args.mode)
+    models = [m.split("@")[0] for m in specs]
+    keys = {p: api_key(p) for p in {provider_of(m) for m in models}}
+    outdir = os.path.join(RESULTS, args.mode + (f"-{args.label}" if args.label else ""))
     os.makedirs(outdir, exist_ok=True)
 
     rng = random.Random(args.seed)
     keymap, results, total = {}, {}, 0.0
 
     for scen in scenarios:
-        with open(os.path.join(CAPTURED, scen["key"] + ".json")) as f:
+        with open(os.path.join(args.captured, scen["key"] + ".json")) as f:
             payload = json.load(f)
         system, user = payload["systemPromptUsed"], payload["userPromptUsed"]
         print(f"\n=== {scen['key']} — {scen['description']} ===")
 
-        combos = [(m, e) for m in models for e in efforts]
+        combos = []
+        for spec in specs:
+            model, _, pinned = spec.partition("@")
+            if pinned:
+                combos.append((model, pinned))
+            elif provider_of(model) == "openai":
+                combos += [(model, openai_app_effort(model) if e == "app" else e) for e in efforts]
+            else:
+                combos.append((model, "app"))
         if args.mode == "blind":
             # Shuffle labels per scenario so the judge cannot carry a mapping
             # across scenarios.
@@ -282,7 +432,7 @@ def run(args) -> None:
             keymap[scen["key"]] = {}
 
         for i, (model, effort) in enumerate(combos):
-            text, err, usage, finish = call(key, model, effort, system, user)
+            text, err, usage, finish = call(keys[provider_of(model)], model, effort, system, user)
             tag = f"{model}/{effort}"
             if err:
                 # Record it. Skipping made an errored call print as "n" in the
@@ -296,7 +446,7 @@ def run(args) -> None:
                     write_key(outdir, keymap)
                 continue
             total += spend(model, usage)
-            reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+            reasoning = usage.get("reasoning_tokens", 0)
             a = audit_block(text)
             results[(scen["key"], model, effort)] = a
 
@@ -326,8 +476,9 @@ def run(args) -> None:
                         parts.append("MISSING " + ",".join(a["missing"]))
                     verdict = "block " + " ".join(parts)
                 flag = "  <-- TRUNCATED" if finish == "length" else ""
-                print(f"  {tag:24s} {verdict} [reasoning={reasoning}]{flag}")
-                path = os.path.join(outdir, f"{scen['key']}__{model}__{effort}.md")
+                print(f"  {tag:30s} {verdict} [reasoning={reasoning} in={usage.get('prompt_tokens', 0)} "
+                      f"cached={usage.get('cached_tokens', 0)} out={usage.get('completion_tokens', 0)}]{flag}")
+                path = os.path.join(outdir, f"{scen['key']}__{model.replace('/', '_')}__{effort}.md")
                 header = (f"# {scen['key']} — {scen['description']}\n"
                           f"# model: {model}  effort: {effort}\n"
                           f"# reasoning_tokens: {reasoning}  finish: {finish}\n\n")
@@ -343,8 +494,8 @@ def run(args) -> None:
         # E must stay distinct from n: an error is not evidence about the model.
         print("\n=== block accepted by the app's parser? (scenarios in order) ===")
         print("    Y = accepted   n = no usable block   E = call failed\n")
-        for model in models:
-            for effort in efforts:
+        tried = sorted({(m, e) for (_, m, e) in results}, key=lambda me: (models.index(me[0]), me[1]))
+        for model, effort in tried:
                 cells = []
                 for s in scenarios:
                     r = results.get((s["key"], model, effort))
@@ -382,10 +533,14 @@ def main() -> None:
         p.set_defaults(func=run, mode=mode)
         p.add_argument("--models", required=True, help="comma-separated model ids")
         p.add_argument("--efforts", default=DEFAULT_EFFORT,
-                       help=f"comma-separated reasoning_effort values (default {DEFAULT_EFFORT})")
+                       help="comma-separated OpenAI reasoning_effort values; 'app' (default) is what the app sends")
         p.add_argument("--scenarios", default=os.path.join(HERE, "scenarios.json"))
         p.add_argument("--seed", type=int, default=20260730,
                        help="label-shuffle seed; reproducible, unknown to the judge")
+        p.add_argument("--captured", default=CAPTURED,
+                       help="directory of captured prompts, for comparing two prompt versions")
+        p.add_argument("--label", default="",
+                       help="suffix for the runs/ subdirectory, so a comparison run keeps the baseline")
 
     p = sub.add_parser("reveal")
     p.set_defaults(func=reveal)

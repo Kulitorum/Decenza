@@ -38,8 +38,10 @@ class ShotUploads : public QObject {
     QML_UNCREATABLE("ShotUploads is created in C++ and reached via MainController")
 
     // Per active destination, by name: {count, failed, unsentEdits, running, done,
-    // sent, total, resumeAtMs}, for the Upload missing shots button. Counted on a
-    // worker thread. resumeAtMs (ms since the epoch) is set while a 429 holds the queue.
+    // sent, total, resumeAtMs, status}, for the Upload missing shots button.
+    // Counted on a worker thread. resumeAtMs (ms since the epoch) is set while a
+    // 429 holds the queue. status picks the line under the button, for the app and
+    // the web page alike: slowedDown, waitingForMachine, uploading, failedBefore or "".
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -91,6 +93,8 @@ public:
     void resumeMissingRuns();
     // MachineState::isOperating(): no Upload missing shots send starts while it is true.
     void setMachineOperating(bool operating);
+    // A destination's backgroundSendReady() may have changed (Decent: the DE1 connected).
+    void readinessChanged();
     QVariantMap missing() const;
     // Counts what each active destination is missing again; a call while a count
     // is running counts once more after it.
@@ -130,6 +134,9 @@ private:
     void enqueue(qint64 shotId, Send how);
     void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background);
     void pump(ShotUploadDestination* destination);
+    void sendNext(ShotUploadDestination* destination);
+    // Keeps Run::waitingForReady, its log line and missingChanged() in step with the queue.
+    void noteWaitingUntilReady(ShotUploadDestination* destination);
     ShotUploadDestination* destinationNamed(const QString& name) const;
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
     void nextBatch(ShotUploadDestination* destination);
@@ -143,6 +150,7 @@ private:
     // findMissing over a destination's name and conditions, which a worker can hold by value.
     static Missing findMissingFor(QSqlDatabase& db, const QString& name, const QString& held, const QString& unsent,
                                   double minDurationSec, qint64 skipFailedSince);
+    bool waitingUntilReady(ShotUploadDestination* destination) const;
     void onAttempt(ShotUploadDestination* destination, Attempt attempt);
     void finishSend(ShotUploadDestination* destination, Attempt last);
 
@@ -161,6 +169,7 @@ private:
         bool selecting = true;        // findMissing is still running
         bool waiting = false;         // a batch-spacing wait is pending
         bool paused = false;          // waiting for the machine to stop operating (logged once)
+        bool waitingForReady = false; // every queued background send is held until the destination is ready
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
         QSet<qint64> outstanding;     // the batch being sent

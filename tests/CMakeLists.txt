@@ -878,7 +878,7 @@ target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_aiproviders: per-provider model catalog + setModel guard contract ---
 # Pins availableModels()/setModel()/shortModelName()/modelName() for the
-# user-selectable providers (OpenAI, Anthropic, Gemini): catalog order,
+# user-selectable providers (OpenAI, Anthropic, Gemini, OpenRouter): catalog order,
 # constructor default = first entry, and the empty/unknown/valid setModel
 # branches that AIManager drives from Settings.ai.providerModel(). Also pins the
 # request shape and the stop/finish-reason handling for all five providers,
