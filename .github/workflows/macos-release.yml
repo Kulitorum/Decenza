@@ -9,11 +9,6 @@ on:
         required: true
         default: 'false'
         type: boolean
-      use_cache:
-        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
-        required: false
-        default: true
-        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -79,43 +74,14 @@ jobs:
           target: 'desktop'
           arch: 'clang_64'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
-          cache: true
-          cache-key-prefix: 'qt-macos-v2'
+          # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
+          # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
+          cache: false
 
       - name: Set up Xcode (pin + deployment-target shims)
         uses: ./.github/actions/setup-xcode
         with:
           xcode-version: '26.4.1'
-
-      - name: Set up ccache
-        uses: ./.github/actions/setup-compiler-cache
-        with:
-          key: 'macos-universal'
-          use_cache: ${{ inputs.use_cache }}
-          # macOS builds universal binaries (arm64 + x86_64), so each cache
-          # entry holds a fat object ~2x the size of a single-arch entry.
-          # At 500M, the cache sat at 99% full and evicted ~150 LRU entries
-          # between consecutive builds, causing ~20% miss rate even when
-          # nothing changed source-wise. Linux's single-arch builds fit at
-          # 75% of 500M and don't show the problem.
-          max-size: 2G
-
-      - name: Configure ccache for CI
-        run: ccache --set-config=compiler_check=content
-
-      - name: Create ccache compiler wrappers
-        run: |
-          # For Xcode generator, use CMAKE_XCODE_ATTRIBUTE_CC/CXX to route
-          # compilation through ccache via wrapper scripts.
-          WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
-          mkdir -p "$WRAPPER_DIR"
-          CLANG=$(xcrun -f clang)
-          CLANGPP=$(xcrun -f clang++)
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
-          chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
-          echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
-          echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
 
       - name: Install Apple Developer ID certificate
         env:
@@ -153,15 +119,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Using OpenSSL $VERSION"
 
-      - name: Cache universal OpenSSL
-        uses: actions/cache@v6
-        id: openssl-cache
-        with:
-          path: ${{ runner.temp }}/openssl-universal
-          key: openssl-${{ steps.openssl-version.outputs.version }}-universal-macos
-
       - name: Build universal OpenSSL
-        if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
           OPENSSL_VERSION="${{ steps.openssl-version.outputs.version }}"
           OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
@@ -202,22 +160,12 @@ jobs:
           OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
           mkdir -p build/macos
           cd build/macos
-          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
-          # on made ccache miss ~88% of this leg's compiles. See PR #1738.
-          #
-          # Link as iOS does: only CC/CXX go through ccache (it caches no link
-          # products), and with them pointing at a non-Apple wrapper Xcode 26
-          # no longer adds the C++ runtime to the link, so it is named here.
-          # Wrapping LD/LDPLUSPLUS too linked on macos-15 but not on macos-26
-          # (undefined std::terminate / operator delete[] in saw_replay).
+          # PCH on (the CMake default here): with no compiler cache there is no
+          # cache hit for it to cost, so it is pure speed on a cold build.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DENABLE_TSNET=ON \
-            -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi" \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
@@ -361,8 +309,3 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
-
-      # Stale-ccache pruning moved to its own workflow (prune-caches.yml): as a
-      # final step here it ran before this build's own post-job ccache save and
-      # relied on macOS being the slowest build — no longer true (Linux x64
-      # outlasts it), which left 3 stale copies for late-finishing platforms.
