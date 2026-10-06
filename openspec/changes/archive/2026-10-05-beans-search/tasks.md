@@ -12,4 +12,4 @@
 
 - [x] 2.1 Build and full suite through Qt Creator: 119/119; QML lint gate clean (255/255). New `tst_recipesearch` checks seen red by breaking the web skip list and the web sort tie-break.
 - [x] 2.2 Checked on the Mac (live build): Beans search per keystroke, "tea", finished-only matches, ×, sort; Recipes search and ×; Shot History fast typing lands on the final query, × restores all; profile picker, Settings search and Change Beans search and ×. Web `/beans` and `/recipes`: search, finished/archived-only matches, ×, saved sort shared with the app. Found and fixed: `SearchField` took Shot History's list height (nested layouts fill height by default).
-- [ ] 2.3 Wiki manual: a line on Beans search (draft for approval).
+- [x] 2.3 Wiki manual: Beans search and sort (Manual §5 Bean Bags, wiki 031f832).
