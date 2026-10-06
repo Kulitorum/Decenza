@@ -2654,12 +2654,8 @@ void TranslationManager::sendNextAutoTranslateBatch()
         content["parts"] = parts;
         contents.append(content);
         json["contents"] = contents;
-        // The advisor's generationConfig, which this body used to omit: thinking
-        // then ran at the model default, billed at the output rate.
-        QJsonObject generationConfig;
-        generationConfig["thinkingConfig"] = AIRequestShape::geminiThinkingConfig(geminiModel);
-        generationConfig["maxOutputTokens"] = AIRequestShape::kMaxOutputTokens;
-        json["generationConfig"] = generationConfig;
+        // Same as the advisor; without it thinking runs at the model default, billed at the output rate.
+        json["generationConfig"] = AIRequestShape::geminiGenerationConfig(geminiModel);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "ollama") {

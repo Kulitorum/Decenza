@@ -206,7 +206,7 @@ public:
 
     // The one serialization of an advisor payload, for every surface that sends
     // one. Compact: indentation is ~20% of the payload's tokens on Sonnet 5.5,
-    // and this part changes every shot, so it is never cached.
+    // and this part changes every shot, so no cache spans shots.
     static QString serializePayload(const QJsonObject& payload);
 
     // Same shape as `buildUserPrompt` but returns the unwrapped envelope so

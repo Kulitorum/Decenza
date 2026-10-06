@@ -59,7 +59,7 @@ still works, exactly as before.
 
 ### Providers
 
-| Provider | Models (first = default) | Thinking off | Caching | Cost |
+| Provider | Models (first = default) | Thinking setting | Caching | Cost |
 |----------|-------------------------|--------------|---------|------|
 | Anthropic | Sonnet 5.5 | `thinking: between_tools` | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
 | OpenAI | GPT-6.1 Sol, GPT-6 Luna | `reasoning_effort`: `low` (Sol), `none` (Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
@@ -67,7 +67,7 @@ still works, exactly as before.
 | OpenRouter | GPT-6 Luna, GPT-6.1 Sol, Sonnet 5.5, Gemini 3.8 Flash, GLM-5.3 Flash, Gemma 4 31B | `reasoning`: `effort: none` (Luna), `enabled: true` (Gemma), `effort: low` (the rest, where reasoning is mandatory and `none` is a 400) | Passes through | Cloud |
 | Ollama | User-selected | none sent | N/A | Local/free |
 
-The thinking settings live in one table, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` fails if a catalogued model has no live-verified form. A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`).
+The thinking settings live in one header, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` holds the live-verified table and fails for a catalogued model that is not in it (`tools/ai_model_eval/probe_request_shape.py` checks a candidate). A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`), and an empty one means the default.
 
 #### Model-selection rationale (2026-10-05)
 
@@ -75,16 +75,16 @@ One **balanced** and one **value** pick per provider, each the newest of its tie
 
 - **OpenAI**: `gpt-6.1-sol` ($2/$10) and `gpt-6-luna` ($0.10/$0.50) replace Terra, Luna 5.6, 5.4 and 5.4 mini — the same or lower price, a generation newer. Luna is the only value-tier model with no bad advice on the final prompt, which makes it the best value overall. Sol rejects `reasoning_effort: "none"` (lowest is `"low"`) and, at that effort, any `temperature` but the default; the translator omits temperature for it (`setOpenAITemperature`).
 - **Anthropic**: `claude-sonnet-5-5` only. Haiku 4.5 ($1/$5), the only cheaper tier, reversed the grind direction on two of three tasted scenarios (6.0 called "coarser" from 6.5; 11 on a sour shot, anchored on a different bean). Haiku 5.5 is announced for "the coming weeks"; probe and replay it as the value pick when it ships. Sonnet 5.5 rejects `thinking: disabled` and asks for `between_tools`.
-- **OpenRouter**: the direct providers' models at their per-token price (OpenRouter adds a 5.5% fee on card credit purchases), Luna first as the default. Live 2026-10-06: Luna reasoned 1.1–1.4K tokens per reply with no field, 0 at `none`; Sol, Sonnet 5.5 and 3.8 Flash reasoned 0–62 at `low` and returned the block. With reasoning off or at its default, no cheaper model passed: Gemma 4 31B, Qwen 3.8 Flash, Mistral Small 2603, DeepSeek V4 Pro and V4.1 Flash, Command A+ and MiniMax M3 reversed a grind direction, jumped steps, or reasoned through the whole 4,096-token cap with no reply. With reasoning on, GLM-5.3 Flash and Gemma 4 gave correct grind advice on both scenarios tried, at Luna's price; both ship as extra value picks with less evidence than Luna.
+- **OpenRouter**: the direct providers' models at their per-token price (plus a 5.5% fee on card credit purchases), Luna first as the default, and two cheap extras on the maintainer's call: GLM-5.3 Flash and Gemma 4 31B. Both gave right grind advice on the two scenarios tried but stated a guessed taste, which the prompt forbids, so they are the exception to the no-bad-advice rule below and carry less evidence than Luna. Six other cheap models failed; per-model results in the README findings log, 2026-10-06.
 - **Gemini**: `gemini-3.8-flash` ($0.75/$3.75, half of 3.5 Flash) only. A value pick must not give bad advice: on the final prompt 3.5 Flash-Lite reversed a grind direction and advised on an untasted blowout, 3.1 Flash-Lite jumped three steps on a prep failure, and 2.5 Flash went finer on a bitter shot. 3.8 Flash rejects `thinkingLevel: "minimal"`; `"low"` reported no thinking tokens. Google's page flags a price change for 3.8 Flash on January 1, 2027.
 
-Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings log, 2026-10-05). Every candidate emitted the `nextShot` block on all four tasted scenarios except the three GPT-6 models on `bitter-over`, where each recommended a stop-weight change in prose instead.
+Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings log, 2026-10-05). On the trimmed prompt every catalog model emitted a usable block on every tasted scenario: `bitter-over`'s prose stop-weight change became a `targetWeightG`, and Sol's prose `grinderSetting` went away.
 
-**Caching: 5 minutes, not 1 hour, on Anthropic.** On Sonnet 5.5's ~15.4K cached tokens: one analysis plus two quick follow-ups costs $0.045 at 5m, $0.068 at 1h, $0.093 uncached; a lone analysis $0.039 / $0.062 / $0.031. 1h only wins when the next question comes 5–60 minutes later (a 10-minute dial-in rhythm), judged the uncommon case. Each read restarts the TTL. Sonnet 5.5's tokenizer counts ~50% more tokens than OpenAI's for the same prompt (20.9K vs 13.1K).
+**Caching: 5 minutes, not 1 hour, on Anthropic.** On Sonnet 5.5's ~15.4K cached tokens: the input cost of those tokens for one analysis plus two quick follow-ups is $0.045 at 5m, $0.068 at 1h, $0.093 uncached; for a lone analysis $0.039 / $0.062 / $0.031. 1h only wins when the next question comes 5–60 minutes later (a 10-minute dial-in rhythm), judged the uncommon case. Each read restarts the TTL. Sonnet 5.5's tokenizer counts ~60% more tokens than OpenAI's for the same prompt (20.9K vs 13.1K).
 
 #### Known model defects
 
-  **Models write unusable values into `structuredNext.grinderSetting`.** Two shapes seen: prose (2026-07: Terra "a touch coarser than 9", mini "slightly coarser than 9"; 2026-10: GPT-6 Sol, GPT-6.1 Sol and GPT-6 Luna, "a touch coarser than 6.5"), and — by inspection of the contract, not observed live — an unquoted JSON number, which `QJsonValue::toString()` reads as an empty string.
+  **Models write unusable values into `structuredNext.grinderSetting`.** Two shapes seen: prose (2026-07: Terra "a touch coarser than 9", mini "slightly coarser than 9"; 2026-10: GPT-6 Sol, GPT-6.1 Sol and GPT-6 Luna, "a touch coarser than 6.5", gone on the trimmed prompt), and — by inspection of the contract, not observed live — an unquoted JSON number, which `QJsonValue::toString()` reads as an empty string.
 
   Neither can be scored: prose matches no recorded setting, and an empty read looks like "grind unchanged". `computeAdherence()` classifies both as **unscoreable** and returns the verdict `"unclear"`, which has its own instruction in the system prompt — telling the model to treat it like `"ignored"`, not assume the experiment ran, and give the setting as a concrete value next time. (The exact wording lives in `ShotSummarizer`; don't restate it here, it will drift.)
 
@@ -97,7 +97,7 @@ Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings l
 
 #### Running-cost estimates (`AIProvider::costHintFor`)
 
-The AI settings tab, the legacy AI settings page and the ShotServer settings page all show this per-model line; it lives beside `availableModels()` so a catalog change puts the price in the same diff. From the tokens each model used in the 2026-10-05 replay of the trimmed prompt with compact shot data (cold cache), at published rates; monthly assumes 3 shots a day.
+The AI settings tab, the legacy AI settings page and the ShotServer settings page all show this per-model line. The lines are one table in `aiprovider.cpp`; an OpenRouter model prices as its direct counterpart unless it has its own line. From the tokens each model used in the 2026-10-05 replay of the trimmed prompt with compact shot data (cold cache), at published rates; monthly assumes 3 shots a day.
 
 Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
 
@@ -108,17 +108,25 @@ Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
 | `gemini-3.8-flash` | Usable block every time; on the old prompt moved the grind on an untasted blowout | 0.75 / 3.75 | 13.8K / 0.49K | $0.012 | $1.10 |
 | `gpt-6-luna` | Usable block on 7 of 8 tasted shots, right direction every time, asked before advising on untasted shots | 0.10 / 0.50 | 12.9K / 0.32K | $0.0015 | $0.13 |
 
+OpenRouter-only lines, from the cost OpenRouter reported on the 2026-10-06 probe (it caches some of the prompt, so tokens × rate overstates them):
+
+| Model | $/1M in / out | Per shot | Per month |
+|---|---|---|---|
+| `anthropic/claude-sonnet-5.5` | 2.00 / 10.00 | $0.05 (no cache write) | $4.50 |
+| `z-ai/glm-5.3-flash` | 0.15 / 0.50 | $0.0007–0.0014 | $0.10 |
+| `google/gemma-4-31b-it` | 0.09 / 0.34 | $0.0018–0.0019 | $0.17 |
+
 A figure keyed on provider rather than model was once wrong by 5–8× in QML; keep the estimate keyed by model and next to the catalog.
 
 #### How to re-run the model comparison
 
-**Don't start from scratch — the harness is `tools/ai_model_eval/`.** Read its `README.md` before any catalog change: it holds the method (capture real prompts via `ai_advisor_invoke` `dryRun`, replay byte-for-byte against `OpenAIProvider::analyze()`'s request shape, blind the judging), the scenario manifest with what each shot is known to discriminate, and the findings log from each run. A full four-model comparison costs about $1 in API spend; the method is the part that took real work to get right.
+**Don't start from scratch — the harness is `tools/ai_model_eval/`.** Read its `README.md` before any catalog change: it holds the method (capture real prompts via `ai_advisor_invoke` `dryRun`, replay byte-for-byte in each provider's request shape, blind the judging), the scenario manifest with what each shot is known to discriminate, and the findings log from each run. A comparison costs about $1 in API spend; the method is the part that took real work to get right.
 
 Two traps it documents, both of which silently void a run: an emission test over a shot with **no taste feedback** measures the taste gate rather than emission (the model correctly asks a question and correctly omits the block), and printing per-model cost **breaks the blind** because the cheapest response is unmistakable.
 
 ### What the AI Receives Today
 
-**System prompt** (~3-4K tokens base + ~150-300 tokens per-profile section): Espresso or filter-specific guidance covering DE1 machine behavior, pressure/flow interpretation, common shot patterns, roast considerations, grinder/burr geometry, and response guidelines. When the shot's profile matches a curated entry in the profile knowledge base (`resources/ai/profile_knowledge.md`), a profile-specific section is appended describing expected curve behavior, intentional design choices, and what NOT to flag as problems.
+**System prompt** (~40K characters, about 11K tokens on OpenAI's tokenizer, plus a per-profile section): Espresso or filter-specific guidance covering DE1 machine behavior, pressure/flow interpretation, common shot patterns, roast considerations, grinder/burr geometry, and response guidelines. When the shot's profile matches a curated entry in the profile knowledge base (`resources/ai/profile_knowledge.md`), a profile-specific section is appended describing expected curve behavior, intentional design choices, and what NOT to flag as problems.
 
 **Per-shot user prompt** (~1-2K tokens):
 - Profile name, author, type, intent (notes)

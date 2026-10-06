@@ -134,6 +134,9 @@ private:
     void enqueue(qint64 shotId, Send how);
     void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background);
     void pump(ShotUploadDestination* destination);
+    void sendNext(ShotUploadDestination* destination);
+    // Keeps Run::waitingForReady, its log line and missingChanged() in step with the queue.
+    void noteWaitingUntilReady(ShotUploadDestination* destination);
     ShotUploadDestination* destinationNamed(const QString& name) const;
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
     void nextBatch(ShotUploadDestination* destination);
@@ -166,6 +169,7 @@ private:
         bool selecting = true;        // findMissing is still running
         bool waiting = false;         // a batch-spacing wait is pending
         bool paused = false;          // waiting for the machine to stop operating (logged once)
+        bool waitingForReady = false; // every queued background send is held until the destination is ready
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
         QSet<qint64> outstanding;     // the batch being sent

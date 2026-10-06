@@ -7,8 +7,8 @@ comparison.
 
 | Script | Question | Providers |
 |---|---|---|
-| `replay.py` | Does this model give good dial-in advice, and does it emit a usable `nextShot` block? | OpenAI, Anthropic, Gemini (by model-id prefix) |
-| `probe_request_shape.py` | Do the thinking/reasoning knobs we send actually work on this model? | OpenAI, Anthropic, Gemini |
+| `replay.py` | Does this model give good dial-in advice, and does it emit a usable `nextShot` block? | OpenAI, Anthropic, Gemini, OpenRouter (by model id) |
+| `probe_request_shape.py` | Are the thinking/reasoning settings we send accepted by this model? | OpenAI, Anthropic, Gemini, OpenRouter |
 
 Probe first: a model the probe has not passed 400s every request in the app.
 Then replay to judge the advice.
@@ -17,25 +17,26 @@ Then replay to judge the advice.
 current catalogs lives in `docs/CLAUDE_MD/AI_ADVISOR.md`; this directory is how
 that rationale gets produced.
 
-## `probe_request_shape.py` — the invariant check
+## `probe_request_shape.py` — the request-shape check
 
 ```bash
 python3 probe_request_shape.py
 ```
 
-Verifies, live, three things asserted in code comments that were never checked
-until 2026-07-30:
+Sends every catalog model the settings `src/ai/airequestshape.h` gives it
+(mirrored at the top of the script), on the advisor, translator and web-tool
+bodies:
 
-- Anthropic accepts `thinking: {type: "disabled"}` **and still returns a `text`
-  block** — a thinking-only reply with no text is the #1691 symptom, so the
-  status code alone proves nothing.
-- Gemini's knob is both accepted **and effective** — it asserts
-  `usageMetadata.thoughtsTokenCount == 0`, because a silently ignored knob still
-  bills thinking at the output rate. Note Gemini's legal `thinking_level` values
-  **vary by model**, so a new 3.x entry must be probed, not assumed.
-- OpenAI accepts the translator's body shape (`temperature` alongside
-  `reasoning_effort`). Sampling parameters are accepted per-model, and a
-  rejected one 400s every batch rather than degrading.
+- Anthropic must accept the thinking setting **and still return a `text`
+  block**: a thinking-only reply is the #1691 symptom, so the status code alone
+  proves nothing.
+- Gemini's setting must be accepted **and effective**
+  (`usageMetadata.thoughtsTokenCount == 0`): an ignored one still bills thinking
+  at the output rate. Legal `thinkingLevel` values vary by model.
+- OpenAI must accept `reasoning_effort` and, where the translator sends one,
+  `temperature`.
+- OpenRouter must accept the reasoning setting at the advisor cap and at Test
+  Connection's 10 tokens.
 
 Run it whenever a catalog gains an entry.
 
@@ -52,7 +53,7 @@ send, with no network call, no token cost, and no conversation side effects.
 Copy each result to `captured/<scenario-key>.json`.
 
 Writing the prompt by hand in the harness would test a system the app does not
-run. The system prompt alone is ~44K characters and changes with the profile,
+run. The system prompt alone is ~40K characters and changes with the profile,
 the bean, the knowledge base, and the shot's own history.
 
 `captured/` and `runs/` are gitignored **on purpose**: the payloads embed
@@ -107,8 +108,9 @@ not enough to separate two models that both pass. Say which you have.
 
 ```bash
 python3 replay.py capture-help
-python3 replay.py emission --models gpt-5.6-terra,gpt-5.6-luna --efforts none,low
-python3 replay.py blind    --models gpt-5.6-terra,gpt-5.6-luna
+python3 replay.py emission --models gpt-6.1-sol,gpt-6-luna
+python3 replay.py emission --models gpt-6-luna --efforts none,low
+python3 replay.py blind    --models gpt-6.1-sol,openai/gpt-6-luna
 python3 replay.py reveal   --run blind
 # Compare a prompt change: same shot data, new system prompt in captured_v2/
 python3 replay.py emission --models gpt-6.1-sol@low --captured captured_v2 --label v2
@@ -132,7 +134,8 @@ OpenRouter's model became a fixed list. Probe on `bitter-47s` and `sour` (real
 prompts): Luna reasons 1.1–1.4K tokens with no `reasoning` field and 0 at
 `none`; Sol, Sonnet 5.5 and 3.8 Flash make reasoning mandatory (`none` is a
 400) and reasoned 0–62 tokens at `low`, each returning the block with the grind
-direction it gives direct. Costs match the direct providers.
+direction it gives direct. Costs match the direct providers, except Sonnet:
+$0.05 against $0.059, with no cache write.
 
 Cheap candidates, one or two calls each on `bitter-47s` (needs one step
 coarser, 6.75) and `worst-score` (score 40 at 8; anchor back to the 6.5 shot
@@ -140,7 +143,7 @@ that scored 75 is right, since a score exists). Reasoning off or default: Comman
 6.5 → 6.25 calling it coarser; Mistral Small 8 → 8.25 calling it finer, with an
 invented taste; DeepSeek V4 Pro jumped two steps; Qwen 3.8 Flash picked 6.0 for
 coarser and left its working in the reply; MiniMax M3 reasoned through the
-4,096-token cap. Reasoning on ($0.023 for 12 calls): DeepSeek V4.1 Flash called
+4,096-token cap; Gemma 4 31B was right on both, guessing the taste. Reasoning on ($0.023 for 12 calls): DeepSeek V4.1 Flash called
 6.0 coarser; Qwen hit the cap twice; Mistral Small expected a coarser shot to run
 longer and jumped two steps; GLM-5.3 Flash (`low`) and Gemma 4 31B were right on
 both, each stating a guessed taste. Both were added on the maintainer's call,
@@ -201,7 +204,7 @@ Caching: OpenAI hit on 11K of 15.7K tokens, Anthropic on 17.8K of 24.4K after
 the first call, Gemini Flash-Lite on 8–12K; Gemini 2.5 and 3.8 Flash never hit.
 
 Outcome: OpenAI gpt-6.1-sol + gpt-6-luna, Anthropic Sonnet 5.5 only, Gemini 3.8
-Flash + 3.5 Flash-Lite (docs/CLAUDE_MD/AI_ADVISOR.md). A first run against a dev
+Flash + 3.5 Flash-Lite, superseded by the trimmed-prompt entry above. A first run against a dev
 machine's database was void: the scenario ids pointed at other, untasted shots.
 
 ### 2026-07-30 — GPT-5.6 family evaluated, Terra adopted as default

@@ -1097,6 +1097,12 @@ private slots:
         QVERIFY2(s.predictedParts.contains(QStringLiteral("1350 RPM")),
                  "recommended rpm should appear as a whole-number predicted part");
         QVERIFY(s.predictedParts.contains(QStringLiteral("stop at 32.0g")));
+
+        // A number written as a string or null is left out, not shown as 0.
+        sn["targetWeightG"] = QStringLiteral("32");
+        sn["doseG"] = QJsonValue::Null;
+        const QStringList parts = DialingBlocks::summarizeStructuredNext(sn).predictedParts;
+        QVERIFY2(!parts.join(' ').contains(QStringLiteral("0.0g")), qPrintable(parts.join(", ")));
     }
 
     // -------------------------------------------------------------------
@@ -1577,6 +1583,13 @@ private slots:
         QCOMPARE(adherenceForStructured("adh_yield_nomove", sn, "9.0", "9.0",
                                         18, 18, 0, 0, 32, 32),
                  QStringLiteral("ignored"));
+        // A shot with no known target cannot show whether the yield moved.
+        QCOMPARE(adherenceForStructured("adh_yield_noprior", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 0, 32),
+                 QStringLiteral("unclear"));
+        QCOMPARE(adherenceForStructured("adh_yield_noactual", sn, "9.0", "9.0",
+                                        18, 18, 0, 0, 36, 0),
+                 QStringLiteral("unclear"));
         sn["targetWeightG"] = QStringLiteral("32");
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("targetWeightG is not a JSON number"));

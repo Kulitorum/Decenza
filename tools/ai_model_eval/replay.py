@@ -14,11 +14,13 @@ prompt in this script instead would guarantee drift from the shipped one.
 
 Usage:
     python3 replay.py capture-help
-    python3 replay.py emission --models gpt-5.6-terra,gpt-5.6-luna
-    python3 replay.py blind    --models gpt-5.6-terra,gpt-5.6-luna --efforts none
+    python3 replay.py emission --models gpt-6.1-sol,gpt-6-luna
+    python3 replay.py blind    --models gpt-6.1-sol,openai/gpt-6-luna
+    python3 replay.py emission --models gpt-6-luna --efforts none,low
     python3 replay.py reveal   --run blind
 
-API keys: $OPENAI_API_KEY / $ANTHROPIC_API_KEY / $GEMINI_API_KEY, else
+API keys: $OPENAI_API_KEY / $ANTHROPIC_API_KEY / $GEMINI_API_KEY /
+$OPENROUTER_API_KEY, else
 Decenza's own settings on macOS.
 """
 
@@ -82,7 +84,7 @@ def provider_of(model: str) -> str:
         return "openrouter"
     return "anthropic" if model.startswith("claude-") else "gemini" if model.startswith("gemini-") else "openai"
 
-# AIRequestShape::disableOpenRouterReasoning: "none" for Luna, "enabled" for
+# AIRequestShape::setOpenRouterReasoning: "none" for Luna, "enabled" for
 # Gemma, "low" for the app's other OpenRouter models. A candidate outside the
 # catalog is sent nothing, i.e. the model's own default.
 OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
@@ -90,7 +92,12 @@ OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
 
 # Mirror of OpenAIProvider::analyze() — keep in step with src/ai/aiprovider.cpp.
 MAX_OUTPUT_TOKENS = 4096          # src/ai/aiprovider.h MAX_OUTPUT_TOKENS
-DEFAULT_EFFORT = "none"           # src/ai/aiprovider.cpp analyze()
+DEFAULT_EFFORT = "app"            # each model's own setting, as below
+
+
+def openai_app_effort(model: str) -> str:
+    """AIRequestShape::disableOpenAIReasoning: gpt-6.1-sol takes no "none"."""
+    return "low" if model == "gpt-6.1-sol" else "none"
 
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
@@ -414,7 +421,7 @@ def run(args) -> None:
             if pinned:
                 combos.append((model, pinned))
             elif provider_of(model) == "openai":
-                combos += [(model, e) for e in efforts]
+                combos += [(model, openai_app_effort(model) if e == "app" else e) for e in efforts]
             else:
                 combos.append((model, "app"))
         if args.mode == "blind":
@@ -526,7 +533,7 @@ def main() -> None:
         p.set_defaults(func=run, mode=mode)
         p.add_argument("--models", required=True, help="comma-separated model ids")
         p.add_argument("--efforts", default=DEFAULT_EFFORT,
-                       help=f"comma-separated reasoning_effort values (default {DEFAULT_EFFORT})")
+                       help="comma-separated OpenAI reasoning_effort values; 'app' (default) is what the app sends")
         p.add_argument("--scenarios", default=os.path.join(HERE, "scenarios.json"))
         p.add_argument("--seed", type=int, default=20260730,
                        help="label-shuffle seed; reproducible, unknown to the judge")

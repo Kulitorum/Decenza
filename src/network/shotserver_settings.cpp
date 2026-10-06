@@ -718,14 +718,14 @@ QString ShotServer::generateSettingsPage() const
                         <div class="help-text">Get your API key from <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent)">openrouter.ai</a></div>
                     </div>
                 </div>
-                <!-- Model picker for providers with a catalog of >1 tested model
-                     (mirrors the in-app AI settings tab). -->
+                <!-- Model picker for providers with more than one model (mirrors the app). -->
                 <div class="form-group" id="modelGroup" style="display:none;">
                     <label class="form-label">Model</label>
                     <select class="form-input" id="providerModelSelect" onchange="onModelSelected()"></select>
-                    <div class="help-text" id="modelHint" style="display:none;"></div>
-                    <div class="help-text" id="modelCost" style="display:none;"></div>
                 </div>
+                <!-- Outside the picker, so single-model providers show them too. -->
+                <div class="help-text" id="modelHint" style="display:none;"></div>
+                <div class="help-text" id="modelCost" style="display:none;"></div>
                 <div id="ollamaGroup" style="display:none;">
                     <div class="form-row">
                         <div class="form-group">
@@ -1062,8 +1062,7 @@ QString ShotServer::generateSettingsPage() const
             const hint = document.getElementById('modelHint');
             hint.textContent = modelHints[selectedProvider] || '';
             hint.style.display = hint.textContent ? 'block' : 'none';
-            // Before the early return: a single-model provider still needs the
-            // stale line from the previous provider cleared.
+            // Before the early return: a single-model provider shows its cost too.
             updateModelCost();
             if (catalog.length <= 1) return;
             const sel = document.getElementById('providerModelSelect');
@@ -1079,9 +1078,7 @@ QString ShotServer::generateSettingsPage() const
             });
         }
 
-        // Running-cost line for the SELECTED model. Keyed by model, not
-        // provider: the OpenAI catalog alone spans 10x, so one figure per
-        // provider is wrong for most of it.
+        // Running-cost line for the SELECTED model: costs span 20x within one catalog.
         function updateModelCost() {
             const el = document.getElementById('modelCost');
             const perModel = modelCosts[selectedProvider] || {};

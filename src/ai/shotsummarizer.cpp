@@ -1072,7 +1072,7 @@ Bean-identity fields (roastLevel, beanBrand, roastDate) are the only fields capt
     // Structured nextShot output. The shot-analysis system prompt teaches
     // the model to emit a fenced ```json block at the very end of any
     // response that makes a concrete parameter recommendation (grind,
-    // dose, profile change). The app parses that block out of the
+    // RPM, dose, yield target, profile). The app parses that block out of the
     // response, persists it alongside the assistant turn in
     // `AIConversation`, and surfaces it on the `ai_advisor_invoke` MCP
     // envelope so downstream consumers don't have to re-parse prose. The
@@ -1158,7 +1158,7 @@ Cross-check against the raw curves and the user's tasting feedback and reason in
             // Profile families — every catalog entry above carries a
             // [family: <name>] tag. Profiles in the same family share the
             // same underlying mechanic; switching within a family is
-            // usually a parameter tweak in disguise (e.g., D-Flow → LRv2:
+            // usually a parameter tweak in disguise (e.g., D-Flow → Londinium:
             // both lever-decline). This block is added unconditionally
             // after the catalog so the rule sits where the data is.
             base += QStringLiteral(R"(

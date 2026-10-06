@@ -147,6 +147,8 @@ QString AIManager::savedModelFor(const AIProvider* provider)
     if (saved.isEmpty() || std::any_of(models.cbegin(), models.cend(),
                                        [&saved](const AIProvider::ModelOption& m) { return m.id == saved; }))
         return saved;
+    DIAG_INFO(AI, "AIManager") << provider->id() << "model" << saved << "is no longer offered; using"
+                               << provider->availableModels().value(0).id;
     m_settings->ai()->setProviderModel(provider->id(), QString());
     return QString();
 }
@@ -156,7 +158,7 @@ void AIManager::createProviders()
     // Create OpenAI provider
     QString openaiKey = m_settings->ai()->openaiApiKey();
     auto* openai = new OpenAIProvider(m_networkManager, openaiKey, this);
-    openai->setModel(savedModelFor(openai));  // empty → keeps default
+    openai->setModel(savedModelFor(openai));  // empty → default
     openai->setBaseUrl(m_settings->ai()->openaiEndpoint());
     connect(openai, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openai, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -166,7 +168,7 @@ void AIManager::createProviders()
     // Create Anthropic provider
     QString anthropicKey = m_settings->ai()->anthropicApiKey();
     auto* anthropic = new AnthropicProvider(m_networkManager, anthropicKey, this);
-    anthropic->setModel(savedModelFor(anthropic));  // empty → keeps default
+    anthropic->setModel(savedModelFor(anthropic));  // empty → default
     anthropic->setBaseUrl(m_settings->ai()->anthropicEndpoint());
     connect(anthropic, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(anthropic, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -176,7 +178,7 @@ void AIManager::createProviders()
     // Create Gemini provider
     QString geminiKey = m_settings->ai()->geminiApiKey();
     auto* gemini = new GeminiProvider(m_networkManager, geminiKey, this);
-    gemini->setModel(savedModelFor(gemini));  // empty → keeps default
+    gemini->setModel(savedModelFor(gemini));  // empty → default
     connect(gemini, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(gemini, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(gemini, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -186,7 +188,7 @@ void AIManager::createProviders()
     // Create OpenRouter provider
     QString openrouterKey = m_settings->ai()->openrouterApiKey();
     auto* openrouter = new OpenRouterProvider(m_networkManager, openrouterKey, this);
-    openrouter->setModel(savedModelFor(openrouter));  // empty → keeps default
+    openrouter->setModel(savedModelFor(openrouter));  // empty → default
     connect(openrouter, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openrouter, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(openrouter, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -1034,8 +1036,7 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     // banner prepended to the text — the banner is what made the payload a
     // prose/JSON sandwich that then had to be taken apart again to be read.
     if (m_conversation) {
-        const QString soFar =
-            QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        const QString soFar = ShotSummarizer::serializePayload(payload);
         const QJsonObject changes = m_conversation->changesFromPreviousShot(shotLabel, soFar);
         if (!changes.isEmpty()) payload["changesFromPreviousShotInConversation"] = changes;
     }
@@ -1577,27 +1578,27 @@ void AIManager::onSettingsChanged()
     auto* openai = dynamic_cast<OpenAIProvider*>(m_openaiProvider.get());
     if (openai) {
         openai->setApiKey(m_settings->ai()->openaiApiKey());
-        openai->setModel(savedModelFor(openai));  // empty → keeps default
+        openai->setModel(savedModelFor(openai));  // empty → default
         openai->setBaseUrl(m_settings->ai()->openaiEndpoint());
     }
 
     auto* anthropic = dynamic_cast<AnthropicProvider*>(m_anthropicProvider.get());
     if (anthropic) {
         anthropic->setApiKey(m_settings->ai()->anthropicApiKey());
-        anthropic->setModel(savedModelFor(anthropic));  // empty → keeps default
+        anthropic->setModel(savedModelFor(anthropic));  // empty → default
         anthropic->setBaseUrl(m_settings->ai()->anthropicEndpoint());
     }
 
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());
     if (gemini) {
         gemini->setApiKey(m_settings->ai()->geminiApiKey());
-        gemini->setModel(savedModelFor(gemini));  // empty → keeps default
+        gemini->setModel(savedModelFor(gemini));  // empty → default
     }
 
     auto* openrouter = dynamic_cast<OpenRouterProvider*>(m_openrouterProvider.get());
     if (openrouter) {
         openrouter->setApiKey(m_settings->ai()->openrouterApiKey());
-        openrouter->setModel(savedModelFor(openrouter));  // empty → keeps default
+        openrouter->setModel(savedModelFor(openrouter));  // empty → default
     }
 
     auto* ollama = dynamic_cast<OllamaProvider*>(m_ollamaProvider.get());

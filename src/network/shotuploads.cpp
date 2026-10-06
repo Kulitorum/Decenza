@@ -183,6 +183,11 @@ static void logUploads(const QString& destination, const QString& text, bool war
 }
 
 void ShotUploads::pump(ShotUploadDestination* destination) {
+    sendNext(destination);
+    noteWaitingUntilReady(destination);
+}
+
+void ShotUploads::sendNext(ShotUploadDestination* destination) {
     if (m_current.value(destination).shotId != 0) return;
     if (!destination->isActive()) {
         dropQueue(destination, QStringLiteral("switched off or signed out"));
@@ -327,12 +332,22 @@ void ShotUploads::setMachineOperating(bool operating) {
 }
 
 void ShotUploads::readinessChanged() {
-    emit missingChanged();
     for (ShotUploadDestination* destination : std::as_const(m_destinations)) pump(destination);
 }
 
 // Background sends are queued, nothing is in flight, and none of them may go
 // until the destination is ready (Decent: no DE1 for a first upload).
+void ShotUploads::noteWaitingUntilReady(ShotUploadDestination* destination) {
+    const auto run = m_runs.find(destination);
+    if (run == m_runs.end()) return;
+    const bool waiting = waitingUntilReady(destination);
+    if (waiting == run->waitingForReady) return;
+    run->waitingForReady = waiting;
+    logUploads(destination->name(), waiting ? QStringLiteral("Upload missing shots waiting for the machine to connect")
+                                            : QStringLiteral("Upload missing shots no longer waiting for the machine"));
+    emit missingChanged();
+}
+
 bool ShotUploads::waitingUntilReady(ShotUploadDestination* destination) const {
     if (m_current.value(destination).shotId != 0 || m_pacing.contains(destination)) return false;
     bool anyBackground = false;
@@ -366,11 +381,11 @@ QVariantMap ShotUploads::missing() const {
         }
         if (held) entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
         const int failed = count != m_counts.constEnd() ? count->failed : 0;
-        entry[QStringLiteral("status")] = held                                       ? QStringLiteral("slowedDown")
-                                        : running && waitingUntilReady(destination) ? QStringLiteral("waitingForMachine")
-                                        : running                                   ? QStringLiteral("uploading")
-                                        : failed > 0                                ? QStringLiteral("failedBefore")
-                                                                                     : QString();
+        entry[QStringLiteral("status")] = held                            ? QStringLiteral("slowedDown")
+                                        : running && run->waitingForReady ? QStringLiteral("waitingForMachine")
+                                        : running                        ? QStringLiteral("uploading")
+                                        : failed > 0                     ? QStringLiteral("failedBefore")
+                                                                          : QString();
         all[destination->name()] = entry;
     }
     return all;

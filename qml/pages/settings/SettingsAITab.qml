@@ -302,28 +302,24 @@ KeyboardAwareContainer {
                             }
                         }
                     }
+                }
 
-                    // Provider-specific guidance. The English copy lives in
-                    // AIProvider::modelHint() (next to the model catalog) so the
-                    // app and the ShotServer web settings page share one source;
-                    // the per-provider translation key keeps it translatable.
-                    // The key is built dynamically, which the QML string scanner
-                    // cannot see -- main.cpp registers these keys at startup so
-                    // the batch-translation registry stays complete.
-                    Text {
-                        visible: text.length > 0
-                        text: {
-                            var hint = MainController.aiManager
-                                ? MainController.aiManager.modelHint(modelSelect.currentProvider) : ""
-                            if (hint === "") return ""
-                            return TranslationManager.translate(
-                                "settings.ai.modelHint." + modelSelect.currentProvider, hint)
-                        }
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
+                // Provider-specific guidance, shown for single-model providers too.
+                // The English copy lives in AIProvider::modelHint() so the app and
+                // the ShotServer page share one source; main.cpp registers the
+                // dynamic key so the batch-translation registry stays complete.
+                Text {
+                    visible: text.length > 0
+                    text: {
+                        var provider = Settings.ai.aiProvider
+                        var hint = MainController.aiManager ? MainController.aiManager.modelHint(provider) : ""
+                        if (hint === "") return ""
+                        return TranslationManager.translate(MainController.aiManager.modelHintKey(provider), hint)
                     }
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
                 }
 
                 // Ollama settings

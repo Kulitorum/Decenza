@@ -1,5 +1,6 @@
 #pragma once
 #include "operationlog.h"
+#include "airequestshape.h"
 
 #include <QObject>
 #include <QString>
@@ -35,40 +36,26 @@ public:
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     virtual QString name() const = 0;
-    virtual QString id() const = 0;  // "openai", "anthropic", "gemini", "ollama"
+    virtual QString id() const = 0;  // "openai", "anthropic", "gemini", "openrouter", "ollama"
     virtual QString modelName() const = 0;
     // The catalog display name for modelName(), else modelName() itself.
     virtual QString shortModelName() const;
     virtual bool isConfigured() const = 0;
     virtual bool isLocal() const { return false; }
 
-    // Models the user may pick between for this provider. Default empty = the
-    // provider has a single fixed model and shows no model picker. Providers
-    // override this to opt into user-selectable models; the catalog is the
-    // single source of truth for both the UI list and `shortModelName()`.
+    // The models this provider offers, first = default; the source of the UI
+    // list and shortModelName(). The pickers show only for more than one entry.
+    // Empty (Ollama) means a free-form model of the provider's own.
     virtual QList<ModelOption> availableModels() const { return {}; }
 
-    // One-line guidance comparing the catalog's models, shown under the model
-    // picker in both the in-app AI settings tab and the ShotServer web page.
-    // Lives next to availableModels() so the catalog and its guidance share a
-    // single source and can't drift between UIs. Empty = no hint.
+    // One-line guidance on the catalog, shown in the app's AI settings and on
+    // the ShotServer page. Empty = no hint.
     virtual QString modelHint() const { return {}; }
 
-    // One-line running-cost estimate for a specific model, shown under the
-    // model picker. Takes the model explicitly rather than reading the current
-    // selection so a caller can price a model the user has not chosen yet —
-    // the ShotServer page needs the whole catalog priced up front, because it
-    // switches models client-side with no round trip.
-    //
-    // Must depend on the model, not just the provider: the OpenAI catalog alone
-    // spans 10x. The per-provider strings this replaced understated the cost by
-    // 5x to 8x depending on which model was selected — Anthropic claimed
-    // ~$0.01/shot against $0.056 for Sonnet 4.6 (5.6x), OpenAI claimed
-    // ~$0.006/shot against $0.038 for Terra (6.3x) and $0.047 for GPT-5.4
-    // (7.8x) — and claimed "under $1/month" for a combination costing about $5.
-    //
-    // Empty when the provider has no catalog to price (OpenRouter, Ollama).
-    virtual QString costHintFor(const QString& modelId) const { Q_UNUSED(modelId); return {}; }
+    // Running-cost line for one of this provider's models, empty for a model it
+    // does not offer or has no line for. Takes the model explicitly so the
+    // ShotServer page can price the whole catalog up front.
+    QString costHintFor(const QString& modelId) const;
 
     // The estimate for whatever model is selected right now.
     QString costHint() const { return costHintFor(modelName()); }
@@ -147,8 +134,9 @@ protected:
     // For providers with a catalog: the first entry is the recommended default,
     // so the C++ default and the pickers' "unset → first entry" are one fact.
     QString defaultCatalogModel() const;
-    // Empty keeps the current model; an id the catalog does not offer is logged
-    // and ignored, so a stale stored value can't break a request.
+    bool offersModel(const QString& modelId) const;
+    // Empty (unset) selects the default, as the pickers show it; an id the catalog
+    // does not offer is logged and ignored, so a stale stored value can't break a request.
     void selectCatalogModel(QString& model, const QString& modelId);
 
     // Map Qt network errors to user-friendly messages (localized via tr_).
@@ -217,7 +205,7 @@ protected:
     //
     // Raising the cap is close to free: it is a ceiling, not a reservation —
     // billing is on tokens actually produced.
-    static constexpr int MAX_OUTPUT_TOKENS = 4096;
+    static constexpr int MAX_OUTPUT_TOKENS = AIRequestShape::kMaxOutputTokens;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     TranslationManager* m_translationManager = nullptr;
@@ -246,7 +234,6 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
-    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -257,11 +244,8 @@ public:
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     // OpenAI web search on the Responses API (chat/completions has no general
     // web tool): the model can open a specific URL from the prompt via the
-    // tool's open_page action. Uses reasoning effort "low" — the gpt-5.4
-    // generation's floor is "none" (it dropped "minimal") and rejects
-    // web_search there. The 5.6 generation accepts web_search at "none", so
-    // "low" is the value valid across the whole catalog, not a universal
-    // web_search requirement.
+    // tool's open_page action. Uses reasoning effort "low", the lowest
+    // gpt-6.1-sol accepts and so the value valid across the catalog.
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     bool supportsWebSearch() const override { return true; }
@@ -299,7 +283,6 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
-    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -354,7 +337,6 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
-    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL. Matches OpenAI/Anthropic; exists so
@@ -402,7 +384,6 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
-    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }

@@ -175,6 +175,56 @@ QString AIProvider::shortModelName() const
     return model;
 }
 
+// Per-shot cost lines, from the tokens each model used on a real shot-analysis
+// request (system + user prompt, cold cache) at the provider's published rate;
+// monthly = 3 shots a day. AI_ADVISOR.md carries the rates and token counts.
+// These rot: a catalog change updates this table in the same diff. A model with
+// no line shows none, rather than a borrowed price.
+namespace {
+struct CostLine { const char* model; const char* key; const char* text; };
+const CostLine kCostLines[] = {
+    { "gpt-6.1-sol", "ai.cost.openai.sol61",
+      "About $0.03 per shot — roughly $2.75/month at 3 shots a day." },
+    { "gpt-6-luna", "ai.cost.openai.luna6",
+      "About $0.0015 per shot — roughly $0.13/month at 3 shots a day." },
+    // Sonnet's tokenizer counts ~60% more tokens than OpenAI's for the same
+    // prompt, and the first call writes the 5-minute cache at 1.25x.
+    { "claude-sonnet-5-5", "ai.cost.anthropic.sonnet55",
+      "About $0.06 per shot — roughly $5.30/month at 3 shots a day. "
+      "Follow-up questions within a few minutes cost much less." },
+    { "gemini-3.8-flash", "ai.cost.gemini.flash38",
+      "About $0.012 per shot — roughly $1.10/month at 3 shots a day." },
+    // OpenRouter-only lines, from the cost it reported (2026-10-06). Its other
+    // models price as their direct counterpart; Sonnet differs, with no cache write.
+    { "anthropic/claude-sonnet-5.5", "ai.cost.openrouter.sonnet55",
+      "About $0.05 per shot — roughly $4.50/month at 3 shots a day." },
+    { "z-ai/glm-5.3-flash", "ai.cost.openrouter.glm53flash",
+      "About $0.001 per shot — roughly $0.10/month at 3 shots a day." },
+    { "google/gemma-4-31b-it", "ai.cost.openrouter.gemma4",
+      "About $0.002 per shot — roughly $0.17/month at 3 shots a day." },
+};
+}  // namespace
+
+bool AIProvider::offersModel(const QString& modelId) const
+{
+    const QList<ModelOption> models = availableModels();
+    return std::any_of(models.cbegin(), models.cend(),
+                       [&modelId](const ModelOption& m) { return m.id == modelId; });
+}
+
+QString AIProvider::costHintFor(const QString& modelId) const
+{
+    if (!offersModel(modelId))
+        return {};
+    for (const QString& id : { modelId, modelId.section(QLatin1Char('/'), -1) }) {
+        for (const CostLine& line : kCostLines) {
+            if (id == QLatin1String(line.model))
+                return tr_(line.key, line.text);
+        }
+    }
+    return {};
+}
+
 QString AIProvider::defaultCatalogModel() const
 {
     const QList<ModelOption> models = availableModels();
@@ -183,11 +233,11 @@ QString AIProvider::defaultCatalogModel() const
 
 void AIProvider::selectCatalogModel(QString& model, const QString& modelId)
 {
-    if (modelId.isEmpty())
+    if (modelId.isEmpty()) {
+        model = defaultCatalogModel();
         return;
-    const QList<ModelOption> models = availableModels();
-    if (std::any_of(models.cbegin(), models.cend(),
-                    [&modelId](const ModelOption& m) { return m.id == modelId; })) {
+    }
+    if (offersModel(modelId)) {
         model = modelId;
         return;
     }
@@ -231,35 +281,12 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. One balanced
-    // and one value pick, each the newest of its tier (tools/ai_model_eval,
-    // 2026-10-05 replay: both reasoned the grind direction correctly on the
-    // bitter-shot scenario, and replace Terra/Luna at the same or lower price).
-    // Rationale and measurements: docs/CLAUDE_MD/AI_ADVISOR.md.
+    // One balanced and one value pick, each the newest of its tier; rationale
+    // and measurements in docs/CLAUDE_MD/AI_ADVISOR.md.
     return {
         { "gpt-6.1-sol", "GPT-6.1 Sol" },
         { "gpt-6-luna", "GPT-6 Luna" },
     };
-}
-
-// Per-shot cost estimates, from the tokens each model used on a real
-// shot-analysis request in the 2026-10-05 replay (system + user prompt, cold
-// cache), at the provider's published rate. Monthly = 3 shots a day. Follow-up
-// questions read the cached system prompt and cost much less.
-//
-// These rot. They sit beside availableModels() so a catalog change puts the
-// cost line in the same diff; AI_ADVISOR.md carries the rates and token counts.
-// Every catalogued model has its own case and an unknown id returns nothing: a
-// missing cost line is a gap the user can see, a borrowed one is a wrong promise.
-QString OpenAIProvider::costHintFor(const QString& modelId) const
-{
-    if (modelId == QLatin1String("gpt-6.1-sol"))
-        return tr_("ai.cost.openai.sol61",
-                   "About $0.03 per shot — roughly $2.75/month at 3 shots a day.");
-    if (modelId == QLatin1String("gpt-6-luna"))
-        return tr_("ai.cost.openai.luna6",
-                   "About $0.0015 per shot — roughly $0.13/month at 3 shots a day.");
-    return {};
 }
 
 QString OpenAIProvider::modelHint() const
@@ -319,8 +346,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // Reasoning off, per model: AIRequestShape::disableOpenAIReasoning(),
-    // shared with the bulk translator so the two cannot drift.
+    // Lowest reasoning, per model; shared with the bulk translator.
     AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
@@ -496,9 +522,8 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // Rationale and INVARIANT in AIRequestShape::disableOpenAIReasoning().
-    // This is the dial-in conversation path — the one that emits the trailing
-    // nextShot block that rationale is written about — so it matters most here.
+    // Sol runs at "low", its lowest; it emitted the nextShot block on every
+    // tasted scenario in the 2026-10-05 replay (tools/ai_model_eval/README.md).
     AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
@@ -654,11 +679,7 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 // Anthropic Provider
 // ============================================================================
 
-// Thinking-off lives in AIRequestShape::disableAnthropicThinking()
-// (src/ai/airequestshape.h) — the rationale, the #1691 mechanism and the
-// INVARIANT are documented there. It is shared rather than local because the
-// bulk translator builds its own Anthropic bodies and has to apply the same
-// rule; it previously did not. Do not reintroduce a local copy.
+// Shared with the bulk translator; see src/ai/airequestshape.h.
 using AIRequestShape::disableAnthropicThinking;
 
 AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
@@ -672,25 +693,10 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
 {
-    // One pick this release. Haiku 4.5, the only cheaper tier, reversed the
-    // grind direction on two of three scenarios in the 2026-10-05 replay;
-    // Haiku 5.5 is announced, and is the value pick to probe when it ships.
+    // No value pick passed; see docs/CLAUDE_MD/AI_ADVISOR.md.
     return {
         { "claude-sonnet-5-5", "Sonnet 5.5" },
     };
-}
-
-// See the note above OpenAIProvider::costHintFor(). Sonnet 5.5's tokenizer
-// counts ~50% more tokens than OpenAI's for the same prompt, and the first call
-// writes the 5-minute cache at 1.25x, so it costs more per shot than its
-// per-token rate (same as GPT-6.1 Sol) suggests.
-QString AnthropicProvider::costHintFor(const QString& modelId) const
-{
-    if (modelId == QLatin1String("claude-sonnet-5-5"))
-        return tr_("ai.cost.anthropic.sonnet55",
-                   "About $0.06 per shot — roughly $5.30/month at 3 shots a day. "
-                   "Follow-up questions within a few minutes cost much less.");
-    return {};
 }
 
 QString AnthropicProvider::modelHint() const
@@ -1115,17 +1121,6 @@ QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
     };
 }
 
-// See the note above OpenAIProvider::costHintFor(). 3.8 Flash is at the price
-// Google lists until the end of 2026; the pricing page flags a change on
-// January 1, 2027.
-QString GeminiProvider::costHintFor(const QString& modelId) const
-{
-    if (modelId == QLatin1String("gemini-3.8-flash"))
-        return tr_("ai.cost.gemini.flash38",
-                   "About $0.012 per shot — roughly $1.10/month at 3 shots a day.");
-    return {};
-}
-
 QString GeminiProvider::modelHint() const
 {
     return QStringLiteral(
@@ -1151,10 +1146,7 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QJsonObject bodyWithConfig = requestBody;
-    QJsonObject generationConfig;
-    generationConfig["thinkingConfig"] = AIRequestShape::geminiThinkingConfig(m_model);
-    generationConfig["maxOutputTokens"] = MAX_OUTPUT_TOKENS;  // also bounds thinking tokens; matches other providers
-    bodyWithConfig["generationConfig"] = generationConfig;
+    bodyWithConfig["generationConfig"] = AIRequestShape::geminiGenerationConfig(m_model);
 
     m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
 
@@ -1547,38 +1539,12 @@ QList<AIProvider::ModelOption> OpenRouterProvider::availableModels() const
     };
 }
 
-// See the note above OpenAIProvider::costHintFor(). OpenRouter passes the
-// per-token price through (the cost it reported on the 2026-10-06 probe);
-// its card fee on credits is extra and named in modelHint().
-QString OpenRouterProvider::costHintFor(const QString& modelId) const
-{
-    if (modelId == AIRequestShape::kOpenRouterDefaultModel)
-        return tr_("ai.cost.openai.luna6",
-                   "About $0.0015 per shot — roughly $0.13/month at 3 shots a day.");
-    if (modelId == QLatin1String("openai/gpt-6.1-sol"))
-        return tr_("ai.cost.openai.sol61",
-                   "About $0.03 per shot — roughly $2.75/month at 3 shots a day.");
-    if (modelId == QLatin1String("anthropic/claude-sonnet-5.5"))
-        return tr_("ai.cost.openrouter.sonnet55",
-                   "About $0.05 per shot — roughly $4.50/month at 3 shots a day.");
-    if (modelId == QLatin1String("google/gemini-3.8-flash"))
-        return tr_("ai.cost.gemini.flash38",
-                   "About $0.012 per shot — roughly $1.10/month at 3 shots a day.");
-    if (modelId == QLatin1String("z-ai/glm-5.3-flash"))
-        return tr_("ai.cost.openrouter.glm53flash",
-                   "About $0.001 per shot — roughly $0.10/month at 3 shots a day.");
-    if (modelId == AIRequestShape::kOpenRouterGemmaModel)
-        return tr_("ai.cost.openrouter.gemma4",
-                   "About $0.002 per shot — roughly $0.17/month at 3 shots a day.");
-    return {};
-}
-
 QString OpenRouterProvider::modelHint() const
 {
     return QStringLiteral(
                "GPT-6 Luna is the best value of any model tested. GPT-6.1 Sol, Sonnet 5.5 and "
                "Gemini 3.8 Flash are the same models the direct providers offer, at the same "
-               "price. GLM-5.3 Flash and Gemma 4 31B cost about what Luna does, with less "
+               "per-token price. GLM-5.3 Flash and Gemma 4 31B cost about what Luna does, with less "
                "testing behind them. OpenRouter adds a 5.5% fee when you buy credits.");
 }
 
@@ -1635,7 +1601,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
+    AIRequestShape::setOpenRouterReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1660,7 +1626,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
+    AIRequestShape::setOpenRouterReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1763,7 +1729,7 @@ void OpenRouterProvider::testConnection()
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 10;
-    AIRequestShape::disableOpenRouterReasoning(requestBody, m_model);
+    AIRequestShape::setOpenRouterReasoning(requestBody, m_model);
 
     QNetworkRequest req;
     req.setUrl(chatCompletionsUrl());

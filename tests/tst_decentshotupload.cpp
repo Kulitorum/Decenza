@@ -63,8 +63,8 @@ struct FakeDestination : ShotUploadDestination {
     }
     void sendFinished(qint64, Attempt) override {}
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
-    bool ready = true;   // backgroundSendReady()
-    bool backgroundSendReady(Send) const override { return ready; }
+    bool ready = true, updateReady = true;   // backgroundSendReady(), for a first upload and an update
+    bool backgroundSendReady(Send how) const override { return how == Send::UpdateOnly ? updateReady : ready; }
     int paced = 0;
     bool holdTurns = false;                  // keep pacer turns until the test runs them
     QList<std::function<void()>> turns;
@@ -989,6 +989,8 @@ private slots:
         QCOMPARE(upload.missingRunStartedAt(QStringLiteral("decent")), 0);
         // The fake holds nothing, so all 7 are still missing, and the failure is counted.
         QTRY_COMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("failed").toInt(), 1);
+        QCOMPARE(uploads.missing().value(QStringLiteral("decent")).toMap().value("status").toString(),
+                 QStringLiteral("failedBefore"));
         uploads.setBatchSpacingMs(0);
 
         // After a restart a run resumes, leaving out what already failed in it.
@@ -1204,6 +1206,8 @@ private slots:
     // go when it is; a send the user asks for is not held. Decent is ready for an
     // update without a machine, but not for a first upload.
     void missingShotsWaitUntilTheDestinationIsReady() {
+        using Send = ShotUploadDestination::Send;
+        using Sent = FakeDestination::Sent;
         SettingsUpload upload;
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(m_dir.filePath("ready.db")));
@@ -1214,34 +1218,46 @@ private slots:
             r.summary.duration = duration;
             return storage.importShotRecord(r, false);
         };
-        const qint64 older = add(1000, 30), newer = add(2000, 30);
+        const qint64 edited = add(500, 30), older = add(1000, 30), newer = add(2000, 30);
         const qint64 userShot = add(100, 2);   // too short to be offered, so outside the run
+        (void)QTest::qWaitFor([&storage]() { return storage.isDbWorkIdle(); }, 5000);
+        withTempDb(storage.databasePath(), "tst_ready", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("UPDATE shots SET decent_uploaded_at = 1, decent_replace_pending = 1 WHERE id = %1").arg(edited)));
+        });
         FakeDestination decent(QStringLiteral("decent"));
-        decent.ready = false;
+        decent.held = QStringLiteral("decent_uploaded_at IS NOT NULL");
+        decent.unsent = QStringLiteral("decent_replace_pending = 1");
+        decent.ready = false;   // no first uploads; updates still go
         upload.setMissingRunStartedAt(QStringLiteral("decent"), 0);
         ShotUploads uploads(&upload, &storage, {&decent});
         uploads.setBatchSpacingMs(0);
         const auto entry = [&uploads]() { return uploads.missing().value(QStringLiteral("decent")).toMap(); };
+        // What the app's card shows: missing() as of the last missingChanged().
+        QString shownStatus;
+        connect(&uploads, &ShotUploads::missingChanged, this,
+                [&]() { shownStatus = entry().value("status").toString(); });
         const auto sentIds = [&decent]() {
             QList<qint64> ids;
             for (const auto& sent : std::as_const(decent.sent)) ids.append(sent.first);
             return ids;
         };
 
-        QTRY_COMPARE(entry().value("count").toInt(), 2);
+        QTRY_COMPARE(entry().value("count").toInt(), 3);
         uploads.uploadMissing(QStringLiteral("decent"));
-        QTRY_COMPARE(entry().value("total").toInt(), 2);
+        QTRY_COMPARE(entry().value("total").toInt(), 3);
         settle();
-        QVERIFY(decent.sent.isEmpty());
-        QCOMPARE(entry().value("status").toString(), QStringLiteral("waitingForMachine"));
+        QCOMPARE(decent.sent, QList<Sent>{Sent(edited, Send::UpdateOnly)});
+        QCOMPARE(shownStatus, QStringLiteral("waitingForMachine"));
         uploads.uploadNow(userShot);
         settle();
-        QCOMPARE(sentIds(), QList<qint64>{userShot});
+        QCOMPARE(sentIds(), (QList<qint64>{edited, userShot}));
+        QCOMPARE(shownStatus, QStringLiteral("waitingForMachine"));
 
         decent.ready = true;
         uploads.readinessChanged();
-        QCOMPARE(entry().value("status").toString(), QStringLiteral("uploading"));
-        QTRY_COMPARE(sentIds(), (QList<qint64>{userShot, newer, older}));
+        QCOMPARE(shownStatus, QStringLiteral("uploading"));
+        QTRY_COMPARE(sentIds(), (QList<qint64>{edited, userShot, newer, older}));
         QTRY_VERIFY(!entry().value("running").toBool());
         closeStorage(storage);
 

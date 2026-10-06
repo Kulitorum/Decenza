@@ -478,11 +478,17 @@ inline StructuredNextSummary summarizeStructuredNext(const QJsonObject& sn)
     StructuredNextSummary out;
     if (sn.contains(QStringLiteral("grinderSetting")))
         out.predictedParts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
-    if (sn.contains(QStringLiteral("rpm")))
+    // A number field shows only as a positive JSON number; a string or null
+    // would otherwise read as 0.
+    const auto positive = [&sn](const char* key) {
+        const QJsonValue v = sn.value(QLatin1String(key));
+        return v.isDouble() && v.toDouble() > 0.0;
+    };
+    if (positive("rpm"))
         out.predictedParts << QStringLiteral("%1 RPM").arg(sn.value("rpm").toInt());
-    if (sn.contains(QStringLiteral("doseG")))
+    if (positive("doseG"))
         out.predictedParts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
-    if (sn.contains(QStringLiteral("targetWeightG")))
+    if (positive("targetWeightG"))
         out.predictedParts << QStringLiteral("stop at %1g").arg(sn.value("targetWeightG").toDouble(), 0, 'f', 1);
     if (sn.contains(QStringLiteral("profileTitle")))
         out.predictedParts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());

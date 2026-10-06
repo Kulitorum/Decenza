@@ -615,8 +615,8 @@ namespace {
 // actual 5.0 — is caught by the prior-movement guard inside
 // grinderMatches, NOT by tightening this tolerance. Dose tolerance is
 // ±0.3g — tighter than measurement noise but wider than the user's
-// typical scale precision. Yield-target tolerance is ±0.5g: targets are
-// set in whole or half grams.
+// typical scale precision. Yield-target tolerance is ±0.5g, so a target
+// derived from a ratio (ratio × dose) still matches its rounded recommendation.
 constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
 constexpr double kYieldToleranceG = 0.5;
@@ -950,10 +950,15 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
     });
 
     double recommendedYield = 0.0;
-    fold(classifyPositiveNumberField(sn, "targetWeightG", recommendedYield), [&] {
-        // The effective target, as dialInSessions showed the model.
-        return numberMatches(recommendedYield, effectiveTargetWeightG(actual),
-                             effectiveTargetWeightG(prior), kYieldToleranceG);
+    RecommendationKind yieldKind = classifyPositiveNumberField(sn, "targetWeightG", recommendedYield);
+    // The effective target, as dialInSessions showed the model. A shot with no
+    // known target cannot show whether the yield moved.
+    const double actualTarget = yieldKind == RecommendationKind::Scoreable ? effectiveTargetWeightG(actual) : 0.0;
+    const double priorTarget = yieldKind == RecommendationKind::Scoreable ? effectiveTargetWeightG(prior) : 0.0;
+    if (yieldKind == RecommendationKind::Scoreable && (actualTarget <= 0.0 || priorTarget <= 0.0))
+        yieldKind = RecommendationKind::Unscoreable;
+    fold(yieldKind, [&] {
+        return numberMatches(recommendedYield, actualTarget, priorTarget, kYieldToleranceG);
     });
 
     QString recommendedProfile;

@@ -34,6 +34,7 @@
 #include <QPair>
 #include <QString>
 
+#include <functional>
 #include <memory>
 
 #include "ai/aiprovider.h"
@@ -167,8 +168,8 @@ void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
     QCOMPARE(p.modelName(), expected.first().first);
     QCOMPARE(p.shortModelName(), expected.first().second);
 
-    // modelHint() is the guidance line shown under the model picker in both
-    // the app and the ShotServer web page, and it must mention every catalog
+    // modelHint() is the guidance line shown in the app's AI settings and on
+    // the ShotServer page, and it must mention every catalog
     // entry by display name — a catalog bump that forgets the hint would ship
     // stale model-comparison advice to both UIs at once.
     const QString hint = p.modelHint();
@@ -186,15 +187,16 @@ void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
     QCOMPARE(p.modelName(), optId);
     QCOMPARE(p.shortModelName(), optName);
 
-    // Empty id (settings unset) is a no-op — keeps the current selection.
-    p.setModel(QString());
-    QCOMPARE(p.modelName(), optId);
-
     // Unknown id (stale/renamed stored value) warns and is ignored — never
     // clobbers the current model with a dead id that would 400 every request.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("ignoring unknown model id"));
     p.setModel(QStringLiteral("model-that-does-not-exist"));
     QCOMPARE(p.modelName(), optId);
+
+    // Empty id (setting cleared, e.g. by a restore) returns to the default the
+    // pickers show, rather than keeping a model the user no longer sees.
+    p.setModel(QString());
+    QCOMPARE(p.modelName(), expected.first().first);
 }
 
 } // namespace
@@ -317,10 +319,12 @@ private slots:
         OpenAIProvider openai(&nam, QString());
         AnthropicProvider anthropic(&nam, QString());
         GeminiProvider gemini(&nam, QString());
+        OpenRouterProvider openrouter(&nam, QString());
 
         for (AIProvider* provider : {static_cast<AIProvider*>(&openai),
                                      static_cast<AIProvider*>(&anthropic),
-                                     static_cast<AIProvider*>(&gemini)}) {
+                                     static_cast<AIProvider*>(&gemini),
+                                     static_cast<AIProvider*>(&openrouter)}) {
             const QList<AIProvider::ModelOption> models = provider->availableModels();
             QVERIFY(!models.isEmpty());
             for (const AIProvider::ModelOption& m : models) {
@@ -347,30 +351,48 @@ private slots:
         QVERIFY(openai.costHintFor(QStringLiteral("gpt-9-imaginary")).isEmpty());
         QVERIFY(anthropic.costHintFor(QStringLiteral("claude-opus-9")).isEmpty());
         QVERIFY(gemini.costHintFor(QStringLiteral("gemini-2-something")).isEmpty());
+        // Priced elsewhere, but not offered here: the cost table is shared.
+        QVERIFY(openai.costHintFor(QStringLiteral("claude-sonnet-5-5")).isEmpty());
+        OpenRouterProvider openrouter(&nam, QString());
+        QVERIFY(openrouter.costHintFor(QStringLiteral("gpt-6-luna")).isEmpty());
+        QVERIFY(openrouter.costHintFor(QStringLiteral("openai/gpt-9-imaginary")).isEmpty());
     }
 
-    // Every catalogued model must send a thinking/reasoning "off" that was
-    // verified live (tools/ai_model_eval/probe_request_shape.py, 2026-10-05):
-    // the accepted form differs by model and a wrong one 400s every request.
-    // The table is that record; a model added to a catalog fails here until it
-    // has been probed and recorded, rather than shipping on a guessed form.
-    void everyCataloguedModelSendsAVerifiedThinkingOff()
+    // Every catalogued model must send a thinking setting (and, on OpenAI, a
+    // temperature or none) that was verified live (tools/ai_model_eval,
+    // 2026-10-05 and -06): the accepted values differ by model and a wrong one
+    // 400s every request. The table is that record; a model added to a catalog
+    // fails here until it has been probed and recorded.
+    void everyCataloguedModelSendsAVerifiedThinkingSetting()
     {
         const QHash<QString, QString> verified = {
-            {"gpt-6.1-sol", "reasoning_effort=low"},
-            {"gpt-6-luna", "reasoning_effort=none"},
+            {"gpt-6.1-sol", "reasoning_effort=low temperature=no"},
+            {"gpt-6-luna", "reasoning_effort=none temperature=yes"},
             {"claude-sonnet-5-5", "thinking=between_tools"},
             {"gemini-3.8-flash", "thinkingLevel=low"},
+            {"openai/gpt-6-luna", R"(reasoning={"effort":"none"})"},
+            {"openai/gpt-6.1-sol", R"(reasoning={"effort":"low"})"},
+            {"anthropic/claude-sonnet-5.5", R"(reasoning={"effort":"low"})"},
+            {"google/gemini-3.8-flash", R"(reasoning={"effort":"low"})"},
+            {"z-ai/glm-5.3-flash", R"(reasoning={"effort":"low"})"},
+            {"google/gemma-4-31b-it", R"(reasoning={"enabled":true})"},
         };
         const auto sent = [](const QString& provider, const QString& model) {
             QJsonObject body;
             if (provider == QLatin1String("openai")) {
                 AIRequestShape::disableOpenAIReasoning(body, model);
-                return "reasoning_effort=" + body["reasoning_effort"].toString();
+                AIRequestShape::setOpenAITemperature(body, model, 0.3);
+                return "reasoning_effort=" + body["reasoning_effort"].toString()
+                     + (body.contains("temperature") ? " temperature=yes" : " temperature=no");
             }
             if (provider == QLatin1String("anthropic")) {
                 AIRequestShape::disableAnthropicThinking(body, model);
                 return "thinking=" + body["thinking"].toObject()["type"].toString();
+            }
+            if (provider == QLatin1String("openrouter")) {
+                AIRequestShape::setOpenRouterReasoning(body, model);
+                return "reasoning="
+                     + QString::fromUtf8(QJsonDocument(body["reasoning"].toObject()).toJson(QJsonDocument::Compact));
             }
             const QJsonObject config = AIRequestShape::geminiThinkingConfig(model);
             return config.contains("thinkingBudget")
@@ -381,39 +403,44 @@ private slots:
         OpenAIProvider openai(&nam, QString());
         AnthropicProvider anthropic(&nam, QString());
         GeminiProvider gemini(&nam, QString());
+        OpenRouterProvider openrouter(&nam, QString());
         for (AIProvider* provider : {static_cast<AIProvider*>(&openai), static_cast<AIProvider*>(&anthropic),
-                                     static_cast<AIProvider*>(&gemini)}) {
+                                     static_cast<AIProvider*>(&gemini), static_cast<AIProvider*>(&openrouter)}) {
             for (const AIProvider::ModelOption& m : provider->availableModels()) {
                 QVERIFY2(verified.contains(m.id),
-                         qPrintable(m.id + " has no live-verified thinking form; probe it first"));
+                         qPrintable(m.id + " has no live-verified thinking setting; probe it first"));
                 QCOMPARE(sent(provider->id(), m.id), verified.value(m.id));
             }
         }
     }
 
-    // Every OpenRouter catalog model gets its verified reasoning setting:
-    // "none" for Luna, "enabled" for Gemma, "low" for the rest, which 400 on "none".
-    void openRouterSendsEachModelItsLowestReasoning()
+    // Every OpenRouter request path sends the model's setting from
+    // AIRequestShape (whose values the verified table above pins).
+    void openRouterRequestsCarryTheReasoningSetting()
     {
         QNetworkAccessManager nam;
         FakeProviderServer server;
         server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
         OpenRouterProvider provider(&nam, "key");
         provider.setBaseUrl(server.baseUrl());
+        QSignalSpy completed(&provider, &AIProvider::analysisComplete);
+        QSignalSpy tested(&provider, &AIProvider::testResult);
+        const QJsonArray turn{QJsonObject{{"role", "user"}, {"content", "hi"}}};
         for (const AIProvider::ModelOption& opt : provider.availableModels()) {
             provider.setModel(opt.id);
-            QSignalSpy completed(&provider, &AIProvider::analysisComplete);
-            provider.analyze("system", "user");
-            QVERIFY(completed.wait(5000));
-            const QJsonObject body = server.lastRequest();
-            QCOMPARE(body["model"].toString(), opt.id);
-            const QJsonObject reasoning = body["reasoning"].toObject();
-            if (opt.id == AIRequestShape::kOpenRouterGemmaModel)
-                QCOMPARE(reasoning, (QJsonObject{{"enabled", true}}));
-            else
-                QCOMPARE(reasoning["effort"].toString(),
-                         opt.id == AIRequestShape::kOpenRouterDefaultModel ? QStringLiteral("none")
-                                                                           : QStringLiteral("low"));
+            QJsonObject expected;
+            AIRequestShape::setOpenRouterReasoning(expected, opt.id);
+            const std::function<void()> paths[] = {
+                [&] { provider.analyze("system", "user"); QVERIFY(completed.wait(5000)); },
+                [&] { provider.analyzeConversation("system", turn); QVERIFY(completed.wait(5000)); },
+                [&] { provider.testConnection(); QVERIFY(tested.wait(5000)); },
+            };
+            for (const auto& send : paths) {
+                send();
+                const QJsonObject body = server.lastRequest();
+                QCOMPARE(body["model"].toString(), opt.id);
+                QCOMPARE(body["reasoning"].toObject(), expected["reasoning"].toObject());
+            }
         }
     }
 
@@ -750,6 +777,16 @@ private slots:
         QVERIFY(complete.wait(5000));
         QCOMPARE(complete.first().first().toString(), QStringLiteral("Grind finer."));
         QCOMPARE(failed.size(), 1);  // still just the first one
+
+        // The model's thinking setting reaches the wire.
+        const QJsonObject body = server.lastRequest();
+        if (provider == QLatin1String("openai")) {
+            QJsonObject expected;
+            AIRequestShape::disableOpenAIReasoning(expected, p->modelName());
+            QCOMPARE(body["reasoning_effort"], expected["reasoning_effort"]);
+        } else if (provider == QLatin1String("gemini")) {
+            QCOMPARE(body["generationConfig"].toObject(), AIRequestShape::geminiGenerationConfig(p->modelName()));
+        }
     }
 };
 
