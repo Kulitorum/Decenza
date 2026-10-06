@@ -29,7 +29,12 @@ first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no
 **Responses** (one table for both destinations, `ShotUploadDestination::responseOutcome`; D15):
 - 2xx with `"ok":true`, including `"duplicate":true` on a first upload → uploaded.
 - A 2xx without `"ok":true` (a captive portal, a proxy) is treated as transient.
-- Transport error, timeout, 404, 405, 408, 410, 429, 5xx → up to 3 attempts (retries after 2 s and 4 s, made by `ShotUploads`), then recorded as failed (`decent_failed_at`).
+- Transport error, timeout, 404, 405, 408, 410, 5xx → up to 3 attempts (retries after 2 s and 4 s, made by `ShotUploads`), then recorded as failed (`decent_failed_at`).
+- 429 → recorded as failed after its one attempt, and every send to that destination waits 10 minutes
+  (`SettingsUpload::noteRateLimited`, stored so a restart keeps it; a 429 during the wait does not extend it). For
+  Visualizer, a 429 to any request starts the same wait; the pacer waits it out, and the unpaced background senders
+  (pull pass, page refreshes, parked-bag retries, the migration-16 back-sync) skip their turn
+  (`VisualizerUploader::rateLimitWait`).
 - 401 → needs sign-in; credentials are not sent again until the account is signed in again.
 - 403 → the serial is not in the account.
 - Other 4xx → rejected and recorded (`decent_rejected_*`, written by `ShotUploads`); an edit clears it.
@@ -56,10 +61,12 @@ Nothing retries a failed upload on its own after its 3 attempts. Each destinatio
 - **What:** `ShotUploads::findMissing`, one selection over each destination's `heldCondition`/`unsentEditCondition`.
   Edits it never received come first (`decent_replace_pending`, `visualizer_dirty` on a held shot), sent as updates
   so only their edited fields go; then shots it does not hold, newest first. Rejected shots and those `uploadIneligibility` excludes are never offered.
-- **How:** 5 at a time through the destination's queue, batches at least 30 s apart, none while
-  `MachineState::isOperating()`. A shot that fails its attempts is recorded (`<dest>_failed_at`) and the run moves on;
-  a sign-in or account refusal, from any send, ends it and clears that queue. Start, pause and end are logged at
-  INFO under the destination's marker.
+- **How:** 5 at a time through the destination's queue, batches at least 30 s apart, no send while
+  `MachineState::isOperating()` (sends the user asks for still go). Each send takes a turn from the destination's background pacer
+  (`paceBackground`; Visualizer's is the 4 s pacer its pull and bean repair share, which keeps them all inside its
+  200-requests-per-10-minutes limit). A shot that fails its attempts is recorded (`<dest>_failed_at`) and the run
+  moves on; a sign-in or account refusal, from any send, ends it and clears that queue. Start, pause and end (with sent
+  and failed counts) are logged at INFO under the destination's marker.
 - **Restart:** the run's start is kept in `upload/missingRun/<dest>` (device-local, not exported). At startup, or
   when the destination comes back on, the run resumes, leaving out shots that failed since it started. A history
   that cannot be read starts nothing and keeps the run for later.

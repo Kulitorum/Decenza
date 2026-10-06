@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSettings>
+#include <QStringList>
 #include <QDebug>
 #include <cmath>
 
@@ -46,8 +47,12 @@ LocationProvider::LocationProvider(QNetworkAccessManager* networkManager, QObjec
         // Prefer low accuracy (network-based) for faster initial fix, especially indoors
         m_source->setPreferredPositioningMethods(QGeoPositionInfoSource::AllPositioningMethods);
 
+        const auto methods = m_source->supportedPositioningMethods();
+        QStringList methodNames;
+        if (methods & QGeoPositionInfoSource::SatellitePositioningMethods) methodNames << QStringLiteral("satellite");
+        if (methods & QGeoPositionInfoSource::NonSatellitePositioningMethods) methodNames << QStringLiteral("network");
         DIAG_DEBUG(APP, "LocationProvider") << "GPS source available:" << m_source->sourceName()
-                 << "methods:" << m_source->supportedPositioningMethods();
+                 << "methods:" << (methodNames.isEmpty() ? QStringLiteral("none") : methodNames.join(QLatin1Char('+')));
 
         // Try to get last known position immediately (might be cached from previous app run)
         // Use it right away so hasLocation is true and the UI doesn't flash "GPS disabled"

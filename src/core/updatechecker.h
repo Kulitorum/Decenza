@@ -212,7 +212,8 @@ private:
 
     // Auto-relaunch state.
     // m_currentLaunchWasAutoRelaunch: set once in the constructor from the
-    //   launching Activity's Intent extras, never mutated after that.
+    //   launching Activity's Intent extras and the receiver's flag file, never
+    //   mutated after that.
     // m_autoRelaunchPermissionGranted: cached result of Settings.canDrawOverlays();
     //   updated by refreshAutoRelaunchPermission().
     // m_receiverFiredOnThisStartup: set in readAutoRelaunchDiagnostic() if the

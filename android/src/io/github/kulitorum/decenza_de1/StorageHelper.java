@@ -123,7 +123,6 @@ public class StorageHelper {
             }
         }
 
-        DiagnosticLog.i("Storage", TAG, "Backups directory: " + backupsDir.getAbsolutePath());
         return backupsDir.getAbsolutePath();
     }
 

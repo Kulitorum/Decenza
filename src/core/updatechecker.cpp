@@ -1410,11 +1410,17 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
     }
 
     // (2) Activity Intent extra
+    // The extra alone is not enough: a later manual start can be handed the
+    // relaunch's Intent again (seen on build 3612, with no flag file), so the
+    // receiver must have fired for this startup too.
     QString extra = jniReadAutoRelaunchExtraFromActivityIntent();
-    m_currentLaunchWasAutoRelaunch = !extra.isEmpty();
+    m_currentLaunchWasAutoRelaunch = m_receiverFiredOnThisStartup && !extra.isEmpty();
     if (m_currentLaunchWasAutoRelaunch) {
         APP_INFO_STREAM("Update") << "THIS launch was auto-relaunched after a self-update"
                 << "— SAW BAL bypass worked";
+    } else if (!extra.isEmpty()) {
+        APP_INFO_STREAM("Update") << "THIS launch is a normal (manual) launch;"
+                << "its Intent still carries the relaunch extra from an earlier update";
     } else {
         APP_INFO_STREAM("Update") << "THIS launch is a normal (manual) launch";
     }

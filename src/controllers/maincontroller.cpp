@@ -5347,6 +5347,7 @@ void MainController::dispatchNextPendingVisualizerSync()
 {
     if (!m_migration16InFlightVisualizerId.isEmpty()) return;
     if (!m_visualizer || !m_shotHistory) return;
+    if (m_visualizer->rateLimitWait() > 0) return;   // waiting out a 429; the queue resumes next boot
 
     AppSettings s;
     const QByteArray raw = s.value(

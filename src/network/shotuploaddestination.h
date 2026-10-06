@@ -3,6 +3,7 @@
 #include <QString>
 #include <functional>
 
+class QObject;
 class QSqlDatabase;
 
 // A place saved shots are uploaded to (Visualizer, the Decent account).
@@ -28,6 +29,7 @@ public:
     struct Attempt {
         Outcome outcome = Outcome::NothingToSend;
         int httpStatus = 0;
+        int attempts = 1;   // how many the send made, set by ShotUploads before sendFinished()
     };
 
     virtual ~ShotUploadDestination() = default;
@@ -65,6 +67,9 @@ public:
     virtual void sendFinished(qint64 shotId, Attempt last) = 0;
     // Every successful edit of a saved shot, whether or not anything is sent.
     virtual void noteEdited(qint64 shotId) { Q_UNUSED(shotId); }
+    // Runs `send` when a background send (Upload missing shots) may go, paced with
+    // the destination's other background requests; dropped if `context` is destroyed.
+    virtual void paceBackground(QObject* context, std::function<void()> send) { Q_UNUSED(context); send(); }
 
     void setAttemptCallback(std::function<void(Attempt)> onAttempt) { m_onAttempt = std::move(onAttempt); }
 

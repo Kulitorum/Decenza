@@ -685,7 +685,7 @@ T.Page {
         anchors.right: parent.right
         anchors.rightMargin: Theme.scaled(50) + screensaverPage.driftX
         anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + screensaverPage.driftY  // Above credits bar
-        text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Theme.clockTime(currentTime)
         color: Theme.primaryContrastColor
         opacity: 0.8
         font.pixelSize: Theme.scaled(80)

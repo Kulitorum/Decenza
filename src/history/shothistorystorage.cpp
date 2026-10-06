@@ -3095,12 +3095,9 @@ void ShotHistoryStorage::requestMarkDecentReplacePending(qint64 shotId)
                         [shotId](QSqlQuery& q) {
         if (!q.prepare("UPDATE shots SET decent_replace_pending = 1 WHERE id = :id AND decent_uploaded_at IS NOT NULL"))
             return false;
+        // Every edit comes here; a shot not on Decent is the common case, and changes nothing.
         q.bindValue(":id", shotId);
-        if (!q.exec()) return false;
-        if (q.numRowsAffected() == 0)
-            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shot" << shotId
-                                                      << "is no longer recorded as uploaded to Decent; replace-pending not set";
-        return true;
+        return q.exec();
     });
 }
 

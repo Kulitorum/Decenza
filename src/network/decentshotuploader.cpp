@@ -5,7 +5,6 @@
 #include "history/shothistorystorage.h"
 #include "network/decentaccount.h"
 #include "network/shotpayloadhelpers.h"
-#include "network/shotuploads.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -261,7 +260,6 @@ void DecentShotUploader::endAttempt(Result result, int httpStatus, const QString
 }
 
 void DecentShotUploader::sendFinished(qint64 shotId, Attempt last) {
-    Q_UNUSED(last);
     const Result result = m_attemptResult;
     switch (result) {
     case Result::NoMachine:
@@ -278,8 +276,8 @@ void DecentShotUploader::sendFinished(qint64 shotId, Attempt last) {
     case Result::TooShort:
         DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: shorter than the minimum length"; break;
     case Result::Failed:
-        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << ShotUploads::kAttempts
-                                                << QStringLiteral("attempts (%1)").arg(m_attemptWhy); break;
+        DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << last.attempts
+                                                << QStringLiteral("attempt(s) (%1)").arg(m_attemptWhy); break;
     default: break;
     }
     m_attemptResult = Result::None;

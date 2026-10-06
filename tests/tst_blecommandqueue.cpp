@@ -455,10 +455,9 @@ private slots:
     void depthWarningFiresOnceWhenTheQueueBacksUp() {
         BleGattQueue queue;
         BleTransport t(nullptr, &queue);
-        // 40, not 20: a normal DE1 connect peaks the shared queue at 35 (measured
-        // on an SM-X210 with a scale connecting alongside), so the old value
-        // fired on every healthy start. See the constant's comment.
-        QCOMPARE(BleGattQueue::QUEUE_DEPTH_WARN, qsizetype(40));
+        // Above a healthy connect's measured peak of 40, or this fires on every
+        // start. See the constant's comment.
+        QCOMPARE(BleGattQueue::QUEUE_DEPTH_WARN, qsizetype(50));
 
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression(QStringLiteral("Bluetooth operations are queued at once")));

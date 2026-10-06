@@ -979,6 +979,7 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('uploadAutomatically').checked = !!data.uploadAutomatically;
                 document.getElementById('updateAutomatically').checked = !!data.updateAutomatically;
                 document.getElementById('uploadMinDurationSec').value = data.uploadMinDurationSec ?? 0;
+                showMissing.hour12 = data.use12HourTime;   // the app's clock format, not the browser's
                 showMissing(data.missing);
 
                 document.getElementById('openaiApiKey').value = data.openaiApiKey || '';
@@ -1284,16 +1285,23 @@ QString ShotServer::generateSettingsPage() const
             for (const dest of ['visualizer', 'decent']) {
                 const m = (missing || {})[dest] || {};
                 const count = m.count || 0, failed = m.failed || 0;
-                running = running || !!m.running;
-                document.getElementById(dest + '-missing').style.display = (m.running || count > 0) ? '' : 'none';
+                running = running || !!m.running || !!m.resumeAtMs;
+                const resumesAt = m.resumeAtMs
+                    ? new Date(m.resumeAtMs).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', hour12: !!showMissing.hour12})
+                    : '';
+                document.getElementById(dest + '-missing').style.display = (m.running || count > 0 || resumesAt) ? '' : 'none';
                 const button = document.getElementById(dest + '-missing-button');
-                button.style.display = m.running ? 'none' : '';
+                button.style.display = (m.running || count === 0) ? 'none' : '';
                 button.textContent = 'Upload missing shots (' + count + ')';
-                document.getElementById(dest + '-missing-detail').textContent = m.running
+                document.getElementById(dest + '-missing-detail').textContent = m.running && resumesAt
+                    ? (m.done || 0) + ' of ' + (m.total || 0) + ' done. The server asked to slow down; continuing at ' + resumesAt
+                    : resumesAt
+                    ? 'The server asked to slow down; uploads continue at ' + resumesAt
+                    : m.running
                     ? 'Uploading ' + (m.done || 0) + ' of ' + (m.total || 0)
                     : failed > 0 ? failed + ' of them could not be uploaded before' : '';
             }
-            // Progress is polled only while a run is going.
+            // Polled only while a run is going or uploads are waiting.
             clearTimeout(showMissing.timer);
             if (running) showMissing.timer = setTimeout(refreshMissing, 5000);
         }
@@ -1637,6 +1645,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["uploadAutomatically"] = m_settings->upload()->autoUpload();
     obj["updateAutomatically"] = m_settings->upload()->autoUpdate();
     obj["uploadMinDurationSec"] = m_settings->upload()->minDuration();
+    obj["use12HourTime"] = m_settings->app()->use12HourTime();
     if (ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr)
         obj["missing"] = QJsonObject::fromVariantMap(uploads->missing());
 

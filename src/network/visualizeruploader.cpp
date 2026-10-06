@@ -27,7 +27,6 @@
 #include "core/diagnosticlogging.h"
 #include "core/logfields.h"
 #include "visualizeruploader.h"
-#include "network/shotuploads.h"
 #include "beanbase_blob.h"
 #include "roastdate.h"
 #include "tastecvamap.h"
@@ -79,12 +78,24 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
 {
     Q_ASSERT(networkManager);
     m_apiPaceClock.start();
+    // Every request shares the API's limit, so a 429 to any of them (an upload,
+    // the pull, bean repair) holds them all; see SettingsUpload::noteRateLimited().
+    connect(networkManager, &QNetworkAccessManager::finished, this, [this](QNetworkReply* reply) {
+        if (m_settings && reply->url().host() == QUrl(QString::fromLatin1(VISUALIZER_BASE_URL)).host()
+            && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 429)
+            m_settings->upload()->noteRateLimited(name());
+    });
+}
+
+qint64 VisualizerUploader::rateLimitWait() const
+{
+    return m_settings ? m_settings->upload()->rateLimitRemainingMs(name()) : 0;
 }
 
 void VisualizerUploader::paceApiRequest(QObject* context, std::function<void()> send)
 {
     const qint64 now = m_apiPaceClock.elapsed();
-    const qint64 slot = std::max(now, m_nextApiSlotMs);
+    const qint64 slot = std::max({now, m_nextApiSlotMs, now + rateLimitWait()});
     m_nextApiSlotMs = slot + kApiRequestIntervalMs;
     QTimer::singleShot(int(slot - now), context, std::move(send));
 }
@@ -197,8 +208,8 @@ void VisualizerUploader::sendFinished(qint64 shotId, Attempt last)
         m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(error);
         emit lastUploadStatusChanged();
         emit uploadFailed(error);
-        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("shot %1 not uploaded after %2 attempts (HTTP %3: %4)")
-            .arg(shotId).arg(ShotUploads::kAttempts).arg(last.httpStatus).arg(error);
+        DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("shot %1 not uploaded after %2 attempt(s) (HTTP %3: %4)")
+            .arg(shotId).arg(last.attempts).arg(last.httpStatus).arg(error);
     }
     m_jobVisualizerId.clear();
     m_jobError.clear();
@@ -356,7 +367,7 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Updating shot" << DecenzaLog::field(visualizerId);
 
     // Build PATCH request
-    QUrl url(QString(VISUALIZER_SHOTS_API_URL) + visualizerId);
+    QUrl url(QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/api/shots/") + visualizerId);
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", authHeader().toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -438,7 +449,7 @@ void VisualizerUploader::connectAccount(const QString& username, const QString& 
     // toggled it (or switched accounts) since the last probe.
     setCmState(CmState::Unknown);
 
-    QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
+    QNetworkRequest request(QUrl(QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/api/shots?items=1")));
     request.setRawHeader("Authorization", basicAuthHeader(username, password));
     request.setTransferTimeout(15000);
     m_connecting = true;
@@ -503,7 +514,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
         QString shotId = obj["id"].toString();
         if (!shotId.isEmpty()) {
-            m_lastShotUrl = QString(VISUALIZER_SHOT_URL) + shotId;
+            m_lastShotUrl = QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/shots/") + shotId;
             m_lastUploadStatus = tr_("visualizer.status.uploadSuccess", "Upload successful");
             emit lastShotUrlChanged();
             emit lastUploadStatusChanged();
@@ -583,7 +594,7 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
     constexpr int kMaxPages = 50;          // 50 * 100 = 5000 shots hard cap
     constexpr int kItemsPerPage = 100;
 
-    QUrl url("https://visualizer.coffee/api/shots");
+    QUrl url(QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/api/shots"));
     QString q = QString("page=%1&items=%2").arg(page).arg(kItemsPerPage);
     url.setQuery(q);
 
@@ -647,7 +658,7 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
         for (const Entry& e : pr.inWindow) {
             QVariantMap m;
             m["visualizerId"] = e.visualizerId;
-            m["url"] = QString(VISUALIZER_SHOT_URL) + e.visualizerId;
+            m["url"] = QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/shots/") + e.visualizerId;
             m["clockEpoch"] = e.clockEpoch;
             accumulated.append(m);
         }
@@ -1285,7 +1296,7 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     QByteArray multipartData = buildMultipartData(jsonData, boundary);
 
     // Create request
-    QUrl url(VISUALIZER_API_URL);
+    QUrl url(QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/api/shots/upload"));
     QNetworkRequest request(url);
 
     request.setRawHeader("Authorization", authHeader().toUtf8());
@@ -1629,7 +1640,7 @@ void VisualizerUploader::setCmState(CmState state)
 
 QNetworkRequest VisualizerUploader::makeApiJsonRequest(const QString& path) const
 {
-    QNetworkRequest request{QUrl(QStringLiteral("https://visualizer.coffee") + path)};
+    QNetworkRequest request{QUrl(QString::fromLatin1(VISUALIZER_BASE_URL) + path)};
     request.setRawHeader("Authorization", authHeader().toUtf8());
     // Rails derives request.format from Accept (NOT Content-Type) — without
     // this the shot PATCH 422s with "Request must be JSON".
@@ -2166,6 +2177,7 @@ void VisualizerUploader::retrySyncPendingBags()
     // success/definitive outcomes and re-parks on repeat failure.
     if (m_localDbPath.isEmpty() || !bagEditPushAllowed(m_cmState))
         return;
+    if (rateLimitWait() > 0) return;   // still parked; the next pass or upload retries them
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);
     QThread* thread = QThread::create([self, dbPath]() {
