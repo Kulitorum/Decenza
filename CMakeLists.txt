@@ -79,7 +79,7 @@ endif()
 # ever exercised the combination. Turning it on is a separate change that must
 # be measured on a Windows runner with a warm sccache.
 #
-# OFF in CI on the four legs that carry a warm ccache (android, macos, linux,
+# OFF in CI on the three legs that carry a warm ccache (android, linux,
 # linux-arm64), passed as -DDECENZA_ENABLE_PCH=OFF by those workflows rather
 # than decided here. A PCH and a compiler cache are SUBSTITUTES: ccache will not
 # cache a compile that consumes a PCH, since the preprocessed output no longer
