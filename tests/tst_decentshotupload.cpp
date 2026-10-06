@@ -308,8 +308,14 @@ private slots:
             QVERIFY(sample.toObject()["machine"].toObject().contains("targetGroupTemperature"));
             QVERIFY(sample.toObject().contains("scale"));
         }
-        QCOMPARE(m[1].toObject()["machine"].toObject()["timestamp"].toString(),
-                 QStringLiteral("2026-09-21T14:13:20.250Z"));
+        // The device's offset, not "Z": the same instant, shown in local time on the site.
+        for (const auto& [ts, ms] : {std::pair{doc["timestamp"].toString(), shot.timestamp * 1000},
+                                     std::pair{m[1].toObject()["machine"].toObject()["timestamp"].toString(),
+                                               shot.timestamp * 1000 + 250}}) {
+            const QDateTime parsed = QDateTime::fromString(ts, Qt::ISODateWithMs);
+            QCOMPARE(parsed.toMSecsSinceEpoch(), ms);
+            QCOMPARE(parsed.offsetFromUtc(), QDateTime::fromMSecsSinceEpoch(ms).offsetFromUtc());
+        }
     }
 
     // tests/data/decent/accepted_shotrecord.json is a body decentespresso.com
@@ -489,7 +495,7 @@ private slots:
         // A 2xx that is not the API's answer (a captive portal) stored nothing,
         // and its body is logged once, not per attempt.
         rig.nam.replies = {{200, "<html>Sign in to Wi-Fi</html>"}};
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not the upload API's answer <html>"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(R"(not the upload API's answer \(\d+ bytes\) <html>)"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("not uploaded after 3 attempt\\(s\\) \\(HTTP 200 that is not"));
         QCOMPARE(rig.send(), DecentShotUploader::Result::Failed);
 
