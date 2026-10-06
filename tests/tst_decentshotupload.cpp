@@ -31,6 +31,7 @@
 #include "network/decentshotrecord.h"
 #include "network/decentshotuploader.h"
 #include "network/shotpayloadhelpers.h"
+#include "network/shotserveruploadroute.h"
 #include "network/shotuploads.h"
 #include "network/visualizeruploader.h"
 
@@ -1068,6 +1069,32 @@ private slots:
         QCOMPARE(decent.sent.size(), 1);
 
         closeStorage(storage);
+    }
+
+    // The Upload missing shots endpoints must not be taken for an APK upload: a
+    // substring match did that, PackageInstaller was handed their 2-byte body, and
+    // the web server stopped for the install handover.
+    void streamedUploadsMatchExactPaths_data() {
+        QTest::addColumn<QString>("requestLine");
+        QTest::addColumn<int>("expected");
+        QTest::newRow("apk") << "POST /upload HTTP/1.1" << int(StreamedUpload::Apk);
+        QTest::newRow("apk, query") << "POST /upload?x=1 HTTP/1.1" << int(StreamedUpload::Apk);
+        QTest::newRow("media") << "POST /upload/media HTTP/1.1" << int(StreamedUpload::Media);
+        QTest::newRow("restore") << "POST /api/backup/restore HTTP/1.1" << int(StreamedUpload::BackupRestore);
+        QTest::newRow("decent missing") << "POST /api/settings/decent/upload-missing HTTP/1.1" << int(StreamedUpload::None);
+        QTest::newRow("visualizer missing") << "POST /api/settings/visualizer/upload-missing HTTP/1.1" << int(StreamedUpload::None);
+        QTest::newRow("get upload page") << "GET /upload HTTP/1.1" << int(StreamedUpload::None);
+    }
+    void streamedUploadsMatchExactPaths() {
+        QFETCH(QString, requestLine);
+        QFETCH(int, expected);
+        QCOMPARE(int(streamedUploadKind(requestLine)), expected);
+    }
+
+    void onlyAZipIsTakenForAnApk() {
+        QVERIFY(startsLikeApk(QByteArrayLiteral("PK\x03\x04rest")));
+        QVERIFY(!startsLikeApk(QByteArrayLiteral("{}")));
+        QVERIFY(!startsLikeApk(QByteArray()));
     }
 
     void firstUploadNeedsAConnectedMachine() {

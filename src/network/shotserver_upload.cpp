@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "shotserver.h"
+#include "shotserveruploadroute.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "exifdate.h"
@@ -347,6 +348,20 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
     QPointer<QTcpSocket> safeSocket = socket;
     QPointer<ShotServer> safeThis = this;
     QThread* t = QThread::create([safeThis, safeSocket, tempPath, fullPath, savePath]() {
+        // Refused before anything is installed: dispatching an install quiets the
+        // server for the handover, and it is not restarted if the install fails.
+        QFile upload(tempPath);
+        const bool apk = upload.open(QIODevice::ReadOnly) && startsLikeApk(upload.read(4));
+        upload.close();
+        if (!apk) {
+            QFile::remove(tempPath);
+            DIAG_WARN(NETWORK, "shotserver_upload") << "upload refused: not an APK file";
+            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
+                if (safeThis && safeSocket)
+                    safeThis->sendResponse(safeSocket, 400, "text/plain", "Not an APK file");
+            }, Qt::QueuedConnection);
+            return;
+        }
         QDir().mkpath(savePath);
         QMutexLocker finalizeLock(&s_apkFinalizationMutex);
         // Remove stale destination, then rename (atomic on same filesystem).
