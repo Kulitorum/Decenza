@@ -1073,7 +1073,7 @@ private slots:
         raw.sync();
     }
 
-    void recipeSortRoundTrip() {
+    void listSortRoundTrip() {
         // The recipes- and beans-page sort preferences must survive an export ->
         // import cycle. Export/import key strings are hand-mirrored under the
         // "recipes" and "bags" root objects, so a typo on either side would
@@ -1085,7 +1085,7 @@ private slots:
 
         QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
 
-        // Mutate both to confirm import overwrites them.
+        // Mutate all four to confirm import overwrites them.
         m_settings.network()->setRecipeSortField("name");
         m_settings.network()->setRecipeSortDirection("DESC");
         m_settings.network()->setBagSortField("dateUsed");

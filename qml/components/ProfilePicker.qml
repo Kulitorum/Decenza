@@ -416,7 +416,7 @@ Item {
                 Layout.preferredHeight: Theme.scaled(44)
                 placeholder: TranslationManager.translate("profilepicker.search.placeholder", "Search profiles…")
                 accessibleName: TranslationManager.translate("profilepicker.search.placeholder", "Search profiles…")
-                onEdited: function(text) { picker.searchText = text.toLowerCase() }
+                onQueryChanged: function(query) { picker.searchText = query.toLowerCase() }
             }
 
             StyledComboBox {

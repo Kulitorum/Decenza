@@ -2,42 +2,43 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-// The list-search field shared by Recipes, Beans and Shot History: the field, its
-// clear button, and a debounce. The clear (×) sits inside the field; with a screen
-// reader on it moves to a separate button beside it, where TalkBack can reach it.
+// The search field shared by list pages and pickers: the field and its clear
+// button. The clear (×) sits inside the field; in accessibility mode
+// (AccessibilityManager.enabled) it moves to a separate button beside it, where
+// TalkBack can reach it.
 RowLayout {
     id: root
 
     property alias field: input
     property alias placeholder: input.placeholder
     property alias accessibleName: input.accessibleName
-    property int debounceMs: 250
 
-    // A user edit, at once (trimmed, repeats dropped): for state a new query resets.
-    signal edited(string text)
-    // The query to run, after debounceMs without further edits.
+    // The query changed (trimmed): on every user edit, the IME's in-progress
+    // word included, and on clear(). Not on setTextSilently().
     signal queryChanged(string query)
 
-    // Sets the text without edited/queryChanged, for a page restoring a search
-    // it has already applied.
+    // Sets the text without queryChanged, for a page restoring a search it has
+    // already applied.
     function setTextSilently(text) {
         _silent = true
+        input.clear()   // also drops an IME preedit, which setting text keeps
         input.text = text
-        _lastEdited = String(text).trim()
+        _lastQuery = String(text).trim()
         _silent = false
     }
 
-    // Empties the field and reports the empty query at once.
+    // Empties the field, IME preedit included, and reports the empty query.
     function clear() {
-        input.text = ""
+        input.clear()
         input.focus = false
-        debounce.stop()
-        root.queryChanged("")
     }
 
-    property string _lastEdited: ""
+    property string _lastQuery: ""
     property bool _silent: false
 
+    // A nested layout fills height unless told otherwise (qquicklayout_p.h:238-239),
+    // and the field below fills ours: unset, Shot History's search took the list's height.
+    Layout.fillHeight: false
     spacing: Theme.spacingSmall
 
     StyledTextField {
@@ -49,12 +50,11 @@ RowLayout {
         // even on IMEs that ignore ImhNoPredictiveText (Gboard does).
         inputMethodHints: Qt.ImhNoPredictiveText
         onDisplayTextChanged: {
-            const text = displayText.trim()
-            if (root._silent || text === root._lastEdited)
+            const query = displayText.trim()
+            if (root._silent || query === root._lastQuery)
                 return
-            root._lastEdited = text
-            root.edited(text)
-            debounce.restart()
+            root._lastQuery = query
+            root.queryChanged(query)
         }
 
         Item {
@@ -84,14 +84,8 @@ RowLayout {
 
     AccessibleButton {
         visible: input.displayText.length > 0 && AccessibilityManager.enabled
-        accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
+        accessibleName: TranslationManager.translate("common.accessible.clearSearch", "Clear search")
         icon.source: "qrc:/icons/cross.svg"
         onClicked: root.clear()
-    }
-
-    Timer {
-        id: debounce
-        interval: root.debounceMs
-        onTriggered: root.queryChanged(input.displayText.trim())
     }
 }

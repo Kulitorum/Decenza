@@ -1308,8 +1308,8 @@ DecenzaDialog {
                         Layout.fillWidth: true
                         placeholder: TranslationManager.translate("changebeans.search.placeholder", "Search roaster or coffee")
                         accessibleName: TranslationManager.translate("changebeans.search.accessible", "Search beans")
-                        // The search service debounces itself; hand it each edit.
-                        onEdited: function(text) { MainController.beanSearch.query = text }
+                        // The Bean Base lane debounces its own requests (BeanBaseClient::search).
+                        onQueryChanged: function(query) { MainController.beanSearch.query = query }
                     }
 
                     BusyIndicator {

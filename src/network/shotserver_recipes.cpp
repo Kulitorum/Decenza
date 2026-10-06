@@ -15,6 +15,7 @@
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "../core/settings_network.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
 #include "../history/coffeebagstorage.h"
@@ -680,14 +681,7 @@ QString ShotServer::generateRecipesPage() const
         <div class="toolbar">
             <button class="primary" onclick="openEditor(null)">+ Add Recipe</button>
         </div>
-        <div class="searchbar" id="searchbar" style="display:none">
-            <div class="search-wrap">
-                <input class="search" id="search" placeholder="Search recipes…" oninput="applyFilter()">
-                <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&times;</button>
-            </div>
-            <button id="sortField" onclick="cycleSort()">Sort: Date used</button>
-            <button id="sortDir" onclick="toggleDir()">Newest first</button>
-        </div>
+        <div class="searchbar" id="searchbar" style="display:none"></div>
         <div id="status"></div>
         <div id="list"></div>
         <div class="section-head" id="archivedHead" style="display:none">
@@ -791,19 +785,16 @@ QString ShotServer::generateRecipesPage() const
         let bags = [];
         let bagsLoaded = false;
         let equipmentList = [];    // grinder identity for the grind candidates
-        let filterText = '';
         let showArchived = false;
 
-        // Sort field cycle mirrors the app's Recipes sort bar.
-        const SORTS = [
-            ['lastUsed', 'Date used'],
-            ['created', 'Date created'],
-            ['coffee', 'Coffee'],
-            ['profileTitle', 'Profile'],
-            ['name', 'Name'],
+        // Keys and default directions as RecipesPage.qml (initListControls).
+        const RECIPE_SORTS = [
+            ['dateUsed', 'Date used', 'DESC'],
+            ['dateCreated', 'Date created', 'DESC'],
+            ['coffee', 'Coffee', 'ASC'],
+            ['profile', 'Profile', 'ASC'],
+            ['name', 'Name', 'ASC'],
         ];
-        let sortIdx = 0;
-        let sortAsc = false;   // date fields default newest-first
 
         const DRINK_LABELS = {
             espresso: 'Espresso', filter: 'Filter', americano: 'Americano',
@@ -957,53 +948,38 @@ QString ShotServer::generateRecipesPage() const
                 + '<div class="actions">' + actions + '</div></div>';
         }
 
-        // Tokenized AND match: `-` `/` `.` are DELETED from both query and text, the
-        // query splits into tokens on whitespace, and every token must appear as a
-        // substring. Same algorithm and same five searched fields (name, profile,
-        // roaster, coffee, drink-type label) as the in-app path (RecipeSearch.js +
-        // RecipesPage.filterAndSort) so "Yirg Df" matches a Yirgacheffe recipe on a
-        // "D-Flow / Q" profile here too (deleting punctuation collapses "D-Flow" to
-        // "dflow"). The drink-label field differs from the app in two narrow ways: it is
-        // English here vs the app's localized DrinkType.shortLabel, and it reads
-        // r.drinkType directly whereas the app derives a type for legacy rows with no
-        // stored drinkType via DrinkType.fromRecipeMap. Guarded by tests/tst_recipesearch.cpp,
-        // which extracts matchesFilter (and the shared normalizeSearch/tokenizeSearch
-        // from WEB_JS_MANAGEMENT) and re-runs the shared cases — keep the two in sync.
-        // tokens are computed once per render().
+        // The app's recipe search (RecipeSearch.buildHaystack + matches), with the
+        // drink label in English. tests/tst_recipesearch.cpp checks they agree.
         function matchesFilter(r, tokens) {
             if (!tokens.length) return true;
             const hay = normalizeSearch(
                 [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)].join(' '));
             return tokens.every(t => hay.indexOf(t) !== -1);
         }
-        function sortRecipes(list) {
-            const key = SORTS[sortIdx][0];
-            const val = (r) => {
-                if (key === 'coffee') return ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim().toLowerCase();
-                if (key === 'name') return (r.name || '').toLowerCase();
-                if (key === 'profileTitle') return (r.profileTitle || '').toLowerCase();
-                return r[key] || '';   // lastUsed / created are ISO strings — lexical order works
-            };
-            const sorted = list.slice().sort((a, b) => {
-                const va = val(a), vb = val(b);
-                return va < vb ? -1 : (va > vb ? 1 : 0);
-            });
-            if (!sortAsc) sorted.reverse();
-            return sorted;
+        function recipeSortKey(r) {
+            const f = listView.field;
+            if (f === 'dateCreated') return Date.parse(r.created) || 0;
+            if (f === 'coffee') return ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim().toLowerCase();
+            if (f === 'profile') return (r.profileTitle || '').toLowerCase();
+            if (f === 'name') return (r.name || '').toLowerCase();
+            return Date.parse(r.lastUsed) || 0;
+        }
+        function shownRecipes(archived) {
+            const tokens = tokenizeSearch(listView.query);
+            return sortedCopy(recipes.filter(r => !!r.archived === archived && matchesFilter(r, tokens)),
+                              recipeSortKey, listView.dir);
         }
 
         function render() {
-            const tokens = tokenizeSearch(filterText);
-            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r, tokens)));
-            // Archived grid is filtered by the same query as the active grid (spec: the
-            // search applies to both), so "Show archived (N)" counts and shows only matches.
-            const archived = recipes.filter(r => r.archived && matchesFilter(r, tokens));
-            el('searchbar').style.display = recipes.some(r => !r.archived) ? '' : 'none';
-            el('searchClear').style.display = filterText ? '' : 'none';
+            // The search applies to both grids, so "Show archived (N)" counts matches.
+            const active = shownRecipes(false);
+            const archived = shownRecipes(true);
+            el('searchbar').style.display = recipes.length ? '' : 'none';
 
             if (!active.length) {
-                el('list').innerHTML = filterText
-                    ? '<p class="muted">No recipes match &ldquo;' + esc(filterText) + '&rdquo;.</p>'
+                el('list').innerHTML = listView.query
+                    ? (archived.length ? ''
+                       : '<p class="muted">No recipes match &ldquo;' + esc(listView.query) + '&rdquo;.</p>')
                     : '<div class="empty"><h2>No recipes yet</h2>'
                       + '<div>Save one from a good shot in Shot History, or add one here.</div></div>';
             } else {
@@ -1020,19 +996,6 @@ QString ShotServer::generateRecipesPage() const
                 ? '<div class="grid">' + archived.map(cardHtml).join('') + '</div>' : '';
         }
 
-        // --- Search / sort controls ---
-        function applyFilter() { filterText = el('search').value.trim().toLowerCase(); render(); }
-        function clearSearch() { el('search').value = ''; filterText = ''; render(); }
-        function cycleSort() {
-            sortIdx = (sortIdx + 1) % SORTS.length;
-            el('sortField').textContent = 'Sort: ' + SORTS[sortIdx][1];
-            render();
-        }
-        function toggleDir() {
-            sortAsc = !sortAsc;
-            el('sortDir').textContent = sortAsc ? 'Oldest / A→Z first' : 'Newest / Z→A first';
-            render();
-        }
         function toggleArchived() { showArchived = !showArchived; render(); }
 
         // --- Actions ---
@@ -1236,6 +1199,12 @@ QString ShotServer::generateRecipesPage() const
             .catch(e => editorStatus('Could not save the recipe: ' + e.message));
         }
 
+        initListControls(Object.assign({ placeholder: 'Search recipes…', sorts: RECIPE_SORTS,
+                                         settingPrefix: 'recipe', onChange: render }, )HTML";
+    html += m_settings ? webListSortJson(m_settings->network()->recipeSortField(),
+                                         m_settings->network()->recipeSortDirection())
+                       : QStringLiteral("{}");
+    html += R"HTML());
         load();
         loadBags();
         // Equipment packages: resolve the RECIPE's grinder for the grind/RPM
