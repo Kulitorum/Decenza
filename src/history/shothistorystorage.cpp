@@ -2360,6 +2360,32 @@ bool ShotHistoryStorage::runMigrations()
         }, "Until it completes, upload outcomes are not recorded");
     }
 
+    // Migration 45: shots already on the Decent account were sent with UTC ("Z")
+    // times, which decentespresso.com shows as UTC. Mark them replace-pending so
+    // Upload missing shots re-sends them with the device's offset. A data fix, so
+    // the bump is gated on it.
+    if (currentVersion >= 44 && currentVersion < 45) {
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 45 decent time resend", 1);
+        if (!txn.ok()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 45 could not start a transaction"
+                          " - will retry next launch";
+        } else {
+            bool ok = query.exec("UPDATE shots SET decent_replace_pending = 1 WHERE decent_uploaded_at IS NOT NULL");
+            const int marked = ok ? query.numRowsAffected() : 0;
+            ok = ok && query.exec("DELETE FROM schema_version")
+                    && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (45)"));
+            if (ok && txn.commit()) {
+                currentVersion = 45;
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 45 complete -" << marked
+                              << "Decent shot(s) offered for re-upload with local times";
+            } else {
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 45 incomplete - will retry next launch:"
+                              << query.lastError().text();
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
