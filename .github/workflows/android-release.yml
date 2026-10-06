@@ -164,10 +164,10 @@ jobs:
           # A profiling build's global QT_QML_DEBUG define misses every cached object, and
           # saving it would hand the next release build a cache of the wrong objects.
           use_cache: ${{ inputs.qml_profiling && 'false' || inputs.use_cache }}
-          # At 500M the cache sat at 99.8% full and evicted at save time
-          # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
-          # repo cache budget now that prune-caches.yml keeps 1 copy/group.
-          max-size: 1G
+          # Android is the CI build that matters most. At 1G it sat full and ran
+          # 35 cleanups during one build (2026-10-06); 1.3G leaves room to grow,
+          # paid for by macOS keeping no caches.
+          max-size: 1300M
 
       # androiddeployqt's "Creating APK" step otherwise downloads the full
       # gradle distribution and re-resolves every dependency on each run
