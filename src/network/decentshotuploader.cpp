@@ -183,6 +183,12 @@ void DecentShotUploader::send() {
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { onReplyFinished(reply); });
 }
 
+// A reply excerpt on one log line, with its size: a body of only "\n" logged
+// raw printed as a blank second line.
+static QString bodyForLog(const QByteArray& body) {
+    return QStringLiteral("(%1 bytes) %2").arg(body.size()).arg(QString::fromUtf8(body.left(300)).simplified());
+}
+
 void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     reply->deleteLater();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -200,7 +206,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
     if (answer == Outcome::Sent && !json.value(QStringLiteral("ok")).toBool()) {
         why = QStringLiteral("HTTP %1 that is not the upload API's answer").arg(status);
         if (!m_loggedOddAnswer)
-            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << QString::fromUtf8(body.left(300));
+            DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << why << bodyForLog(body);
         m_loggedOddAnswer = true;
         answer = Outcome::Transient;
     }
@@ -245,7 +251,7 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
         return;
     case Outcome::Rejected:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "rejected (HTTP" << status << "):"
-                                                << QString::fromUtf8(body.left(300));
+                                                << bodyForLog(body);
         endAttempt(Result::Rejected, status);
         return;
     }
