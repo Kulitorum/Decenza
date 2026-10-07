@@ -17,7 +17,7 @@
 - [ ] 3.4 Accessibility: accessible name includes the pitcher (and weight once captured), `Accessible.onIncreaseAction` cycles pitchers, state changes are announced; verify with VoiceOver on macOS that the button reads its pitcher and that the action cycles — **HELD: held for beta (user decision 2026-10-07)**
 - [x] 3.5 All new strings through `TranslationManager.translate`; verify no hardcoded user-visible text in the diff
 - [x] 3.6 Show "Add milk" when the pitcher settles under 50 g of milk (`MilkCapture.belowMinimum`), instead of "Weighing…"; verify the label appears under 50 g and the capture still fires once over 50 g
-- [ ] 3.7 Review fixes (PR #2015): cancel restores the pre-attempt milk; pitcher pills and Net milk read from the active capture's empty reading (`AppShell.milkScaleLoadG`); "Not <pitcher>?" and the under-50 g hint shared by idle, steam page and review (`SteamLabels.captureHint`); `stableRejected` once per settled load; logs only from active captures; both header buttons on `HeaderPillButton` with Theme tokens. Verify build, lint gate, suite, and on device: cancel after an idle capture keeps it, idle pill reads the milk after a shot
+- [x] 3.7 Review fixes (PR #2015): cancel restores the pre-attempt milk; pitcher pills and Net milk read from the active capture's empty reading (`AppShell.milkScaleLoadG`); "Not <pitcher>?" and the under-50 g hint shared by idle, steam page and review (`SteamLabels.captureHint`); `stableRejected` once per settled load; logs only from active captures; both header buttons on `HeaderPillButton` with Theme tokens. Verify build, lint gate, suite, and on device: cancel after an idle capture keeps it, idle pill reads the milk after a shot — Verified on device 2026-10-07.
 
 ## 4. Verification
 
