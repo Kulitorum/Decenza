@@ -99,6 +99,7 @@ T.Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
+        milkWeighButton.armed = false
         autosave()
     }
 
@@ -1204,6 +1205,144 @@ T.Page {
                                 postShotReviewPage.editShotData.profileName || "",
                                 postShotReviewPage.editShotData.profileJson || "")
                         }
+                    }
+                }
+
+                // Milk weigh button: captures the milk for the next steam from this page,
+                // where a group-head steam is often started. Tap weighs, long-press
+                // changes pitcher.
+                Rectangle {
+                    id: milkWeighButton
+
+                    // Usable = a real, enabled preset with a saved empty weight; net milk
+                    // needs that weight. steamPitcherPresets is read for the dependency:
+                    // the count and lookup are invokables, which record none.
+                    readonly property var usablePitchers: {
+                        void(Settings.brew.steamPitcherPresets)
+                        var out = []
+                        for (var i = 0; i < Settings.brew.steamPitcherCount(); ++i) {
+                            var p = Settings.brew.getSteamPitcherPreset(i)
+                            if (p && !p.disabled && (p.pitcherWeightG ?? 0) > 0)
+                                out.push(i)
+                        }
+                        return out
+                    }
+                    readonly property int selected: Settings.brew.selectedSteamPitcher
+                    readonly property bool selectedUsable: usablePitchers.indexOf(selected) >= 0
+                    readonly property var selectedPreset: {
+                        void(Settings.brew.steamPitcherPresets)
+                        return Settings.brew.getSteamPitcherPreset(selected)
+                    }
+                    readonly property string pitcherName: selectedUsable ? SteamLabels.pitcherName(selectedPreset) : ""
+                    readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                    readonly property real sessionMilk: AppShell.sessionMeasuredMilkG
+
+                    // Tap starts the same attempt as selecting Steam on the idle page.
+                    property bool armed: false
+
+                    function arm() {
+                        milkCapture.startAttempt()
+                        armed = true
+                    }
+                    function selectNextPitcher() {
+                        armed = false
+                        if (usablePitchers.length === 0)
+                            return
+                        var pos = usablePitchers.indexOf(selected)
+                        MainController.selectSteamPitcher(usablePitchers[(pos + 1) % usablePitchers.length], 0)
+                        if (AccessibilityManager.enabled)
+                            AccessibilityManager.announce(milkWeighButton.pitcherName)
+                    }
+
+                    readonly property string label: {
+                        if (!selectedUsable)
+                            return TranslationManager.translate("postshotreview.milk.choosePitcher", "Choose pitcher")
+                        if (armed) {
+                            if (!milkCapture.loadPresent)
+                                return TranslationManager.translate("postshotreview.milk.placePitcher", "Place pitcher")
+                            return milkCapture.belowMinimum
+                                ? TranslationManager.translate("postshotreview.milk.addMilk", "Add milk")
+                                : TranslationManager.translate("postshotreview.milk.weighing", "Weighing…")
+                        }
+                        if (sessionMilk > 0)
+                            return TranslationManager.translate("postshotreview.milk.captured", "%1 · %2 g")
+                                .arg(pitcherName).arg(sessionMilk.toFixed(0))
+                        return pitcherName
+                    }
+                    // While armed the label is an instruction, so a screen-reader user hears each
+                    // step; the placement step gets the idle page's full prompt.
+                    onLabelChanged: {
+                        if (!armed || !AccessibilityManager.enabled)
+                            return
+                        AccessibilityManager.announce(milkCapture.loadPresent ? label
+                            : TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale"))
+                    }
+
+                    visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
+                    onVisibleChanged: if (!visible) armed = false
+                    Layout.preferredWidth: Math.min(Theme.scaled(160),
+                                                    Math.max(Theme.scaled(80), milkWeighLabel.implicitWidth + Theme.scaled(16)))
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(12)
+                    color: Theme.cardBackgroundColor
+                    border.width: armed ? 2 : 1
+                    border.color: armed ? Theme.primaryColor : Theme.textSecondaryColor
+                    Accessible.ignored: true
+
+                    Text {
+                        id: milkWeighLabel
+                        anchors.centerIn: parent
+                        width: Math.min(implicitWidth, parent.width - Theme.scaled(16))
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        text: milkWeighButton.label
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true
+                    }
+
+                    MilkCapture {
+                        id: milkCapture
+                        active: milkWeighButton.armed && milkWeighButton.visible
+                                && postShotReviewPage.StackView.status === StackView.Active
+                        onMilkCaptured: function(milk, t) {
+                            milkWeighButton.armed = false
+                            if (AccessibilityManager.enabled) {
+                                AccessibilityManager.announce(t > 0
+                                    ? TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+                                    : TranslationManager.translate("postshotreview.milk.capturedAccessible", "%1 grams of milk").arg(milk.toFixed(0)))
+                            }
+                        }
+                    }
+                    // A new pitcher changes the weight being subtracted. (Leaving the page
+                    // also ends a capture, in the page's StackView.onDeactivating.)
+                    Connections {
+                        target: Settings.brew
+                        function onSelectedSteamPitcherChanged() { milkWeighButton.armed = false }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: {
+                            var name = TranslationManager.translate("postshotreview.milk.weighAccessible", "Weigh milk")
+                            if (!milkWeighButton.selectedUsable)
+                                return name + ". " + milkWeighButton.label
+                            return name + ", " + milkWeighButton.label
+                        }
+                        accessibleItem: milkWeighButton
+                        supportLongPress: true
+                        onAccessibleClicked: {
+                            if (!milkWeighButton.selectedUsable)
+                                milkWeighButton.selectNextPitcher()
+                            else if (milkWeighButton.armed)
+                                milkWeighButton.armed = false
+                            else
+                                milkWeighButton.arm()
+                        }
+                        onAccessibleLongPressed: milkWeighButton.selectNextPitcher()
+                        // The long-press cycle, reachable by a screen reader.
+                        Accessible.onIncreaseAction: milkWeighButton.selectNextPitcher()
                     }
                 }
 

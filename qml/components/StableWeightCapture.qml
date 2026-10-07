@@ -35,6 +35,7 @@ Item {
     readonly property bool isCaptured: _captured
 
     signal stableCaptured(real grams)
+    signal stableRejected(real grams)   // a load settled but its net is outside [minNet, maxNet]
 
     property real    _virtualZero: 0
     property bool    _seeded: false
@@ -118,6 +119,8 @@ Item {
                 _captured = true
                 _capturedNet = net
                 stableCaptured(net)
+            } else if (cupWeight > 0) {
+                stableRejected(net)
             }
         }
     }

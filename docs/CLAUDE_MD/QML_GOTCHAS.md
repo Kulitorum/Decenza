@@ -303,8 +303,9 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
 
 ## Reading the qmllint gate — four things that will save you a day
 
-`python3 scripts/qmllint_report.py --check` (add `--qmllint <patched>` locally; CI runs stock with
-`--skip-unlintable`). `--report` prints the breakdown; `--update-baseline` records it.
+The gate runs in every default desktop build and fails it on a new diagnostic; a passing build prints
+`QML diagnostics gate passed` near the end. On demand: `python3 scripts/qmllint_report.py --check`
+(or the `qmllint_check` target). `--report` prints the breakdown; `--update-baseline` records it.
 
 1. **A count going UP after a fix is usually the fix working.** Better type resolution reaches
    expressions qmllint previously abandoned, so it finds more. Three recorded instances, each of

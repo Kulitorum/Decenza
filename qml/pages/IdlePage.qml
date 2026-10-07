@@ -601,7 +601,8 @@ T.Page {
     // rest the milk pitcher on the scale to record the milk weight. If the pitcher
     // is ALSO calibrated (has a reference milk weight), the steam time is locked
     // proportionally with a ding + confirmation. This is the steam equivalent of
-    // the bean auto-capture above; the dedicated Steam page has its own copy.
+    // the bean auto-capture above. MilkCapture is shared with the steam page and the
+    // shot review button.
     property bool milkCaptureShown: false
     property string milkCaptureText: ""
     // Last milk weight measured this session (for the bottom status row). 0 = none yet.
@@ -615,17 +616,8 @@ T.Page {
         function onSelectedSteamPitcherChanged() { idlePage.measuredMilkG = 0 }
     }
     Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
-    StableWeightCapture {
+    MilkCapture {
         id: idleMilkCapture
-        // Virtual-zero model (same as the bean capture): raw scale reading minus the
-        // empty-pitcher weight (cupWeight) gives net milk, robust to an un-zeroed
-        // scale. Auto-capture requires a saved pitcher weight (cupWeight > 0),
-        // symmetric with beans requiring a saved dose-cup tare.
-        rawWeight: (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
-        cupWeight: {
-            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-            return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
-        }
         // Opt-in (Settings.brew.milkAutoCaptureEnabled, default OFF — calibrating a
         // pitcher turns it on) and only while
         // the steam flow is showing AND this page is the active StackView page — so a
@@ -636,39 +628,15 @@ T.Page {
                 && idlePage.activePresetFunction === "steam"
                 && idlePage.StackView.status === StackView.Active
                 && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
-        minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
-        maxNet: 1500
-        tolerance: 1.5
-        stableMs: 2500
-        onStableCaptured: function(milk) {
+        onMilkCaptured: function(milk, t) {
             idlePage.measuredMilkG = milk  // record measured (net) milk for the status row
-            // Latch the measured milk for the baseline pair (committed atomically with
-            // the duration at session end, in main.qml). Recorded even for an
-            // uncalibrated preset so the very first calibration-bootstrap steam can be
-            // adopted — and never as a half-pair, since the time half is written there.
-            AppShell.sessionMeasuredMilkG = milk
-            // Single source of truth (SettingsBrew): 0 when off/uncalibrated → nothing to lock.
-            var t = Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
             if (t <= 0) return
-            Settings.brew.steamTimeout = t
-            // Push to the DE1 now (same as the steam-preset selection) so a GHC/auto
-            // steam actually uses the scaled time, not the machine's last-sent value.
-            MainController.applySteamSettings()
             idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
             idlePage.milkCaptureShown = true
             idleMilkCaptureTimer.restart()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
-                if (Settings.brew.doseCaptureSoundEnabled)
-                    AccessibilityManager.playCaptureDing()
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(idlePage.milkCaptureText)
-            }
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(idlePage.milkCaptureText)
         }
-    }
-    // Re-zero the milk capture when the scale is tared (same reason as the bean one).
-    Connections {
-        target: MachineState
-        function onTareCompleted() { idleMilkCapture.reset() }
     }
 
     // Clear the last measured milk when a steam session ends, so the next steam isn't
@@ -777,7 +745,7 @@ T.Page {
             _liftOrderFreeze(_openMruRow)
     }
 
-    // Auto-tare scale and announce presets when activePresetFunction changes
+    // Start a steam attempt and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
         // An MRU row just closed → lift its order freeze and adopt the real MRU
@@ -795,14 +763,8 @@ T.Page {
         else if (activePresetFunction === "equipment") equipmentPageIndex = 0
         else if (activePresetFunction === "flush") flushPageIndex = 0
         else if (activePresetFunction === "hotwater") hotWaterPageIndex = 0
-        // Auto-tare when steam pills appear so the scale starts at 0
-        // before the user places the pitcher
-        if (activePresetFunction === "steam") {
-            MachineState.tareScale()
-            // Fresh steam attempt: drop any milk captured but not consumed by a prior
-            // (abandoned) attempt, so it can't scale this one.
-            AppShell.sessionMeasuredMilkG = 0
-        }
+        if (activePresetFunction === "steam")
+            idleMilkCapture.startAttempt()
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && activePresetFunction !== "") {
             let presets = []
@@ -1046,9 +1008,9 @@ T.Page {
                         pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
 
                         // Live milk weigh: scale reading minus the saved empty-pitcher
-                        // weight, updating as milk is poured. Assumes an un-tared gross
-                        // reading — a pitcher zeroed by the steam auto-tare reads (0g)
-                        // until lifted and replaced (see steamPlacePrompt). Display only —
+                        // weight, updating as milk is poured. Assumes the scale's zero is
+                        // the empty scale; a manual tare with the pitcher on makes it read
+                        // low. Display only —
                         // the capture path (idleMilkCapture) and steam-time scaling never
                         // read this. Deliberately NOT netMilkForPitcher(): its 50–1500 g
                         // window is sized for time scaling and would zero small amounts
@@ -1094,9 +1056,9 @@ T.Page {
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
                     // steam selected, scale connected) and nothing is on the scale yet. Blinks three times.
-                    // "or lift and replace": selecting steam auto-tares the scale, so a pitcher that was
-                    // ALREADY sitting there reads as 0 and won't register until it's lifted and set back
-                    // — without the hedge the prompt would assert something false.
+                    // "or lift and replace": the detectors take their first settled reading as the empty
+                    // scale, so a pitcher ALREADY sitting there won't register until it's lifted and set
+                    // back — without the hedge the prompt would assert something false.
                     // The hint promises a beep ONLY when the capture sound will actually play — the
                     // ding is separately gated on doseCaptureSoundEnabled (default off).
                     Text {

@@ -124,9 +124,9 @@ QtObject {
     property bool pendingBrewDialog: false
 
     // Net milk weighed during this steam session, 0 when none has been. Written by
-    // the home screen's and the steam page's auto-capture, read by the steam plan,
-    // the milk-weight widget and SteamPage's scaling fallback. Reset on pitcher
-    // change and at session end.
+    // MilkCapture (home screen, steam page, shot review); read by the steam plan, the
+    // milk-weight widget and SteamPage's scaling fallback. Reset on pitcher change and
+    // at session end.
     //
     // This was main.qml's, and every consumer reached it through `Window.window`,
     // which qmllint types as QQuickWindow — so `window.sessionMeasuredMilkG` was an

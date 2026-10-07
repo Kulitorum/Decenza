@@ -11,10 +11,10 @@
 ## 3. Verify
 
 - [x] 3.1 Build via Qt Creator MCP (`mcp__qtcreator__build`), confirm no warnings introduced.
-- [ ] 3.2 Manually exercise weight-timed steaming from the idle screen (existing working path) and confirm the new log lines show milk/calibration/outcome as expected — this validates the logging itself before waiting on the harder-to-reproduce GHC/Shot-Review path.
-- [ ] 3.3 Ask the user to reproduce the original GHC-from-Shot-Review sequence once, capture the resulting debug log (`debug_get_log` or on-device), and confirm which of the four gates (or none) explains the fallback.
+- [ ] 3.2 Manually exercise weight-timed steaming from the idle screen (existing working path) and confirm the new log lines show milk/calibration/outcome as expected — this validates the logging itself before waiting on the harder-to-reproduce GHC/Shot-Review path. — **HELD for beta (user decision 2026-10-07):** steam-start logging only fires when steam runs; covered by `add-review-page-milk-weigh` task 4.4.
+- [ ] 3.3 Ask the user to reproduce the original GHC-from-Shot-Review sequence once, capture the resulting debug log (`debug_get_log` or on-device), and confirm which of the four gates (or none) explains the fallback. — **HELD for beta (user decision 2026-10-07):** this is `add-review-page-milk-weigh` task 4.4.
 
 ## 4. Follow-up (not part of this change)
 
-- [ ] 4.1 Once the log confirms the actual cause, file the real fix as a separate change.
-- [ ] 4.2 Separately reconcile `openspec/specs/weight-timed-steaming/spec.md`'s "Per-pitcher calibration" requirement, which still describes the old per-preset `calibMilkG`/`duration` ratio math — the current implementation (`SettingsBrew::scaledSteamTime`) uses a single global `steamSecondsPerGram` rate instead (`settings_brew.cpp:614-624`).
+- [x] 4.1 Once the log confirms the actual cause, file the real fix as a separate change. — Folded into `add-review-page-milk-weigh` instead of a separate change: its task 2.1 (Steam page activation passes the session-captured milk) is the candidate fix; on-machine confirmation held for beta with its 4.4.
+- [x] 4.2 Separately reconcile `openspec/specs/weight-timed-steaming/spec.md`'s "Per-pitcher calibration" requirement, which still describes the old per-preset `calibMilkG`/`duration` ratio math — the current implementation (`SettingsBrew::scaledSteamTime`) uses a single global `steamSecondsPerGram` rate instead (`settings_brew.cpp:614-624`). — Done by `add-review-page-milk-weigh`'s delta ("One global steam rate" replaces "Per-pitcher calibration"; scaling, toggle, uncalibrated and calibrate-from-pour requirements rewritten).

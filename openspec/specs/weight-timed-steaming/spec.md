@@ -1,7 +1,7 @@
 # weight-timed-steaming Specification
 
 ## Purpose
-Scales the DE1's steam auto-stop duration to the measured milk weight on a connected scale using a per-pitcher reference calibration, so a full or partial pitcher steams to the same target temperature. Covers the off-by-default toggle, calibrating from an actual pour, automatic pre-steam milk capture, manual timer override precedence, and the on-scale-the-whole-time and live-preview edge cases.
+Scales the DE1's steam auto-stop duration to the measured milk weight on a connected scale using one calibrated seconds-per-gram steam rate, so a full or partial pitcher steams to the same target temperature. Covers the off-by-default toggle, calibrating from an actual pour, pre-steam milk capture (idle screen, steam page and shot review page), manual timer override precedence, and the on-scale-the-whole-time and live-preview edge cases.
 ## Requirements
 ### Requirement: Steam time scales to measured milk weight
 
