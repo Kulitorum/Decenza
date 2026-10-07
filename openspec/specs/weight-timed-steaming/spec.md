@@ -2,7 +2,9 @@
 
 ## Purpose
 Scales the DE1's steam auto-stop duration to the measured milk weight on a connected scale using one calibrated seconds-per-gram steam rate, so a full or partial pitcher steams to the same target temperature. Covers the off-by-default toggle, calibrating from an actual pour, pre-steam milk capture (idle screen, steam page and shot review page), manual timer override precedence, and the on-scale-the-whole-time and live-preview edge cases.
+
 ## Requirements
+
 ### Requirement: Steam time scales to measured milk weight
 
 When weight-timed steaming is on, the selected pitcher is calibrated, and milk is on a connected scale, the system SHALL set the steam timeout to the calibrated rate applied to the measured milk weight, so the DE1 auto-stop lands at the calibrated temperature regardless of milk quantity.
@@ -140,3 +142,18 @@ The idle page SHALL show a "Place the milk pitcher on the scale" prompt below th
 - **WHEN** the user places a pitcher (load above the detection threshold) on the scale
 - **THEN** the prompt disappears
 
+### Requirement: Fallback-to-fixed-duration is diagnosable from the debug log
+
+When weight-timed steaming applies the fixed duration instead of a weight-scaled one, the debug log SHALL show why: the milk inputs, the toggle, the steam rate, the selected pitcher, the computed and the applied duration. It SHALL cover the steam-start decision and the page-activation/pitcher-lift sync, whether steam was started from the app or the group head.
+
+#### Scenario: Fallback due to missing calibration is visible in the log
+- **WHEN** steaming starts with milk captured but the global steam-seconds-per-gram rate is uncalibrated
+- **THEN** the debug log shows the captured milk value, the toggle as enabled, the calibration value as unset/zero, and the applied duration as the fixed fallback
+
+#### Scenario: Fallback due to no captured milk is distinguishable from a calibration gap
+- **WHEN** steaming starts with no milk captured (session value and last on-scale value both zero)
+- **THEN** the debug log shows both milk sources as zero, distinguishing this case from an uncalibrated-but-milk-present fallback
+
+#### Scenario: Successful scaling is also logged
+- **WHEN** steaming starts with milk captured, the toggle enabled, a valid calibration, and an enabled pitcher
+- **THEN** the debug log shows the computed scaled duration and records it as the applied source, not the fallback
