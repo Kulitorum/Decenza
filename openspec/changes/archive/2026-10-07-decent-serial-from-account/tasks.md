@@ -10,9 +10,9 @@
 
 - [x] 2.1 Tests: resolver table, sign-in reads the list and the choice settles the serial, `NoSerial` result
 - [x] 2.2 Full suite green through Qt Creator (119/119; the new assertions go red when the resolver or NoSerial mapping is broken)
-- [ ] 2.3 Reporter of #2013 signs out and in again on a build with this change, and shots upload
+- [ ] 2.3 Reporter of #2013 signs out and in again on a build with this change, and shots upload — HELD at merge (2026-10-07): needs a build containing this change; tracked on #2013
 
 ## 3. Docs
 
 - [x] 3.1 `docs/CLAUDE_MD/DECENT_UPLOAD.md` serial section
-- [ ] 3.2 Wiki manual: one sentence on signing in again when the DE1 reports no serial
+- [x] 3.2 Wiki manual: Decent Account Upload section (wiki a18e8a5)
