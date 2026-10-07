@@ -82,14 +82,12 @@ jobs:
       - name: Set up ccache
         uses: ./.github/actions/setup-compiler-cache
         with:
-          # Key includes a shim-revision tag (s2 = "shim revision 2: also
-          # unsets IPHONEOS_DEPLOYMENT_TARGET"). Bump this whenever the
-          # shim's env-scrub list changes — the shim's behavior affects
-          # compile output, but ccache's compiler_check (even with
-          # %compiler% -v) sees the same banner from clang.real regardless
-          # of which env vars the shim drops, so a key bump is the only
-          # reliable way to invalidate.
-          key: 'ios-arm64-xcode26.4.1-s2'
+          # sN is the setup-xcode shim revision (s3: clang++ runs in g++
+          # driver mode). Bump it whenever the shim changes: ccache's
+          # compiler_check sees the same `-v` banner from clang.real
+          # whatever the shim does, so a key bump is the only reliable way
+          # to invalidate.
+          key: 'ios-arm64-xcode26.4.1-s3'
           use_cache: ${{ inputs.use_cache }}
 
       - name: Configure ccache for CI
@@ -124,17 +122,11 @@ jobs:
           # doesn't cache link products, and pointing LD at launch-c forces
           # the C++ link through the `clang` driver instead of `clang++`,
           # which drops the implicit -lc++ and breaks the link.
-          #
-          # Once CC/CXX point at a non-Apple wrapper, Xcode also stops
-          # auto-adding the C++ runtime libraries to the Ld phase (and
-          # drops -ivfsstatcache and other Apple-internal flags). Compen-
-          # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DENABLE_TSNET=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
 
       - name: Inject widget extension target
         env:

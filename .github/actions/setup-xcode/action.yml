@@ -21,8 +21,8 @@ description: >
 # in the env broke the iOS link (implicit libc++ resolution). The durable fix
 # is upstream: CMake's AUTOMOC predefs step should pass -target (#925).
 #
-# A change to the shim's unset list does not change clang's -v banner, so a
-# workflow whose ccache keys on '%compiler% -v' must bump its cache key with it.
+# A change to the shim does not change clang's -v banner, so a workflow whose
+# ccache keys on '%compiler% -v' must bump its cache key with it.
 
 inputs:
   xcode-version:
@@ -47,12 +47,16 @@ runs:
         set -e
         XCODE_BIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
         for tool in clang clang++; do
+          # clang takes its C/C++ mode from its program name, and `clang++.real`
+          # does not match `clang++`: run bare, it links as C and drops libc++.
+          MODE=""
+          if [ "$tool" = "clang++" ]; then MODE="--driver-mode=g++ "; fi
           if [ -f "$XCODE_BIN/$tool" ] && [ ! -f "$XCODE_BIN/$tool.real" ]; then
             sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
             sudo tee "$XCODE_BIN/$tool" >/dev/null <<SHIM
         #!/bin/sh
         unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
-        exec "$XCODE_BIN/$tool.real" "\$@"
+        exec "$XCODE_BIN/$tool.real" ${MODE}"\$@"
         SHIM
             sudo chmod +x "$XCODE_BIN/$tool"
           fi
