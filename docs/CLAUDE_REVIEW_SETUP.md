@@ -23,30 +23,71 @@ It reads source and existing tests; it never builds or runs the application.
    and triggered by a human with repository write access. Include a relevant
    source change. In **Actions → Claude PR review**, check that the Claude step
    completes, and inspect any inline findings. The job should be skipped on
-   drafts, fork PRs, and bot events. A run with no findings posts no comment.
+   drafts, fork PRs, and other bots. A run with no findings posts no comment.
 
 ## GitHub permissions and the Claude App
 
-This workflow requires **no Claude GitHub App installation, App private key,
+The automatic review workflow requires **no Claude GitHub App installation, App private key,
 personal access token, OAuth token, or OIDC permission**. It explicitly passes
 GitHub's short-lived `GITHUB_TOKEN` to the official action. Its job grants only
 `contents: read` and `pull-requests: write`; all other permissions are disabled.
 Comments appear as `github-actions[bot]`. The token cannot push code or merge PRs.
 
-The official [Claude App](https://github.com/apps/claude) is useful for broader
-`@claude` coding workflows. Its default action token has contents, issues, and
-pull-request write access. Declaring `contents: read` in a job does not by itself
-restrict that separate App token. Keep the explicit `github_token` input here.
-If you install the App for other workflows, select **Only select repositories →
-Decenza** and inspect the installation's requested permissions. The official
-App's permission set cannot be individually reduced by an installer; a custom App
-is needed for a different permission set. Neither is needed for this reviewer.
+For requested fixes, an admin must install the official
+[Claude App](https://github.com/apps/claude). Select **Only select repositories →
+Decenza** and inspect the requested permissions. The official App requests
+contents, pull-request, issue, discussion, and workflow write access, plus
+Actions/checks read access; the installation screen is authoritative. Its
+permission set cannot be individually reduced by the installer. The fix job
+requests a repository-scoped token with contents/pull-request write and issue
+read access via `additional_permissions`, using `id-token: write` for exchange.
+The App token is revoked when the action finishes. No App private key is needed.
+
+The review job still explicitly passes `GITHUB_TOKEN`, even after App installation.
+Its read-only contents restriction therefore continues to apply. Job permissions
+alone do not restrict a separate App token.
+
+## Maintainer-requested fixes
+
+After the workflows and trusted publisher are merged, a human with repository
+write access can post a new **PR conversation comment** whose first line is:
+
+```text
+@claude fix
+```
+
+This creates a separate draft PR targeting the original PR's feature branch,
+so it shows only the proposed fixes. To update the existing PR branch instead:
+
+```text
+@claude fix same-pr
+```
+
+Add specific instructions below that first line to select findings to fix.
+Without those instructions, Claude checks the inline feedback and reviews for
+concrete unresolved bugs introduced by the PR. These commands work on open,
+same-repository feature-branch PRs; they do not run from inline review replies,
+forks, bots, or edited comments. Requests are checked against actual write access.
+
+Claude edits an isolated checkout and can invoke only the trusted publisher as a
+shell command. The publisher checks the PR's captured head SHA, accepts at most
+20 source files, rejects workflow/agent configuration and symlinks, and chooses
+the destination from the original command. It never force-pushes, approves, or
+merges. Same-PR fixes post a validation-status comment and trigger another review.
+Separate drafts are reviewed when a maintainer marks them ready.
+
+Fixes have a $5 client-side cost limit, 30 turns, and 20 minutes. Qt builds and
+tests **do not run** on this hosted fix runner. Review the diff and validate fixes
+through the existing Qt Creator test process before merging; publication does not
+claim the fix is validated. If publication stops partway through, inspect the
+source/fix branch before retrying. Disable **Claude requested fix** in Actions
+to stop accepting fix requests.
 
 ## Limits and security
 
-- Only same-repository human PRs run. The action also checks that the triggering
-  actor has repository write access; no `allowed_bots` or `allowed_non_write_users`
-  bypass is configured. Fork reviews require a separate design, not switching
+- Reviews accept human PRs and the official `claude[bot]` so requested fixes can
+  be reviewed. Other bots are skipped. Human triggers must have write access;
+  no `allowed_non_write_users` bypass is configured. Fork reviews require a separate design, not switching
   this job to `pull_request_target` or granting more permissions.
 - Base and head are checked out by immutable SHA, without persisted credentials.
   The head lives in a subdirectory, and Claude ignores project/local executable

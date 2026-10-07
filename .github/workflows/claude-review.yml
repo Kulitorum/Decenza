@@ -27,8 +27,8 @@ jobs:
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.type == 'User' &&
-      !endsWith(github.actor, '[bot]')
+      (github.event.pull_request.user.type == 'User' || github.event.pull_request.user.login == 'claude[bot]') &&
+      (!endsWith(github.actor, '[bot]') || github.actor == 'claude[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -75,6 +75,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Bypass App-token exchange: this token cannot write repository contents.
           github_token: ${{ github.token }}
+          allowed_bots: 'claude[bot]'
           show_full_output: false
           display_report: false
           include_fix_links: false
