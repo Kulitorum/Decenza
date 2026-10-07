@@ -9,7 +9,7 @@
 ## 2. Verification
 
 - [x] 2.1 Tests: resolver table, sign-in reads the list and the choice settles the serial, `NoSerial` result
-- [ ] 2.2 Full suite green through Qt Creator
+- [x] 2.2 Full suite green through Qt Creator (119/119; the new assertions go red when the resolver or NoSerial mapping is broken)
 - [ ] 2.3 Reporter of #2013 signs out and in again on a build with this change, and shots upload
 
 ## 3. Docs
