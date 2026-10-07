@@ -33,6 +33,6 @@
 ## 6. Absorb and archive `keep-milk-weight-across-shot`
 
 - [x] 6.1 Reconcile its `tasks.md` honestly: 3.2/3.3 checked only against 4.3/4.4 results (or marked held for beta), 4.1 points at task 2.1 here, 4.2 points at this change's spec delta; verify every box reflects what actually happened — 3.2/3.3 held for beta, 4.1/4.2 checked with pointers here.
-- [ ] 6.2 Archive it with `openspec archive keep-milk-weight-across-shot --yes` and commit; verify its diagnosability requirement appears in `openspec/specs/weight-timed-steaming/spec.md`
-- [ ] 6.3 Archive this change with `openspec archive add-review-page-milk-weigh --yes` as the PR's final commit; verify the main spec shows "One global steam rate", no "Per-pitcher calibration", and the review-page requirements
+- [x] 6.2 Archive it with `openspec archive keep-milk-weight-across-shot --yes` and commit; verify its diagnosability requirement appears in `openspec/specs/weight-timed-steaming/spec.md` — Archived as `2026-10-07-keep-milk-weight-across-shot`.
+- [x] 6.3 Archive this change with `openspec archive add-review-page-milk-weigh --yes` as the PR's final commit; verify the main spec shows "One global steam rate", no "Per-pitcher calibration", and the review-page requirements — This archive is the PR's final commit.
 - [x] 6.4 Raise with the user that the main spec's Purpose line still says "per-pitcher reference calibration" (a delta cannot change it); edit only with their go-ahead — Approved by the user 2026-10-07; Purpose line edited directly.

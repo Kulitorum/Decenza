@@ -102,9 +102,7 @@ Weight scaling SHALL use a single steam rate in seconds per gram of milk, shared
 
 ### Requirement: Steam time scales to measured milk weight
 
-When weight-timed steaming is on, the steam rate is calibrated, and milk is on a connected scale, the system SHALL set the steam timeout to the rate applied to the measured milk weight, so the DE1 auto-stop lands at the calibrated temperature regardless of milk quantity.
-
-The scaled time SHALL be computed as `clamp(round(rate × measuredMilk), 5, 120)` seconds, where `rate` is the global seconds-per-gram rate and `measuredMilk = scaleReading − pitcherTare`. The scaling math SHALL be defined in exactly one place (`SettingsBrew::scaledSteamTime`) and reused by every caller.
+When weight-timed steaming is on, the steam rate is calibrated, and milk is measured, the system SHALL set the steam timeout to `clamp(round(rate × milk), 5, 120)` seconds, where `rate` is the global seconds-per-gram rate. The math SHALL live in one place (`SettingsBrew::scaledSteamTime`) and be reused by every caller.
 
 #### Scenario: Full pitcher scales up from the reference
 - **WHEN** the rate is 0.14 s/g and `500 g` of milk is measured
