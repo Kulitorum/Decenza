@@ -36,8 +36,11 @@ T.Page {
             // Re-apply the selected pitcher through the one shared implementation
             // rather than re-deriving its flow/temperature/duration here, which is
             // what this handler used to do — a fourth copy of the same operation.
+            // The fallback must be the session's captured milk: after a shot the cup,
+            // not the pitcher, is on the scale, and a 0 here sent the base duration
+            // over the scaled time an earlier capture had already sent.
             MainController.selectSteamPitcher(Settings.brew.selectedSteamPitcher,
-                                              steamPage.lastOnScaleMilk)
+                                              steamPage.capturedMilkForScaling())
             if (preset && preset.disabled) {
                 // "Heater off" is selected — leave the heater off rather than
                 // kicking it on as the page activates, and don't forceActiveFocus
@@ -2244,67 +2247,32 @@ T.Page {
     // stays locked while you lift the pitcher to steam (the detector re-arms only
     // when the pitcher is removed or the load changes). This is a programmatic
     // write to steamTimeout, so it never bakes the scaled value into the preset.
-    StableWeightCapture {
+    MilkCapture {
         id: milkCapture
-        // Virtual-zero model: raw scale reading minus the saved empty-pitcher weight
-        // (cupWeight) = net milk, robust to an un-zeroed scale. Auto-capture requires
-        // a saved pitcher weight (cupWeight > 0).
-        rawWeight: (steamPage.realScaleConnected) ? MachineState.scaleWeight : 0
-        cupWeight: {
-            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-            return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
-        }
         // Opt-in (Settings.brew.milkAutoCaptureEnabled, default OFF — calibrating a
         // pitcher turns it on) — disabling it stops the scale from auto-changing the
         // steam stop time.
         active: Settings.brew.milkAutoCaptureEnabled
                 && !steamPage.isSteaming && !steamPage.steamSoftStopped
                 && steamPage.realScaleConnected
-        minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
-        maxNet: 1500
-        tolerance: 1.5
-        stableMs: 2500
+        lockTime: !steamPage.steamTimeoutUserAdjusted
         // Lifting the pitcher off the scale clears a manual ±5 override, so the next
         // placement re-arms weight scaling for a fresh pour. Guard on !isSteaming so the
         // reset() at steam-start (active→false) can't clear the latch before
         // onIsSteamingChanged reads it — otherwise a manual nudge would be overwritten.
         onLoadPresentChanged: if (!loadPresent && !steamPage.isSteaming) steamPage.steamTimeoutUserAdjusted = false
-        onStableCaptured: function(milk) {
-            // Latch the measured milk for the baseline pair (committed atomically with
-            // the duration at session end, in main.qml) — recorded even when the preset
-            // isn't calibrated yet so the calibration-bootstrap steam can be adopted.
-            AppShell.sessionMeasuredMilkG = milk
-            // Respect a manual ±5 adjustment: still record the milk (above) for the
-            // baseline, but don't overwrite the time the user dialed in by hand.
-            if (steamPage.steamTimeoutUserAdjusted)
-                return
-            var t = steamPage.steamTimeForMilk(milk)
+        onMilkCaptured: function(milk, t) {
             if (t <= 0)
-                return  // preset not calibrated (no reference milk) — nothing to lock
-            Settings.brew.steamTimeout = t
-            // Push to the DE1 now (same as onPresetSelected) — without this the machine
-            // keeps its last-sent timeout, so a GHC-started steam wouldn't use the
-            // scaled value and the steam time appears not to scale.
-            MainController.applySteamSettings()
+                return
             steamPage.steamTimeoutScaled = true
             steamPage.captureBannerText =
                 TranslationManager.translate("steam.capture.locked", "Steam time set: %1s for %2g milk")
                     .arg(t).arg(milk.toFixed(0))
             steamPage.captureBannerVisible = true
             captureBannerTimer.restart()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
-                if (Settings.brew.doseCaptureSoundEnabled)
-                    AccessibilityManager.playCaptureDing()
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(steamPage.captureBannerText)
-            }
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(steamPage.captureBannerText)
         }
-    }
-    // Re-zero the milk capture when the scale is tared (so the old offset isn't
-    // double-counted by the virtual-zero baseline).
-    Connections {
-        target: MachineState
-        function onTareCompleted() { milkCapture.reset() }
     }
 
     // Confirmation banner shown briefly after a milk-weight capture (auto-dismiss).
@@ -2336,9 +2304,9 @@ T.Page {
     // (During-steam coaching banner is provided by upstream's LiveCoachingBanner
     // near the top of this page, gated on Settings.app.steamCoachVisualEnabled.)
 
-    // Small flashing reminder while the milk pitcher is settling on the scale
-    // (something is on the scale but the capture hasn't fired yet). Disappears
-    // the instant it captures (the bell rings).
+    // Small flashing reminder while the milk pitcher is settling on the scale, or why a
+    // settled load is not being captured (SteamLabels.captureHint). Disappears the
+    // instant it captures (the bell rings).
     Text {
         id: steamWaitForBellHint
         anchors.horizontalCenter: parent.horizontalCenter
@@ -2346,12 +2314,14 @@ T.Page {
         anchors.topMargin: Theme.scaled(70)
         z: 1000
         horizontalAlignment: Text.AlignHCenter
-        visible: milkCapture.active && !milkCapture.isCaptured
+        readonly property string milkHint: SteamLabels.captureHint(milkCapture)
+        visible: milkHint !== "" || (milkCapture.active && !milkCapture.isCaptured
                  && milkCapture.cupWeight > 0
                  && milkCapture.loadPresent
                  && milkCapture.netWeight >= milkCapture.minNet
-                 && milkCapture.netWeight <= milkCapture.maxNet
-        text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
+                 && milkCapture.netWeight <= milkCapture.maxNet)
+        text: milkHint !== "" ? milkHint
+            : TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
         color: Theme.warningColor
         font: Theme.labelFont
         SequentialAnimation on opacity {

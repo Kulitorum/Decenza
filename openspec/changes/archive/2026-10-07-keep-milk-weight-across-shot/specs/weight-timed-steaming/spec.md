@@ -2,7 +2,7 @@
 
 ### Requirement: Fallback-to-fixed-duration is diagnosable from the debug log
 
-When weight-timed steaming applies the recipe/preset's fixed duration instead of a weight-scaled one, the system SHALL log enough information to determine why: the session-captured milk weight and last on-scale milk reading, whether the master toggle (`milkAutoCaptureEnabled`) is on, the global steam-seconds-per-gram calibration value, the selected pitcher's name and enabled/disabled state, the computed scaled duration (or its absence), and which duration was actually applied. This SHALL cover both the steam-start decision point and the page-activation/pitcher-lift sync point, regardless of whether the steam session was reached by a user tap or a machine-driven (GHC) transition.
+When weight-timed steaming applies the fixed duration instead of a weight-scaled one, the debug log SHALL show why: the milk inputs, the toggle, the steam rate, the selected pitcher, the computed and the applied duration. It SHALL cover the steam-start decision and the page-activation/pitcher-lift sync, whether steam was started from the app or the group head.
 
 #### Scenario: Fallback due to missing calibration is visible in the log
 - **WHEN** steaming starts with milk captured but the global steam-seconds-per-gram rate is uncalibrated

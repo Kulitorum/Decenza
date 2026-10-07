@@ -124,9 +124,9 @@ QtObject {
     property bool pendingBrewDialog: false
 
     // Net milk weighed during this steam session, 0 when none has been. Written by
-    // the home screen's and the steam page's auto-capture, read by the steam plan,
-    // the milk-weight widget and SteamPage's scaling fallback. Reset on pitcher
-    // change and at session end.
+    // MilkCapture (home screen, steam page, shot review); read by the steam plan, the
+    // milk-weight widget and SteamPage's scaling fallback. Reset on pitcher change and
+    // at session end.
     //
     // This was main.qml's, and every consumer reached it through `Window.window`,
     // which qmllint types as QQuickWindow — so `window.sessionMeasuredMilkG` was an
@@ -136,6 +136,12 @@ QtObject {
     // that. Both are deleted now — a rename here is a build-time failure at every
     // call site instead.
     property real sessionMeasuredMilkG: 0
+
+    // The load above the empty reading the active MilkCapture settled on; NaN when no
+    // capture is active. Read by the pitcher pills and the Weight widget's Net milk mode.
+    // Only MilkCapture writes these.
+    property real milkScaleLoadG: NaN
+    property QtObject milkScaleLoadOwner: null
 
     // The page currently on top of the stack, published by main.qml on every change. Read by
     // widgets that live OUTSIDE the page stack — the persistent status bar — and so cannot find
