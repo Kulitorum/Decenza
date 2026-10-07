@@ -66,6 +66,8 @@ struct FakeDestination : ShotUploadDestination {
     void noteEdited(qint64 shotId) override { edited.append(shotId); }
     bool ready = true, updateReady = true;   // backgroundSendReady(), for a first upload and an update
     bool backgroundSendReady(Send how) const override { return how == Send::UpdateOnly ? updateReady : ready; }
+    QString notReady = QStringLiteral("waitingForMachine");
+    QString notReadyStatus() const override { return notReady; }
     int paced = 0;
     bool holdTurns = false;                  // keep pacer turns until the test runs them
     QList<std::function<void()>> turns;
@@ -143,13 +145,16 @@ public:
     QList<Canned> replies;
     QList<QNetworkRequest> requests;
     QList<QByteArray> bodies;
+    int finished = 0;  // counted before the caller's own finished handler runs
 
 protected:
     QNetworkReply* createRequest(Operation op, const QNetworkRequest& request, QIODevice* outgoing) override {
         requests.append(request);
         bodies.append(outgoing ? outgoing->readAll() : QByteArray());
         const Canned c = replies.size() > 1 ? replies.takeFirst() : replies.value(0);
-        return new CannedReply(op, request, c, this);
+        auto* reply = new CannedReply(op, request, c, this);
+        connect(reply, &QNetworkReply::finished, this, [this]() { ++finished; });
+        return reply;
     }
 };
 
@@ -224,6 +229,7 @@ class tst_DecentShotUpload : public QObject {
         DecentShotUploader uploader{&nam, &account, &storage};
         ShotUploads uploads{&upload, &storage, {&uploader}};
         QString serial = QStringLiteral("1234");
+        bool serialUnreported = false;
         qint64 shotId = 0;
         bool autoUpdate = upload.autoUpdate();
 
@@ -233,7 +239,9 @@ class tst_DecentShotUpload : public QObject {
             upload.setAutoUpdate(false);
             uploads.setRetryDelayMs(0);
             uploader.setMachineIdentityProvider([this]() {
-                return DecentMachineIdentity{serial, QStringLiteral("1352"), QStringLiteral("DE1PRO")};
+                DecentMachineIdentity id{serial, QStringLiteral("1352"), QStringLiteral("DE1PRO")};
+                id.serialUnreported = serialUnreported;
+                return id;
             });
             if (storage.initialize(dbPath)) shotId = storage.importShotRecord(makeShot(), false);
         }
@@ -578,6 +586,109 @@ private slots:
         QCOMPARE(finished.first().at(0).value<AccountLink::Error>(), AccountLink::Error::Cancelled);
         QCOMPARE(account.state(), DecentAccount::State::NotLinked);
         QVERIFY(!settings.enabled());
+    }
+
+    // A DE1 that reports serial 0 is filed under a DE1 from the account's list
+    // (Decaid's LegacyDe1IdentityResolver).
+    void unreportedSerialIsSettledFromTheAccount_data() {
+        QTest::addColumn<QStringList>("machines");
+        QTest::addColumn<int>("machineModel");
+        QTest::addColumn<QString>("chosen");
+        QTest::addColumn<QString>("serial");
+        QTest::addColumn<QStringList>("choices");
+        const QString pro = QStringLiteral("1001 DE-DE1PRO-110V");
+        const QString plus = QStringLiteral("1002 DE-DE1+-220V");
+        const QString xl = QStringLiteral("1003 DE-DE1XL");
+        const QString xxl = QStringLiteral("1004 DE-DE1XXL");
+        const QString pro2 = QStringLiteral("1005 de-de1pro");
+        QTest::newRow("the account's only DE1") << QStringList{pro, QStringLiteral("2001 DE-BE1BENGLE")} << 0
+                                                << QString() << QStringLiteral("1001") << QStringList{};
+        QTest::newRow("listed twice") << QStringList{pro, pro} << 0 << QString() << QStringLiteral("1001") << QStringList{};
+        QTest::newRow("no SKU is a DE1 of unknown model") << QStringList{QStringLiteral("1001")} << 3 << QString()
+                                                          << QStringLiteral("1001") << QStringList{};
+        QTest::newRow("no SKU never matches a model") << QStringList{QStringLiteral("1001"), pro2, plus} << 3 << QString()
+                                                      << QStringLiteral("1005") << QStringList{};
+        QTest::newRow("not at a token boundary") << QStringList{QStringLiteral("1001 DE-DE1PROX")} << 0 << QString()
+                                                 << QString() << QStringList{};
+        QTest::newRow("the only one of its model") << QStringList{pro, plus, xl, xxl} << 6 << QString()
+                                                   << QStringLiteral("1004") << QStringList{};
+        QTest::newRow("several of its model") << QStringList{pro, pro2, plus} << 3 << QString() << QString()
+                                              << QStringList{QStringLiteral("1001"), QStringLiteral("1005"),
+                                                             QStringLiteral("1002")};
+        QTest::newRow("the user's choice") << QStringList{pro, plus} << 0 << QStringLiteral("1002")
+                                           << QStringLiteral("1002") << QStringList{};
+        QTest::newRow("a choice no longer listed") << QStringList{pro, plus} << 0 << QStringLiteral("9999") << QString()
+                                                   << QStringList{QStringLiteral("1001"), QStringLiteral("1002")};
+    }
+    void unreportedSerialIsSettledFromTheAccount() {
+        QFETCH(QStringList, machines);
+        QFETCH(int, machineModel);
+        QFETCH(QString, chosen);
+        QFETCH(QString, serial);
+        QFETCH(QStringList, choices);
+        const DecentAccount::UnreportedSerial r = DecentAccount::resolveUnreportedSerial(machines, machineModel, chosen);
+        QCOMPARE(r.serial, serial);
+        QCOMPARE(r.choices, choices);
+    }
+
+    // Sign-in reads the account's machines. With several DE1s the user is asked
+    // once, and the answer goes with the account.
+    void signInReadsTheAccountsMachines() {
+        CannedNam nam;
+        nam.replies = {{200, "11c393223f0d8f7b"}, {200, "1001 DE-DE1PRO-110V\n1002 DE-DE1PRO-220V\n"}};
+        SettingsDecent settings;
+        settings.clearAccount();
+        settings.setEnabled(false);
+        DecentAccount account(&nam, &settings);
+        QSignalSpy asked(&account, &DecentAccount::machineChoiceNeeded);
+
+        account.link(QStringLiteral("owner@example.com"), QStringLiteral("plain-password"));
+        QVERIFY(QTest::qWaitFor([&]() { return settings.registeredMachines().size() == 2; }, 2000));
+        QCOMPARE(nam.requests.at(1).url().path(), QStringLiteral("/support/api/sn"));
+        QCOMPARE(nam.requests.at(1).rawHeader("Authorization"), basic("owner@example.com", "11c393223f0d8f7b"));
+
+        account.machineReportsNoSerial(3);
+        account.machineReportsNoSerial(3);
+        QCOMPARE(asked.size(), 1);
+        QCOMPARE(asked.first().at(0).toStringList(), (QStringList{QStringLiteral("1001"), QStringLiteral("1002")}));
+        QVERIFY(account.serialForUnreportedMachine(3).isEmpty());
+        account.chooseMachine(QStringLiteral("1002"));
+        QCOMPARE(account.serialForUnreportedMachine(3), QStringLiteral("1002"));
+
+        account.unlink();
+        QVERIFY(settings.registeredMachines().isEmpty());
+        QVERIFY(settings.chosenMachine().isEmpty());
+        settings.setEnabled(false);
+    }
+
+    // A machine list the server did not give is never stored; a 401 means signing in again.
+    void machineListFailuresStoreNothing_data() {
+        QTest::addColumn<int>("status");
+        QTest::addColumn<QByteArray>("body");
+        QTest::newRow("the API's refusal") << 200 << QByteArray("0");
+        QTest::newRow("captive portal") << 200 << QByteArray("<html><body>1001 DE-DE1PRO</body></html>");
+        QTest::newRow("server error") << 500 << QByteArray();
+        QTest::newRow("credentials refused") << 401 << QByteArray();
+    }
+    void machineListFailuresStoreNothing() {
+        QFETCH(int, status);
+        QFETCH(QByteArray, body);
+        CannedNam nam;
+        nam.replies = {{200, "11c393223f0d8f7b"}, {status, body}};
+        SettingsDecent settings;
+        settings.clearAccount();
+        settings.setEnabled(false);
+        DecentAccount account(&nam, &settings);
+        if (status == 401) QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected the stored credentials"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("could not read the account's machines"));
+
+        account.link(QStringLiteral("owner@example.com"), QStringLiteral("plain-password"));
+        QVERIFY(QTest::qWaitFor([&]() { return nam.finished == 2; }, 2000));
+
+        QVERIFY(settings.registeredMachines().isEmpty());
+        QCOMPARE(account.state(), status == 401 ? DecentAccount::State::NeedsSignIn : DecentAccount::State::Linked);
+        settings.setEnabled(false);
+        settings.clearAccount();
     }
 
     // ShotUploads: the shared settings decide, each active destination gets the
@@ -1282,6 +1393,10 @@ private slots:
         settle();
         QCOMPARE(sentIds(), (QList<qint64>{edited, userShot}));
         QCOMPARE(shownStatus, QStringLiteral("waitingForMachine"));
+        // The DE1 connects but reports serial 0: still waiting, for something else.
+        decent.notReady = QStringLiteral("waitingForSerial");
+        uploads.readinessChanged();
+        QCOMPARE(shownStatus, QStringLiteral("waitingForSerial"));
 
         decent.ready = true;
         uploads.readinessChanged();
@@ -1431,6 +1546,8 @@ private slots:
         QVERIFY(rig.shotId > 0);
         rig.serial.clear();
         QCOMPARE(rig.send(), DecentShotUploader::Result::NoMachine);
+        rig.serialUnreported = true;   // connected, reporting serial 0, and the account settled none
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NoSerial);
         QVERIFY(rig.nam.requests.isEmpty());
     }
 };

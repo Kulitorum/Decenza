@@ -10,6 +10,8 @@ struct DecentMachineIdentity {
     QString serialNumber;
     QString firmwareVersion;  // "" when unknown
     QString model;            // "" when unknown
+    // Connected, but the DE1 reports no serial and the account settled none for it.
+    bool serialUnreported = false;
 };
 
 // Serializes a saved shot as a Decaid ShotRecord document for

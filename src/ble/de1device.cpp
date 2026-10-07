@@ -335,8 +335,9 @@ void DE1Device::onTransportDisconnected() {
     // stale true opens a write against a baseline this machine never reported.
     clearCalibrationCache();
     // Same for the serial: a first Decent upload is filed under it.
-    if (m_serialNumber != 0) {
+    if (m_serialNumber != 0 || m_serialNumberRead) {
         m_serialNumber = 0;
+        m_serialNumberRead = false;
         emit serialNumberChanged();
     }
     // Stop chasing reads for a connection that no longer exists — a reconnect
@@ -1308,8 +1309,9 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
                            (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
                            static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
             DEVICE_INFO(QStringLiteral("Serial number read: %1").arg(val));
-            if (val != m_serialNumber) {
+            if (val != m_serialNumber || !m_serialNumberRead) {
                 m_serialNumber = val;
+                m_serialNumberRead = true;
                 emit serialNumberChanged();
             }
         }

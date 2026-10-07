@@ -52,6 +52,10 @@ ColumnLayout {
               ? TranslationManager.translate("settings.upload.missing.waitingForMachine",
                                              "%1 of %2 done. Waiting for the machine to connect")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
+              : status === "waitingForSerial"
+              ? TranslationManager.translate("settings.upload.missing.waitingForSerial",
+                                             "%1 of %2 done. Your DE1 does not report its serial number — sign out of your Decent account and sign in again")
+                    .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)
               : status === "uploading"
               ? TranslationManager.translate("settings.upload.missing.progress", "Uploading %1 of %2")
                     .arg(root.entry.done ?? 0).arg(root.entry.total ?? 0)

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include "accountlink.h"
@@ -60,17 +61,45 @@ public:
     // Any authenticated call that gets HTTP 401 reports it here.
     void reportAuthFailure();
 
+    // Older DE1s report serial 0. Their shots are filed under a DE1 from the
+    // account's machine list, read at sign-in, as Decaid's
+    // LegacyDe1IdentityResolver does: the one the user chose, the account's only
+    // DE1, or the only one of the machine's model (DE1Device::machineModel()).
+    // Otherwise `serial` is empty and `choices` lists the DE1s to choose from.
+    struct UnreportedSerial {
+        QString serial;
+        QStringList choices;
+        QStringList labels;  // "serial · SKU" (the serial alone without one), for the user
+    };
+    static UnreportedSerial resolveUnreportedSerial(const QStringList& machines, int machineModel,
+                                                    const QString& chosen);
+    // The SKU's model as DE1Device::machineModel() numbers it; 0 when it is not a DE1.
+    static int skuModel(const QString& sku);
+    QString serialForUnreportedMachine(int machineModel) const;
+    // The connected DE1 reports no serial. Logs what it will be filed under and,
+    // once per app run and sign-in, asks the user (machineChoiceNeeded) if that is not settled.
+    void machineReportsNoSerial(int machineModel);
+    Q_INVOKABLE void chooseMachine(const QString& serial);
+
 signals:
     void stateChanged();
     void busyChanged();
     void linkFinished(AccountLink::Error error);
+    // The machine list or the user's choice changed.
+    void machinesChanged();
+    void machineChoiceNeeded(const QStringList& serials, const QStringList& labels);
 
 private:
     void onLinkFinished();
+    void fetchMachines();
+    void onMachinesFinished(QNetworkReply* reply);
 
     QNetworkAccessManager* m_network;
     SettingsDecent* m_settings;
     QPointer<QNetworkReply> m_linkReply;
+    QPointer<QNetworkReply> m_machinesReply;
+    QElapsedTimer m_machinesTimer;
+    bool m_unreportedSerialNoted = false;
     QElapsedTimer m_linkTimer;
     QString m_pendingEmail;
 };

@@ -14,6 +14,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <algorithm>
+
 namespace {
 void openInBrowser(const QUrl& url) {
     if (!QDesktopServices::openUrl(url))
@@ -26,6 +28,40 @@ QString replyOutcome(const QNetworkReply* reply, const QElapsedTimer& timer) {
         .arg(timer.elapsed())
         .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
         .arg(QString::fromLatin1(QMetaEnum::fromType<QNetworkReply::NetworkError>().valueToKey(reply->error())));
+}
+
+// Ends a pending request without its finished handler running. False if there was none.
+bool cancelReply(QObject* receiver, QPointer<QNetworkReply>& pending) {
+    QNetworkReply* reply = pending;
+    pending = nullptr;
+    if (!reply) return false;
+    QObject::disconnect(reply, nullptr, receiver, nullptr);
+    reply->abort();
+    reply->deleteLater();
+    return true;
+}
+
+struct RegisteredDe1 {
+    QString serial;
+    QString sku;
+    int model;
+};
+
+// The DE1s among /support/api/sn's "serial sku" lines, each serial once. A
+// machine listed with no SKU counts as a DE1 of unknown model (0): the list
+// holds only espresso machines, and a Bengle reports its own serial.
+QList<RegisteredDe1> registeredDe1s(const QStringList& machines) {
+    QList<RegisteredDe1> de1s;
+    for (const QString& line : machines) {
+        const QStringList parts = line.simplified().split(QLatin1Char(' '));
+        const QString serial = parts.value(0);
+        const QString sku = parts.value(1);
+        const int model = DecentAccount::skuModel(sku);
+        if (serial.isEmpty() || (!sku.isEmpty() && model == 0)) continue;
+        if (std::any_of(de1s.cbegin(), de1s.cend(), [&](const RegisteredDe1& d) { return d.serial == serial; })) continue;
+        de1s.append({serial, sku, model});
+    }
+    return de1s;
 }
 
 // login_test's token is one short line; a captive portal's page is not.
@@ -41,6 +77,7 @@ DecentAccount::DecentAccount(QNetworkAccessManager* network, SettingsDecent* set
     , m_settings(settings)
 {
     connect(m_settings, &SettingsDecent::accountChanged, this, &DecentAccount::stateChanged);
+    connect(m_settings, &SettingsDecent::machinesChanged, this, &DecentAccount::machinesChanged);
 }
 
 DecentAccount::State DecentAccount::state() const {
@@ -106,25 +143,133 @@ void DecentAccount::onLinkFinished() {
         return;
     }
 
+    // setAccount clears the previous machine list; nothing is noted about it until the new one is read.
+    m_unreportedSerialNoted = true;
     m_settings->setAccount(m_pendingEmail, body);
     // Connecting an account switches uploads to it on; the user can switch it off.
     m_settings->setEnabled(true);
     // No email: debug logs are submitted for support and readable over MCP.
     DIAG_INFO(DECENT, "DecentAccount") << "account linked" << replyOutcome(reply, m_linkTimer);
     emit linkFinished(AccountLink::Error::None);
+    fetchMachines();
+    m_unreportedSerialNoted = false;
+}
+
+void DecentAccount::fetchMachines() {
+    QNetworkRequest request(QUrl(QString::fromLatin1(kBaseUrl)
+                                 + QStringLiteral("/support/api/sn?onlyespressomachines=1&withskus=1")));
+    if (!applyAuth(request)) return;
+    request.setTransferTimeout(kTransferTimeoutMs);
+    cancelReply(this, m_machinesReply);
+    m_machinesTimer.start();
+    QNetworkReply* reply = m_network->get(request);
+    m_machinesReply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() { onMachinesFinished(reply); });
+}
+
+void DecentAccount::onMachinesFinished(QNetworkReply* reply) {
+    reply->deleteLater();
+    if (m_machinesReply != reply) return;
+    m_machinesReply = nullptr;
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (status == 401) reportAuthFailure();
+    const QString body = QString::fromUtf8(reply->readAll()).trimmed();
+    // "0" is the API's refusal; markup is a captive portal or a proxy.
+    if (status != 200 || body == QLatin1String("0") || body.contains(QLatin1Char('<'))) {
+        DIAG_WARN(DECENT, "DecentAccount") << "could not read the account's machines" << replyOutcome(reply, m_machinesTimer)
+                                           << "- a DE1 that reports no serial number cannot upload until the account is "
+                                              "signed in again";
+        return;
+    }
+    QStringList lines;
+    for (const QString& line : body.split(QLatin1Char('\n'))) {
+        if (!line.trimmed().isEmpty()) lines.append(line.trimmed());
+    }
+    m_settings->setRegisteredMachines(lines);
+    DIAG_INFO(DECENT, "DecentAccount") << "account lists" << lines.size() << "espresso machine(s),"
+                                       << registeredDe1s(lines).size() << "of them DE1s"
+                                       << replyOutcome(reply, m_machinesTimer);
+}
+
+int DecentAccount::skuModel(const QString& sku) {
+    // Decaid's parseSkuModel (registered_decent_machine.dart): the longest token
+    // first, matched only at a token boundary. A Bengle (BE1BENGLE) is not a DE1.
+    static const std::pair<const char*, int> kTokens[] = {
+        {"DE1XXXL", 7}, {"DE1XXL", 6}, {"DE1XL", 4}, {"DE1CAFE", 5}, {"DE1PRO", 3},
+        {"DE1PLUS", 2}, {"DE1+", 2}, {"BE1BENGLE", 0}, {"DE1", 1},
+    };
+    const QString upper = sku.toUpper();
+    if (!upper.startsWith(QLatin1String("DE-"))) return 0;
+    const QString model = upper.mid(3);
+    for (const auto& [token, value] : kTokens) {
+        const QLatin1String t(token);
+        if (!model.startsWith(t)) continue;
+        const bool boundary = model.size() == t.size() || !model.at(t.size()).isUpper();
+        return boundary ? value : 0;
+    }
+    return 0;
+}
+
+DecentAccount::UnreportedSerial DecentAccount::resolveUnreportedSerial(const QStringList& machines, int machineModel,
+                                                                       const QString& chosen) {
+    const QList<RegisteredDe1> de1s = registeredDe1s(machines);
+    UnreportedSerial out;
+    const auto settle = [&](const QString& serial) { out.serial = serial; return out; };
+    if (!chosen.isEmpty() && std::any_of(de1s.cbegin(), de1s.cend(), [&](const RegisteredDe1& d) { return d.serial == chosen; }))
+        return settle(chosen);
+    if (de1s.size() == 1) return settle(de1s.first().serial);
+    if (machineModel > 0) {
+        QStringList ofModel;
+        for (const RegisteredDe1& d : de1s) if (d.model == machineModel) ofModel.append(d.serial);
+        if (ofModel.size() == 1) return settle(ofModel.first());
+    }
+    for (const RegisteredDe1& d : de1s) {
+        out.choices.append(d.serial);
+        out.labels.append(d.sku.isEmpty() ? d.serial : QStringLiteral("%1 · %2").arg(d.serial, d.sku));
+    }
+    return out;
+}
+
+QString DecentAccount::serialForUnreportedMachine(int machineModel) const {
+    return resolveUnreportedSerial(m_settings->registeredMachines(), machineModel, m_settings->chosenMachine()).serial;
+}
+
+void DecentAccount::machineReportsNoSerial(int machineModel) {
+    if (state() != State::Linked || m_unreportedSerialNoted || m_machinesReply) return;
+    m_unreportedSerialNoted = true;
+    const QStringList machines = m_settings->registeredMachines();
+    const UnreportedSerial r = resolveUnreportedSerial(machines, machineModel, m_settings->chosenMachine());
+    if (!r.serial.isEmpty()) {
+        DIAG_INFO(DECENT, "DecentAccount") << "the DE1 reports no serial number; its shots go up under the account's DE1"
+                                           << r.serial;
+    } else if (!r.choices.isEmpty()) {
+        DIAG_INFO(DECENT, "DecentAccount") << "the DE1 reports no serial number and the account has" << r.choices.size()
+                                           << "DE1s; asking which one it is";
+        emit machineChoiceNeeded(r.choices, r.labels);
+    } else if (machines.isEmpty()) {
+        // Accounts linked before the list was read at sign-in have none.
+        DIAG_WARN(DECENT, "DecentAccount") << "the DE1 reports no serial number and the account's machines have not been "
+                                              "read - its shots cannot be uploaded until the Decent account is signed out "
+                                              "and signed in again";
+    } else {
+        DIAG_WARN(DECENT, "DecentAccount") << "the DE1 reports no serial number and the account lists no DE1 to file its "
+                                              "shots under - they cannot be uploaded";
+    }
+}
+
+void DecentAccount::chooseMachine(const QString& serial) {
+    m_settings->setChosenMachine(serial);
+    DIAG_INFO(DECENT, "DecentAccount") << "the user chose DE1" << serial << "for the machine that reports no serial number";
 }
 
 void DecentAccount::unlink() {
     // A sign-in still in flight must not re-link the account the user just disconnected.
-    if (QNetworkReply* pending = m_linkReply) {
-        m_linkReply = nullptr;
-        disconnect(pending, nullptr, this, nullptr);
-        pending->abort();
-        pending->deleteLater();
+    if (cancelReply(this, m_linkReply)) {
         emit busyChanged();
         DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled after" << m_linkTimer.elapsed() << "ms";
         emit linkFinished(AccountLink::Error::Cancelled);
     }
+    cancelReply(this, m_machinesReply);
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();
     DIAG_INFO(DECENT, "DecentAccount") << "account unlinked";

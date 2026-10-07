@@ -37,6 +37,7 @@ public:
         TooShort,        // shorter than the shared minimum length
         NotLinked,       // no linked account
         NoMachine,       // first upload with no DE1 connected
+        NoSerial,        // first upload; the DE1 reports no serial and the account settled none
         NotFound,        // the shot could not be loaded
         Rejected,        // permanent 4xx; recorded on the shot
         NeedsSignIn,     // the stored credentials were refused (401), now or earlier
@@ -62,6 +63,10 @@ public:
     // A first upload needs the connected machine's serial; an update goes to the one stored.
     bool backgroundSendReady(Send how) const override {
         return how == Send::UpdateOnly || (m_machineIdentity && !m_machineIdentity().serialNumber.isEmpty());
+    }
+    QString notReadyStatus() const override {
+        return m_machineIdentity && m_machineIdentity().serialUnreported ? QStringLiteral("waitingForSerial")
+                                                                         : QStringLiteral("waitingForMachine");
     }
     // The shared minimum shot length (SettingsUpload::minDuration), read when an upload starts.
     void setMinDurationProvider(std::function<double()> provider) { m_minDuration = std::move(provider); }

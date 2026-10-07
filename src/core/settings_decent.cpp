@@ -5,6 +5,8 @@ const QString kEmailKey = QStringLiteral("decent/email");
 const QString kCryptPwKey = QStringLiteral("decent/cryptpw");
 const QString kNeedsSignInKey = QStringLiteral("decent/needsSignIn");
 const QString kEnabledKey = QStringLiteral("decent/enabled");
+const QString kMachinesKey = QStringLiteral("decent/machines");
+const QString kChosenMachineKey = QStringLiteral("decent/chosenMachine");
 }
 
 SettingsDecent::SettingsDecent(QObject* parent)
@@ -38,6 +40,7 @@ void SettingsDecent::setAccount(const QString& email, const QString& encryptedPa
     m_settings.setValue(kEmailKey, email);
     m_settings.setValue(kCryptPwKey, encryptedPassword);
     m_settings.remove(kNeedsSignInKey);
+    clearMachines();
     emit accountChanged();
 }
 
@@ -45,7 +48,34 @@ void SettingsDecent::clearAccount() {
     m_settings.remove(kEmailKey);
     m_settings.remove(kCryptPwKey);
     m_settings.remove(kNeedsSignInKey);
+    clearMachines();
     emit accountChanged();
+}
+
+void SettingsDecent::clearMachines() {
+    if (!m_settings.contains(kMachinesKey) && !m_settings.contains(kChosenMachineKey)) return;
+    m_settings.remove(kMachinesKey);
+    m_settings.remove(kChosenMachineKey);
+    emit machinesChanged();
+}
+
+QStringList SettingsDecent::registeredMachines() const {
+    return m_settings.value(kMachinesKey).toStringList();
+}
+
+void SettingsDecent::setRegisteredMachines(const QStringList& lines) {
+    m_settings.setValue(kMachinesKey, lines);
+    emit machinesChanged();
+}
+
+QString SettingsDecent::chosenMachine() const {
+    return m_settings.value(kChosenMachineKey).toString();
+}
+
+void SettingsDecent::setChosenMachine(const QString& serial) {
+    if (chosenMachine() == serial) return;
+    m_settings.setValue(kChosenMachineKey, serial);
+    emit machinesChanged();
 }
 
 void SettingsDecent::setNeedsSignIn(bool needsSignIn) {

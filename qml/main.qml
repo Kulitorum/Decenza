@@ -782,7 +782,7 @@ T.ApplicationWindow {
             || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
             || noScaleAbortDialog.visible || crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
-            || localNetworkDeniedDialog.visible
+            || localNetworkDeniedDialog.visible || decentMachineDialog.visible
     }
 
     function showNextPendingPopup() {
@@ -848,6 +848,9 @@ T.ApplicationWindow {
                 recipeActivationFailedDialog.missingProfileTitle =
                     next.params.missingProfileTitle || ""
                 recipeActivationFailedDialog.open()
+                break
+            case "decentMachine":
+                openDecentMachineDialog(next.params.serials, next.params.labels)
                 break
         }
     }
@@ -2813,6 +2816,31 @@ T.ApplicationWindow {
             recipeActivationFailedDialog.missingProfileTitle = missingProfileTitle
             if (!recipeActivationFailedDialog.visible)
                 recipeActivationFailedDialog.open()
+        }
+    }
+
+    // A DE1 that reports no serial number, in an account with several DE1s: which
+    // one its shots are filed under. DecentAccount asks once per app run and sign-in.
+    SelectionDialog {
+        id: decentMachineDialog
+        property var serials: []
+        title: TranslationManager.translate("decent.machine.chooseTitle", "Which Decent machine is this?")
+        onSelected: function(index, value) { MainController.decentAccount.chooseMachine(decentMachineDialog.serials[index]) }
+        onClosed: root.showNextPendingPopup()
+    }
+    function openDecentMachineDialog(serials, labels) {
+        decentMachineDialog.serials = serials
+        decentMachineDialog.options = labels
+        decentMachineDialog.open()
+    }
+    Connections {
+        target: MainController.decentAccount
+        function onMachineChoiceNeeded(serials, labels) {
+            if (root.screensaverActive || root.anyModalDialogVisible()) {
+                root.queuePopup("decentMachine", {serials: serials, labels: labels})
+                return
+            }
+            root.openDecentMachineDialog(serials, labels)
         }
     }
 

@@ -193,6 +193,9 @@ public:
     // own it and the server refuses its uploads (403) — unless
     // setSimulatedSerialNumber gave it a real serial.
     QString serialNumber() const;
+    // The machine answered the serial read with 0, as older DE1s do. Unlike an
+    // unread serial, this one will not arrive; DecentAccount stands in for it.
+    bool reportsNoSerialNumber() const { return !m_simulationMode && m_serialNumberRead && m_serialNumber == 0; }
     static constexpr const char* kSimulatedSerial = "SIM-DE1";
     // A real serial for the simulator to report instead, so a developer can test
     // Decent uploads end to end. Set only over MCP, held in memory for this app
@@ -765,6 +768,7 @@ private:
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
     uint32_t m_serialNumber = 0;  // 0=unknown, read from MMR SERIAL_NUMBER
+    bool m_serialNumberRead = false;
     QString m_simulatedSerial;
 
     // Stored and factory calibration per target, absent until the machine
