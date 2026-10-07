@@ -41,7 +41,7 @@ class ShotUploads : public QObject {
     // sent, total, resumeAtMs, status}, for the Upload missing shots button.
     // Counted on a worker thread. resumeAtMs (ms since the epoch) is set while a
     // 429 holds the queue. status picks the line under the button, for the app and
-    // the web page alike: slowedDown, waitingForMachine, uploading, failedBefore or "".
+    // the web page alike: slowedDown, waitingForMachine, waitingForSerial, uploading, failedBefore or "".
     Q_PROPERTY(QVariantMap missing READ missing NOTIFY missingChanged FINAL)
 
 public:
@@ -135,7 +135,7 @@ private:
     void enqueueTo(ShotUploadDestination* destination, qint64 shotId, Send how, bool background);
     void pump(ShotUploadDestination* destination);
     void sendNext(ShotUploadDestination* destination);
-    // Keeps Run::waitingForReady, its log line and missingChanged() in step with the queue.
+    // Keeps Run::waitingFor, its log line and missingChanged() in step with the queue.
     void noteWaitingUntilReady(ShotUploadDestination* destination);
     ShotUploadDestination* destinationNamed(const QString& name) const;
     void startRun(ShotUploadDestination* destination, qint64 skipFailedSince);
@@ -169,7 +169,7 @@ private:
         bool selecting = true;        // findMissing is still running
         bool waiting = false;         // a batch-spacing wait is pending
         bool paused = false;          // waiting for the machine to stop operating (logged once)
-        bool waitingForReady = false; // every queued background send is held until the destination is ready
+        QString waitingFor;           // the destination's notReadyStatus() while it holds every queued background send
         int unsentLeft = 0;           // unsent edits still at the front of `pending`
         QList<qint64> pending;        // still to send, in order
         QSet<qint64> outstanding;     // the batch being sent

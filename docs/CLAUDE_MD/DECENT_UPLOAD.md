@@ -32,7 +32,8 @@ first upload is refused (`NoMachine`). Older DE1s answer the read with 0 (`DE1De
 PCB 1.0 machine, #2013). For those, `DecentAccount` files shots under a DE1 from the account's machine list
 (`/support/api/sn?onlyespressomachines=1&withskus=1`, read at sign-in and kept with the account), as Decaid's
 `LegacyDe1IdentityResolver` does: the user's earlier choice, the account's only DE1, or the only one of the machine's model.
-With several DE1s and no answer, a dialog asks once per sign-in; until then a first upload is refused (`NoSerial`). An account
+A machine listed with no SKU counts as a DE1 of unknown model (Decaid skips it).
+With several DE1s and no answer, a dialog asks once per app run and again after each sign-in; until then a first upload is refused (`NoSerial`) and Upload missing shots shows `waitingForSerial`. An account
 linked before the list existed has none, so the remedy for a stuck upload is to sign out and in again. The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
 
 **Responses** (one table for both destinations, `ShotUploadDestination::responseOutcome`; D15):

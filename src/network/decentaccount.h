@@ -69,7 +69,7 @@ public:
     struct UnreportedSerial {
         QString serial;
         QStringList choices;
-        QStringList labels;  // "serial · SKU", for the user
+        QStringList labels;  // "serial · SKU" (the serial alone without one), for the user
     };
     static UnreportedSerial resolveUnreportedSerial(const QStringList& machines, int machineModel,
                                                     const QString& chosen);
@@ -77,7 +77,7 @@ public:
     static int skuModel(const QString& sku);
     QString serialForUnreportedMachine(int machineModel) const;
     // The connected DE1 reports no serial. Logs what it will be filed under and,
-    // once per sign-in, asks the user (machineChoiceNeeded) if that is not settled.
+    // once per app run and sign-in, asks the user (machineChoiceNeeded) if that is not settled.
     void machineReportsNoSerial(int machineModel);
     Q_INVOKABLE void chooseMachine(const QString& serial);
 

@@ -2820,7 +2820,7 @@ T.ApplicationWindow {
     }
 
     // A DE1 that reports no serial number, in an account with several DE1s: which
-    // one its shots are filed under. DecentAccount asks once per sign-in.
+    // one its shots are filed under. DecentAccount asks once per app run and sign-in.
     SelectionDialog {
         id: decentMachineDialog
         property var serials: []

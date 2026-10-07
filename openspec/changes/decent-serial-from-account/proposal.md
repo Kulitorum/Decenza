@@ -6,7 +6,7 @@ Some older DE1s answer the serial-number read (MMR `0x803830`) with 0. Decenza t
 
 - At sign-in, read the account's espresso machines from `/support/api/sn?onlyespressomachines=1&withskus=1` and keep the list with the account.
 - When the connected DE1 reports serial 0, file its shots under a DE1 from that list, as Decaid does: the one the user chose, the account's only DE1, or the only one matching the machine's model.
-- With several DE1s and no choice yet, ask once per sign-in in a dialog. There is no permanent on-screen control; signing out and in again asks again.
+- With several DE1s and no choice yet, ask in a dialog, once each time the app starts or the account is signed in. There is no permanent on-screen control.
 - A first upload that has no serial for this reason is refused with its own message (sign out and in again), not "connect your DE1".
 
 ## Capabilities

@@ -64,6 +64,10 @@ public:
     bool backgroundSendReady(Send how) const override {
         return how == Send::UpdateOnly || (m_machineIdentity && !m_machineIdentity().serialNumber.isEmpty());
     }
+    QString notReadyStatus() const override {
+        return m_machineIdentity && m_machineIdentity().serialUnreported ? QStringLiteral("waitingForSerial")
+                                                                         : QStringLiteral("waitingForMachine");
+    }
     // The shared minimum shot length (SettingsUpload::minDuration), read when an upload starts.
     void setMinDurationProvider(std::function<double()> provider) { m_minDuration = std::move(provider); }
 

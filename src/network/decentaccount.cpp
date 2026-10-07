@@ -30,13 +30,26 @@ QString replyOutcome(const QNetworkReply* reply, const QElapsedTimer& timer) {
         .arg(QString::fromLatin1(QMetaEnum::fromType<QNetworkReply::NetworkError>().valueToKey(reply->error())));
 }
 
+// Ends a pending request without its finished handler running. False if there was none.
+bool cancelReply(QObject* receiver, QPointer<QNetworkReply>& pending) {
+    QNetworkReply* reply = pending;
+    pending = nullptr;
+    if (!reply) return false;
+    QObject::disconnect(reply, nullptr, receiver, nullptr);
+    reply->abort();
+    reply->deleteLater();
+    return true;
+}
+
 struct RegisteredDe1 {
     QString serial;
     QString sku;
     int model;
 };
 
-// The DE1s among /support/api/sn's "serial sku" lines, each serial once.
+// The DE1s among /support/api/sn's "serial sku" lines, each serial once. A
+// machine listed with no SKU counts as a DE1 of unknown model (0): the list
+// holds only espresso machines, and a Bengle reports its own serial.
 QList<RegisteredDe1> registeredDe1s(const QStringList& machines) {
     QList<RegisteredDe1> de1s;
     for (const QString& line : machines) {
@@ -44,7 +57,7 @@ QList<RegisteredDe1> registeredDe1s(const QStringList& machines) {
         const QString serial = parts.value(0);
         const QString sku = parts.value(1);
         const int model = DecentAccount::skuModel(sku);
-        if (serial.isEmpty() || model == 0) continue;
+        if (serial.isEmpty() || (!sku.isEmpty() && model == 0)) continue;
         if (std::any_of(de1s.cbegin(), de1s.cend(), [&](const RegisteredDe1& d) { return d.serial == serial; })) continue;
         de1s.append({serial, sku, model});
     }
@@ -147,11 +160,7 @@ void DecentAccount::fetchMachines() {
                                  + QStringLiteral("/support/api/sn?onlyespressomachines=1&withskus=1")));
     if (!applyAuth(request)) return;
     request.setTransferTimeout(kTransferTimeoutMs);
-    if (m_machinesReply) {
-        disconnect(m_machinesReply, nullptr, this, nullptr);
-        m_machinesReply->abort();
-        m_machinesReply->deleteLater();
-    }
+    cancelReply(this, m_machinesReply);
     m_machinesTimer.start();
     QNetworkReply* reply = m_network->get(request);
     m_machinesReply = reply;
@@ -216,7 +225,7 @@ DecentAccount::UnreportedSerial DecentAccount::resolveUnreportedSerial(const QSt
     }
     for (const RegisteredDe1& d : de1s) {
         out.choices.append(d.serial);
-        out.labels.append(QStringLiteral("%1 · %2").arg(d.serial, d.sku));
+        out.labels.append(d.sku.isEmpty() ? d.serial : QStringLiteral("%1 · %2").arg(d.serial, d.sku));
     }
     return out;
 }
@@ -255,21 +264,12 @@ void DecentAccount::chooseMachine(const QString& serial) {
 
 void DecentAccount::unlink() {
     // A sign-in still in flight must not re-link the account the user just disconnected.
-    if (QNetworkReply* pending = m_linkReply) {
-        m_linkReply = nullptr;
-        disconnect(pending, nullptr, this, nullptr);
-        pending->abort();
-        pending->deleteLater();
+    if (cancelReply(this, m_linkReply)) {
         emit busyChanged();
         DIAG_INFO(DECENT, "DecentAccount") << "sign-in cancelled after" << m_linkTimer.elapsed() << "ms";
         emit linkFinished(AccountLink::Error::Cancelled);
     }
-    if (QNetworkReply* pending = m_machinesReply) {
-        m_machinesReply = nullptr;
-        disconnect(pending, nullptr, this, nullptr);
-        pending->abort();
-        pending->deleteLater();
-    }
+    cancelReply(this, m_machinesReply);
     if (!m_settings->linked() && m_settings->email().isEmpty()) return;
     m_settings->clearAccount();
     DIAG_INFO(DECENT, "DecentAccount") << "account unlinked";

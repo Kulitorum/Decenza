@@ -1290,6 +1290,8 @@ QString ShotServer::generateSettingsPage() const
                     ? 'The server asked to slow down; uploads continue at ' + resumesAt
                     : m.status === 'waitingForMachine'
                     ? done + ' done. Waiting for the machine to connect'
+                    : m.status === 'waitingForSerial'
+                    ? done + ' done. Your DE1 does not report its serial number. Sign out of your Decent account and sign in again'
                     : m.status === 'uploading'
                     ? 'Uploading ' + done
                     : m.status === 'failedBefore' ? failed + ' of them could not be uploaded before' : '';

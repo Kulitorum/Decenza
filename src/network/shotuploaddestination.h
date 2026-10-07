@@ -70,6 +70,8 @@ public:
     // Whether a background send (Upload missing shots) of this kind could go now;
     // false holds it until ShotUploads::readinessChanged().
     virtual bool backgroundSendReady(Send how) const { Q_UNUSED(how); return true; }
+    // What a destination that is not ready waits for, as ShotUploads::missing() names it.
+    virtual QString notReadyStatus() const { return QStringLiteral("waitingForMachine"); }
     // Runs `send` when a background send (Upload missing shots) may go, paced with
     // the destination's other background requests; dropped if `context` is destroyed.
     virtual void paceBackground(QObject* context, std::function<void()> send) { Q_UNUSED(context); send(); }

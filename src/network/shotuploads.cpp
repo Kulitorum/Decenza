@@ -340,11 +340,15 @@ void ShotUploads::readinessChanged() {
 void ShotUploads::noteWaitingUntilReady(ShotUploadDestination* destination) {
     const auto run = m_runs.find(destination);
     if (run == m_runs.end()) return;
-    const bool waiting = waitingUntilReady(destination);
-    if (waiting == run->waitingForReady) return;
-    run->waitingForReady = waiting;
-    logUploads(destination->name(), waiting ? QStringLiteral("Upload missing shots waiting for the machine to connect")
-                                            : QStringLiteral("Upload missing shots no longer waiting for the machine"));
+    const QString waitingFor = waitingUntilReady(destination) ? destination->notReadyStatus() : QString();
+    if (waitingFor == run->waitingFor) return;
+    run->waitingFor = waitingFor;
+    logUploads(destination->name(),
+               waitingFor == QLatin1String("waitingForSerial")
+                   ? QStringLiteral("Upload missing shots waiting: the DE1 reports no serial number and the account "
+                                    "settled none for it")
+               : !waitingFor.isEmpty() ? QStringLiteral("Upload missing shots waiting for the machine to connect")
+                                       : QStringLiteral("Upload missing shots no longer waiting for the machine"));
     emit missingChanged();
 }
 
@@ -381,11 +385,11 @@ QVariantMap ShotUploads::missing() const {
         }
         if (held) entry[QStringLiteral("resumeAtMs")] = m_settings->rateLimitedUntilMs(destination->name());
         const int failed = count != m_counts.constEnd() ? count->failed : 0;
-        entry[QStringLiteral("status")] = held                            ? QStringLiteral("slowedDown")
-                                        : running && run->waitingForReady ? QStringLiteral("waitingForMachine")
-                                        : running                        ? QStringLiteral("uploading")
-                                        : failed > 0                     ? QStringLiteral("failedBefore")
-                                                                          : QString();
+        entry[QStringLiteral("status")] = held                                  ? QStringLiteral("slowedDown")
+                                        : running && !run->waitingFor.isEmpty() ? run->waitingFor
+                                        : running                              ? QStringLiteral("uploading")
+                                        : failed > 0                           ? QStringLiteral("failedBefore")
+                                                                                : QString();
         all[destination->name()] = entry;
     }
     return all;
