@@ -40,6 +40,7 @@ ShotUploadDestination::Outcome DecentShotUploader::outcome(Result result) {
     case Result::TooShort:
     case Result::NotLinked:
     case Result::NoMachine:
+    case Result::NoSerial:
     case Result::NotFound: return Outcome::NothingToSend;
     }
     return Outcome::NothingToSend;
@@ -129,7 +130,7 @@ void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
                 p.replace = true;
                 if (machine.serialNumber != state.serial) machine = DecentMachineIdentity{state.serial, {}, {}};
             } else if (connected.serialNumber.isEmpty()) {
-                p.error = Result::NoMachine;
+                p.error = connected.serialUnreported ? Result::NoSerial : Result::NoMachine;
                 return;
             }
             p.serial = machine.serialNumber;
@@ -278,6 +279,10 @@ void DecentShotUploader::sendFinished(qint64 shotId, Attempt last) {
     switch (result) {
     case Result::NoMachine:
         DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: no DE1 connected"; break;
+    case Result::NoSerial:
+        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId
+                                                << "not uploaded: the DE1 reports no serial number and the account "
+                                                   "settled none for it"; break;
     case Result::NotFound:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded:" << m_current.failure; break;
     case Result::NotLinked:

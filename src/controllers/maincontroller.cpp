@@ -348,6 +348,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         DecentMachineIdentity id;
         if (!m_device || !m_device->isConnected()) return id;
         id.serialNumber = m_device->serialNumber();
+        if (m_device->reportsNoSerialNumber()) {
+            id.serialNumber = m_decentAccount->serialForUnreportedMachine(m_device->machineModel());
+            id.serialUnreported = id.serialNumber.isEmpty();
+        }
         if (m_device->firmwareBuildNumber() > 0) id.firmwareVersion = QString::number(m_device->firmwareBuildNumber());
         id.model = DecentShotRecord::modelName(m_device->machineModel());
         return id;
@@ -358,6 +362,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     if (m_device) {   // Decent's first uploads wait for the machine's serial
         connect(m_device, &DE1Device::connectedChanged, m_shotUploads, &ShotUploads::readinessChanged);
         connect(m_device, &DE1Device::serialNumberChanged, m_shotUploads, &ShotUploads::readinessChanged);
+        // or, for a DE1 that reports none, for the account to settle one.
+        connect(m_decentAccount, &DecentAccount::machinesChanged, m_shotUploads, &ShotUploads::readinessChanged);
+        const auto noteUnreportedSerial = [this]() {
+            if (m_device->isConnected() && m_device->reportsNoSerialNumber())
+                m_decentAccount->machineReportsNoSerial(m_device->machineModel());
+        };
+        connect(m_device, &DE1Device::serialNumberChanged, m_decentAccount, noteUnreportedSerial);
+        connect(m_decentAccount, &DecentAccount::machinesChanged, m_decentAccount, noteUnreportedSerial);
     }
     if (m_machineState) {
         const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };

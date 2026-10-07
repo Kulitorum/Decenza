@@ -224,6 +224,7 @@ class tst_DecentShotUpload : public QObject {
         DecentShotUploader uploader{&nam, &account, &storage};
         ShotUploads uploads{&upload, &storage, {&uploader}};
         QString serial = QStringLiteral("1234");
+        bool serialUnreported = false;
         qint64 shotId = 0;
         bool autoUpdate = upload.autoUpdate();
 
@@ -233,7 +234,9 @@ class tst_DecentShotUpload : public QObject {
             upload.setAutoUpdate(false);
             uploads.setRetryDelayMs(0);
             uploader.setMachineIdentityProvider([this]() {
-                return DecentMachineIdentity{serial, QStringLiteral("1352"), QStringLiteral("DE1PRO")};
+                DecentMachineIdentity id{serial, QStringLiteral("1352"), QStringLiteral("DE1PRO")};
+                id.serialUnreported = serialUnreported;
+                return id;
             });
             if (storage.initialize(dbPath)) shotId = storage.importShotRecord(makeShot(), false);
         }
@@ -578,6 +581,77 @@ private slots:
         QCOMPARE(finished.first().at(0).value<AccountLink::Error>(), AccountLink::Error::Cancelled);
         QCOMPARE(account.state(), DecentAccount::State::NotLinked);
         QVERIFY(!settings.enabled());
+    }
+
+    // A DE1 that reports serial 0 is filed under a DE1 from the account's list
+    // (Decaid's LegacyDe1IdentityResolver).
+    void unreportedSerialIsSettledFromTheAccount_data() {
+        QTest::addColumn<QStringList>("machines");
+        QTest::addColumn<int>("machineModel");
+        QTest::addColumn<QString>("chosen");
+        QTest::addColumn<QString>("serial");
+        QTest::addColumn<QStringList>("choices");
+        const QString pro = QStringLiteral("1001 DE-DE1PRO-110V");
+        const QString plus = QStringLiteral("1002 DE-DE1+-220V");
+        const QString xl = QStringLiteral("1003 DE-DE1XL");
+        const QString xxl = QStringLiteral("1004 DE-DE1XXL");
+        const QString pro2 = QStringLiteral("1005 de-de1pro");
+        QTest::newRow("the account's only DE1") << QStringList{pro, QStringLiteral("2001 DE-BE1BENGLE")} << 0
+                                                << QString() << QStringLiteral("1001") << QStringList{};
+        QTest::newRow("listed twice") << QStringList{pro, pro} << 0 << QString() << QStringLiteral("1001") << QStringList{};
+        QTest::newRow("no SKU is not a DE1") << QStringList{QStringLiteral("1001")} << 0 << QString() << QString()
+                                             << QStringList{};
+        QTest::newRow("not at a token boundary") << QStringList{QStringLiteral("1001 DE-DE1PROX")} << 0 << QString()
+                                                 << QString() << QStringList{};
+        QTest::newRow("the only one of its model") << QStringList{pro, plus, xl, xxl} << 6 << QString()
+                                                   << QStringLiteral("1004") << QStringList{};
+        QTest::newRow("several of its model") << QStringList{pro, pro2, plus} << 3 << QString() << QString()
+                                              << QStringList{QStringLiteral("1001"), QStringLiteral("1005"),
+                                                             QStringLiteral("1002")};
+        QTest::newRow("the user's choice") << QStringList{pro, plus} << 0 << QStringLiteral("1002")
+                                           << QStringLiteral("1002") << QStringList{};
+        QTest::newRow("a choice no longer listed") << QStringList{pro, plus} << 0 << QStringLiteral("9999") << QString()
+                                                   << QStringList{QStringLiteral("1001"), QStringLiteral("1002")};
+    }
+    void unreportedSerialIsSettledFromTheAccount() {
+        QFETCH(QStringList, machines);
+        QFETCH(int, machineModel);
+        QFETCH(QString, chosen);
+        QFETCH(QString, serial);
+        QFETCH(QStringList, choices);
+        const DecentAccount::UnreportedSerial r = DecentAccount::resolveUnreportedSerial(machines, machineModel, chosen);
+        QCOMPARE(r.serial, serial);
+        QCOMPARE(r.choices, choices);
+    }
+
+    // Sign-in reads the account's machines. With several DE1s the user is asked
+    // once, and the answer goes with the account.
+    void signInReadsTheAccountsMachines() {
+        CannedNam nam;
+        nam.replies = {{200, "11c393223f0d8f7b"}, {200, "1001 DE-DE1PRO-110V\n1002 DE-DE1PRO-220V\n"}};
+        SettingsDecent settings;
+        settings.clearAccount();
+        settings.setEnabled(false);
+        DecentAccount account(&nam, &settings);
+        QSignalSpy asked(&account, &DecentAccount::machineChoiceNeeded);
+
+        account.link(QStringLiteral("owner@example.com"), QStringLiteral("plain-password"));
+        QVERIFY(QTest::qWaitFor([&]() { return settings.registeredMachines().size() == 2; }, 2000));
+        QCOMPARE(nam.requests.at(1).url().path(), QStringLiteral("/support/api/sn"));
+        QCOMPARE(nam.requests.at(1).rawHeader("Authorization"), basic("owner@example.com", "11c393223f0d8f7b"));
+
+        account.machineReportsNoSerial(3);
+        account.machineReportsNoSerial(3);
+        QCOMPARE(asked.size(), 1);
+        QCOMPARE(asked.first().at(0).toStringList(), (QStringList{QStringLiteral("1001"), QStringLiteral("1002")}));
+        QVERIFY(account.serialForUnreportedMachine(3).isEmpty());
+        account.chooseMachine(QStringLiteral("1002"));
+        QCOMPARE(account.serialForUnreportedMachine(3), QStringLiteral("1002"));
+
+        account.unlink();
+        QVERIFY(settings.registeredMachines().isEmpty());
+        QVERIFY(settings.chosenMachine().isEmpty());
+        settings.setEnabled(false);
     }
 
     // ShotUploads: the shared settings decide, each active destination gets the
@@ -1431,6 +1505,8 @@ private slots:
         QVERIFY(rig.shotId > 0);
         rig.serial.clear();
         QCOMPARE(rig.send(), DecentShotUploader::Result::NoMachine);
+        rig.serialUnreported = true;   // connected, reporting serial 0, and the account settled none
+        QCOMPARE(rig.send(), DecentShotUploader::Result::NoSerial);
         QVERIFY(rig.nam.requests.isEmpty());
     }
 };

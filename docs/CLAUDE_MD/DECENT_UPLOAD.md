@@ -28,7 +28,12 @@ registration.
 **Serial.** Read from MMR `0x803830` on connect (`DE1Device::serialNumber`), cleared on disconnect. It is not captured when a
 shot is saved: a first upload uses the connected machine's serial (Decaid's rule for legacy shots), and only the serial an
 upload was filed under is kept (`decent_serial`), so a replacement lands on the same machine. With no machine connected, a
-first upload is refused (`NoMachine`). The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
+first upload is refused (`NoMachine`). Older DE1s answer the read with 0 (`DE1Device::reportsNoSerialNumber`, e.g. firmware 1358 on a
+PCB 1.0 machine, #2013). For those, `DecentAccount` files shots under a DE1 from the account's machine list
+(`/support/api/sn?onlyespressomachines=1&withskus=1`, read at sign-in and kept with the account), as Decaid's
+`LegacyDe1IdentityResolver` does: the user's earlier choice, the account's only DE1, or the only one of the machine's model.
+With several DE1s and no answer, a dialog asks once per sign-in; until then a first upload is refused (`NoSerial`). An account
+linked before the list existed has none, so the remedy for a stuck upload is to sign out and in again. The simulator reports `SIM-DE1`, which no account can own, so its uploads come back 403 and never reach an account. To test a real upload from the simulator, set your serial for this run over MCP: `settings_set {"simulatorSerialNumber": "<your serial>"}`. It is never saved; restarting the app restores `SIM-DE1`.
 
 **Responses** (one table for both destinations, `ShotUploadDestination::responseOutcome`; D15):
 - 2xx with `"ok":true`, including `"duplicate":true` on a first upload → uploaded.

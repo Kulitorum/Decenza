@@ -38,6 +38,9 @@ Text {
         case DecentShotUploader.Result.NoMachine:
             return TranslationManager.translate("decent.upload.noMachine",
                 "Connect your DE1 first — shots are filed under its serial number")
+        case DecentShotUploader.Result.NoSerial:
+            return TranslationManager.translate("decent.upload.noSerial",
+                "Your DE1 does not report its serial number — sign out of your Decent account and sign in again")
         case DecentShotUploader.Result.NotFound:
             return TranslationManager.translate("decent.upload.notFound", "This shot could not be loaded")
         case DecentShotUploader.Result.Rejected:

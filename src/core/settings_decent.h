@@ -3,6 +3,7 @@
 #include <QObject>
 #include "appsettings.h"
 #include <QString>
+#include <QStringList>
 
 // Decent account (decentespresso.com) link and upload switch.
 //
@@ -24,9 +25,9 @@ public:
     bool linked() const;
     bool needsSignIn() const;
 
-    // Stores a freshly linked account and clears needsSignIn.
+    // Stores a freshly linked account and clears needsSignIn and the machines below.
     void setAccount(const QString& email, const QString& encryptedPassword);
-    // Unlink: removes the email, the encrypted password and needsSignIn.
+    // Unlink: removes the email, the encrypted password, needsSignIn and the machines below.
     void clearAccount();
     void setNeedsSignIn(bool needsSignIn);
 
@@ -37,11 +38,22 @@ public:
     // Switched on with a linked account that is not waiting to sign in again.
     bool active() const;
 
+    // The account's espresso machines as /support/api/sn lists them ("serial sku"
+    // lines), read at sign-in, and the one the user picked for a DE1 that reports
+    // no serial number. Both belong to the account and go with it.
+    QStringList registeredMachines() const;
+    void setRegisteredMachines(const QStringList& lines);
+    QString chosenMachine() const;
+    void setChosenMachine(const QString& serial);
+
 signals:
     void accountChanged();
     void enabledChanged();
     void activeChanged();
+    void machinesChanged();
 
 private:
+    void clearMachines();
+
     mutable AppSettings m_settings;
 };
