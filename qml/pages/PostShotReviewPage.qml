@@ -99,7 +99,7 @@ T.Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
-        milkWeighButton.armed = false
+        milkWeighButton.cancel()
         autosave()
     }
 
@@ -1211,7 +1211,7 @@ T.Page {
                 // Milk weigh button: captures the milk for the next steam from this page,
                 // where a group-head steam is often started. Tap weighs, long-press
                 // changes pitcher.
-                Rectangle {
+                HeaderPillButton {
                     id: milkWeighButton
 
                     // Usable = a real, enabled preset with a saved empty weight; net milk
@@ -1244,8 +1244,16 @@ T.Page {
                         milkCapture.startAttempt()
                         armed = true
                     }
-                    function selectNextPitcher() {
+                    // Tap again, leaving the page or losing the button: give back the milk
+                    // the attempt set aside, since nothing replaced it.
+                    function cancel() {
+                        if (!armed)
+                            return
                         armed = false
+                        milkCapture.cancelAttempt()
+                    }
+                    function selectNextPitcher() {
+                        armed = false   // the pitcher change itself clears the session milk
                         if (usablePitchers.length === 0)
                             return
                         var pos = usablePitchers.indexOf(selected)
@@ -1254,14 +1262,14 @@ T.Page {
                             AccessibilityManager.announce(milkWeighButton.pitcherName)
                     }
 
-                    readonly property string label: {
+                    readonly property string labelText: {
                         if (!selectedUsable)
                             return TranslationManager.translate("postshotreview.milk.choosePitcher", "Choose pitcher")
                         if (armed) {
                             if (!milkCapture.loadPresent)
                                 return TranslationManager.translate("postshotreview.milk.placePitcher", "Place pitcher")
-                            return milkCapture.belowMinimum
-                                ? TranslationManager.translate("postshotreview.milk.addMilk", "Add milk")
+                            const hint = SteamLabels.captureHint(milkCapture)
+                            return hint !== "" ? hint
                                 : TranslationManager.translate("postshotreview.milk.weighing", "Weighing…")
                         }
                         if (sessionMilk > 0)
@@ -1271,36 +1279,32 @@ T.Page {
                     }
                     // While armed the label is an instruction, so a screen-reader user hears each
                     // step; the placement step gets the idle page's full prompt.
-                    onLabelChanged: {
+                    onLabelTextChanged: {
                         if (!armed || !AccessibilityManager.enabled)
                             return
-                        AccessibilityManager.announce(milkCapture.loadPresent ? label
+                        AccessibilityManager.announce(milkCapture.loadPresent ? labelText
                             : TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale"))
                     }
 
                     visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
-                    onVisibleChanged: if (!visible) armed = false
-                    Layout.preferredWidth: Math.min(Theme.scaled(160),
-                                                    Math.max(Theme.scaled(80), milkWeighLabel.implicitWidth + Theme.scaled(16)))
-                    Layout.preferredHeight: Theme.scaled(36)
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.scaled(12)
-                    color: Theme.cardBackgroundColor
-                    border.width: armed ? 2 : 1
-                    border.color: armed ? Theme.primaryColor : Theme.textSecondaryColor
-                    Accessible.ignored: true
-
-                    Text {
-                        id: milkWeighLabel
-                        anchors.centerIn: parent
-                        width: Math.min(implicitWidth, parent.width - Theme.scaled(16))
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        text: milkWeighButton.label
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                        Accessible.ignored: true
+                    onVisibleChanged: if (!visible) cancel()
+                    text: labelText
+                    highlighted: armed
+                    supportLongPress: true
+                    accessibleName: {
+                        var name = TranslationManager.translate("postshotreview.milk.weighAccessible", "Weigh milk")
+                        return name + (selectedUsable ? ", " : ". ") + labelText
                     }
+                    onClicked: {
+                        if (!selectedUsable)
+                            selectNextPitcher()
+                        else if (armed)
+                            cancel()
+                        else
+                            arm()
+                    }
+                    onLongPressed: selectNextPitcher()
+                    onIncreaseRequested: selectNextPitcher()
 
                     MilkCapture {
                         id: milkCapture
@@ -1315,39 +1319,15 @@ T.Page {
                             }
                         }
                     }
-                    // A new pitcher changes the weight being subtracted. (Leaving the page
-                    // also ends a capture, in the page's StackView.onDeactivating.)
+                    // A new pitcher changes the weight being subtracted.
                     Connections {
                         target: Settings.brew
                         function onSelectedSteamPitcherChanged() { milkWeighButton.armed = false }
                     }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: {
-                            var name = TranslationManager.translate("postshotreview.milk.weighAccessible", "Weigh milk")
-                            if (!milkWeighButton.selectedUsable)
-                                return name + ". " + milkWeighButton.label
-                            return name + ", " + milkWeighButton.label
-                        }
-                        accessibleItem: milkWeighButton
-                        supportLongPress: true
-                        onAccessibleClicked: {
-                            if (!milkWeighButton.selectedUsable)
-                                milkWeighButton.selectNextPitcher()
-                            else if (milkWeighButton.armed)
-                                milkWeighButton.armed = false
-                            else
-                                milkWeighButton.arm()
-                        }
-                        onAccessibleLongPressed: milkWeighButton.selectNextPitcher()
-                        // The long-press cycle, reachable by a screen reader.
-                        Accessible.onIncreaseAction: milkWeighButton.selectNextPitcher()
-                    }
                 }
 
                 // Read TDS button (DiFluid R1 / R2 refractometer)
-                Rectangle {
+                HeaderPillButton {
                     id: readTdsButton
                     property bool refConnected: BLEManager.refractometerConnected
                     property bool refMeasuring: refConnected && Refractometer.measuring
@@ -1366,88 +1346,68 @@ T.Page {
                     property bool tdsPlausible: tdsValue >= postShotReviewPage.kMinimumPlausibleTds
                         && tdsValue <= postShotReviewPage.kMaximumPlausibleTds
                     visible: Settings.savedRefractometerAddress !== ""
-                    Layout.preferredWidth: Theme.scaled(80)
-                    Layout.preferredHeight: Theme.scaled(36)
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.scaled(12)
-                    color: Theme.cardBackgroundColor
-                    border.width: 1
-                    border.color: Theme.textSecondaryColor
+                    enabled: !refMeasuring
                     opacity: refMeasuring ? 0.5 : 1.0
-                    Accessible.ignored: true
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: {
-                            // A ×3 run takes ~22s on hardware, so "..." for that long
-                            // reads as hung — show which test of how many instead.
-                            if (postShotReviewPage.avgTotal > 0)
-                                return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
-                            if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
-                            // Once this shot has a TDS — read here with this
-                            // button, sent by the device's own Start button, or
-                            // loaded from the saved shot — show the value rather
-                            // than the invitation or the off state, so a reading
-                            // stays readable even if the refractometer link drops
-                            // afterwards. In basic mode the TDS input is hidden,
-                            // so this is the only place the reading is visible.
-                            // Tapping still re-reads (or reconnects); the
-                            // connection state stays in the accessible name.
-                            if (readTdsButton.tdsPlausible)
-                                return readTdsButton.tdsValue.toFixed(2) + "%"
-                            if (!readTdsButton.refConnected) {
-                                return readTdsButton.isR1
-                                    ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
-                                    : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
-                            }
-                            return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
+                    text: {
+                        // A ×3 run takes ~22s on hardware, so "..." for that long
+                        // reads as hung — show which test of how many instead.
+                        if (postShotReviewPage.avgTotal > 0)
+                            return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
+                        if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                        // Once this shot has a TDS — read here with this
+                        // button, sent by the device's own Start button, or
+                        // loaded from the saved shot — show the value rather
+                        // than the invitation or the off state, so a reading
+                        // stays readable even if the refractometer link drops
+                        // afterwards. In basic mode the TDS input is hidden,
+                        // so this is the only place the reading is visible.
+                        // Tapping still re-reads (or reconnects); the
+                        // connection state stays in the accessible name.
+                        if (readTdsButton.tdsPlausible)
+                            return readTdsButton.tdsValue.toFixed(2) + "%"
+                        if (!readTdsButton.refConnected) {
+                            return readTdsButton.isR1
+                                ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
+                                : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
                         }
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                        Accessible.ignored: true
+                        return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
                     }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: {
-                            var action = readTdsButton.refConnected
-                                ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
-                                : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
-                            // The label text is Accessible.ignored, so a shown
-                            // reading has to be spoken here or it is inaudible.
-                            if (readTdsButton.tdsPlausible)
-                                return TranslationManager.translate("postshotreview.label.tds", "TDS") + " "
-                                    + readTdsButton.tdsValue.toFixed(2) + " "
-                                    + TranslationManager.translate("postshotreview.unit.percent", "percent") + ". " + action
-                            return action
+                    accessibleName: {
+                        var action = readTdsButton.refConnected
+                            ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                            : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
+                        // The label text is Accessible.ignored, so a shown
+                        // reading has to be spoken here or it is inaudible.
+                        if (readTdsButton.tdsPlausible)
+                            return TranslationManager.translate("postshotreview.label.tds", "TDS") + " "
+                                + readTdsButton.tdsValue.toFixed(2) + " "
+                                + TranslationManager.translate("postshotreview.unit.percent", "percent") + ". " + action
+                        return action
+                    }
+                    onClicked: {
+                        if (!readTdsButton.refConnected) {
+                            BLEManager.scanForDevices()
+                            return
                         }
-                        accessibleItem: readTdsButton
-                        enabled: !readTdsButton.refMeasuring
-                        onAccessibleClicked: {
-                            if (!readTdsButton.refConnected) {
-                                BLEManager.scanForDevices()
-                                return
-                            }
-                            postShotReviewPage.avgDone = 0
-                            postShotReviewPage.avgTotal = 0
-                            // A single test, deliberately — a judgement about magnitude,
-                            // not about whether averaging works. Three runs on hardware
-                            // (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08) show
-                            // genuine random scatter, sigma about 0.011% TDS, which
-                            // averaging over three does reduce — to about 0.007%.
-                            //
-                            // But that 0.005% improvement is smaller than the 0.01% step
-                            // the device reports in, so it cannot even be represented in
-                            // the answer, and it is an order of magnitude under
-                            // sample-prep variance. The cost is 12-22s against ~3.5s.
-                            //
-                            // Averaging is not used anywhere: setDeviceTestCount() exists
-                            // as protocol coverage only and nothing calls it, so the
-                            // device's own count stays at 1 and an Auto Test reading is a
-                            // single reading too. See BLE_PROTOCOL.md, "Averaging is
-                            // driver-level only".
-                            Refractometer.requestMeasurement()
-                        }
+                        postShotReviewPage.avgDone = 0
+                        postShotReviewPage.avgTotal = 0
+                        // A single test, deliberately — a judgement about magnitude,
+                        // not about whether averaging works. Three runs on hardware
+                        // (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08) show
+                        // genuine random scatter, sigma about 0.011% TDS, which
+                        // averaging over three does reduce — to about 0.007%.
+                        //
+                        // But that 0.005% improvement is smaller than the 0.01% step
+                        // the device reports in, so it cannot even be represented in
+                        // the answer, and it is an order of magnitude under
+                        // sample-prep variance. The cost is 12-22s against ~3.5s.
+                        //
+                        // Averaging is not used anywhere: setDeviceTestCount() exists
+                        // as protocol coverage only and nothing calls it, so the
+                        // device's own count stays at 1 and an Auto Test reading is a
+                        // single reading too. See BLE_PROTOCOL.md, "Averaging is
+                        // driver-level only".
+                        Refractometer.requestMeasurement()
                     }
                 }
 

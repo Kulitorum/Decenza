@@ -14,47 +14,91 @@ StableWeightCapture {
     // After the milk is applied. `seconds` is the steam time set, 0 when none could be.
     signal milkCaptured(real milk, int seconds)
 
-    // The load on the scale settled with less than `minNet` of milk, and has not moved
-    // since. Lets a page say "add milk" instead of looking stuck.
-    readonly property bool belowMinimum: !isNaN(_belowMinRaw) && loadPresent
-                                         && Math.abs(rawWeight - _belowMinRaw) <= tolerance
-    property real _belowMinRaw: NaN
+    // A settled load was rejected and has not moved since: lighter than the empty
+    // pitcher (wrong pitcher selected, or its saved weight is wrong), or with less than
+    // `minNet` of milk. Lets a page say why it is not capturing instead of looking stuck.
+    readonly property real pitcherSlackG: 5
+    readonly property bool _rejectedHolds: !isNaN(_rejectedRaw) && loadPresent
+                                           && Math.abs(rawWeight - _rejectedRaw) <= tolerance
+    readonly property bool lighterThanPitcher: _rejectedHolds && _rejectedNet < -pitcherSlackG
+    readonly property bool belowMinimum: _rejectedHolds && _rejectedNet >= -pitcherSlackG && _rejectedNet < minNet
+    property real _rejectedRaw: NaN
+    property real _rejectedNet: NaN
 
-    // A fresh steam attempt: drop milk captured by an abandoned one. Deliberately no
-    // tare — the capture measures from the empty reading it sees settle, and the HDS
-    // over WiFi (fw 3.1.14) sends garbage frames of roughly ±1,000 g around a tare.
+    // A fresh steam attempt. Deliberately no tare: the capture measures from the empty
+    // reading it sees settle, and the HDS over WiFi (fw 3.1.14) sends garbage frames of
+    // roughly ±1,000 g around a tare. Milk from an earlier capture is set aside, so a
+    // stale weight cannot scale this attempt, and given back by cancelAttempt().
     function startAttempt() {
         _log("attempt started")
+        _milkBeforeAttempt = AppShell.sessionMeasuredMilkG
+        _attemptOpen = true
         AppShell.sessionMeasuredMilkG = 0
     }
+    function cancelAttempt() {
+        if (!_attemptOpen)
+            return
+        _attemptOpen = false
+        AppShell.sessionMeasuredMilkG = _milkBeforeAttempt
+        _log("attempt cancelled")
+    }
+    property real _milkBeforeAttempt: 0
+    property bool _attemptOpen: false
 
-    // DEBUG: the zero, load and tare sequence is timing-dependent on a WiFi scale and
-    // only reconstructable from a log.
+    // The load above the empty reading this capture settled on, published while it is
+    // active so the pitcher pills and the Weight widget's Net milk mode read from the same
+    // zero the capture uses — the scale's own zero is not the empty scale after a shot.
+    // Owner-tracked: as one page's capture turns off another's may already have turned
+    // on, and the first must not clear the second's value.
+    function _publish() {
+        if (active && _seeded) {
+            AppShell.milkScaleLoadOwner = root
+            AppShell.milkScaleLoadG = loadPresent ? rawWeight - virtualZero : 0
+        } else if (AppShell.milkScaleLoadOwner === root) {
+            AppShell.milkScaleLoadOwner = null
+            AppShell.milkScaleLoadG = NaN
+        }
+    }
+    onRawWeightChanged: _publish()
+    on_SeededChanged: _publish()
+    Component.onDestruction: if (AppShell.milkScaleLoadOwner === root) {
+        AppShell.milkScaleLoadOwner = null
+        AppShell.milkScaleLoadG = NaN
+    }
+
+    // DEBUG: the zero, load and capture sequence on a WiFi scale is only reconstructable
+    // from a log.
     function _log(event) {
         WebDebugLogger.debug("Steam", "MilkCapture", [event, "raw=" + rawWeight.toFixed(1),
             "zero=" + virtualZero.toFixed(1), "pitcher=" + cupWeight.toFixed(1),
-            "net=" + (rawWeight - virtualZero - cupWeight).toFixed(1), "active=" + active].join(" "))
+            "net=" + (rawWeight - virtualZero - cupWeight).toFixed(1)].join(" "))
     }
-    property real _lastRejected: NaN
     property real _lastLoggedZero: NaN
+    property bool _wasActive: false
     // The empty branch re-adopts on every settled wobble; log only a real move.
     onVirtualZeroChanged: {
+        _publish()
         if (!active || (!isNaN(_lastLoggedZero) && Math.abs(virtualZero - _lastLoggedZero) < tolerance))
             return
         _lastLoggedZero = virtualZero
         _log("zero adopted")
     }
-    onLoadPresentChanged: if (active) _log(loadPresent ? "load placed" : "load removed")
+    onLoadPresentChanged: {
+        _publish()
+        if (active)
+            _log(loadPresent ? "load placed" : "load removed")
+    }
     onActiveChanged: {
-        _lastRejected = NaN
         _lastLoggedZero = NaN
-        _belowMinRaw = NaN
-        _log(active ? "armed" : "disarmed")
+        _rejectedRaw = NaN
+        if (active || _wasActive)
+            _log(active ? "armed" : "disarmed")
+        _wasActive = active
+        _publish()
     }
     onStableRejected: function(net) {
-        _belowMinRaw = net < minNet ? rawWeight : NaN
-        if (!isNaN(_lastRejected) && Math.abs(net - _lastRejected) < 1) return  // once per settled load
-        _lastRejected = net
+        _rejectedRaw = rawWeight
+        _rejectedNet = net
         _log("settled outside " + minNet + "-" + maxNet + " g, not captured")
     }
 
@@ -88,6 +132,7 @@ StableWeightCapture {
 
     onStableCaptured: function(milk) {
         _log("captured")
+        _attemptOpen = false
         root.milkCaptured(milk, root._apply(milk))
     }
 
@@ -95,8 +140,14 @@ StableWeightCapture {
     Connections {
         target: MachineState
         function onTareCompleted() {
-            root._log("tare reported, re-zeroing")
+            if (root.active)
+                root._log("tare reported, re-zeroing")
             root.reset()
         }
+    }
+    // The set-aside milk belonged to the old pitcher; main.qml clears the session milk.
+    Connections {
+        target: Settings.brew
+        function onSelectedSteamPitcherChanged() { root._attemptOpen = false }
     }
 }

@@ -44,17 +44,25 @@ Starting a capture attempt SHALL NOT tare the scale, whether it starts on the id
 - **WHEN** the empty scale reads a few grams above zero and the user taps the button
 - **THEN** the capture still starts and waits for the pitcher
 
+#### Scenario: Milk readouts use the capture's empty reading
+- **WHEN** after a shot the empty scale reads −120 g, Steam is selected on idle, and a 25 g pitcher with 150 g of milk is set down
+- **THEN** the pitcher pill and a Weight widget in Net milk mode show 150 g
+
 ### Requirement: Review-page capture states
 
-While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale, "Weighing…" while it settles, and "Add milk" when it settled with less than 50 g of milk. Tapping during a capture SHALL cancel it, tapping after one SHALL start a new one, and leaving the review page SHALL cancel it.
+While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale and "Weighing…" while it settles. A settled load that is not captured SHALL be explained, here and on the idle screen and steam page: "Add milk" under 50 g, "Not <pitcher>?" when lighter than the empty pitcher. Cancelling (tap again, or leaving the page) SHALL restore any milk captured before the attempt.
 
 #### Scenario: Too little milk to capture
 - **WHEN** the pitcher settles on the scale with less than 50 g of milk
 - **THEN** the button shows "Add milk", and once milk is added and the reading settles above 50 g it captures
 
-#### Scenario: Tap cancels a capture in progress
-- **WHEN** the button shows "Place pitcher" and the user taps it
-- **THEN** the capture stops and the button shows the pitcher's name
+#### Scenario: Load lighter than the selected pitcher
+- **WHEN** "Small" (saved 145 g) is selected and a 25 g pitcher with 80 g of milk settles on the scale
+- **THEN** the button shows "Not Small?" rather than "Add milk"
+
+#### Scenario: Cancel keeps the earlier capture
+- **WHEN** 180 g was captured on the idle screen, and on the review page the user taps the button and then taps it again
+- **THEN** the capture stops and the session's milk weight is 180 g again
 
 ### Requirement: Pitcher selection from the review-page milk button
 

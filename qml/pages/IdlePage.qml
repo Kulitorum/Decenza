@@ -699,8 +699,10 @@ T.Page {
                                             && idleMilkCapture.loadPresent
                                             && idleMilkCapture.netWeight >= idleMilkCapture.minNet
                                             && idleMilkCapture.netWeight <= idleMilkCapture.maxNet
-        visible: beansSettling || milkSettling
-        text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
+        readonly property string milkHint: SteamLabels.captureHint(idleMilkCapture)
+        visible: beansSettling || milkSettling || milkHint !== ""
+        text: milkHint !== "" ? milkHint
+            : TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
         color: Theme.warningColor
         font: Theme.labelFont
         SequentialAnimation on opacity {
@@ -990,6 +992,12 @@ T.Page {
                 Connections {
                     target: MachineState
                     function onScaleWeightChanged() {
+                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
+                    }
+                }
+                Connections {
+                    target: AppShell
+                    function onMilkScaleLoadGChanged() {
                         if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
                     }
                 }

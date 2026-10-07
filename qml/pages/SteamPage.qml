@@ -2304,9 +2304,9 @@ T.Page {
     // (During-steam coaching banner is provided by upstream's LiveCoachingBanner
     // near the top of this page, gated on Settings.app.steamCoachVisualEnabled.)
 
-    // Small flashing reminder while the milk pitcher is settling on the scale
-    // (something is on the scale but the capture hasn't fired yet). Disappears
-    // the instant it captures (the bell rings).
+    // Small flashing reminder while the milk pitcher is settling on the scale, or why a
+    // settled load is not being captured (SteamLabels.captureHint). Disappears the
+    // instant it captures (the bell rings).
     Text {
         id: steamWaitForBellHint
         anchors.horizontalCenter: parent.horizontalCenter
@@ -2314,12 +2314,14 @@ T.Page {
         anchors.topMargin: Theme.scaled(70)
         z: 1000
         horizontalAlignment: Text.AlignHCenter
-        visible: milkCapture.active && !milkCapture.isCaptured
+        readonly property string milkHint: SteamLabels.captureHint(milkCapture)
+        visible: milkHint !== "" || (milkCapture.active && !milkCapture.isCaptured
                  && milkCapture.cupWeight > 0
                  && milkCapture.loadPresent
                  && milkCapture.netWeight >= milkCapture.minNet
-                 && milkCapture.netWeight <= milkCapture.maxNet
-        text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
+                 && milkCapture.netWeight <= milkCapture.maxNet)
+        text: milkHint !== "" ? milkHint
+            : TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
         color: Theme.warningColor
         font: Theme.labelFont
         SequentialAnimation on opacity {

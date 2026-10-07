@@ -1427,6 +1427,7 @@ set(QML_FILES
     qml/components/GrindRowSource.qml
     qml/components/StableWeightCapture.qml
     qml/components/MilkCapture.qml
+    qml/components/HeaderPillButton.qml
     qml/components/ShotPlanText.qml
     qml/components/SteamPlanText.qml
     qml/components/ProfileGraph.qml

@@ -35,13 +35,14 @@ Item {
     readonly property bool isCaptured: _captured
 
     signal stableCaptured(real grams)
-    signal stableRejected(real grams)   // a load settled but its net is outside [minNet, maxNet]
+    signal stableRejected(real grams)   // once per settled load whose net is outside [minNet, maxNet]
 
     property real    _virtualZero: 0
     property bool    _seeded: false
     property bool    _captured: false
     property real    _capturedNet: 0
     property real    _cand: NaN
+    property bool    _candRejected: false
     property double  _candSince: 0
 
     function reset() {
@@ -71,6 +72,7 @@ Item {
         if (isNaN(_cand) || Math.abs(rawWeight - _cand) > tolerance) {
             _cand = rawWeight
             _candSince = now
+            _candRejected = false
         }
         var remaining = dwell - (now - _candSince)
         if (remaining <= 0)
@@ -119,7 +121,8 @@ Item {
                 _captured = true
                 _capturedNet = net
                 stableCaptured(net)
-            } else if (cupWeight > 0) {
+            } else if (cupWeight > 0 && !_candRejected) {
+                _candRejected = true
                 stableRejected(net)
             }
         }

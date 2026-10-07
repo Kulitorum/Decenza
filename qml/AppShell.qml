@@ -137,6 +137,12 @@ QtObject {
     // call site instead.
     property real sessionMeasuredMilkG: 0
 
+    // The load above the empty reading the active MilkCapture settled on; NaN when no
+    // capture is active. Read by the pitcher pills and the Weight widget's Net milk mode.
+    // Only MilkCapture writes these.
+    property real milkScaleLoadG: NaN
+    property QtObject milkScaleLoadOwner: null
+
     // The page currently on top of the stack, published by main.qml on every change. Read by
     // widgets that live OUTSIDE the page stack — the persistent status bar — and so cannot find
     // the page by walking their own parent chain. Null before the first page is shown.
