@@ -106,7 +106,7 @@ public:
     // TranslationManager keeps the old translation under an unchanged key.
     Q_INVOKABLE QString modelHintKey(const QString& providerId) const
     {
-        return QStringLiteral("settings.ai.modelHint.v2.") + providerId;
+        return QStringLiteral("settings.ai.modelHint.v3.") + providerId;
     }
     // Running-cost estimate (see AIProvider::costHintFor). Pass a modelId to
     // price a specific model, or leave it empty for the provider's current

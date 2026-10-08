@@ -1,9 +1,4 @@
-# advisor-model-selection Specification
-
-## Purpose
-Governs how the AI Advisor exposes multiple selectable models per provider: the per-provider catalog and which entry is the default, admission of a model only after evaluation, persisted per-provider selection, immediate effect on the next request, the settings-screen model picker's visibility rule, and consistent reporting of the active model across the advisor and MCP surfaces.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Model selection persists per provider
 
@@ -61,6 +56,8 @@ The currently selected model SHALL be reported consistently wherever the advisor
 - **WHEN** an advisor request is made via the MCP `ai_advisor_invoke` tool while Anthropic is the active provider with Haiku 5.5 selected
 - **THEN** the request uses Haiku 5.5 and the reported model name reflects Haiku 5.5
 
+## ADDED Requirements
+
 ### Requirement: Provider model catalog and default
 
 Each AI Advisor provider SHALL expose a catalog of one or more selectable models, where every entry has a stable model id (sent to the provider API) and a human-readable display name (shown in the UI). A provider with a single fixed model exposes a one-entry catalog. The first entry SHALL be the provider's default, used whenever no model has been selected.
@@ -100,3 +97,10 @@ A model SHALL enter a provider's catalog only after two checks pass on that mode
 
 - **WHEN** the maintainer admits a model despite a recorded shortfall
 - **THEN** the shortfall and the decision are documented next to the catalog rationale
+
+## REMOVED Requirements
+
+### Requirement: Provider model catalog
+
+**Reason**: It required Sonnet 4.6, Sonnet 5, GPT-5.4 mini and GPT-5.4, none of which any catalog has offered since 2026-10-05, and it did not say which entry is the default.
+**Migration**: Replaced by "Provider model catalog and default", which names the current Anthropic catalog and makes the first entry the default.

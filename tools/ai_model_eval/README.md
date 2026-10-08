@@ -77,7 +77,7 @@ emission. `scenarios.json` marks this with `hasTasteFeedback`, and
 `replay.py` mirrors each provider's `analyze()` request — the output cap, the
 per-model thinking setting (`src/ai/airequestshape.h`) and Anthropic's cache
 markers. If that shape changes, update the helpers at the top of `replay.py`.
-`model@effort` pins an OpenAI model's effort (`gpt-6.1-sol@low`).
+`model@effort` pins a model's effort (`gpt-6.1-sol@low`; on Anthropic, adaptive thinking at that effort; on OpenRouter, `reasoning.effort`).
 
 It also mirrors the app's **acceptance** rule, which is a separate thing and
 easy to get wrong. `extract_structured_next()` is a port of
@@ -127,6 +127,33 @@ checked on 2026-07-30 and found wrong — one listed Terra at $2.50/$15 against 
 actual $2.00/$12.
 
 ## Findings log
+
+### 2026-10-07 — Haiku 5.5 admitted as Anthropic's value pick, with low-effort thinking
+
+Recaptured all six scenarios (`captured_v4`): one system-prompt rule had changed since v3.
+Blind, two runs each, judged against a bar written before reveal (bitter-47s coarser,
+worst-score finer, no grind change on untasted-run or blowout, no invented taste).
+
+With thinking off (`disabled`), Haiku 5.5 gave bad advice on 4 of 12 samples, the Haiku 4.5 shape:
+twice it sent a 7.75 gusher back to 10 (coarser, and a grind change on a prep failure), once it
+said "coarser, to 6.25" from 6.5, and once it called 7.75 "much coarser" than 10. Sonnet 5.5 failed
+once (6.5 → 6.0 on the bitter 47 s shot), Luna none.
+
+With adaptive thinking at `effort: low`, Haiku 5.5 passed 12 of 12 (plus 6 of 6 on a first
+diagnostic over the failing scenarios), gave no direction reversals, and emitted usable blocks on
+8 of 8 tasted samples. Luna failed one sample in that run, holding 6.5 on the bitter shot. A
+two-turn follow-up with the first reply resent as text only returned text (646 thinking tokens),
+so dropping thinking blocks from history does not trip the preserved-thinking check.
+
+Cost: ~21K prompt tokens (15.7K cacheable), ~0.9K out with thinking off, about 2K with it.
+$0.0034 a shot cold, $0.0016 warm, at $0.10/$0.50 (≤100K-token prompts). OpenRouter serves it
+at the same price, with no cache hit: $0.0032 a shot at reasoning `low`, 1.3-1.7K reasoning
+tokens. With reasoning unset, one reply ran to the 4,096 cap, so the setting is required. Its
+replay arm ran once and is not re-judged. The evaluation spend was about $0.80.
+
+Outcome: `claude-haiku-5-5` becomes the Anthropic value pick, with thinking on for the advisor
+only. Test Connection, extraction and translation keep `disabled`, because at 10 tokens
+thinking returns no text (#1691).
 
 ### 2026-10-06 — OpenRouter: the direct models plus GLM-5.3 Flash and Gemma 4
 

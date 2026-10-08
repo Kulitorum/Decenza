@@ -43,7 +43,8 @@ RESULTS = os.path.join(HERE, "runs")        # gitignored
 # cost figure — third-party pricing pages were checked on 2026-07-30 and found
 # wrong (one listed Terra at $2.50/$15 against an actual $2.00/$12).
 # Anthropic: https://platform.claude.com/docs/en/models/overview ; Gemini:
-# https://ai.google.dev/gemini-api/docs/pricing (checked 2026-10-05).
+# https://ai.google.dev/gemini-api/docs/pricing (checked 2026-10-05; Haiku 5.5
+# on 2026-10-07, whose rates apply to prompts up to 100K tokens).
 PRICES = {
     "gpt-6.1-sol":   (2.00, 10.00),
     "gpt-6-sol":     (2.00, 10.00),
@@ -57,6 +58,7 @@ PRICES = {
     "claude-opus-5-5":   (4.00, 20.00),
     "claude-sonnet-5-5": (2.00, 10.00),
     "claude-sonnet-5":   (2.00, 10.00),
+    "claude-haiku-5-5":  (0.10, 0.50),
     "claude-haiku-4-5":  (1.00, 5.00),
     "gemini-3.8-flash":      (0.75, 3.75),
     "gemini-3.5-flash":      (1.50, 9.00),
@@ -72,6 +74,8 @@ def anthropic_thinking(model: str) -> dict:
     adaptive at low effort is the closest it gets."""
     if model == "claude-opus-5-5":
         return {"output_config": {"effort": "low"}}
+    if model == "claude-haiku-5-5":        # setAnthropicAdvisorThinking: the advisor thinks
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
     return {"thinking": {"type": "between_tools"} if model == "claude-sonnet-5-5" else {"type": "disabled"}}
 
 def gemini_thinking(model: str) -> dict:
@@ -88,7 +92,8 @@ def provider_of(model: str) -> str:
 # Gemma, "low" for the app's other OpenRouter models. A candidate outside the
 # catalog is sent nothing, i.e. the model's own default.
 OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
-                          "google/gemini-3.8-flash", "z-ai/glm-5.3-flash"}
+                          "anthropic/claude-haiku-5.5", "google/gemini-3.8-flash",
+                          "z-ai/glm-5.3-flash"}
 
 # Mirror of OpenAIProvider::analyze() — keep in step with src/ai/aiprovider.cpp.
 MAX_OUTPUT_TOKENS = 4096          # src/ai/aiprovider.h MAX_OUTPUT_TOKENS
@@ -244,7 +249,8 @@ def call(key: str, model: str, effort: str, system: str, user: str):
             payload = post_json("https://api.anthropic.com/v1/messages",
                                 {"x-api-key": key, "anthropic-version": "2023-06-01"},
                                 {"model": model, "max_tokens": MAX_OUTPUT_TOKENS,
-                                 **anthropic_thinking(model),
+                                 **(anthropic_thinking(model) if effort == "app" else
+                                    {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}),
                                  "system": [{"type": "text", "text": system,
                                              "cache_control": {"type": "ephemeral", "ttl": "5m"}}],
                                  "messages": [{"role": "user", "content": user}]})
@@ -284,7 +290,9 @@ def call(key: str, model: str, effort: str, system: str, user: str):
                     "messages": [{"role": "system", "content": system},
                                  {"role": "user", "content": user}],
                     "max_tokens": MAX_OUTPUT_TOKENS}
-            if model == "openai/gpt-6-luna":
+            if effort != "app":
+                body["reasoning"] = {"effort": effort}
+            elif model == "openai/gpt-6-luna":
                 body["reasoning"] = {"effort": "none"}
             elif model == "google/gemma-4-31b-it":
                 body["reasoning"] = {"enabled": True}
@@ -398,7 +406,8 @@ def write_key(outdir: str, keymap: dict) -> None:
 
 def run(args) -> None:
     scenarios = load_scenarios(args.scenarios, args.mode, args.captured)
-    # model[@effort]: an @ pins that model's effort (gpt-6.1-sol takes no "none").
+    # model[@effort]: an @ pins that model's effort (gpt-6.1-sol takes no "none"); on
+    # Anthropic it means adaptive thinking at that effort, on OpenRouter reasoning.effort.
     specs = [m.strip() for m in args.models.split(",") if m.strip()]
     efforts = [e.strip() for e in args.efforts.split(",") if e.strip()]
     models = [m.split("@")[0] for m in specs]

@@ -368,11 +368,13 @@ private slots:
         const QHash<QString, QString> verified = {
             {"gpt-6.1-sol", "reasoning_effort=low temperature=no"},
             {"gpt-6-luna", "reasoning_effort=none temperature=yes"},
-            {"claude-sonnet-5-5", "thinking=between_tools"},
+            {"claude-sonnet-5-5", "thinking=between_tools advisor=between_tools"},
+            {"claude-haiku-5-5", "thinking=disabled advisor=adaptive/low"},
             {"gemini-3.8-flash", "thinkingLevel=low"},
             {"openai/gpt-6-luna", R"(reasoning={"effort":"none"})"},
             {"openai/gpt-6.1-sol", R"(reasoning={"effort":"low"})"},
             {"anthropic/claude-sonnet-5.5", R"(reasoning={"effort":"low"})"},
+            {"anthropic/claude-haiku-5.5", R"(reasoning={"effort":"low"})"},
             {"google/gemini-3.8-flash", R"(reasoning={"effort":"low"})"},
             {"z-ai/glm-5.3-flash", R"(reasoning={"effort":"low"})"},
             {"google/gemma-4-31b-it", R"(reasoning={"enabled":true})"},
@@ -387,7 +389,12 @@ private slots:
             }
             if (provider == QLatin1String("anthropic")) {
                 AIRequestShape::disableAnthropicThinking(body, model);
-                return "thinking=" + body["thinking"].toObject()["type"].toString();
+                QJsonObject advisor;
+                AIRequestShape::setAnthropicAdvisorThinking(advisor, model);
+                const QString effort = advisor["output_config"].toObject()["effort"].toString();
+                return "thinking=" + body["thinking"].toObject()["type"].toString() + " advisor="
+                     + advisor["thinking"].toObject()["type"].toString()
+                     + (effort.isEmpty() ? QString() : "/" + effort);
             }
             if (provider == QLatin1String("openrouter")) {
                 AIRequestShape::setOpenRouterReasoning(body, model);
@@ -459,6 +466,7 @@ private slots:
         QNetworkAccessManager nam;
         checkProvider<AnthropicProvider>(nam, {
             { "claude-sonnet-5-5", "Sonnet 5.5" },
+            { "claude-haiku-5-5", "Haiku 5.5" },
         });
     }
 
@@ -477,6 +485,7 @@ private slots:
             { "openai/gpt-6-luna", "GPT-6 Luna" },
             { "openai/gpt-6.1-sol", "GPT-6.1 Sol" },
             { "anthropic/claude-sonnet-5.5", "Sonnet 5.5" },
+            { "anthropic/claude-haiku-5.5", "Haiku 5.5" },
             { "google/gemini-3.8-flash", "Gemini 3.8 Flash" },
             { "z-ai/glm-5.3-flash", "GLM-5.3 Flash" },
             { "google/gemma-4-31b-it", "Gemma 4 31B" },
@@ -497,7 +506,7 @@ private slots:
         QVERIFY(!OllamaProvider(&nam, "http://localhost:11434", "model").supportsUrlAnalysis());
     }
 
-    // #1691: EVERY Anthropic request must turn thinking OFF explicitly.
+    // #1691: every Anthropic request must send its thinking setting explicitly.
     //
     // Newer models run ADAPTIVE thinking when the field is omitted, and since
     // max_tokens bounds thinking + text together it could eat the whole budget,
@@ -564,6 +573,47 @@ private slots:
         const QJsonObject body = server.lastRequest();
         QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("between_tools"));
         QCOMPARE(body["max_tokens"].toInt(), 10);
+    }
+
+    // Haiku 5.5 thinks on the advisor's two paths only. Test Connection's
+    // 10-token budget cannot hold thinking (#1691), and extraction (URL or
+    // text) was never shown to need it, so wiring the advisor setting into
+    // any of them must fail here.
+    void anthropicHaikuThinksOnlyOnAdvisorPaths()
+    {
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        AnthropicProvider p(&nam, QStringLiteral("key"));
+        p.setBaseUrl(server.baseUrl());
+        p.setModel(QStringLiteral("claude-haiku-5-5"));
+        QSignalSpy complete(&p, &AIProvider::analysisComplete);
+        QSignalSpy tested(&p, &AIProvider::testResult);
+        const auto thinking = [&server] {
+            const QJsonObject body = server.lastRequest();
+            const QString effort = body["output_config"].toObject()["effort"].toString();
+            return body["thinking"].toObject()["type"].toString() + (effort.isEmpty() ? QString() : "/" + effort);
+        };
+
+        p.analyze(QStringLiteral("system"), QStringLiteral("user"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("adaptive/low"));
+
+        QJsonArray messages{QJsonObject{{"role", "user"}, {"content", "how did this shot taste?"}}};
+        p.analyzeConversation(QStringLiteral("system"), messages);
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("adaptive/low"));
+
+        p.analyzeUrl(QStringLiteral("system"), QStringLiteral("https://example.com/bag"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("disabled"));
+
+        p.extract(QStringLiteral("system"), QStringLiteral("bag page text"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("disabled"));
+
+        p.testConnection();
+        QVERIFY(tested.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("disabled"));
     }
 
     // The branch that matters: a reply that DID produce text but was cut off.

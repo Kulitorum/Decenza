@@ -1166,7 +1166,7 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     m_lastUserPrompt = QStringLiteral("[Bag page text from %1, %2 chars]")
                            .arg(requestToken).arg(pageText.size());
     logPrompt(m_logOperation ? m_logOperation->provider : selectedProvider(), systemPrompt, m_lastUserPrompt);
-    provider->analyze(systemPrompt, pageText);
+    provider->extract(systemPrompt, pageText);
 }
 
 bool AIManager::supportsUrlExtraction() const
