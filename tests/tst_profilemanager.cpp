@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QLoggingCategory>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QJsonDocument>
@@ -186,6 +187,9 @@ private slots:
         // this the whole suite has been reading and writing the developer's own
         // ~/Library/Application Support profiles directory.
         QStandardPaths::setTestModeEnabled(true);
+        // Past Qt Test's 2000-message cap the rest of the run's output is dropped;
+        // this suite's debug chatter alone crossed it.
+        QLoggingCategory::setFilterRules(QStringLiteral("default.debug=false"));
     }
 
     void init() { QTest::failOnWarning(); }

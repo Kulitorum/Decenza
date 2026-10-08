@@ -518,6 +518,10 @@ shape rather than paying the chain per test.
 
 **This is enforced, not just convention.** Every test class calls `QTest::failOnWarning()` in its `init()`, so an *unexpected* `qWarning`/`qCritical` during a test function **fails that test** — even under `ctest -j` or Qt Creator's CTest runner, which otherwise hide passing-test stderr. Warnings marked expected via `QTest::ignoreMessage()` are consumed before the check and do **not** fail. **New test classes must add `void init() { QTest::failOnWarning(); }`** (or prepend the call to an existing `init()`); without it the class silently opts out of the guard. Do **not** rely on `QT_FATAL_WARNINGS` — it aborts on `ignoreMessage()`-expected warnings too.
 
+**Qt Test's own "Maximum amount of warnings exceeded" line also fails the test under CTest.** Qt Test caps a binary at 2000 messages of any level, debug included, then drops the rest. It writes that line past the message handler, so `failOnWarning()` cannot see it; `add_decenza_qtest` sets a `FAIL_REGULAR_EXPRESSION` for it instead. A suite that hits it is too chatty: silence debug in `initTestCase()` with `QLoggingCategory::setFilterRules("default.debug=false")`, as `tst_dbmigration` does.
+
+Each CTest run also writes per-function results to `<build>/test-results/<binary>.xml` (JUnit). A `<system-err>` element there is a warning the run printed.
+
 There are three legitimate outcomes for any warning fired during a test:
 
 ### 1. It's the behaviour under test — mark it expected per-test

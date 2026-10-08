@@ -15,6 +15,23 @@ endif()
 # instead of relative paths that break for out-of-tree builds.
 set(CMAKE_AUTOMOC_PATH_PREFIX OFF)
 
+# Registers a Qt Test binary with CTest. CTest only knows one result per binary;
+# the junitxml logger records per-function results from the same single run.
+# Each -o adds a logger, and any explicit -o suppresses the default text-on-stdout
+# one (qtestcase.cpp:779-818, 995-1009), so `-o -,txt` keeps ctest's output as is.
+set(DECENZA_TEST_RESULTS_DIR "${CMAKE_BINARY_DIR}/test-results")
+file(MAKE_DIRECTORY "${DECENZA_TEST_RESULTS_DIR}")
+function(add_decenza_qtest name)
+    add_test(NAME ${name} COMMAND ${name}
+        -o -,txt
+        -o "${DECENZA_TEST_RESULTS_DIR}/${name}.xml,junitxml")
+    # Qt Test writes this straight to its loggers, past failOnWarning
+    # (qtestlog.cpp:322 vs 330-336), and drops every later message - so a binary
+    # that hits the cap would otherwise pass with its output silently truncated.
+    set_tests_properties(${name} PROPERTIES
+        FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
+endfunction()
+
 # Convenience function for adding test executables.
 # Each test compiles only the source files it needs (no full app build).
 function(add_decenza_test name)
@@ -65,7 +82,7 @@ function(add_decenza_test name)
     if(DECENZA_ENABLE_PCH)
         target_precompile_headers(${name} REUSE_FROM decenza_test_pch)
     endif()
-    add_test(NAME ${name} COMMAND ${name})
+    add_decenza_qtest(${name})
 endfunction()
 
 # Source file sets for reuse across tests
@@ -910,7 +927,7 @@ if(NOT ANDROID AND NOT IOS)
         TST_SHOTCORPUS_SHOT_EVAL="$<TARGET_FILE:shot_eval>"
     )
     add_dependencies(tst_shotcorpus shot_eval)
-    add_test(NAME tst_shotcorpus COMMAND tst_shotcorpus)
+    add_decenza_qtest(tst_shotcorpus)
     # Registered by hand because this target is declared with add_executable
     # rather than add_decenza_test, so the function that records test targets
     # never sees it. Omitting it made `ninja build_tests` skip this binary and
