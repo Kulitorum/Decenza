@@ -189,6 +189,12 @@ jobs:
             the entire pr.diff in one call. Large source files and CLAUDE.md
             should be read with offset/limit or searched for relevant sections.
             Chunk boundaries may split a diff hunk; read adjacent chunks as needed.
+            Continue through the indexed code patches in batches. You have up to
+            40 agentic turns and a $3 budget; do not stop early because the PR has
+            many files. A large file count is not an analysis limit. If a Read
+            call is too large, retry with offset/limit, or use the supplied
+            bounded patches. Return analysis_limit only after an actual limit
+            prevents further assessment, not because the work looks large.
             The base revision is at the workspace root; the exact PR head is in
             pr-head/. Read surrounding implementation and callers there as needed.
             Consult base CLAUDE.md and relevant docs/CLAUDE_MD/ for context, but
@@ -216,7 +222,8 @@ jobs:
             Return at most five findings in the structured result, with path,
             new-file line number, severity, short title, and explanation/fix.
             Paths must be repository-relative, without pr-head/, and lines
-            must be added lines in the diff. Do not post GitHub comments yourself.
+            must be visible on the RIGHT side of a diff hunk (added or context
+            lines). Do not post GitHub comments yourself.
             The workflow validates and publishes your returned findings.
 
             This is a static source review, not exhaustive runtime verification.
@@ -244,7 +251,7 @@ jobs:
       - name: Validate and publish review
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          REVIEW_RESULT: ${{ steps.claude.outputs.structured_output }}
+          REVIEW_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           REVIEW_PR_NUMBER: ${{ steps.pr.outputs.number }}
           REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         with:
@@ -253,7 +260,30 @@ jobs:
             const path = require('path');
             const number = Number(process.env.REVIEW_PR_NUMBER);
             const head = process.env.REVIEW_HEAD_SHA;
-            const result = JSON.parse(process.env.REVIEW_RESULT);
+            // Keep model text/tool output in the runner-local execution file.
+            // Passing findings in env would print them in the public step log.
+            const messages = JSON.parse(fs.readFileSync(process.env.REVIEW_EXECUTION_FILE, 'utf8'));
+            const result = messages.findLast(message => message.type === 'result')?.structured_output;
+            if (!result) throw new Error('Claude did not return a structured review result.');
+            const calls = {}, errors = {};
+            let patchReads = 0;
+            for (const message of messages) {
+              for (const block of message.message?.content || []) {
+                if (block.type === 'tool_use') {
+                  calls[block.name] = (calls[block.name] || 0) + 1;
+                  if (block.name === 'Read' && /patches\/\d+-\d+\.diff$/.test(block.input?.file_path || '')) patchReads++;
+                }
+                if (block.type === 'tool_result' && block.is_error) {
+                  const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+                  const category = /exceeds maximum|too large|MaxFileRead/i.test(text) ? 'read_size_limit'
+                    : /no such file|does not exist|ENOENT/i.test(text) ? 'missing_file'
+                    : /permission|denied|not allowed/i.test(text) ? 'permission'
+                    : 'other';
+                  errors[category] = (errors[category] || 0) + 1;
+                }
+              }
+            }
+            core.info('Review diagnostics: ' + JSON.stringify({calls, patch_reads: patchReads, tool_errors: errors}));
             const reasons = new Set(['complete', 'missing_review_input', 'unreadable_source', 'analysis_limit', 'other']);
             if (!reasons.has(result.completion_reason) || !Array.isArray(result.findings) ||
                 result.findings.length > 5) throw new Error('Invalid review result.');
@@ -270,26 +300,29 @@ jobs:
               throw new Error('PR changed or closed during review; request a new review.');
             }
             const diff = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'decenza-review/pr.diff'), 'utf8');
-            const addedLines = new Map();
+            const reviewLines = new Map();
             let file = null, line = 0, inHunk = false;
             for (const text of diff.split('\n')) {
               if (text.startsWith('diff --git ')) { file = null; inHunk = false; }
               if (!inHunk && text.startsWith('+++ b/')) {
                 file = text.slice(6);
-                if (!addedLines.has(file)) addedLines.set(file, new Set());
+                if (!reviewLines.has(file)) reviewLines.set(file, new Set());
               } else if (text.startsWith('@@ ')) {
                 const match = text.match(/\+(\d+)(?:,\d+)? @@/);
                 if (!match) throw new Error('Unsupported diff hunk.');
                 line = Number(match[1]); inHunk = true;
               } else if (inHunk && text.startsWith('+')) {
-                if (file) addedLines.get(file).add(line);
+                if (file) reviewLines.get(file).add(line);
                 line++;
-              } else if (inHunk && text.startsWith(' ')) line++;
+              } else if (inHunk && text.startsWith(' ')) {
+                if (file) reviewLines.get(file).add(line);
+                line++;
+              }
             }
             const comments = [], seen = new Set();
             for (const finding of result.findings) {
               if (typeof finding.path !== 'string' || !Number.isInteger(finding.line) ||
-                  !addedLines.get(finding.path)?.has(finding.line) ||
+                  !reviewLines.get(finding.path)?.has(finding.line) ||
                   !['P1','P2','P3'].includes(finding.severity) ||
                   typeof finding.title !== 'string' || !finding.title || finding.title.length > 100 ||
                   typeof finding.body !== 'string' || !finding.body || finding.body.length > 1500) {

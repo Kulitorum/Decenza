@@ -60,7 +60,7 @@ For stronger isolation, an Anthropic admin can additionally require immutable
 `repository_id: 1121207637` and `repository_owner_id: 175644`, plus the exact
 workflow/event pair. Automatic review tokens use `pull_request` with
 `Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/pull/<number>/merge`;
-Requested review tokens use `issue_comment` with
+Requested review tokens use `issue_comment` or `workflow_dispatch` with
 `Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/heads/main`;
 fix tokens use `issue_comment` with
 `Kulitorum/Decenza/.github/workflows/claude-fix.yml@refs/heads/main`.
@@ -118,12 +118,18 @@ This requests one review of the current revision. Only skialpine's account ID
 can trigger it; other people's requests are skipped. It also works on draft PRs
 and public fork PRs, and bypasses the automatic path filter. Another push to
 someone else's PR requires another request. Edited comments, ordinary issue
-comments, and inline review replies do not trigger the command.
+comments, and inline review replies do not trigger the command. Alternatively,
+skialpine can choose **Actions → Claude PR review → Run workflow**, enter the PR
+number, and run a review. This explicit dispatch uses the same read-only review
+and publication checks.
 
 The requested review is read-only. Its workflow runs from the default branch,
 checks out the trusted base at the workspace root, and reads the captured head
-in an isolated subdirectory without executing its code. A source update during
-context/diff fetching fails the stale run. Unrelated comments do not cancel a
+in an isolated subdirectory without executing its code. The diff is indexed into bounded per-file chunks so large changes can be read
+without exceeding an individual Read call's limit. Claude returns structured
+findings; the workflow validates their paths, diff lines, and captured revision
+before posting a COMMENT review. It cannot approve or change code. A source
+update during context/diff fetching or review prevents stale publication. Unrelated comments do not cancel a
 review in progress. The command becomes available after this workflow is merged
 to the default branch.
 
@@ -174,19 +180,22 @@ to stop accepting fix requests.
   read-only source access.
 - Base and head are checked out by immutable SHA, without persisted credentials.
   The head lives in a subdirectory, and Claude ignores project/local executable
-  settings and discovers only the action's explicit inline-comment MCP server.
-  Claude can read/search source and post inline comments; shell, editing, skill,
-  and delegation tools are unavailable. No PR-controlled scripts execute.
-- Each run stops after 20 turns or 15 minutes, with a $3 client-side API cost
+  settings. Claude can only read/search source and return findings; shell,
+  editing, skill, delegation, and MCP tools are unavailable. A fixed workflow
+  step validates and publishes the comments. No PR-controlled scripts execute.
+- Each run stops after 40 turns or 15 minutes, with a $3 client-side API cost
   limit. The estimate can differ from the bill, and cancellation does not undo
   charges already incurred. Use Console workspace limits for total spend control.
   New pushes cancel older runs for the same PR. Reruns can repeat comments.
 - Full output and report display are disabled. Do not enable Actions debug
   logging: the action can enable full output in debug mode. Do not upload the
   action's execution files as public artifacts.
-- A successful workflow means the automation completed, not that the code is
-  bug-free. Check logs for turn/budget limits or permission failures; keep the
-  existing text-invariant checks and local/nightly test process.
+- Completion means the static source assessment completed, not that runtime
+  behavior was exhaustively verified or that the code is bug-free. Qt build/tests
+  remain separate. Incomplete results report a reason (missing input, unreadable
+  source, analysis limit, or other) and publish no partial findings. Publication
+  failures are separate from analysis failures. Keep the existing text-invariant
+  checks and local/nightly test process.
 
 ## Troubleshooting and disabling
 
