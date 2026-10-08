@@ -155,7 +155,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     {"enum", QJsonArray::fromStringList(QStringList{QString()} + ShotHistoryStorage::tasteBodyValues())},
                     {"description", "Taste body; empty clears"}}},
                 {"bagId", QJsonObject{{"type", "integer"}, {"description",
-                    "Bag the shot used (bag action=list): copies its bean details and storage dates, like the bean picker"}}},
+                    "Bag the shot used (bag action=list): copies its bean details and dates, like the bean picker; -1 unlinks"}}},
                 {"equipmentId", QJsonObject{{"type", "integer"}, {"description",
                     "Equipment package the shot used (equipment tool); 0 clears"}}},
                 {"frozenDate", QJsonObject{{"type", "string"}, {"description", "When the beans went in the freezer (YYYY-MM-DD; empty clears)"}}},
@@ -240,7 +240,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     metadata[key] = args[key].toString().trimmed();
             if (args.contains("equipmentId"))
                 metadata["equipmentId"] = args["equipmentId"].toInteger();
-            if (args.contains("bagId")) {
+            if (args.contains("bagId") && !bagIdIsSet(args["bagId"].toInteger())) {
+                // No bag: the shot keeps the bean fields sent with it, as the
+                // bean picker does for a bean that isn't in the inventory.
+                metadata["bagId"] = -1;
+            } else if (args.contains("bagId")) {
                 // The bag supplies the bean snapshot, so a value sent alongside
                 // would be silently overwritten by the bag's.
                 QStringList clashing;
@@ -252,10 +256,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 if (!clashing.isEmpty()) {
                     respond(QJsonObject{{"error", QStringLiteral("bagId copies %1 from the bag; send them "
                         "in a separate call to correct them").arg(clashing.join(QStringLiteral(", ")))}});
-                    return;
-                }
-                if (args["bagId"].toInteger() <= 0) {
-                    respond(QJsonObject{{"error", "bagId must be a bag id from bag action=list"}});
                     return;
                 }
                 metadata["bagId"] = args["bagId"].toInteger();
@@ -302,6 +302,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 QStringList holding;
                 QString refusal;
                 const bool opened = withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
+                    // One write transaction, so the dates checked are the dates
+                    // the update lands on.
+                    DbWriteTxn txn = DbWriteTxn::begin(db, "MCP shots_update");
+                    if (!txn.ok()) {
+                        refusal = QStringLiteral("The shot database is busy; try again");
+                        return;
+                    }
                     // Storage dates follow the bag rules, checked against the
                     // shot's own dates (CoffeeBag::writeError).
                     static const QStringList kDateKeys = {QStringLiteral("roastDate"), QStringLiteral("frozenDate"),
@@ -330,6 +337,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         return;
                     }
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata, &refusal);
+                    if (ok && !txn.commit()) {
+                        ok = false;
+                        refusal = QStringLiteral("The update could not be saved: %1").arg(txn.commitError());
+                    }
                     if (ok && shotUploads) holding = shotUploads->destinationsHolding(db, shotId);
                 });
 

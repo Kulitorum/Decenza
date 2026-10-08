@@ -1411,6 +1411,10 @@ private slots:
         QCOMPARE(column("frozen_date"), QString("2026-09-03"));
         QVERIFY(update({{"bagId", bagId}, {"beanBrand", "x"}}).contains("error"));
         QVERIFY(update({{"bagId", 99999}}).contains("error"));
+        // -1 unlinks, keeping the bean fields sent with it (a bean not in the inventory).
+        QVERIFY(update({{"bagId", -1}, {"beanBrand", "Elsewhere"}})["success"].toBool());
+        QCOMPARE(column("bag_id"), QString("-1"));
+        QCOMPARE(column("bean_brand"), QString("Elsewhere"));
 
         // Storage dates, checked by the bag rules against the shot's own dates.
         QJsonObject dates{{"defrostDate", "2026-09-09"}, {"openedDate", "2026-09-10"}, {"storageHint", "vacuum-sealed"}};
