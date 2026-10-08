@@ -1,0 +1,122 @@
+#include <QtTest>
+
+#include "network/webrequestguard.h"
+
+// Header blocks as the shot server sees them: request line, headers, no body.
+static QByteArray block(std::initializer_list<const char*> lines)
+{
+    QByteArray out;
+    for (const char* l : lines)
+        out += QByteArray(l) + "\r\n";
+    return out;
+}
+
+class TestWebRequestGuard : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void init() { QTest::failOnWarning(); }
+
+    void headerValue_isCaseInsensitiveAndTrimmed()
+    {
+        const QByteArray b = block({"POST /api/x HTTP/1.1", "host:  192.168.1.5:8888 ", "Sec-Fetch-Site: same-origin"});
+        QCOMPARE(WebRequestGuard::headerValue(b, "Host"), QStringLiteral("192.168.1.5:8888"));
+        QCOMPARE(WebRequestGuard::headerValue(b, "sec-fetch-site"), QStringLiteral("same-origin"));
+        QVERIFY(WebRequestGuard::headerValue(b, "Origin").isEmpty());
+        // The request line is not a header, so "POST" never reads as one.
+        QVERIFY(WebRequestGuard::headerValue(b, "POST /api/x HTTP/1.1").isEmpty());
+    }
+
+    void writes_data()
+    {
+        QTest::addColumn<QString>("method");
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<QByteArray>("headers");
+        QTest::addColumn<bool>("refused");
+
+        const char* host = "Host: 192.168.1.5:8888";
+        QTest::newRow("same-origin fetch from the shot page")
+            << "POST" << "/api/shot/5/metadata"
+            << block({host, "Origin: http://192.168.1.5:8888", "Sec-Fetch-Site: same-origin"}) << false;
+        QTest::newRow("same host over https, scheme ignored")
+            << "POST" << "/api/shot/5/metadata"
+            << block({host, "Origin: https://192.168.1.5:8888"}) << false;
+        QTest::newRow("host case does not matter")
+            << "POST" << "/api/shot/5/metadata"
+            << block({"Host: Tablet.local:8888", "Origin: http://tablet.LOCAL:8888"}) << false;
+        QTest::newRow("another site's page posting")
+            << "POST" << "/api/shot/5/metadata"
+            << block({host, "Origin: http://evil.example", "Sec-Fetch-Site: cross-site"}) << true;
+        QTest::newRow("another site, port differs only")
+            << "POST" << "/api/shot/5/metadata"
+            << block({host, "Origin: http://192.168.1.5:9999"}) << true;
+        QTest::newRow("opaque origin")
+            << "POST" << "/api/shot/5/upload"
+            << block({host, "Origin: null"}) << true;
+        QTest::newRow("curl, no browser headers")
+            << "POST" << "/api/command" << block({host, "Content-Type: application/json"}) << false;
+        QTest::newRow("browser without Origin but cross-site")
+            << "POST" << "/api/shot/5/delete" << block({host, "Sec-Fetch-Site: cross-site"}) << true;
+        QTest::newRow("same-site fetch without Origin")
+            << "POST" << "/api/shot/5/metadata" << block({host, "Sec-Fetch-Site: same-site"}) << false;
+    }
+
+    void writes()
+    {
+        QFETCH(QString, method);
+        QFETCH(QString, path);
+        QFETCH(QByteArray, headers);
+        QFETCH(bool, refused);
+        QCOMPARE(!WebRequestGuard::crossSiteReason(method, path, headers).isEmpty(), refused);
+    }
+
+    void reads_data()
+    {
+        QTest::addColumn<QString>("method");
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<QByteArray>("headers");
+        QTest::addColumn<bool>("refused");
+
+        const char* host = "Host: 192.168.1.5:8888";
+        QTest::newRow("Home Assistant polling telemetry")
+            << "GET" << "/api/telemetry" << block({host, "User-Agent: HomeAssistant/2026.9"}) << false;
+        QTest::newRow("Home Assistant waking the machine over the legacy GET")
+            << "GET" << "/api/power/wake" << block({host}) << false;
+        QTest::newRow("img tag on another site aimed at the legacy wake GET")
+            << "GET" << "/api/power/wake"
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: no-cors", "Sec-Fetch-Dest: image"}) << true;
+        QTest::newRow("iframe on another site aimed at the legacy wake GET")
+            << "GET" << "/api/power/wake"
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << true;
+        QTest::newRow("another site reading shots with CORS")
+            << "GET" << "/api/shots"
+            << block({host, "Origin: http://evil.example", "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: cors"}) << true;
+        QTest::newRow("link from another site opening the shot page")
+            << "GET" << "/shot/5"
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: document"}) << false;
+        QTest::newRow("dashboard iframe showing the history page")
+            << "GET" << "/"
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << false;
+        QTest::newRow("the page's own fetch of its JSON")
+            << "GET" << "/api/shot/5/outcome" << block({host, "Sec-Fetch-Site: same-origin", "Sec-Fetch-Mode: cors"}) << false;
+        QTest::newRow("typed into the address bar")
+            << "GET" << "/api/state" << block({host, "Sec-Fetch-Site: none", "Sec-Fetch-Mode: navigate"}) << false;
+        QTest::newRow("MCP client posting from a script")
+            << "POST" << "/mcp" << block({host, "Content-Type: application/json"}) << false;
+        QTest::newRow("page on another site posting to MCP")
+            << "POST" << "/mcp" << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: cors"}) << true;
+    }
+
+    void reads()
+    {
+        QFETCH(QString, method);
+        QFETCH(QString, path);
+        QFETCH(QByteArray, headers);
+        QFETCH(bool, refused);
+        QCOMPARE(!WebRequestGuard::crossSiteReason(method, path, headers).isEmpty(), refused);
+    }
+};
+
+QTEST_GUILESS_MAIN(TestWebRequestGuard)
+#include "tst_webrequestguard.moc"

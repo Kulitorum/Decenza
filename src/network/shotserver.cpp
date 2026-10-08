@@ -2,6 +2,7 @@
 #include "core/settings_app.h"
 #include "shotserver.h"
 #include "shotuploads.h"
+#include "webrequestguard.h"
 #include "shotserveruploadroute.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
@@ -797,6 +798,22 @@ void ShotServer::onReadyRead()
 
             if (pending.contentLength < 0) {
                 pending.contentLength = 0;
+            }
+
+            // Refused here, before a body is buffered or streamed, so a page on
+            // another site cannot write to this server through the user's browser.
+            {
+                const QStringList requestParts = requestLine.split(' ');
+                const QString crossSite = WebRequestGuard::crossSiteReason(
+                    requestParts.value(0), requestParts.value(1), pending.headerData.left(pending.headerEnd));
+                if (!crossSite.isEmpty()) {
+                    DIAG_WARN(NETWORK, "ShotServer") << "Refused cross-site request:" << crossSite;
+                    sendResponse(socket, 403, "application/json", R"({"error":"Cross-site request refused"})");
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    socket->close();
+                    return;
+                }
             }
 
             const StreamedUpload streamed = streamedUploadKind(requestLine);
@@ -2796,8 +2813,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray sseHeaders = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n\r\n";
+                             "Connection: keep-alive\r\n\r\n";
         socket->write(sseHeaders);
         socket->flush();
         m_sseThemeClients.insert(socket);
@@ -2821,8 +2837,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray headers = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n\r\n";
+                             "Connection: keep-alive\r\n\r\n";
         socket->write(headers);
         socket->flush();
         m_sseLayoutClients.insert(socket);
@@ -2886,6 +2901,7 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
         case 302: statusText = "Found"; break;
         case 400: statusText = "Bad Request"; break;
         case 401: statusText = "Unauthorized"; break;
+        case 403: statusText = "Forbidden"; break;
         case 404: statusText = "Not Found"; break;
         case 413: statusText = "Payload Too Large"; break;
         case 429: statusText = "Too Many Requests"; break;
@@ -2897,9 +2913,6 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
     response.append(QString("HTTP/1.1 %1 %2\r\n").arg(statusCode).arg(statusText).toUtf8());
     response.append(QString("Content-Type: %1\r\n").arg(contentType).toUtf8());
     response.append(QString("Content-Length: %1\r\n").arg(body.size()).toUtf8());
-    if (!isSecurityEnabled()) {
-        response.append("Access-Control-Allow-Origin: *\r\n");
-    }
     response.append("Connection: keep-alive\r\n");
     response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
     if (!extraHeaders.isEmpty()) {
@@ -3025,7 +3038,6 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
         "Content-Type: %1\r\n"
         "Content-Length: %2\r\n"
         "Content-Disposition: attachment; filename=\"%3\"\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
         "Connection: close\r\n"
         "\r\n"
     ).arg(contentType).arg(fileSize).arg(filename).toUtf8();

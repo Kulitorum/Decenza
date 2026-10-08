@@ -39,6 +39,17 @@ When adding or restyling any of these pages, use these helpers — do not paste 
 - **Always log timeout and cleanup events.** Use `qWarning()` when a timeout fires, `qDebug()` when a response is dropped (socket disconnected) or when a duplicate callback is blocked by the fired guard.
 - **Only one request per type** is allowed at a time (`hasInFlightLibraryRequest`), because `LibrarySharing` is a singleton that emits one signal consumed by whichever handler is connected.
 
+## Cross-site requests
+
+`WebRequestGuard::crossSiteReason()` (`src/network/webrequestguard.cpp`) runs in `onReadyRead()`
+as soon as a request's headers are complete, before any body is buffered. A browser request
+whose `Origin` names another host than `Host`, or whose `Sec-Fetch-Site` is `cross-site` on an
+`/api` or `/mcp` path, gets 403. Non-browser clients (curl, Home Assistant, MCP clients) send
+neither header and pass. A cross-site navigation to a page still opens, so a link or dashboard
+iframe keeps working. No response carries `Access-Control-Allow-Origin`, so a page on another
+site cannot read the server's JSON either. The web pages only ever fetch their own origin.
+`tests/tst_webrequestguard.cpp` holds the cases.
+
 ## JavaScript `fetch()` calls
 
 - **Every `fetch()` must have a `.catch()` handler.** Never leave a fetch chain without error handling — silent failures leave the UI in a broken state (spinner stuck, editor blank, no feedback).

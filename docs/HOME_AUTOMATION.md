@@ -6,7 +6,7 @@ Decenza supports home automation integration via MQTT and REST API. This allows 
 - Wake/sleep the machine remotely (e.g., turn on when your alarm goes off)
 - Integrate with Home Assistant, Node-RED, and other platforms
 
-**Security Note:** Remote control is limited to wake/sleep only. Physical operations (espresso, steam, hot water, flush) cannot be triggered remotely - you must be at the machine with a portafilter/cup.
+**Security Note:** The REST API is for home-automation clients, scripts and the app's own web pages. A page served from another site is refused (HTTP 403) when it calls an `/api` endpoint from the user's browser, and no endpoint allows cross-origin reads. Remote control is limited to wake/sleep only. Physical operations (espresso, steam, hot water, flush) cannot be triggered remotely - you must be at the machine with a portafilter/cup.
 
 ---
 

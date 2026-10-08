@@ -839,6 +839,7 @@ set(SOURCES
     src/network/localnetworkaccess.cpp
     src/network/wifiscaleresult.cpp
     src/network/webdebuglogger.cpp
+    src/network/webrequestguard.cpp
     src/network/locationprovider.cpp
     src/network/shotreporter.cpp
     src/network/crashreporter.cpp
