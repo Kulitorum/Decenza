@@ -279,7 +279,7 @@ jobs:
           --disallowedTools "Bash,Edit,Write,NotebookEdit,Agent,Task,Skill,mcp__*,Read(/${{ runner.temp }}/claude-workload-identity/**),Read(//proc/**),Read(//sys/**),Read(//dev/**),Read(**/.git/**),Read(**/.claude/**),Read(**/.mcp.json),Read(**/.claude.json)"
     - name: Collect safe batch result
       if: ${{ always() }}
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         REVIEW_BATCH: ${{ matrix.batch }}
         REVIEW_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
@@ -363,7 +363,7 @@ jobs:
         merge-multiple: true
         path: ${{ runner.temp }}/review-results
     - name: Validate and publish review
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         REVIEW_PR_NUMBER: ${{ needs.prepare.outputs.number }}
         REVIEW_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
