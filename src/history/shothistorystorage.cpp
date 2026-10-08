@@ -4271,7 +4271,20 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
     });
 }
 
-bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn)
+const QStringList& ShotHistoryStorage::tasteBalanceValues()
+{
+    static const QStringList values = {QStringLiteral("sour"), QStringLiteral("balanced"), QStringLiteral("bitter")};
+    return values;
+}
+
+const QStringList& ShotHistoryStorage::tasteBodyValues()
+{
+    static const QStringList values = {QStringLiteral("thin"), QStringLiteral("medium"), QStringLiteral("heavy")};
+    return values;
+}
+
+bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn,
+                                                  QString* refusal)
 {
     // Sanitize structured-taste values against their allowed sets before use.
     // "" is a valid "unset". Any out-of-set value is dropped (with a warning) so
@@ -4282,11 +4295,17 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     // A bag pick sends only the bag id; the shot's bean snapshot comes from the
     // bag here, so the app's Change Beans and the web page write the same fields.
     if (bagIdIsSet(metadata.value(QStringLiteral("bagId"), -1).toLongLong()) && !metadata.contains(QStringLiteral("beanBrand"))) {
-        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, metadata.value(QStringLiteral("bagId")).toLongLong());
-        if (bag.id > 0) metadata.insert(bag.shotSnapshot());
+        const qint64 bagId = metadata.value(QStringLiteral("bagId")).toLongLong();
+        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+        if (bag.id <= 0) {
+            const QString why = QStringLiteral("No bag with id %1").arg(bagId);
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "shot" << shotId << "update refused:" << why;
+            if (refusal)
+                *refusal = why;
+            return false;
+        }
+        metadata.insert(bag.shotSnapshot());
     }
-    static const QStringList kTasteBalanceValues = {"sour", "balanced", "bitter"};
-    static const QStringList kTasteBodyValues    = {"thin", "medium", "heavy"};
     const auto sanitizeTaste = [&](const QString& key, const QStringList& allowed) {
         if (!metadata.contains(key)) return;
         const QString raw = metadata.value(key).toString();
@@ -4302,8 +4321,8 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
             metadata.remove(key);
         }
     };
-    sanitizeTaste("tasteBalance", kTasteBalanceValues);
-    sanitizeTaste("tasteBody", kTasteBodyValues);
+    sanitizeTaste("tasteBalance", tasteBalanceValues());
+    sanitizeTaste("tasteBody", tasteBodyValues());
 
     // Map camelCase metadata keys to DB column names.
     // Only columns with keys present in the metadata map are updated,

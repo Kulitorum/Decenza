@@ -138,7 +138,10 @@ struct PendingConfirmation {
 // The current_context resource sends the shared currentBean block. beanFreshness adds
 // restAgeDays (storage known only); dialInSessions hoist roastDate; bestRecentShot adds
 // roastDate, restAgeDays, sameBagAsCurrent. Not visible to the fingerprint.
-inline constexpr const char* McpSurfaceVersion = "1.17.0";
+// 1.18.0: shots_update reaches what the app and web shot pages can set: bagId, equipmentId,
+// tasteBalance/tasteBody and the storage dates (validated by the bag rules); beanBase keeps
+// the indexed bean id in step.
+inline constexpr const char* McpSurfaceVersion = "1.18.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";

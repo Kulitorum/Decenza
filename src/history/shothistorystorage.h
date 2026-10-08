@@ -336,7 +336,13 @@ public:
 
     // Thread-safe metadata update: caller provides their own connection.
     // Safe to call from any thread (does not use m_db). Returns true on success.
-    static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata);
+    // `refusal`, when given, receives why the write was refused (a bag id that
+    // names no bag); "" for any other failure.
+    static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata,
+                                         QString* refusal = nullptr);
+    // The structured taste values a shot accepts ("" clears).
+    static const QStringList& tasteBalanceValues();
+    static const QStringList& tasteBodyValues();
 
     // Pure reconciliation matcher (caller provides the connection).
     // Links empty-visualizer_id rows whose timestamp is >= windowStartEpoch

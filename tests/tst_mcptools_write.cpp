@@ -1370,6 +1370,70 @@ private slots:
         drainDbWorkAndClose(storage);
     }
 
+    // shots_update reaches what the app and web shot pages set: a bag pick
+    // (snapshot from the bag), storage dates under the bag rules, taste, the
+    // equipment package, and the indexed bean id alongside beanBase.
+    void shotsUpdateReachesShotPageFields()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("updfields.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        ScopedWarningFilter refusedFilter("update refused");
+
+        const qint64 shotId = insertMinimalShot(storage);
+        QVERIFY(shotId > 0);
+        qint64 bagId = -1;
+        withTempDb(storage.databasePath(), "updfields_seed", [&](QSqlDatabase& db) {
+            CoffeeBag b; b.roasterName = "Hometown"; b.coffeeName = "Hometown";
+            b.roastDate = "2026-09-01"; b.frozenDate = "2026-09-03"; b.storageHint = "vacuum-sealed";
+            bagId = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagId > 0);
+        auto update = [&](QJsonObject args) {
+            args["shotId"] = shotId;
+            return f.callAsyncTool("shots_update", args);
+        };
+        auto column = [&](const char* col) {
+            QString v;
+            withTempDb(storage.databasePath(), "updfields_read", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                q.exec(QStringLiteral("SELECT %1 FROM shots WHERE id = %2").arg(QLatin1String(col)).arg(shotId));
+                if (q.next()) v = q.value(0).toString();
+            });
+            return v;
+        };
+
+        // A bag pick copies the bag's snapshot, and refuses fields it would overwrite.
+        QVERIFY(update({{"bagId", bagId}})["success"].toBool());
+        QCOMPARE(column("bean_brand"), QString("Hometown"));
+        QCOMPARE(column("frozen_date"), QString("2026-09-03"));
+        QVERIFY(update({{"bagId", bagId}, {"beanBrand", "x"}}).contains("error"));
+        QVERIFY(update({{"bagId", 99999}}).contains("error"));
+
+        // Storage dates, checked by the bag rules against the shot's own dates.
+        QJsonObject dates{{"defrostDate", "2026-09-09"}, {"openedDate", "2026-09-10"}, {"storageHint", "vacuum-sealed"}};
+        QVERIFY(update(dates)["success"].toBool());
+        QCOMPARE(column("defrost_date"), QString("2026-09-09"));
+        QCOMPARE(column("opened_date"), QString("2026-09-10"));
+        QVERIFY(update({{"defrostDate", "2026-09-02"}}).contains("error"));   // before the freeze
+        QVERIFY(update({{"openedDate", "2999-01-01"}}).contains("error"));    // future
+        QVERIFY(update({{"storageHint", "jar"}}).contains("error"));
+
+        // Taste is refused, not dropped, when off the list.
+        QVERIFY(update({{"tasteBalance", "sweet"}}).contains("error"));
+        QVERIFY(update({{"tasteBalance", "Balanced"}})["success"].toBool());
+        QCOMPARE(column("taste_balance"), QString("balanced"));
+
+        QVERIFY(update({{"equipmentId", 99999}}).contains("error"));
+
+        QVERIFY(update({{"beanBase", QJsonObject{{"id", "canon-7"}}}})["success"].toBool());
+        QCOMPARE(column("beanbase_id"), QString("canon-7"));
+
+        drainDbWorkAndClose(storage);
+    }
+
     // profiles_set_active's own refusal path — loadProfile returning false — is
     // covered in tst_profilemanager (loadProfileReportsRefusalAndKeepsTheActive-
     // Profile). It needs a deliberately-broken profile ON DISK, and the only safe
