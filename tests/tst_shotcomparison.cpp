@@ -100,6 +100,7 @@ void TstShotComparison::inputState_data()
     QTest::newRow("grind fine move")          << "grinderSetting" << "4.0" << "4.2" << changed;
     QTest::newRow("grind moved")              << "grinderSetting" << "10" << "9.5" << changed;
     QTest::newRow("compound spacing")         << "grinderSetting" << "1 + 4" << "1+4" << same;
+    QTest::newRow("compound against plain")   << "grinderSetting" << "4" << "1+4" << changed;
     QTest::newRow("lettered dial")            << "grinderSetting" << "3F" << "3C" << changed;
     QTest::newRow("bean case only")           << "bean" << "Saka" << "saka" << same;
     QTest::newRow("bean swapped")             << "bean" << "Saka" << "Sey" << changed;

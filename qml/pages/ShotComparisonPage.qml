@@ -89,12 +89,14 @@ T.Page {
                 width: Theme.scaled(7); height: width; radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
                 color: chip.dotColor
+                Accessible.ignored: true
             }
             Text {
                 text: chip.label
                 font: Theme.captionFont
                 color: chip.active ? Theme.textColor : Theme.textSecondaryColor
                 anchors.verticalCenter: parent.verticalCenter
+                Accessible.ignored: true
             }
         }
         AccessibleMouseArea {

@@ -58,6 +58,13 @@ inline const QVector<Entry>& entries()
         { "metric.drinkEyPct",          "comparison.metric.ey",              "EY" },
 
         { "row.stopped",                "comparison.stopped",                "Stopped" },
+        // The stored taste-axis values, under the keys TastePicker shows them with.
+        { "taste.sour",                 "tasteIntake.sour",                  "Sour" },
+        { "taste.balanced",             "tasteIntake.balanced",              "Balanced" },
+        { "taste.bitter",               "tasteIntake.bitter",                "Bitter" },
+        { "taste.thin",                 "tasteIntake.thin",                  "Thin" },
+        { "taste.medium",               "tasteIntake.medium",                "Medium" },
+        { "taste.heavy",                "tasteIntake.heavy",                 "Heavy" },
         { "row.rating",                 "comparison.rating",                 "Rating" },
 
         { "badge.pourTruncated",        "comparison.badge.pourTruncated",    "Pour truncated" },

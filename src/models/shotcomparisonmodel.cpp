@@ -73,7 +73,9 @@ void ShotComparisonModel::setBaseShot(qint64 shotId)
 {
     if (shotId == m_baseShotId || !m_shotIds.contains(shotId)) return;
     m_baseShotId = shotId;
-    m_windowStart = std::max(0, std::min(m_windowStart, otherCount() - OTHER_WINDOW_SIZE));
+    // The others restart from the earliest, so the previous base reappears in its
+    // place by date rather than behind a page the user has moved past.
+    m_windowStart = 0;
     scheduleLoad();
     emit shotsChanged();
     emit windowChanged();

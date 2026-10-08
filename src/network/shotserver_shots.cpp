@@ -2951,12 +2951,14 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
                 }));
             });
             if (ss.some(function(s) { return s.rating0to100 !== null || s.tasteBalance || s.tasteBody; }))
-                h += rowHtml(txt("row.rating"), "", ss.map(function(s) {
+                h += rowHtml(txt("row.rating"), "", ss.map(function(s, col) {
                     var p = [];
                     if (s.rating0to100 !== null) p.push(s.rating0to100 + "%");
-                    if (s.tasteBalance) p.push(s.tasteBalance);
-                    if (s.tasteBody) p.push(s.tasteBody);
-                    return { html: escapeHtml(p.length ? p.join(" · ") : DASH) };
+                    if (s.tasteBalance) p.push(txt("taste." + s.tasteBalance, s.tasteBalance));
+                    if (s.tasteBody) p.push(txt("taste." + s.tasteBody, s.tasteBody));
+                    // A Δ only between two rated shots.
+                    var d = col > 0 && s.rating0to100 !== null && ss[0].rating0to100 !== null ? s.rating0to100 - ss[0].rating0to100 : 0;
+                    return { html: escapeHtml(p.length ? p.join(" · ") : DASH) + (d !== 0 ? pill(d, signed(d, 0)) : "") };
                 }));
             if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderComparison()'>" + escapeHtml(showMore ? txt("ui.showLess") : txt("ui.showMore").replace("%1", hidden)) + "</button>";
             ss.forEach(function(s) {

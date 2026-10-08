@@ -25,12 +25,12 @@ bool sameGrinderSetting(const QString& aRaw, const QString& bRaw, double toleran
     if (a.isEmpty() || b.isEmpty()) return true;
     if (a == b) return true;
 
-    // If either side is compound they both must be, or they are not comparable
-    // and we decline to call it a change.
+    // Compound settings compare by key. Compound against plain ("1+4" against
+    // "4") names two different positions on a compound dial, so it is a change.
     const QString aKey = GrinderAliases::compoundKey(a);
     const QString bKey = GrinderAliases::compoundKey(b);
     if (!aKey.isEmpty() || !bKey.isEmpty())
-        return aKey.isEmpty() || bKey.isEmpty() || aKey == bKey;
+        return aKey == bKey;
 
     const std::optional<double> an = GrinderAliases::leadingDialNumber(a);
     const std::optional<double> bn = GrinderAliases::leadingDialNumber(b);
@@ -222,9 +222,12 @@ InputDiff diffInputs(const ShotProjection& base, const ShotProjection& shot)
         if (f.key == QLatin1String("grinderSetting")) g = &f;
     const InputField* grinder = d.field(QStringLiteral("grinder"));
     const InputField* burrs = d.field(QStringLiteral("burrs"));
+    // And one notation: a number read from "1+4" and one from "4" are not on one scale.
     if (g && g->state == FieldState::Changed
             && grinder && grinder->state == FieldState::Same
-            && burrs && burrs->state == FieldState::Same) {
+            && burrs && burrs->state == FieldState::Same
+            && GrinderAliases::compoundKey(g->baseText).isEmpty()
+                   == GrinderAliases::compoundKey(g->shotText).isEmpty()) {
         const auto a = GrinderAliases::leadingDialNumber(g->baseText);
         const auto b = GrinderAliases::leadingDialNumber(g->shotText);
         if (a && b) {

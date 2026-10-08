@@ -111,8 +111,8 @@ ColumnLayout {
     function ratingText(s) {
         let parts = []
         if (s.rating0to100 !== null && s.rating0to100 !== undefined) parts.push(s.rating0to100 + "%")
-        if (s.tasteBalance) parts.push(s.tasteBalance)
-        if (s.tasteBody) parts.push(s.tasteBody)
+        if (s.tasteBalance) parts.push(txt("taste." + s.tasteBalance, s.tasteBalance))
+        if (s.tasteBody) parts.push(txt("taste." + s.tasteBody, s.tasteBody))
         return parts.length > 0 ? parts.join(" · ") : "—"
     }
 
@@ -471,6 +471,7 @@ ColumnLayout {
     }
 
     ComparisonRow {
+        id: ratingRow
         visible: root.anyRated
         Layout.fillWidth: true
         labelWidth: root.labelColW
@@ -478,6 +479,15 @@ ColumnLayout {
         label: root.txt("row.rating")
         cells: root.shots
         textFor: function(s) { return root.ratingText(s) }
+        // Only between two rated shots; the base is the first cell.
+        function ratingDelta(s) {
+            const b = root.shots[0]
+            if (s === b || s.rating0to100 === null || s.rating0to100 === undefined
+                    || b.rating0to100 === null || b.rating0to100 === undefined) return 0
+            return s.rating0to100 - b.rating0to100
+        }
+        deltaFor: function(s) { const d = ratingRow.ratingDelta(s); return d === 0 ? "" : root.signed(d, 0) }
+        deltaSignFor: function(s) { return Math.sign(ratingRow.ratingDelta(s)) }
         numberFont: root.numberFont
     }
 
