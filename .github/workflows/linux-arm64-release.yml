@@ -184,7 +184,7 @@ jobs:
           mv Decenza-aarch64.AppImage Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage
 
       - name: Upload AppImage as artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: Decenza-Linux-aarch64
           path: Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage
