@@ -3884,9 +3884,7 @@ QString ProfileManager::downloadedProfilesPath() const {
 
 double ProfileManager::getGroupTemperature() const {
     if (m_settings && m_settings->brew()->hasTemperatureOverride() && brewOverridesApply()) {
-        double temp = m_settings->brew()->temperatureOverride();
-        DIAG_DEBUG(PROFILES, "profilemanager") << "getGroupTemperature: using override" << temp << "C";
-        return temp;
+        return m_settings->brew()->temperatureOverride();
     }
     return m_currentProfile.espressoTemperature();
 }

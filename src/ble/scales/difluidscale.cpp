@@ -62,7 +62,7 @@ void DifluidScale::onTransportConnected() {
 }
 
 void DifluidScale::onTransportDisconnected() {
-    DIFLUID_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    DIFLUID_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     resetLinkState();
     setConnected(false);
 }

@@ -981,7 +981,6 @@ private slots:
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
         // Exhaustion runs the disconnect handling directly (#1519)
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
 
         int baseNotifyCount = transport->m_notifyEnableCount;
 
@@ -1011,7 +1010,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
@@ -1211,7 +1209,6 @@ private slots:
 
         transport->m_isConnected = false;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         emit transport->error("controller error, link dead");
 
@@ -1251,7 +1248,6 @@ private slots:
         scale.m_serviceFound = false;
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*service not found.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         scale.onServicesDiscoveryFinished();
 
         QCOMPARE(transport->m_disconnectCount, 1);
@@ -1272,7 +1268,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
             scale.onWatchdogFired();
@@ -1302,7 +1297,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
             scale.onWatchdogFired();
@@ -1351,9 +1345,6 @@ private slots:
 
         scale.m_characteristicsReady = true;
         scale.startWatchdog();
-
-        // Expect the disconnect warning from onTransportDisconnected
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
 
         // Simulate transport disconnect (fires onTransportDisconnected via signal)
         emit transport->disconnected();

@@ -1140,8 +1140,10 @@ private slots:
         driver.m_wsHandshakeDone = handshakeDone;
         driver.recreateSocket();  // onRecognitionTimeout aborts the socket
 
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("No recognizable HDS frame.*")));
+        // Only a peer that answered warns; silence is no fault of the address.
+        if (handshakeDone)
+            QTest::ignoreMessage(QtWarningMsg,
+                                 QRegularExpression(QStringLiteral("No recognizable HDS frame.*")));
         driver.onRecognitionTimeout();
 
         QCOMPARE(cacheWrites.size(), expectedCacheWrites);

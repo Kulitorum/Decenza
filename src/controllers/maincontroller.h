@@ -821,6 +821,7 @@ private:
 
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves
+    bool m_beanRepairSkipLogged = false;
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;

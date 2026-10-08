@@ -63,7 +63,7 @@ void FelicitaScale::onTransportConnected() {
 }
 
 void FelicitaScale::onTransportDisconnected() {
-    FELICITA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    FELICITA_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

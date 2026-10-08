@@ -57,6 +57,15 @@ T.Dialog {
 
     modal: true
 
+    // Set only on dialogs the app opens by itself (machine state, errors, updates), so
+    // a log can say which popup a user saw. Dialogs a tap opens leave it empty.
+    property string logName: ""
+    Connections {
+        target: control
+        enabled: control.logName !== ""
+        function onOpened() { WebDebugLogger.info("App", "Popup", control.logName + " dialog shown") }
+    }
+
     // grow_fade_in / shrink_fade_out, copied exactly from Material's Dialog.qml. Not one
     // dialog in the app declares `enter`/`exit`, so all 27 have always animated with these
     // — losing them would make every dialog in the app pop in and out instantly.

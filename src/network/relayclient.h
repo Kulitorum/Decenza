@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <memory>
 
+#include "core/logcollapse.h"
+
 class DE1Device;
 class MachineState;
 class Settings;
@@ -65,6 +67,7 @@ private:
     Settings* m_settings;
     bool m_enabled = false;
     int m_reconnectAttempts = 0;
+    LogCollapse m_reconnectLog{LogCollapse::kChangesOnly};
     QString m_lastStatusJson; // Deduplicate status pushes
     QQuickWindow* m_window = nullptr;
     std::unique_ptr<ScreenCaptureService> m_captureService;

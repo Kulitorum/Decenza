@@ -234,9 +234,7 @@ QString ProfileStorage::readProfile(const QString& filename) const {
             QString path = extPath + "/" + filename + ".json";
             QFile file(path);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                QString content = QString::fromUtf8(file.readAll());
-                DIAG_DEBUG(PROFILES, "profilestorage") << "Read from external:" << path;
-                return content;
+                return QString::fromUtf8(file.readAll());
             }
         }
     }

@@ -407,7 +407,7 @@ void tst_HdsFirmwareUpdateController::failedRefreshRetainsTheLastKnownCatalog()
     controller.setScaleDevice(&scale);
 
     QTRY_VERIFY(controller.updateAvailable());
-    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Manifest check failed.*"));
+    QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*Manifest check failed.*"));
     controller.checkForUpdates();
     QTRY_COMPARE(nam.requests.size(), 2);
     QTRY_VERIFY(!controller.checking());

@@ -63,7 +63,7 @@ void HiroiaScale::onTransportConnected() {
 }
 
 void HiroiaScale::onTransportDisconnected() {
-    HIROIA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    HIROIA_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

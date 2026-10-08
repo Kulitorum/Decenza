@@ -102,7 +102,8 @@ void HdsFirmwareUpdateController::checkForUpdates()
         if (!reply)
             return;
         if (reply->error() != QNetworkReply::NoError) {
-            reportManifest(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()), true);
+            // INFO: almost always the tablet being offline, which the next check retries.
+            reportManifest(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()), false);
             reply->deleteLater();
             return;
         }
@@ -120,6 +121,8 @@ void HdsFirmwareUpdateController::checkForUpdates()
         } else if (m_updateAvailable) {
             reportManifest(QStringLiteral("Checked manifest: update available, %1 -> %2")
                                .arg(installedVersion(), availableVersion()), false);
+        } else if (installedVersion().isEmpty()) {
+            reportManifest(QStringLiteral("Checked manifest: the scale has not reported its firmware yet"), false);
         } else {
             reportManifest(QStringLiteral("Checked manifest: up to date at %1").arg(installedVersion()), false);
         }

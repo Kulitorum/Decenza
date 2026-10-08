@@ -1,4 +1,5 @@
 #include "core/diagnosticlogging.h"
+#include "core/logcollapse.h"
 #include "core/settings_app.h"
 #include "relayclient.h"
 #include "network/screencaptureservice.h"
@@ -6,6 +7,7 @@
 #include "../machine/machinestate.h"
 #include "../core/settings.h"
 
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSysInfo>
@@ -120,14 +122,19 @@ void RelayClient::connectToRelay()
         return;
     }
 
-    QString url = kRelayUrl + "?device_id=" + deviceId + "&role=device";
-    DIAG_DEBUG(NETWORK, "RelayClient") << "Connecting to" << url;
-    m_socket.open(QUrl(url));
+    m_socket.open(QUrl(kRelayUrl + "?device_id=" + deviceId + "&role=device"));
 }
 
 void RelayClient::onConnected()
 {
-    DIAG_DEBUG(NETWORK, "RelayClient") << "WebSocket connected";
+    const LogCollapse::Collapsed failed =
+        m_reconnectLog.flush(QStringLiteral("reconnect"), QDateTime::currentMSecsSinceEpoch());
+    if (failed.suppressed > 0)
+        DIAG_DEBUG(NETWORK, "RelayClient").noquote()
+            << QStringLiteral("WebSocket connected after %1 more failed attempt(s) over %2 s")
+                   .arg(failed.suppressed).arg(failed.spanMs / 1000);
+    else
+        DIAG_DEBUG(NETWORK, "RelayClient") << "WebSocket connected";
     m_reconnectAttempts = 0;
 
     // Send register message
@@ -153,8 +160,7 @@ void RelayClient::onConnected()
 
 void RelayClient::onDisconnected()
 {
-    DIAG_DEBUG(NETWORK, "RelayClient") << "WebSocket disconnected — wasCapturing="
-             << static_cast<bool>(m_captureService);
+    const QString captureNote = m_captureService ? QStringLiteral(" (screen capture ended)") : QString();
     m_pingTimer.stop();
     m_statusPushTimer.stop();
     m_remoteActivityTimer.stop();
@@ -162,11 +168,21 @@ void RelayClient::onDisconnected()
     emit connectedChanged();
 
     if (m_enabled) {
-        // Exponential backoff: 5s, 10s, 20s, 40s, max 60s
-        int delayMs = qMin(kReconnectBaseMs * (1 << m_reconnectAttempts), kReconnectMaxMs);
+        // Exponential backoff: 5s, 10s, 20s, 40s, max 60s. The shift is capped
+        // because the attempt count keeps growing while offline, and an
+        // unbounded one overflowed into negative delays (#1965).
+        const int delayMs = qMin(kReconnectBaseMs << qMin(m_reconnectAttempts, 4), kReconnectMaxMs);
         m_reconnectAttempts++;
-        DIAG_DEBUG(NETWORK, "RelayClient") << "Reconnecting in" << delayMs << "ms (attempt" << m_reconnectAttempts << ")";
+        // Changes-only: offline, this repeats unchanged every minute.
+        const QString text = QStringLiteral("WebSocket disconnected%1 — reconnecting in %2 ms")
+                                 .arg(captureNote).arg(delayMs);
+        LogCollapse::Collapsed collapsed;
+        if (m_reconnectLog.shouldLog(QStringLiteral("reconnect"), text,
+                                     QDateTime::currentMSecsSinceEpoch(), &collapsed))
+            DIAG_DEBUG(NETWORK, "RelayClient").noquote() << text + LogCollapse::suffix(collapsed);
         m_reconnectTimer.start(delayMs);
+    } else {
+        DIAG_DEBUG(NETWORK, "RelayClient").noquote() << "WebSocket disconnected" + captureNote;
     }
 }
 
@@ -196,7 +212,7 @@ void RelayClient::onTextMessageReceived(const QString& message)
         // inside onBinaryMessageReceived only for type 0x02 when capture is active.
         QByteArray binaryData = QByteArray::fromBase64(obj["data"].toString().toLatin1());
         onBinaryMessageReceived(binaryData);
-    } else {
+    } else if (type != QLatin1String("pong")) {  // pong answers onPingTimer: nothing to report
         DIAG_DEBUG(NETWORK, "RelayClient") << "Received message type:" << type;
     }
 }

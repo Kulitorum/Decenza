@@ -2583,10 +2583,9 @@ int main(int argc, char *argv[])
                 const QString msg =
                     QString("Scale still absent after %1 attempts — slowing retries to every %2 min")
                         .arg(scaleReconnectAttempt).arg(kScaleSlowTailMs / 60000);
-                // qWarning, matching MQTT's equivalent crossing: this is the line
-                // that explains a log which otherwise looks like the reconnect
-                // died, and WARN is what makes it findable in a submitted log.
-                bleManager.scaleWarn(msg, QStringLiteral("main"));
+                // INFO: it explains a log that otherwise looks like the reconnect
+                // died, but a scale that is switched off is not a fault.
+                bleManager.scaleInfo(msg, QStringLiteral("main"));
             }
             scaleReconnectTimer.start(kScaleSlowTailMs);
         }
@@ -2825,12 +2824,6 @@ int main(int argc, char *argv[])
         bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
                                  .arg(de1ReconnectAttempt).arg(kDE1MaxReconnectAttempts),
                              QStringLiteral("main"));
-        // A wedged link is back on the first attempt (every #1976 case). Still
-        // absent after it means the machine went away — a power cut — and the
-        // connect that finds it again should wake it.
-        if (de1ReconnectAttempt >= 2)
-            de1Device.cancelReconnectSkip(QStringLiteral("the DE1 was absent past the first "
-                                                         "reconnect attempt"));
         bleManager.tryDirectConnectToDE1();
 
         if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
@@ -2885,7 +2878,7 @@ int main(int argc, char *argv[])
         if (de1Device.isConnected() || de1Device.isConnecting()) return;
         de1ReconnectAttempt = 0;
         de1ReconnectTimer.start(500);
-        DIAG_DEBUG(DE1, "main") << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder (#1309)";
+        DIAG_DEBUG(DE1, "main") << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder";
     });
 
     // When DE1 connects or disconnects, manage reconnect timer.
@@ -3285,7 +3278,7 @@ int main(int argc, char *argv[])
                     DIAG_DEBUG(SCALE, "main") << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
                 } else {
                     bleManager.requestScaleReconnectRampRestart(
-                        QStringLiteral("Scale disconnected"));
+                        QStringLiteral("Scale disconnected, weight now estimated from flow"));
                 }
             }
         });
@@ -4619,6 +4612,10 @@ int main(int argc, char *argv[])
     // refractometer restart only does real work while the review-page hunt is
     // active — off that page its tick fires once and self-stops.
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
+                     &de1Device, [&screensaverManager, &de1Device]() {
+        de1Device.setAppAsleep(screensaverManager.screensaverActive());
+    });
+    QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      handlerScope.get(), [&screensaverManager, &bleManager, &settings,
                       &scaleReconnectTimer, &reconnectDelays,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
@@ -4807,7 +4804,7 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &bleManager, &shotHistoryExporter]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &bleManager, &shotHistoryExporter, &settings]() {
         DIAG_DEBUG(APP, "main") << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
@@ -4852,8 +4849,11 @@ int main(int argc, char *argv[])
             needBleWait = de1TransportConnected;
         }
 
-        // Put scale to sleep if connected
-        if (physicalScale && physicalScale->isConnected()) {
+        // Put the scale to sleep on exit only when the user has not asked to keep
+        // it on: "keep scale on" covers quitting the app too (#1981).
+        const bool sleepScaleOnExit = physicalScale && physicalScale->isConnected()
+                                      && !settings.keepScaleOn();
+        if (sleepScaleOnExit) {
             DIAG_DEBUG(SCALE, "main") << "Sending physical scale to sleep on app exit";
             needBleWait = true;
         }
@@ -4886,7 +4886,7 @@ int main(int argc, char *argv[])
                 timeoutMs = 2000;
             }
 
-            if (physicalScale && physicalScale->isConnected()) {
+            if (sleepScaleOnExit) {
                 QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
                                  &waitLoop, [&]() { drained = true; waitLoop.quit(); });
                 physicalScale->sleep();

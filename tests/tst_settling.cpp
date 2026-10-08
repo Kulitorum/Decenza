@@ -320,7 +320,7 @@ private slots:
         tc.endShot();
         QVERIFY(tc.isSawSettling());
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
 
         // Sample stream extracted verbatim from shot 5470's debug log
@@ -396,7 +396,7 @@ private slots:
         tc.endShot();
         QVERIFY(tc.isSawSettling());
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
 
         // Wobbly samples — the rolling avg may briefly satisfy the gate
@@ -443,7 +443,7 @@ private slots:
         tc.endShot();
         QVERIFY(tc.isSawSettling());
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
         // The cup-removal handler also warns when it rejects the implausible
         // clean avg as a scale fault — that rejection IS what this test exercises.
@@ -497,7 +497,7 @@ private slots:
         tc.endShot();
         QVERIFY(tc.isSawSettling());
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
 
         // Cup wobble samples: each step is under the 20 g cup-removal threshold
@@ -635,7 +635,7 @@ private slots:
 
         QSignalSpy learnSpy(&tc, &ShotTimingController::sawLearningComplete);
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
 
         feedPlateauUntilCaptured(tc, 15.2, 0.5);
@@ -674,7 +674,7 @@ private slots:
         tc.onSawTriggered(41.2, 2.5, 42.0);
         tc.endShot();
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("Cup removed during settling"));
 
         // Establish the captured value with a stable plateau.

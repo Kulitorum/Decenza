@@ -520,7 +520,7 @@ private slots:
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1363;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
-        QTest::ignoreMessage(QtInfoMsg,
+        QTest::ignoreMessage(QtDebugMsg,  // cleared inside the wait: no warning was shown
             QRegularExpression("\\[DE1\\]\\[StandbySwitch\\].*reported no AC for "
                                "\\d+ ms then cleared it.*Heating"));
         f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);

@@ -63,7 +63,7 @@ void SkaleScale::onTransportConnected() {
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    SKALE_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

@@ -651,9 +651,16 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                         log(QString("%1 with no operation of ours in flight — ignored").arg(name));
                         break;
                     }
-                    info(QString("%1 on %2 — the operation failed and will be retried "
-                                 "if its budget allows")
-                             .arg(name, m_gattQueue->inFlightKey().toString().mid(1, 8)));
+                    // Only the descriptor case is INFO (#1819, above). A failed
+                    // read or write is retried by the queue, whose exhaustion is
+                    // the WARN; each retry on its own is DEBUG.
+                    const QString failed = QString("%1 on %2 — the operation failed and will be "
+                                                   "retried if its budget allows")
+                                               .arg(name, m_gattQueue->inFlightKey().toString().mid(1, 8));
+                    if (error == QLowEnergyService::DescriptorWriteError)
+                        info(failed);
+                    else
+                        log(failed);
                     // Intentionally NOT a de1LinkFault: a single transient
                     // failure that then succeeds is normal even on capable
                     // hardware. Only exhaustion and connection-teardown errors
@@ -1049,7 +1056,6 @@ void BleTransport::evaluateLinkLiveness() {
                                "away on its own"));
             return;
         }
-        emit livenessTeardown();
         disconnect();
         // No "the link recovered" counterpart is logged here. One was written
         // and removed: DE1Device::connectToDevice() builds a NEW BleTransport
@@ -1065,9 +1071,8 @@ void BleTransport::evaluateLinkLiveness() {
         // its own comment marks KNOWN OVER-EAGER (#1691: one keepalive
         // exhaustion latched it on a desktop). Raising a new fault kind off a
         // threshold whose cadence is unmeasured would let this permanently
-        // demote every scale to BALANCED. livenessTeardown() above plus the
-        // teardown's own disconnected() drive everything this recovery needs;
-        // it is emitted first so DE1Device reads the pre-teardown state.
+        // demote every scale to BALANCED. The teardown's own disconnected()
+        // drives everything this recovery needs.
     }, Qt::QueuedConnection);
 }
 

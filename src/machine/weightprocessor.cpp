@@ -835,7 +835,8 @@ void WeightProcessor::configure(double targetWeight, int preinfuseFrameCount,
 void WeightProcessor::setTargetWeight(double weight)
 {
     if (m_targetWeight == weight) return;
-    DIAG_INFO(SHOT, "WeightProcessor").noquote() << "targetWeight" << m_targetWeight << "->" << weight
+    // DEBUG: a profile load moves it through intermediate values within ms.
+    DIAG_DEBUG(SHOT, "WeightProcessor").noquote() << "targetWeight" << m_targetWeight << "->" << weight
                       << "(active=" << m_active << ")";
     m_targetWeight = weight;
 }

@@ -74,7 +74,7 @@ void AtomheartEclairScale::onTransportConnected() {
 }
 
 void AtomheartEclairScale::onTransportDisconnected() {
-    ECLAIR_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    ECLAIR_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     stopWatchdog();
     setConnected(false);
 }

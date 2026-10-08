@@ -63,7 +63,7 @@ void EurekaPrecisaScale::onTransportConnected() {
 }
 
 void EurekaPrecisaScale::onTransportDisconnected() {
-    EUREKA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    EUREKA_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

@@ -165,14 +165,15 @@ BLEManager::BLEManager(QObject* parent)
             // Either powerOff() never reported HostPoweredOff, or the power-on
             // leg never brought it back. Make one more attempt to re-enable, then
             // let finishAdapterRecovery(false) surface it — never leave BT off.
-            BT_WARN_TAGGED("BLEManager", QStringLiteral("adapter still powered off") + QStringLiteral(" ") + QString("%1").arg((kAdapterRecoverySafetyMs / 1000)) + QStringLiteral(" ") + QStringLiteral("s into recovery — forcing power-on (#1309)"));
+            BT_WARN_TAGGED("BLEManager", QStringLiteral("adapter still powered off %1 s into recovery — forcing power-on")
+                                             .arg(kAdapterRecoverySafetyMs / 1000));
             setAdapterPower(true);
             finishAdapterRecovery(false);
         } else {
             // Adapter is on but we missed the HostConnectable event (or powerOff
             // was a no-op and it was never actually off). Treat as recovered.
             BT_WARN_TAGGED("BLEManager", QStringLiteral("recovery watchdog — adapter is on without an explicit "
-                          "HostConnectable event; treating as recovered (#1309)"));
+                          "HostConnectable event; treating as recovered"));
             finishAdapterRecovery(true);
         }
     });
@@ -249,7 +250,7 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
             // the power-ON leg is itself covered (powerOn never landing must not
             // leave the radio off).
             m_recoverySawPoweredOff = true;
-            BT_LOG_TAGGED("BLEManager", QStringLiteral("adapter powered off during recovery — powering back on (#1309)"));
+            BT_LOG_TAGGED("BLEManager", QStringLiteral("adapter powered off during recovery — powering back on"));
             setAdapterPower(true);
             m_adapterRecoverySafetyTimer->start();
         } else {
@@ -295,7 +296,8 @@ void BLEManager::setAdapterPower(bool on)
         "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
         "()Landroid/bluetooth/BluetoothAdapter;");
     if (!adapter.isValid()) {
-        BT_WARN_TAGGED("BLEManager", QStringLiteral("no BluetoothAdapter — cannot") + QStringLiteral(" ") + QString("%1").arg((on ? "enable" : "disable")) + QStringLiteral(" ") + QStringLiteral("(#1309)"));
+        BT_WARN_TAGGED("BLEManager", QStringLiteral("no BluetoothAdapter — cannot %1")
+                                         .arg(on ? QStringLiteral("enable") : QStringLiteral("disable")));
         return;
     }
     adapter.callMethod<jboolean>(on ? "enable" : "disable");
@@ -318,7 +320,7 @@ void BLEManager::finishAdapterRecovery(bool adapterOn)
     if (adapterOn) {
         m_recoveryLeftAdapterOff = false;
         m_lastDe1FaultTime = QDateTime();  // stale faults shouldn't re-trip immediately
-        BT_INFO_TAGGED("BLEManager", QStringLiteral("adapter recovered — re-arming DE1 + scale reconnect (#1309)"));
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("adapter recovered — re-arming DE1 + scale reconnect"));
         emit bleStackRecovered();          // main.cpp resets the DE1 reconnect budget + retries
         if (!m_savedScaleAddress.isEmpty())
             tryDirectConnectToScale();     // scale side re-arm
@@ -328,8 +330,8 @@ void BLEManager::finishAdapterRecovery(bool adapterOn)
         // user — do NOT emit bleStackRecovered(), the stack is not recovered.
         m_recoveryLeftAdapterOff = true;
         BT_WARN_TAGGED("BLEManager", QStringLiteral("automatic Bluetooth restart did not bring the adapter "
-                      "back up — asking the user to toggle it manually (#1309)"));
-        scaleWarn(QStringLiteral("Auto Bluetooth restart failed — adapter still off (#1309)"));
+                      "back up — asking the user to toggle it manually"));
+        scaleWarn(QStringLiteral("Auto Bluetooth restart failed — adapter still off"));
         emit errorOccurred(translateUiString(
             QStringLiteral("ble.error.bluetoothRestartFailed"),
             QStringLiteral("Decenza tried to restart Bluetooth but it's still off. "
@@ -349,7 +351,7 @@ void BLEManager::noteDe1Connected(bool connected)
         m_wedgeSince = QDateTime();
         m_lastDe1FaultTime = QDateTime();
         m_lastDe1ErrorShown.clear();  // Healthy again — allow a future DE1 error to surface
-        resetRepeatFailureBudget();   // ...and let the next failure of each kind be loud
+        resetDe1RepeatFailureBudget();  // ...and let the DE1's next failure be loud
     }
 }
 
@@ -427,7 +429,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
                 || m_lastAdapterRecovery.msecsTo(t) >= kAdapterRecoveryBackoffMs) {
                 m_lastAdapterRecovery = t;
                 BT_WARN_TAGGED("BLEManager", QStringLiteral("adapter still off from a prior failed recovery — "
-                              "retrying power-on (#1309)"));
+                              "retrying power-on"));
                 setAdapterPower(true);
             }
         }
@@ -458,7 +460,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
         BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + reason + QStringLiteral(
             ") but within recovery backoff — ") + (adapterRemedyAvailable
                 ? QStringLiteral("not cycling adapter yet")
-                : QStringLiteral("not re-arming reconnect yet")) + QStringLiteral(" (#1309)"));
+                : QStringLiteral("not re-arming reconnect yet")));
         return;
     }
 
@@ -484,11 +486,9 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
                              "manipulating the radio on an unknown platform");
         BT_WARN_TAGGED("BLEManager", QStringLiteral(
             "BLE stack appears wedged (") + reason + QStringLiteral(
-            ") — NOT power-cycling the Bluetooth adapter: ") + why + QStringLiteral(
-            ". Re-arming the DE1 and scale reconnect paths directly instead. If "
-            "this keeps recurring, toggling Bluetooth off and on in system "
-            "settings is the equivalent action, and only you can perform it "
-            "(#1309)."));
+            ") — not power-cycling the adapter: ") + why + QStringLiteral(
+            ". Re-arming the DE1 and scale reconnect instead; toggling Bluetooth in "
+            "system settings is the manual equivalent."));
         emit bleStackRecovered();      // the re-arm main.cpp listens for
         if (!m_savedScaleAddress.isEmpty())
             tryDirectConnectToScale();
@@ -500,8 +500,10 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     m_lastAdapterRecovery = now;
     m_adapterRecoveryCount++;
     m_wedgeSince = QDateTime();
-    BT_WARN_TAGGED("BLEManager", QStringLiteral("BLE stack appears wedged (") + QStringLiteral(" ") + QString("%1").arg(reason) + QStringLiteral(" ") + QStringLiteral(") — power-cycling Bluetooth adapter, recovery #") + QStringLiteral(" ") + QString("%1").arg(m_adapterRecoveryCount) + QStringLiteral(" ") + QStringLiteral("this session (#1309)"));
-    scaleWarn(QStringLiteral("BLE stack wedged — auto power-cycling Bluetooth adapter (#1309)"));
+    BT_WARN_TAGGED("BLEManager", QStringLiteral("BLE stack appears wedged (%1) — power-cycling Bluetooth adapter, "
+                                                "recovery #%2 this session")
+                                     .arg(reason).arg(m_adapterRecoveryCount));
+    scaleWarn(QStringLiteral("BLE stack wedged — auto power-cycling Bluetooth adapter"));
     emit bleStackRecoveryStarted();
 
     // powerOff() is async; the host-mode handler powers it back on once it sees
@@ -1873,6 +1875,11 @@ void BLEManager::onScaleConnectedChanged() {
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
         resetRepeatFailureBudget();          // Next failure of each kind warns again
+        const LogCollapse::Collapsed ladderScans =
+            m_scaleLadderScanLog.flush(QStringLiteral("scan"), QDateTime::currentMSecsSinceEpoch());
+        if (ladderScans.suppressed > 0)
+            scaleDebug(QStringLiteral("Auto-reconnect scanned %1 more time(s) over %2 s before this connect")
+                           .arg(ladderScans.suppressed).arg(ladderScans.spanMs / 1000));
         // Captured BEFORE the reset below: the reconnect-browse flag further down
         // needs to know whether this connect was the WiFi->BLE fallback.
         const bool wasWifiFallbackConnect = m_wifiFallbackToBleActive;
@@ -1941,8 +1948,9 @@ void BLEManager::onScaleConnectedChanged() {
         scaleDebug(QStringLiteral("Scale connected"));
         emit scaleConnected();  // UI auto-dismisses the scale-disconnect / no-scale notice on reconnect
     } else {
-        // Scale disconnected - notify UI immediately
-        scaleInfo(QStringLiteral("Scale disconnected"));
+        // Scale disconnected - notify UI immediately. DEBUG: ScaleDevice's
+        // "<name> DISCONNECTED" is the line that reports the drop.
+        scaleDebug(QStringLiteral("Scale disconnected"));
         emit scaleDisconnected();
     }
 }
@@ -1959,7 +1967,9 @@ void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
         return;
     }
 
-    scaleWarn(QString("Direct connect not established (%1) — aborting and restarting scan").arg(reason));
+    // DEBUG: the scan carries on and either finds the scale or ends in the
+    // not-found line; out of range at launch is the common case.
+    scaleDebug(QString("Direct connect not established (%1) — aborting and restarting scan").arg(reason));
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
 
@@ -2054,7 +2064,9 @@ void BLEManager::onScaleConnectionTimeout() {
     const bool manualBleAttempt = m_manualBleConnect;
     m_manualBleConnect = false;
 
-    scaleRepeatFailure(QStringLiteral("Scale connection timeout — not found"));
+    // INFO: a scale that is switched off is not a fault.
+    scaleRepeatFailure(QStringLiteral("Scale connection timeout — not found"), RepeatTier::Info,
+                       QStringLiteral("BLEManager"));
 
     // Heartbeat for the BLE-stack-wedge detector (#1309): a scale that keeps
     // failing to connect is one half of the wedge fingerprint. The detector
@@ -2108,7 +2120,7 @@ void BLEManager::onScaleConnectionTimeout() {
 
     if (!m_flowScaleFallbackEmitted) {
         m_flowScaleFallbackEmitted = true;
-        scaleWarn(QStringLiteral("Scale not found — using FlowScale"));
+        scaleInfo(QStringLiteral("Scale not found — using FlowScale"));
         emit flowScaleFallback();
     }
 
@@ -3182,12 +3194,10 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // costs radio contention. The foreground triggers (switch/startup/DE1-wake)
     // keep the direct-connect fast-path below by passing allowDirectConnect=true.
     if (!allowDirectConnect) {
-        // appendScaleLog records to BOTH the user-shareable scale log and the
-        // system debug log (it mirrors to qDebug with a [Scale] prefix), so the
-        // background reconnect is visible in either capture. The scale log is a
-        // 1000-entry ring buffer, so the perpetual 60s ladder can't grow it
-        // without bound.
-        scaleInfo("Auto-reconnect: scanning for saved scale (no direct-connect)");
+        const QString text = QStringLiteral("Auto-reconnect: scanning for saved scale (no direct-connect)");
+        if (m_scaleLadderScanLog.shouldLog(QStringLiteral("scan"), text,
+                                           QDateTime::currentMSecsSinceEpoch(), nullptr))
+            scaleInfo(text);
         startScaleConnectionTimer();
         m_scanningForScales = true;
         if (!m_scanning) {
@@ -3384,11 +3394,12 @@ void BLEManager::scaleRepeatFailure(const QString& message, RepeatTier tier,
 
 bool BLEManager::shouldReportRepeatFailure(const QString& owner, const QString& source,
                                           const QString& message) {
-    const QString key = owner + QLatin1Char('\n') + source + QLatin1Char('\n') + message;
+    LogCollapse& log = owner == QLatin1String("Scale") ? m_scaleRepeatFailureLog : m_de1RepeatFailureLog;
+    const QString key = source + QLatin1Char('\n') + message;
     // Preserve novel failures even when the bounded episode cache is full.
-    if (!m_repeatFailureLog.hasKey(key) && m_repeatFailureLog.keyCount() >= 64)
+    if (!log.hasKey(key) && log.keyCount() >= 64)
         return true;
-    return m_repeatFailureLog.shouldLog(key, message, QDateTime::currentMSecsSinceEpoch(), nullptr);
+    return log.shouldLog(key, message, QDateTime::currentMSecsSinceEpoch(), nullptr);
 }
 
 void BLEManager::de1RepeatFailure(const QString& message) {
@@ -3398,12 +3409,21 @@ void BLEManager::de1RepeatFailure(const QString& message) {
 
 void BLEManager::resetRepeatFailureBudget() {
     // A successful connect or fresh user attempt ends the old retry episode.
-    // Retain its repeat count once, rather than a DEBUG record on every retry.
-    for (const auto& [key, collapsed] : m_repeatFailureLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
-        const QString source = key.section(QLatin1Char('\n'), 1, 1);
+    flushRepeatFailures(m_de1RepeatFailureLog, false);
+    flushRepeatFailures(m_scaleRepeatFailureLog, true);
+}
+
+void BLEManager::resetDe1RepeatFailureBudget() {
+    flushRepeatFailures(m_de1RepeatFailureLog, false);
+}
+
+// Retains an episode's repeat count once, rather than a DEBUG record on every retry.
+void BLEManager::flushRepeatFailures(LogCollapse& log, bool scale) {
+    for (const auto& [key, collapsed] : log.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        const QString source = key.section(QLatin1Char('\n'), 0, 0);
         const QString message = QStringLiteral("Previous attempt: %1")
-            .arg(key.section(QLatin1Char('\n'), 2)) + LogCollapse::suffix(collapsed);
-        if (key.startsWith(QStringLiteral("Scale\n")))
+            .arg(key.section(QLatin1Char('\n'), 1)) + LogCollapse::suffix(collapsed);
+        if (scale)
             scaleDebug(message, source);
         else
             de1Debug(message, source);

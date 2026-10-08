@@ -90,7 +90,8 @@ void USBManager::startPolling()
 
 void USBManager::onHotplugEvent()
 {
-    USB_INFO(QStringLiteral("Hotplug event — running a probe pass now"));
+    // DEBUG: one OS event reaches both USB managers; what each probe finds is the story.
+    USB_LOG(QStringLiteral("Hotplug event — running a probe pass now"));
     onPollTimerTick();
 }
 

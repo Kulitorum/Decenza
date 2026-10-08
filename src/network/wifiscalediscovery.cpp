@@ -87,7 +87,8 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
     // dereferences freed memory.
     m_probeCancel = std::make_shared<std::atomic<bool>>(false);
 
-    SCALE_INFO_TAGGED("WifiScaleDiscovery",
+    // DEBUG: the outcome lines below are the story; this only opens it.
+    SCALE_LOG_TAGGED("WifiScaleDiscovery",
         QString("mDNS lookup of %1 (timeout %2 ms)")
             .arg(hostnames.join(QStringLiteral(", ")))
             .arg(timeoutMs));
@@ -139,17 +140,28 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                             SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                                 QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
                         } else {
-                            SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                                QString("mDNS no responder for %1 (%2 queries sent, %3 records seen)")
-                                    .arg(hostname).arg(rs.queries).arg(rs.recordsSeen));
+                            // Once per run of silence: a ladder probing for a scale
+                            // that is off repeats it every cycle. Resolving ends the run.
+                            const QString text = QString("mDNS no responder for %1").arg(hostname);
+                            if (self->m_browseLog.shouldLog(QStringLiteral("noresp:") + hostname, text,
+                                                            QDateTime::currentMSecsSinceEpoch(), nullptr)) {
+                                SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+                                    text + QString(" (%1 queries sent, %2 records seen)")
+                                               .arg(rs.queries).arg(rs.recordsSeen));
+                            }
                         }
                     } else {
                         WifiScaleResult r;
                         r.foundBy = WifiScaleResult::Source::Fallback;
                         r.hostname = hostname;
                         r.address = ip;
+                        const LogCollapse::Collapsed silent = self->m_browseLog.flush(
+                            QStringLiteral("noresp:") + hostname, QDateTime::currentMSecsSinceEpoch());
                         SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS resolved %1 to %2").arg(hostname, ip));
+                            QString("mDNS resolved %1 to %2%3").arg(hostname, ip,
+                                silent.suppressed > 0
+                                    ? QString(" (after %1 more unanswered lookup(s))").arg(silent.suppressed)
+                                    : QString()));
                         emit self->resultFound(r);
                     }
                     self->finishOneLookup();
@@ -545,14 +557,27 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
         QJniObject::callStaticMethod<void>(kHelper, "stopBrowse", "(J)V",
                                            static_cast<jlong>(token));
 
-        SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-            QString("NSD browse finished in %1 ms — %2 resolved, %3 dropped for want "
-                    "of a hostname; NsdManager saw %4 instance(s), %5 failed to "
-                    "resolve, %6 had no usable IPv4")
-                .arg(clock.elapsed()).arg(resolved).arg(unnamed)
+        // Collapsed on the outcome like the DNS-SD line, so on the object's thread:
+        // the same empty browse with a different elapsed time is not a change.
+        const QString result =
+            QString("NSD browse finished — %1 resolved, %2 dropped for want "
+                    "of a hostname; NsdManager saw %3 instance(s), %4 failed to "
+                    "resolve, %5 had no usable IPv4")
+                .arg(resolved).arg(unnamed)
                 .arg(nsdSeen < 0 ? QStringLiteral("?") : QString::number(nsdSeen),
                      nsdResolveFailed < 0 ? QStringLiteral("?") : QString::number(nsdResolveFailed),
-                     nsdNoAddress < 0 ? QStringLiteral("?") : QString::number(nsdNoAddress)));
+                     nsdNoAddress < 0 ? QStringLiteral("?") : QString::number(nsdNoAddress));
+        const qint64 elapsedMs = clock.elapsed();
+        QMetaObject::invokeMethod(qApp, [self, result, elapsedMs]() {
+            if (!self) return;
+            LogCollapse::Collapsed collapsed;
+            if (self->m_browseLog.shouldLog(QStringLiteral("nsd"), result,
+                                           QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+                    result + QStringLiteral(" elapsedMs=%1").arg(elapsedMs)
+                        + LogCollapse::suffixSimilar(collapsed));
+            }
+        }, Qt::QueuedConnection);
     });
     runnable->setAutoDelete(true);
     QThreadPool::globalInstance()->start(runnable);

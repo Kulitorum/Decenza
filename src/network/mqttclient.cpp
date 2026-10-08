@@ -507,14 +507,11 @@ void MqttClient::onSessionUp()
     m_logCollapse.flush(QStringLiteral("connecting"), nowMs);
     m_logCollapse.flush(QStringLiteral("retry"), nowMs);
     m_logCollapse.flush(QStringLiteral("mdns"), nowMs);
-    const LogCollapse::Collapsed unprinted = m_logCollapse.flush(QStringLiteral("failed"), nowMs);
+    m_logCollapse.flush(QStringLiteral("failed"), nowMs);
 
     if (failedAttempts > 0) {
-        QString line = QStringLiteral("MqttClient: Connected to broker after %1 failed attempt(s)")
-                           .arg(failedAttempts);
-        if (unprinted.suppressed > 0)
-            line += QStringLiteral(" (%1 collapsed, never printed)").arg(unprinted.suppressed);
-        DIAG_INFO(NETWORK, "mqttclient").noquote() << line;
+        DIAG_INFO(NETWORK, "mqttclient").noquote()
+            << QStringLiteral("MqttClient: Connected to broker after %1 failed attempt(s)").arg(failedAttempts);
     } else {
         QString line = QStringLiteral("Connected to broker");
         if (m_useMqtt31) line += QStringLiteral(" (MQTT 3.1)");

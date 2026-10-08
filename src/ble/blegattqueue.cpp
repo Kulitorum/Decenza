@@ -158,7 +158,7 @@ void BleGattQueue::dispatchNext() {
     // half only, so what is new here is a deletion, not an untried trigger.
     //
     // The evidence for the deletion is a 4h17m field session on the maintainer's
-    // tablet, summarised in PR #1831: 50 dispatch lines, none saying anything
+    // tablet, summarised in PR Kulitorum/Decenza#1831: 50 dispatch lines, none saying anything
     // the single WARN episode line did not. That is maintainer testimony about
     // a log nobody else holds, not a reproducible measurement — weigh it as
     // such, and do not reintroduce a depth trigger without a field log showing

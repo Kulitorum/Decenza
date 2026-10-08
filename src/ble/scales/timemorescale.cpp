@@ -88,7 +88,7 @@ void TimemoreScale::onTransportConnected() {
 }
 
 void TimemoreScale::onTransportDisconnected() {
-    TIMEMORE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    TIMEMORE_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

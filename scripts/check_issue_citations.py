@@ -30,8 +30,8 @@ import sys
 
 REPO = "Kulitorum/Decenza"
 SOURCE_SUFFIXES = (".cpp", ".h", ".qml", ".py", ".md")
-# A citation, not a colour literal (#1a2b3c) and not a markdown heading.
-CITATION = re.compile(r"(?<![\w#/])#(\d{3,5})\b")
+# A citation, not a colour literal (#1a2b3c, or CSS `color:#999`) and not a markdown heading.
+CITATION = re.compile(r"(?<![\w#/:])#(\d{3,5})\b")
 # Paths that legitimately discuss PR numbers as PR numbers.
 EXEMPT_PREFIXES = ("openspec/changes/archive/", "docs/plans/", "CHANGELOG")
 

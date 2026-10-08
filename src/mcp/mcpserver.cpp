@@ -2539,7 +2539,7 @@ bool McpServer::needsChatConfirmation(const QString& toolName, const QJsonObject
     //
     // Confirmation is enforced HERE (server-side); handlers must NEVER check
     // `confirmed` themselves — McpServer strips it before the handler runs.
-    // A handler-side check is unreachable-true and was the shipped #1219 bug.
+    // A handler-side check is unreachable-true and was the bug shipped in PR Kulitorum/Decenza#1219.
     //
     // Tools that raise the on-machine dialog are not ALSO confirmed in chat. This
     // used to be implicit — `machine_start_*` was simply absent from the list below
@@ -2565,7 +2565,7 @@ bool McpServer::needsChatConfirmation(const QString& toolName, const QJsonObject
         toolName == "devices_set_scale_priority_mode" ||
         toolName == "devices_reset_scale_priority" ||
         // Forget-the-scale, which also advertises a `confirmed` arg that was never
-        // enforced — same class as the #1219 bug above. The irreversible learning and
+        // enforced — same class as the PR Kulitorum/Decenza#1219 bug above. The irreversible learning and
         // calibration wipes used to be named here too; they are now verbs of
         // `reset_saw_learning` and `flow_calibration`, and each declares its own
         // confirmation wording at its registration site. A name kept here after its

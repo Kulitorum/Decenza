@@ -84,7 +84,7 @@ void DecentScale::onTransportConnected() {
 }
 
 void DecentScale::onTransportDisconnected() {
-    DECENT_WARN(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    DECENT_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     stopWatchdog();
     stopHeartbeat();
     // The discovered characteristics don't outlive the link. Clearing

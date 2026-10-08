@@ -978,8 +978,14 @@ void DecentScaleWifi::onRecognizedAsHds() {
 }
 
 void DecentScaleWifi::onRecognitionTimeout() {
-    WIFI_WARN(QString("No recognizable HDS frame within %1 ms from %2")
-              .arg(kRecognitionTimeoutMs).arg(m_currentTarget));
+    // WARN only when a peer answered and was not an HDS. Silence is DEBUG: the
+    // fallback below follows, and the attempt's own outcome is the line to read.
+    const QString noFrame = QString("No recognizable HDS frame within %1 ms from %2")
+                                .arg(kRecognitionTimeoutMs).arg(m_currentTarget);
+    if (m_wsHandshakeDone)
+        WIFI_WARN(noFrame);
+    else
+        WIFI_LOG(noFrame + QStringLiteral(" (nothing answered)"));
 
     // Cached-IP attempt failed validation → fall back to the hostname. (If we
     // were already on the hostname, we've exhausted options.)
@@ -1018,9 +1024,8 @@ void DecentScaleWifi::onRecognitionTimeout() {
                      .arg(m_currentTarget, m_hostname));
             if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
         } else {
-            WIFI_LOG(QString("Cached IP %1 did not answer at all — KEEPING it and falling back to "
-                             "hostname %2. Silence is not evidence the address is wrong, and "
-                             "dialling it again is what lets the scale answer mDNS at all.")
+            WIFI_LOG(QString("Cached IP %1 did not answer — keeping it and falling back to "
+                             "hostname %2")
                      .arg(m_currentTarget, m_hostname));
         }
         // Hand the fallback off to onDisconnected via an event-driven flag:

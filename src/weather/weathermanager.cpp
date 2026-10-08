@@ -8,10 +8,22 @@
 #include <QJsonArray>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QTimeZone>
 #include <QHash>
 #include <cmath>
+
+namespace {
+// errorString() embeds the request URL, and the weather URLs carry the user's
+// coordinates (in the query, and in the NWS points path). Keep only the host.
+QString replyFailure(const QNetworkReply* reply)
+{
+    static const QRegularExpression kUrlTail(QStringLiteral("(https?://[^/?\\s]+)\\S*"));
+    return reply->errorString().replace(kUrlTail, QStringLiteral("\\1"));
+}
+}  // namespace
 
 const QString WeatherManager::USER_AGENT = QStringLiteral("Decenza/1.0 (github.com/Kulitorum/de1-qt)");
 
@@ -289,7 +301,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            logForecastResult(QStringLiteral("Open-Meteo request failed: ") + reply->errorString(), true);
+            logForecastResult(QStringLiteral("Open-Meteo request failed: ") + replyFailure(reply), true);
             m_fetchInProgress = false;
             setLoading(false);
             return;
@@ -382,7 +394,7 @@ void WeatherManager::fetchFromNWS(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            logForecastResult(QStringLiteral("NWS points request failed: ") + reply->errorString(), true);
+            logForecastResult(QStringLiteral("NWS points request failed: ") + replyFailure(reply), true);
             fallbackToOpenMeteo(lat, lon, "NWS points lookup failed");
             return;
         }
@@ -421,7 +433,7 @@ void WeatherManager::fetchNWSHourlyFromGridUrl(const QString& forecastHourlyUrl)
         double lon = m_lastFetchLon;
 
         if (reply->error() != QNetworkReply::NoError) {
-            logForecastResult(QStringLiteral("NWS hourly request failed: ") + reply->errorString(), true);
+            logForecastResult(QStringLiteral("NWS hourly request failed: ") + replyFailure(reply), true);
             fallbackToOpenMeteo(lat, lon, "NWS hourly forecast failed");
             return;
         }
@@ -509,7 +521,7 @@ void WeatherManager::fetchFromMetNorway(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            logForecastResult(QStringLiteral("MET Norway request failed: ") + reply->errorString(), true);
+            logForecastResult(QStringLiteral("MET Norway request failed: ") + replyFailure(reply), true);
             fallbackToOpenMeteo(lat, lon, "MET Norway request failed");
             return;
         }
@@ -633,7 +645,12 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            APP_WARN_STREAM("Weather") << "Sun times request failed:" << reply->errorString();
+            const QString text = QStringLiteral("Sun times request failed: ") + replyFailure(reply);
+            LogCollapse::Collapsed collapsed;
+            if (m_sunTimesLog.shouldLog(QLatin1String("sun"), text,
+                                        QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                APP_WARN_STREAM("Weather") << text + LogCollapse::suffix(collapsed);
+            }
             return;
         }
 

@@ -253,10 +253,10 @@ public:
     // Hardware settings (heater calibration sent to firmware)
     void setSettings(SettingsHardware* settings);
 
-    // The next connect wakes the machine again. Called when the reconnect
-    // after a dead-link teardown stops being that immediate recovery: the
-    // machine stayed absent (power cut) or the user asked for a connect.
-    void cancelReconnectSkip(const QString& reason);
+    // The screensaver's state, mirrored from QML. A connect wakes the machine
+    // only while the app is awake, or for a wake asked for while the link was
+    // down: a reconnect alone never wakes it (#1976).
+    void setAppAsleep(bool asleep) { m_appAsleep = asleep; }
 
 public slots:
     void connectToDevice(const QString& address);
@@ -511,7 +511,6 @@ private:
     // Transport signal handlers
     void onTransportConnected();
     void onTransportDisconnected();
-    void onTransportLivenessTeardown();
     void onTransportDataReceived(const QBluetoothUuid& uuid, const QByteArray& data);
     void onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data);
 
@@ -826,16 +825,13 @@ private:
     // per fact, so the fourth combination cannot be written down.
     enum class ConnectSleep { None, Owed, Sent };
     ConnectSleep m_connectSleep = ConnectSleep::None;
-    // Set when the transport tore down a dead link to a machine that had
-    // reported Sleep; the immediate reconnect then skips its usual wake
-    // (#1976). Survives both teardown paths, which every reconnect attempt
-    // runs. Cleared by any wake request, an explicit connect, or the reconnect
-    // ladder passing its first attempt (cancelReconnectSkip()).
-    bool m_reconnectLeavesAsleep = false;
-    // m_state starts as Sleep before the machine reports anything.
-    bool m_stateReported = false;
-    // A wake supersedes any sleep held for the connect and any skipped wake.
-    void clearConnectIntents(const QString& reason);
+    bool m_appAsleep = false;
+    bool m_linkWasUp = false;  // onTransportConnected() ran for the current link
+    // A wake asked for while the link was down. Survives failed attempts (they
+    // run onTransportDisconnected()) until a connect sends it or a sleep
+    // supersedes it.
+    bool m_wakeOwed = false;
+    void oweWakeToConnect();
 
     // Frame-ACK verification state for the in-flight profile upload (cleared
     // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading
