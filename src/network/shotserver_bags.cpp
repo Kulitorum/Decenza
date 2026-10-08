@@ -29,6 +29,7 @@
 #include "webtemplates/management_js.h"
 
 #include <QCoreApplication>
+#include <QDate>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -48,9 +49,8 @@ namespace {
 // Editable bag columns accepted from the web form. Full app parity
 // (polish-shotserver-inventory-pages): the descriptive bean attributes ride in
 // the beanBaseData JSON blob (the client parses/merges it), and beanBaseId +
-// beanBaseData together carry a Bean Base canonical link. openedDate/storageHint
-// drive the freeze-lifecycle actions; equipmentId/rpm are the per-bag equipment
-// link + rpm dial-in.
+// beanBaseData together carry a Bean Base canonical link. equipmentId/rpm are
+// the per-bag equipment link + rpm dial-in.
 const QStringList kBagEditableKeys = {
     "roasterName", "coffeeName", "roastDate", "roastLevel", "frozenDate",
     "defrostDate", "openedDate", "storageHint", "notes", "startWeightG",
@@ -78,6 +78,32 @@ QVariantMap bagFieldsFromBody(const QJsonObject& body)
         fields.insert("yieldMode", ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none"));
     }
     return fields;
+}
+
+// The web editor's body: bag fields plus its bean-detail fields as `beanDetails`,
+// merged into the blob it sent exactly as the app's editor merges them.
+QVariantMap editorFieldsFromBody(const QJsonObject& body)
+{
+    QVariantMap fields = bagFieldsFromBody(body);
+    if (body.contains(QStringLiteral("beanDetails"))) {
+        fields.insert(QStringLiteral("beanBaseData"), BeanBaseBlob::mergeEditorDetails(
+            fields.value(QStringLiteral("beanBaseData")).toString(),
+            body.value(QStringLiteral("beanDetails")).toObject().toVariantMap(),
+            fields.value(QStringLiteral("roasterName")).toString(),
+            fields.value(QStringLiteral("coffeeName")).toString(),
+            fields.value(QStringLiteral("roastLevel")).toString()));
+    }
+    return fields;
+}
+
+// The web page's copy of the CoffeeBag rules it renders with, so it carries no
+// list of its own.
+QString bagRulesJson()
+{
+    QJsonObject rules;
+    rules["storageHints"] = QJsonArray::fromVariantList(CoffeeBag::storageHintOptions());
+    rules["coffeeOnly"] = QJsonArray::fromStringList(CoffeeBag::coffeeOnlyKeys());
+    return QString::fromUtf8(QJsonDocument(rules).toJson(QJsonDocument::Compact));
 }
 
 } // namespace
@@ -435,14 +461,10 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
             return;
         }
-        QVariantMap fields = bagFieldsFromBody(bodyJson);
-        if (fields.value("roasterName").toString().trimmed().isEmpty()
-            && fields.value("coffeeName").toString().trimmed().isEmpty()) {
-            respondJson(QJsonObject{{"error", "roasterName or coffeeName is required"}}, 400);
-            return;
-        }
+        QVariantMap fields = editorFieldsFromBody(bodyJson);
         // kind is creation-time only (deliberately NOT in kBagEditableKeys, so
         // the update route can never touch it): accept it here, default coffee.
+        // Set before CoffeeBag::writeError, whose kind check reads it.
         const QString kind = bodyJson.value("kind").toString();
         if (!kind.isEmpty() && kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
             respondJson(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}}, 400);
@@ -450,6 +472,24 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
         if (!kind.isEmpty())
             fields.insert("kind", kind);
+        // A new bag has no portion in use yet; its first shot stamps the opened
+        // date (as the app form and MCP create refuse them too).
+        for (const char* key : {"defrostDate", "openedDate"}) {
+            if (!fields.value(QString::fromLatin1(key)).toString().isEmpty()) {
+                respondJson(QJsonObject{{"error", QStringLiteral("%1 is set by editing the bag; a new bag "
+                    "has no portion in use yet").arg(QLatin1String(key))}}, 400);
+                return;
+            }
+        }
+        if (const QString err = CoffeeBag::writeError({}, fields, QDate::currentDate()); !err.isEmpty()) {
+            respondJson(QJsonObject{{"error", err}}, 400);
+            return;
+        }
+        if (fields.value("roasterName").toString().trimmed().isEmpty()
+            && fields.value("coffeeName").toString().trimmed().isEmpty()) {
+            respondJson(QJsonObject{{"error", "roasterName or coffeeName is required"}}, 400);
+            return;
+        }
         QPointer<BeanBaseClient> safeBeanbase = m_mainController ? m_mainController->beanbase() : nullptr;
         const QString createdImageUrl =
             bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
@@ -576,12 +616,14 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        // GET /api/bag/<id>
-        if (action.isEmpty() && method == "GET") {
+        // GET /api/bag/<id>; /restock answers the new-bag template for it
+        // (CoffeeBag::restockTemplate, as the app's Restock).
+        const bool restock = action == QLatin1String("restock");
+        if ((action.isEmpty() || restock) && method == "GET") {
             auto conn = std::make_shared<QMetaObject::Connection>();
             auto failConn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagReady, this,
-                [conn, failConn, bagId, respondJson](qint64 readyId, const QVariantMap& bag) {
+                [conn, failConn, bagId, restock, respondJson](qint64 readyId, const QVariantMap& bag) {
                     if (readyId != bagId)
                         return;
                     disconnect(*conn);
@@ -589,7 +631,8 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     if (bag.isEmpty())
                         respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
                     else
-                        respondJson(QJsonObject::fromVariantMap(bag));
+                        respondJson(QJsonObject::fromVariantMap(
+                            restock ? CoffeeBag::restockTemplate(bag, QDate::currentDate()) : bag));
                 });
             *failConn = connect(bagStorage, &CoffeeBagStorage::bagReadFailed, this,
                 [conn, failConn, bagId, respondJson](qint64 failedId) {
@@ -619,12 +662,24 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
                 return;
             }
-            const QVariantMap fields = bagFieldsFromBody(bodyJson);
-            if (fields.isEmpty()) {
+            QVariantMap fields = editorFieldsFromBody(bodyJson);
+            // The web editor sends the form as it opened too: write only what the
+            // user changed, as the app does (CoffeeBag::editChanges). Without it
+            // the order check runs in storage, whose refusal reaches the reply.
+            QVariantMap opened;
+            if (bodyJson.contains(QStringLiteral("opened"))) {
+                opened = editorFieldsFromBody(bodyJson.value(QStringLiteral("opened")).toObject());
+                const bool linkChanged = opened.value(QStringLiteral("beanBaseId")).toString()
+                    != fields.value(QStringLiteral("beanBaseId")).toString();
+                fields = CoffeeBag::editChanges(opened, fields, linkChanged);
+            } else if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;
             }
-            auto conn = std::make_shared<QMetaObject::Connection>();
+            if (const QString err = CoffeeBag::writeError(opened, fields, QDate::currentDate()); !err.isEmpty()) {
+                respondJson(QJsonObject{{"error", err}}, 400);
+                return;
+            }
             // The client saw the product URL change to a new non-empty value:
             // re-resolve the photo from the new page, as the
             // in-app dialog does on the same edit (the web and MCP `bag` update
@@ -639,71 +694,84 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             const bool wantsImageRefresh = bodyJson.value(QStringLiteral("refreshImage")).toBool();
             const QString extractedImageUrl =
                 bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
+            auto afterWrite = [bagId, respondJson, wantsImageRefresh, extractedImageUrl, safeBeanbase,
+                               dbPath = bagStorage->databasePath()]() {
+                if (!safeBeanbase || (!wantsImageRefresh && extractedImageUrl.isEmpty())) {
+                    respondJson(QJsonObject{{"updated", true}, {"bagId", bagId}});
+                    return;
+                }
+                // Resolve the cache key and the link from the STORED row,
+                // never from the request body. A caller that updates a
+                // linked bag without resending beanBaseId — the browser
+                // always does, but this route is documented for MCP/AI
+                // callers too — would otherwise be keyed "bag-<rowid>" and
+                // the photo written where nothing ever reads it, while the
+                // reply claimed success. The write has already landed, so
+                // the row is the post-update truth.
+                const QString photoDbPath = dbPath;
+                QThread* photoThread = QThread::create(
+                    [photoDbPath, bagId, extractedImageUrl, safeBeanbase, respondJson]() {
+                        QString canonicalId, coffeeName, link;
+                        (void)withTempDb(photoDbPath, "web_bag_photo", [&](QSqlDatabase& db) {
+                            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                            if (bag.isValid()) {
+                                canonicalId = bag.beanBaseId;
+                                coffeeName = bag.coffeeName;
+                                link = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
+                                           .object().value(QStringLiteral("link")).toString();
+                            }
+                        });
+                        QMetaObject::invokeMethod(qApp,
+                            [canonicalId, coffeeName, link, bagId, extractedImageUrl,
+                             safeBeanbase, respondJson]() {
+                                bool imageRefreshed = false;
+                                if (safeBeanbase) {
+                                    const QString imageKey = BeanBaseClient::imageKeyFor(bagId, canonicalId);
+                                    if (!extractedImageUrl.isEmpty()) {
+                                        // The extraction's own photo wins over
+                                        // re-scraping: stage 2 ran because the
+                                        // page yielded almost no body text,
+                                        // usually a page a re-scrape also comes
+                                        // back empty-handed from.
+                                        safeBeanbase->replaceBagImageFromUrl(
+                                            imageKey, extractedImageUrl);
+                                        imageRefreshed = true;
+                                    } else if (!link.isEmpty()) {
+                                        safeBeanbase->refreshBagImage(imageKey, coffeeName, link);
+                                        imageRefreshed = true;
+                                    }
+                                }
+                                // Echo the decision: a caller that asked for a
+                                // refresh it did not get would otherwise read
+                                // `updated: true` as "done".
+                                respondJson(QJsonObject{{"updated", true},
+                                                        {"bagId", bagId},
+                                                        {"imageRefreshed", imageRefreshed}});
+                            }, Qt::QueuedConnection);
+                    });
+                QObject::connect(photoThread, &QThread::finished, photoThread, &QObject::deleteLater);
+                photoThread->start();
+            };
+            // Nothing changed: still apply a photo the save carried (an extraction
+            // that found only the picture).
+            if (fields.isEmpty()) {
+                afterWrite();
+                return;
+            }
+            auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson, wantsImageRefresh, extractedImageUrl, safeBeanbase,
-                 dbPath = bagStorage->databasePath()](qint64 updatedId, bool success) {
+                [conn, bagId, respondJson, afterWrite](qint64 updatedId, bool success, const QString& refusal) {
                     if (updatedId != bagId)
                         return;
                     disconnect(*conn);
                     if (!success) {
-                        respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
+                        if (!refusal.isEmpty())
+                            respondJson(QJsonObject{{"error", refusal}}, 400);
+                        else
+                            respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
                         return;
                     }
-                    if (!safeBeanbase || (!wantsImageRefresh && extractedImageUrl.isEmpty())) {
-                        respondJson(QJsonObject{{"updated", true}, {"bagId", bagId}});
-                        return;
-                    }
-                    // Resolve the cache key and the link from the STORED row,
-                    // never from the request body. A caller that updates a
-                    // linked bag without resending beanBaseId — the browser
-                    // always does, but this route is documented for MCP/AI
-                    // callers too — would otherwise be keyed "bag-<rowid>" and
-                    // the photo written where nothing ever reads it, while the
-                    // reply claimed success. The write has already landed, so
-                    // the row is the post-update truth.
-                    const QString photoDbPath = dbPath;
-                    QThread* photoThread = QThread::create(
-                        [photoDbPath, bagId, extractedImageUrl, safeBeanbase, respondJson]() {
-                            QString canonicalId, coffeeName, link;
-                            (void)withTempDb(photoDbPath, "web_bag_photo", [&](QSqlDatabase& db) {
-                                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
-                                if (bag.isValid()) {
-                                    canonicalId = bag.beanBaseId;
-                                    coffeeName = bag.coffeeName;
-                                    link = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
-                                               .object().value(QStringLiteral("link")).toString();
-                                }
-                            });
-                            QMetaObject::invokeMethod(qApp,
-                                [canonicalId, coffeeName, link, bagId, extractedImageUrl,
-                                 safeBeanbase, respondJson]() {
-                                    bool imageRefreshed = false;
-                                    if (safeBeanbase) {
-                                        const QString imageKey = BeanBaseClient::imageKeyFor(bagId, canonicalId);
-                                        if (!extractedImageUrl.isEmpty()) {
-                                            // The extraction's own photo wins over
-                                            // re-scraping: stage 2 ran because the
-                                            // page yielded almost no body text,
-                                            // usually a page a re-scrape also comes
-                                            // back empty-handed from.
-                                            safeBeanbase->replaceBagImageFromUrl(
-                                                imageKey, extractedImageUrl);
-                                            imageRefreshed = true;
-                                        } else if (!link.isEmpty()) {
-                                            safeBeanbase->refreshBagImage(imageKey, coffeeName, link);
-                                            imageRefreshed = true;
-                                        }
-                                    }
-                                    // Echo the decision: a caller that asked for a
-                                    // refresh it did not get would otherwise read
-                                    // `updated: true` as "done".
-                                    respondJson(QJsonObject{{"updated", true},
-                                                            {"bagId", bagId},
-                                                            {"imageRefreshed", imageRefreshed}});
-                                }, Qt::QueuedConnection);
-                        });
-                    QObject::connect(photoThread, &QThread::finished, photoThread, &QObject::deleteLater);
-                    photoThread->start();
+                    afterWrite();
                 });
             // Setting a Bean Base link propagates it onto the bag's shots, exactly
             // as the in-app edit dialog's link path does.
@@ -821,7 +889,7 @@ QString ShotServer::generateBeansPage() const
             <div><label id="lblCoffee">Coffee</label><input id="fCoffee"></div>
         </div>
         <div class="grid-2">
-            <div><label>Roast date (YYYY-MM-DD)</label><input id="fRoastDate"></div>
+            <div><label>Roast date</label><input id="fRoastDate" type="date"></div>
             <div><label>Roast level</label><input id="fRoastLevel"></div>
         </div>
 
@@ -884,9 +952,10 @@ QString ShotServer::generateBeansPage() const
         <details class="dialog-section">
             <summary>Storage &amp; freshness</summary>
             <div class="grid-2">
-                <div><label>Frozen date</label><input id="fFrozen"></div>
-                <div><label>Defrost date</label><input id="fDefrost"></div>
-                <div><label>Opened date</label><input id="fOpened"></div>
+                <div><label>Frozen</label><input id="fFrozen" type="date"></div>
+                <div><label>Storage</label><select id="fStorage"></select></div>
+                <div class="edit-only"><label>Thawed</label><input id="fDefrost" type="date"></div>
+                <div class="edit-only"><label>Opened</label><input id="fOpened" type="date"></div>
             </div>
         </details>
 
@@ -929,12 +998,22 @@ QString ShotServer::generateBeansPage() const
         <div class="dialog-actions"><button onclick="el('infoDialog').close()">Close</button></div>
     </dialog>
 
+    <dialog id="dateDialog">
+        <h2 id="dateDialogTitle"></h2>
+        <input id="dateDialogInput" type="date">
+        <div class="dialog-actions">
+            <button onclick="el('dateDialog').close()">Cancel</button>
+            <button class="primary" onclick="saveDateDialog()">Save</button>
+        </div>
+    </dialog>
+
     <script>
 )HTML";
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_MANAGEMENT;
     html += WEB_JS_GRIND_DATALIST;
+    html += QStringLiteral("\n        const BAG_RULES = %1;\n").arg(bagRulesJson());
     html += R"HTML(
         let editingId = null;
         let editingKind = 'coffee';
@@ -943,6 +1022,11 @@ QString ShotServer::generateBeansPage() const
         let editBlob = {};          // working copy of the bag's beanBaseData blob
         let editBeanBaseId = '';    // canonical id when linked
         let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
+        let editRawBlob = '';       // the blob as stored, sent back untouched when unreadable
+        // formFields() as the editor opened. A save sends it with the current
+        // form and the server writes only the difference (CoffeeBag::editChanges),
+        // so it can't overwrite a date a shot stamped meanwhile.
+        let editOpenedFields = null;
         let editBlobReadable = true; // false when the stored blob would not parse
         let editImageUrl = '';      // stage-2 product photo the extraction found
         let editImageUrlFor = '';   // the product URL that photo was extracted FROM
@@ -986,11 +1070,12 @@ QString ShotServer::generateBeansPage() const
         function thumbErr(img, emoji) {
             img.outerHTML = '<div class="thumb placeholder">' + emoji + '</div>';
         }
-        const daysAgo = (d) => {
-            const t = Date.parse(d); if (isNaN(t)) return null;
-            return Math.floor((Date.now() - t) / 86400000);
+        // Local date: toISOString() is UTC, which is tomorrow on a US evening.
+        const today = () => {
+            const d = new Date();
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+                + '-' + String(d.getDate()).padStart(2, '0');
         };
-        const today = () => new Date().toISOString().slice(0, 10);
 
         function load() {
             status('Loading…');
@@ -1052,19 +1137,17 @@ QString ShotServer::generateBeansPage() const
                     bb.brewTempC ? bb.brewTempC + '°C' : '', bb.steepTime].map(esc));
             return bullet([bb.origin, bb.variety, bb.process].map(esc));
         }
+        // Words CoffeeBag::lifecycleParts, as BagLifecycleLabels.qml does in the app.
         function metaLine(b) {
-            const parts = [];
-            if (b.roastDate) parts.push('Roasted ' + esc(b.roastDate));
-            if (b.frozenDate && !b.defrostDate) parts.push('Frozen ' + esc(b.frozenDate));
-            if (b.defrostDate) {
-                const n = daysAgo(b.defrostDate);
-                parts.push('Thawed ' + esc(b.defrostDate) + (n !== null ? ' (' + n + 'd)' : ''));
-            }
-            if (b.openedDate) {
-                const n = daysAgo(b.openedDate);
-                parts.push('Opened ' + esc(b.openedDate) + (n !== null ? ' (' + n + 'd)' : ''));
-            }
-            return parts.join(' &middot; ');
+            return (b.lifecycleParts || []).map(p => {
+                switch (p.kind) {
+                case 'roasted': return 'Roasted ' + esc(p.date);
+                case 'frozen': return 'Frozen ' + esc(p.date);
+                case 'thawed': return 'Thawed ' + esc(p.date) + ' (' + p.ageDays + 'd)';
+                case 'opened': return 'Opened ' + esc(p.date) + ' (' + p.ageDays + 'd)';
+                }
+                return '';
+            }).filter(s => s).join(' &middot; ');
         }
 
         function cardHtml(b, finished) {
@@ -1104,35 +1187,25 @@ QString ShotServer::generateBeansPage() const
             if (dial) body += '<div class="plan-line">' + dial + '</div>';
             body += '</div>';
 
-            if (finished) {
-                // A finished bag offers only Restock, Restore and its details.
-                let fin = '<div class="actions">'
-                    + '<button class="primary" onclick="restockBag(' + b.id + ')">Restock</button>'
-                    + '<button onclick="restoreBag(' + b.id + ')">Restore</button>'
-                    + '<button onclick="openEditor(' + b.id + ')">Edit</button>';
-                if (linked)
-                    fin += '<button onclick="showInfo(' + b.id + ')">Info</button>';
-                fin += '</div>';
+            // The buttons come from InventoryBag::cardActions, as BagCard.qml's do.
+            const button = {
+                restock: '<button' + (finished ? ' class="primary"' : '') + ' onclick="restockBag(' + b.id + ')">Restock</button>',
+                restore: '<button onclick="restoreBag(' + b.id + ')">Restore</button>',
+                findInBeanBase: '<button onclick="openEditor(' + b.id + ',null,true)">Find in Bean Base</button>',
+                bagFinished: '<button class="danger" onclick="finishBag(' + b.id + ')">Bag finished</button>',
+                edit: '<button onclick="openEditor(' + b.id + ')">Edit</button>',
+                info: '<button onclick="showInfo(' + b.id + ')">Info</button>',
+                freeze: '<button onclick="askBagDate(' + b.id + ',\'frozenDate\')">Freeze</button>',
+                thaw: '<button onclick="askBagDate(' + b.id + ',\'defrostDate\')">Thaw</button>',
+                delete: '<button class="danger" onclick="deleteBag(' + b.id + ')">Delete</button>'
+            };
+            let acts = '<div class="actions">';
+            if (!finished)
+                acts += '<button class="primary" onclick="activate(' + b.id + ')"' + (b.isActive ? ' disabled' : '') + '>Activate</button>';
+            acts += (b.actions || []).map(a => button[a] || '').join('') + '</div>';
+            if (finished)
                 return '<div class="card dimmed">'
-                    + '<div class="card-head">' + thumb + body + '</div>' + fin + '</div>';
-            }
-
-            let acts = '<div class="actions">'
-                + '<button class="primary" onclick="activate(' + b.id + ')"' + (b.isActive ? ' disabled' : '') + '>Activate</button>'
-                + '<button onclick="openEditor(' + b.id + ')">Edit</button>'
-                + '<button onclick="restockBag(' + b.id + ')">Restock</button>';
-            if (!linked && b.kind !== 'tea')
-                acts += '<button onclick="openEditor(' + b.id + ',null,true)">Find in Bean Base</button>';
-            if (linked)
-                acts += '<button onclick="showInfo(' + b.id + ')">Info</button>';
-            if (b.frozenDate && !b.defrostDate)
-                acts += '<button onclick="quickSet(' + b.id + ',{defrostDate:today()})">Thaw</button>';
-            if (!b.openedDate)
-                acts += '<button onclick="quickSet(' + b.id + ',{openedDate:today()})">Mark opened</button>';
-            acts += (b.shotCount > 0
-                ? '<button class="danger" onclick="finishBag(' + b.id + ')">Bag finished</button>'
-                : '<button class="danger" onclick="deleteBag(' + b.id + ')">Delete</button>');
-            acts += '</div>';
+                    + '<div class="card-head">' + thumb + body + '</div>' + acts + '</div>';
 
             return '<div class="card' + (b.isActive ? ' active' : '') + '">'
                 + '<div class="card-head">' + thumb + body + '</div>' + acts + '</div>';
@@ -1231,14 +1304,14 @@ QString ShotServer::generateBeansPage() const
                     status('Could not load finished bags: ' + e.message);
                 });
         }
-        // Restock: a new bag of the same coffee, as the app's re-buy form —
-        // identity, details and dial-in carry over; dates and notes belong to
-        // the finished bag, which stays finished.
+        // Restock: a new bag of the same coffee from the server's template, the
+        // same one the app's re-buy form uses (CoffeeBag::restockTemplate).
         function restockBag(id, forRecipe) {
             const src = bags.find(x => x.id === id) || {};
             restockForRecipe = forRecipe || 0;
-            openEditor(0, src.kind, false, Object.assign({}, src, {
-                roastDate: '', frozenDate: '', defrostDate: '', openedDate: '', notes: '', startWeightG: 0 }));
+            getJson('/api/bag/' + id + '/restock')
+                .then(template => openEditor(0, src.kind, false, template))
+                .catch(e => status(e.message));
         }
         function restoreBag(id) {
             post('/api/bag/' + id + '/restore').then(load).catch(e => status(e.message));
@@ -1261,12 +1334,33 @@ QString ShotServer::generateBeansPage() const
 
         function activate(id) { post('/api/bag/' + id + '/activate').then(load).catch(e => status(e.message)); }
         function quickSet(id, fields) { post('/api/bag/' + id, fields).then(load).catch(e => status(e.message)); }
+        // Freeze and Thaw ask for the date, defaulting to today, within the same
+        // bounds as the app's pickers (the server refuses anything else anyway).
+        let dateDialogTarget = null;
+        function askBagDate(id, field) {
+            const b = bags.find(x => x.id === id) || {};
+            const freezing = field === 'frozenDate';
+            el('dateDialogTitle').textContent = freezing
+                ? 'When did this bag go into the freezer?' : 'When did this portion leave the freezer?';
+            const input = el('dateDialogInput');
+            input.value = today();
+            input.max = today();
+            input.min = (freezing ? b.roastDate : b.frozenDate) || '';
+            dateDialogTarget = { id, field };
+            el('dateDialog').showModal();
+        }
+        function saveDateDialog() {
+            const value = el('dateDialogInput').value;
+            el('dateDialog').close();
+            if (dateDialogTarget && value)
+                quickSet(dateDialogTarget.id, { [dateDialogTarget.field]: value });
+        }
+        // No confirmation, as in the app: a finished bag is restorable, and only a
+        // bag with no shots can be deleted.
         function finishBag(id) {
-            if (!confirm('Mark this bag as finished? It leaves the inventory; shots keep their history.')) return;
             post('/api/bag/' + id + '/finish').then(load).catch(e => status(e.message));
         }
         function deleteBag(id) {
-            if (!confirm('Delete this bag permanently?')) return;
             post('/api/bag/' + id + '/delete').then(load).catch(e => status(e.message));
         }
 )HTML";
@@ -1296,6 +1390,11 @@ QString ShotServer::generateBeansPage() const
             el('coffeeDetails').style.display = isTea ? 'none' : '';
             el('teaDetails').style.display = isTea ? '' : 'none';
             el('lblCoffee').textContent = isTea ? 'Tea name' : 'Coffee';
+            const inputFor = { roastLevel: 'fRoastLevel', grinderSetting: 'fGrind', rpm: 'fRpm' };
+            BAG_RULES.coffeeOnly.forEach(k => {
+                const e = el(inputFor[k]);
+                if (e) e.parentElement.style.display = isTea ? 'none' : '';
+            });
         }
 
         // `source`: a bag to prefill a NEW bag from (restock).
@@ -1308,6 +1407,7 @@ QString ShotServer::generateBeansPage() const
             editingKind = kind || b.kind || 'coffee';
             editorGeneration++;
             editBlob = parseBlob(b.beanBaseData, true);
+            editRawBlob = b.beanBaseData || '';
             editBeanBaseId = b.beanBaseId || '';
             editOpenedLink = (editBlob.link || '').trim();
             editImageUrl = '';
@@ -1325,8 +1425,12 @@ QString ShotServer::generateBeansPage() const
             el('fRoastDate').value = b.roastDate || '';
             el('fRoastLevel').value = b.roastLevel || '';
             el('fFrozen').value = b.frozenDate || '';
+            el('fStorage').value = b.storageHint || '';
             el('fDefrost').value = b.defrostDate || '';
             el('fOpened').value = b.openedDate || '';
+            // A new bag has no portion in use yet: thaw and opened are edit-only (app parity).
+            document.querySelectorAll('#editor .edit-only').forEach(e => e.style.display = id ? '' : 'none');
+            ['fRoastDate', 'fFrozen', 'fDefrost', 'fOpened'].forEach(f => el(f).max = today());
             el('fGrind').value = b.grinderSetting || '';
             el('fRpm').value = b.rpm > 0 ? b.rpm : '';
             el('fDose').value = b.doseWeightG > 0 ? b.doseWeightG : '';
@@ -1352,10 +1456,11 @@ QString ShotServer::generateBeansPage() const
             // Nothing else resets this, so without it an "Extraction failed"
             // from the previously edited bag hangs over the fresh form.
             editorStatus(editBlobReadable ? ''
-                : 'This bag\u2019s stored bean details could not be read, so they are '
-                  + 'shown blank and will be left untouched when you save.');
+                : 'This bag\u2019s stored bean details could not be read. They are left '
+                  + 'untouched, and bean details typed here will not be saved.');
             updateYieldLabel();
             applyKindUi();
+            editOpenedFields = id ? formFields() : null;
             el('editor').showModal();
             if (focusSearch) el('fSearch').focus();
         }
@@ -1650,77 +1755,63 @@ QString ShotServer::generateBeansPage() const
         }
 )HTML";
     html += R"HTML(
-        function saveEditor() {
-            const bodyData = {
+        // The form as the server reads it, the same shape at open and at save.
+        // Bean details go as their own map and merge server-side, as the app's
+        // do (BeanBaseBlob::mergeEditorDetails).
+        function formFields() {
+            const isTea = editingKind === 'tea';
+            const f = {
                 roasterName: el('fRoaster').value.trim(),
                 coffeeName: el('fCoffee').value.trim(),
                 roastDate: el('fRoastDate').value.trim(),
                 roastLevel: el('fRoastLevel').value.trim(),
                 frozenDate: el('fFrozen').value.trim(),
-                defrostDate: el('fDefrost').value.trim(),
-                openedDate: el('fOpened').value.trim(),
+                storageHint: el('fStorage').value,
                 grinderSetting: el('fGrind').value.trim(),
                 rpm: parseInt(el('fRpm').value) || 0,
                 doseWeightG: parseFloat(el('fDose').value) || 0,
                 startWeightG: parseFloat(el('fStartWeight').value) || 0,
                 equipmentId: parseInt(el('fEquipment').value, 10) || 0,
-                notes: el('fNotes').value.trim()
+                notes: el('fNotes').value.trim(),
+                // An unreadable blob goes back as stored; the merge leaves it alone.
+                beanBaseData: !editBlobReadable ? editRawBlob
+                    : (Object.keys(editBlob).length > 0 ? JSON.stringify(editBlob) : ''),
+                beanDetails: {}
             };
-            if (!bodyData.roasterName && !bodyData.coffeeName) { editorStatus('Roaster or coffee name is required'); return; }
-
-            // Yield anchor: send exactly one of yieldG / yieldRatio (0 clears).
+            if (editingId) {
+                f.defrostDate = el('fDefrost').value.trim();
+                f.openedDate = el('fOpened').value.trim();
+            }
+            if (isTea)
+                BAG_RULES.coffeeOnly.forEach(k => { f[k] = k === 'rpm' ? 0 : ''; });
+            if (editBeanBaseId) f.beanBaseId = editBeanBaseId;
+            // Yield anchor: exactly one of yieldG / yieldRatio (0 clears).
             const ym = el('fYieldMode').value;
             const yv = parseFloat(el('fYieldValue').value) || 0;
-            if (ym === 'absolute') bodyData.yieldG = yv;
-            else if (ym === 'ratio') bodyData.yieldRatio = yv;
-            else bodyData.yieldG = 0;
-
-            // Merge edited descriptive fields into the working blob and send it.
-            (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).concat(LINK_KEYS).forEach(([fid, key]) => {
-                const e = el(fid); if (!e) return;
-                const v = e.value.trim();
-                if (v) editBlob[key] = v; else delete editBlob[key];
-            });
-            // Send the blob whether or not it has keys: bagFieldsFromBody is a
-            // sparse whitelist — an absent key means "leave the column alone" —
-            // so omitting it when the last field is cleared discards the
-            // deletion and the old value returns on reopen. '' rather than '{}'
-            // because the column's bind hook collapses empty to SQL NULL, a
-            // real clear, where '{}' would persist a junk non-null blob.
-            //
-            // EXCEPT one case: the stored blob would not parse AND the user has
-            // put nothing in its place. Then editBlob is {} because we could not
-            // READ it, not because anything was cleared, and sending '' would
-            // wipe details the form never showed them — so omit the key and
-            // leave the column untouched.
-            //
-            // Anything the user DID enter still goes: the guard is "don't write
-            // an empty blob over one we couldn't read", not "never write". The
-            // broader form silently discarded fresh input on exactly the bags
-            // that needed repairing, and left a Bean Base pick linked to a bag
-            // whose corrupt blob the web editor could then never fix.
-            const haveBlob = Object.keys(editBlob).length > 0;
-            if (haveBlob || editBlobReadable)
-                bodyData.beanBaseData = haveBlob ? JSON.stringify(editBlob) : '';
-            if (editBeanBaseId) bodyData.beanBaseId = editBeanBaseId;
+            if (ym === 'ratio') f.yieldRatio = yv;
+            else f.yieldG = ym === 'absolute' ? yv : 0;
+            // Every detail field, the active kind's last so its origin wins.
+            (isTea ? COFFEE_KEYS.concat(LINK_KEYS, TEA_KEYS) : TEA_KEYS.concat(LINK_KEYS, COFFEE_KEYS))
+                .forEach(([fid, key]) => { const e = el(fid); if (e) f.beanDetails[key] = e.value.trim(); });
+            return f;
+        }
+        function saveEditor() {
+            const bodyData = formFields();
+            if (!bodyData.roasterName && !bodyData.coffeeName) { editorStatus('Roaster or coffee name is required'); return; }
+            if (editOpenedFields) bodyData.opened = editOpenedFields;
+            const link = el('dLink').value.trim();
             // A URL edited to a new non-empty value re-resolves the bag photo:
-            // the cached pixels describe the OLD page. Gated here, not on the
-            // server, because only the form knows the URL it opened with (the
-            // app gates the same way, on _openedLink). Existing rows only —
-            // nothing is cached yet under an id that does not exist, and the
-            // create route resolves that case itself.
-            if (editingId && (editBlob.link || '') && (editBlob.link || '') !== editOpenedLink)
+            // the cached pixels describe the OLD page. Gated here because only
+            // the form knows the URL it opened with (the app gates on
+            // _openedLink). Existing rows only — the create route resolves a
+            // new bag's photo itself.
+            if (editingId && link && link !== editOpenedLink)
                 bodyData.refreshImage = true;
-            // Rides along on the save rather than a second round trip; the
-            // server derives the cache key, so the client never names a file.
-            //
-            // Only when it still describes the URL being saved. The photo is
-            // stashed at extraction time, but the URL can move afterwards —
-            // the user edits the field, or picks a Bean Base entry, which
-            // rewrites the link wholesale — and the server PREFERS this photo
-            // over re-resolving, so a stale one would pin a picture from a page
-            // the bag is no longer linked to.
-            if (editImageUrl && editImageUrlFor === (editBlob.link || '').trim())
+            // The extraction's photo rides along, but only while it still
+            // describes the URL being saved: the server PREFERS it over
+            // re-resolving, so a stale one would pin a picture from a page the
+            // bag is no longer linked to.
+            if (editImageUrl && editImageUrlFor === link)
                 bodyData.extractedImageUrl = editImageUrl;
             if (!editingId) bodyData.kind = editingKind;
 
@@ -1741,6 +1832,8 @@ QString ShotServer::generateBeansPage() const
                                          m_settings->network()->bagSortDirection())
                        : QStringLiteral("{}");
     html += R"HTML());
+        el('fStorage').innerHTML = BAG_RULES.storageHints
+            .map(o => '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>').join('');
         load();
         openRestockFromUrl();
     </script>

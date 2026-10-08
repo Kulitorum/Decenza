@@ -6,14 +6,7 @@ Covers the machine-maintenance surface in Decenza: a Maintenance card on the Set
 ## Requirements
 ### Requirement: The system SHALL present a Maintenance card on the Machine settings tab
 
-The Settings → Machine tab SHALL include a Maintenance card positioned directly
-below the Shot Map card. The card SHALL follow the existing card grammar
-(`Theme.cardBackgroundColor`, `Theme.cardRadius`) and SHALL list machine
-maintenance operations, each launching a full-screen guided page. At minimum the
-card SHALL offer **Descaling Wizard** and **Transport Mode**. Each operation row
-SHALL be a fully accessible control (role, name, focusable, press action) and any
-emoji SHALL be rendered as an image and paired with a word, never as the sole
-carrier of meaning.
+The Settings → Machine tab SHALL include a Maintenance card directly below the Shot Map card, following the existing card grammar (`Theme.cardBackgroundColor`, `Theme.cardRadius`). The card SHALL list machine maintenance operations, each launching a full-screen guided page, and at minimum SHALL offer **Descaling Wizard** and **Transport Mode**.
 
 #### Scenario: Maintenance card appears under Shot Map
 
@@ -21,15 +14,18 @@ carrier of meaning.
 - **THEN** a Maintenance card SHALL be visible immediately below the Shot Map card
 - **AND** it SHALL list a Descaling Wizard row and a Transport Mode row
 
+### Requirement: Maintenance rows are accessible and never icon-only
+
+Each operation row SHALL be a fully accessible control with a role, a name, focus, and a press action. Any emoji SHALL be rendered as an image and paired with a word, never as the sole carrier of meaning.
+
+#### Scenario: Row is exposed to assistive technology
+
+- **WHEN** a screen reader inspects a maintenance row
+- **THEN** it SHALL expose a button role, the operation's name, focusability, and a press action
+
 ### Requirement: The Descaling Wizard SHALL launch from the Maintenance card and no longer from the Profiles page
 
-The Descaling Wizard SHALL be launched from the Maintenance card's Descaling
-Wizard row (invoking the existing descaling navigation). The previous launch
-button on the Profiles page (shown only in the Cleaning/Descale profile view)
-SHALL be removed. The placeholder descale-wizard *profile* that existed solely to
-surface the wizard in the profile list — a step-less profile whose tap opened the
-wizard — SHALL be removed along with its resource registrations and special-case
-tap handler. Real cleaning profiles SHALL remain in the profile list unchanged.
+The Descaling Wizard SHALL be launched from the Maintenance card's Descaling Wizard row, invoking the existing descaling navigation. The Profiles page launch button (Cleaning/Descale view) SHALL be removed. The placeholder descale-wizard profile, a step-less profile whose tap opened the wizard, SHALL be removed along with its resource registrations and special-case tap handler. Real cleaning profiles SHALL remain unchanged.
 
 #### Scenario: Descale launches from Maintenance
 

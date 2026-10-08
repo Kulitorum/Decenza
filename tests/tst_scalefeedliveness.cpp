@@ -7,7 +7,7 @@
 #include "machine/weightprocessor.h"
 #include "mocks/MockScaleDevice.h"
 
-// Regression coverage for the #1176 / #1185 root cause.
+// Regression coverage for the #1176 / PR Kulitorum/Decenza#1185 root cause.
 //
 // The scale-feed stall detector (and SAW de-jitter) must be driven by sample
 // *arrival*, not value *change*. ScaleDevice::weightChanged is deduped (it

@@ -258,6 +258,30 @@ private slots:
         });
     }
 
+    // Storage refuses a coffee-only value on a tea bag, so the web API and MCP
+    // can't store one; clearing it (what the forms send for tea) is allowed.
+    void teaBagRefusesCoffeeOnlyFields() {
+        const QString path = freshDb();
+        withRawDb(path, "teakind", [&](QSqlDatabase& db) {
+            CoffeeBag tea;
+            tea.roasterName = "Harney";
+            tea.kind = "tea";
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, tea);
+            QVERIFY(id > 0);
+
+            for (const auto& [key, value] : {std::pair<QString, QVariant>{"grinderSetting", "12"},
+                                             {"roastLevel", "Light"}, {"rpm", 800}}) {
+                QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: .*do not apply to tea"));
+                QString refusal;
+                QVERIFY(!CoffeeBagStorage::updateBagFieldsStatic(db, id, {{key, value}}, &refusal));
+                QVERIFY2(refusal.contains(key), qPrintable(refusal));
+            }
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", ""}, {"rpm", 0}}));
+            QVERIFY(!CoffeeBag::writeError({}, {{"kind", "tea"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+            QVERIFY(CoffeeBag::writeError({}, {{"kind", "coffee"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+        });
+    }
+
     // loadBagStatic materializes the bag's grinder identity from its equipment
     // package (the bag no longer stores brand/model/burrs — migration 23), so
     // MCP bag_list etc. still surface the grinder. Burrs comes from the item's
@@ -526,15 +550,22 @@ private slots:
         const QVariantList bags = readySpy.at(0).at(0).toList();
         QCOMPARE(bags.size(), 2);
         QHash<QString, qint64> countByRoaster;
+        QHash<QString, QStringList> actionsByRoaster;
         for (const QVariant& v : bags) {
             const QVariantMap map = v.toMap();
             QVERIFY2(map.contains(QStringLiteral("shotCount")),
                      "inventory map must carry the injected shotCount key");
             countByRoaster.insert(map.value(QStringLiteral("roasterName")).toString(),
                                   map.value(QStringLiteral("shotCount")).toLongLong());
+            actionsByRoaster.insert(map.value(QStringLiteral("roasterName")).toString(),
+                                    map.value(QStringLiteral("actions")).toStringList());
         }
         QCOMPARE(countByRoaster.value("Used"), qint64(2));
         QCOMPARE(countByRoaster.value("Fresh"), qint64(0));
+        // Both card surfaces render these: a used bag is finished, never deleted.
+        QVERIFY(actionsByRoaster.value("Used").contains("bagFinished"));
+        QVERIFY(!actionsByRoaster.value("Used").contains("delete"));
+        QVERIFY(actionsByRoaster.value("Fresh").contains("delete"));
     }
 
     void findBagForShotPrefersLinkThenIdentity() {
@@ -924,6 +955,8 @@ private slots:
         withRawDb(path, "pull_setup", [&](QSqlDatabase& db) {
             CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "C";
             bag.notes = "local";
+            bag.roastDate = "2026-09-01";
+            bag.frozenDate = "2026-09-03";
             bag.visualizerSeen = QStringLiteral(R"({"notes":"old"})");
             bagId = CoffeeBagStorage::insertBagStatic(db, bag);
         });
@@ -948,18 +981,34 @@ private slots:
         QCOMPARE(finished.count(), 1);
 
         // Seen only: recorded, but no field changed, so nothing is announced.
+        // A future thaw date is skipped rather than failing the whole pull.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("pull from Visualizer skipped: Thaw date"));
         storage.requestApplyVisualizerPull(bagId, [](const QVariantMap&) {
             VisualizerSync::BagPull pull;
             pull.seen.insert("region", "Huila");
+            pull.fields.insert("defrostDate", QDate::currentDate().addDays(1).toString(Qt::ISODate));
             return pull;
         });
         drainDbWork(storage);
         QCOMPARE(pulled.count(), 1);
         QCOMPARE(updated.count(), 0);
 
+        // Roast and freeze moved together are judged as a pair, not each against
+        // the other's old value.
+        storage.requestApplyVisualizerPull(bagId, [](const QVariantMap&) {
+            VisualizerSync::BagPull pull;
+            pull.fields.insert("roastDate", "2026-10-01");
+            pull.fields.insert("frozenDate", "2026-10-03");
+            return pull;
+        });
+        QTRY_COMPARE(pulled.count(), 2);
+
         withRawDb(path, "pull_verify", [&](QSqlDatabase& db) {
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
             QVERIFY(!bag.inInventory);
+            QVERIFY(bag.defrostDate.isEmpty());
+            QCOMPARE(bag.roastDate, QString("2026-10-01"));
+            QCOMPARE(bag.frozenDate, QString("2026-10-03"));
             const QJsonObject seen = QJsonDocument::fromJson(bag.visualizerSeen.toUtf8()).object();
             QCOMPARE(seen.value("notes").toString(), QStringLiteral("old"));
             QCOMPARE(seen.value("archived_at").toString(), QStringLiteral("2026-10-01T09:00:00Z"));
@@ -1141,6 +1190,14 @@ private slots:
             loaded = CoffeeBagStorage::loadBagStatic(db, id);
             QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
             QCOMPARE(loaded.openedDate, QString("2026-06-12"));
+
+            // Unfreezing takes the thaw with it (a thaw needs a freezer), and
+            // nothing on the other axes.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"frozenDate", ""}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QVERIFY(loaded.defrostDate.isEmpty());
+            QCOMPARE(loaded.openedDate, QString("2026-06-12"));
+            QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
         });
     }
 
@@ -1157,6 +1214,117 @@ private slots:
                  "'frozen' must be rejected — freeze state is defined by frozenDate");
         QVERIFY(!CoffeeBag::isValidStorageHint(QStringLiteral("Fridge")));   // case-sensitive
         QVERIFY(!CoffeeBag::isValidStorageHint(QStringLiteral("junk")));
+    }
+
+    // A shot stamps the opened date once per portion: an unopened bag, or one
+    // whose opened date belongs to the portion before the latest thaw. A frozen
+    // bag with no thaw recorded is a serving taken out: never stamped.
+    void openedDateForShot_data() {
+        QTest::addColumn<QString>("roast");
+        QTest::addColumn<QString>("frozen");
+        QTest::addColumn<QString>("defrost");
+        QTest::addColumn<QString>("opened");
+        QTest::addColumn<QString>("expected");
+        const QString today = QStringLiteral("2026-10-08");
+        const QString roast = QStringLiteral("2026-08-30");
+        QTest::newRow("never frozen, unopened") << roast << "" << "" << "" << today;
+        QTest::newRow("never frozen, already opened") << roast << "" << "" << "2026-10-01" << "";
+        QTest::newRow("frozen, no thaw recorded") << roast << "2026-09-01" << "" << "" << "";
+        QTest::newRow("thawed, unopened") << roast << "2026-09-01" << "2026-10-05" << "" << today;
+        QTest::newRow("opened before latest thaw") << roast << "2026-09-01" << "2026-10-05" << "2026-09-20" << today;
+        QTest::newRow("opened the day of the thaw") << roast << "2026-09-01" << "2026-10-05" << "2026-10-05" << "";
+        QTest::newRow("legacy roast after today") << "2026-12-01" << "" << "" << "" << "";
+    }
+    void openedDateForShot() {
+        QFETCH(QString, roast);
+        QFETCH(QString, frozen);
+        QFETCH(QString, defrost);
+        QFETCH(QString, opened);
+        QFETCH(QString, expected);
+        QCOMPARE(CoffeeBag::openedDateForShot(roast, frozen, defrost, opened, QDate(2026, 10, 8)), expected);
+    }
+
+    // Every lifecycle date is checked, today is allowed, storage dates must be
+    // ISO, and storageHint must be on the list.
+    void lifecycleFieldError_data() {
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<QString>("value");
+        QTest::addColumn<bool>("refused");
+        for (const char* key : {"roastDate", "frozenDate", "defrostDate", "openedDate"}) {
+            QTest::addRow("%s tomorrow", key) << key << "2026-10-09" << true;
+            QTest::addRow("%s today", key) << key << "2026-10-08" << false;
+        }
+        QTest::newRow("cleared") << "defrostDate" << "" << false;
+        QTest::newRow("thaw not ISO") << "defrostDate" << "10/5/2026" << true;
+        QTest::newRow("legacy roast text") << "roastDate" << "early October" << false;
+        QTest::newRow("storage hint off-list") << "storageHint" << "frozen" << true;
+        QTest::newRow("storage hint cleared") << "storageHint" << "" << false;
+        QTest::newRow("not a lifecycle field") << "notes" << "2027-01-01" << false;
+    }
+    void lifecycleFieldError() {
+        QFETCH(QString, key);
+        QFETCH(QString, value);
+        QFETCH(bool, refused);
+        const QString err = CoffeeBag::lifecycleFieldError({{key, value}}, QDate(2026, 10, 8));
+        QCOMPARE(!err.isEmpty(), refused);
+    }
+
+    // Dates out of order are refused, but only for the pairs a write touches.
+    void lifecycleOrderError() {
+        const QVariantMap stored{{"roastDate", "2026-09-01"}, {"frozenDate", "2026-09-03"}};
+        QVERIFY(!CoffeeBag::lifecycleOrderError(stored, {{"defrostDate", "2026-09-02"}}).isEmpty());
+        QVERIFY(CoffeeBag::lifecycleOrderError(stored, {{"defrostDate", "2026-09-03"}}).isEmpty());
+        QVERIFY(!CoffeeBag::lifecycleOrderError(stored, {{"openedDate", "2026-08-30"}}).isEmpty());
+        // An old out-of-order record doesn't block an unrelated edit.
+        const QVariantMap bad{{"roastDate", "2026-09-05"}, {"frozenDate", "2026-09-03"}};
+        QVERIFY(CoffeeBag::lifecycleOrderError(bad, {{"notes", "x"}}).isEmpty());
+    }
+
+    // Restock carries the storage plan and the freeze habit, and nothing dated.
+    void restockTemplateCarriesHabits() {
+        const QVariantMap t = CoffeeBag::restockTemplate(
+            {{"id", 7}, {"coffeeName", "Hometown"}, {"roastDate", "2026-09-01"}, {"frozenDate", "2026-09-03"},
+             {"defrostDate", "2026-10-07"}, {"storageHint", "vacuum-sealed"}}, QDate(2026, 10, 8));
+        QCOMPARE(t.value("frozenDate").toString(), QString("2026-10-08"));
+        QCOMPARE(t.value("storageHint").toString(), QString("vacuum-sealed"));
+        QVERIFY(!t.contains("id") && !t.contains("roastDate") && !t.contains("defrostDate"));
+    }
+
+    // The edit diff both editors send: unchanged fields drop out, and the blob
+    // goes as a key-level patch so a key someone else changed survives.
+    void editChangesSendsOnlyWhatChanged() {
+        const QVariantMap opened{{"coffeeName", "Guji"}, {"doseWeightG", 18.0},
+                                 {"beanBaseData", R"({"origin":"Ethiopia","process":"Washed"})"}};
+        QVariantMap current = opened;
+        current["doseWeightG"] = 18.5;
+        current["beanBaseData"] = R"({"origin":"Ethiopia","variety":"Heirloom"})";
+        const QVariantMap changed = CoffeeBag::editChanges(opened, current, false);
+        QCOMPARE(changed.keys(), (QStringList{"beanBaseDataPatch", "doseWeightG"}));
+        const QVariantMap patch = changed.value("beanBaseDataPatch").toMap();
+        QCOMPARE(patch.value("variety").toString(), QString("Heirloom"));
+        QVERIFY(patch.contains("process") && patch.value("process").isNull());
+        QVERIFY(!patch.contains("origin"));
+        // A link change replaces the blob whole.
+        QVERIFY(CoffeeBag::editChanges(opened, current, true).contains("beanBaseData"));
+    }
+
+    // The lifecycle line both surfaces word: a thawed portion shows its thaw and
+    // its opening, a future thaw shows no freezer part at all.
+    void lifecycleParts() {
+        const QDate today(2026, 10, 8);
+        auto kinds = [&](const QVariantMap& bag) {
+            QStringList k;
+            for (const QVariant& p : CoffeeBag::lifecycleParts(bag, today))
+                k << p.toMap().value("kind").toString();
+            return k;
+        };
+        QCOMPARE(kinds({{"roastDate", "2026-09-01"}, {"frozenDate", "2026-09-03"},
+                        {"defrostDate", "2026-10-07"}, {"openedDate", "2026-10-07"}}),
+                 (QStringList{"roasted", "thawed", "opened"}));
+        QCOMPARE(kinds({{"frozenDate", "2026-09-03"}}), QStringList{"frozen"});
+        QCOMPARE(kinds({{"frozenDate", "2026-09-03"}, {"defrostDate", "2027-06-13"}}), QStringList{});
+        QCOMPARE(CoffeeBag::lifecycleParts({{"defrostDate", "2026-10-07"}}, today)
+                     .first().toMap().value("ageDays").toInt(), 1);
     }
 
     void rankedProfilesForBean() {

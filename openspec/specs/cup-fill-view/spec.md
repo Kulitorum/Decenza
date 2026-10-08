@@ -17,14 +17,7 @@ The cup fill animation SHALL render liquid fill, crema, wave, and steam layers v
 - **THEN** the cup fill visualization is visually equivalent to the prior `Canvas`-based rendering — same wave geometry, crema layer, steam wisps, and completion glow, with radial gradients drawn with Canvas 2D two-circle semantics
 
 ### Requirement: Cup Fill Persists After Extraction Ends
-
-The cup fill view SHALL continue to render the liquid fill, crema and its weight text after the machine leaves the espresso cycle, for as long as the view exists, provided extraction was observed on that view instance. The rendered fill SHALL be drawn from a held weight rather than the live scale reading, and the view's own weight text SHALL show that same held value so the number and the fill agree.
-
-The held weight SHALL be the peak weight observed since flow began, so that it keeps pace with drip landing after the stop — which the saved yield also includes — and never falls when the cup is lifted off the scale.
-
-The held state SHALL be cleared when a new espresso cycle begins on the same view instance, so a subsequent shot starts from an empty cup.
-
-The view SHALL NOT resume its animation timer for the hold; nothing animates while the cup is held, though the fill may still redraw when late drip raises the held weight.
+The cup fill view SHALL keep rendering the liquid fill, crema and weight text after the machine leaves the espresso cycle, for as long as the view exists, provided extraction was observed on that view instance. This holds however the shot ended. The fill SHALL be drawn from a held weight, and the view's weight text SHALL show that same value.
 
 #### Scenario: Completed shot holds its cup until navigation
 
@@ -71,6 +64,20 @@ The view SHALL NOT resume its animation timer for the hold; nothing animates whi
 
 - **WHEN** the cup fill view is holding a completed shot's fill
 - **THEN** the animation timer remains stopped, and no wave, ripple or steam animation runs for the duration of the hold. Redraws caused by late drip raising the held weight are permitted; repaints driven by the machine's idle flow stream are not.
+
+### Requirement: The held weight is the peak since flow began
+The held weight SHALL be the peak weight observed since flow began. It SHALL keep pace with late drip after the stop, and SHALL NEVER fall when the cup is lifted off the scale.
+
+#### Scenario: Lifting the cup keeps the held values
+- **WHEN** the cup is removed from the scale during the post-shot hold
+- **THEN** the cup fill, crema and weight text still show the held end-of-extraction values
+
+### Requirement: The hold clears on a new shot and never animates
+The held state SHALL be cleared when a new espresso cycle begins on the same view instance. The view SHALL NOT resume its animation timer for the hold. The fill MAY still redraw when late drip raises the held weight.
+
+#### Scenario: A new shot starts from an empty cup
+- **WHEN** a new espresso cycle begins on a view still holding the previous shot's fill
+- **THEN** the held fill and weight are discarded and the cup renders empty until flow begins
 
 ### Requirement: Pre-Flow Cup Renders Empty
 

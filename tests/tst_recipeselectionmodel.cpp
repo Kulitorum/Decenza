@@ -3,7 +3,7 @@
 #include "controllers/recipeselectionmodel.h"
 
 // Unit tests for the pure selection/deferred-start state machine behind
-// MainController::selectedRecipeId (add-recipes, PR #1470). Extracted from
+// MainController::selectedRecipeId (add-recipes, PR Kulitorum/Decenza#1470). Extracted from
 // MainController precisely so this logic — the part that can pull a shot on the
 // wrong recipe if it regresses — is testable without linking the whole app.
 

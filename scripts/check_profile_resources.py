@@ -5,7 +5,7 @@ The profile resource list is generated at configure time from
 resources/profiles/*.json (CMakeLists.txt, "Bundled profiles"), so the
 directory is the only source of truth. This check exists because the list
 used to be kept by hand, twice: resources.qrc for the app and profiles.qrc for
-the tests, and #1833 added Adaptive v3 to the second only — nine profiles
+the tests, and PR Kulitorum/Decenza#1833 added Adaptive v3 to the second only — nine profiles
 reached every test binary and no release. A hand-written entry anywhere would
 be that second copy again.
 """

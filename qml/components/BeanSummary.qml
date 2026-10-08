@@ -35,11 +35,11 @@ Item {
     property string beanBaseData: ""
     property string frozenDate: ""
     property string defrostDate: ""
-    // openedDate: when the current portion left airtight storage. Sibling of
-    // defrostDate (left the freezer), NOT restricted to non-frozen bags — a
-    // snapshot can legitimately carry frozenDate, defrostDate and openedDate
-    // together, and this summary renders the opened line independently below.
+    // When the current portion was first used; a snapshot can carry it with
+    // frozenDate and defrostDate.
     property string openedDate: ""
+    // The ISO date ages are measured to: the shot's date in shot mode ("" = today).
+    property string referenceDate: ""
 
     // Effective values for the active mode
     readonly property string effRoaster: useShotData ? roasterName : Settings.dye.dyeBeanBrand
@@ -73,28 +73,7 @@ Item {
         return effRoaster.length > 0 || effCoffee.length > 0
     }
 
-    function daysSince(isoDate) {
-        if (!isoDate || isoDate.length < 8) return -1
-        var d = new Date(isoDate.substring(0, 10) + "T00:00:00")
-        if (isNaN(d.getTime())) return -1
-        var now = new Date()
-        var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        var that = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-        var days = Math.round((today - that) / 86400000)
-        return days >= 0 ? days : -1
-    }
-
-    // Locale-formatted short roast date; falls back to the raw stored text
-    // when it isn't a parseable ISO date.
-    function formatRoastDate(raw) {
-        if (!raw || raw.length < 8) return raw || ""
-        var d = new Date(raw.substring(0, 10) + "T00:00:00")
-        if (isNaN(d.getTime())) return raw
-        return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
-    }
-
     readonly property var _parts: {
-        var _ = TranslationManager.translationVersion  // re-evaluate on language change
         if (!hasBeans) return []
         var parts = []
         if (canonical) {
@@ -107,27 +86,11 @@ Item {
             let name = [effRoaster, effCoffee].filter(function(s) { return s && s.length > 0 }).join(" ")
             if (name.length > 0) parts.push(name)
         }
-        var roast = formatRoastDate(effRoastDate)
-        if (roast.length > 0)
-            parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
-        // Freezer state: the current portion's thaw date, or "Frozen" while no
-        // portion has been pulled yet.
-        if (effDefrostDate.length > 0) {
-            let defAge = daysSince(effDefrostDate)
-            if (defAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
-                    .arg(formatRoastDate(effDefrostDate)).arg(defAge))
-        } else if (effFrozenDate.length > 0) {
-            parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
-        }
-        // Opened is INDEPENDENT of the freezer state above (mirrors BagCard):
-        // a thawed portion can also have been opened, and both dates matter.
-        if (effOpenedDate.length > 0) {
-            let openAge = daysSince(effOpenedDate)
-            if (openAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
-                    .arg(formatRoastDate(effOpenedDate)).arg(openAge))
-        }
+        // Roasted · Thawed · Opened: the same parts the bag card shows.
+        parts = parts.concat(BagLifecycleLabels.describe(MainController.bagStorage.lifecycleParts({
+            "roastDate": effRoastDate, "frozenDate": effFrozenDate,
+            "defrostDate": effDefrostDate, "openedDate": effOpenedDate },
+            useShotData ? referenceDate : "")))
         return parts
     }
 

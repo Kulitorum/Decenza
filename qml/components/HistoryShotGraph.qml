@@ -487,7 +487,7 @@ Item {
             // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
             // titles itself AND reserves layout space for them (axisrenderer.cpp:662-698
             // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
-            // migration (#1146) carried this over as a Text positioned off `plotArea`
+            // migration (PR Kulitorum/Decenza#1146) carried this over as a Text positioned off `plotArea`
             // bottom-right, which floated it ON TOP of the plot, over any trace running
             // along the bottom.
             titleText: TranslationManager.translate("graph.timeAxis", "Time (s)")

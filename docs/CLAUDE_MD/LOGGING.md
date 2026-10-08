@@ -220,7 +220,7 @@ stop-at-weight owns no device, because "why did my shot stop where it did" is a
 different question from "did the weight readings arrive" — different code, different
 fault, and a reader sent to the wrong one wastes the whole investigation. Registration
 is open to any subsystem whose lines are retrieved as a group; being a driver is not
-the entry requirement. (`#1707` left this open as "shot logic, not a device", which
+the entry requirement. (PR Kulitorum/Decenza#1707 left this open as "shot logic, not a device", which
 framed it as a question about ownership. It is not.)
 
 The same test cuts the other way in the same file. `weightprocessor.cpp` is SAW's

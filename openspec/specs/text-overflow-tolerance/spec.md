@@ -1,7 +1,9 @@
 # text-overflow-tolerance Specification
 
 ## Purpose
-TBD - created by archiving change bundle-app-font-and-tolerant-text. Update Purpose after archive.
+
+Covers how text avoids clipping and overflow across fonts and languages: no reliance on `elide` for rich text, StyledText as the default for markup labels, wrapping only inside content-driven containers, popups sized to tolerate wider text, and behaviour that holds on platform fallback fonts.
+
 ## Requirements
 ### Requirement: No dead elide on rich text
 

@@ -9,24 +9,7 @@ tablet showing a frozen or unresponsive UI is understood as "flip the switch" ra
 
 ### Requirement: A live Error_NoAC substate shows a dismissible full-screen warning
 
-While connected to the DE1 and its substate is `Error_NoAC` (the front standby switch is cutting
-AC), and the connected DE1's firmware build number is 1337 or newer, the system SHALL show a
-full-screen warning telling the user to push the switch on. The warning SHALL be dismissible by a
-tap anywhere on it, returning to the page the user was on before it appeared.
-
-On firmware older than 1337, the system SHALL NOT show this warning, because that firmware range
-reports `Error_NoAC` unreliably.
-
-The system SHALL NOT show the warning until the `Error_NoAC` substate has persisted
-continuously for a settling interval, because firmware in the supported range also reports it
-briefly while the machine wakes or heats and clears it with no user action. An episode that
-clears before the interval elapses SHALL never show the warning. The interval SHALL be 6 seconds,
-an estimate derived from the one reported episode (about three seconds) plus margin, and not a
-figure taken from any other implementation.
-
-The settling SHALL be judged on duration alone, not on which substate the episode arrived from:
-a snapshot cannot distinguish the two cases (both report state `Idle` with substate
-`Error_NoAC`), and the arriving substate varies by entry point.
+While connected to the DE1 and its substate is `Error_NoAC` (the standby switch cutting AC), on firmware build 1337 or newer, the system SHALL show a full-screen warning telling the user to push the switch on. A tap anywhere on it SHALL dismiss it, returning to the page shown before. On firmware older than 1337 the system SHALL NOT show the warning, because that range reports `Error_NoAC` unreliably.
 
 #### Scenario: Standby switch cuts power on supported firmware
 
@@ -61,6 +44,22 @@ a snapshot cannot distinguish the two cases (both report state `Idle` with subst
 - **THEN** the warning is dismissed and the system returns to the page shown before the warning
   appeared
 
+### Requirement: The warning waits out a settling interval
+
+The warning SHALL NOT show until `Error_NoAC` has persisted continuously for a 6-second settling interval, because firmware in the supported range also reports it briefly while the machine wakes or heats. An episode that clears before the interval elapses SHALL never show the warning.
+
+#### Scenario: Interval is a fixed six seconds
+- **WHEN** the settling interval is configured
+- **THEN** it is 6 seconds, an estimate from one observed episode of about three seconds plus margin, not a figure taken from another implementation
+
+### Requirement: Settling is judged on duration alone
+
+Settling SHALL be judged on duration alone, not on the substate the episode arrived from, because a snapshot reports state `Idle` with substate `Error_NoAC` whichever entry point produced it.
+
+#### Scenario: Arrival substate does not change settling
+- **WHEN** an `Error_NoAC` episode arrives from a different substate than a previous episode
+- **THEN** it is settled by duration exactly as the previous one was
+
 ### Requirement: The warning clears when power is restored
 
 Once a shown warning's substate is no longer `Error_NoAC` — because the switch was flipped back,
@@ -90,16 +89,7 @@ user is currently viewing, so it appears consistently rather than only from spec
 
 ### Requirement: The warning's decisions are logged
 
-The system SHALL log, under the DE1 subsystem, when the warning is shown and when it clears, and
-SHALL log once per episode that ends before the settling interval elapses. All three SHALL be at
-INFO so they reach the user-facing log views: the last is what answers "why did no warning
-appear", which is the half a reader needs when the suppression is wrong.
-
-Every line that ENDS an episode — whether it cleared itself, or the DE1 disconnected — SHALL
-carry the episode's measured duration and the configured interval, so a submitted log establishes
-how long real episodes run. The interval is an estimate from a single report, and this is the
-only evidence that can correct it. The line marking the warning's own transition to cleared need
-not repeat the duration, since an episode-ended line always accompanies it.
+The system SHALL log under the DE1 subsystem, at INFO, when the warning is shown, when it clears, and once per episode that ends before the settling interval elapses. Every line that ENDS an episode, whether it cleared itself or the DE1 disconnected, SHALL carry the episode's measured duration and the configured interval.
 
 #### Scenario: A shown warning is traceable in a submitted log
 

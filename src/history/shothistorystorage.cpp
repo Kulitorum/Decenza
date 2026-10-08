@@ -999,7 +999,7 @@ bool ShotHistoryStorage::runMigrations()
     //
     // The back-sync clears them to Unrated rather than "Rated 0/100" because
     // VisualizerUploader::buildShotUpdateBody() sends JSON null for enjoyment
-    // <= 0. Note this has been true since #1155 — it is not a behaviour that
+    // <= 0. Note this has been true since PR Kulitorum/Decenza#1155 — it is not a behaviour that
     // changed to make the reset safe, and the create-path builder in the same
     // file omits the field instead, so check buildShotUpdateBody() specifically
     // before concluding otherwise.

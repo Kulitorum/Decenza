@@ -61,13 +61,7 @@ look once the option is off.
   than testing for a background image
 
 ### Requirement: Translucent chrome is gated on one shared predicate
-The app SHALL gate every translucent-chrome fill — cards, dialogs, bars, inset controls, action
-tiles, action buttons and the layout item widgets — on a single predicate, true when the glass
-option is on **or** a background that requires it is active. A background image requires it; a shot-chart
-background requires it while its render exists (with no shot to draw, the page is a flat colour
-and scrimming over it would cancel the chrome's elevation for nothing). Individual call sites SHALL NOT test the background image path, or
-any other individual background source, directly: adding a source SHALL be a change to the
-predicate, not a sweep of its call sites.
+The app SHALL gate every translucent-chrome fill (cards, dialogs, bars, inset controls, action tiles, action buttons and layout item widgets) on one predicate: true when the glass option is on or a background that requires it is active. Individual call sites SHALL NOT test the background image path, or any other background source, directly.
 
 #### Scenario: A background image forces it on
 - **WHEN** a background image is set and the glass option is off
@@ -89,4 +83,11 @@ predicate, not a sweep of its call sites.
 #### Scenario: A new source costs one edit
 - **WHEN** a background source that requires translucent chrome is added
 - **THEN** only the shared predicate changes; no chrome call site is touched
+
+### Requirement: Backgrounds that require translucent chrome
+A background image SHALL require translucent chrome. A shot-chart background SHALL require it while its render exists. Adding a background source that requires it SHALL be a change to the predicate only.
+
+#### Scenario: Shot-chart background without a render does not force it
+- **WHEN** a shot-chart background is set with no rendered chart and the glass option is off
+- **THEN** the chrome stays opaque, because a flat colour page gains nothing from translucency
 

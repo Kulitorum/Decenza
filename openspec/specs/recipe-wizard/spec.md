@@ -1,12 +1,12 @@
 # recipe-wizard Specification
 
 ## Purpose
-TBD - created by archiving change add-recipe-wizard-tea. Update Purpose after archive.
+Covers the recipe wizard that creates and edits drink recipes: the drink-type-first walk, the bean and profile pickers, how the details step prefills, and the summary page that is the edit surface for every recipe component.
 
 ## Requirements
 
 ### Requirement: Drink-type-first step sequence
-The system SHALL provide a recipe wizard as the single surface for recipe creation and editing. Creation SHALL walk: drink type → bean → profile → **equipment → dose/yield/temp/grind → steam and/or water (only the blocks the drink carries)** → summary. The drink types SHALL be espresso, filter, americano, long black, latte/cappuccino, latte + water, and tea. Picker steps (drink type, bean, profile) SHALL auto-advance on selection with no Next button; the post-profile windows SHALL be forms with an explicit Continue (the last one reads "Review" and leads to the summary). The **equipment window SHALL come first among the post-profile windows**, so the grinder — whose RPM capability gates the rpm field — is chosen before the dose/yield/temp/grind window. The post-profile windows SHALL be the SAME screens used when editing: creation walks them in order, while edit/clone/promote open on the summary and jump straight to a window from the tapped card, returning to the summary. Breadcrumb chips showing the drink/bean/profile selections so far SHALL provide back-navigation; the bottom-bar back arrow SHALL step back through the windows in reverse.
+The recipe wizard SHALL be the single surface for creating and editing recipes. Creation SHALL walk: drink type → bean → profile → equipment → dose/yield/temp/grind → steam and/or water (only the blocks the drink carries) → summary. Picker steps SHALL auto-advance on selection; post-profile windows SHALL be forms with an explicit Continue. Breadcrumb chips SHALL provide back-navigation.
 
 #### Scenario: Equipment window comes before the numbers window
 - **WHEN** the user taps Espresso, then a bag, then a profile
@@ -25,8 +25,20 @@ The system SHALL provide a recipe wizard as the single surface for recipe creati
 - **WHEN** the user taps the bean chip while on a post-profile window
 - **THEN** the bean step reopens, and a new selection returns to the walk with dependent state updated
 
+#### Scenario: Drink types offered
+- **WHEN** the user opens the recipe wizard
+- **THEN** the drink types are espresso, filter, americano, long black, latte/cappuccino, latte + water, and tea
+
+#### Scenario: Back arrow steps through windows in reverse
+- **WHEN** the user taps the bottom-bar back arrow on a post-profile window
+- **THEN** the previous window in the walk opens
+
+#### Scenario: Edit reuses the same windows
+- **WHEN** the user edits, clones or promotes a recipe
+- **THEN** the wizard opens on the summary, and each card opens the same window the creation walk shows
+
 ### Requirement: Drink-type templates set defaults without restricting composition
-Each drink type SHALL configure the wizard via a static template: the profile beverage-type filter set, the bag kind filter, block pre-seeds (latte/cappuccino pre-enables the steam block with milk; americano pre-enables the hot-water block with order "after"; long black with order "before"; latte + water pre-enables BOTH the steam block with milk AND the hot-water block with order "before", and does NOT offer the before/after order choice — the order is fixed), and the details-step field list. The stored blocks SHALL remain the sole source of truth for machine behavior. The summary SHALL offer add/remove affordances for the milk and hot-water blocks regardless of template, so any block combination expressible in the recipe model remains creatable.
+Each drink type SHALL configure the wizard through a static template: the profile beverage-type filter, the bag kind filter, block pre-seeds, and the details-step field list. The stored blocks SHALL remain the sole source of truth for machine behavior. The summary SHALL offer add/remove affordances for the milk and hot-water blocks regardless of template, so every block combination the recipe model allows stays creatable.
 
 #### Scenario: Latte template pre-seeds milk
 - **WHEN** the user picks Latte/Cappuccino
@@ -40,8 +52,12 @@ Each drink type SHALL configure the wizard via a static template: the profile be
 - **WHEN** the user creates an Espresso recipe and, on the summary, adds the hot-water block
 - **THEN** the recipe saves with both drink type "espresso" and a hot-water block, and activation behaves per the blocks
 
+#### Scenario: Block pre-seeds per drink type
+- **WHEN** the user picks Americano, Long Black, or Latte + Water
+- **THEN** Americano pre-enables the hot-water block with order "after", Long Black with order "before", and Latte + Water pre-enables both the milk steam block and a hot-water block with order "before" and no order choice
+
 ### Requirement: Bean step filters by bag kind and is skippable
-The bean step SHALL list open bags whose kind matches the drink type (tea → tea bags; all other types → coffee bags) as a tile grid in the same visual language as the drink-type step: each open bag is its own tile carrying the bag photo (from the existing bean-image cache), the roaster as a caption, the coffee name, and the bag's roast date or age — so two bags of the same bean are visibly distinct choices. Bags SHALL NOT be deduplicated by bean. "Add a new coffee…" (or tea) and "No bean" SHALL render as ghost tiles (dashed border, same size) at the end of the grid. Selecting a tile SHALL link that specific bag. Skipping via "No bean" SHALL produce a bag-less recipe per the optionality ladder (grind stored recipe-locally for coffee drinks).
+The bean step SHALL list open bags whose kind matches the drink type (tea → tea bags; other types → coffee bags) as a tile grid. Each open bag SHALL be its own tile; bags SHALL NOT be deduplicated by bean. "Add a new coffee…" (or tea) and "No bean" SHALL render as ghost tiles at the end of the grid. Selecting a tile SHALL link that specific bag.
 
 #### Scenario: Two bags of the same bean are distinguishable
 - **WHEN** two open bags of the same bean with different roast dates appear on the bean step
@@ -55,8 +71,17 @@ The bean step SHALL list open bags whose kind matches the drink type (tea → te
 - **WHEN** the user chooses "No bean"
 - **THEN** the wizard advances to the profile step and the saved recipe has no bag link
 
+#### Scenario: Tile content
+- **WHEN** the bean step lists an open bag
+- **THEN** its tile shows the bag photo from the bean-image cache, the roaster as a caption, the coffee name, and the roast date or age
+- **AND** ghost tiles use a dashed border at the same size as bag tiles
+
+#### Scenario: Skipping the bean for a coffee drink
+- **WHEN** the user chooses No bean for a coffee drink
+- **THEN** the saved recipe has no bag link and stores its grind recipe-locally
+
 ### Requirement: Profile step filters by drink type and ranks by history
-The profile step SHALL be the shared profile picker (see `profile-picker`), constrained by the drink type: the wizard SHALL pass the drink type's beverage filter set and the picker SHALL list only profiles whose `beverage_type` is in it: espresso, americano, long black, and latte/cappuccino → `espresso` (a missing or empty `beverage_type` SHALL be treated as espresso); filter → `filter` and `pourover`; tea → `tea_portafilter`. Maintenance beverage types SHALL never appear. While constrained, the picker SHALL NOT show its Beverage chip group; Selected, Favorites, Source chips, search and the sort control SHALL remain available. Profiles SHALL be presented as one "Recommended for ‹bean›" row above the grid (see `profile-picker`): ① profiles used with this bean first (exact bean identity match in shot history, most recent first, reason "used with ‹bean›"), then ② knowledge-driven recommendations and similar beans — coffee: profiles whose knowledge-base entry states an affinity for the bag's roast level (KB `roastAffinity`, authored only from each profile's own dial-in documentation, shown with a "suits <roast> roasts" reason label) rank first, then profiles used with same-roast-level beans; tea: type-matches between the bag's tea type and stock tea profile names rank first with a reason label, then same-tea-type history. The recommended tier SHALL be capped to a handful (5); candidates beyond the cap fall through to the final tier — ③ all remaining profiles in the filter set, ordered by the picker's sort control (default Recently used; tea additionally offers no temperature-proximity order — the sort control replaces it). ALL tiers SHALL render as the picker's cards, each carrying real profile metadata (at minimum temperature and target yield, sourced from the profile catalog cache — no per-tile file reads); tiers ① and ② additionally carry the recommendation reason as a chip on the card — never as detached right-aligned text. Each card SHALL offer the same affordances as the Profiles page card: the knowledge-base popup (sparkle icon, shown when the profile has a KB entry), the Profile Info page (the (i) button), the favorite star and the ⋮ actions dialog — all usable without selecting the profile. A search field SHALL always be available and SHALL filter within the drink type's set.
+The profile step SHALL be the shared profile picker constrained by drink type: it SHALL list only profiles whose beverage_type is in the drink type's filter set, and SHALL NOT show its Beverage chip group while constrained. Maintenance beverage types SHALL never appear. A search field SHALL always be available and SHALL filter within the drink type's set.
 
 #### Scenario: Recently used profile ranks first
 - **WHEN** the user picks a bean they have pulled shots with
@@ -78,6 +103,28 @@ The profile step SHALL be the shared profile picker (see `profile-picker`), cons
 - **WHEN** the wizard's profile step opens for a tea drink
 - **THEN** no Beverage chip group is shown and only tea profiles are listed, filterable by Selected, Favorites, Source and search
 
+#### Scenario: Beverage filter sets
+- **WHEN** the profile step opens for each drink type
+- **THEN** espresso, americano, long black and latte/cappuccino list `espresso` profiles, filter lists `filter` and `pourover` profiles, and tea lists `tea_portafilter` profiles
+
+#### Scenario: Other chips stay available
+- **WHEN** the profile step is constrained by drink type
+- **THEN** the Selected, Favorites and Source chips and the sort control remain available
+
+### Requirement: Recommended profile row ranks by history and knowledge
+Profiles SHALL be presented as one "Recommended for ‹bean›" row above the grid, ranked: ① profiles used with this bean, most recent first; ② knowledge-driven and similar-bean recommendations. The recommended tier SHALL be capped at five; candidates beyond the cap SHALL fall through to ③ all remaining profiles in the filter set, ordered by the sort control.
+
+#### Scenario: Coffee and tea recommendation order
+- **WHEN** the user picks a coffee bag with a roast-affinity knowledge-base entry, or a tea bag with a known tea type
+- **THEN** coffee lists affinity profiles first with a "suits <roast> roasts" reason, then profiles used with same-roast beans; tea lists type-matched stock profiles first, then same-tea-type history
+
+### Requirement: Profile cards carry metadata and affordances
+Every tier SHALL render as the picker's cards, each with real profile metadata (at least temperature and target yield) from the catalog cache, without per-tile file reads. Recommendation reasons SHALL ride as a chip on the card, never as detached text. Each card SHALL offer the knowledge-base popup, Profile Info, the favorite star and the ⋮ actions dialog without selecting the profile.
+
+#### Scenario: Card actions without selecting
+- **WHEN** the user taps the (i) button on a profile card without selecting it
+- **THEN** the Profile Info page opens and the profile stays unselected
+
 ### Requirement: Tea profile step offers "Just hot water"
 For the tea drink type, the profile step SHALL include a fixed "Just hot water" card (below the ranked profiles and the grid, visible regardless of search text or chips). Selecting it SHALL produce a profile-less recipe whose drink type is hot-water tea, and the details step SHALL show only vessel, volume, temperature, and optional leaf dose.
 
@@ -90,7 +137,7 @@ For the tea drink type, the profile step SHALL include a fixed "Just hot water" 
 - **THEN** the "Just hot water" card is still shown
 
 ### Requirement: Details step prefills from history, then bag data, then profile defaults
-The details step SHALL seed its fields in priority order: (1) the most recent shot with the chosen bean+profile pair (dose, yield, temperature, grind); (2) for tea, the bag's structured brewing data — temperature from `brewTempC`, dose computed from `leafGramsPer100Ml` and the target volume; (3) the profile's recommended dose, target weight, and temperature. For coffee drinks the grind section SHALL additionally show a grind hint: the latest grind dialed for this bean regardless of profile (falling back to same-roast-level beans), naming the profile it was dialed for, plus — when that profile differs from the picked one and both have known UGS positions — the relative direction ("finer"/"coarser") per the knowledge base's UGS ordering. The hint SHALL never present a computed grinder number for a different profile (the KB's own cross-profile rule: only direction translates). When no matching shot history exists for the chosen bean+profile pair, the grind/rpm fields SHALL fall back to the linked bag's current `grinderSetting`/`rpm` as a one-time editable default (recipe-model's "New-recipe grind defaults from the bag, once") — offered, not silently applied; the user may accept or change it before saving. With no linked bag and no history, the fields start empty. For portafilter tea, the bag's `brewTempC` SHALL seed a temperature override only when the chosen profile is not type-matched to the bag's tea type; hot-water tea SHALL use the bag's brewing numbers verbatim. Prefilled values SHALL never overwrite a value the user has already edited in this wizard session.
+The details step SHALL seed its fields in priority order: (1) the most recent shot with the chosen bean and profile pair (dose, yield, temperature, grind); (2) for tea, the bag's structured brewing data; (3) the profile's recommended dose, target weight, and temperature. Prefilled values SHALL never overwrite a value the user has edited in this wizard session.
 
 #### Scenario: History beats profile defaults
 - **WHEN** the user picks a bean+profile pair they have brewed before
@@ -112,25 +159,42 @@ The details step SHALL seed its fields in priority order: (1) the most recent sh
 - **WHEN** the user creates a recipe for a bean+profile pair with no prior shot history, and the linked bag's current grind is "18"
 - **THEN** the grind field prefills "18" as a one-time default, not a live-following value
 
+#### Scenario: Hot-water tea uses bag brewing numbers
+- **WHEN** the user creates a hot-water tea recipe from a bag stating brewTempC and leafGramsPer100Ml
+- **THEN** the fields use the bag's brewing numbers verbatim, with the leaf dose computed from leafGramsPer100Ml and the target volume
+
+#### Scenario: Edited field is not overwritten
+- **WHEN** the user has edited the dose and a prefill tier would otherwise seed it
+- **THEN** the user's dose is kept
+
+### Requirement: Grind hint names the last grind for the bean
+For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean regardless of profile, falling back to same-roast-level beans, naming its profile. The hint SHALL NEVER present a computed grinder number for a different profile; it SHALL state the relative direction ("finer"/"coarser") only when both profiles have known UGS positions.
+
+#### Scenario: Grind hint from a same-roast bean
+- **WHEN** no shot with this bean has a grind but a same-roast bean does
+- **THEN** the hint names that bean's last grind and its profile
+
+### Requirement: No-history grind default comes from the bag once
+With no matching shot history for the chosen bean and profile, the grind and rpm fields SHALL fall back to the linked bag's current grinderSetting and rpm as a one-time editable default, offered rather than silently applied. With no linked bag and no history, the fields SHALL start empty.
+
+#### Scenario: Default is editable before saving
+- **WHEN** the user changes the prefilled grind before saving
+- **THEN** the recipe saves with the changed grind
+
 ### Requirement: Drink-type-specific details fields
-The details step SHALL show only the fields relevant to the drink type: espresso and filter — dose, yield, temperature, grind (recipe-owned, default-filled per the recipe model — no inherit/override toggle), equipment; americano and long black — the espresso fields plus the water-vessel picker with the order fixed by the type; latte/cappuccino — the espresso fields plus milk weight and pitcher; tea (portafilter) — leaf dose, yield, temperature, equipment, and NO grind fields; tea (hot water) — vessel, volume, temperature, leaf dose only.
+The details step SHALL show only the fields relevant to the drink type. Espresso and filter show dose, yield, temperature, grind (recipe-owned, with no inherit/override toggle) and equipment; americano and long black add the water-vessel picker with order fixed by type; latte/cappuccino add milk weight and pitcher.
 
 #### Scenario: Tea hides grind
 - **WHEN** the user reaches the details step of a portafilter tea recipe
 - **THEN** no grind or rpm fields are shown and the saved recipe stores no pinned grind
 
+#### Scenario: Tea field sets
+- **WHEN** the user reaches the details step of a portafilter tea recipe
+- **THEN** it shows leaf dose, yield, temperature and equipment, with no grind or rpm fields
+- **AND** a hot-water tea recipe shows only vessel, volume, temperature and leaf dose
+
 ### Requirement: Summary page is the edit surface
-The wizard's final step SHALL be a summary whose hero is the recipe card rendered exactly as the management page renders it (same component: photo, drink-type icon + short label, profile, bag, plan line including milk weight) — what the user builds is what they will later see in the list. The recipe name field with Cancel/Save (and any save error) SHALL sit in a header pinned above the scrolling body. Below the hero, each component SHALL render as a tappable CARD — title, value summary, single edit glyph — in a responsive card grid. The component cards SHALL be ordered so that **Equipment precedes the Dose/yield/temp/grind card**, mirroring the walk order (grinder before the grind/rpm it gates). Every stored block SHALL have a visible card — a latte's milk weight SHALL appear on the summary, not only behind an edit action. The edit glyph SHALL NOT be used with two meanings on one card (no dose→yield arrow beside a navigation arrow). Tapping a card SHALL open ITS OWN dedicated window (equipment / dose-yield-temp-grind / steam / water) and return to the summary — the same windows the creation walk uses, so create and edit present identical screens. Edit, clone, and promote-from-shot entry points SHALL open the wizard directly on the summary with all state loaded; for recipes without a stored drink type, the type SHALL be derived from the blocks and profile beverage type. Clone SHALL focus the name field for immediate rename and record clone provenance; promote-from-shot SHALL prefill from the shot record and its steam/hot-water snapshots (falling back to current settings when absent), recording shot provenance and the shot's bag. The summary SHALL retain add/remove affordances for the milk and hot-water blocks.
-
-Each component card's value summary SHALL present the full set of values that its own editor changes, not a single reductive line, scoped to the fields the drink type actually has, and no value SHALL be repeated across cards (recipe-overridden numbers on the numbers card; profile shape on the Profile card; package identity on Equipment) — so it is obvious which card to tap to change a given value:
-
-- **Dose, yield, temp & grind card** SHALL show every value that window pins for the drink type. For coffee/espresso family: dose, yield, the yield mode (when yield is expressed as a ratio, the ratio SHALL be shown alongside the resulting weight, e.g. "1:2.0 → 36.0g"; when a fixed target weight, that weight), effective temperature, and grind — with rpm shown only when the selected equipment's grinder is RPM-controlled; the card TITLE SHALL name grind for coffee drinks. For portafilter tea: leaf dose, yield, temperature (no grind/rpm) and a title without grind. For hot-water tea: volume and temperature (no dose→yield, no grind). The card SHALL NOT show a field the drink type does not set.
-- **Bean card** SHALL show the linked bag's photo (from the existing bean-image cache, rendered per the app's image conventions — never a colour emoji in a plain `Text`) together with richer bag detail matching what the bean step's tile renders: roaster, coffee name, and roast level and/or roast date or age when present. A bag-less recipe SHALL render a clear "No bean" state.
-- **Profile card** SHALL show a RICH read-out of the profile's own defining detail EXCLUDING the parameters the recipe overrides (dose, yield, temperature, grind are shown on the Dose/yield/temp/grind card and SHALL NOT be duplicated here). It SHALL show: the profile name; the profile's **editor/type classification** (e.g. Advanced, D-Flow, A-Flow, Pressure, Flow — the same classification the wizard's header line already derives); the beverage type; and a substantive summary of the profile's pressure/flow shape (e.g. the frame/step structure and its characterizing values) that the recipe does not override. The card SHALL additionally expose the same two info affordances the profile step's tiles offer, usable from the summary without leaving it: the **Profile Info button** (the "(i)" button opening the Profile Info page describing the profile) and, when the profile has a knowledge-base entry, the **knowledge-base button** (the sparkle "AI DB" popup). These affordances SHALL be distinct, clearly-purposed controls separate from the card's edit glyph. A profile-less recipe (hot-water tea) SHALL render a clear "No profile" / hot-water state.
-- **Steam/milk card**, when a steam block is present, SHALL show a real summary (milk weight and pitcher, and the block's steam target/settings where set), not a bare title.
-- **Equipment card** SHALL show the full equipment package (e.g. grinder model, basket, puck-prep, and other package fields) EXCLUDING the grind setting and rpm, which are recipe-owned and shown on the Dose/yield/temp/grind card. When no package is set it SHALL render "none". The equipment WINDOW SHALL present the in-inventory packages as inline, tap-to-select tiles (plus a "None" tile), highlighting the linked one — not a picker field that opens a separate dialog.
-
-The value summaries SHALL be internationalized and SHALL degrade gracefully when a field is absent (omit the field rather than showing an empty or placeholder value).
+The wizard's final step SHALL be a summary whose hero is the recipe card rendered by the management page's own component. The recipe name with Cancel/Save and any save error SHALL sit in a header pinned above the scrolling body. Each component SHALL render as a tappable card that opens its own window and returns to the summary.
 
 #### Scenario: Summary shows the future card
 - **WHEN** the user reaches the summary for a latte with 200g milk
@@ -192,6 +256,60 @@ The value summaries SHALL be internationalized and SHALL degrade gracefully when
 - **WHEN** the user opens the equipment window
 - **THEN** the in-inventory packages are shown as inline tap-to-select tiles with the linked one highlighted (plus a "None" tile), and selecting one links it without opening a separate dialog
 
+#### Scenario: Every stored block has a card
+- **WHEN** the recipe stores a steam or hot-water block
+- **THEN** a visible card for it appears on the summary, not only behind an edit action
+
+#### Scenario: One glyph per card
+- **WHEN** the Dose/yield/temp/grind card renders
+- **THEN** it shows a single edit glyph and no dose→yield arrow
+
+### Requirement: Edit, clone and promote open the summary with state loaded
+Edit, clone and promote-from-shot SHALL open the wizard on the summary with all state loaded. A recipe without a stored drink type SHALL derive it from its blocks and profile beverage type. Clone SHALL focus the name field and record clone provenance. Promote SHALL prefill from the shot record and its steam and hot-water snapshots, falling back to current settings, and record shot provenance.
+
+#### Scenario: Clone focuses the name
+- **WHEN** the user clones a recipe
+- **THEN** the name field is focused for immediate rename and the clone provenance is recorded
+
+### Requirement: Component value summaries show every value their editor changes
+Each component card's value summary SHALL present the full set of values its own editor changes, scoped to the fields the drink type has, and no value SHALL be repeated across cards. Summaries SHALL be internationalized and SHALL omit absent fields rather than show empty or placeholder values.
+
+#### Scenario: Coffee dose card values
+- **WHEN** a coffee recipe's Dose/yield/temp/grind card renders
+- **THEN** it shows dose, yield mode with the resulting weight, effective temperature and grind under a title naming grind, and rpm only when the grinder is RPM-controlled
+
+#### Scenario: Hot-water tea summary
+- **WHEN** a hot-water tea recipe's numbers card renders
+- **THEN** it shows volume and temperature only, with no dose or grind
+
+### Requirement: Bean card shows photo and bag detail
+The Bean card SHALL show the linked bag's cached photo, rendered without a colour emoji in plain Text, with the roaster, coffee name, and roast level and/or roast date or age, matching the bean step tile. A bag-less recipe SHALL render a clear "No bean" state.
+
+#### Scenario: Bag-less recipe shows No bean
+- **WHEN** the recipe has no linked bag
+- **THEN** the Bean card shows the "No bean" state
+
+### Requirement: Profile card is a rich read-out
+The Profile card SHALL show the profile name, its editor/type classification, its beverage type, and a substantive summary of its pressure/flow shape, EXCLUDING parameters the recipe overrides. It SHALL expose the Profile Info (i) button and, when the profile has a knowledge-base entry, the sparkle AI DB button, both distinct from the edit glyph.
+
+#### Scenario: Profile-less recipe
+- **WHEN** the recipe has no profile (hot-water tea)
+- **THEN** the Profile card shows a "No profile" hot-water state
+
+### Requirement: Steam card shows a real summary
+When a steam block is present, the steam card SHALL show a real summary: milk weight and pitcher, and the block's steam target and settings where set, not a bare title.
+
+#### Scenario: Steam card detail
+- **WHEN** a recipe has a steam block with a milk weight and pitcher
+- **THEN** the steam card shows both values
+
+### Requirement: Equipment card lists the package
+The Equipment card SHALL show the full equipment package EXCLUDING grind setting and rpm, which are recipe-owned and shown on the Dose card. With no package it SHALL render "none". The equipment window SHALL present in-inventory packages as inline tap-to-select tiles plus a "None" tile, highlighting the linked one.
+
+#### Scenario: No package shows none
+- **WHEN** the recipe has no equipment package
+- **THEN** the Equipment card renders "none"
+
 ### Requirement: Per-drink-type equipment default
 The equipment row SHALL prefill with the equipment package most recently used on a recipe of the same drink type; when none exists, the currently active package; when none, "none". The row SHALL be changeable from the details step and the summary.
 
@@ -200,13 +318,7 @@ The equipment row SHALL prefill with the equipment package most recently used on
 - **THEN** the equipment row prefills with that package
 
 ### Requirement: Name auto-suggestion from bean and drink type
-The wizard SHALL suggest a recipe name composed from the bean (coffee/tea name), the drink type's short label, and the recipe's profile (e.g. "Yirgacheffe Latte · Cremina" — never a label containing a slash or parenthetical), applied only while the name field is empty or still holds the previous suggestion — never over a user edit. The suggestion SHALL update whenever the bean, drink type, or profile selection changes while the field still holds a prior suggestion.
-
-The profile token SHALL be cleaned before use: the `D-Flow/` or `A-Flow/` editor-membership title prefix SHALL be removed, and the profile SHALL NOT be appended when its trailing word repeats the drink-type word already present (case-insensitive), mirroring the bean stutter rule. When no profile is selected (a hot-water tea recipe), no profile token SHALL be appended.
-
-When the bean name already ends with the drink-type word (case-insensitive), the suggestion SHALL NOT append the drink-type word again.
-
-When the composed name matches the display name of an existing non-archived recipe (a plain case-insensitive name-string match — the wizard caches existing names, not their bean/type/profile identity), the wizard SHALL append a qualifier drawn from the draft recipe's OWN dial-in values — the yield (ratio or target weight) tried first, else the dose — retrying against the name set so the suggestion stays distinct where possible. The wizard SHALL NOT disambiguate with a bare numeric counter.
+The wizard SHALL suggest a recipe name composed from the bean, the drink type's short label, and the profile (e.g. "Yirgacheffe Latte · Cremina"), never containing a slash or parenthetical. The suggestion SHALL apply only while the name field is empty or still holds the previous suggestion, and SHALL update when the bean, drink type, or profile changes.
 
 #### Scenario: Suggestion follows selections
 - **WHEN** the user picks a bean and drink type without typing a name
@@ -244,6 +356,20 @@ When the composed name matches the display name of an existing non-archived reci
 - **WHEN** the user types their own name and then changes the profile
 - **THEN** the typed name is unchanged
 
+### Requirement: Profile token is cleaned before use
+The profile token SHALL have any `D-Flow/` or `A-Flow/` editor-membership prefix removed. It SHALL NOT be appended when its trailing word repeats the drink-type word (case-insensitive), and SHALL NOT be appended when no profile is selected.
+
+#### Scenario: Editor prefix stripped and stutter avoided
+- **WHEN** an espresso recipe uses the profile "D-Flow/Blooming Espresso"
+- **THEN** no profile token is appended, because its trailing word repeats "Espresso"
+
+### Requirement: Name collisions take a dial-in qualifier
+When the composed name matches an existing non-archived recipe's display name (case-insensitive), the wizard SHALL append a qualifier from the draft's own yield (ratio or target weight), else its dose, retrying against the name set. The wizard SHALL NOT use a bare numeric counter.
+
+#### Scenario: Yield collision falls to dose
+- **WHEN** the yield-qualified name also exists
+- **THEN** the wizard appends the draft's dose as the qualifier
+
 ### Requirement: Details step fits one screen with right-sized controls
 The details step's controls SHALL be sized to their content, not stretched to fill the row (a temperature stepper or a numeric field SHALL NOT span the page width). On landscape tablet layouts the section cards SHALL arrange in a multi-column grid so the step fits without scrolling for the common drink types. The grind knowledge-base hint (last grind for this bean, cross-profile direction) SHALL render as a visually anchored callout (icon plus distinct background), not as muted caption text.
 
@@ -256,7 +382,7 @@ The details step's controls SHALL be sized to their content, not stretched to fi
 - **THEN** it renders as a callout with an icon, visually distinct from field labels
 
 ### Requirement: Details step explains its prefills and reads as optional
-The details step SHALL present itself as optional: a step-level caption SHALL state that everything is prefilled and ready to save. The numbers and grind cards SHALL open COLLAPSED to a one-line summary of their current values (tap to expand and edit); they SHALL auto-expand only when nothing could be prefilled (no dose/yield from any tier, or no bag to inherit grind from). When expanded, the numbers card SHALL carry a caption naming the provenance tier that filled it (last shot with this bean+profile / the profile's recommended numbers / the tea bag's brewing instructions / the recipe's saved values) plus a short adjust-to-taste nudge (including what the temp offset means); the grind card SHALL explain the inherit-vs-override rule; the equipment card SHALL say the package was prefilled from the user's last use for this drink type. The steam card SHALL NOT capture a milk weight — milk is weighed each time the user steams; the recipe stores the pitcher (whose preset carries steam time/flow/temperature) and the milk intent that drives the heater hold. A milk weight already stored on a recipe (e.g. promoted from a shot's steam snapshot) SHALL still display on cards and the summary.
+The details step SHALL present itself as optional, with a caption stating everything is prefilled and ready to save. The numbers and grind cards SHALL open collapsed to a one-line summary, and SHALL auto-expand only when nothing could be prefilled. The steam card SHALL NOT capture a milk weight: the recipe stores the pitcher and milk intent.
 
 #### Scenario: Prefilled step reads as done
 - **WHEN** the user reaches the details step for a latte with history prefills
@@ -273,6 +399,15 @@ The details step SHALL present itself as optional: a step-level caption SHALL st
 #### Scenario: No milk weight field
 - **WHEN** the user reaches the details step for a latte
 - **THEN** the steam card offers the pitcher picker and explains milk is weighed at steam time — there is no milk-weight input
+
+#### Scenario: Expanded cards explain their values
+- **WHEN** the user expands the numbers card
+- **THEN** its caption names the provenance tier and suggests adjusting to taste, including what the temperature offset means
+- **AND** the grind card explains the inherit-vs-override rule, and the equipment card says it was prefilled from the last use for this drink type
+
+#### Scenario: Stored milk weight still displays
+- **WHEN** a recipe with a stored milk weight, such as one promoted from a shot's steam snapshot, is shown
+- **THEN** the weight displays on the cards and the summary
 
 ### Requirement: Sub-pickers show preset metadata
 The pitcher, water-vessel, and equipment picker dialogs SHALL show each entry's stored data on its row — pitcher: name with milk weight/temperature where stored; vessel: name with amount (per its mode) and temperature; equipment: package name with grinder and basket. Rows SHALL NOT be name-only.
@@ -294,15 +429,7 @@ The details step SHALL present the equipment selection before (above) the grind/
 
 ### Requirement: The equipment window SHALL never open empty and SHALL be skipped when only one package exists
 
-During the creation walk the equipment window SHALL preselect the currently
-active package rather than opening with nothing chosen. When the inventory holds
-exactly one in-inventory package, the wizard SHALL fill it in and skip the
-equipment window entirely, advancing straight to the dose/yield/temp/grind
-window — there is nothing to ask; the window stays reachable by stepping back.
-Edit/clone flows keep the recipe's own package, and a summary-card jump to the
-equipment window always shows it. Web recipe creation SHALL likewise link the
-active package (the web form has no equipment editor; updates leave the existing
-link untouched).
+During the creation walk the equipment window SHALL preselect the currently active package rather than open with nothing chosen. When exactly one in-inventory package exists, the wizard SHALL select it and skip the window, advancing to the dose/yield/temp/grind window. Edit and clone flows keep the recipe's own package, and a summary-card jump always shows the window.
 
 #### Scenario: Single package skips the window
 
@@ -324,7 +451,7 @@ link untouched).
 
 ### Requirement: Temperature offset control shows the resulting temperature
 
-On the coffee/espresso details step, the temperature control edits an offset applied to the selected profile. The wizard SHALL display, adjacent to that offset control, the resulting brew temperature the current offset produces — so a user can dial to a target temperature without knowing the profile's default. The readout SHALL render through the same formatter the brew-settings Temp Delta uses (`TemperatureDisplay::format`, via `ProfileManager.temperatureDisplayForSteps`) against the **selected** profile's own frame temperatures — never the app's active profile — so the wizard and brew settings read identically. It SHALL therefore show at most two temperatures (a single value when the profile's frames share one temperature, two distinct values as a spaced list, or first…last for a ramp of three or more), be unit-aware (°C/°F, re-rendering when the unit setting changes), and carry a signed offset tag when the offset is non-zero. The readout SHALL be visible only when the profile's temperature is resolvable, and SHALL be exposed to assistive technology as static text. This requirement applies to the coffee/espresso path only; tea edits an absolute temperature and hot-water tea has no profile anchor.
+On the coffee/espresso details step, the resulting brew temperature of the offset SHALL be shown adjacent to the offset control. It SHALL use the same formatter as brew-settings Temp Delta against the selected profile's own frame temperatures, never the active profile, and SHALL be unit-aware and visible only when that temperature is resolvable.
 
 #### Scenario: Zero offset shows the profile temperature
 
@@ -351,11 +478,17 @@ On the coffee/espresso details step, the temperature control edits an offset app
 - **WHEN** the selected profile's temperature cannot be resolved
 - **THEN** the resulting-temperature readout is hidden (the offset control is already disabled in this state)
 
+#### Scenario: Tea has no readout
+- **WHEN** the user edits a tea recipe's temperature
+- **THEN** no resulting-temperature readout is shown, because tea sets an absolute temperature
+
+#### Scenario: Readout is static text
+- **WHEN** an assistive technology reads the resulting-temperature readout
+- **THEN** it is exposed as static text
+
 ### Requirement: The pitcher picker offers "Heater off"
 
-The wizard's steam pitcher picker SHALL offer the built-in "Heater off" entry alongside the real pitcher presets, so a recipe can be saved as wanting the steam heater off. It SHALL NOT filter heater-off entries out of the picker, and it SHALL NOT offer any way to create one.
-
-Choosing it SHALL store the off marker on the recipe's steam block rather than a pitcher name. The steam and summary cards SHALL show it as the chosen entry, distinguishable from a real pitcher rather than shown with an empty duration and temperature.
+The steam pitcher picker SHALL offer the built-in "Heater off" entry alongside real presets, SHALL NOT filter it out, and SHALL NOT offer a way to create one. Choosing it SHALL store the off marker on the steam block rather than a pitcher name, and the steam and summary cards SHALL show it as the chosen entry.
 
 #### Scenario: Heater off is selectable
 - **WHEN** the user opens the pitcher picker while composing or editing a recipe

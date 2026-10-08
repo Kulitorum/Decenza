@@ -1,11 +1,11 @@
 # idle-default-layout Specification
 
 ## Purpose
-TBD - created by archiving change recipes-idle-layout-upgrade. Update Purpose after archive.
+Defines the default idle-page layout (the recipes-first centre row, the bottom bars and the Shot Plan widget), reset-to-default in the app and web editor, and how idle preset pill rows paginate within two rows.
+
 ## Requirements
 ### Requirement: Recipes-first default idle layout
-
-The default idle-page layout SHALL place, in the `centerTop` zone, exactly: **Recipes, Beans, Steam, Hot Water** (in that order); in the `centerMiddle` zone: the Shot Plan widget; in the `bottomLeft` zone: Sleep; and in the `bottomRight` zone: **Flush, History, Equipment, Profiles (type `espresso`), Settings** (in that order). The status bar, `centerStatus`, and `lowerMidBar` zone defaults SHALL be unchanged from their current composition. The Profiles button and Flush SHALL NOT appear in the default center row, and Auto-Favorites SHALL NOT appear anywhere in the default layout.
+The default idle-page layout SHALL place, in `centerTop`, Recipes, Beans, Steam and Hot Water, in that order. `centerMiddle` SHALL hold the Shot Plan widget, `bottomLeft` SHALL hold Sleep, and `bottomRight` SHALL hold Flush, History, Equipment, Profiles (type `espresso`) and Settings, in that order. The status bar, `centerStatus` and `lowerMidBar` defaults SHALL be unchanged.
 
 #### Scenario: Fresh install gets the recipes-first layout
 
@@ -16,6 +16,13 @@ The default idle-page layout SHALL place, in the `centerTop` zone, exactly: **Re
 
 - **WHEN** the default layout is generated
 - **THEN** no zone contains an `autofavorites` item (the Auto-Favorites page remains reachable for layouts that already include the widget)
+
+### Requirement: The default keeps Profiles, Flush and Auto-Favorites out of the centre row
+The Profiles button and Flush SHALL NOT appear in the default centre row. Auto-Favorites SHALL NOT appear anywhere in the default layout.
+
+#### Scenario: Centre row holds no Profiles or Flush
+- **WHEN** the default layout is generated
+- **THEN** the `centerTop` zone contains no Profiles or Flush item
 
 ### Requirement: Reset to default applies the recipes-first layout
 
@@ -41,11 +48,7 @@ The pre-existing layout injection migrations (equipment, recipes) SHALL remain n
 - **THEN** the zone contents are identical to the default composition (no injected duplicates)
 
 ### Requirement: Idle preset pill rows fit two rows
-Every idle-screen preset pill row that pages an inventory — the favorite **Profiles** (espresso quick-select), **Equipment** packages, **Flush** presets, and **Hot-water** vessels — SHALL show as many pills as comfortably fit within **at most two rows** at the row's current available width, and SHALL paginate the remainder via prev/next arrows. This matches the Recipes (recipe-quick-switch) and Beans (bag-inventory-view) idle pill rows. The behavior SHALL apply in **both rendering paths** of each widget: the compact-bar popup (`EspressoItem`/`EquipmentItem`/`FlushItem`/`HotWaterItem`) and the `IdlePage` center-zone expansion.
-
-The number of pills per page SHALL be computed **live** from the actual (measured) pill widths and MAY differ from one page to the next. The previous/next arrows SHALL appear only when a previous/further page exists; when every pill fits within two rows neither arrow SHALL appear and the row SHALL be visually identical to the non-paginated row. Paging SHALL change only which pills are visible — it SHALL NOT change the selection, load a profile, switch equipment, or start an operation. Opening a row SHALL start on the first page.
-
-For rows whose selection is an absolute index into the full list (favorite profiles, flush, hot-water vessels), selection and taps SHALL map between the page-relative pill index and the absolute index so the correct item is highlighted, loaded, previewed, or started. The favorite-profile row's selected pill may carry a modified marker that widens it; its width SHALL be measured with that marker so the two-row fit stays correct. The equipment row (selection by id) SHALL keep its full MRU inventory paged rather than the previous fixed cap of five.
+Every idle preset pill row that pages an inventory (favorite Profiles, Equipment packages, Flush presets and Hot-water vessels) SHALL show as many pills as fit within at most two rows at the row's current width, paginating the remainder with prev/next arrows. This SHALL apply in both rendering paths: the compact-bar popup and the `IdlePage` centre-zone expansion.
 
 #### Scenario: Long names reduce the page size
 - **WHEN** a row's pills (with long names) do not all fit within two rows
@@ -65,5 +68,26 @@ For rows whose selection is an absolute index into the full list (favorite profi
 
 #### Scenario: Equipment shows the whole inventory across pages
 - **WHEN** the user has more than the previously-capped five equipment packages
+- **THEN** all of them are reachable by paging, not just the five most recent
+
+### Requirement: Pages are computed live and paging changes only visibility
+The pills per page SHALL be computed live from measured pill widths and MAY differ between pages. Arrows SHALL appear only when a previous or further page exists. Paging SHALL change only which pills are visible. It SHALL NOT change the selection, load a profile, switch equipment or start an operation. Opening a row SHALL start on the first page.
+
+#### Scenario: Everything fits, no arrows
+- **WHEN** every pill of a row fits within two rows
+- **THEN** no arrows appear and the row is identical to a non-paginated row
+
+### Requirement: Selection maps between page and absolute index
+For rows whose selection is an absolute index into the full list (favorite profiles, flush, hot-water vessels), selection and taps SHALL map between the page-relative pill index and the absolute index. A favorite-profile row's modified marker SHALL be included when measuring its pill width.
+
+#### Scenario: Modified marker is measured
+- **WHEN** the selected favorite profile shows its modified marker
+- **THEN** the two-row fit is computed with that marker's width included
+
+### Requirement: Equipment pages its full inventory
+The equipment row SHALL select by id and SHALL keep its full MRU inventory paged, not a fixed cap.
+
+#### Scenario: Equipment shows the whole inventory across pages
+- **WHEN** the user has more than five equipment packages
 - **THEN** all of them are reachable by paging, not just the five most recent
 

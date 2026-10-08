@@ -862,11 +862,16 @@ private slots:
         QJsonObject t1; t1["bagId"] = coffeeId; t1["teaType"] = "black";
         QVERIFY(f.callAsyncTool("bag", withAction("update", t1)).contains("error"));
 
-        // roastLevel/grinderSetting on a tea bag: rejected.
+        // roastLevel/grinderSetting/rpm on a tea bag: refused in storage.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: roastLevel"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: grinderSetting"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: rpm"));
         QJsonObject t2; t2["bagId"] = teaId; t2["roastLevel"] = "Light";
         QVERIFY(f.callAsyncTool("bag", withAction("update", t2)).contains("error"));
         QJsonObject t3; t3["bagId"] = teaId; t3["grinderSetting"] = "12";
         QVERIFY(f.callAsyncTool("bag", withAction("update", t3)).contains("error"));
+        QJsonObject t4; t4["bagId"] = teaId; t4["rpm"] = 800;
+        QVERIFY(f.callAsyncTool("bag", withAction("update", t4)).contains("error"));
 
         // teaType on the tea bag: accepted.
         QJsonObject ok; ok["bagId"] = teaId; ok["teaType"] = "black";
@@ -1223,7 +1228,7 @@ private slots:
     // ===== Outcome reporting: success must mean the operation happened =====
     //
     // Each of these covers a tool that used to report success for an operation
-    // that did not take place. #1754 made a tool's `error` key reach the wire as
+    // that did not take place. PR Kulitorum/Decenza#1754 made a tool's `error` key reach the wire as
     // `isError`; it cannot reach these, because no `error` key was written at
     // all — the tool believed it had succeeded.
 

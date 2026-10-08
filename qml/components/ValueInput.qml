@@ -387,7 +387,7 @@ Item {
                         if (!isDragging && !hasMoved) {
                             root.openEditor()
                         }
-                        // Commit on drag release. PR #782 added the
+                        // Commit on drag release. PR Kulitorum/Decenza#782 added the
                         // valueCommitted contract for the +/- buttons but
                         // missed this MouseArea, so drags were updating
                         // _dirtySinceCommit during onPositionChanged

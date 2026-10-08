@@ -6,7 +6,7 @@ Requires that every persisted scale identity — the `scale/type` setting, `know
 ## Requirements
 ### Requirement: scaleType is a canonical type-id
 
-The system SHALL persist and key on a stable, canonical scale type-id (the value returned by `ScaleDevice::type()`, e.g. `decent`, `acaia`, `decent-wifi`, `decent-usb`) for every per-scale storage location — the `scale/type` setting, `knownScales/scales[].type`, and all SAW learning keys (`learningHistory[].scale`, `perProfileHistory`/`perProfileBatch` keys and entries, `globalBootstrapLag/<scaleType>`). The human-readable display name SHALL be stored only in the separate `name` field and SHALL NOT be used as a key.
+The system SHALL persist and key on the stable canonical scale type-id (the value returned by `ScaleDevice::type()`, e.g. `decent`, `acaia`, `decent-wifi`, `decent-usb`) for every per-scale storage location, including the `scale/type` setting, `knownScales` entries, and all SAW learning keys. The human-readable display name SHALL be stored only in the `name` field and SHALL NOT be used as a key.
 
 #### Scenario: BLE discovery stores the id, not the display name
 - **WHEN** a BLE scale is discovered and registered as a known scale
@@ -16,6 +16,10 @@ The system SHALL persist and key on a stable, canonical scale type-id (the value
 #### Scenario: Renaming a display name does not change any key
 - **WHEN** a scale's display name is changed in a later release (e.g. `Decent Scale (WiFi)` → `Half Decent Scale (WiFi)`)
 - **THEN** that scale's `scaleType` and all of its per-(profile, scale) SAW keys, `globalBootstrapLag` key, and `sensorLag()` lookup SHALL be unchanged
+
+#### Scenario: SAW keys use the type-id
+- **WHEN** SAW records learning for a scale
+- **THEN** `learningHistory[].scale`, the `perProfileHistory` and `perProfileBatch` keys, and `globalBootstrapLag/<scaleType>` all use the canonical type-id
 
 ### Requirement: Single source-of-truth id mapping
 
@@ -51,7 +55,7 @@ The system SHALL persist and key on a stable, canonical scale type-id (the value
 
 ### Requirement: One-time migration preserves existing learning
 
-On startup, exactly once (guarded by a persisted migration flag, following the existing `knownScales/migrated` pattern), the system SHALL rewrite every persisted display-name `scaleType` value to its canonical id across `scale/type`, `knownScales/scales[].type`, and all SAW storage (`saw/learningHistory` entries' `scale` field, the `saw/perProfileHistory` and `saw/perProfileBatch` map keys of the form `profile::scaleType` plus their per-entry `scale` field, and `saw/globalBootstrapLag/<scaleType>`). No learning data SHALL be lost or duplicated.
+On startup, exactly once (guarded by a persisted migration flag, following the existing `knownScales/migrated` pattern), the system SHALL rewrite every persisted display-name `scaleType` value to its canonical id across `scale/type`, `knownScales` and all SAW storage. No learning data SHALL be lost or duplicated.
 
 #### Scenario: Legacy display-name SAW history is rekeyed and remains readable
 - **WHEN** the migration runs over a `perProfileHistory` key `"<profile>::Decent Scale"` with committed medians
@@ -69,6 +73,10 @@ On startup, exactly once (guarded by a persisted migration flag, following the e
 #### Scenario: Colliding legacy and id buckets merge without loss
 - **WHEN** both a display-name-keyed bucket (`"<profile>::Decent Scale"`) and an id-keyed bucket (`"<profile>::decent"`) exist for the same profile
 - **THEN** the migration SHALL merge the legacy entries into the id bucket (newest-first) and apply the normal trim, losing no entries beyond the existing trim limit
+
+#### Scenario: Legacy SAW keys are rewritten
+- **WHEN** the migration runs over legacy SAW data keyed by display name
+- **THEN** `profile::scaleType` map keys and their per-entry `scale` fields, `learningHistory` entries, and `globalBootstrapLag` keys are rewritten to the canonical id
 
 ### Requirement: Normalization is internal-only
 

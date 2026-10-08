@@ -1,7 +1,7 @@
 # mcp-dual-era-protocol Specification
 
 ## Purpose
-TBD - created by archiving change add-mcp-dual-era-2026. Update Purpose after archive.
+Defines how the MCP server serves the legacy and modern protocol eras on one endpoint, selected per request, including version discovery, handling of ambiguous requests, and the result metadata modern callers receive.
 
 ## Requirements
 
@@ -58,15 +58,7 @@ specified to recognize and fall back from.
 - **THEN** the server serves it under the legacy era
 
 ### Requirement: The Server Advertises Its Supported Versions
-
-The server SHALL implement a discovery request that reports the protocol
-versions it supports, its identity, and its capabilities, so that a modern
-client MAY learn them before sending any other request.
-
-A client SHALL NOT be required to call it: a modern request naming a version
-the server does not support SHALL be answered with an unsupported-version
-error carrying the list of versions the server does support, so that a client
-that invokes a method directly can retry with a mutually supported version.
+The server SHALL implement a discovery request that reports its supported protocol versions, identity and capabilities, so a modern client MAY learn them before sending any other request. A client SHALL NOT be required to call it.
 
 #### Scenario: Client discovers up front
 
@@ -82,6 +74,13 @@ that invokes a method directly can retry with a mutually supported version.
 
 - **WHEN** the discovery request reports a protocol version
 - **THEN** a request naming that version is served rather than rejected as unsupported
+
+### Requirement: An unsupported version is answered with the supported list
+A modern request naming a protocol version the server does not support SHALL be answered with an unsupported-version error that lists the versions the server does support, so the client can retry with a mutually supported version.
+
+#### Scenario: Unsupported version lists supported versions
+- **WHEN** a modern client invokes a method directly with a version the server does not support
+- **THEN** the response is an unsupported-version error listing the supported versions
 
 ### Requirement: A Modern Request Carries Its Own Protocol Version
 

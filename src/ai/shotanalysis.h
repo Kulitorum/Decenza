@@ -333,7 +333,7 @@ public:
         // whenever Arm 2 walks the pressure-mode samples — even when the
         // gates fail on too-short pressurization or too few samples. Lets
         // consumers answer "why didn't this badge fire?" without re-reading
-        // the C++. Gate semantics (post-#966 split-arm gates):
+        // the C++. Gate semantics (post-PR Kulitorum/Decenza#966 split-arm gates):
         //   - flowSamples  : count of pressurized samples (pressure ≥ CHOKED_PRESSURE_MIN_BAR)
         //   - pressurizedDurationSec : integrated dt across those samples (gap-bounded)
         //   - meanPressurizedFlowMlPerSec : mean flow across those samples; 0 if flowSamples == 0
@@ -513,7 +513,7 @@ public:
         // and regression tests can read the same window the cascade used
         // instead of re-deriving it from phase markers. Removing that
         // duplication is what let the previous `ShotSummarizer::computePourWindow`
-        // drift from analyzeShot's logic; see PR #944.
+        // drift from analyzeShot's logic; see PR Kulitorum/Decenza#944.
         //
         // pourStartSec is 0.0 when no "preinfusion"/"pour" markers are
         // present (the boundary loop didn't fire); pourEndSec defaults to

@@ -37,7 +37,7 @@
 // tool would report, since the calls would parse and simply do nothing. The surface is preserved
 // deliberately, and the gate now checks every one of them.
 //
-// This claim was FALSE when first written, and the #1687 review caught it: three of ScaleDevice's
+// This claim was FALSE when first written, and the PR Kulitorum/Decenza#1687 review caught it: three of ScaleDevice's
 // twelve public slots — resetFlowCalculation(), addFlowSample() and hasIndependentTimerReset() —
 // were not forwarded. No call site broke, because all three are reached only from C++ through a
 // direct ScaleDevice*, but the omission is exactly the silent hole the paragraph above warns

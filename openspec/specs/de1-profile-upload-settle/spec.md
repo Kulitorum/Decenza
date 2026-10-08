@@ -1,7 +1,12 @@
 # de1-profile-upload-settle Specification
 
 ## Purpose
-TBD - created by archiving change harden-de1-ble-reliability. Update Purpose after archive.
+
+Covers how the app waits after a DE1 profile upload completes before it issues
+the next state change, such as starting espresso. The settle window lives at
+upload completion so every caller is covered, and the DE1 firmware can finish
+its flash write first.
+
 ## Requirements
 ### Requirement: A profile upload settles before the next state change is allowed
 The system SHALL wait for a settle window after a profile upload's final frame

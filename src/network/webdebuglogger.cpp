@@ -115,7 +115,7 @@ WebDebugLogger* WebDebugLogger::create(QQmlEngine*, QJSEngine*)
     // Calls install() rather than assuming main() already did. install() is
     // idempotent (the `if (!s_instance)` above) and needs nothing from the QML
     // engine, so there is no real case where this should ever return null — and
-    // every caller in QML was written as if it could anyway (the #1661 truthy-
+    // every caller in QML was written as if it could anyway (the PR Kulitorum/Decenza#1661 truthy-
     // singleton trap: a registered type with no instance is TRUTHY, so
     // `WebDebugLogger &&  WebDebugLogger.foo` still reaches the member read).
     // Calling install() here removes the null case instead of asking every

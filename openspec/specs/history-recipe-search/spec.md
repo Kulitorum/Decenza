@@ -1,7 +1,7 @@
 # history-recipe-search Specification
 
 ## Purpose
-TBD - created by archiving change history-recipe-identity. Update Purpose after archive.
+Lets Shot History search match recipe names: bare search text also matches a shot's recipe name, a `recipe:` keyword restricts matching to recipe names (single token or quoted), and tapping a row's recipe filters history to that exact recipe by id.
 ## Requirements
 ### Requirement: Bare search text matches recipe names
 
@@ -26,18 +26,7 @@ profile, grinder). A shot matching on any one of those SHALL be returned.
 
 ### Requirement: The `recipe:` keyword scopes a search to recipe names
 
-Shot History SHALL support a `recipe:` search keyword that restricts matching to the
-recipe name, excluding notes, bean, profile and grinder. It SHALL accept two forms:
-
-- **Single token** — `recipe:dad` — matching recipe names containing `dad`.
-- **Quoted** — `recipe:"dad tuesday"` — matching recipe names containing `dad tuesday`,
-  so that names sharing a leading word can be distinguished.
-
-Both forms SHALL be substring matches, case-insensitive. The keyword SHALL compose with
-the existing numeric and boolean keywords and with remaining free text, in any order. An
-unterminated quote SHALL be treated as running to the end of the search text rather than
-failing the search. The keyword SHALL appear in the Keywords help sheet alongside the
-existing keywords.
+Shot History SHALL support a `recipe:` keyword that restricts matching to the recipe name, excluding notes, bean, profile and grinder. Both the single-token form (`recipe:dad`) and the quoted form (`recipe:"dad tuesday"`) SHALL be case-insensitive substring matches. The keyword SHALL appear in the Keywords help sheet alongside the existing keywords.
 
 #### Scenario: Single-token keyword
 
@@ -68,6 +57,15 @@ existing keywords.
 
 - **WHEN** the user searches `recipe:"dad tues`
 - **THEN** the search matches recipe names containing `dad tues` rather than returning an error or no results
+
+### Requirement: The recipe keyword SHALL compose with other search terms
+
+The `recipe:` keyword SHALL compose with the existing numeric and boolean keywords and with remaining free text, in any order. An unterminated quote SHALL run to the end of the search text rather than failing the search.
+
+#### Scenario: Free text composes with the keyword
+
+- **WHEN** the user searches `dad recipe:tuesday`
+- **THEN** only shots from recipes whose names contain "tuesday" and whose other fields match "dad" SHALL be listed
 
 ### Requirement: Tapping a row's recipe filters history to that recipe
 

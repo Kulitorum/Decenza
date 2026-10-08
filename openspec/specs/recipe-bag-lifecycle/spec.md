@@ -1,12 +1,12 @@
 # recipe-bag-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change recipes-bag-links-ui-polish. Update Purpose after archive.
+Keeps recipes linked to a usable bag as bags are used up. A finished bag rolls its recipes to the successor bag of the same bean, a stale recipe wakes when a matching bag is restocked, a stale recipe stays fully usable, and the user can re-point or restock one from the recipe card.
 
 ## Requirements
 
 ### Requirement: Roll-on-finish relinks recipes to the successor bag
-When a bag is marked finished and a newer open bag of the same bean exists (matched by Bean Base canonical id when available, otherwise case-insensitive roaster+coffee identity), the system SHALL automatically relink the finished bag's recipes to the newest open bag of that bean — except any recipe whose relink would duplicate an existing recipe on the target bag (same profile title and same drink type). Skipped recipes SHALL remain linked to the finished bag. When no newer bag of the bean exists, all of the finished bag's recipes SHALL remain linked to it. The relink SHALL be silent (no dialog, no confirmation, no setting) and SHALL be announced with a toast naming how many recipes moved.
+When a bag is marked finished and a newer open bag of the same bean exists (by canonical id when available, else case-insensitive roaster and coffee), the system SHALL relink the finished bag's recipes to the newest open bag, except any whose relink would duplicate a recipe on the target (same profile and drink type). Skipped recipes SHALL stay on the finished bag. The relink SHALL be silent and announced by a toast giving the count.
 
 #### Scenario: Single successor bag
 - **WHEN** a bag with two linked recipes is marked finished and one newer open bag of the same bean exists

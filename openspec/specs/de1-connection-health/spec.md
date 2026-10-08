@@ -1,19 +1,12 @@
 # de1-connection-health Specification
 
 ## Purpose
-TBD - created by archiving change harden-de1-ble-reliability. Update Purpose after archive.
+Covers DE1 BLE link health: detecting a zombie link whose notifications have stalled, treating a failed required notification subscription as not connected, reporting subscription outcomes in the connection views, and tearing down a silent link so the reconnect ladder recovers it.
 
 ## Requirements
 
 ### Requirement: A zombie DE1 link is detected via notification liveness
-The system SHALL track whether the DE1 is delivering its expected periodic
-notifications (e.g. STATE_INFO) while connected, so a link that remains
-GATT-connected and continues to acknowledge writes, but has silently stopped
-delivering notifications, can be distinguished from a healthy connection.
-
-This tracking SHALL be evaluated on its own, not only when a reconnect is attempted. Nothing
-attempts a reconnect while the link reports itself connected, so a check reached only from that
-path never runs in the case it exists for.
+The system SHALL track whether the DE1 keeps delivering its expected periodic notifications (e.g. STATE_INFO) while connected, so a GATT-connected link that has silently stopped delivering can be distinguished from a healthy one. This tracking SHALL be evaluated on its own, not only when a reconnect is attempted.
 
 #### Scenario: Notifications stop while writes keep succeeding
 - **WHEN** the DE1 link is connected, characteristic writes continue to be
@@ -58,15 +51,7 @@ write-timeout exhaustion, rather than as an isolated, unused signal.
 
 ### Requirement: A DE1 link whose required notification subscriptions failed is not reported connected
 
-The system SHALL NOT report the DE1 as connected when any notification stream required for normal operation failed to be enabled. `STATE_INFO` and `SHOT_SAMPLE` are required: without them the app cannot observe a shot starting, cannot chart it, and cannot stop at weight, so a link missing either is not usable for making coffee regardless of what other traffic still succeeds.
-
-On such a failure the system SHALL tear the link down and re-enter its existing reconnect path, so subscription is retried against a freshly established connection rather than against the connection that just failed it.
-
-Retry of a failed notification-enable SHALL be bounded by the same policy as any other GATT write on that link, and SHALL NOT be unbounded or pinned at the head of the queue past that bound. On exhaustion the link SHALL be torn down rather than retried further in place.
-
-A failure that is a permanent fact about the connection — the characteristic absent from the discovered map, or no CCCD descriptor on it — SHALL NOT be retried at all, and SHALL fail the connection at once. Retrying five times could only delay saying so.
-
-(This requirement previously read "SHALL NOT retry a failed notification-enable in place against the same connection", which contradicted both `design.md` and the shipped code, where a rejected CCCD write takes the ordinary write policy. Corrected rather than quietly reworded.)
+The system SHALL NOT report the DE1 as connected when any notification stream required for normal operation failed to be enabled. `STATE_INFO` and `SHOT_SAMPLE` are required. On such a failure the system SHALL tear the link down and re-enter its reconnect path, so subscription is retried against a freshly established connection.
 
 #### Scenario: A notification-enable is rejected during connection setup
 
@@ -87,11 +72,25 @@ A failure that is a permanent fact about the connection — the characteristic a
 - **THEN** the system continues through its existing reconnect ladder rather than reporting a connected DE1
 - **AND** the user is not shown a machine that appears ready while its telemetry is dead
 
+### Requirement: Notification-enable retries follow the GATT write policy
+Retry of a failed notification-enable SHALL be bounded by the same policy as any other GATT write on that link and SHALL NOT be pinned at the head of the queue past that bound. On exhaustion the link SHALL be torn down rather than retried further in place.
+
+
+#### Scenario: Exhausted notification-enable retries tear the link down
+- **WHEN** a notification-enable write exhausts its retries
+- **THEN** the link is torn down and not retried further in place
+
+### Requirement: Permanent subscription failures are not retried
+A failure that is a permanent fact about the connection, namely the characteristic absent from the discovered map or no CCCD descriptor on it, SHALL NOT be retried and SHALL fail the connection at once.
+
+
+#### Scenario: Absent characteristic fails at once
+- **WHEN** the required characteristic is absent from the discovered map
+- **THEN** the connection fails immediately without retrying the subscription
+
 ### Requirement: The outcome of DE1 notification subscription is observable to the user
 
-The system SHALL record the outcome of DE1 notification subscription at the tier the in-app connection views display, and SHALL identify which stream each outcome refers to. A subscription failure recorded only at a tier those views filter out is not observable to the person holding the machine, nor to a support reader working from a submitted log.
-
-Where a failure is recorded, the record SHALL name the affected characteristic so the failed stream can be identified directly rather than inferred from the order in which subscriptions were attempted.
+The system SHALL record the outcome of DE1 notification subscription at a tier the in-app connection views display, and any failure record SHALL name the affected characteristic. A failure recorded only at a tier those views filter out is not observable to the person holding the machine.
 
 #### Scenario: A subscription fails
 
@@ -106,30 +105,7 @@ Where a failure is recorded, the record SHALL name the affected characteristic s
 
 ### Requirement: A DE1 link that has gone silent is torn down so the existing reconnect ladder recovers it
 
-When a write to the DE1 has been abandoned after exhausting its retries AND the DE1 has also
-delivered nothing for longer than a corroboration threshold, the system SHALL tear the link down
-and report it disconnected, so the existing DE1 reconnect ladder reconnects it. It SHALL NOT wait
-for the platform to report the disconnect, and SHALL NOT require a user action.
-
-Both signals SHALL be required. An abandoned write alone is not conclusive, since writes fail
-transiently on working links; silence alone SHALL NOT trigger recovery, because the device's true
-minimum push cadence is unmeasured, so such a rule would rest on an assumption rather than
-evidence — and it would be evaluated continuously on every periodic write for the whole life of a
-connection.
-
-The corroboration threshold SHALL be short enough that recovery begins sooner than the platform
-reports the disconnect on its own; a threshold longer than that offers nothing over waiting. It
-SHALL be documented as provisional until the DE1's true minimum push cadence is measured
-on-device, and SHALL NOT be derived from the app's own inbound logging, which is de-duplicated.
-
-It also has to be short because the evaluation is infrequent: the app's only guaranteed periodic
-write is far apart, so a link that fails between writes is not reconsidered until the next one.
-
-The teardown SHALL NOT be deferred on the machine's reported phase. That state is derived from the
-DE1's own notifications — the stream whose absence is being measured — so a deferral keyed to it
-can never release: once the link goes quiet mid-operation the phase freezes at its last value and
-the deferral holds forever. Any deferral introduced here SHALL be released by evidence that does
-not travel over the link being judged.
+When a write to the DE1 has been abandoned after exhausting its retries AND the DE1 has also delivered nothing for longer than a corroboration threshold, the system SHALL tear the link down and report it disconnected, so the existing DE1 reconnect ladder reconnects it. It SHALL NOT wait for the platform to report the disconnect, and SHALL NOT require a user action.
 
 #### Scenario: A write is abandoned on a link that has also gone quiet
 
@@ -170,3 +146,27 @@ not travel over the link being judged.
 
 - **WHEN** the controller reports the link disconnected before the teardown is acted on
 - **THEN** the ordinary disconnect path handles it and no second reconnect is started
+
+### Requirement: Both signals are required before silent-link teardown
+Both signals SHALL be required. An abandoned write alone is not conclusive, since writes fail transiently on working links, and silence alone SHALL NOT trigger recovery, because the DE1's true minimum push cadence is unmeasured.
+
+
+#### Scenario: Abandoned write alone does nothing
+- **WHEN** a write is abandoned but the DE1 delivered notifications recently
+- **THEN** the link is not torn down
+
+### Requirement: The corroboration threshold is short and provisional
+The corroboration threshold SHALL be short enough that recovery begins before the platform reports the disconnect. It SHALL be documented as provisional until the DE1's minimum push cadence is measured on-device, and SHALL NOT be derived from the app's de-duplicated inbound logging.
+
+
+#### Scenario: Recovery starts before the platform disconnect
+- **WHEN** both signals hold for longer than the corroboration threshold
+- **THEN** the teardown starts before the platform reports the disconnect
+
+### Requirement: Teardown is not deferred on the reported phase
+The teardown SHALL NOT be deferred on the machine's reported phase, because that phase derives from the same notifications being measured. Any deferral introduced SHALL be released by evidence that does not travel over the link being judged.
+
+
+#### Scenario: A frozen phase does not hold teardown
+- **WHEN** the link goes quiet mid-operation and the reported phase stops changing
+- **THEN** the teardown proceeds without waiting for the phase to change

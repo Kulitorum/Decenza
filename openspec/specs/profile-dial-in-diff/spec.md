@@ -7,18 +7,7 @@ read against the copy the user actually brews with.
 ## Requirements
 ### Requirement: The dial-in difference block SHALL be gated on shape equality, not on how the knowledge entry was reached
 
-Where the app shows a profile's knowledge entry, it SHALL also show a **dial-in difference block** naming the
-bundled profile the entry was authored against and listing the values on which the user's profile differs
-from it. The block SHALL be shown only when the user's profile and that bundled profile are the same shape as
-defined by the profile-shape-equivalence capability.
-
-The route by which the knowledge entry was reached SHALL NOT affect this. A profile whose title resolved to
-the entry and a profile whose shape resolved to it SHALL both show the block when the shape gate is met, and
-neither SHALL show it when the gate is not met.
-
-Shape equality is the gate because it is what makes the comparison meaningful and bounded: everything the
-shape fixes — frame count, pump mode, sensor, transition, exit condition type and frame durations — is equal
-by construction, so only dial-in values can appear in the block.
+Where the app shows a profile's knowledge entry, it SHALL also show a dial-in difference block naming the bundled profile the entry was authored against and listing the user's differing dial-in values. The block SHALL be shown only when the user's profile and that bundled profile are the same shape, as defined by the profile-shape-equivalence capability. The route by which the entry was reached SHALL NOT affect this gate.
 
 #### Scenario: A title-resolved in-place edit shows its differences
 
@@ -45,37 +34,7 @@ by construction, so only dial-in values can appear in the block.
 
 ### Requirement: The block SHALL compare only the values a user changes while dialling in
 
-The fields compared SHALL be exactly those the shape deliberately ignores, and no others:
-
-- target weight, target volume, maximum pressure, minimum pressure, maximum flow, tank preheat
-  temperature, brew temperature and recommended dose, at the profile level;
-- for each frame in order: its temperature; its active setpoint; its active exit threshold; its exit weight;
-  its volume cap; its flow-or-pressure limiter value; and its display name.
-
-A frame's **active setpoint** SHALL be the one its pump mode uses — the pressure setpoint for a
-pressure-driven frame, the flow setpoint for a flow-driven frame. The inactive setpoint SHALL NOT be
-compared: it carries a value the machine never applies, and reporting it would present a difference the user
-cannot feel. A frame's **active exit threshold** SHALL likewise be the single threshold matching that frame's
-exit condition type, and SHALL NOT be compared at all for a frame with no exit condition.
-
-Frame popup text, the limiter's control range, profile notes, author, and every field that constitutes the
-shape SHALL NOT appear in the block. Frame popup text is excluded on its own ground — it is not part of the
-shape and two same-shape profiles may differ in it, but a reworded prompt is not a dialled value. Direct
-Setpoint Control frame state is not compared because no writer serializes it, so two loaded profiles cannot
-differ on it. The simple-editor scalars are not compared because for the profiles that have them they
-restate the frames already compared. The shape fields cannot differ once the gate is met; the limiter range is
-a control-loop constant rather than a dialled value; the rest are not dial-in values.
-
-Where one field changes identically on every frame, it SHALL be reported once without a frame number rather
-than once per frame. A user who raised the brew temperature of a three-frame profile made one change, and
-reading it as three is both longer and less true.
-
-Two values SHALL count as different only when they differ by more than half of the last decimal place their
-serialized form preserves, so that a save-and-reload cannot manufacture a difference and one step of an
-editor control is always reported.
-
-Values SHALL be shown with their units, and temperatures SHALL follow the unit the user has configured for
-temperature display.
+The block SHALL compare exactly the dial-in fields the shape ignores: at profile level, target weight, target volume, maximum and minimum pressure, maximum flow, tank preheat temperature, brew temperature and recommended dose; and per frame in order, its temperature, active setpoint, active exit threshold, exit weight, volume cap, limiter value and display name. No other field SHALL be compared.
 
 #### Scenario: The inactive setpoint is not reported
 
@@ -105,36 +64,39 @@ temperature display.
 - **WHEN** the block is produced
 - **THEN** that rename SHALL be listed
 
+### Requirement: Frame text and shape fields SHALL NOT appear in the block
+
+Frame popup text, the limiter's control range, profile notes, author and every shape field SHALL NOT appear in the block. Direct Setpoint Control frame state and the simple-editor scalars SHALL NOT be compared.
+
+#### Scenario: Profile notes are not reported
+
+- **GIVEN** two same-shape profiles differing only in their profile notes
+- **WHEN** the block is produced
+- **THEN** the notes difference SHALL NOT be listed
+
+### Requirement: Repeated changes SHALL be reported once, within tolerance
+
+A change identical on every frame SHALL be reported once, without a frame number. Two values SHALL count as different only when they differ by more than half the last decimal place their serialized form preserves. Values SHALL be shown with units, and temperatures in the user's configured unit.
+
+#### Scenario: A save-and-reload difference is not reported
+
+- **GIVEN** two same-shape profiles whose values differ only below the precision their serialized form preserves
+- **WHEN** the block is produced
+- **THEN** no difference SHALL be listed for that value
+
+### Requirement: Only the active setpoint and matching exit threshold SHALL be compared
+
+A frame's active setpoint SHALL be the one its pump mode uses: the pressure setpoint for a pressure-driven frame, the flow setpoint for a flow-driven frame. Its active exit threshold SHALL be the one matching its exit condition type. The inactive values SHALL NOT be compared.
+
+#### Scenario: A frame with no exit condition compares no threshold
+
+- **GIVEN** two same-shape profiles whose frame has no exit condition
+- **WHEN** the block is produced
+- **THEN** no exit threshold for that frame SHALL be listed
+
 ### Requirement: When several bundled profiles share the shape, the block SHALL target the nearest and SHALL abstain on a tie unless the tied candidates agree
 
-Where more than one bundled profile is the same shape as the user's profile, the block SHALL be produced
-against the **nearest** of them. Nearness SHALL be the count of dial-in fields on which the user's profile
-differs from the candidate: the candidate the user differs from on strictly the fewest fields is the nearest.
-
-If no single candidate has strictly the fewest, the block SHALL be shown only when every tied candidate
-would tell the user the same thing: they SHALL all resolve to the same knowledge entry, AND they SHALL all
-produce equivalent difference lists — the same fields, at the same frames, with values equal within the
-tolerance each row was judged at. When both hold, the block SHALL name the ENTRY rather than any one of its
-bundled profiles, because nothing shown depends on which was chosen.
-
-Otherwise no block SHALL be shown. Tied candidates in different entries would assert a relationship the
-comparison did not establish. Tied candidates in the SAME entry that state different values are equally
-disqualifying: the counts match while the "before" column does not, so any single rendering of it would be
-false of every candidate but one.
-
-A candidate that cannot be loaded SHALL cause the comparison to abstain rather than be skipped: an
-incomplete candidate set cannot establish that any member is strictly nearest.
-
-Nearness SHALL NOT be defined by how far apart the values are. A magnitude comparison would need a weighting
-between bar, millilitres per second, degrees and grams that nothing in the domain supplies, and that
-weighting would silently decide the outcome. Counting the fields that differ needs no such weighting, and it
-is the same count the block itself is built from.
-
-Selection SHALL target a bundled **profile**, never a knowledge entry: one entry can be authored against
-several bundled profiles with different dial-in values, so a distance to an entry is not defined.
-
-Where a block is shown and other same-shape bundled profiles exist, the surface SHALL continue to disclose
-that the shape matched more than one profile, so the chosen base does not read as the only match.
+Where several bundled profiles share the shape, the block SHALL be produced against the nearest: the candidate the user differs from on strictly the fewest dial-in fields. Nearness SHALL be a count of differing fields, never a magnitude. Selection SHALL target a bundled profile, never a knowledge entry.
 
 #### Scenario: A clearly nearer candidate is chosen
 
@@ -170,6 +132,26 @@ that the shape matched more than one profile, so the chosen base does not read a
 - **WHEN** the knowledge entry is opened
 - **THEN** no block SHALL be shown
 - **AND** the knowledge entry SHALL still be presented
+
+### Requirement: Multiple same-shape matches SHALL be disclosed
+
+Where a block is shown and other same-shape bundled profiles exist, the surface SHALL disclose that the shape matched more than one profile.
+
+#### Scenario: Other matches are disclosed
+
+- **GIVEN** a block is shown against one bundled profile and another same-shape bundled profile exists
+- **WHEN** the surface is shown
+- **THEN** it SHALL disclose that the shape matched more than one profile
+
+### Requirement: A tie SHALL produce a block only when tied candidates agree
+
+If no single candidate is strictly nearest, the block SHALL be shown only when every tied candidate resolves to the same knowledge entry and produces equivalent difference lists, and it SHALL then name the entry. Otherwise no block SHALL be shown. A candidate that cannot be loaded SHALL make the comparison abstain.
+
+#### Scenario: A candidate that cannot be loaded makes the comparison abstain
+
+- **GIVEN** a same-shape candidate set in which one candidate cannot be loaded
+- **WHEN** the block is produced
+- **THEN** no block SHALL be shown
 
 ### Requirement: Each surface SHALL compare against the profile that surface is about
 

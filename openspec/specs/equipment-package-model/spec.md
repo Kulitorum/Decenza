@@ -4,20 +4,7 @@
 The single source of truth for the `EquipmentPackage`/`EquipmentItem` data model: the underlying `equipment_packages`/`equipment_items` tables, how bags and shots reference a package by id with soft-delete reference semantics, and how each optional component (grinder, basket, puck prep) contributes to package identity, copy-on-write forking, and derived fields (`rpmCapable`, basket specs, distribution rollup). Also covers migration 22, `SettingsDye`'s bridging of the active package, and equipment's survival across backup restore and device-to-device transfer.
 ## Requirements
 ### Requirement: EquipmentPackage and EquipmentItem data model
-The system SHALL define an `EquipmentPackage` value type (a container) and an `EquipmentItem` value type (a typed component), where one package owns one or more items.
-
-`EquipmentPackage` fields:
-- Identity: `id` (int, DB primary key), `name` (nullable — defaults for display to the grinder item's "{brand} {model}", or the basket item's "{brand} {model}" for grinder-less packages)
-- Lifecycle: `inInventory` (bool, default true), `lastUsed` (nullable timestamp), `createdAt`
-- Grinder-scoped dial memory: `lastGrindSetting` (nullable string), `lastRpm` (nullable int)
-
-`EquipmentItem` fields:
-- `id` (int, DB primary key), `packageId` (int, FK → `equipment_packages.id`)
-- `kind` (string enum — `"grinder"` today)
-- `brand` (string), `model` (string)
-- `attrs_json` (JSON blob, kind-specific) — for `kind="grinder"`: `burrs` (string), `rpmCapable` (bool)
-
-A package MAY be grinder-less (e.g. a tea setup that is basket-only): create paths SHALL accept a package with no grinder item, and consumers SHALL tolerate an invalid grinder item (grind/rpm surfaces and dial memory simply absent), mirroring the existing optional-basket handling.
+The system SHALL define an `EquipmentPackage` value type (a container) and an `EquipmentItem` value type (a typed component), where one package owns one or more items. A package's `id` is its database primary key, and its nullable `name` defaults for display to the grinder item's "{brand} {model}", or the basket item's for grinder-less packages.
 
 #### Scenario: A package owns at most one grinder
 - **WHEN** an equipment package is created with a grinder
@@ -32,6 +19,27 @@ A package MAY be grinder-less (e.g. a tea setup that is basket-only): create pat
 - **WHEN** a future component kind (e.g. `"basket"`) is introduced
 - **THEN** it SHALL be stored as a new `equipment_items` row with that `kind` and a kind-specific `attrs_json`
 - **AND** no change to the `equipment_packages` or `equipment_items` table schema SHALL be required
+
+### Requirement: EquipmentPackage lifecycle and dial memory fields
+An `EquipmentPackage` SHALL carry `inInventory` (bool, default true), a nullable `lastUsed` timestamp, `createdAt`, and grinder-scoped dial memory: `lastGrindSetting` (nullable string) and `lastRpm` (nullable int).
+
+#### Scenario: New package is in inventory
+- **WHEN** an equipment package is created
+- **THEN** `inInventory` SHALL be true and `lastUsed` SHALL be empty
+
+### Requirement: EquipmentItem fields
+An `EquipmentItem` SHALL carry `id`, `packageId` (foreign key to `equipment_packages.id`), `kind` (a string enum, `"grinder"` today), `brand`, `model`, and `attrs_json`. For `kind="grinder"`, `attrs_json` SHALL carry `burrs` (string) and `rpmCapable` (bool).
+
+#### Scenario: Item stores kind-specific attributes
+- **WHEN** a grinder item is saved
+- **THEN** its `kind` SHALL be `"grinder"` and its `attrs_json` SHALL carry `burrs` and `rpmCapable`
+
+### Requirement: Grinder-less packages are accepted
+A package MAY be grinder-less, such as a basket-only tea setup. Create paths SHALL accept a package with no grinder item, and consumers SHALL tolerate an invalid grinder item, mirroring the existing optional-basket handling.
+
+#### Scenario: Invalid grinder item is tolerated
+- **WHEN** a package's grinder item is invalid or absent
+- **THEN** grind and rpm surfaces and dial memory SHALL be absent, and no error SHALL be raised
 
 ### Requirement: equipment_packages and equipment_items database tables
 The system SHALL create `equipment_packages` and `equipment_items` SQLite tables in **migration 22** in `src/history/shothistorystorage.cpp` (current schema version is 21). DB access SHALL follow the `withTempDb()` background-thread pattern via a new `EquipmentStorage` class modeled on `CoffeeBagStorage`.
@@ -284,13 +292,7 @@ merge-dedup match.
 - **THEN** the import SHALL NOT merge them (the source imports as a distinct package)
 
 ### Requirement: Filling in an empty identity component SHALL NOT fork
-Copy-on-write forking SHALL apply to identity *changes* only. When every component of the identity tuple that differs was EMPTY on the package and now carries a value, the edit SHALL be applied in place — same package id, `inInventory` unchanged, every referencing shot, bag and recipe still pointing at it — regardless of how many shots the package has. Replacing a component that already had a value, or clearing one, SHALL still fork a used package.
-
-Puck prep SHALL be compared as a whole canonical flag string, so adding a technique to an existing routine is a change and not enrichment.
-
-A package with NO grinder component at all is the one exception. Such a package is deliberately grinder-less — a basket-only tea setup — and the identity model treats "no grinder" as a real, matchable value rather than as missing data. Giving it a grinder SHALL therefore fork, because its shots were pulled with nothing ground and must not begin reporting a grinder that never touched them. The exception SHALL NOT extend to an absent basket or an absent puck prep: no espresso is pulled without a basket, so an absent one is a basket nobody recorded, exactly like absent burrs.
-
-The distinction is what the edit means: recording burrs, a basket, or a puck-prep routine the package always had is the user describing existing gear rather than swapping it, and forking there retires the package the entire shot history hangs off.
+Copy-on-write forking SHALL apply to identity changes only. When every differing component was EMPTY on the package and now carries a value, the edit SHALL be applied in place: same package id, `inInventory` unchanged, every referencing shot, bag and recipe still pointing at it, regardless of shot count. Replacing a component that already had a value, or clearing one, SHALL still fork a used package.
 
 #### Scenario: Recording burrs on a long-used grinder
 - **WHEN** a package with recorded shots and no burrs recorded has burrs filled in
@@ -316,14 +318,15 @@ The distinction is what the edit means: recording burrs, a basket, or a puck-pre
 - **WHEN** a package with recorded shots and no basket recorded has a basket filled in
 - **THEN** the edit SHALL be applied in place, because every one of those shots used a basket that simply was not written down
 
+### Requirement: Puck prep and grinder-less identity compare as whole values
+Puck prep SHALL be compared as a whole canonical flag string, so adding a technique to an existing routine is a change and not enrichment. A package with NO grinder component SHALL fork when given a grinder, because its shots were pulled with nothing ground. That exception SHALL NOT extend to an absent basket or absent puck prep, which are enrichable like absent burrs.
+
+#### Scenario: Absent puck prep is enrichment
+- **WHEN** a package with recorded shots and no puck prep recorded has a puck-prep routine filled in
+- **THEN** the edit SHALL be applied in place, keeping the package id
+
 ### Requirement: Two packages SHALL be mergeable into one
-The system SHALL provide a merge that folds a source package into a target package by explicit id. Every shot, bag and recipe referencing the source SHALL be repointed at the target; supersession pointers naming the source SHALL name the target instead; and the source package row and its items SHALL be deleted. The merge SHALL be atomic — a failure at any step SHALL leave both packages exactly as they were.
-
-The target SHALL be returned to inventory ONLY when nothing else supersedes it, and a supersession pointer aimed at the deleted source SHALL be cleared. A target retired because a THIRD package replaced it is still genuinely retired: reviving it would put a stale duplicate back in the inventory carrying the same derived name as its own successor, and both the inventory listing and identity dedup key on the in-inventory flag alone.
-
-Merge SHALL accept a retired source or target, since undoing a fork is the case it exists for. It SHALL refuse, changing nothing, when either id is unknown or the two ids name one package, and the refusal SHALL carry a machine-readable reason.
-
-Merge is destructive and not undoable: the source identity is gone afterwards and its shots then report the target's gear. It SHALL only be exposed where the user names both packages.
+The system SHALL provide a merge that folds a source package into a target package by explicit id. Every shot, bag and recipe referencing the source SHALL be repointed at the target, supersession pointers naming the source SHALL name the target instead, and the source package row and its items SHALL be deleted. The merge SHALL be atomic: a failure at any step SHALL leave both packages exactly as they were.
 
 #### Scenario: Undoing a fork
 - **WHEN** a grinder was split into two packages and the user merges the newer one into the package holding the history
@@ -347,39 +350,29 @@ Merge is destructive and not undoable: the source identity is gone afterwards an
 - **WHEN** the package merged away was the active equipment
 - **THEN** the surviving package SHALL become the active equipment
 
+### Requirement: Merge inventory and supersession rules
+The target SHALL be returned to inventory ONLY when nothing else supersedes it, and a supersession pointer aimed at the deleted source SHALL be cleared. A target retired because a third package replaced it SHALL stay retired, because reviving it would duplicate its successor's derived name in the inventory.
+
+#### Scenario: Target returns to inventory after merge
+- **WHEN** the merge target was retired only by the source package
+- **THEN** the target SHALL be in inventory with no supersession pointer
+
+### Requirement: Merge accepts retired packages and refuses bad ids
+Merge SHALL accept a retired source or target, since undoing a fork is the case it exists for. It SHALL refuse, changing nothing, when either id is unknown or both ids name one package, and the refusal SHALL carry a machine-readable reason.
+
+#### Scenario: Retired source merges
+- **WHEN** the source package is retired and the user merges it into a target
+- **THEN** the merge SHALL complete and all references SHALL resolve to the target
+
+### Requirement: Merge is exposed only with both packages named
+Merge is destructive and not undoable: the source identity is gone afterwards and its shots then report the target's gear. It SHALL only be exposed where the user names both packages, and SHALL NOT run from inference.
+
+#### Scenario: Matching packages are not merged automatically
+- **WHEN** two packages share a grinder and no merge has been requested
+- **THEN** neither package SHALL be merged or deleted
+
 ### Requirement: Packages split by a pre-enrichment fork SHALL be healed once on upgrade
-
-On upgrade the system SHALL fold together each pair of packages where one is
-superseded by the other AND the difference between them is **enrichment only** —
-that is, every component whose value differs was EMPTY on the superseded package
-and carries a value on its successor. The successor SHALL survive.
-
-The set of components tested SHALL be the same set the live enrichment rule
-tests: grinder brand, grinder model, grinder burrs, basket brand, basket model,
-and the canonical puck-prep string. The heal exists to apply that rule
-retroactively, so any component the rule treats as enrichable SHALL be treated as
-enrichable here. Testing only the burrs — and additionally requiring basket and
-puck prep to be EQUAL, which is the inverse of enrichment for those components —
-left a fork caused by recording a basket unhealed while reporting that nothing
-needed healing.
-
-Pairs not matching that signature SHALL be left untouched: a component whose value
-CHANGED between two non-empty values (a burr swap, a different basket, an altered
-puck-prep routine), a component that was CLEARED, and two similar packages with no
-supersession between them.
-
-A superseded package with NO grinder component SHALL NOT be folded into a
-successor that has one. That exception already governs the live rule — a
-grinder-less package is a deliberate basket-only tea setup, and its shots were
-pulled with nothing ground — and it SHALL apply identically here.
-
-The heal SHALL run inside the migration's transaction, and the schema version
-SHALL NOT advance if it fails, so a failed heal retries on the next launch rather
-than being recorded as done. Each fold SHALL be logged with both package ids, the
-components that were filled in, and the number of shots, bags and recipes moved.
-
-When the active equipment selection names a package folded away, it SHALL be moved
-to the surviving package.
+On upgrade the system SHALL fold each pair where one package is superseded by the other AND every differing component was EMPTY on the superseded package and carries a value on its successor. The successor SHALL survive. The components tested SHALL be the same set the live enrichment rule tests: grinder brand, grinder model, grinder burrs, basket brand, basket model, and the canonical puck-prep string.
 
 #### Scenario: A grinder split by recording burrs is reunited
 - **WHEN** a database is upgraded that holds a retired package with no burrs superseded by an otherwise identical package with burrs
@@ -413,6 +406,21 @@ to the surviving package.
 - **WHEN** the heal runs a second time on an already-healed database
 - **THEN** it SHALL fold nothing and report zero
 
+### Requirement: Heal leaves changed or cleared components untouched
+A pair SHALL be left untouched when a component changed between two non-empty values, when a component was cleared, or when no supersession links the two packages. A superseded package with NO grinder component SHALL NOT be folded into a successor that has one, because its shots were pulled with nothing ground.
+
+#### Scenario: Heal leaves a pair alone when a component was cleared
+- **WHEN** the superseded package had a component that the successor no longer carries
+- **THEN** both packages SHALL remain
+
+### Requirement: Heal runs in the migration transaction
+The heal SHALL run inside the migration's transaction, and the schema version SHALL NOT advance if it fails, so a failed heal retries on the next launch. Each fold SHALL be logged with both package ids, the components filled in, and the number of shots, bags and recipes moved. When the active equipment selection names a folded-away package, it SHALL move to the surviving package.
+
+#### Scenario: Failed heal retries on next launch
+- **WHEN** the heal fails during an upgrade
+- **THEN** the schema version SHALL remain at its previous value
+- **AND** the heal SHALL run again on the next launch
+
 ### Requirement: Hard delete SHALL count every reference to a package
 The pre-check that decides whether a package may be hard-deleted SHALL count references from `shots`, `coffee_bags` and `recipes`, plus packages superseded by it. A package with any reference SHALL be soft-deleted instead, so no row is left pointing at an id that no longer exists.
 
@@ -421,11 +429,7 @@ The pre-check that decides whether a package may be hard-deleted SHALL count ref
 - **THEN** the package SHALL NOT be hard-deleted
 
 ### Requirement: Equipment decisions SHALL be retrievable from a submitted log
-Equipment package events SHALL log under a registered `[Equipment]` subsystem marker, so one filter returns the subsystem's whole narrative from a log a user submitted or an assistant reads over MCP.
-
-Every identity edit SHALL log which branch it took — applied in place (and whether enrichment or an unused package earned that), forked (naming both package ids and the identity before and after), or merged into an existing package. A completed merge SHALL be logged once, from a path shared by every entry point, with the number of shots, bags and recipes moved. The one-time heal SHALL log its outcome even when it merges nothing, because "ran and found nothing" and "never ran" are otherwise the same silence.
-
-These are user-facing outcomes rather than developer detail, so they SHALL be logged at INFO.
+Equipment package events SHALL log under the registered `[Equipment]` subsystem marker at INFO, so one filter returns the subsystem's whole narrative. Every identity edit SHALL log which branch it took: applied in place, forked (naming both package ids and the identity before and after), or merged.
 
 #### Scenario: A fork is explicable after the fact
 - **WHEN** an identity edit forks a package
@@ -434,4 +438,11 @@ These are user-facing outcomes rather than developer detail, so they SHALL be lo
 #### Scenario: A heal that finds nothing still reports
 - **WHEN** the one-time heal runs and matches no packages
 - **THEN** it SHALL log that it completed with a count of zero
+
+### Requirement: Merges and the heal are logged with their outcomes
+A completed merge SHALL be logged once, from a path shared by every entry point, with the number of shots, bags and recipes moved. The one-time heal SHALL log its outcome even when it merges nothing, because "ran and found nothing" and "never ran" are otherwise indistinguishable.
+
+#### Scenario: A completed merge is logged once
+- **WHEN** a merge completes through any entry point
+- **THEN** exactly one log line SHALL record it, with the counts of shots, bags and recipes moved
 

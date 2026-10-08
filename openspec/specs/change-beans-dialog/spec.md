@@ -21,26 +21,7 @@ The Change Beans dialog SHALL search both the Visualizer canonical Bean Base aut
 - **THEN** inventory bags (Tier 0) SHALL be shown first, followed by the user's shot history (most recent coffees) as default suggestions
 
 ### Requirement: Quality-ranked search results
-Results SHALL be ranked by data quality and recency using the following tiers:
-- **Tier 0**: Bags currently in inventory (`inInventory = true`) — shown first, labelled "In inventory". Selecting one is context-dependent: from the Add New Bag (inventory) entry point it opens the creation form pre-filled from that bag (a new bag of the same coffee, roast date blank, identity editable); from every other context it selects the existing bag directly (no details form, no new bag)
-- **Tier 1**: Present in both shot history AND Bean Base canonical (matched on `beanBaseId` or case-insensitive roaster+name) — shown with both source labels
-- **Tier 2**: Bean Base canonical only (no history match)
-- **Tier 3**: Shot history with a `beanBaseId` (previously linked, not in current search results)
-- **Tier 4**: Shot history with no canonical link (free text only)
-- **Tier 5**: Manual entry (always last)
-
-Within each tier, results SHALL be ordered first by link state and then by most recent use date.
-Link state has three values, ordered best to worst: **live** (the entry's product URL is
-reachable), **archived** (the URL is dead but the Internet Archive holds a snapshot of it), and
-**none** (the entry has no URL, or its URL is dead with no snapshot). A result whose link state is
-not yet known SHALL be ordered as if live, so results appear immediately and only ever move
-downward as answers arrive; the list SHALL re-sort in place as each state resolves, and SHALL NOT
-block on the probes. Link state SHALL be cached per URL for the session so repeating a search does
-not re-probe.
-
-A result's tier SHALL NOT change because of its link state — link state orders within a tier only.
-
-A history or canonical result that corresponds to an existing inventory bag (matched on `beanBaseId` or case-insensitive roaster+name+roastDate) SHALL be absorbed into that bag's Tier 0 entry rather than shown separately — the dialog must never offer to re-create a coffee that is already in inventory. Within the history lane, the same coffee appearing both linked and unlinked (e.g. shots before and after canonical linking) SHALL be merged into one entry.
+Results SHALL be ranked by data quality and recency in six tiers: 0, bags in inventory (`inInventory = true`), labelled "In inventory"; 1, in both shot history and Bean Base canonical (matched on `beanBaseId` or case-insensitive roaster and name), with both labels; 2, Bean Base canonical only; 3, shot history with a `beanBaseId` not in current results; 4, shot history with no canonical link; 5, manual entry, always last.
 
 #### Scenario: Switching to a bag already in inventory (non-inventory contexts)
 - **WHEN** the dialog is opened from brew settings, the idle page, post-shot review, or a historical shot, and the user picks a Tier 0 inventory bag
@@ -76,6 +57,30 @@ A history or canonical result that corresponds to an existing inventory bag (mat
 - **WHEN** a search returns results whose link states are not yet known
 - **THEN** the results SHALL be displayed immediately in tier-and-recency order
 - **AND** SHALL re-order as each link state resolves
+
+### Requirement: Inventory bag selection depends on context
+Selecting a Tier 0 bag SHALL depend on where the dialog was opened. From the Add New Bag entry point it SHALL open the creation form pre-filled from that bag, with roast date blank and identity editable. From every other context it SHALL select the existing bag directly, with no details form and no new bag.
+
+#### Scenario: Add New Bag pre-fills from an inventory bag
+
+- **WHEN** the user picks an inventory bag from the Add New Bag entry point
+- **THEN** the creation form opens pre-filled from that bag, with roast date blank
+
+### Requirement: Link state orders within a tier
+Within a tier, results SHALL be ordered by link state, then most recent use. Link state SHALL be `live`, `archived` (dead URL with an Internet Archive snapshot) or `none` (no URL, or dead with no snapshot), best to worst. An unknown state SHALL order as live and re-sort in place as it resolves, without blocking on probes. Link state SHALL be cached per URL for the session. A tier SHALL NOT change because of link state.
+
+#### Scenario: Unknown link state is ordered as live
+
+- **WHEN** a result's link state has not resolved yet
+- **THEN** it is ordered as live until the state arrives
+
+### Requirement: Inventory absorbs matching history
+A history or canonical result matching an inventory bag (on `beanBaseId` or case-insensitive roaster, name and roastDate) SHALL be absorbed into that bag's Tier 0 entry, so the dialog never offers to re-create a coffee already in inventory. The same coffee appearing both linked and unlinked in history SHALL merge into one entry.
+
+#### Scenario: Unlinked and linked history of one coffee merge
+
+- **WHEN** shots before and after canonical linking refer to the same coffee
+- **THEN** they appear as one history entry
 
 ### Requirement: Source labels on each result
 Each result row SHALL display a label indicating its source(s): "Bean Base", "History", or both.
@@ -157,7 +162,7 @@ What happens when a bag is selected SHALL depend on where the dialog was opened:
 - **AND** `activeBagId` SHALL remain unchanged
 
 ### Requirement: Tea creation mode
-The Change Beans dialog SHALL support a tea mode used by the "Bag of Tea" entry point. In tea mode: the Visualizer canonical search lane SHALL be suppressed (the canonical database is coffee-only and returns coffee false-positives for tea terms); the past-bags lane SHALL search only tea bags (re-buy flow); when no tea bags exist the dialog SHALL open directly on the form. The search field SHALL carry a label that stays visible while typing, naming what is searched (past tea bags in tea mode; past bags and the Loffee Labs Bean Base otherwise). The tea form SHALL relabel roaster → "Brand" and coffee → "Tea", SHALL hide roast level, grinder setting/rpm, and all canonical-link affordances, and SHALL keep the URL field, "Get info from page", photo resolution, weight/remaining, and show-on-idle. Tea mode is subtraction over the existing form — one mode property, not a parallel form.
+The Change Beans dialog SHALL support a tea mode, used by the "Bag of Tea" entry point, as subtraction over the existing form: one mode property, not a parallel form. In tea mode the Visualizer canonical lane SHALL be suppressed, since that database is coffee-only, and the past-bags lane SHALL search only tea bags.
 
 #### Scenario: No Visualizer results for tea
 - **WHEN** the user types "earl grey" in tea mode
@@ -171,16 +176,24 @@ The Change Beans dialog SHALL support a tea mode used by the "Bag of Tea" entry 
 - **WHEN** the user picks a past tea bag from the tea-mode search
 - **THEN** the form prefills from it exactly as the coffee re-buy flow does
 
-### Requirement: A new bag SHALL NOT start with an empty equipment package
+### Requirement: Tea mode form changes
+The tea form SHALL relabel roaster as "Brand" and coffee as "Tea", and SHALL hide roast level, grinder setting and rpm, and all canonical-link affordances. It SHALL keep the URL field, "Get info from page", photo resolution, weight and remaining, and show-on-idle.
 
-The bag creation form SHALL default its equipment package so the grind control's
-grinder context is never empty (an empty identity trips the unknown-grinder
-"assume RPM-capable" fallback and offers the wrong picker): a re-buy prefill
-SHALL keep the SOURCE bag's package — past beans keep the equipment they were
-actually ground on — and every other create path SHALL default to the currently
-active package. The user can still switch before saving. Applies to the in-app
-dialog and the `/beans` web form alike; editing an existing bag keeps that bag's
-own link, including "none".
+#### Scenario: Tea form hides coffee-only fields
+
+- **WHEN** the tea form is shown
+- **THEN** roast level, grinder setting, rpm and canonical-link controls are hidden
+
+### Requirement: Tea mode search and empty start
+When no tea bags exist, tea mode SHALL open directly on the form. The search field SHALL carry a label that stays visible while typing, naming what is searched: past tea bags in tea mode, and past bags and the Loffee Labs Bean Base otherwise.
+
+#### Scenario: Search label stays visible while typing
+
+- **WHEN** the user types in the search field in tea mode
+- **THEN** the label naming past tea bags remains visible
+
+### Requirement: A new bag SHALL NOT start with an empty equipment package
+The bag creation form SHALL default its equipment package so the grinder context is never empty. A re-buy prefill SHALL keep the source bag's package, since past beans keep the equipment they were ground on, and every other create path SHALL default to the currently active package. The user MAY still switch before saving. This applies to the in-app dialog and the `/beans` web form; editing an existing bag keeps its own link, including "none".
 
 #### Scenario: Manual new coffee defaults to the active package
 
@@ -194,6 +207,11 @@ own link, including "none".
 - **GIVEN** a past bag linked to package A while package B is active
 - **WHEN** the user re-buys that bag
 - **THEN** the creation form SHALL open with package A
+
+#### Scenario: Empty package trips the unknown-grinder fallback
+
+- **WHEN** a new bag is created with an empty equipment package
+- **THEN** the grind control assumes an RPM-capable grinder and offers the wrong picker, which is why the package is never left empty
 
 ### Requirement: Link state is visible on each result row
 

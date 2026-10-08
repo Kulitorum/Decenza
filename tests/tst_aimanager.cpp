@@ -779,23 +779,9 @@ private slots:
         QVERIFY(inAppEnvelope.contains(QStringLiteral("currentBean")));
         const QJsonObject inAppCurrentBean = inAppEnvelope.value(QStringLiteral("currentBean")).toObject();
 
-        // MCP surface: the same shared helper that mcptools_dialing.cpp
-        // calls on the resolved shot (mirrors the
-        // `mcptools_dialing.cpp:200`-block exactly — same field-by-field
-        // mapping from `sd` (the resolved shot) into
-        // `CurrentBeanBlockInputs`).
-        DialingBlocks::CurrentBeanBlockInputs in;
-        in.identity.beanBrand = shot.beanBrand;
-        in.identity.beanType = shot.beanType;
-        in.roastLevel = shot.roastLevel;
-        in.roastDate = shot.roastDate;
-        in.identity.grinderBrand = shot.grinderBrand;
-        in.identity.grinderModel = shot.grinderModel;
-        in.identity.grinderBurrs = shot.grinderBurrs;
-        in.grinderSetting = shot.grinderSetting;
-        in.rpm = static_cast<int>(shot.rpm);
-        in.doseWeightG = shot.doseWeightG;
-        const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(in);
+        // MCP surface: exactly what mcptools_dialing.cpp sends for the resolved shot.
+        const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(
+            DialingBlocks::beanInputsFromProjection(shot));
 
         // The contract: byte-equivalent JSON for the same shot.
         QCOMPARE(inAppCurrentBean, mcpCurrentBean);
@@ -2075,7 +2061,7 @@ private slots:
         // loadRecentAssistantTurnsForKey. Both must return byte-equivalent
         // turn lists for the same persisted conversation. Without parity,
         // the recentAdvice block built by buildRecentAdviceBlock cannot be
-        // byte-equivalent across surfaces (#1041 parity contract).
+        // byte-equivalent across surfaces (PR Kulitorum/Decenza#1041 parity contract).
         AppSettings s;
         s.clear();
 
@@ -2687,7 +2673,7 @@ private slots:
 
     // -----------------------------------------------------------------
     // AIConversation::stripStructuredNextBlock
-    // Pins the fix from PR #1074: the trailing ```json ... ``` block the
+    // Pins the fix from PR Kulitorum/Decenza#1074: the trailing ```json ... ``` block the
     // AI appends must be stripped before display in getConversationText.
     // -----------------------------------------------------------------
 
@@ -2882,7 +2868,7 @@ private slots:
 
     // Corrupted stored data must be flagged, not silently reported as an
     // empty-but-healthy conversation — see silent-failure-hunter finding on
-    // PR #1500: ai_conversations_list previously swallowed the parse error.
+    // PR Kulitorum/Decenza#1500: ai_conversations_list previously swallowed the parse error.
     void mcpAiConversationsList_corruptedEntry_flagsInsteadOfSwallowing()
     {
         AppSettings settings;

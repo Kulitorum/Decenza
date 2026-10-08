@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDate>
+#include <algorithm>
 #include <QDateTime>
 #include <QSettings>
 #include <QSet>
@@ -300,14 +301,13 @@ TeaBrewingData CoffeeBag::teaBrewingFromBlob(const QString& beanBaseData)
 // static
 const QStringList& CoffeeBag::storageHintValues()
 {
-    // Mirror in QML: ChangeBeansDialog `hintValues`. No "frozen" — frozen state
-    // is defined solely by frozenDate (bean-freshness-followup design).
-    static const QStringList values = {
-        QStringLiteral("counter"),
-        QStringLiteral("airtight"),
-        QStringLiteral("vacuum-sealed"),
-        QStringLiteral("fridge"),
-    };
+    static const QStringList values = [] {
+        QStringList v;
+        for (const auto& o : kStorageHintOptions)
+            if (*o.value)
+                v << QString::fromLatin1(o.value);
+        return v;
+    }();
     return values;
 }
 
@@ -315,6 +315,238 @@ const QStringList& CoffeeBag::storageHintValues()
 bool CoffeeBag::isValidStorageHint(const QString& hint)
 {
     return hint.isEmpty() || storageHintValues().contains(hint);
+}
+
+// static
+QString CoffeeBag::openedDateForShot(const QString& roastDate, const QString& frozenDate,
+                                     const QString& defrostDate, const QString& openedDate,
+                                     const QDate& today)
+{
+    if (!frozenDate.isEmpty() && defrostDate.isEmpty())
+        return QString();
+    const QDate roast = QDate::fromString(roastDate.left(10), QStringLiteral("yyyy-MM-dd"));
+    if (roast.isValid() && roast > today)
+        return QString();
+    // ISO dates order as strings, and "" sorts before any date.
+    if (!openedDate.isEmpty() && openedDate >= defrostDate)
+        return QString();
+    return today.toString(Qt::ISODate);
+}
+
+// static
+QString CoffeeBag::lifecycleFieldError(const QVariantMap& fields, const QDate& today)
+{
+    // Roast dates still arrive in legacy free-text forms (old shots, the DYE
+    // write-through), so only the storage dates are held to the format.
+    struct DateField { const char* key; const char* label; bool strictFormat; };
+    static const DateField kDates[] = {
+        {"roastDate", "Roast date", false},
+        {"frozenDate", "Frozen date", true},
+        {"defrostDate", "Thaw date", true},
+        {"openedDate", "Opened date", true},
+    };
+    for (const auto& [key, label, strictFormat] : kDates) {
+        const QString value = fields.value(QString::fromLatin1(key)).toString();
+        if (value.isEmpty())
+            continue;
+        const QDate date = QDate::fromString(value, QStringLiteral("yyyy-MM-dd"));
+        if (!date.isValid()) {
+            if (!strictFormat)
+                continue;
+            return QStringLiteral("%1 %2 is not a YYYY-MM-DD date").arg(QString::fromLatin1(label), value);
+        }
+        if (date > today)
+            return QStringLiteral("%1 %2 is in the future").arg(QString::fromLatin1(label), value);
+    }
+    const QString hint = fields.value(QStringLiteral("storageHint")).toString();
+    if (!isValidStorageHint(hint))
+        return QStringLiteral("storageHint must be one of %1 (or '' to clear); there is no 'frozen' "
+                              "value — set frozenDate instead").arg(storageHintValues().join(QStringLiteral(", ")));
+    return QString();
+}
+
+// static
+int CoffeeBag::daysSince(const QString& iso, const QDate& today)
+{
+    const QDate date = QDate::fromString(iso.left(10), QStringLiteral("yyyy-MM-dd"));
+    if (!date.isValid() || date > today)
+        return -1;
+    return static_cast<int>(date.daysTo(today));
+}
+
+// static
+QVariantList CoffeeBag::lifecycleParts(const QVariantMap& bag, const QDate& today)
+{
+    QVariantList parts;
+    auto add = [&](const char* kind, const QString& date) {
+        parts << QVariantMap{{QStringLiteral("kind"), QString::fromLatin1(kind)},
+                             {QStringLiteral("date"), date},
+                             {QStringLiteral("ageDays"), daysSince(date, today)}};
+    };
+    const QString roast = bag.value(QStringLiteral("roastDate")).toString();
+    const QString frozen = bag.value(QStringLiteral("frozenDate")).toString();
+    const QString defrost = bag.value(QStringLiteral("defrostDate")).toString();
+    const QString opened = bag.value(QStringLiteral("openedDate")).toString();
+    if (!roast.isEmpty())
+        add("roasted", roast);
+    // The freezer part is this portion's thaw, or "frozen" until one is pulled.
+    // A thaw date that can't be aged (future, unparsable) shows nothing rather
+    // than a misleading "frozen".
+    if (!defrost.isEmpty()) {
+        if (daysSince(defrost, today) >= 0)
+            add("thawed", defrost);
+    } else if (!frozen.isEmpty()) {
+        add("frozen", frozen);
+    }
+    // Independent of the freezer part: a thawed portion is opened too.
+    if (!opened.isEmpty() && daysSince(opened, today) >= 0)
+        add("opened", opened);
+    return parts;
+}
+
+// static
+const QStringList& CoffeeBag::teaOnlyKeys()
+{
+    static const QStringList keys = {
+        QStringLiteral("teaType"), QStringLiteral("garden"), QStringLiteral("cultivar"),
+        QStringLiteral("flush"), QStringLiteral("brewTempC"),
+        QStringLiteral("leafGramsPer100Ml"), QStringLiteral("steepTime")};
+    return keys;
+}
+
+// static
+const QStringList& CoffeeBag::coffeeOnlyKeys()
+{
+    static const QStringList keys = {
+        QStringLiteral("roastLevel"), QStringLiteral("grinderSetting"), QStringLiteral("rpm")};
+    return keys;
+}
+
+// static
+QVariantMap CoffeeBag::restockTemplate(QVariantMap bag, const QDate& today)
+{
+    const bool wasFrozen = !bag.value(QStringLiteral("frozenDate")).toString().isEmpty();
+    for (const char* key : {"id", "roastDate", "frozenDate", "defrostDate", "openedDate", "notes",
+                            "startWeightG", "inInventory", "lastUsedEpoch", "shotCount", "actions",
+                            "lifecycleParts"})
+        bag.remove(QString::fromLatin1(key));
+    if (wasFrozen)
+        bag.insert(QStringLiteral("frozenDate"), today.toString(Qt::ISODate));
+    return bag;
+}
+
+// static
+QString CoffeeBag::kindFieldError(const QVariantMap& stored, const QVariantMap& changes)
+{
+    const QString kind = (changes.contains(QStringLiteral("kind")) ? changes : stored)
+                             .value(QStringLiteral("kind")).toString();
+    if (kind != QLatin1String("tea"))
+        return {};
+    QStringList offending;
+    for (const QString& key : coffeeOnlyKeys()) {
+        const QString v = changes.value(key).toString().trimmed();
+        if (!v.isEmpty() && v != QLatin1String("0"))
+            offending << key;
+    }
+    return offending.isEmpty() ? QString()
+        : QStringLiteral("%1 do not apply to tea bags").arg(offending.join(QStringLiteral(", ")));
+}
+
+// static
+QString CoffeeBag::writeError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today)
+{
+    if (const QString err = kindFieldError(stored, changes); !err.isEmpty())
+        return err;
+    const QString fieldError = lifecycleFieldError(changes, today);
+    return fieldError.isEmpty() ? lifecycleOrderError(stored, changes) : fieldError;
+}
+
+// static
+QString CoffeeBag::lifecycleOrderError(const QVariantMap& stored, const QVariantMap& changes)
+{
+    struct Pair { const char* earlier; const char* later; const char* message; };
+    static const Pair kPairs[] = {
+        {"roastDate", "frozenDate", "Frozen date is before the roast date"},
+        {"frozenDate", "defrostDate", "Thaw date is before the frozen date"},
+        {"roastDate", "openedDate", "Opened date is before the roast date"},
+    };
+    auto dateOf = [&](const char* key) {
+        const QString k = QString::fromLatin1(key);
+        const QString v = (changes.contains(k) ? changes : stored).value(k).toString();
+        return QDate::fromString(v.left(10), QStringLiteral("yyyy-MM-dd"));
+    };
+    for (const Pair& p : kPairs) {
+        if (!changes.contains(QString::fromLatin1(p.earlier)) && !changes.contains(QString::fromLatin1(p.later)))
+            continue;
+        const QDate earlier = dateOf(p.earlier), later = dateOf(p.later);
+        if (earlier.isValid() && later.isValid() && later < earlier)
+            return QString::fromLatin1(p.message);
+    }
+    return QString();
+}
+
+// static
+QVariantMap CoffeeBag::editChanges(const QVariantMap& opened, const QVariantMap& current,
+                                   bool replaceBlob)
+{
+    QVariantMap changed;
+    for (auto it = current.cbegin(); it != current.cend(); ++it) {
+        if (!opened.contains(it.key()) || opened.value(it.key()) != it.value())
+            changed.insert(it.key(), it.value());
+    }
+    const QString blobKey = QStringLiteral("beanBaseData");
+    if (replaceBlob || !changed.contains(blobKey))
+        return changed;
+    const QJsonDocument before = QJsonDocument::fromJson(opened.value(blobKey).toString().toUtf8());
+    const QJsonDocument after = QJsonDocument::fromJson(changed.value(blobKey).toString().toUtf8());
+    const bool beforeOk = opened.value(blobKey).toString().isEmpty() || before.isObject();
+    const bool afterOk = changed.value(blobKey).toString().isEmpty() || after.isObject();
+    if (!beforeOk || !afterOk)
+        return changed;
+    const QJsonObject a = before.object();
+    const QJsonObject b = after.object();
+    QVariantMap patch;
+    for (auto it = b.constBegin(); it != b.constEnd(); ++it)
+        if (a.value(it.key()) != it.value())
+            patch.insert(it.key(), it.value().toVariant());
+    for (auto it = a.constBegin(); it != a.constEnd(); ++it)
+        if (!b.contains(it.key()))
+            patch.insert(it.key(), QVariant());
+    changed.remove(blobKey);
+    if (!patch.isEmpty())
+        changed.insert(QStringLiteral("beanBaseDataPatch"), patch);
+    return changed;
+}
+
+QStringList InventoryBag::cardActions(bool finished) const
+{
+    const bool linked = !bag.beanBaseId.isEmpty();
+    QStringList actions{QStringLiteral("restock")};
+    if (finished)
+        actions << QStringLiteral("restore");
+    // Bean Base has no tea, so there is nothing to find for a tea bag.
+    if (!finished && !linked && !bag.isTea())
+        actions << QStringLiteral("findInBeanBase");
+    if (!finished && shotCount > 0)
+        actions << QStringLiteral("bagFinished");
+    actions << QStringLiteral("edit");
+    if (linked)
+        actions << QStringLiteral("info");
+    if (!finished)
+        actions << (bag.frozenDate.isEmpty() ? QStringLiteral("freeze") : QStringLiteral("thaw"));
+    // No shots: a mistaken creation, removable outright, finished or not.
+    if (shotCount == 0)
+        actions << QStringLiteral("delete");
+    return actions;
+}
+
+QVariantMap InventoryBag::toVariantMap(bool finished, const QDate& today) const
+{
+    QVariantMap map = bag.toVariantMap();
+    map.insert(QStringLiteral("shotCount"), shotCount);
+    map.insert(QStringLiteral("actions"), cardActions(finished));
+    map.insert(QStringLiteral("lifecycleParts"), CoffeeBag::lifecycleParts(map, today));
+    return map;
 }
 
 CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
@@ -404,13 +636,9 @@ void CoffeeBagStorage::requestShelf(bool finished)
     runAsync(finished ? "bags_finished" : "bags_inv",
         [bags, error, finished](QSqlDatabase& db) {
             const QVector<InventoryBag> inventory = loadInventoryStatic(db, finished, error.get());
-            for (const InventoryBag& entry : inventory) {
-                // shotCount is an inventory-only aggregate, not a CoffeeBag
-                // field — inject it into the map the QML card reads.
-                QVariantMap map = entry.bag.toVariantMap();
-                map.insert(QStringLiteral("shotCount"), entry.shotCount);
-                bags->append(map);
-            }
+            const QDate today = QDate::currentDate();
+            for (const InventoryBag& entry : inventory)
+                bags->append(entry.toVariantMap(finished, today));
         },
         // A database that would not open or a query that failed is not an
         // empty shelf: the view keeps its list and says the read failed,
@@ -466,6 +694,11 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
     auto created = std::make_shared<QVariantMap>();
     runAsync("bags_create",
         [bagMap, newId, created](QSqlDatabase& db) {
+            const QString fieldError = CoffeeBag::writeError({}, bagMap, QDate::currentDate());
+            if (!fieldError.isEmpty()) {
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "create refused:" << fieldError;
+                return;
+            }
             CoffeeBag bag = CoffeeBag::fromVariantMap(bagMap);
             bag.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
             *newId = insertBagStatic(db, bag);
@@ -493,11 +726,12 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
         return;
     auto pull = std::make_shared<VisualizerSync::BagPull>();
     auto outcome = std::make_shared<QString>();  // empty = written (or nothing to write)
+    auto refused = std::make_shared<QStringList>();
     // Decided on the bag worker against the row as it stands, so a local edit
     // queued before this job wins over a pull read from an older snapshot; the
     // field write and the seen merge commit together.
     runAsync("bags_vizpull",
-        [bagId, decide = std::move(decide), pull, outcome](QSqlDatabase& db) {
+        [bagId, decide = std::move(decide), pull, outcome, refused](QSqlDatabase& db) {
             DbWriteTxn txn = DbWriteTxn::begin(db, "Visualizer bag pull");
             if (!txn.ok()) {
                 *outcome = QStringLiteral("could not take the write lock");
@@ -512,6 +746,24 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
             if (!bag.isValid())
                 return;  // deleted here since
             *pull = decide(bag.toVariantMap());
+            // A value this bag can't hold is skipped but stays seen, so one bad
+            // field can't block every later pull. Each date must be valid on its
+            // own; the dates that remain are ordered as a set, since a pull can
+            // move roast and freeze together.
+            const QDate today = QDate::currentDate();
+            for (const QString& key : pull->fields.keys()) {
+                const QString err = CoffeeBag::lifecycleFieldError({{key, pull->fields.value(key)}}, today);
+                if (!err.isEmpty()) {
+                    pull->fields.remove(key);
+                    *refused << err;
+                }
+            }
+            const QString orderError = CoffeeBag::lifecycleOrderError(bag.toVariantMap(), pull->fields);
+            if (!orderError.isEmpty()) {
+                for (const char* key : {"roastDate", "frozenDate", "defrostDate", "openedDate"})
+                    pull->fields.remove(QString::fromLatin1(key));
+                *refused << orderError;
+            }
             if (pull->isEmpty())
                 return;
             if (!pull->fields.isEmpty() && !updateBagFieldsStatic(db, bagId, pull->fields))
@@ -521,7 +773,10 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
             else if (!txn.commit())
                 *outcome = QStringLiteral("commit failed: %1").arg(txn.commitError());
         },
-        [this, bagId, pull, outcome](bool dbOpened) {
+        [this, bagId, pull, outcome, refused](bool dbOpened) {
+            if (!refused->isEmpty())
+                DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
+                    << "pull from Visualizer skipped:" << refused->join(QStringLiteral("; "));
             if (!dbOpened) {
                 DIAG_WARN(VISUALIZER, "CoffeeBagStorage") << "bag" << bagId
                     << "pull from Visualizer not applied: database would not open - the next pull retries";
@@ -590,31 +845,33 @@ void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool p
     // callback, but the app is exiting, so an abandoned response is acceptable.)
     if (m_dbPath.isEmpty()) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestUpdateBag on uninitialized storage, bag" << bagId;
-        emit bagUpdated(bagId, false);
+        emit bagUpdated(bagId, false, QString());
         emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
     }
     auto success = std::make_shared<bool>(false);
+    auto refusal = std::make_shared<QString>();
     runAsync("bags_update",
-        [bagId, fields, success, propagateBeanBase](QSqlDatabase& db) {
-            *success = updateBagFieldsStatic(db, bagId, fields);
+        [bagId, fields, success, refusal, propagateBeanBase](QSqlDatabase& db) {
+            *success = updateBagFieldsStatic(db, bagId, fields, refusal.get());
             if (*success && propagateBeanBase)
                 propagateBeanBaseStatic(db, bagId);
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success](bool) { finishBagUpdate(bagId, fields, *success); });
+        [this, bagId, fields, success, refusal](bool) { finishBagUpdate(bagId, fields, *success, *refusal); });
 }
 
-void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success)
+void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
+                                       const QString& refusal)
 {
-    emit bagUpdated(bagId, success);
+    emit bagUpdated(bagId, success, refusal);
     if (!success) {
         // The dialog has already closed and bagsChanged() is not
         // emitted, so the card still shows the old value — without
         // this the user reads that as "I forgot to pick it", retries,
         // and fails again. Covers every surface: dialog save, the
-        // card's Thaw / Mark Opened quick actions, MCP and web writes.
+        // card's Thaw quick action, the post-shot stamp, MCP and web writes.
         emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
     }
@@ -686,6 +943,43 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
                            << write.lastError().text();
         },
         [](bool) {});
+}
+
+// static
+qint64 CoffeeBagStorage::successorBagStatic(QSqlDatabase& db, qint64 finishedBagId)
+{
+    const CoffeeBag finished = loadBagStatic(db, finishedBagId);
+    if (!finished.isValid())
+        return -1;
+    if (finished.beanBaseId.isEmpty() && finished.roasterName.isEmpty() && finished.coffeeName.isEmpty())
+        return -1;  // no identity, nothing to match a successor against
+    // Canonical id first, else case-insensitive roaster+coffee (the resolver's
+    // matching order). Newest = most recently added (id DESC), so a roll lands
+    // on the freshest bag, not the most recently touched one.
+    if (!finished.beanBaseId.isEmpty()) {
+        QSqlQuery query(db);
+        query.prepare("SELECT id FROM coffee_bags WHERE beanbase_id = :bb "
+                      "AND in_inventory = 1 AND id <> :self ORDER BY id DESC LIMIT 1");
+        query.bindValue(":bb", finished.beanBaseId);
+        query.bindValue(":self", finishedBagId);
+        if (!query.exec())
+            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "successor canonical query failed:" << query.lastError().text();
+        else if (query.next())
+            return query.value(0).toLongLong();
+    }
+    QSqlQuery query(db);
+    query.prepare("SELECT id FROM coffee_bags WHERE in_inventory = 1 AND id <> :self "
+                  "AND LOWER(COALESCE(roaster_name,'')) = LOWER(COALESCE(:roaster,'')) "
+                  "AND LOWER(COALESCE(coffee_name,'')) = LOWER(COALESCE(:coffee,'')) "
+                  "ORDER BY id DESC LIMIT 1");
+    query.bindValue(":self", finishedBagId);
+    query.bindValue(":roaster", finished.roasterName);
+    query.bindValue(":coffee", finished.coffeeName);
+    if (!query.exec())
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "successor identity query failed:" << query.lastError().text();
+    else if (query.next())
+        return query.value(0).toLongLong();
+    return -1;
 }
 
 void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
@@ -911,9 +1205,28 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db, bo
 }
 
 bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
-                                             const QVariantMap& inFields)
+                                             const QVariantMap& inFields, QString* refusal)
 {
     QVariantMap fields = inFields;
+    // A thaw only means something on a frozen bag, so unfreezing clears it on
+    // every surface (the app's freeze toggle always did).
+    if (fields.contains(QStringLiteral("frozenDate")) && fields.value(QStringLiteral("frozenDate")).toString().isEmpty())
+        fields.insert(QStringLiteral("defrostDate"), QString());
+    // The stored row is read only when a check needs it: the kind for a
+    // coffee-only field, the other dates for a date.
+    static const QStringList kStoredKeys = QStringList{QStringLiteral("roastDate"), QStringLiteral("frozenDate"),
+                                                       QStringLiteral("defrostDate"), QStringLiteral("openedDate")}
+                                           + CoffeeBag::coffeeOnlyKeys();
+    const bool needsStored = std::any_of(kStoredKeys.cbegin(), kStoredKeys.cend(),
+                                         [&](const QString& k) { return fields.contains(k); });
+    const QString writeError = CoffeeBag::writeError(
+        needsStored ? loadBagStatic(db, bagId).toVariantMap() : QVariantMap(), fields, QDate::currentDate());
+    if (!writeError.isEmpty()) {
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << writeError;
+        if (refusal)
+            *refusal = writeError;
+        return false;
+    }
     // beanBaseDataPatch: blob keys to set ("" or null removes), merged into the
     // STORED blob here, so an editor's untouched keys never overwrite values a
     // Visualizer pull wrote while it was open.

@@ -11,7 +11,7 @@
 // post-shot prediction used for learning-pool feedback in Settings (global
 // pool + per-(profile, scale) pool). All three MUST stay in lockstep — drift
 // in σ between the live threshold and the learning feedback would silently
-// desync SAW behaviour. PR #870 narrowed σ from 1.5 → 0.25 ml/s; issue #873
+// desync SAW behaviour. PR Kulitorum/Decenza#870 narrowed σ from 1.5 → 0.25 ml/s; issue #873
 // flagged that the WeightProcessor copy carried no σ-specific test.
 //
 // Centralising the constant + math here lets all three sites share one σ

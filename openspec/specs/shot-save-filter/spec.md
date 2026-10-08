@@ -6,13 +6,12 @@ Defines the classifier that discards espresso shots which never really started (
 ## Requirements
 ### Requirement: The application SHALL classify and discard espresso shots that did not start
 
-When an espresso extraction ends and reaches the save path, the application SHALL classify the shot as *aborted* iff BOTH of the following hold: `extractionDuration < 10.0 s` AND `finalWeight < 5.0 g`. The two clauses form a conjunction; either alone is insufficient to classify the shot as aborted. Long-running low-yield shots (e.g. a choked puck producing 1 g over 60 s) MUST NOT classify as aborted, because their graphs are diagnostically valuable.
-
-When the classifier returns *aborted*, the application SHALL skip persisting the shot to `ShotHistoryStorage` AND SHALL skip any visualizer auto-upload for that shot. The classifier runs unconditionally — there is no user-facing opt-out.
-
-The classification SHALL apply only to shots that flow through the espresso save path (`MainController::endShot()` with `m_extractionStarted == true`). Steam, hot water, flush, and cleaning operations are out of scope and SHALL not be evaluated against this classifier.
-
-The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in the C++ source. They SHALL NOT be exposed as user-tunable settings.
+When an espresso extraction reaches the save path, the application SHALL
+classify the shot as *aborted* if and only if `extractionDuration < 10.0 s` AND
+`finalWeight < 5.0 g`. A long, low-yield shot (e.g. 1 g over 60 s) MUST NOT be
+classified as aborted. When the verdict is *aborted*, the application SHALL skip
+saving the shot to `ShotHistoryStorage` and SHALL skip any visualizer auto-
+upload for it.
 
 #### Scenario: Canonical preinfusion abort is discarded
 
@@ -55,6 +54,28 @@ The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in th
 
 - **WHEN** an espresso shot ends and the classifier runs
 - **THEN** the application SHALL log a single line via the async logger containing: `extractionDuration` (seconds, 3 decimal places), `finalWeight` (grams, 1 decimal place), the verdict (`aborted` or `kept`), and the action (`discarded` or `saved`)
+
+### Requirement: The aborted-shot classifier applies only to espresso
+
+The classifier SHALL apply only to shots that flow through the espresso save
+path (`MainController::endShot()` with `m_extractionStarted == true`). Steam,
+hot water, flush and cleaning operations SHALL NOT be evaluated against it.
+
+#### Scenario: Espresso save path is classified
+
+- **WHEN** `endShot()` runs with `m_extractionStarted == true`
+- **THEN** the classifier runs on the shot before any save or upload
+
+### Requirement: The aborted-shot thresholds are fixed and the classifier is unconditional
+
+The two thresholds (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in the C++
+source and SHALL NOT be user-tunable settings. The classifier SHALL run
+unconditionally, with no user-facing opt-out.
+
+#### Scenario: No setting disables or retunes the classifier
+
+- **WHEN** the user reviews the application settings
+- **THEN** no setting exposes the thresholds or turns the classifier off
 
 ---
 

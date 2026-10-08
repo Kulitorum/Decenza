@@ -6,20 +6,12 @@ Defines the optional trailing `nextShot` JSON block an AI Advisor response appen
 ## Requirements
 ### Requirement: AI advisor responses SHALL carry an optional structured `nextShot` JSON block
 
-The shot-analysis system prompt SHALL instruct the LLM that *when its response recommends a concrete change to grind, dose, or profile*, it SHALL append a fenced JSON block to the end of the response. The block SHALL be the last content in the message, optionally followed by whitespace, and SHALL be encoded as a fenced code block with the `json` language tag.
-
-The block SHALL be OMITTED entirely when the response is a clarifying question, an acknowledgement, or otherwise does not make a concrete parameter recommendation. Omission is the documented null state — there SHALL NOT be a placeholder block carrying nulls.
-
-The schema for the block SHALL be:
-
-- `grinderSetting` (string) — REQUIRED iff the recommendation moves grind. Omitted when grind is unchanged.
-- `doseG` (number) — REQUIRED iff the recommendation moves dose. Omitted when dose is unchanged.
-- `profileTitle` (string) — REQUIRED iff the recommendation switches profile. Omitted otherwise.
-- `expectedDurationSec` ([number, number]) — REQUIRED. The expected `[low, high]` window for the next shot's total duration assuming the recommendation is followed.
-- `expectedFlowMlPerSec` ([number, number]) — REQUIRED.
-- `expectedPeakPressureBar` ([number, number]) — OPTIONAL. Present when the recommendation specifically targets pressure dynamics.
-- `successCondition` (string) — REQUIRED. A short natural-language predicate (stored verbatim by the app for display and for the LLM to read on subsequent turns).
-- `reasoning` (string) — REQUIRED. One-sentence summary of *why* the recommendation was made.
+The shot-analysis system prompt SHALL instruct the LLM that, when its response
+recommends a concrete change to grind, dose or profile, it SHALL append a
+`json`-tagged fenced block as the final content of the message (only whitespace
+may follow). The block SHALL be omitted entirely for clarifying questions,
+acknowledgements and any response without a concrete parameter recommendation.
+There SHALL NOT be a placeholder block carrying nulls.
 
 #### Scenario: System prompt teaches the response format
 
@@ -42,16 +34,29 @@ The schema for the block SHALL be:
 - **WHEN** the response is rendered
 - **THEN** it SHALL NOT contain a trailing fenced JSON block matching the `nextShot` schema
 
+### Requirement: The `nextShot` block uses a fixed field set
+
+The block SHALL use these fields. `grinderSetting` (string) is required iff
+grind moves, `doseG` (number) iff dose moves, and `profileTitle` (string) iff
+profile switches. `expectedDurationSec` and `expectedFlowMlPerSec` ([low,
+high]), `successCondition` (a short natural-language predicate), and `reasoning`
+(one sentence) are required. `expectedPeakPressureBar` ([low, high]) is
+optional.
+
+#### Scenario: Grind-only recommendation omits the other move fields
+
+- **WHEN** a response moves the grind setting but leaves dose and profile unchanged
+- **THEN** the block contains `grinderSetting` and omits `doseG` and `profileTitle`
+
+
 ### Requirement: `AIManager` SHALL parse the trailing structured block tolerantly
 
-`AIManager` SHALL provide a parser (e.g., `parseStructuredNext(const QString&) -> std::optional<QJsonObject>`) that:
-
-- Extracts the **last** fenced ` ```json ... ``` ` block in the assistant message, allowing trailing whitespace after the closing fence.
-- Returns `std::nullopt` when no such trailing block exists. Mid-message ` ```json ` blocks (e.g., the model echoing a snippet from the user) SHALL NOT be extracted.
-- Returns `std::nullopt` on JSON parse failure, logging a `qWarning` with the parser error string.
-- Does NOT strip the block from the prose. The conversation overlay continues to show the full assistant message including the block.
-
-The parser SHALL be invoked on every assistant message reaching `AIConversation`, both in the in-app advisor flow and in the `ai_advisor_invoke` MCP tool flow.
+`AIManager` SHALL provide a parser (`parseStructuredNext(const QString&) ->
+std::optional<QJsonObject>`) that extracts only the last fenced `json` block,
+allowing trailing whitespace, and returns `std::nullopt` when no such trailing
+block exists. On a JSON parse failure it SHALL return `std::nullopt` and log a
+`qWarning` containing the parser error. It SHALL NOT strip the block from the
+prose.
 
 #### Scenario: Trailing block is parsed; mid-message block is ignored
 
@@ -70,13 +75,24 @@ The parser SHALL be invoked on every assistant message reaching `AIConversation`
 - **THEN** it SHALL return `std::nullopt`
 - **AND** SHALL emit a `qWarning` containing `structuredNext` and the parser error text
 
+### Requirement: The structured parser runs on every assistant message
+
+The parser SHALL be invoked on every assistant message reaching
+`AIConversation`, in both the in-app advisor flow and the `ai_advisor_invoke`
+MCP flow.
+
+#### Scenario: Both surfaces run the parser
+
+- **WHEN** an assistant reply arrives through the in-app advisor or through the `ai_advisor_invoke` MCP tool
+- **THEN** `parseStructuredNext` runs on that reply before it is stored or returned
+
 ### Requirement: `AIConversation` SHALL persist `structuredNext` per assistant turn
 
-Each assistant entry in `AIConversation::m_messages` SHALL carry the parsed `structuredNext` object as an optional sibling field next to `role` and `content`. Specifically:
-
-- The signature `addAssistantMessage(const QString& content, const std::optional<QJsonObject>& structuredNext)` SHALL store `structuredNext` only when present (`has_value() == true`); when absent, the `structuredNext` key SHALL NOT appear in the persisted entry.
-- Loading older conversations (saved before this change) — entries without a `structuredNext` key — SHALL succeed, with the field reading as `std::nullopt`. No schema migration is required.
-- A reader `std::optional<QJsonObject> structuredNextForAssistantTurn(qsizetype index) const` SHALL return the parsed block for a given assistant turn, or `std::nullopt`.
+Each assistant entry in `AIConversation::m_messages` SHALL carry the parsed
+`structuredNext` as an optional sibling of `role` and `content`, stored only
+when present. `addAssistantMessage(const QString& content, const
+std::optional<QJsonObject>& structuredNext)` SHALL omit the key when the
+optional is empty.
 
 #### Scenario: Saved and reloaded structuredNext round-trips
 
@@ -91,11 +107,36 @@ Each assistant entry in `AIConversation::m_messages` SHALL carry the parsed `str
 - **THEN** loading SHALL succeed without error
 - **AND** `structuredNextForAssistantTurn(i)` for every assistant turn SHALL return `std::nullopt`
 
+### Requirement: Older conversations load without `structuredNext`
+
+A conversation persisted before this change SHALL load without error and without
+a schema migration. Every assistant turn in it SHALL read as having no
+`structuredNext`.
+
+#### Scenario: Older entries read as absent
+
+- **WHEN** a conversation saved before this change is loaded
+- **THEN** loading succeeds and `structuredNextForAssistantTurn` returns `std::nullopt` for every assistant turn
+
+
+### Requirement: `structuredNextForAssistantTurn` returns the stored block per turn
+
+`std::optional<QJsonObject> structuredNextForAssistantTurn(qsizetype index)
+const` SHALL return the parsed block for the given assistant turn, or
+`std::nullopt` when it has none.
+
+#### Scenario: A saved block round-trips through a reload
+
+- **GIVEN** an assistant turn whose `structuredNext` was saved
+- **WHEN** the conversation is saved and a fresh `AIConversation` loads it
+- **THEN** `structuredNextForAssistantTurn` returns an object equal to the saved one
+
 ### Requirement: `ai_advisor_invoke` SHALL surface `structuredNext` in its tool envelope
 
-`ai_advisor_invoke` SHALL parse the structured block from the assistant response and emit it as a top-level optional field `structuredNext` in the tool result envelope, alongside `response` (prose) and `userPromptUsed`. The field SHALL be omitted from the envelope when `parseStructuredNext` returns `nullopt` — there SHALL NOT be a `null` placeholder.
-
-The tool description metadata SHALL document the new field, including the omission semantics and the schema (by reference to this spec).
+`ai_advisor_invoke` SHALL emit the parsed block as a top-level `structuredNext`
+field of its tool result envelope, beside `response` and `userPromptUsed`. The
+field SHALL be omitted when `parseStructuredNext` returns `std::nullopt`; there
+SHALL NOT be a `null` placeholder.
 
 #### Scenario: Tool envelope carries structuredNext on a recommendation response
 
@@ -110,4 +151,15 @@ The tool description metadata SHALL document the new field, including the omissi
 - **WHEN** `ai_advisor_invoke` runs end-to-end
 - **THEN** the tool result envelope SHALL NOT contain a `structuredNext` key
 - **AND** SHALL NOT contain `structuredNext: null`
+
+### Requirement: The tool description documents `structuredNext`
+
+The `ai_advisor_invoke` tool description SHALL document the `structuredNext`
+field, including its omission semantics, and SHALL refer to this spec for the
+schema.
+
+#### Scenario: Tool description names the field
+
+- **WHEN** a client reads the `ai_advisor_invoke` tool description
+- **THEN** it names `structuredNext`, states that the field is omitted when absent, and points to this spec for the schema
 

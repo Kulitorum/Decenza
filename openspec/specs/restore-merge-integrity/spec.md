@@ -7,9 +7,7 @@ Defines what a merge-mode database import must establish about its destination b
 
 ### Requirement: A merge import SHALL establish the destination's true row count before writing
 
-Merge mode decides whether each incoming shot is new by comparing it against the set of shots already present in the destination. The system SHALL determine that set from a read whose success is verified. A read that fails SHALL NOT be treated as evidence that the destination is empty.
-
-If the pre-existing-shot read fails for any reason, the import SHALL abort without writing, leave the destination unchanged, and report a failure that names the pre-read as the cause. It SHALL NOT fall back to importing every source row.
+Merge mode SHALL decide whether each incoming shot is new from a pre-existing-shot read whose success is verified; a failed read SHALL NOT be treated as evidence that the destination is empty. If that read fails for any reason, the import SHALL abort without writing, leave the destination unchanged, and report a failure naming the pre-read as the cause. It SHALL NOT fall back to importing every source row.
 
 #### Scenario: Failed pre-read aborts instead of importing everything
 
@@ -30,9 +28,7 @@ If the pre-existing-shot read fails for any reason, the import SHALL abort witho
 
 ### Requirement: A merge import SHALL refuse a state that would duplicate an existing history
 
-The system SHALL independently count the destination's shots and compare that count against the number of existing shots the de-duplication pre-read found. When the destination is non-empty but the pre-read found none, the two disagree, and proceeding would insert a second copy of every source row. The import SHALL abort without writing and report the disagreement, including both counts.
-
-This check SHALL run in merge mode only. Replace mode intentionally clears the destination first, so an empty pre-read is expected there.
+Merge mode SHALL independently count the destination's shots and compare that count with the existing-shot count from the de-duplication pre-read. When the destination is non-empty but the pre-read found none, the import SHALL abort without writing and report the disagreement, including both counts. This check SHALL NOT apply to replace mode, which clears the destination first.
 
 #### Scenario: Non-empty destination with an empty pre-read is refused
 
@@ -60,9 +56,7 @@ This check SHALL run in merge mode only. Replace mode intentionally clears the d
 
 ### Requirement: An import SHALL report an outcome that distinguishes its cases
 
-The reported result of an import SHALL carry enough detail to tell apart outcomes that today read identically: how many shots the destination held before the import, how many were inserted, how many were skipped as already present, how many failed, and how many stored references were remapped. A caller or a reader of the log SHALL be able to determine, from the result alone, whether the import merged into a populated destination or into an empty one.
-
-A count of zero SHALL be reported explicitly rather than omitted, so that "nothing was skipped" and "skipping was never evaluated" are not the same output.
+The result of an import SHALL report how many shots the destination held before the import, and how many were inserted, skipped as already present, failed, and remapped. A count of zero SHALL be reported explicitly rather than omitted, so the result alone shows whether the import merged into a populated or an empty destination.
 
 #### Scenario: Merging into an empty destination is distinguishable from merging into a populated one
 

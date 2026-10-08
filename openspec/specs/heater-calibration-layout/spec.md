@@ -1,12 +1,12 @@
 # heater-calibration-layout Specification
 
 ## Purpose
-TBD - created by archiving change heater-calibration-inline-labels. Update Purpose after archive.
+Covers the Heater Calibration popup in settings: each parameter laid out as a label-left row, the aim of fitting the popup without scrolling on typical sizes, and the nominal heater voltage control that lives in this popup.
 
 ## Requirements
 
 ### Requirement: Parameter labels sit left of their value controls
-In the Heater Calibration popup (`calibrationPopup` in `SettingsCalibrationTab.qml`), each of the six parameters (Heater idle temperature, Heater warmup flow rate, Heater test flow rate, Heater test time-out, Fan temperature threshold, Nominal heater voltage) SHALL be presented as a single horizontal row: the descriptive label on the left and its control on the right of the same row. Labels SHALL keep their existing translation keys, caption font, and per-parameter colors (temperature/flow/secondary), and SHALL word-wrap within the row when the translated text does not fit on one line.
+In the Heater Calibration popup, each of the six parameters SHALL be a single horizontal row with its descriptive label on the left and its control on the right. Labels SHALL keep their existing translation keys, caption font and per-parameter colours, and SHALL word-wrap within the row when the translated text does not fit.
 
 #### Scenario: Label and value share a row
 - **WHEN** the Heater Calibration popup is opened
@@ -42,9 +42,7 @@ The inline-label restructure SHALL NOT change any parameter's range, step size, 
 - **THEN** the same value ranges, step sizes, and display formats apply as before the layout change (including "Always on" at fan threshold 0)
 
 ### Requirement: Nominal heater voltage lives in the Heater Calibration popup
-The Heater Calibration popup SHALL include a nominal heater voltage control offering 120 V and 230 V, placed after the fan threshold row and before the "Defaults for cafe" button. It SHALL show the voltage the machine reports, including an explicit unknown state with neither option preselected, and selecting a value SHALL write it to the machine and then follow the machine's readback.
-
-It is deliberately placed here rather than on the Machine settings tab: it is behind the popup's existing destructive-change warning, among expert parameters, and away from settings a user browses casually. Nothing in the app SHALL offer a second way to change it.
+The Heater Calibration popup SHALL include a nominal heater voltage control offering 120 V and 230 V, after the fan threshold row and before the "Defaults for cafe" button. It SHALL show the machine's reported voltage, with an explicit unknown state preselecting neither option, and selecting a value SHALL write it to the machine and then follow the readback. No other place in the app SHALL change it.
 
 #### Scenario: Voltage is reachable only through the warned popup
 - **WHEN** the user looks on the Machine settings tab or anywhere else in settings for a heater voltage control
@@ -63,3 +61,7 @@ It is deliberately placed here rather than on the Machine settings tab: it is be
 - **WHEN** the user presses "Defaults for cafe"
 - **THEN** the five heater parameters are reset as before
 - **AND** the nominal heater voltage is NOT changed
+
+#### Scenario: Voltage is only in the popup
+- **WHEN** a user looks for the nominal heater voltage setting
+- **THEN** it is found only in the Heater Calibration popup, behind its destructive-change warning, and not on the Machine settings tab

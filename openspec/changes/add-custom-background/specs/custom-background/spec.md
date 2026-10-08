@@ -63,7 +63,7 @@ When a background image is set, it SHALL render on every page in the app — the
 - **THEN** navigating to any page in the app (idle, brew pages, settings, editors, history, dialing assistant, etc.) shows that image as the page background
 
 ### Requirement: Background extends behind the shared chrome bars
-Whenever a background image is active, the top status bar and the bottom bar (whether the shared `BottomBar` component or `IdlePage`'s own bottom nav bar) SHALL render as a semi-transparent scrim (retaining their normal theme color, at reduced opacity) instead of fully opaque, so the background image extends behind them rather than visibly stopping at each bar's edge. With no background image set, both bars SHALL remain fully opaque as today. This behavior is automatic — there is no separate setting to enable or disable it.
+Whenever a background image is active, the top status bar and the bottom bar (the shared `BottomBar` or `IdlePage`'s own nav bar) SHALL render as a semi-transparent scrim of their normal theme color, so the image extends behind them. With no background image, both bars SHALL stay fully opaque. There SHALL be no separate setting for this.
 
 #### Scenario: Bars go semi-transparent when a background is set
 - **WHEN** a background image is set and the user is on any page
@@ -74,7 +74,7 @@ Whenever a background image is active, the top status bar and the bottom bar (wh
 - **THEN** the top status bar and bottom bars on all pages render fully opaque exactly as before this feature
 
 ### Requirement: Page-level content cards extend the background through translucency
-Whenever a background image is active, page-level content cards (the `Rectangle { color: Theme.surfaceColor }` panel convention used throughout the app) SHALL render via `Theme.cardBackgroundColor`, a semi-transparent variant of the card's normal color, so the background image remains visible behind card content rather than being hidden by large opaque panels. Dialog and popup backgrounds, toast/transient notifications, and small buttons SHALL remain fully opaque regardless of whether a background image is set, since they don't sit on top of page content the same way (dialogs render above a dimmed `Overlay`; toasts and buttons need reliable contrast at all times). With no background image set, all cards SHALL remain fully opaque as today.
+Whenever a background image is active, page-level content cards (the `Rectangle { color: Theme.surfaceColor }` panels) SHALL render via `Theme.cardBackgroundColor`, a semi-transparent variant of their normal color, so the image stays visible behind them. Dialogs, popups, toasts and small buttons SHALL stay fully opaque, since they need reliable contrast. With no background image, all cards SHALL stay fully opaque.
 
 #### Scenario: Page cards go semi-transparent when a background is set
 - **WHEN** a background image is set

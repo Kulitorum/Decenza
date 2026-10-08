@@ -890,7 +890,7 @@ T.Page {
     // (predicate `editShotData.durationSec > 0`), the graph, the badges row,
     // the phase summary and the bottom-bar labels the moment the user made any
     // edit. (The `_visualizerId` cache in this file was added
-    // in #1241 as targeted band-aids for the same root cause.)
+    // in PR Kulitorum/Decenza#1241 as targeted band-aids for the same root cause.)
     //
     // This used to be a hand-written whitelist naming ~60 fields — a second
     // declaration of ShotProjection::toVariantMap's body, in another language,
@@ -2163,6 +2163,10 @@ T.Page {
                     roastDate: postShotReviewPage.editRoastDate
                     roastLevel: postShotReviewPage.editRoastLevel
                     beanBaseData: postShotReviewPage.editBeanBaseJson
+                    frozenDate: postShotReviewPage.editShotData.frozenDate || ""
+                    defrostDate: postShotReviewPage.editShotData.defrostDate || ""
+                    openedDate: postShotReviewPage.editShotData.openedDate || ""
+                    referenceDate: (postShotReviewPage.editShotData.timestampIso || "").substring(0, 10)
                     linkable: true
                     onLinkRequested: postShotReviewPage.requestBeanLink()
                 }
@@ -2341,6 +2345,10 @@ T.Page {
                                 roastDate: postShotReviewPage.editRoastDate
                                 roastLevel: postShotReviewPage.editRoastLevel
                                 beanBaseData: postShotReviewPage.editBeanBaseJson
+                                frozenDate: postShotReviewPage.editShotData.frozenDate || ""
+                                defrostDate: postShotReviewPage.editShotData.defrostDate || ""
+                                openedDate: postShotReviewPage.editShotData.openedDate || ""
+                                referenceDate: (postShotReviewPage.editShotData.timestampIso || "").substring(0, 10)
                                 linkable: true
                                 onLinkRequested: postShotReviewPage.requestBeanLink()
                             }

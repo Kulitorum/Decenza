@@ -853,6 +853,7 @@ set(SOURCES
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
     src/core/popupcloser.cpp
+    src/core/comboboxselection.cpp
     src/weather/weathermanager.cpp
 )
 
@@ -1339,6 +1340,7 @@ set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_
 set_source_files_properties(qml/components/layout/LayoutActions.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SteamLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/BagLifecycleLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/GraphSeries.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/ComparisonText.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1488,6 +1490,7 @@ set(QML_FILES
     qml/components/RecipeResolver.qml
     qml/components/DrinkType.qml
     qml/components/SteamLabels.qml
+    qml/components/BagLifecycleLabels.qml
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/KbDerivedFromLabel.qml
     qml/components/BeanThumbnail.qml

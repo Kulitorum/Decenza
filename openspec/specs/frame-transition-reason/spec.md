@@ -5,9 +5,7 @@ Defines the `transitionReason` vocabulary recorded on each shot phase marker to 
 ## Requirements
 ### Requirement: Transition reason vocabulary distinguishes confirmed from unconfirmed exits
 
-Each phase marker's `transitionReason` SHALL record why the preceding frame exited, using exactly one of: `weight`, `pressure`, `flow` (confirmed exits), `pressure_unconfirmed`, `flow_unconfirmed` (likely-but-unconfirmed sensor exits), `time` (time-based exit), or empty (unknown / pre-feature data). A confirmed sensor value (`pressure`, `flow`) SHALL be recorded when the corresponding sensor reading satisfied the frame's configured exit threshold at the transition sample, OR when the reading was moving toward the threshold and the threshold lies within one sample-interval's worth of the observed change (the sample-to-sample delta between the transition sample and the preceding one). `weight` SHALL be recorded only for an app-initiated weight skip. Consumers MAY treat confirmed values as ground truth.
-
-The extrapolation tolerance SHALL be the measured per-sample change, never a constant: a reading that is flat or moving away from the threshold SHALL receive no tolerance, and a transition with no preceding sample in the same shot SHALL receive none either. This exists because the machine evaluates its exit condition on its own internal cadence, an order of magnitude faster than the BLE sample stream, so a fast-rising frame routinely crosses its threshold between two samples the app can see.
+Each phase marker's `transitionReason` SHALL record why the preceding frame exited, using exactly one of: `weight`, `pressure`, `flow` (confirmed exits), `pressure_unconfirmed`, `flow_unconfirmed` (likely but unconfirmed sensor exits), `time` (time-based exit), or empty (unknown or pre-feature data). `weight` SHALL be recorded only for an app-initiated weight skip. Consumers MAY treat confirmed values as ground truth.
 
 #### Scenario: Confirmed pressure exit
 
@@ -44,6 +42,18 @@ The extrapolation tolerance SHALL be the measured per-sample change, never a con
 - **WHEN** the machine reports a non-zero frame before the app ever observed frame 0 (no previous frame known)
 - **THEN** the marker's `transitionReason` SHALL be empty
 
+### Requirement: A confirmed sensor exit meets its threshold within the measured change
+A confirmed `pressure` or `flow` value SHALL be recorded when the sensor reading satisfied the frame's exit threshold at the transition sample, OR when the reading was moving toward the threshold and the threshold lies within one sample interval of the observed change. That tolerance SHALL be the measured sample-to-sample delta, never a constant.
+
+
+#### Scenario: Flat or receding reading gets no tolerance
+- **WHEN** the reading is flat or moving away from the threshold
+- **THEN** no tolerance is applied and the exit is not confirmed
+
+#### Scenario: No preceding sample gets no tolerance
+- **WHEN** a transition has no preceding sample in the same shot
+- **THEN** no tolerance is applied
+
 ### Requirement: Unconfirmed reasons render as their sensor equivalent in displays
 
 The live frame-transition pill, the shot graph marker suffixes (in-app and history), and the ShotServer web graph marker suffixes SHALL render `pressure_unconfirmed` identically to `pressure` and `flow_unconfirmed` identically to `flow` (same text, letter, and color). Display surfaces SHALL degrade gracefully on unknown reason values (no suffix / generic transition label), never blank or broken markers.
@@ -65,7 +75,7 @@ The live frame-transition pill, the shot graph marker suffixes (in-app and histo
 
 ### Requirement: Persisted reason strings pass through unchanged
 
-Shot history persistence, serialization, comparison, and AI-summary consumers SHALL store and forward the `transitionReason` string verbatim without normalizing or remapping values, so previously recorded data (guessed `pressure`/`flow` from before PR #1421, `time` from the interim window, empty pre-feature values) retains its recorded meaning.
+Shot history persistence, serialization, comparison, and AI-summary consumers SHALL store and forward the `transitionReason` string verbatim without normalizing or remapping values, so previously recorded data (guessed `pressure`/`flow` from before PR Kulitorum/Decenza#1421, `time` from the interim window, empty pre-feature values) retains its recorded meaning.
 
 #### Scenario: Old shot loads with its recorded reason
 

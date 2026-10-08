@@ -291,7 +291,7 @@ private slots:
     void espressoTemperatureAuthoredAboveFramesIsAuthoritative() {
         // Authored divergence (NOT the 93.0 default): a cool preheat frame paired
         // with a hotter scalar. Even above the frame range it must be left alone —
-        // the semantic #961 locked in. Only the exact-93.0-default fingerprint heals.
+        // the semantic PR Kulitorum/Decenza#961 locked in. Only the exact-93.0-default fingerprint heals.
         Profile p = Profile::fromJson(QJsonDocument(
             makeTempProfileJson(/*includeScalar=*/true, 90.0, {88.0, 88.0})));
         QCOMPARE(p.espressoTemperature(), 90.0);
@@ -412,7 +412,7 @@ private slots:
         QCOMPARE(limOut["range"].toString().toDouble(), 0.2);
     }
 
-    // ===== Bug #425: preinfuseFrameCount preserved from JSON =====
+    // ===== PR Kulitorum/Decenza#425: preinfuseFrameCount preserved from JSON =====
 
     void preinfuseFrameCountPreserved() {
         QJsonObject obj = makeAdvancedProfileJson();
@@ -464,7 +464,7 @@ private slots:
         QCOMPARE(p.preinfuseFrameCount(), 3);  // Explicit value wins over auto-count
     }
 
-    // ===== Bug #517: simple profiles derive editorType from profileType, not is_recipe_mode =====
+    // ===== PR Kulitorum/Decenza#517: simple profiles derive editorType from profileType, not is_recipe_mode =====
 
     void simpleProfileAutoFixRecipeMode() {
         QJsonObject obj;
@@ -991,7 +991,7 @@ private slots:
     // ===== Espresso temperature sync =====
 
     void espressoTempNotSyncedFromFirstFrame() {
-        // Regression guard for #968 / PR #961: fromJson must NOT rewrite the
+        // Regression guard for #968 / PR Kulitorum/Decenza#961: fromJson must NOT rewrite the
         // top-level espresso_temperature from steps[0].temperature when both
         // are present. The mismatch is intentional on D-Flow/A-Flow profiles
         // (cooler group preheat target paired with a hotter preinfusion ramp).
@@ -2354,7 +2354,7 @@ private slots:
 
     // The espresso temperature is AUTHORED, not derived from the frames — the
     // top-level scalar stays authoritative and may legitimately differ from
-    // steps[0] (PR #961, the D-Flow/A-Flow built-ins). Omitting it made a copy
+    // steps[0] (PR Kulitorum/Decenza#961, the D-Flow/A-Flow built-ins). Omitting it made a copy
     // whose only change was the group preheat render as "unchanged".
     void dialInDeltas_theAuthoredBrewTemperatureIsItsOwnRow()
     {

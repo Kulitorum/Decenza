@@ -1,16 +1,11 @@
 # recipe-model Specification
 
 ## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
+Drink-recipe data model: the `recipes` table, yield specs, steam and hot-water blocks snapshotted by value, drink type, bag links, recipe-owned grind and temperature offsets. Also covers the legacy migrations and how the MCP and ShotServer surfaces expose these fields.
+
 ## Requirements
 ### Requirement: Recipe entity
-The system SHALL store recipes in a `recipes` table in the shot-history database, managed by a `RecipeStorage` class following the `CoffeeBagStorage` patterns (async request/ready signal API, background-thread I/O via `withTempDb`). A recipe SHALL have: a name (required), a profile reference by title with embedded profile JSON fallback (required unless the recipe carries a hot-water block with `hasWater` true, in which case the profile MAY be absent), a drink type, an optional bean link, an optional equipment package reference, dose (g), a **yield spec** (`yield-anchor`), an optional temperature **offset relative to its profile** (`temp_offset_c`, a signed delta in °C where 0 means "brew at the profile's temperature"), an optional pinned grind value, a steam block, and an optional hot-water block. Optional structured sub-fields (steam block, hot-water block, pinned grind) SHALL be stored as JSON text columns.
-
-The yield spec SHALL be stored as `yield_value` (double) + `yield_mode` (`none` | `absolute` | `ratio`) — one value column plus an explicit discriminator, so a recipe can never hold both an absolute yield and a ratio (`yield-anchor`). `mode = none` means the recipe designs no yield of its own and the ladder falls through to the bag, then the profile. The legacy `yield_g` column is converted by migration and left dead in place, mirroring how `temp_override_c` was retired.
-
-The recipe's `doseG` SHALL be a **seed, not a pin**: it seeds the live dose on activation, after which a measured dose supersedes it. A ratio-moded recipe therefore resolves against the recipe's own `doseG` on browsing surfaces (recipe cards), and against the live dose once activated.
-
-The temperature offset SHALL be the stored value — never an absolute temperature recomputed against the profile at display time — so editing the profile's temperature moves the recipe's effective brew temperature with it while the stored offset (and what every editor displays) stays exactly what the user set. The yield spec follows the same principle for the dose: a `ratio` mode is the stored value and the gram target is derived at use time, so a dose change moves the recipe's effective target with it and a stale absolute can never be manufactured.
+Recipes SHALL be stored in the `recipes` table, with I/O on a background thread. A recipe SHALL have a name, drink type, dose (g), yield spec (`yield-anchor`) and steam block, and a profile reference (with embedded JSON fallback) unless its hot-water block has `hasWater` true. It MAY have a bean link, equipment reference, temperature offset (`temp_offset_c`, a signed °C delta from its profile), pinned grind and hot-water block.
 
 #### Scenario: Minimal recipe is valid
 - **WHEN** a recipe is created with only a name and a profile
@@ -45,12 +40,37 @@ The temperature offset SHALL be the stored value — never an absolute temperatu
 - **WHEN** a recipe holds `{2.0, ratio}` and its `doseG` is unset
 - **THEN** surfaces that display its yield show `1:2` — there is no dose to derive a gram target from, and no fallback to the profile's target weight
 
+#### Scenario: Structured sub-fields persist as JSON
+- **WHEN** a recipe with a steam block, a hot-water block or a pinned grind is saved
+- **THEN** each structured sub-field is written to its JSON text column and read back unchanged
+
+### Requirement: Recipe dose is a seed
+A recipe's `doseG` SHALL be a seed, not a pin: it seeds the live dose on activation, after which a measured dose supersedes it. A ratio-moded recipe SHALL resolve against its own `doseG` on browsing surfaces such as recipe cards, and against the live dose once activated.
+
+#### Scenario: Browsing a ratio recipe uses its seed dose
+- **WHEN** a recipe holding `{2.0, ratio}` with `doseG` 18 is shown on a recipe card
+- **THEN** its gram target is 36 g
+
+#### Scenario: Activated ratio recipe uses the live dose
+- **WHEN** that recipe is activated and the measured dose is 17.5
+- **THEN** its gram target becomes 35 g
+
+### Requirement: Yield spec storage
+The yield spec SHALL be stored as `yield_value` (double) plus `yield_mode` (`none`, `absolute` or `ratio`), so a recipe can never hold both an absolute yield and a ratio. Mode `none` means the recipe designs no yield, and the ladder falls through to the bag, then the profile. The legacy `yield_g` column SHALL be left dead in place.
+
+#### Scenario: Mode none falls through the ladder
+- **WHEN** a recipe with `yield_mode` = `none` is resolved for its yield target
+- **THEN** the bag's yield is used, and the profile's if the bag has none
+
+### Requirement: Offset and ratio are stored as set
+The temperature offset and the yield SHALL be stored as set, never recomputed into absolutes at display time. A profile or dose edit therefore moves the effective target while the stored value stays as the user set it.
+
+#### Scenario: Stored ratio is derived at use time
+- **WHEN** a recipe stores `{2.0, ratio}` with a `doseG` of 18 and the live dose becomes 17.5
+- **THEN** the recipe still stores `1:2`, and its effective target becomes 35 g
+
 ### Requirement: Legacy absolute yields migrate to yield specs
-A one-time forward migration SHALL add `yield_value` + `yield_mode` and convert each recipe's legacy `yield_g`: a value greater than 0 becomes `yield_value = yield_g`, `yield_mode = 'absolute'`; 0 or NULL becomes `yield_mode = 'none'`. `yield_g` SHALL be left dead in place rather than dropped, and SHALL no longer be read or written after the migration in normal operation.
-
-Unlike the temperature migration, this conversion needs no profile resolution and cannot fail: an absolute yield is already absolute, so the migration is a relabel, not a recomputation. Every migrated recipe therefore behaves exactly as it did before.
-
-The staged-conversion discipline of the temperature migration SHALL nonetheless apply to device-to-device transfer and backup import: a row that already carries a non-NULL `yield_mode` SHALL import verbatim and its dead `yield_g` SHALL be ignored — reconverting from the dead column would resurrect a yield the user has since changed to a ratio or cleared.
+A one-time forward migration SHALL convert each legacy `yield_g` into `yield_value` and `yield_mode`: a value above 0 becomes `absolute`, and 0 or NULL becomes `none`. `yield_g` SHALL be left dead in place and no longer read or written. Transfer and backup import SHALL convert only rows lacking `yield_mode`; a row carrying `yield_mode` SHALL import verbatim and ignore its dead `yield_g`.
 
 #### Scenario: Legacy absolute yield migrates to an absolute spec
 - **WHEN** a recipe row predating this change holds `yield_g` = 36
@@ -68,12 +88,12 @@ The staged-conversion discipline of the temperature migration SHALL nonetheless 
 - **WHEN** a recipe is imported from a source that has `yield_mode` (its dead `yield_g` still holding a pre-migration absolute), including a recipe the user has since changed to a ratio
 - **THEN** the imported recipe keeps its ratio — the dead column is ignored
 
+#### Scenario: Migration is a relabel
+- **WHEN** the yield migration runs on any recipe
+- **THEN** no profile is resolved, the migration cannot fail, and every migrated recipe behaves as it did before
+
 ### Requirement: Recipe surfaces expose the yield spec
-Every recipe surface — the wizard, MCP, and the web editor — SHALL present the yield as a three-state choice (nothing, an absolute yield, or a ratio) governed by the anchor rule of `yield-anchor`: the last written of {ratio, yield} is the anchor and the other is shown derived, never blank.
-
-The JSON surfaces (MCP, web) SHALL expose `yieldG` and `yieldRatio` as sparse, mutually exclusive keys, and SHALL reject a request carrying both — loudly, naming the conflict, never silently dropping one. This mirrors the existing loud rejection of the retired `temperatureOverrideC` (`mcptools_recipes.cpp:440-441`, `:538-539`; `shotserver_recipes.cpp:205-206`, `:362-363`).
-
-Because partial updates carry only the keys the caller sends, writing one of the pair SHALL clear the other implicitly — a caller sending `yieldRatio` alone SHALL NOT need an explicit clear of `yieldG`. The tool descriptions SHALL state this cross-field semantic, since a present-keys-only contract otherwise implies the omitted key is preserved.
+Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an absolute yield, or a ratio. The last written of ratio and yield is the anchor; the other is shown derived, never blank. JSON surfaces SHALL expose `yieldG` and `yieldRatio` as sparse, mutually exclusive keys, reject a request carrying both with an error naming the conflict, and clear the other when one is written. Tool descriptions SHALL say so.
 
 #### Scenario: MCP rejects both yield keys at once
 - **WHEN** a `recipe_create` or `recipe_update` call carries both `yieldG` and `yieldRatio`
@@ -93,14 +113,7 @@ Because partial updates carry only the keys the caller sends, writing one of the
 - **THEN** it posts `yieldRatio` and omits `yieldG` — it SHALL NOT coerce a blank yield input to `0` and clear the anchor
 
 ### Requirement: Steam block with pitcher snapshot
-
-A recipe's steam block SHALL contain: `hasMilk` (bool), milk weight (g), a pitcher snapshot (name and volume copied by value — never a reference into the global pitcher preset list), and steam temperature, flow, and timeout values.
-
-The block MAY instead carry an **off marker** in place of a pitcher snapshot, meaning the recipe wants the steam heater off. The marker SHALL be a stable field, never the built-in entry's displayed name, because that name is translated. A block carrying the off marker SHALL NOT carry a pitcher name, and SHALL NOT be resolved by name lookup against the preset list.
-
-A block that carries neither a pitcher snapshot nor the off marker SHALL be treated as wanting the heater off, the same as the marker.
-
-When a block names a pitcher that no longer exists, the recipe SHALL still activate. Re-creating the named pitcher from the block's own values is permitted only for a real pitcher; a block carrying the off marker SHALL never cause a preset to be created.
+A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither SHALL be treated as the off marker. A missing pitcher SHALL NOT block activation; a real one MAY be re-created, but an off-marker block SHALL NOT create a preset.
 
 #### Scenario: Pitcher preset edited after recipe creation
 - **WHEN** the user reorders, edits, or deletes entries in the global steam pitcher presets after a recipe was saved
@@ -117,6 +130,10 @@ When a block names a pitcher that no longer exists, the recipe SHALL still activ
 #### Scenario: An unresolvable pitcher name does not manufacture an off preset
 - **WHEN** a shot's steam snapshot names a pitcher that no longer exists and the shot is promoted to a recipe
 - **THEN** the promotion succeeds and creates no preset
+
+#### Scenario: Off marker is never looked up by name
+- **WHEN** a block carrying the off marker is activated
+- **THEN** the preset list is not searched and no pitcher preset is created
 
 ### Requirement: Recipe lifecycle mirrors bags
 A recipe with zero shots SHALL be hard-deletable. A recipe that any shot references SHALL only be archivable: archived recipes disappear from pickers and quick-select but remain readable so shot history provenance never dangles.
@@ -141,7 +158,7 @@ The `shots` table SHALL gain a nullable `recipe_id` recording which recipe (if a
 - **THEN** they load normally with no recipe provenance and no steam or hot-water snapshot
 
 ### Requirement: Hot-water block is an opt-in water-vessel snapshot
-A recipe MAY carry an optional hot-water block describing added hot water (enabling drinks such as an Americano — espresso plus added hot water). Hot water is opt-in: `hasWater` (bool) turns it on, and when on the recipe SHALL reference a selected water vessel. The vessel supplies all values — the block SHALL store a snapshot of that vessel copied **by value** (its name, amount as volume ml or weight g per the vessel's mode, temperature, and flow) rather than a reference into the global water-vessel preset list. There SHALL be no separate per-recipe amount/temperature/flow input distinct from the vessel; the vessel is the single source of those values. The block SHALL also carry an `order` — whether the water is added `before` the espresso (a long black) or `after` it (an Americano) — defaulting to `after`. The steam block and the hot-water block SHALL be independent, so a recipe MAY carry either, both, or neither.
+A recipe MAY carry a hot-water block for added hot water. `hasWater` turns it on, and the recipe then SHALL reference a water vessel. The block SHALL copy that vessel's name, amount (ml or g per its mode), temperature and flow by value, with no separate values of its own. It SHALL carry `order`, `before` or `after` the espresso, defaulting to `after`. The steam and hot-water blocks SHALL be independent.
 
 #### Scenario: Enabling hot water requires a vessel
 - **WHEN** the user turns on added hot water for a recipe
@@ -160,7 +177,7 @@ A recipe MAY carry an optional hot-water block describing added hot water (enabl
 - **THEN** both are stored and neither overrides the other
 
 ### Requirement: Recipes carry a drink type
-The `recipes` table SHALL gain a `drink_type` TEXT column (values: `espresso`, `filter`, `americano`, `long_black`, `latte`, `latte_hotwater`, `tea`, `tea_hotwater`), added by migration with kCols registration, riding transfer/backup import like other recipe columns. The value records user intent and SHALL NOT drive machine behavior — activation reads only the blocks and profile. For rows without a stored value (pre-migration recipes) and for promote-from-shot, the type SHALL be derived from the blocks and profile beverage type (hot-water block without profile → tea_hotwater; profile tea_portafilter → tea; milk AND hot-water → latte_hotwater; milk alone → latte; hot-water block alone by order "after" → americano, "before" → long black; profile filter/pourover → filter; else espresso), and the derived value SHALL be stored on the next save.
+The `recipes` table SHALL gain a `drink_type` TEXT column (`espresso`, `filter`, `americano`, `long_black`, `latte`, `latte_hotwater`, `tea`, `tea_hotwater`) by migration, riding transfer and backup import. The value records user intent and SHALL NOT drive activation, which applies only the blocks and profile. Recipes without a stored value, and promote-from-shot, SHALL derive it as in "Drink type derivation".
 
 #### Scenario: Legacy recipe derives its type
 - **WHEN** a pre-migration americano recipe (hot-water block, order "after", no milk) is opened for edit
@@ -176,8 +193,15 @@ The `recipes` table SHALL gain a `drink_type` TEXT column (values: `espresso`, `
 - **WHEN** a recipe's blocks contradict its stored drink type
 - **THEN** activation applies the blocks exactly as stored
 
+### Requirement: Drink type derivation
+Recipes without a stored drink type, and promote-from-shot, SHALL derive it in this order: hot-water block without profile gives `tea_hotwater`; `tea_portafilter` profile gives `tea`; milk and hot water give `latte_hotwater`; milk alone gives `latte`; hot water alone gives `americano` (order `after`) or `long_black` (`before`); `filter` or `pourover` profile gives `filter`; otherwise `espresso`. The derived value SHALL be stored on the next save.
+
+#### Scenario: Tea profile derives tea
+- **WHEN** a recipe with no stored drink type and a `tea_portafilter` profile is saved
+- **THEN** its drink type is stored as `tea`
+
 ### Requirement: Recipes link a specific bag
-A recipe SHALL link a specific bag via a `bag_id` column (kCols-registered, CREATE TABLE + migration step, riding transfer/backup import with id remapping like `equipment_id`). Bean identity fields (Bean Base canonical id, roaster, coffee) SHALL be retained on the recipe as a display fallback and as the matching key for automatic relinking (see `recipe-bag-lifecycle`). Activation SHALL use the linked bag directly — no most-recently-used resolution. A recipe MAY still have no bag at all (bean-less recipes per the optionality ladder).
+A recipe SHALL link a specific bag via a `bag_id` column, riding transfer and backup import with id remapping like `equipment_id`. Its bean identity (Bean Base canonical id, roaster, coffee) SHALL be kept as a display fallback and as the key for automatic relinking. Activation SHALL use the linked bag directly, never most-recently-used resolution. A recipe MAY have no bag.
 
 #### Scenario: Two open bags of the same bean
 - **WHEN** two recipes link two different open bags of the same bean and each is activated in turn
@@ -199,7 +223,7 @@ A one-time forward migration SHALL populate `bag_id` for existing recipes by res
 - **THEN** the recipe migrates without a bag link and shows the bag-finished state until relinked
 
 ### Requirement: Recipe-owned grind
-Grind SHALL always live on the recipe: every recipe of a grind-bearing drink type (whether or not it has a linked bag) stores its own `grindPinned` (free-form text, stored opaquely) and optional `rpmPinned`; grind-less drink types (tea, hot-water tea) store none, exactly as today. There is no bag-inherit mode: a recipe's own grind is never read *from* the bag at activation time. Editing grind while a recipe is active writes immediately to that recipe's own fields, and — independently, per `coffee-bag-model`'s "Bean/grinder edits write through to the active bag" — the same edit also writes immediately to the linked bag, since the bag always mirrors the most recently dialed grind regardless of what's driving it. A recipe with no linked bag stores grind/rpm locally exactly as before (unaffected by this change).
+Grind SHALL always live on the recipe. Every recipe of a grind-bearing drink type, linked to a bag or not, SHALL store its own `grindPinned` (opaque text) and optional `rpmPinned`. Grind-less drink types (`tea` and `tea_hotwater`) SHALL store neither. A recipe's grind SHALL never be read from its bag at activation. Editing grind on an active recipe SHALL write to the recipe and, per `coffee-bag-model`, to the linked bag at once.
 
 #### Scenario: Editing grind on an active recipe updates the recipe and the bag together
 - **WHEN** a recipe is active and the user edits its grind or rpm
@@ -215,7 +239,7 @@ Grind SHALL always live on the recipe: every recipe of a grind-bearing drink typ
 - **THEN** no *other* recipe's own `grindPinned`/`rpmPinned` changes as a result
 
 ### Requirement: New-recipe grind defaults from the bag, once
-When a recipe is created with a linked bag, the bag's current `grinderSetting`/`rpm` SHALL be read exactly once, at creation, to supply the recipe's grind default. On the wizard this is an **editable default offered in the field** — not silently copied and not a live link; the user SHALL be free to accept it as-is or change it before saving, and whatever is on the field at save time becomes the recipe's own stored value, permanently independent of the bag from that point on. On non-interactive create surfaces (MCP, web), the same rule applies at save time in storage: a create that **omits** grind while linking a bag SHALL adopt the bag's current grind/rpm as the recipe's own value (mirroring the existing bag-link save-time normalization), while a create that supplies an **explicitly empty** grind SHALL store it empty — omission means "use the sensible default", explicit empty means "no grind". Promote-from-shot (wizard and MCP `recipe_create_from_shot`) SHALL default grind/rpm from the **shot's own recorded values** — the exact dial that produced the shot being promoted — not from the bag's current dial. On the wizard, the rpm default SHALL only be offered when the recipe's selected equipment reports grinder rpm capability (the storage-side adoption and the migration backfill copy the bag's rpm verbatim — the equipment gate is a UI concern). This default SHALL NOT re-occur on subsequent views of an already-created recipe; the user's own edits (or lack thereof) are authoritative from that point on.
+A recipe created with a linked bag SHALL read the bag's grind and rpm once, at creation, as an editable default. On the wizard, whatever the field holds at save becomes the recipe's own value, and rpm is offered only for rpm-capable equipment. Non-interactive create surfaces SHALL adopt the bag's grind and rpm when grind is omitted, but store an explicitly empty grind as empty. The default SHALL NOT be re-offered on later views.
 
 #### Scenario: New recipe defaults to the bag's current dial
 - **WHEN** the user creates a recipe and links a bag whose current grind is "18" with rpm 1200
@@ -246,10 +270,15 @@ When a recipe is created with a linked bag, the bag's current `grinderSetting`/`
 - **WHEN** the user promotes a shot that was pulled at grind "17", and the linked bag's dial has since moved to "18"
 - **THEN** the new recipe's grind defaults to "17" (the shot's recorded value), editable before saving
 
-### Requirement: Absolute temperature overrides migrate to offsets
-A one-time forward migration SHALL add `temp_offset_c` and convert each recipe's legacy absolute `temp_override_c` into an offset: `offset = stored absolute − the profile's espresso_temperature`, resolving the profile by title with the recipe's embedded profile JSON as fallback. A legacy value of 0 (no override) SHALL migrate to offset 0. When the profile cannot be resolved by either path, the recipe SHALL migrate with offset 0 (no temperature pin) — a delta against an unknown baseline is meaningless. Offsets that round to 0 (|offset| < 0.05 °C) SHALL be stored as 0. The migration SHALL run off the main thread with the other schema migrations, and `temp_override_c` SHALL no longer be read or written after it in normal operation.
+### Requirement: Promote-from-shot grind comes from the shot
+Promote-from-shot, in the wizard and in MCP `recipe_create_from_shot`, SHALL default grind and rpm from the shot's own recorded values, the dial that produced the shot, and SHALL NOT use the bag's current dial.
 
-Device-to-device transfer and backup import SHALL stage-and-convert exactly the source rows that are still **unconverted**: every row of a legacy-version source (no `temp_offset_c` column, detected from the source's `PRAGMA table_info`), and the NULL-offset rows of a current-version source whose own deferred pass had not completed when it was exported. A **converted** row (non-NULL offset) SHALL import verbatim and its dead `temp_override_c` SHALL be ignored — reconverting from the dead column would resurrect an offset the user has since changed or cleared.
+#### Scenario: Wizard promote offers the shot's grind
+- **WHEN** the user opens the wizard to promote a shot recorded at grind "17"
+- **THEN** the grind field offers "17" as an editable default
+
+### Requirement: Absolute temperature overrides migrate to offsets
+A one-time migration SHALL set `temp_offset_c` to legacy `temp_override_c` minus the profile's `espresso_temperature`, resolving the profile by title, then embedded JSON. A legacy 0 or unresolvable profile SHALL give offset 0; magnitudes below 0.05 °C SHALL store as 0. The migration runs off the main thread, and `temp_override_c` SHALL no longer be read or written. Import SHALL convert only unconverted rows; converted rows SHALL import verbatim.
 
 #### Scenario: Legacy absolute converts against its own profile
 - **WHEN** the database migrates with a recipe storing `temp_override_c` = 87 whose profile's espresso_temperature is 90
@@ -280,9 +309,7 @@ Device-to-device transfer and backup import SHALL stage-and-convert exactly the 
 - **THEN** the new recipe stores `temp_offset_c` = −3 (converted at promotion time against the shot's profile)
 
 ### Requirement: Tea temperatures are edited absolute, stored as the same offset
-Portafilter-tea recipes SHALL store their temperature in the same `temp_offset_c` field with the same delta semantics — there SHALL NOT be a second temperature encoding. Because tea users think in absolute temperatures ("80°", not "profile −8°"), the wizard's tea temperature field SHALL stay absolute and convert at the boundary: it loads as `profile espresso_temperature + offset` (offset 0 shows the profile's own temperature) and saves as `entered − profile espresso_temperature` (equal → 0). When the recipe's profile cannot be resolved, the field SHALL be disabled and the stored offset preserved untouched — the field must never accept input the save path would discard. Activation SHALL need no tea special-case — `profile temp + offset` reproduces the absolute the user entered.
-
-Hot-water tea recipes (profile-less) SHALL store no temperature pin at all: the water vessel is the single source of their temperature (per this spec's hot-water-block requirement), so the wizard SHALL NOT show a separate temperature field for them and its summary SHALL present the vessel's temperature. The migration SHALL drop a legacy hot-water-tea absolute quietly (it was never applied at activation and has no anchor to convert against).
+Portafilter-tea recipes SHALL store temperature in `temp_offset_c` with the same delta semantics. The wizard's tea field SHALL stay absolute, loading as profile `espresso_temperature` plus offset and saving as entered minus that. If the profile cannot be resolved, the field SHALL be disabled and the offset preserved. Hot-water tea SHALL store no pin, and its migration SHALL drop a legacy absolute quietly.
 
 #### Scenario: Editing a migrated tea recipe shows its absolute temperature
 - **WHEN** the user opens the details of a tea recipe holding offset −8 on an 88° tea profile
@@ -296,8 +323,12 @@ Hot-water tea recipes (profile-less) SHALL store no temperature pin at all: the 
 - **WHEN** the user edits a hot-water tea recipe
 - **THEN** no separate temperature field is offered; the summary shows the selected vessel's temperature, and the recipe stores offset 0
 
+#### Scenario: Tea activation needs no special case
+- **WHEN** a portafilter-tea recipe with offset -8 on an 88° profile is activated
+- **THEN** it targets 80°, the same as the absolute the user entered, with no tea-specific branch
+
 ### Requirement: Recipe surfaces expose the offset
-The MCP recipe tools and the ShotServer recipe endpoints (including the web recipe editor) SHALL expose the temperature as `tempOffsetC` — a signed delta in °C, present only when non-zero on read, and accepted as the only temperature field on create/update. The legacy absolute `temperatureOverrideC` field SHALL no longer appear in responses, and a create/update request carrying it SHALL be **rejected with an error naming the replacement and its delta semantics** (never a silent drop) — a pre-rename client writing an absolute into the delta field would corrupt the recipe's temperature.
+The MCP recipe tools and the ShotServer recipe endpoints, including the web editor, SHALL expose the temperature as `tempOffsetC`, a signed °C delta present only when non-zero on read, and SHALL accept it as the only temperature field. The legacy `temperatureOverrideC` SHALL NOT appear in responses. A create or update carrying it SHALL be rejected with an error naming `tempOffsetC` and its delta semantics, never silently dropped.
 
 #### Scenario: MCP reads a recipe with an offset
 - **WHEN** an MCP client fetches a recipe holding a −3° offset

@@ -1,7 +1,9 @@
 # bundled-app-font Specification
 
 ## Purpose
-TBD - created by archiving change bundle-app-font-and-tolerant-text. Update Purpose after archive.
+
+Specifies the application's bundled UI font, Decenza Sans (a renamed Roboto build), so that text metrics come from the bundled font rather than the host. It covers registration at startup, the compiled-in resource, the application-unique family name, and consistent glyph shaping and rasterization, plus fallback for scripts the font does not cover.
+
 ## Requirements
 ### Requirement: Bundled default application font
 
@@ -26,13 +28,7 @@ bundled font rather than the host operating system's font.
 
 ### Requirement: Bundled family name is unique to the application
 
-The bundled font SHALL be registered under a family name that no host-installed font is likely to
-claim (`Decenza Sans`), so that a font of the same name already present on the host operating
-system cannot be selected in place of the bundled one.
-
-Registering under a widely-distributed family name (for example `Roboto`, commonly installed on
-Windows by third-party applications) makes family-name lookup ambiguous: the host font and the
-bundled font both match, and the resolution is not guaranteed to favour the bundled font.
+The bundled font SHALL be registered under the family name `Decenza Sans`, a name no host-installed font is likely to claim, so a same-named font on the host cannot be selected in its place. It SHALL NOT be registered under a widely distributed family name such as `Roboto`, because family-name lookup would then be ambiguous.
 
 #### Scenario: Host has a same-purpose font installed
 

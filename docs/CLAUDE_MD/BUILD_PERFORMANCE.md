@@ -142,14 +142,14 @@ prove things — **it reproduces, exactly, the runtime failure that the ban was
 founded on.** The annotations are still fine; the stale cache is the whole defect,
 and it is user-visible, not cosmetic.
 
-**It caught the fix for itself, on the day that fix merged.** Merging #1714 into
-#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
+**It caught the fix for itself, on the day that fix merged.** Merging PR Kulitorum/Decenza#1714 into
+PR Kulitorum/Decenza#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
 updated, the suite passed, and of 217 `.aotstats` exactly **one** was newer than
 `Theme.qml` — `Theme_qml.cpp.aotstats`. Every other unit still called the seven
 wrappers as `var`. Knowing about this section is not protection: an ordinary
 rebuild does not clear it, and nothing in the build output says so.
 
-### This is FIXED as of #1717 — but know what the fix is and how it can silently die
+### This is FIXED as of PR Kulitorum/Decenza#1717 — but know what the fix is and how it can silently die
 
 `CMakeLists.txt` now makes every QML unit depend on every `.qml` source, using
 `add_custom_command(OUTPUT ... APPEND DEPENDS ...)` to add inputs to the commands
@@ -226,24 +226,24 @@ lever aimed at this cost should target the generated C++, not the tool.
 
 ## AOT coverage, and the two levers that moved it
 
-**Re-measured 2026-07-29** after the QML cleanup (#1665, #1688, #1690, #1695) and
-again after #1698 (`FINAL` on the settings/controller accessors, type annotations
+**Re-measured 2026-07-29** after the QML cleanup (PRs Kulitorum/Decenza#1665, Kulitorum/Decenza#1688, Kulitorum/Decenza#1690, Kulitorum/Decenza#1695) and
+again after PR Kulitorum/Decenza#1698 (`FINAL` on the settings/controller accessors, type annotations
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698      post-#1715      post-#1717
+                          post-cleanup     post-PR1698     post-PR1715     post-PR1717
 total bindings/functions       29097           29097           29087           29097
   AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)   20459 (70.3%)
   skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)    7223 (24.8%)
   partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
 ```
 
-The post-#1717 column is the whole of that PR: the button family, `main.qml`'s
+The post-PR1717 column is the whole of that PR: the button family, `main.qml`'s
 `ApplicationWindow`, and the dialogs. Its three parts are described below in that order.
 
-#1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
+PR Kulitorum/Decenza#1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
 
-#1717 did the same for the button family — `AccessibleButton`, `StyledIconButton`,
+PR Kulitorum/Decenza#1717 did the same for the button family — `AccessibleButton`, `StyledIconButton`,
 `ActionButton`, `StyledSwitch`. Attributing every `Could not find property/signal` skip to
 the element it was written on (walk back from the reported line to the enclosing `Type {`)
 showed that class was not spread thin: **`AccessibleButton` alone owned 1,049 of 2,653**,
@@ -259,7 +259,7 @@ working") showing up in the AOT stats. **Diff per-cause, never on the total** �
 the total alone this migration looks half as effective as it is, and the +335 looks like a
 regression it introduced.
 
-#1717 then did `main.qml`'s `ApplicationWindow` and the dialogs, which were the two classes
+PR Kulitorum/Decenza#1717 then did `main.qml`'s `ApplicationWindow` and the dialogs, which were the two classes
 left. The window was a one-line change worth 583 skips: Material's `ApplicationWindow.qml`
 is **three lines** whose only content is `color: Material.backgroundColor`, and `main.qml`
 already set its own `color`.
@@ -284,9 +284,9 @@ Three inline `Popup {}` blocks were deliberately left alone: Material's `Popup` 
 with `padding: 12`, while the base carries `Dialog`'s `modal: true` and `padding: 24`, so
 re-rooting them would start dimming the screen and blocking input behind them.
 
-The post-#1715 column is measured on a **consistent** cache — all 213 units regenerated
-together, after #1714's `Theme.qml` annotations. #1715's own commit message reports
-18,127 / 62.32 %; that sweep predated the #1714 merge, so it is a real measurement of a
+The post-PR1715 column is measured on a **consistent** cache — all 213 units regenerated
+together, after PR Kulitorum/Decenza#1714's `Theme.qml` annotations. PR Kulitorum/Decenza#1715's own commit message reports
+18,127 / 62.32 %; that sweep predated the PR Kulitorum/Decenza#1714 merge, so it is a real measurement of a
 tree that no longer exists rather than an error. The 41-binding difference is those
 annotations. Cite this column, not that one.
 
@@ -306,7 +306,7 @@ instance of CustomRectangle)"*. `as` is `doInstanceof`,
 and a failed **object** cast returns `null`, not `undefined` (`qv4runtime.cpp:394-406`).
 
 So re-rooting a page at `T.Page` drops the style composite out of its chain, and every
-`x as Page` **elsewhere in the tree** starts returning null against it. #1715 hit exactly
+`x as Page` **elsewhere in the tree** starts returning null against it. PR Kulitorum/Decenza#1715 hit exactly
 this: `main.qml`'s `shotChartOnCurrentPage` binding cast `pageStack.currentItem as Page`,
 and the migration would have pinned it to `false` on every page — a silently dead feature,
 in a file the migration never touched. The migration commit asserted "No file declares a
@@ -340,7 +340,7 @@ Palette and default font are NOT in this list — those come from `QQuickTheme`,
 style plugin registers against the C++ class, so a Templates-rooted control still gets them.
 
 **Read the measurement warning below before trusting any number you take
-yourself.** #1698 reported +1.7 points for days because every intermediate
+yourself.** PR Kulitorum/Decenza#1698 reported +1.7 points for days because every intermediate
 measurement was taken against a build that had recompiled only the two edited
 QML files. The other 213 units' `.aotstats` still described the *previous* state,
 so the change looked local. The real figure only appeared once a `Q_OBJECT`
@@ -361,7 +361,7 @@ file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
 described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
-Grouped by root cause. Re-derived post-#1717 on a consistent cache, by exact
+Grouped by root cause. Re-derived after PR Kulitorum/Decenza#1717 on a consistent cache, by exact
 `message` string out of the `.aotstats` (7,223 hard skips; shares are of that):
 
 | Skips | Share | `message` |
@@ -397,7 +397,7 @@ What is left, in the order worth taking:
 - **`Overlay` 83 and `Dialog` 73 are new, and are the dialog migration's own residue** —
   files that still import `QtQuick.Controls` only to name `Overlay.overlay` or a
   `Dialog.CloseOnEscape` enum. Cheap to clear, but check each one: three files' imports
-  became genuinely unused in #1717 and the qmllint gate caught them, which is what a
+  became genuinely unused in PR Kulitorum/Decenza#1717 and the qmllint gate caught them, which is what a
   mechanical re-rooting always leaves behind.
 - To attribute a `Could not find property/signal` skip to the type that caused it, walk
   back from the reported line to the enclosing `Type {` and count by that. The message
@@ -409,7 +409,7 @@ forced consistent — see the staleness section above for why that is not option
 
 ### AOT buys speed with binary size, and macOS has a shelf at 16 MiB
 
-#1717 crossed it. The Debug link now prints:
+PR Kulitorum/Decenza#1717 crossed it. The Debug link now prints:
 
 ```
 ld: warning: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets
@@ -440,16 +440,16 @@ tree still interpreted. Two things worth knowing before anyone panics or acts:
 
 **Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,107
 `function` declarations under `qml/`, **54** now carry a return-type annotation and
-**57** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
+**57** a typed parameter (13 and 15 before PR Kulitorum/Decenza#1698). qmlcachegen will not compile an
 untyped function, and will not compile a *call* to one either, so definitions poison
-call sites at roughly 8:1. #1698 spent that ratio deliberately: ~32 annotations in
+call sites at roughly 8:1. PR Kulitorum/Decenza#1698 spent that ratio deliberately: ~32 annotations in
 `Theme.qml` plus 11 in `IdlePage.qml` cut the bucket from 4,681 to 499.
 
 **The remaining untyped definitions are NOT all free to annotate — but the most
 cited reason not to was false.** Seven wrappers in `Theme.qml` (`tempUnitSuffix`,
 `cToDisplay`, …) carried a "DO NOT ADD TYPE ANNOTATIONS" ban for a release, on the
 strength of a real runtime failure, and this document repeated it as an unexplained
-qmlcachegen defect. #1714 established there was no defect: the failure was the
+qmlcachegen defect. PR Kulitorum/Decenza#1714 established there was no defect: the failure was the
 cross-file cache staleness described above — `Theme.qml` recompiled typed while
 every caller's cached unit still called it as `var`. All seven are annotated now.
 See `qml/Theme.qml:413`, which keeps the account so the ban is not reinstated from
@@ -471,7 +471,7 @@ earlier draft said the swappable device handles "realistically cannot" be typed,
 because `ScaleDevice` and `Refractometer` are reassigned at 11 sites as hardware
 connects and disconnects, while the stable globals were the fixable ones. Measured:
 
-| | draft prediction | after the cleanup | after #1698 |
+| | draft prediction | after the cleanup | after PR Kulitorum/Decenza#1698 |
 |---|---|---|---|
 | `ScaleDevice`, `Refractometer` | unfixable | **0 skips** | 0 |
 | `AccessibilityManager` | fixable | **0 skips** | 0 |
@@ -480,7 +480,7 @@ connects and disconnects, while the stable globals were the fixable ones. Measur
 | `TranslationManager` | fixable | 1831 -> **1790** | 1787 — permanent, see below |
 
 The middle column is the state the prediction was judged against; do not read it as
-current. #1698 then took the *shadowable-base* cause from 574 skips to 72 project-wide,
+current. PR Kulitorum/Decenza#1698 then took the *shadowable-base* cause from 574 skips to 72 project-wide,
 which is the part of `Settings`/`MainController` that was fixable at all. Their residual
 skips now sit in other causes (untyped calls, unresolved ids), counted in the table above.
 
@@ -496,7 +496,7 @@ that did not exist when it was written:
   `CLAUDE.md`). qmlcachegen cannot compile a call through a callable property. This
   is a **priced tradeoff, not a defect**: correct reactive translation costs 12 % of
   all AOT skips. Do not "fix" it without reading `tst_translationreactivity.cpp`.
-- **`Settings` (539) and `MainController` (152) — FIXED in #1698, 574 -> 72.**
+- **`Settings` (539) and `MainController` (152) — FIXED in PR Kulitorum/Decenza#1698, 574 -> 72.**
   `Cannot use shadowable base type for further lookups: Settings::theme with type
   SettingsTheme`. The 12 domain sub-objects that `CLAUDE.md` mandates
   (`Settings.<domain>.<prop>`) were non-final `QObject`-derived properties, so

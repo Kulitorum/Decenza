@@ -6,20 +6,7 @@ and which are dial-in variables that may differ freely — so that knowledge aut
 be applied to a user's derivative of it without depending on what the user named it.
 ## Requirements
 ### Requirement: Profile shape SHALL be defined by structure and frame durations, never by magnitudes
-
-A profile's **shape** SHALL be the ordered tuple of: total frame count, the preinfuse frame count, the
-beverage type, and for each frame in order its pump mode, sensor, transition, exit condition type, exit
-condition direction, and duration in seconds.
-
-The following frame properties SHALL NOT be part of the shape: temperature, pressure setpoint, flow
-setpoint, volume, exit weight, exit threshold values, the flow/pressure limiter value and range, and the
-frame's display name or popup text. These are the values a user changes while dialling in a coffee, and none
-of them alters whether a suppression claim authored against the shape still holds.
-
-Two profiles SHALL be *the same shape* when their shapes as defined above are equal, with durations compared
-at a tolerance of 0.1 s to absorb serialization rounding. Shape comparison SHALL be a total, deterministic,
-order-independent boolean predicate over the two profiles alone. It SHALL NOT use a distance metric, a
-similarity score, a threshold, or any tunable constant.
+A profile's **shape** SHALL be the ordered tuple of total frame count, preinfuse frame count, beverage type, and for each frame its pump mode, sensor, transition, exit condition type, exit condition direction and duration in seconds. Two profiles SHALL be the same shape when their shapes are equal, with durations compared at 0.1 s tolerance.
 
 #### Scenario: A dial-in derivative is the same shape
 
@@ -60,6 +47,22 @@ similarity score, a threshold, or any tunable constant.
 - **GIVEN** any two profiles
 - **WHEN** they are compared for shape in either argument order
 - **THEN** the result SHALL be identical, and SHALL depend on no state outside the two profiles
+
+### Requirement: Dial-in values are excluded from the shape
+The temperature, pressure and flow setpoints, volume, exit weight, exit threshold values, the flow or pressure limiter value and range, and the frame's display name or popup text SHALL NOT be part of the shape. These are the values a user changes while dialling in, and none of them alters whether a suppression claim authored against the shape still holds.
+
+#### Scenario: Limiter edit keeps the shape
+
+- **WHEN** only a frame's limiter value is changed
+- **THEN** the profile is still the same shape
+
+### Requirement: Shape comparison is a plain boolean
+Shape comparison SHALL be a total, deterministic, order-independent boolean over two profiles, with no distance metric, score, threshold or tunable constant.
+
+#### Scenario: Comparison yields only a yes or no
+
+- **WHEN** two profiles are compared for shape
+- **THEN** the result is true or false, with no similarity score
 
 ### Requirement: The shape predicate SHALL share one traversal with the existing exact-equality predicate
 

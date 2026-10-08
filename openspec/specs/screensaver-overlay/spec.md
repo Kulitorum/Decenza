@@ -5,7 +5,8 @@ Governs the optional overlay widgets (Clock, Water Level, Shot Plan, Battery, Li
 
 ## Requirements
 ### Requirement: Overlay chip group in screensaver Display settings
-For each screensaver background that supports an overlay (Videos & Images, 3D Pipes, Strange Attractors, Shot Map), the Display settings card SHALL offer a chip group with one chip per overlay item: Clock, Water Level, Shot Plan, Battery, Link Button. Tapping a chip SHALL toggle that item on/off. Clock is scoped per background type (matching its existing storage); Water Level, Shot Plan, Battery, and Link Button are each a single global setting shared across every background. The Flip Clock background SHALL NOT offer a Clock chip. The Turn Screen Off background SHALL NOT offer any overlay chips.
+
+For each screensaver background that supports an overlay (Videos & Images, 3D Pipes, Strange Attractors, Shot Map), the Display settings card SHALL offer one chip per overlay item (Clock, Water Level, Shot Plan, Battery, Link Button), and tapping a chip SHALL toggle that item. Clock SHALL be scoped per background type, matching its existing storage. Each other item SHALL be a single global setting shared across backgrounds.
 
 #### Scenario: Enabling an overlay item
 - **WHEN** a user taps the Water Level chip while the Videos & Images background is selected
@@ -18,6 +19,14 @@ For each screensaver background that supports an overlay (Videos & Images, 3D Pi
 #### Scenario: Existing Clock setting preserved on upgrade
 - **WHEN** an existing user upgrades and previously had a background's per-type "Show Clock" boolean set to true
 - **THEN** the Clock chip for that background shows as enabled after upgrade, with no other action required
+
+### Requirement: Excluded backgrounds offer no overlay chips
+
+The Flip Clock background SHALL NOT offer a Clock chip. The Turn Screen Off background SHALL NOT offer any overlay chip.
+
+#### Scenario: Turn Screen Off has no overlay chips
+- **WHEN** the Display settings card shows the Turn Screen Off background
+- **THEN** no overlay chip is offered
 
 ### Requirement: Water Level overlay
 When enabled for the active background, the screensaver SHALL render a Water Level readout in a compact icon row along the top of the screen, right-aligned, using the same live data and compact rendering as the home screen's water level widget.

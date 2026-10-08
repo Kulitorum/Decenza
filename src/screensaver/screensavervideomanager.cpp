@@ -986,7 +986,7 @@ void ScreensaverVideoManager::loadCacheIndex()
 
 // Returns false if the index could not be fully written. This used to be void
 // with a bare `return` on open failure — a writer that cannot report failure,
-// which is the exact defect shape (#1553) the rest of this file guards against.
+// which is the exact defect shape (PR Kulitorum/Decenza#1553) the rest of this file guards against.
 // It matters most on the migration path: if the destination directory does not
 // exist, every write here fails silently, the in-memory index is never
 // persisted, and loadCacheIndex() then drops every entry whose file it cannot

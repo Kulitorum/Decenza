@@ -6,14 +6,8 @@ The ShotServer web `/beans` page: the bag inventory as the app shows it, with th
 ## Requirements
 
 ### Requirement: Bags REST API
-The ShotServer SHALL expose, behind the existing authentication gate (`shotserver_bags.cpp`): `GET /api/bags` (inventory, open bags by default with a filter for finished), `GET /api/bag/<id>` (full detail including Bean Base snapshot), `POST /api/bags` (create), `POST /api/bag/<id>` (update, using the same write-through semantics as app edits), `POST /api/bag/<id>/finish` (mark empty), and `POST /api/bag/<id>/activate` (set active bag). All handlers SHALL route through `CoffeeBagStorage`; the bag lifecycle rule SHALL be enforced (hard delete only for bags with zero shots).
 
-To support full feature parity on the `/beans` page, the API SHALL additionally expose, behind the same auth gate:
-- `GET /api/beans/search?q=<query>` — a read-only Bean Base lookup returning candidate canonical records, reusing the same backend as the app's search (`BeanBaseClient` / the MCP `bean_search` tool). The search SHALL run off the request thread and return results as JSON.
-- `POST /api/beans/extract` — an **async** "get info from page" extraction that takes a roaster URL (and/or pasted page text) and returns extracted bean fields, reusing the app's extraction backend (`BeanBaseClient` / the MCP `bag_extract_details` tool). It SHALL follow the established async ShotServer pattern (`QPointer<QTcpSocket>` + fired-guard + timeout) and always emit an error response on timeout or rejection rather than hanging.
-- `GET /api/bag/<id>/image` (or an equivalent bean-image route) — serving the bag's photo/thumbnail for the web card, or a suitable placeholder when none exists.
-
-`POST /api/bags` create and `POST /api/bag/<id>` update SHALL accept the full app field set — including `kind` (coffee|tea, create-only), the yield anchor (`yieldG` or `yieldRatio`, mutually exclusive), `rpmPinned`, the per-bag equipment link, the freeze-lifecycle dates, and the full bean attributes — and `POST /api/bag/<id>` SHALL support linking/unlinking a Bean Base canonical record so the web can set the same linkage the app sets.
+The ShotServer SHALL expose, behind the existing auth gate (`shotserver_bags.cpp`), `GET /api/bags` (open bags by default), `GET /api/bag/<id>` (full detail), `POST /api/bags` (create), `POST /api/bag/<id>` (update, with the same write-through semantics as app edits), `POST /api/bag/<id>/finish` and `POST /api/bag/<id>/activate`. All handlers SHALL route through `CoffeeBagStorage`, and hard delete SHALL be allowed only for bags with zero shots.
 
 #### Scenario: Finish a bag via web
 - **WHEN** a client POSTs to `/api/bag/<id>/finish` for a used bag
@@ -35,26 +29,30 @@ To support full feature parity on the `/beans` page, the API SHALL additionally 
 - **WHEN** a client updates a bag with a Bean Base canonical id via the web API
 - **THEN** the bag is linked to that canonical record exactly as an in-app link would, and the link is reflected in the app
 
+### Requirement: Create and update SHALL accept the full app field set
+
+`POST /api/bags` and `POST /api/bag/<id>` SHALL accept the full app field set, including `kind` (create-only), the yield anchor (`yieldG` or `yieldRatio`, mutually exclusive), `rpmPinned`, the per-bag equipment link, the freeze-lifecycle dates and the full bean attributes. Create SHALL take only `frozenDate` and `storageHint` of those dates. Update SHALL support linking and unlinking a Bean Base canonical record.
+
+#### Scenario: Create a tea bag with its kind
+- **WHEN** a client POSTs to `/api/bags` with `kind` set to tea
+- **THEN** the bag SHALL be created with kind tea
+
+#### Scenario: Create refuses a thaw or opened date
+- **WHEN** a client POSTs to `/api/bags` with a non-empty `defrostDate` or `openedDate`
+- **THEN** the request SHALL be refused with the reason, since a new bag's opened date comes from its first shot
+
+### Requirement: Bean Base search, extraction and image endpoints
+
+Behind the same gate, the API SHALL also expose `GET /api/beans/search?q=<query>`, a read-only Bean Base lookup that reuses `BeanBaseClient` and runs off the request thread. It SHALL expose `POST /api/beans/extract`, an async extraction reusing the app's backend. It SHALL expose `GET /api/bag/<id>/image`, serving the bag's photo or a placeholder.
+
+#### Scenario: Extraction answers on timeout
+
+- **WHEN** a client POSTs to `/api/beans/extract` and extraction times out or is rejected
+- **THEN** the server SHALL answer with an error response rather than hang
+
 ### Requirement: /beans web management page
-The ShotServer SHALL serve a `/beans` page listing the bag inventory (open bags by default, active bag highlighted, roast dates/freshness shown) with create, edit, finish, and activate actions.
 
-**Visual parity.** The page SHALL present a clean, app-matching visual design rather than a flat demo list:
-- It SHALL use the ShotServer's canonical page chrome — a `<header class="header">` with the `☕ Decenza` logo, a back link, and the shared burger menu on the right — identical in structure to the Shot History page, not a bare `<div>` with a lone emoji title.
-- It SHALL render the inventory as a **responsive card grid** (cards wrapping to fill the available width, one column on narrow/tablet screens), mirroring the app's `BagCard` grid.
-- Each bag SHALL be a rounded surface **card** whose information hierarchy matches the app's `BagCard`: a bean **thumbnail**, the coffee name as the prominent title with a **verified badge** when the bag is linked to a Bean Base record, the roaster as a secondary line, a dense dot-joined attribute line (e.g. origin · variety · process) that omits missing fields, a tasting-notes line, and a freshness/roast-date meta line. Card actions SHALL sit in a wrapping action row.
-- The **active bag** SHALL be indicated with a distinct accent border/highlight on its card, not merely a text label.
-- The page SHALL show a friendly **empty state** ("No bags yet" with a short hint).
-- The card, button, badge, status, form, and modal styling SHALL come from a **shared embedded-page style** reused across `/beans`, `/recipes`, and `/equipment`.
-
-**Feature parity.** The page SHALL expose the app's full bean feature set:
-- Separate **Bag of Coffee** and **Bag of Tea** creation (setting `kind`), with the app's tea fields available for tea bags.
-- The full bean-attribute fields the app edits (origin, region, farm/producer, variety, elevation, process, harvest, quality score, place of purchase, tasting notes, product link) in addition to roaster/coffee/roast date/roast level.
-- The **yield anchor** (grams or ratio), **RPM**, and the **per-bag equipment link**.
-- The **freeze-lifecycle actions** the app offers — Thaw and Mark Opened — as discrete actions, alongside editable frozen/defrost/opened dates.
-- **Bean Base search + canonical linking**: a search-first create/link flow that queries `/api/beans/search`, lets the user pick and link a canonical record, shows the verified badge, and opens a **full-detail info popup** for linked bags (matching `BeanBaseDetailsPopup`).
-- **AI "get info from page"** extraction via `/api/beans/extract`, prefilling the form from a roaster URL/page, matching the app's "Get info from page" affordance.
-
-All create/edit/finish/activate behavior, the existing REST endpoints, auth gate, and write-through semantics SHALL remain unchanged; new capabilities are additive.
+The ShotServer SHALL serve a `/beans` page listing the bag inventory (open bags by default, active bag highlighted, roast dates and freshness shown) with create, edit, finish and activate actions. It SHALL match the app's Beans page in look and in features, using the shared embedded-page style and chrome, and SHALL keep the existing REST endpoints, auth gate and write-through semantics; new capabilities are additive.
 
 #### Scenario: Edit bag from browser
 - **WHEN** the user edits a bag's roast date on the web page
@@ -80,6 +78,21 @@ All create/edit/finish/activate behavior, the existing REST endpoints, auth gate
 - **WHEN** the user uses "get info from page" with a roaster URL on the `/beans` form
 - **THEN** the form is prefilled with the extracted bean fields, matching the app's behavior
 
+#### Scenario: The page looks like the app's
+
+- **WHEN** the user opens `/beans`
+- **THEN** it SHALL use the canonical page chrome (a `<header class="header">` with the `☕ Decenza` logo, a back link and the shared burger menu), as Shot History does
+- **AND** bags SHALL render as a responsive card grid mirroring `BagCard`: thumbnail, coffee name with a verified badge when linked, roaster, a dot-joined attribute line omitting missing fields, tasting notes, a freshness/roast-date line, and a wrapping action row
+- **AND** the active bag SHALL have an accent border, an empty inventory SHALL show "No bags yet" with a hint, and card, button, badge, form and modal styling SHALL come from the style shared with `/recipes` and `/equipment`
+
+#### Scenario: The page offers the app's bean features
+
+- **WHEN** the user works with bags on `/beans`
+- **THEN** it SHALL offer separate Bag of Coffee and Bag of Tea creation (setting `kind`) with the tea fields, and every bean attribute the app edits (origin, region, farm/producer, variety, elevation, process, harvest, quality score, place of purchase, tasting notes, product link) besides roaster, coffee, roast date and roast level
+- **AND** the yield anchor (grams or ratio), RPM and the per-bag equipment link
+- **AND** Freeze and Thaw as card actions that ask for the date, with editable frozen, thawed and opened dates; the opened date is stamped by a portion's first shot, so there is no action for it
+- **AND** Bean Base search and canonical linking via `/api/beans/search` with the verified badge and a full-detail info popup, and AI "get info from page" via `/api/beans/extract`
+
 ### Requirement: Finished bags on the web Beans page
 
 `GET /api/bags/finished` SHALL return the finished bags in the same shape as `GET /api/bags`. `POST /api/bag/<id>/restore` SHALL return a finished bag to inventory. The `/beans` page SHALL show a "Show finished (N)" toggle listing them as dimmed cards with Restock, Restore, Edit and Info, and Restock SHALL open the new-bag editor prefilled from the finished bag as the app does; open bags SHALL offer Restock too. A failed bag read SHALL answer 500, never an empty list or "Bag not found".
@@ -103,3 +116,21 @@ The `/beans` web page SHALL offer the search field and sort controls of the web 
 #### Scenario: Web page shares the sort
 - **WHEN** the user picks a sort on `/beans` and then opens Beans in the app
 - **THEN** the app shows the bags in that order
+
+### Requirement: The web Beans page and the app share one definition of bag behaviour
+The web `/beans` page SHALL NOT carry its own copy of a bag rule the app also applies: storage-type options, the card's lifecycle line and actions, restock, coffee-only fields, the bean-detail merge and the edit diff are each defined once in C++ (`CoffeeBag`, `InventoryBag`, `BeanBaseBlob`). The page gets the lists as JSON embedded at generation, and the edit route merges and diffs server-side.
+
+#### Scenario: An edit on the web writes only what changed
+- **WHEN** the web editor saves a bag after a shot stamped its `openedDate` while the editor was open
+- **THEN** the save SHALL send the form as it opened alongside the current form
+- **AND** the server SHALL write only the fields that differ, leaving the stamped `openedDate` in place
+
+#### Scenario: Card actions match the app
+- **WHEN** a finished bag with no shots is shown on the web page
+- **THEN** it SHALL offer Delete, as the app's card does
+- **AND** neither surface SHALL ask for confirmation before Bag finished or Delete
+
+#### Scenario: A tea bag refuses coffee-only fields on every surface
+- **WHEN** the app, the web API or MCP writes a non-empty roast level, grinder setting or rpm to a tea bag
+- **THEN** storage SHALL refuse the write and the caller SHALL receive the reason
+- **AND** clearing those fields SHALL be allowed

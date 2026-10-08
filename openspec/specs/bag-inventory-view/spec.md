@@ -58,11 +58,8 @@ The Beans window SHALL provide two creation entry points: a "Bag of Coffee" acti
 - **AND** the created bag SHALL have kind "tea" and appear in inventory
 
 ### Requirement: Idle-page bean widget shows inventory bags
-The idle-page bean layout widget (`BeansItem.qml`) SHALL display inventory bags (`inInventory = true`, MRU order) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`. The full inventory remains on the Beans page.
 
-The pill row SHALL show as many bags as comfortably fit within **at most two rows** at the row's current available width, and SHALL paginate the remainder of the MRU inventory via prev/next arrows. The number of bags per page SHALL be computed **live** from the actual (measured) pill widths — so longer bag names mean fewer pills per page — and MAY differ from one page to the next. The previous arrow SHALL be shown only when a previous page exists (not on the first page) and the next arrow only when a further page exists (not on the last page); when every bag fits within two rows neither arrow SHALL appear and the row SHALL be visually identical to the non-paginated row. Paging SHALL change only which bags are visible — it SHALL NOT change `activeBagId` or reorder the inventory. Opening the widget SHALL start on the first page (the most-recent bags that fit). When the inventory changes, the current page SHALL be clamped to remain within range.
-
-This mirrors the Recipes idle widget's fit-based pagination (recipe-quick-switch) so the two widgets behave identically.
+The idle-page bean layout widget (`BeansItem.qml`) SHALL display inventory bags (`inInventory = true`, MRU order) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`. The full inventory remains on the Beans page. The widget SHALL mirror the Recipes idle widget's fit-based pagination (recipe-quick-switch).
 
 #### Scenario: Selecting a bag from the idle page
 - **WHEN** the user taps a bag pill on the idle page
@@ -88,6 +85,24 @@ This mirrors the Recipes idle widget's fit-based pagination (recipe-quick-switch
 #### Scenario: Never more than two rows
 - **WHEN** any page of bag pills is shown
 - **THEN** the pills SHALL occupy at most two rows
+
+### Requirement: Bag paging SHALL NOT change the active bag
+
+The previous arrow SHALL show only when a previous page exists, and the next arrow only when a further page exists. Paging SHALL NOT change `activeBagId` or reorder the inventory.
+
+#### Scenario: Paging keeps the active bag
+
+- **WHEN** the user pages the bag pill row
+- **THEN** `activeBagId` SHALL be unchanged
+
+### Requirement: The bag pill row SHALL fit bags within two rows
+
+The pill row SHALL show as many bags as fit within at most two rows at the current width, computed live from measured pill widths, so the count MAY differ between pages. Opening the widget SHALL start on the first page, and the current page SHALL be clamped to range when the inventory changes.
+
+#### Scenario: Page size follows measured widths
+
+- **WHEN** bag names are long enough that fewer fit within two rows
+- **THEN** each page SHALL hold only as many bags as fit at the measured width
 
 ### Requirement: Bags are editable in place
 Each bag SHALL be editable from its card via an Edit action, opening the Bag Details form in edit mode. All bag fields are editable (roaster, coffee name, roast date, roast level, notes, startWeightG, freeze dates, canonical link). Edits modify the existing bag row — no new bag is created, and `activeBagId` is unaffected.
@@ -123,7 +138,7 @@ Each bag card SHALL show exactly ONE removal action, chosen by whether shots ref
 
 ### Requirement: Finished bags are listed and can be restocked
 
-The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag has `inInventory = false`, that lists the finished bags as dimmed cards in most-recently-used order. Tapping a finished card SHALL open it for editing. A finished card's actions SHALL be Restock, Restore, Edit and (for a linked bag) bean details. Restore SHALL return that bag to inventory. A bag in inventory SHALL offer Restock as well. Restock SHALL open the new-bag form prefilled from the finished bag — identity, bean details, equipment and dial-in — with the roast date, freezer dates, opened date and notes left blank; saving it SHALL create a new bag. The finished bag SHALL stay finished, with its shots.
+The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag has `inInventory = false`. It SHALL list finished bags as dimmed cards in most-recently-used order, and tapping a finished card SHALL open it for editing. The finished bag SHALL stay finished, with its shots.
 
 #### Scenario: Restocking a coffee whose bag was finished
 - **GIVEN** a finished bag of Saka Gran Bar with a recipe linked to it
@@ -142,6 +157,24 @@ The Beans window SHALL offer a "Show finished (N)" toggle, shown when any bag ha
 - **WHEN** every bag is in inventory
 - **THEN** no Show finished toggle is shown
 
+### Requirement: Finished cards SHALL offer Restore, Edit and bean details
+
+A finished card SHALL offer Restore, which returns that same bag to inventory with its dates and shots. It SHALL also offer Edit and, for a linked bag, bean details.
+
+#### Scenario: Finished card actions
+
+- **WHEN** a finished linked bag's card is shown
+- **THEN** it SHALL offer Restore, Edit and bean details
+
+### Requirement: Restock SHALL create a new bag from an existing one
+
+Restock SHALL be offered on finished bags and on bags in inventory. It SHALL open the new-bag form prefilled from that bag's identity, bean details, equipment and dial-in, with roast date, freezer dates, opened date and notes left blank. Saving SHALL create a new bag and SHALL leave the original bag's state unchanged.
+
+#### Scenario: Restock on a bag still in use keeps it in inventory
+
+- **WHEN** the user taps Restock on a bag in inventory and saves a new roast date
+- **THEN** a new bag of that coffee SHALL be added and the original SHALL stay in inventory
+
 ### Requirement: A failed bag read is not an empty inventory or a missing bag
 
 A bag query that fails, or a database that does not open, SHALL be reported as a failure: the inventory SHALL NOT be shown as empty, and the active bag selection SHALL NOT be cleared. Only a bag row that is genuinely absent SHALL count as not found.
@@ -153,7 +186,7 @@ A bag query that fails, or a database that does not open, SHALL be reported as a
 
 ### Requirement: Beans page search and sort
 
-The Beans window SHALL offer the same search field and sort controls as the Recipes page. A search SHALL match every text value a bag holds (its own fields and every value in its bean-details blob) and the bag's kind ("Tea" or "Coffee", localized), and SHALL NOT match identifiers, links, stored enum values or sync bookkeeping. The search SHALL update on every edit and SHALL apply to the finished bags too, and the "Show finished (N)" count SHALL count the matches. Sort SHALL offer Last used (the default, newest first), Roast date, Coffee and Roaster, and SHALL persist; a saved sort the page does not offer SHALL show and sort as Last used. The search SHALL reset when the page is entered.
+The Beans window SHALL offer the same search field and sort controls as the Recipes page. A search SHALL match every text value a bag holds (its fields, its bean-details blob, and its localized kind, "Tea" or "Coffee"), and SHALL NOT match identifiers, links, stored enum values or sync bookkeeping. The search SHALL reset when the page is entered.
 
 #### Scenario: Search by a bean detail
 - **WHEN** the user types a region recorded only in a bag's bean details
@@ -178,3 +211,21 @@ The Beans window SHALL offer the same search field and sort controls as the Reci
 #### Scenario: Finished bags cannot be read
 - **WHEN** reading the finished bags fails while a search is on or the finished bags are shown
 - **THEN** the page says the finished bags could not be read, and does not say nothing matches
+
+### Requirement: Sort SHALL persist and fall back to Last used
+
+Sort SHALL offer Last used (the default, newest first), Roast date, and Coffee and Roaster. The chosen sort SHALL persist. A saved sort the page does not offer SHALL show and sort as Last used.
+
+#### Scenario: Unoffered saved sort falls back
+
+- **WHEN** a saved sort that the page does not offer is loaded
+- **THEN** the page SHALL show Last used and sort by it
+
+### Requirement: Search SHALL update on every edit and include finished bags
+
+The search SHALL update on every edit and SHALL apply to finished bags too. The "Show finished (N)" count SHALL count the matching finished bags.
+
+#### Scenario: Finished count follows the search
+
+- **WHEN** a search matches one finished bag
+- **THEN** the toggle SHALL read "Show finished (1)"

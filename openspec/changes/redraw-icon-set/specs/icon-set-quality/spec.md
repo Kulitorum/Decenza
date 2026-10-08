@@ -25,13 +25,10 @@ user looks for the specific thing and does not find it.
 
 ### Requirement: Icons are recolourable
 
-Icons SHALL carry no baked-in colour that the application cannot override, so that a single asset
-renders correctly against any theme colour and any state colour.
-
-Two independent needs, and the second is the one that is easy to miss: themes recolour icons for
-light and dark and for user-defined palettes; and individual controls recolour their BACKGROUND to
-signal state — active, highlighted, warning — so an icon must be recoloured to stay legible against
-whatever its container is currently doing.
+Icons SHALL carry no baked-in colour that the application cannot override, so one asset renders
+correctly against any theme colour (light, dark, user palettes) and any state colour: controls
+recolour their background to signal active, highlighted or warning, and the icon must stay legible
+on it.
 
 #### Scenario: Theme change
 

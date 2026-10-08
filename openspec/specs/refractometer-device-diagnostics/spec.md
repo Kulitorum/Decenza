@@ -1,7 +1,8 @@
 # refractometer-device-diagnostics Specification
 
 ## Purpose
-TBD - created by archiving change expand-difluid-r2-protocol. Update Purpose after archive.
+Covers how the driver names and reports R2 refractometer status and error codes, reassembles the device serial number, and handles multi-reading settling runs and device-initiated Auto Test measurements.
+
 ## Requirements
 ### Requirement: Every device status code is logged by name
 
@@ -26,10 +27,7 @@ This exists because field logs are read by people and by AI assistants triaging 
 - **AND** no measurement state is changed on account of it
 
 ### Requirement: Every documented error code is reported by name
-
-The driver SHALL name all documented R2 error codes: class 2 (General) codes 1 Test Error, 2 Calibration Failed, 3 No Liquid, and 4 Beyond Range; and class 3 (Hardware), whose code is the number shown on the device's own screen and SHALL be included in the message so a user can match it to what they are looking at.
-
-Naming a code is distinct from surfacing it to the user. The existing division SHALL be preserved: only user-actionable measurement failures raise a user-visible error; everything else is logged, because the R2 also emits benign class/code combinations around a successful read and surfacing those spams the error dialog with nothing useful.
+The driver SHALL name all documented R2 error codes: class 2 (General) codes 1 Test Error, 2 Calibration Failed, 3 No Liquid and 4 Beyond Range, and class 3 (Hardware) by the number shown on the device's own screen, which SHALL be included in the message.
 
 #### Scenario: Hardware error names the on-screen code
 
@@ -47,11 +45,15 @@ Naming a code is distinct from surfacing it to the user. The existing division S
 - **WHEN** any error packet arrives while a measurement is in flight
 - **THEN** the measuring state is cleared so the interface does not hang
 
+### Requirement: Only user-actionable failures raise a user-visible error
+Naming a code SHALL NOT by itself surface it to the user. Only user-actionable measurement failures SHALL raise a user-visible error. Every other class and code combination SHALL be logged, including the benign combinations the R2 emits around a successful read.
+
+#### Scenario: A benign class and code is logged only
+- **WHEN** the device sends a benign class and code combination around a successful read
+- **THEN** it is logged by name and no error dialog is raised
+
 ### Requirement: The device serial number is reassembled and recorded
-
-The R2 transmits its serial number as three packets, each carrying a part index in Data0 followed by five bytes of serial data. The driver SHALL reassemble these into the complete serial number regardless of the order the packets arrive in, and record it alongside the model and firmware strings it already captures.
-
-This is identification data, not measurement data: it supports telling a genuine R2 Extract from a Brix-reporting variant or rebrand, where the model string alone has proven insufficient.
+The R2 sends its serial number as three packets, each carrying a part index in Data0 followed by five bytes of serial data. The driver SHALL reassemble them into the complete serial number regardless of arrival order, and record it alongside the model and firmware strings. It is identification data, not a measurement.
 
 #### Scenario: Serial number assembled from three packets
 
@@ -71,10 +73,7 @@ This is identification data, not measurement data: it supports telling a genuine
 - **THEN** no partial serial number is logged as if it were the device's identity
 
 ### Requirement: A multi-reading run started by the device ends once, not once per reading
-
-The R2 re-measures a single sample repeatedly when the prism is not thermally settled, ending with its own terminal status. Each reading SHALL be delivered — the settled value is the last one, and latest-wins leaves it in place — but the run SHALL be declared complete only on the terminal status, not on each reading.
-
-Treating each reading as a completed measurement was observed on hardware to fire completion five times across a 16-second run, and would let a value saved mid-run persist a reading the device had already superseded.
+The R2 re-measures a single sample while the prism is not thermally settled, ending with its own terminal status. Each reading SHALL be delivered, and the last one is the settled value. The run SHALL be declared complete only on the terminal status, not on each reading.
 
 #### Scenario: Each reading of a settling run is delivered
 

@@ -10,7 +10,7 @@
 
 ## Context
 
-Phase 1 (shipped, PR #1236) derives the Conversion Key from mined within-coffee
+Phase 1 (shipped, PR Kulitorum/Decenza#1236) derives the Conversion Key from mined within-coffee
 shot history and, on real databases, correctly degrades to directional-only —
 the mined data rarely spans enough UGS with enough validated pairs. The
 deliberate calibration replaces the *mined* key with a *measured* one: two

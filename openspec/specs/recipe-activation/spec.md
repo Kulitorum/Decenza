@@ -1,12 +1,12 @@
 # recipe-activation Specification
 
 ## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
+Governs how a recipe is activated from every surface (QML, MCP, ShotServer) and what activation configures on the machine, including the profile, bag, equipment, dose, yield, temperature, steam and hot water. Also covers when a user or profile change deactivates the active recipe, and how recipes whose profile is missing are shown and handled.
 
 ## Requirements
 
 ### Requirement: Single activation path shared by all surfaces
-Recipe activation SHALL be implemented once in the main controller, reusing the existing shot-load pipeline (`applyLoadedShotMetadata` semantics: profile by title with stored-JSON fallback, bag selected before DYE field writes, queued dose write). QML pill taps, the MCP `recipe_activate` tool, and the ShotServer activate route SHALL all call this single path. The active recipe id SHALL live in the DYE settings domain beside `activeBagId`. The bag stage SHALL select the recipe's linked bag directly (no bean-identity resolution at activation time).
+Recipe activation SHALL be implemented once in the main controller, reusing the existing shot-load pipeline. QML pill taps, the MCP `recipe_activate` tool and the ShotServer activate route SHALL all call this single path. The active recipe id SHALL live in the DYE settings domain beside `activeBagId`. The bag stage SHALL select the recipe's linked bag directly, with no bean-identity resolution at activation time.
 
 #### Scenario: Activation applies the full bundle
 - **WHEN** a recipe is activated from any surface
@@ -16,8 +16,12 @@ Recipe activation SHALL be implemented once in the main controller, reusing the 
 - **WHEN** the same recipe is activated via QML, MCP, or the web API
 - **THEN** the resulting app and machine state are identical
 
+#### Scenario: Shot-load ordering
+- **WHEN** a recipe is activated
+- **THEN** the profile is loaded by title with a stored-JSON fallback, the bag is selected before DYE field writes, and the dose is written through the queued dose write
+
 ### Requirement: Optionality ladder is never violated
-No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe active, all settings (including steam) SHALL behave exactly as before this change. Activating a recipe that lacks optional rungs SHALL apply what the recipe has: a missing equipment rung leaves the current equipment untouched, while a missing bean rung SHALL **clear the active bag** — the session moves to the "no beans selected" state rather than staying attributed to whatever bag happened to be active before. The system SHALL NOT prompt users to create recipes.
+No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe active, all settings (including steam) SHALL behave exactly as before this change. A missing equipment rung SHALL leave the current equipment untouched. A missing bean rung SHALL clear the active bag. The system SHALL NOT prompt users to create recipes.
 
 #### Scenario: Recipe-less user
 - **WHEN** a user never creates a recipe
@@ -33,27 +37,7 @@ No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe 
 - **THEN** the recipe remains the active recipe — the ingredient-swap deactivation watcher treats "no bag" as matching a recipe that has no bag
 
 ### Requirement: Tweaks write through; ingredient swaps deactivate
-While a recipe is active, a dose change SHALL write through to the active recipe (no dirty state, matching bag semantics). Grind/RPM changes SHALL write through to the active bag and stamp the recipe's own `grindPinned`/`rpmPinned` (per `fix-recipe-grind-integrity`: grind lives on the recipe, the bag always mirrors the last dial, and a grind-less `tea*` recipe never adopts a grind). Dose and grind/RPM are the ONLY live values that reach the recipe from the dial: they are dial-in measurements of what the user physically did, and there is no other write-through.
-
-Yield and temperature are per-brew **overrides**, not tweaks: a Brew Settings change to yield (Stop-at) or temperature (Temp Delta) SHALL apply only as a `Settings.brew` override for the next brew and SHALL NOT write through to the active recipe. The recipe's `yieldG` / `tempOffsetC` SHALL change only via an explicit "Update Recipe" action; when Update Recipe persists a temperature, it SHALL store the delta between the dialed temperature and the profile's espresso_temperature (the offset), never the absolute value. Accordingly, the `MainController` auto-stamp watchers on `SettingsBrew::brewOverridesChanged` (→ `yieldG`) and `SettingsBrew::temperatureOverrideChanged` (→ `tempOffsetC`) SHALL be removed.
-
-The steam pitcher and the water vessel are **ingredients**, not tweaks. Selecting a different steam pitcher or a different water vessel while a recipe is active SHALL deactivate the recipe, exactly as changing the bean, the equipment package, or the profile does — the user is no longer making that drink, and the change SHALL apply to the live settings while the recipe's stored block is left untouched. Accordingly, the `MainController` auto-stamp watchers on the steam-pitcher selection, the steam-pitcher presets, the steamed-milk weight, the water-vessel selection, and the water-vessel presets SHALL be removed, and two deactivation watchers SHALL take their place.
-
-Each deactivation watcher SHALL gate on OWNERSHIP first, as the bean, equipment and profile watchers do: a recipe whose steam block names no pitcher owns no pitcher choice and SHALL NOT be deactivated by a pitcher change, and a recipe with no active hot-water block SHALL NOT be deactivated by a vessel change. Re-selecting the pitcher or vessel the recipe itself names SHALL NOT deactivate it. The ownership and divergence questions SHALL each have ONE definition, shared by every site that asks them, in the same place as `Recipe::profileDiverged` — a comparison hand-written per call site is free to drift, and the drift is invisible until a shot is stamped with a recipe it did not run.
-
-Two things SHALL NOT deactivate. Editing, adding, removing or reordering a pitcher or vessel PRESET is not an ingredient swap and SHALL leave the active recipe alone; a recipe's block is a by-value snapshot, not a reference. The steamed-milk weight SHALL NOT deactivate either: it is captured automatically at the end of a steam session, so deactivating on it would drop every milk recipe moments before its own shot is saved, costing that shot its recipe attribution.
-
-Deactivation SHALL NOT undo the selection that triggered it. The recipe pitcher override parks the user's own standing selection on activation and restores it on deactivation, so a deactivation driven by the user's own pitcher pick SHALL first make that pick the standing selection — otherwise the unwind re-selects the parked pitcher and the user's choice disappears.
-
-A recipe's `steamJson` / `hotWaterJson` SHALL change only through an explicit recipe edit (the wizard, `recipe_update` over MCP, or the web recipe form). Because activation re-applies the recipe's stored blocks, re-activating the recipe SHALL restore its pitcher and vessel into the live settings.
-
-Changing the active bag/bean or the equipment package SHALL deactivate the recipe (event-based, no timers); the recipe itself SHALL be unchanged by deactivation.
-
-The active recipe SHALL be deactivated whenever the profile it names ceases to be the loaded profile, **by any route** — the user selecting a different profile, the named profile being deleted, or a restored selection meeting a profile that is not the one it names. The rule SHALL be expressed as a single shared predicate consulted at every such site, not as a comparison written independently at each one.
-
-A recipe that names no profile SHALL NOT be deactivated by any profile change: it owns no profile choice, exactly as a bean-less recipe owns no bag choice and an equipment-less recipe owns no equipment choice.
-
-Editing the loaded profile in place SHALL NOT deactivate the recipe. The recipe names a title; an edit that keeps the title has not changed what the recipe points at.
+While a recipe is active, a dose change SHALL write through to the active recipe, with no dirty state. Grind and RPM changes SHALL write through to the active bag and SHALL stamp the recipe's own `grindPinned`/`rpmPinned`. Dose and grind/RPM are the only live dial values that reach the recipe; there is no other write-through.
 
 #### Scenario: Dose tweak while active
 - **WHEN** the user changes dose while a recipe is active
@@ -149,8 +133,80 @@ Editing the loaded profile in place SHALL NOT deactivate the recipe. The recipe 
 - **WHEN** a shot is recorded while a recipe is active
 - **THEN** the loaded profile is the one that recipe names, or the recipe was deactivated before the shot and the shot carries no recipe
 
+### Requirement: Yield and temperature are per-brew overrides
+Yield and temperature are per-brew overrides. A Brew Settings change to yield or temperature SHALL apply only as a `Settings.brew` override for the next brew, never writing through to the recipe. `yieldG` and `tempOffsetC` SHALL change only through "Update Recipe", which stores temperature as an offset from the profile's espresso_temperature. The auto-stamp watchers on `brewOverridesChanged` and `temperatureOverrideChanged` SHALL be removed.
+
+#### Scenario: Update Recipe stores the temperature as an offset
+- **WHEN** the user dials the brew temperature to 87 on a 90° profile while a recipe is active and presses Update Recipe on the temperature
+- **THEN** the recipe stores `tempOffsetC` = −3
+
+### Requirement: Steam pitcher and water vessel are ingredients
+The steam pitcher and the water vessel are ingredients, not tweaks. Selecting a different pitcher or vessel while a recipe is active SHALL deactivate the recipe, and the change SHALL apply to the live settings while the recipe's stored block is left untouched. The auto-stamp watchers on pitcher and vessel selection and presets SHALL be removed and replaced by two deactivation watchers.
+
+#### Scenario: Steam pitcher change while active deactivates
+- **WHEN** the user selects a different steam pitcher while a recipe whose steam block names one is active
+- **THEN** the recipe is deactivated and the recipe's stored steam block is unchanged
+- **AND** the selected pitcher is the one the user picked, not the parked standing pitcher
+
+### Requirement: Deactivation watchers gate on ownership
+Each deactivation watcher SHALL gate on ownership first. A recipe whose steam block names no pitcher SHALL NOT be deactivated by a pitcher change, and a recipe with no active hot-water block SHALL NOT be deactivated by a vessel change. Re-selecting the pitcher or vessel the recipe names SHALL NOT deactivate it. The ownership and divergence checks SHALL each have one definition, beside `Recipe::profileDiverged`, shared by every site.
+
+#### Scenario: Re-selecting the recipe's own vessel does not deactivate
+- **WHEN** the user taps the water vessel the active recipe's block already names
+- **THEN** the recipe stays active
+
+#### Scenario: A recipe with no hot-water block is not deactivated by a vessel change
+- **WHEN** the user selects a different water vessel while an espresso recipe is active
+- **THEN** the recipe stays active, because it owns no vessel choice
+
+### Requirement: Presets and milk weight do not deactivate
+Editing, adding, removing or reordering a pitcher or vessel preset SHALL NOT deactivate the active recipe, because a recipe's block is a by-value snapshot. The steamed-milk weight SHALL NOT deactivate either. It is captured at the end of a steam session, and deactivating on it would cost the next shot its recipe attribution.
+
+#### Scenario: The measured milk weight does not deactivate
+- **WHEN** a steam session ends and the measured milk weight is captured while a milk recipe is active
+- **THEN** the recipe stays active, so the shot that follows is still attributed to it
+
+### Requirement: Deactivation preserves the user's pitcher pick
+Deactivation SHALL NOT undo the selection that triggered it. A deactivation driven by the user's own pitcher pick SHALL first make that pick the standing selection, so that the unwind does not re-select the parked pitcher.
+
+#### Scenario: Re-activating the recipe restores its vessel and pitcher
+- **WHEN** the user changes the water vessel (or steam pitcher) while a recipe is active, then activates that same recipe again
+- **THEN** the recipe's stored vessel and pitcher are re-selected and their values re-applied to the live settings
+
+### Requirement: Recipe blocks change only by explicit edit
+A recipe's `steamJson` and `hotWaterJson` SHALL change only through an explicit recipe edit: the wizard, `recipe_update` over MCP, or the web recipe form. Re-activating the recipe SHALL restore its pitcher and vessel into the live settings.
+
+#### Scenario: The wizard is the way to keep a block change
+- **WHEN** the user wants a recipe to pour a different amount of hot water from now on
+- **THEN** the change is made by editing the recipe (the wizard, MCP `recipe_update`, or the web recipe form), never by a live selection
+
+### Requirement: Bag or equipment change deactivates
+Changing the active bag or bean, or the equipment package, SHALL deactivate the recipe. This SHALL be event-based, with no timers. Deactivation SHALL leave the recipe itself unchanged.
+
+#### Scenario: Equipment change deactivates the recipe
+- **WHEN** the user changes the active bag or the equipment package while a recipe is active
+- **THEN** the recipe is deactivated and its stored fields are unchanged
+
+### Requirement: Profile change deactivates by any route
+The active recipe SHALL be deactivated whenever the profile it names ceases to be the loaded profile, by any route: the user selecting a different profile, the named profile being deleted, or a restored selection meeting a different profile. This SHALL be a single shared predicate consulted at every such site, not a comparison written independently at each one.
+
+#### Scenario: Profile swap deactivates
+- **WHEN** the user manually selects a different profile while a recipe is active
+- **THEN** the active recipe clears, its pill deselects, and the recipe's stored fields are unchanged
+
+### Requirement: Profile-less and in-place profile edits do not deactivate
+A recipe that names no profile SHALL NOT be deactivated by any profile change, because it owns no profile choice. Editing the loaded profile in place SHALL NOT deactivate the recipe, because the recipe names a title and an edit that keeps the title has not changed what it points at.
+
+#### Scenario: A profile-less recipe survives a profile change
+- **WHEN** the user selects a different profile while a profile-less recipe (tea, hot water) is active
+- **THEN** the recipe stays active, because it owns no profile choice
+
+#### Scenario: Editing the loaded profile in place does not deactivate
+- **WHEN** the user edits the loaded profile and saves it under the same title while a recipe naming it is active
+- **THEN** the recipe stays active
+
 ### Requirement: Hot-water settings apply on recipe activation
-Activating a recipe with a hot-water block SHALL re-select the snapshotted water vessel into the live brew settings and apply its values (temperature, amount by weight or volume, and flow) via the existing hot-water settings path, so the machine is configured to dispense the specified hot water. If the named vessel preset no longer exists, activation SHALL recreate it from the by-value snapshot rather than fail. Unlike the steam heater, hot water needs no multi-minute pre-warm, so activation SHALL NOT introduce any heater hold for the hot-water block. A recipe with a hot-water block but no milk block SHALL NOT force the steam heater on. Activation SHALL remain a single path shared by all surfaces and SHALL apply the hot-water block alongside profile, bean, equipment, grind, dose/yield/temperature, and steam.
+Activating a recipe with a hot-water block SHALL re-select its snapshotted water vessel and apply the vessel's temperature, amount and flow via the existing hot-water settings path. If the named vessel preset no longer exists, activation SHALL recreate it from the by-value snapshot rather than fail. Activation SHALL take no steam-heater hold for the hot-water block, and SHALL NOT force the steam heater on for a recipe with no milk block.
 
 #### Scenario: Activation configures hot water from the vessel
 - **WHEN** a recipe with a hot-water block is activated from any surface
@@ -164,8 +220,12 @@ Activating a recipe with a hot-water block SHALL re-select the snapshotted water
 - **WHEN** a recipe's hot-water block references a water-vessel preset that has since been deleted
 - **THEN** activation applies the by-value snapshot stored on the recipe rather than failing
 
+#### Scenario: Hot water applied with the rest of the bundle
+- **WHEN** a recipe with a hot-water block is activated
+- **THEN** the hot-water block is applied alongside profile, bean, equipment, grind, dose/yield/temperature, and steam, through the same single activation path
+
 ### Requirement: Profile-less recipes activate without the profile pipeline
-When an activated recipe has no profile, the activation path SHALL skip the profile-load, dose-write, and yield/temperature-override stages entirely and SHALL still apply the linked bag, equipment selection, and the hot-water block (vessel re-select by name with snapshot recreation, then hot-water settings apply). No steam-heater hold SHALL be taken (the existing hot-water rule). The currently loaded espresso profile SHALL be left untouched. `recipeActivated` SHALL fire with the same terminal semantics as profile-carrying recipes, and `activeRecipeId` SHALL be set last.
+When an activated recipe has no profile, activation SHALL skip the profile-load, dose-write and yield/temperature-override stages, and SHALL still apply the linked bag, equipment and hot-water block. No steam-heater hold SHALL be taken, and the loaded espresso profile SHALL be left untouched. `recipeActivated` SHALL fire with the same terminal semantics, and `activeRecipeId` SHALL be set last.
 
 #### Scenario: Hot-water tea activation
 - **WHEN** a profile-less tea recipe is activated from any surface
@@ -194,7 +254,7 @@ Re-activating a recipe that is already the active recipe SHALL NOT overwrite a f
 - **THEN** re-activating the recipe (or any trigger that re-applies it) reflects the externally-made change
 
 ### Requirement: Activation derives the brew temperature from the offset
-When a profile-carrying recipe with a non-zero `tempOffsetC` is activated, the activation path SHALL compute the brew temperature as `loaded profile's espresso_temperature + offset` and apply it as the per-brew temperature override (uploading the profile as today). A recipe with offset 0 SHALL arm no temperature override — this replaces the old "recipe value coincidentally equals the profile default is not an override" guard (Bug A), which becomes unnecessary because a delta of zero is unambiguous. The recipe-baseline accessors used by Brew Settings and the Shot Plan (`activeBaselineTemperatureC`) SHALL return the same offset-derived temperature.
+When a profile-carrying recipe with a non-zero `tempOffsetC` is activated, the brew temperature SHALL be the loaded profile's espresso_temperature plus the offset, applied as the per-brew temperature override. A recipe with offset 0 SHALL arm no temperature override. The recipe-baseline accessor `activeBaselineTemperatureC`, used by Brew Settings and the Shot Plan, SHALL return the same offset-derived temperature.
 
 #### Scenario: Offset applies against the current profile temperature
 - **WHEN** a recipe with offset −3 on a profile whose espresso_temperature is 90 is activated
@@ -208,15 +268,12 @@ When a profile-carrying recipe with a non-zero `tempOffsetC` is activated, the a
 - **WHEN** a recipe with offset 0 is activated
 - **THEN** no temperature override is armed and the machine brews at the profile's own temperature
 
+#### Scenario: Override is uploaded with the profile
+- **WHEN** a profile-carrying recipe with a non-zero offset is activated
+- **THEN** the profile is uploaded to the machine as today, carrying the derived temperature override
+
 ### Requirement: Activation applies the recipe's yield anchor after the dose lands
-
-Activation SHALL apply the recipe's yield spec (`yield-anchor`) to the session anchor verbatim — value **and** mode — so an activated recipe opens with its saved yield, and a ratio-moded recipe stays ratio-moded.
-
-When the recipe's mode is `ratio`, the gram target SHALL be derived **after** the recipe's dose has landed, never against the dose in effect before activation. Today `applyActivatedRecipe` writes the yield synchronously while the dose is deferred to a queued write (so that it beats the profile's own deferred `recommendedDose`); an inline `dose × ratio` at the synchronous point would multiply a stale, pre-activation dose. The derivation SHALL therefore happen in the same queued step as the dose, or resolve against the recipe's own `doseG` directly rather than reading it back from settings.
-
-Applying a `ratio` anchor SHALL NOT be suppressed when the derived target happens to equal the active profile's `target_weight`. The "a value matching the profile default is not an override" rule applies to `absolute` yields only — for a ratio it would silently discard the anchor exactly when it coincides with the profile, taking the dose-tracking behaviour with it.
-
-When the recipe's mode is `none`, activation SHALL leave the ladder to fall through to the bag, then the profile — arming no yield anchor of its own.
+Activation SHALL apply the recipe's yield spec to the session anchor verbatim, value and mode, so a ratio-moded recipe stays ratio-moded. For a `ratio` recipe the gram target SHALL be derived after the recipe's dose has landed, in the same queued step as the dose or against the recipe's own `doseG`, never the pre-activation dose. A `none` mode SHALL arm no anchor, so the ladder falls through to the bag, then the profile.
 
 #### Scenario: A ratio recipe activates ratio-anchored
 - **WHEN** a recipe holding `{2.0, ratio}` with a `doseG` of 18 is activated
@@ -245,14 +302,15 @@ When the recipe's mode is `none`, activation SHALL leave the ladder to fall thro
 - **WHEN** a recipe whose yield mode is `none` is activated and the active bag's mode is also `none`
 - **THEN** the effective yield is the profile's `target_weight`
 
+### Requirement: A ratio anchor is never suppressed as a profile default
+Applying a `ratio` anchor SHALL NOT be suppressed when the derived target equals the active profile's `target_weight`. The rule that a value matching the profile default is not an override SHALL apply to `absolute` yields only.
+
+#### Scenario: A ratio anchor equal to the profile default is kept
+- **WHEN** a recipe holding `{2.0, ratio}` is activated on a profile whose `target_weight` equals the derived target
+- **THEN** the session anchor stays `{2.0, ratio}` and `hasBrewYieldOverride` is true
+
 ### Requirement: A recipe whose profile is not installed shows that it is
-A recipe that names a profile which is not installed SHALL be visibly marked as missing its profile wherever recipes are listed, so that an unactivatable recipe is distinguishable from a working one without tapping it.
-
-The marking SHALL be derived at display time from the loaded profile catalog. It SHALL NOT be stored on the recipe, and no pass over the recipe library SHALL scan, mark, migrate or repair stored recipes. Consequently the marking SHALL apply to every route into the state — the profile deleted, a `profileTitle` that never resolved, a restored database, a device transfer arriving without its profiles — and SHALL clear on its own when the profile becomes available again.
-
-The marking SHALL follow the profile catalog, so a profile deleted or imported while a recipe list is on screen updates that list without it being rebuilt.
-
-A recipe that names no profile SHALL NOT be marked: it is a valid profile-less drink, not a broken one.
+A recipe that names a profile which is not installed SHALL be visibly marked as missing its profile wherever recipes are listed. The marking SHALL be derived at display time from the loaded profile catalog and SHALL NOT be stored on the recipe. No pass over the recipe library SHALL scan, mark, migrate or repair stored recipes. The marking SHALL follow the catalog and clear on its own when the profile is available again.
 
 #### Scenario: A recipe naming a deleted profile is marked
 - **WHEN** the user views the recipe list after deleting a profile that a recipe names
@@ -270,6 +328,17 @@ A recipe that names no profile SHALL NOT be marked: it is a valid profile-less d
 - **WHEN** a recipe is created through MCP or the web with a `profileTitle` that matches no installed profile
 - **THEN** it is marked in the list exactly as a deleted-profile recipe is
 
+#### Scenario: Marking covers every route into the state
+- **WHEN** a recipe's profile is missing because of a restored database, a device transfer arriving without its profiles, or a `profileTitle` that never resolved
+- **THEN** the recipe is marked as missing its profile, with no repair step
+
+### Requirement: A profile-less recipe is never marked
+A recipe that names no profile SHALL NOT be marked as missing its profile. It is a valid profile-less drink, not a broken one.
+
+#### Scenario: A profile-less recipe is not marked
+- **WHEN** the recipe list shows a profile-less tea or hot-water recipe
+- **THEN** it is not marked as missing a profile
+
 ### Requirement: A failed activation tells the user why
 When activation fails, the user SHALL be shown that it failed and what is wrong, rather than only a selection that reverts. When the cause is a profile that is neither installed nor carried as stored JSON, the message SHALL name the missing profile title, because that is the value the user must change to fix it.
 
@@ -282,9 +351,7 @@ When activation fails, the user SHALL be shown that it failed and what is wrong,
 - **THEN** the previously loaded profile and all brew settings are unchanged
 
 ### Requirement: Deleting a profile warns when recipes name it
-Deleting a profile that one or more recipes name SHALL warn the user, stating how many recipes use it, and SHALL proceed on confirmation. Deletion SHALL NOT be refused: a user may delete their own profiles.
-
-The affected recipes SHALL NOT be modified — the profile SHALL NOT be snapshotted into them to keep them working, and their stored `profileTitle` SHALL be left as it is. A recipe pointing at a profile the user deleted is missing its profile, and says so; re-pointing it is done in the recipe editor, which already edits the profile a recipe names. No repair action SHALL be offered in the delete flow.
+Deleting a profile that one or more recipes name SHALL warn the user with how many recipes use it, and SHALL proceed on confirmation. Deletion SHALL NOT be refused. The affected recipes SHALL NOT be modified: no profile snapshot is written into them and their stored `profileTitle` is kept. No repair action SHALL be offered in the delete flow.
 
 #### Scenario: Deleting a profile that recipes use
 - **WHEN** the user deletes a profile that three recipes name
@@ -302,15 +369,12 @@ The affected recipes SHALL NOT be modified — the profile SHALL NOT be snapshot
 - **WHEN** the user opens a recipe marked as missing its profile in the recipe editor and selects an installed profile
 - **THEN** the recipe activates normally afterwards
 
+#### Scenario: Recipes are left missing their profile
+- **WHEN** the user confirms the delete of a profile that recipes name
+- **THEN** the profile is deleted, the recipes are unchanged, and they show as missing their profile
+
 ### Requirement: Steam settings write on recipe switch, heater follows the user's settings
-
-Activating a recipe SHALL write its steam block into the live brew settings (propagating to the DE1 as today) at activation time, not at shot start, and SHALL apply the selected pitcher's stored values — duration, flow and temperature — not merely record its index.
-
-The recipe's pitcher SHALL be an **override** of the standing pitcher rather than a write to it: while the recipe is active and **Let the recipe decide** is on, the recipe's pitcher is the effective pitcher; deactivating SHALL restore the standing pitcher without the recipe having modified it.
-
-Activating a recipe SHALL NOT grant the steam heater permission to be warm. A recipe that uses steam SHALL warm the heater when its **shot starts**, and only when **Let the recipe decide** is on; that permission SHALL be revoked when the machine returns to Idle. A recipe carrying the "Heater off" marker, or carrying no pitcher, SHALL veto the heater immediately on activation when **Let the recipe decide** is on.
-
-`hasMilk` SHALL NOT cause the heater to be warmed and SHALL NOT override the user's settings. Whether a recipe uses steam SHALL be determined by `hasMilk` or by the presence of a pitcher that is not the off marker.
+Activating a recipe SHALL write its steam block into the live brew settings at activation time, not at shot start, and SHALL apply the selected pitcher's stored duration, flow and temperature. The recipe's pitcher SHALL be an override of the standing pitcher, not a write to it, and deactivating SHALL restore the standing pitcher unmodified. Activation SHALL NOT grant the steam heater permission to be warm.
 
 #### Scenario: Milk recipe selected
 - **WHEN** a recipe with a milk pitcher is activated
@@ -349,3 +413,10 @@ Activating a recipe SHALL NOT grant the steam heater permission to be warm. A re
 #### Scenario: Heater state survives a profile upload
 - **WHEN** a recipe activation sets the heater state and the profile upload it triggered completes afterwards
 - **THEN** the heater state is unchanged by that upload
+
+### Requirement: Heater warms on a recipe shot only by permission
+A recipe that uses steam SHALL warm the steam heater when its shot starts, and only when **Let the recipe decide** is on. That permission SHALL be revoked when the machine returns to Idle. A recipe carrying the "Heater off" marker, or carrying no pitcher, SHALL veto the heater immediately on activation when **Let the recipe decide** is on. `hasMilk` SHALL NOT cause the heater to be warmed and SHALL NOT override the user's settings.
+
+#### Scenario: A recipe without a pitcher turns the heater off
+- **WHEN** Let the recipe decide is on and a recipe carrying no pitcher is activated
+- **THEN** the steam heater is turned off immediately

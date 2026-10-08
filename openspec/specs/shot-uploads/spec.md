@@ -6,14 +6,7 @@ One path for every shot upload, whatever the destination (Visualizer, the Decent
 ## Requirements
 
 ### Requirement: One upload path for every destination
-
-Every upload and update of a saved shot SHALL go through one dispatcher (`ShotUploads`), which applies the shared upload settings once and hands the shot to each destination that is switched on and connected. Destinations SHALL implement only how a shot is sent. The triggers are:
-
-- a shot saved at the end of an extraction, when "Auto-upload shots" is on;
-- a successful edit of a saved shot, from any editor (post-shot review, shot detail, ShotServer, MCP, the AI advisor, the change-beans dialog), when "Auto-update shots" is on;
-- the Upload button, the "Upload last shot" layout action and MCP `shots_upload`, regardless of the automatic settings.
-
-Each destination SHALL build its payload from the saved row, read after any write already queued.
+Every upload and update of a saved shot SHALL go through one dispatcher (`ShotUploads`), which applies the shared upload settings once and hands the shot to each destination that is switched on and connected. Destinations SHALL implement only how a shot is sent. Each destination SHALL build its payload from the saved row, read after any write already queued.
 
 #### Scenario: Both destinations on
 - **WHEN** a shot is saved with automatic upload on and both destinations switched on and connected
@@ -22,6 +15,13 @@ Each destination SHALL build its payload from the saved row, read after any writ
 #### Scenario: Destination switched off
 - **WHEN** a destination is switched off or its account disconnected
 - **THEN** no new shot is sent to it, and shots already queued for it are dropped
+
+### Requirement: Upload triggers
+Uploads SHALL be triggered by a shot saved at the end of an extraction when Auto-upload shots is on, and by a successful edit of a saved shot from any editor when Auto-update shots is on. The Upload button, the "Upload last shot" layout action and MCP `shots_upload` SHALL upload regardless of the automatic settings.
+
+#### Scenario: Manual upload ignores automatic settings
+- **WHEN** the user taps Upload with Auto-upload and Auto-update both off
+- **THEN** the shot is still sent to each destination that is switched on and connected
 
 ### Requirement: Uploads never duplicate a shot
 
@@ -64,8 +64,7 @@ While the post-shot review page has a shot open, its own field-by-field saves SH
 - **THEN** each destination holding the shot is updated at once
 
 ### Requirement: Decent and Visualizer behave the same
-
-Every send of a saved shot, first upload or update, to either destination, SHALL get 3 attempts, 2 s then 4 s apart, made by the shared upload path. Each destination SHALL map its server's response to one shared set of results — sent, nothing to send, transient, sign-in needed, account refused, rejected — and the shared path SHALL record them the same way for both: transient on the third attempt records the shot as failed for that destination, a rejection records it as rejected with its status, and success clears both. A sign-in or account problem SHALL record nothing on the shot. Where the two servers agree, the result for a response SHALL be the same: a transport failure or timeout, 408, 429 and 5xx are transient, 401 needs sign-in, and any other 4xx is a rejection, except 404, 405 or 410 from the upload endpoint, which are transient.
+Every send of a saved shot, first upload or update, to either destination SHALL get 3 attempts, 2 s then 4 s apart, made by the shared upload path. Each destination SHALL map its server's response to one shared set of results: sent, nothing to send, transient, sign-in needed, account refused and rejected.
 
 #### Scenario: Server error on either destination
 - **WHEN** a Visualizer upload and a Decent upload of the same shot each get HTTP 503 on every attempt
@@ -78,3 +77,17 @@ Every send of a saved shot, first upload or update, to either destination, SHALL
 #### Scenario: Edit that fails
 - **WHEN** a PATCH to Visualizer for an edited shot times out on all 3 attempts
 - **THEN** the edit stays unsent and is offered by Upload missing shots, as a Decent replace that fails is
+
+### Requirement: Shared results are recorded the same way
+On the third failed attempt a transient result SHALL record the shot as failed for that destination. A rejection SHALL record the shot as rejected with its status, and success SHALL clear both. A sign-in or account problem SHALL record nothing on the shot.
+
+#### Scenario: Transient results are recorded as failed
+- **WHEN** a transient result persists through the third attempt
+- **THEN** the shot is recorded as failed for that destination
+
+### Requirement: Shared response classification
+Where the two servers agree, a transport failure or timeout, 408, 429 and 5xx SHALL be transient. 401 SHALL need sign-in. Any other 4xx SHALL be a rejection, except 404, 405 or 410 from the upload endpoint, which SHALL be transient.
+
+#### Scenario: Upload endpoint 404 is transient
+- **WHEN** the upload endpoint answers HTTP 404
+- **THEN** the result is transient and the shot is retried, not rejected

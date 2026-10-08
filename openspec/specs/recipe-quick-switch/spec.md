@@ -1,12 +1,11 @@
 # recipe-quick-switch Specification
 
 ## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
+Covers the Recipes idle widget (a Beans-style pill row of most-recently-used recipes, paginated within two rows, that activates a recipe on tap), bag coherence on activation, the Recipes management page and its card contents, the resulting-value shot-plan line, drink-type icons, and the stale-recipe indication.
 ## Requirements
 ### Requirement: Recipes idle widget mirrors the Beans button
-The system SHALL provide a Recipes layout widget structurally mirroring the Beans widget: tap toggles a pill row of the most-recently-used non-archived recipes (MRU-ordered, no favorite flag), tapping a pill activates that recipe, and double-tap or long-press opens the Recipes management page. The active recipe's pill SHALL be highlighted. When no recipes exist, a plain tap SHALL go directly to the Recipes management page. The widget SHALL meet the accessibility rules that the Beans widget follows (focus trap in the pill popup, announcements, `AccessibleTapHandler`).
 
-The pill row SHALL show as many recipes as comfortably fit within **at most two rows** at the row's current available width, and SHALL paginate the remainder of the MRU list via prev/next arrows. The number of recipes per page SHALL be computed **live** from the actual (measured) pill widths — so longer descriptive names mean fewer pills per page — and MAY differ from one page to the next. The previous arrow SHALL be shown only when a previous page exists (not on the first page) and the next arrow only when a further page exists (not on the last page); when every recipe fits within two rows neither arrow SHALL appear and the row SHALL be visually identical to the non-paginated row. Paging SHALL change only which recipes are visible — it SHALL NOT activate a recipe, change the selection, or reorder the list. Opening the widget SHALL start on the first page (the most-recent recipes that fit). When the recipe list changes, the current page SHALL be clamped to remain within range.
+The Recipes layout widget SHALL mirror the Beans widget: tap toggles a pill row of the most-recently-used non-archived recipes, tapping a pill activates that recipe, and double-tap or long-press opens the Recipes management page. The active recipe's pill SHALL be highlighted. With zero recipes, a plain tap SHALL open the management page directly. The widget SHALL meet the Beans widget's accessibility rules.
 
 #### Scenario: Quick switch
 - **WHEN** the user taps the Recipes widget and selects a pill
@@ -41,6 +40,24 @@ The pill row SHALL show as many recipes as comfortably fit within **at most two 
 - **WHEN** any page of recipe pills is shown
 - **THEN** the pills SHALL occupy at most two rows
 
+### Requirement: Paging SHALL change only which recipes are visible
+
+The previous arrow SHALL show only when a previous page exists, and the next arrow only when a further page exists. Paging SHALL change only which recipes are visible; it SHALL NOT activate a recipe, change the selection or reorder the list.
+
+#### Scenario: Paging does not activate a recipe
+
+- **WHEN** the user pages the pill row
+- **THEN** no recipe SHALL be activated and the selection SHALL be unchanged
+
+### Requirement: The pill row SHALL fit recipes within two rows
+
+The pill row SHALL show as many recipes as fit within at most two rows at the current width. The count SHALL be computed live from measured pill widths, so it MAY differ between pages. Opening the widget SHALL start on the first page, and the current page SHALL be clamped to range when the recipe list changes.
+
+#### Scenario: Page size follows measured widths
+
+- **WHEN** recipe names are long enough that fewer fit within two rows
+- **THEN** each page SHALL hold only as many recipes as fit at the measured width
+
 ### Requirement: Bean button coherence
 Activating a recipe SHALL set the active bag (the recipe's linked bag), so the Beans widget's pill selection reflects the recipe's bag without additional wiring. Deactivation by ingredient swap SHALL deselect the recipe pill while leaving bag selection as the user set it.
 
@@ -49,9 +66,8 @@ Activating a recipe SHALL set the active bag (the recipe's linked bag), so the B
 - **THEN** the Beans widget shows bag X as selected
 
 ### Requirement: Management page
-The Recipes management page SHALL list all non-archived recipes with create, edit, clone, and archive/delete actions (delete only for recipes with no shots), and provide access to archived recipes for reference. Each recipe card SHALL present, in order: the recipe name as the top-line anchor (with the Active badge); a drink line with the drink-type icon, its short label, the profile title (always shown, including for same-bean twins), and the milk weight when stored (the bare word "milk" SHALL NOT appear without the weight); a bean line with the bag name and shot count; and the shot-plan line. Card text lines SHALL wrap rather than elide so the profile is never truncated away — added card height is acceptable. Profile-less hot-water tea cards SHALL show "Tea · Hot water" on the drink line and the vessel snapshot (amount and temperature) in place of the shot-plan line. When zero recipes exist the page SHALL show two large starter tiles — one opening shot history (promote a good shot) and one opening the wizard — in place of a text-only hint.
 
-The shot-plan line SHALL render the recipe's own **resulting** temperature and yield as a plain baseline — the same presentation the live idle Shot Plan widget uses once the recipe is active — with no delta tag and no arrow. The temperature segment SHALL be resolved from **that recipe's profile's** frame temperatures (resolved by the recipe's profile title, embedded JSON fallback) — never the currently loaded profile's frames — shifted by the recipe's stored `tempOffsetC` and rendered as the resulting value only (e.g. a profile of 84 · 94°C with `tempOffsetC` = −3 renders "81 · 91°C"), in the default text color with no separate offset tag. The yield SHALL render as the plain resulting value (the recipe's stored yield when set, else the profile's target) in the default text color, with no "profile → recipe" arrow. When the recipe's profile resolves by neither title nor embedded JSON, the card SHALL omit the temperature segment entirely — it SHALL NOT fall back to the currently loaded profile's frames. The wizard's summary preview card SHALL render by the same rule. Activating, loading, or editing a *different* profile or recipe SHALL NOT change what any other recipe's card displays.
+The Recipes management page SHALL list all non-archived recipes, with create, edit, clone and archive actions, delete only for recipes with no shots, and access to archived recipes. When zero recipes exist it SHALL show two large starter tiles in place of a text hint: one opening shot history to promote a good shot, and one opening the wizard.
 
 #### Scenario: Archive from management page
 - **WHEN** the user archives a used recipe
@@ -89,6 +105,33 @@ The shot-plan line SHALL render the recipe's own **resulting** temperature and y
 #### Scenario: An unmodified value carries no highlight
 - **WHEN** a recipe stores offset 0 and a yield equal to its profile's target
 - **THEN** its card shows the profile's temps and yield in the default text color with no tag and no arrow
+
+### Requirement: Recipe cards SHALL be unaffected by other profiles and recipes
+
+Activating, loading or editing a different profile or recipe SHALL NOT change what any other recipe's card displays. The wizard's summary preview SHALL use the same shot-plan rule.
+
+#### Scenario: Wizard preview uses the card rule
+
+- **WHEN** the wizard's summary preview is shown for a recipe
+- **THEN** its temperature and yield SHALL be resolved by the same rule as the recipe card
+
+### Requirement: The shot-plan line SHALL show the recipe's own resulting values
+
+The shot-plan line SHALL render the recipe's resulting temperature and yield as a plain baseline, with no delta tag or arrow. The temperature SHALL come from that recipe's own profile frames, shifted by `tempOffsetC`. The yield SHALL be the stored yield, else the profile's target. The temperature SHALL be omitted when the profile resolves by neither title nor embedded JSON, and SHALL NEVER fall back to the loaded profile's frames.
+
+#### Scenario: Unresolved profile omits the temperature
+
+- **WHEN** a recipe's profile resolves by neither title nor embedded JSON
+- **THEN** its card SHALL omit the temperature segment and SHALL NOT show the loaded profile's temperatures
+
+### Requirement: Recipe cards SHALL present their lines in a fixed order
+
+Each card SHALL show, in order: the recipe name with the Active badge; a drink line with the drink-type icon, short label, profile title and milk weight when stored; a bean line with bag name and shot count; then the shot-plan line. Card text SHALL wrap rather than elide. A profile-less hot-water tea card SHALL show "Tea · Hot water" and the vessel snapshot in place of the shot-plan line.
+
+#### Scenario: Card lines follow the fixed order
+
+- **WHEN** a recipe card is shown
+- **THEN** its lines SHALL appear in the order name, drink, bean, shot plan
 
 ### Requirement: Recipe pills show a drink-type icon
 Recipe pills in the idle widget and recipe lists SHALL show a small icon for the recipe's drink type (stored value, derived from blocks when absent), rendered as an SVG image (never a Unicode glyph per QML conventions). Wherever the drink type appears as text (cards, wizard summary, auto-names), surfaces SHALL use short labels — "Latte", "Tea", "Americano", "Long black" — reserving the long picker labels ("Latte / Cappuccino", "Tea (hot water)") for the wizard's drink-type step.

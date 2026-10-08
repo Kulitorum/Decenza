@@ -6,6 +6,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
 #include "../history/shotcomparison.h"
+#include "../history/bagid.h"
 #include "../core/grinderaliases.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
@@ -50,7 +51,8 @@ QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& cur
 // the identity and storage-lifecycle fields only when they differ from the
 // session context (otherwise the field is hoisted and absent here).
 QJsonObject shotToJson(const ShotProjection& shot,
-                       const DialingHelpers::ShotIdentity& override)
+                       const DialingHelpers::ShotIdentity& override,
+                       const QStringList& unrecorded)
 {
     QJsonObject h;
     h["id"] = shot.id;
@@ -80,6 +82,10 @@ QJsonObject shotToJson(const ShotProjection& shot,
     const QJsonObject overrides = DialingHelpers::identityToJson(override);
     for (auto it = overrides.begin(); it != overrides.end(); ++it)
         h[it.key()] = it.value();
+    for (const QString& key : unrecorded)
+        h[key] = QJsonValue::Null;
+    if (const int age = DialingHelpers::shotRestAgeDays(shot); age >= 0)
+        h["restAgeDays"] = age;
     h["notes"] = shot.espressoNotes;
     // Structured taste taps (add-ai-taste-intake): emitted per history shot so
     // the advisor can see how a prior shot tasted (e.g. "last time you tapped
@@ -273,7 +279,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 
         QJsonArray sessionShots;
         for (qsizetype i = 0; i < ordered.size(); ++i) {
-            QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
+            QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i], hoisted.unrecorded[i]);
             if (!pourControlUniform && !pourControls[i].isEmpty())
                 h["pourControl"] = pourControls[i];
             if (!profileNameUniform && !profileNames[i].isEmpty())
@@ -386,13 +392,14 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     b["grinderModel"] = best.grinderModel;
     b["beanBrand"] = best.beanBrand;
     b["beanType"] = best.beanType;
-    // Bean storage lifecycle (bean-freshness-followup): carry the anchor shot's
-    // own snapshotted dates directly (no hoisting — this is a single object).
-    // When they differ from the resolved shot's currentBean.beanFreshness, the
-    // AI has the raw data to notice the anchor came from a different, longer-
-    // rested portion — no precomputed "different portion" flag, the dates are
-    // the whole signal. Sparse-emit: legacy shots with no lifecycle recorded
-    // carry nothing, same as today.
+    // The anchor's own bean state, so the AI can tell whether its beans were at a
+    // comparable age: its roast, storage dates and rest age at the time.
+    if (!best.roastDate.isEmpty())
+        b["roastDate"] = best.roastDate;
+    if (const int age = DialingHelpers::shotRestAgeDays(best); age >= 0)
+        b["restAgeDays"] = age;
+    if (bagIdIsSet(best.bagId) && bagIdIsSet(currentShot.bagId))
+        b["sameBagAsCurrent"] = best.bagId == currentShot.bagId;
     if (!best.frozenDate.isEmpty())
         b["frozenDate"] = best.frozenDate;
     if (!best.defrostDate.isEmpty())
@@ -1149,7 +1156,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // this block exists to remove. A row/shot with empty bean is
     // "batch-unknowable": excluded from within-batch pairing and from the
     // current-batch anchor → the block degrades to directional, the
-    // correct honest outcome (review #1236).
+    // correct honest outcome (PR Kulitorum/Decenza#1236 review).
     auto beanResolved = [](const QString& brand, const QString& type) {
         return !brand.trimmed().isEmpty() || !type.trimmed().isEmpty();
     };
@@ -1233,7 +1240,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         // (native Decenza SAW shots persist it there, NOT in profile_json),
         // profile_json target_weight is only the fallback for imported
         // shots. Reading json_extract alone dropped the common SAW dial-in
-        // cohort (no rating, no refractometer) — review #1236.
+        // cohort (no rating, no refractometer) — PR Kulitorum/Decenza#1236 review.
         const double  yieldOv   = q.value(10).toDouble();
         const QVariant twv      = q.value(11);
         const double  jsonTw    = twv.isNull() ? 0.0 : twv.toString().toDouble();

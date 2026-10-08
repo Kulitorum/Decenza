@@ -33,6 +33,9 @@ private slots:
     void buildBeanFreshness_unknownInstruction_teachesUpperBound();
     void buildBeanFreshness_defrostAndOpened_bothSurfaced();
     void buildBeanFreshness_knownInstruction_carriesUnderRestedGuidance();
+    void buildBeanFreshness_openedAloneIsNotKnown();
+    void restAgeDays_data();
+    void restAgeDays();
 
     // hoistSessionContext (openspec optimize-dialing-context-payload, task 1)
     void hoistSessionContext_emptySession_returnsEmpty();
@@ -224,6 +227,12 @@ void TstDialingHelpers::buildBeanFreshness_emptyRoastButFrozen_stillEmitsKnownBl
              "roastDate must be omitted when not supplied");
     QCOMPARE(block["freshnessKnown"].toBool(), true);
     QCOMPARE(block["frozenDate"].toString(), QStringLiteral("2026-04-16"));
+    // No roast date, no rest age: the instruction must not tell the AI to quote one.
+    QVERIFY(!block.contains(QStringLiteral("restAgeDays")));
+    QVERIFY(!block["instruction"].toString().contains(QStringLiteral("Quote it")));
+    // A roast date with anything after the date is text, not a date to compute with.
+    const QJsonObject timed = buildBeanFreshness(QStringLiteral("2026-04-15T10:00:00"));
+    QVERIFY(timed.contains(QStringLiteral("roastDateText")) && !timed.contains(QStringLiteral("roastDate")));
 }
 
 void TstDialingHelpers::buildBeanFreshness_defrostOnly_isKnown()
@@ -244,8 +253,7 @@ void TstDialingHelpers::buildBeanFreshness_openedDate_isKnownWithoutFreeze()
 {
     // A never-frozen bag that carries an openedDate (with an airtight storage
     // hint) reports storage as KNOWN — the common non-freezer user must not be
-    // asked about storage forever. openedDate is the non-frozen analogue of
-    // defrostDate.
+    // asked about storage forever.
     const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
                                                  QString(), QString(),
                                                  QStringLiteral("airtight"),
@@ -261,7 +269,7 @@ void TstDialingHelpers::buildBeanFreshness_openedDate_isKnownWithoutFreeze()
     QVERIFY2(!instruction.contains(QStringLiteral("ASK")),
              "known-storage instruction must NOT ask the user about storage");
     QVERIFY2(instruction.contains(QStringLiteral("openedDate")),
-             "known instruction must anchor aging on openedDate when present");
+             "known instruction must explain what openedDate means for age");
 }
 
 // fix-storage-hint-freezer-independence: a frozen bag may now carry an
@@ -333,21 +341,59 @@ void TstDialingHelpers::buildBeanFreshness_unknownInstruction_teachesUpperBound(
 void TstDialingHelpers::buildBeanFreshness_defrostAndOpened_bothSurfaced()
 {
     // When both a defrostDate and an openedDate are present (frozen, thawed,
-    // later moved to a jar), both are surfaced distinctly — the AI picks the
-    // most recent as the aging anchor (no precomputed anchor field).
+    // later moved to a jar), both are surfaced distinctly with the reference
+    // date they are measured to (no precomputed age field).
     const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
                                                  QStringLiteral("2026-04-16"),
                                                  QStringLiteral("2026-06-01"),
                                                  QStringLiteral("counter"),
-                                                 QStringLiteral("2026-06-20"));
+                                                 QStringLiteral("2026-06-20"),
+                                                 QStringLiteral("2026-06-22"));
+    QCOMPARE(block["referenceDate"].toString(), QStringLiteral("2026-06-22"));
     QCOMPARE(block["freshnessKnown"].toBool(), true);
     QCOMPARE(block["defrostDate"].toString(), QStringLiteral("2026-06-01"));
     QCOMPARE(block["openedDate"].toString(), QStringLiteral("2026-06-20"));
     QCOMPARE(block["storageHint"].toString(), QStringLiteral("counter"));
-    // Still no precomputed day count anywhere.
-    for (const QString& key : block.keys())
-        QVERIFY2(!key.contains(QStringLiteral("Day")),
-                 qPrintable(QString("unexpected day-related key: %1").arg(key)));
+    // The one day count is the computed rest age: 1 day before freezing + 21 since the thaw.
+    QCOMPARE(block["restAgeDays"].toInt(), 22);
+}
+
+void TstDialingHelpers::buildBeanFreshness_openedAloneIsNotKnown()
+{
+    // Every bag's first shot stamps openedDate, so on its own it must not tell the
+    // AI storage is known: an old roast still gets the ASK, and no rest age.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"), QString(), QString(),
+                                                 QString(), QStringLiteral("2026-06-20"),
+                                                 QStringLiteral("2026-06-22"));
+    QCOMPARE(block["freshnessKnown"].toBool(), false);
+    QVERIFY(block["instruction"].toString().contains(QStringLiteral("ASK")));
+    QVERIFY(!block.contains(QStringLiteral("restAgeDays")));
+    QCOMPARE(block["openedDate"].toString(), QStringLiteral("2026-06-20"));
+}
+
+void TstDialingHelpers::restAgeDays_data()
+{
+    QTest::addColumn<QString>("roast");
+    QTest::addColumn<QString>("frozen");
+    QTest::addColumn<QString>("defrost");
+    QTest::addColumn<int>("expected");
+    // Reference date 2026-10-08 throughout.
+    QTest::newRow("never frozen") << "2026-09-01" << "" << "" << 37;
+    QTest::newRow("frozen, ground from the freezer") << "2026-09-01" << "2026-09-03" << "" << 2;
+    QTest::newRow("frozen, thawed yesterday") << "2026-09-01" << "2026-09-03" << "2026-10-07" << 3;
+    QTest::newRow("thaw before freeze") << "2026-09-01" << "2026-09-03" << "2026-09-02" << -1;
+    QTest::newRow("thaw without freeze") << "2026-09-01" << "" << "2026-10-07" << -1;
+    QTest::newRow("roast not ISO") << "Sept 1" << "" << "" << -1;
+    QTest::newRow("roast with a time suffix") << "2026-09-01T10:00:00" << "" << "" << -1;
+}
+
+void TstDialingHelpers::restAgeDays()
+{
+    QFETCH(QString, roast);
+    QFETCH(QString, frozen);
+    QFETCH(QString, defrost);
+    QFETCH(int, expected);
+    QCOMPARE(DialingHelpers::restAgeDays(roast, frozen, defrost, QStringLiteral("2026-10-08")), expected);
 }
 
 void TstDialingHelpers::buildBeanFreshness_knownInstruction_carriesUnderRestedGuidance()
@@ -364,6 +410,8 @@ void TstDialingHelpers::buildBeanFreshness_knownInstruction_carriesUnderRestedGu
     QVERIFY2(instruction.contains(QStringLiteral("COARSER"))
              || instruction.contains(QStringLiteral("coarser")),
              "known instruction must mention the coarser-grind direction");
+    QVERIFY2(instruction.contains(QStringLiteral("does NOT reset age")),
+             "known instruction must say opening does not restart the aging clock");
 }
 
 // ---- hoistSessionContext (openspec optimize-dialing-context-payload, task 1) ----
@@ -540,12 +588,19 @@ void TstDialingHelpers::hoistSessionContext_sessionSpansThaw_differingShotOverri
         id.defrostDate = defrost;
         return id;
     };
+    auto unrecorded = withDefrost(QString());
+    unrecorded.grinderBrand.clear();
     const QList<DialingHelpers::ShotIdentity> shots{
         withDefrost(QStringLiteral("2026-05-01")),
         withDefrost(QStringLiteral("2026-05-01")),
-        withDefrost(QStringLiteral("2026-05-13"))};
+        withDefrost(QStringLiteral("2026-05-13")),
+        unrecorded};
 
     const auto out = hoistSessionContext(shots);
+    // A shot with no thaw recorded says so explicitly rather than inheriting the
+    // context's date; an empty grinder still inherits (legacy shots).
+    QCOMPARE(out.unrecorded[3], QStringList{QStringLiteral("defrostDate")});
+    QVERIFY(out.unrecorded[2].isEmpty());
 
     QCOMPARE(out.context.defrostDate, QStringLiteral("2026-05-01"));
     QVERIFY2(out.perShotOverrides[0].defrostDate.isEmpty(),

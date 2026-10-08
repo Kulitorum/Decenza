@@ -1,23 +1,12 @@
 # ble-write-retry-policy Specification
 
 ## Purpose
-Governs what the app does when a BLE write fails: how long it keeps retrying, what happens
-to work belonging to a superseded operation, how an upstream retry is paced against it, and
-how a link that has stopped accepting writes is recognised while it still reports itself
-connected.
+Governs what the app does when a BLE write fails: how long it keeps retrying, which pending writes are discarded when an operation is superseded or fails, how a retry is paced so attempts never overlap, and how a link that has stopped accepting writes is recognised and logged while it still reports itself connected.
 
 ## Requirements
 
 ### Requirement: The per-write retry budget is bounded near the point of diminishing return
-
-The system SHALL bound retries of a single write to a budget beyond which observed writes do
-not recover. The budget SHALL be uniform: it SHALL NOT vary with the link's recent failure
-history, because a write that fails on a healthy link and one that fails on a failing link
-recover at the same rate up to the bound and neither recovers past it.
-
-The bound SHALL also be checked against the total elapsed time it permits. A budget whose
-worst case exceeds the interval at which periodic writes recur leaves the link continuously
-occupied and unable to become idle.
+The system SHALL bound retries of a single write to a uniform budget, beyond which observed writes do not recover. The budget SHALL NOT vary with the link's recent failure history. Its worst-case total elapsed time SHALL NOT exceed the interval at which periodic writes recur, so the link never stays occupied and cannot become idle.
 
 #### Scenario: A write recovers within the budget
 
@@ -35,26 +24,13 @@ occupied and unable to become idle.
 - **THEN** the elapsed time from first attempt to abandonment is shorter than the period at
   which that write recurs, so the link is idle before the next one is issued
 
+#### Scenario: Budget is the same on a healthy and a failing link
+
+- **WHEN** a write fails on a healthy link and a write fails on a failing link
+- **THEN** both are retried up to the same bound, and neither is retried past it
+
 ### Requirement: Superseded work is discarded, and only the superseded work
-
-When a multi-write operation is superseded by a newer one, the system SHALL discard the pending
-writes belonging to the superseded operation rather than issuing them into the same link. They
-carry values the app no longer intends to send, and issuing them delays the replacement.
-
-The discard SHALL be limited to the superseded operation's own writes. Superseding SHALL NOT be
-implemented by clearing the pending queue: unrelated pending work is not superseded by a new
-upload, and discarding it converts a targeted correction into an unbounded one.
-
-An operation that has terminally failed SHALL likewise discard its own remaining pending writes.
-An attempt can be declared failed while its writes are still outstanding — a failure deadline
-shorter than the time a write may occupy the link makes this the normal case, not an edge one —
-and those writes then sit ahead of the next attempt, which is the same defect as a supersede that
-leaves its predecessor queued.
-
-The system SHALL NOT discard pending writes merely because an *unrelated* write was abandoned
-after its retries. Work queued behind someone else's failure is not itself known to be failing,
-and a link that has genuinely stopped accepting writes is recognised by the consecutive-failure
-rule below rather than by pre-emptively emptying the queue.
+When a multi-write operation is superseded by a newer one, the system SHALL discard the pending writes belonging to the superseded operation rather than issuing them into the same link. The discard SHALL be limited to that operation's own writes and SHALL NOT clear the pending queue. An operation that has terminally failed SHALL likewise discard its own remaining pending writes.
 
 #### Scenario: A profile upload supersedes an in-flight one
 
@@ -81,17 +57,24 @@ rule below rather than by pre-emptively emptying the queue.
 - **WHEN** pending writes are discarded
 - **THEN** the number discarded is recorded
 
+### Requirement: Failed attempts discard their own outstanding writes
+An attempt declared failed while its writes are still outstanding SHALL discard those writes as it concludes, so they do not sit ahead of the next attempt.
+
+#### Scenario: Short failure deadline leaves writes queued
+
+- **WHEN** an attempt is declared failed on a deadline shorter than its writes' time on the link
+- **THEN** its outstanding writes are discarded as it concludes and do not delay the next attempt
+
+### Requirement: Unrelated abandoned writes do not discard the queue
+The system SHALL NOT discard pending writes merely because an unrelated write was abandoned after its retries. A link that has genuinely stopped accepting writes SHALL be recognised by the consecutive-failure rule instead of by emptying the queue.
+
+#### Scenario: Unrelated abandoned write leaves the queue alone
+
+- **WHEN** an unrelated write is abandoned after its retries with other work queued behind it
+- **THEN** that queued work is not discarded
+
 ### Requirement: A commanded stop is never discarded
-
-An urgent write that changes machine state SHALL be delivered regardless of any discard occurring
-around it. Stop and sleep requests are issued as urgent writes, and an urgent write is placed in
-the pending queue when another write is already in flight, so any discard that is not qualified
-by urgency could otherwise drop a stop the user or stop-at-weight has already commanded.
-
-This is stated as an invariant to be asserted rather than a priority mechanism to be built: the
-existing stop and sleep paths already clear before issuing, which leaves the urgent write to be
-sent directly rather than queued. The requirement exists so that a later change cannot quietly
-remove that ordering.
+An urgent write that changes machine state SHALL be delivered regardless of any discard occurring around it, including stop and sleep requests. The existing stop and sleep paths clear the queue before issuing, so the urgent write is sent directly rather than queued. This is an invariant to assert, not a mechanism to build, and no later change SHALL remove that ordering.
 
 #### Scenario: A stop is pending when a discard occurs
 
@@ -116,20 +99,7 @@ but lost permanently, because the next attempt to send the same value is elided 
 - **THEN** the later write is actually issued rather than skipped as unchanged
 
 ### Requirement: An upload retry never overlaps the attempt it is retrying
-
-When an operation composed of several writes fails and is retried, a retry attempt SHALL NOT be
-issued while the previous attempt is still outstanding. A retry cadence faster than the previous
-attempt's failure rate causes each attempt to be issued into a queue holding the last one, so the
-queue grows with every retry instead of draining.
-
-The system SHALL enforce this by tracking whether an attempt is outstanding, and SHALL schedule
-the next attempt only once the previous one has concluded. It SHALL NOT rely on a delay chosen to
-be longer than an attempt is expected to take.
-
-An attempt SHALL be treated as concluded only once its writes are no longer pending. Tracking the
-attempt alone is not sufficient: an attempt declared failed on a deadline shorter than its writes'
-lifetime releases the guard while those writes are still queued, and the next attempt is then
-issued behind them. Discarding the failed attempt's own writes as it concludes satisfies this.
+When an operation of several writes is retried, the system SHALL NOT issue a retry attempt while the previous attempt is still outstanding. It SHALL track whether an attempt is outstanding and schedule the next attempt only once the previous one has concluded, and SHALL NOT rely on a delay chosen to exceed an attempt's expected duration.
 
 #### Scenario: A retry becomes due while the previous attempt is outstanding
 
@@ -147,6 +117,14 @@ issued behind them. Discarding the failed attempt's own writes as it concludes s
 - **THEN** the outstanding retry sequence is abandoned rather than continuing against the
   superseded operation
 
+### Requirement: An attempt concludes only when its writes are no longer pending
+An attempt SHALL be treated as concluded only once its writes are no longer pending. Declaring an attempt failed on a deadline shorter than its writes' lifetime SHALL NOT release the guard while those writes are queued.
+
+#### Scenario: Guard holds while writes are still queued
+
+- **WHEN** an attempt is declared failed while its writes are still queued
+- **THEN** the next attempt is not issued until those writes are no longer pending
+
 ### Requirement: Pending queue depth is observable
 
 The system SHALL record when the pending write queue grows past a depth indicating the link is
@@ -159,19 +137,7 @@ as the write failures it later produces.
 - **THEN** the condition and the depth are recorded
 
 ### Requirement: Consecutive write failures identify a link that has stopped accepting writes
-
-The system SHALL count abandoned writes per link consecutively, resetting the count on any
-successful write and on disconnect, and SHALL recognise a link as no longer accepting writes
-once the count passes a bound.
-
-This determination SHALL NOT rest on the reported controller state or on notification flow: a
-link in this condition reports itself connected and can continue delivering notifications, so
-both indicators look healthy while every command is discarded.
-
-Where the platform can be asked for the link's actual state, that answer MAY be used to
-corroborate the determination. An inconclusive answer SHALL change nothing — it is not evidence
-that the link is dead, and a possibly-live link must not be acted against on the strength of a
-failed query.
+The system SHALL count abandoned writes per link consecutively, resetting the count on any successful write and on disconnect, and SHALL recognise a link as no longer accepting writes once the count passes a bound. This determination SHALL NOT rest on the reported controller state or on notification flow, since both look healthy in this condition.
 
 #### Scenario: Writes fail repeatedly while the link reports connected
 
@@ -190,15 +156,16 @@ failed query.
 - **THEN** the consecutive count resets, so failures observed while a link was already dying
   are not carried into the next connection
 
-### Requirement: A link that has stopped accepting writes is self-explanatory in the log
+### Requirement: Platform link state only corroborates
+Where the platform can report the link's actual state, that answer MAY corroborate the determination. An inconclusive answer SHALL change nothing, and a failed query SHALL NOT be used to act against a possibly-live link.
 
-The log entry recording this condition SHALL state that the link stopped accepting writes
-while still reporting itself connected, and SHALL name what happens next. Because the system now
-recovers such a link itself, the entry SHALL NOT instruct the user to reconnect the DE1; it SHALL
-say what the system is doing, so a reader is not asked to perform an action already under way. It
-SHALL be emitted at a level the connection log views display by default. Submitted debug logs are
-read by users' AI assistants, so a bare failure count that requires knowledge of this subsystem to
-interpret is insufficient.
+#### Scenario: Inconclusive platform query
+
+- **WHEN** the platform state query fails or returns no answer
+- **THEN** the consecutive-failure count is unchanged and no action is taken on the link
+
+### Requirement: A link that has stopped accepting writes is self-explanatory in the log
+The log entry recording this condition SHALL state that the link stopped accepting writes while still reporting itself connected, and SHALL name what the system does next. It SHALL NOT instruct the user to reconnect the DE1, since the system is already recovering the link. It SHALL be emitted at a level the connection log views display by default.
 
 #### Scenario: Diagnosing from a submitted log
 
@@ -215,3 +182,11 @@ interpret is insufficient.
 - **WHEN** the condition is recorded and recovery is under way
 - **THEN** the entry does not direct the user to reconnect the DE1 from the Connections page or
   over MCP
+
+### Requirement: The log entry stands alone
+The entry SHALL be interpretable from a submitted log without knowledge of this subsystem. A bare failure count that needs that knowledge to read SHALL NOT suffice.
+
+#### Scenario: Entry is read without context
+
+- **WHEN** a submitted log is read by an AI assistant with no knowledge of the BLE subsystem
+- **THEN** the entry alone states that the link stopped accepting writes and what is being done

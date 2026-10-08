@@ -6,9 +6,12 @@ Governs recovery from a failed AI Advisor request: the failed user turn is prese
 ## Requirements
 ### Requirement: A failed advisor request SHALL preserve the user's pending turn
 
-When an in-flight advisor request fails (any error delivered to `AIConversation::onAnalysisFailed`, including network timeout), the conversation SHALL retain the user message that was being sent rather than discarding it. The failed user turn SHALL remain the last entry in `m_messages`, the error text SHALL be exposed via `errorMessage`, and `busy` SHALL be cleared.
-
-A failed request SHALL NOT be persisted to storage — only successful turns are saved — so a preserved failed turn never appears when a conversation is reloaded.
+When an in-flight advisor request fails (any error reaching
+`AIConversation::onAnalysisFailed`), the conversation SHALL retain the user
+message being sent, keep it as the last entry in `m_messages`, expose the error
+text via `errorMessage`, and clear `busy`. A failed request SHALL NOT be
+persisted; only successful turns are saved, so a preserved failed turn never
+reappears on reload.
 
 #### Scenario: Timeout keeps the user's message
 
@@ -28,11 +31,12 @@ A failed request SHALL NOT be persisted to storage — only successful turns are
 
 ### Requirement: `AIConversation` SHALL expose an explicit `retry()` that re-sends the pending turn
 
-`AIConversation` SHALL provide a `Q_INVOKABLE void retry()` that re-dispatches the last failed turn. `retry()` SHALL be valid only when the conversation is not busy and the last entry in `m_messages` is a user turn (a pending, unanswered turn). When valid, it SHALL clear `errorMessage`, set `busy`, and re-send the existing messages and system prompt without modifying the message history and without requiring the user to retype.
-
-`retry()` SHALL re-use the already-stored message — it SHALL NOT append a new user turn and SHALL NOT re-run the per-follow-up rating/metadata-capture hooks (those already ran when the turn was first submitted).
-
-Retry SHALL be a user-initiated action only; the conversation SHALL NOT automatically retry on timeout. (The network-layer auto-retry for transient HTTP 429/502/503/504 is unchanged and independent.)
+`AIConversation` SHALL provide `Q_INVOKABLE void retry()`, which re-dispatches
+the pending turn. It SHALL be valid only when the conversation is not busy and
+the last entry in `m_messages` is a user turn. When valid, it SHALL clear
+`errorMessage`, set `busy`, and re-send the existing messages and system prompt
+without modifying history or requiring the user to retype. It SHALL re-use the
+stored message and SHALL NOT append a new user turn.
 
 #### Scenario: Retry re-sends the same message
 
@@ -54,6 +58,27 @@ Retry SHALL be a user-initiated action only; the conversation SHALL NOT automati
 - **GIVEN** a conversation that is busy, OR whose last turn is an assistant turn (no pending failure)
 - **WHEN** `retry()` is called
 - **THEN** no request SHALL be sent and the history SHALL be unchanged
+
+### Requirement: Retry does not re-run per-turn hooks
+
+`retry()` SHALL NOT re-run the per-follow-up rating and metadata-capture hooks,
+which already ran when the turn was first submitted.
+
+#### Scenario: Retry skips the submit hooks
+
+- **WHEN** `retry()` re-sends a preserved pending turn
+- **THEN** the rating and metadata-capture hooks are not invoked again
+
+### Requirement: Timeouts never retry automatically
+
+The conversation SHALL NOT retry automatically on timeout; retry is user-
+initiated only. The network-layer auto-retry for transient HTTP 429, 502, 503
+and 504 responses is unchanged and independent.
+
+#### Scenario: A timeout does not re-send by itself
+
+- **WHEN** an advisor request fails with a timeout
+- **THEN** no request is re-sent until the user activates Retry
 
 ### Requirement: Sending a new message after a failure SHALL preserve role alternation
 

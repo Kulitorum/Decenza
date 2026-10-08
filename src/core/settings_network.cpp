@@ -2,6 +2,7 @@
 #include "settings_network.h"
 #include "settings.h"
 #include "history/shotcomparisontext.h"
+#include "history/coffeebagstorage.h"
 #include "core/puckprep.h"
 #include "profile/profiledialintext.h"
 
@@ -630,7 +631,7 @@ namespace {
 //
 // Every zone here except centerStatus has been structurally invariant across
 // every past default (verified against git history back to the layout
-// system's introduction in #855). Two mechanisms bring an older stored layout
+// system's introduction in PR Kulitorum/Decenza#855). Two mechanisms bring an older stored layout
 // to this exact centerTop/bottomRight composition, and they are NOT equally
 // strong — the difference matters for the "recipes"/"equipment" entries below:
 //  - connectionStatus->machineStatus is renamed inside getLayoutObject(), so
@@ -650,7 +651,7 @@ namespace {
 // destructive, and it corrects itself on the launch that completes the
 // migration. Do not restore the old "unconditional per-read" wording. centerStatus
 // is the one exception — it shipped as {temperature, waterLevel,
-// machineStatus} from #855 through #1372, then as empty from #1372 ("Layout
+// machineStatus} from PR Kulitorum/Decenza#855 through Kulitorum/Decenza#1372, then as empty from Kulitorum/Decenza#1372 ("Layout
 // editor: drag-reorder... default cleanups") onward, and nothing ever
 // migrates an existing stored centerStatus between those two forms. Both are
 // pristine (never-customized), so isPristineOldDefault() accepts either.
@@ -670,8 +671,8 @@ QJsonObject oldDefaultTypeSequences() {
 // above oldDefaultTypeSequences).
 QVector<QJsonArray> oldDefaultCenterStatusVariants() {
     return {
-        QJsonArray(),                                              // #1372 onward
-        QJsonArray({"temperature", "waterLevel", "machineStatus"}), // #855 through #1372
+        QJsonArray(),                                              // PR Kulitorum/Decenza#1372 onward
+        QJsonArray({"temperature", "waterLevel", "machineStatus"}), // PR Kulitorum/Decenza#855 through Kulitorum/Decenza#1372
     };
 }
 
@@ -1356,6 +1357,8 @@ QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationString
         out.append({ QString::fromLatin1(e.key), QString::fromLatin1(e.english) });
     for (const auto& f : PuckPrep::flagLabels())
         out.append({ QString::fromLatin1(f.translationKey), QString::fromLatin1(f.english) });
+    for (const auto& o : CoffeeBag::kStorageHintOptions)
+        out.append({ QString::fromLatin1(o.labelKey), QString::fromLatin1(o.label) });
     return out;
 }
 

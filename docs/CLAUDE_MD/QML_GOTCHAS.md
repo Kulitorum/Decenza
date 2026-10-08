@@ -175,6 +175,17 @@ An invokable **can** work if the same expression also reads a notifying property
 
 **Non-reactive is sometimes correct.** `EmojiAssets.has()` is an invokable on purpose: the bundled asset set is fixed at build time, so there is nothing to re-evaluate for. Say so in a comment when you do this, or the next reader will assume it is the bug.
 
+## Assigning a property from JS deletes its binding — including the caller's
+
+`combo.currentIndex = i` removes whatever `currentIndex: <expr>` was declared on that object
+(`qv4qobjectwrapper.cpp:724`), permanently. Inside a reusable component this deletes the
+*caller's* binding, so the control stops following its model after one user action — and a
+reused dialog then shows the previous pick over a different value. A write through the C++
+setter keeps the binding (`QQuickComboBox::setCurrentIndex`, `qquickcombobox.cpp:1240`), which
+is why Qt's own ComboBox popup never has this bug. `StyledComboBox` applies picks through
+`ComboBoxSelection.select()` for that reason; don't reintroduce the assignment, and don't patch
+callers with `Qt.binding(...)` re-asserts.
+
 ## Translucent element renders opaque (scene-graph opaque batch)
 
 A `Rectangle` with a translucent color (e.g. a `Theme.scrimColor(...)` fill at alpha 0.4) can render **fully opaque** — the wallpaper behind it doesn't show through — even though the computed color is correct. Qt Quick's renderer mis-sorts it into the *opaque* batch and drops its alpha. This is platform-independent (seen on Metal/macOS, and reported on Android), so it is **not** an RHI-backend bug.
@@ -237,7 +248,7 @@ The mutated-`TextMetrics` form is only safe when the measurement runs **imperati
 `context->setContextProperty("X", &x)`, and not by `qmlRegisterType<X>("Decenza", 1, 0, "X")` in
 `main()`. Both are runtime-only, and *runtime-only means invisible* — to qmllint, to
 `qmlcachegen`, and to the language server. A context property is worse than untyped: it is
-**indistinguishable from a typo**, because nothing in the build can tell the two apart. #1661 is
+**indistinguishable from a typo**, because nothing in the build can tell the two apart. PR Kulitorum/Decenza#1661 is
 what that costs.
 
 | What you have | What to write |
@@ -254,7 +265,7 @@ PUBLIC, so every `add_decenza_test()` binary gets it transitively, and the four 
 not (`profile_sync`, `shot_eval`, `saw_replay`, `saw_parity`) compile none of the wrapped classes.
 
 `contextsingletons_qml.h` states the constraint as "test and tool targets link no Qt6::Qml", and as
-written that is **no longer true** — `decenza_testlib` gained `Qt6::Qml` in #1617, before that
+written that is **no longer true** — `decenza_testlib` gained `Qt6::Qml` in PR Kulitorum/Decenza#1617, before that
 comment was written. Do not use it as the reason for reaching for `*Foreign` on a new class; check
 the actual link line. (Whether the pattern still earns its keep for a *different* reason — keeping
 `<QtQml/...>` out of widely-included class headers, so a registration change does not invalidate
@@ -282,7 +293,7 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
   hit exactly this: three bindings in `SettingsConnectionsTab.qml` would have thrown on iOS, and
   a `visible:` gate does not save you, because an invisible element's bindings still evaluate.
   - **`USBManager` and `UsbScaleManager` are no longer the live example — they are unregistered on
-    iOS again** (#1696). Registering them there meant naming the types, naming them meant including
+    iOS again** (PR Kulitorum/Decenza#1696). Registering them there meant naming the types, naming them meant including
     headers that include `<QSerialPort>`, and iOS builds no part of `src/usb/` and links no
     SerialPort module — it broke the iOS release build outright. So for those two on iOS the name
     does not resolve at all: `typeof` is `"undefined"` and a bare reference is a **ReferenceError**,
@@ -310,7 +321,7 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
 1. **A count going UP after a fix is usually the fix working.** Better type resolution reaches
    expressions qmllint previously abandoned, so it finds more. Three recorded instances, each of
    which looked like a regression: the `MainController` migration (`unresolved-type` 2 -> 763),
-   the #1680 stale-baseline correction (three files' `unqualified` rose), and the `CupFillView`
+   the PR Kulitorum/Decenza#1680 stale-baseline correction (three files' `unqualified` rose), and the `CupFillView`
    case below (`missing-property` 322 -> 388). Diff the per-file and per-category sets before
    concluding anything — totals alone will mislead you.
 2. **An unresolvable type hides every defect behind it.** Fixing `JsCanvasPainterItem`'s registration (the item has since been replaced by Qt's
@@ -324,7 +335,7 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
    keyword. Before writing off a diagnostic class, ask what the module has failed to declare.
 4. **The gate only ratchets down, so a too-low number is invisible to it.** Nothing asks whether a
    recorded ceiling is *achievable*. A baseline measured against a stale build under-reports,
-   which looks exactly like an improvement — that is how #1680 shipped three ceilings the tree
+   which looks exactly like an improvement — that is how PR Kulitorum/Decenza#1680 shipped three ceilings the tree
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
 
@@ -575,7 +586,7 @@ which short-circuits before the member read — that is why `USBManager`'s call 
 affected while `GHCSimulator`'s were.
 
 The member guard is right for *this* case and wrong for its mirror image: a type that is **not
-registered on the build at all** (`USBManager` and `UsbScaleManager` on iOS, since #1696). There
+registered on the build at all** (`USBManager` and `UsbScaleManager` on iOS, since PR Kulitorum/Decenza#1696). There
 the name resolves to nothing and Qt throws — `qv4qmlcontext.cpp:552-553` ends the lookup with
 `engine->throwReferenceError(name->toQString())` — so the bare name in `X.doThing !== undefined`
 throws before the member is reached. A platform check is the one idiom correct in both cases; use

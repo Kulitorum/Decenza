@@ -38,7 +38,7 @@ The scan-finished continuation SHALL NOT start another scan when any of the foll
 
 ### Requirement: The hunt is scoped to the review page lifecycle
 
-Continuous scanning SHALL end when the post-shot review page deactivates (another page is pushed on top or the page is popped) or is destroyed, and on deactivation a connected refractometer SHALL be disconnected. Off the review page the refractometer SHALL NOT be scanned for or connected: the refractometer auto-reconnect — the app-wide reconnect tick and every direct-connect path it drives — is gated on the hunt and takes no action while the review page is closed (the tick stops rather than reschedules). This scoping applies to the refractometer only; the scale is needed everywhere and keeps its own independent, always-on reconnect, which SHALL be unaffected. Manual refractometer pairing initiated from Settings SHALL NOT be gated by the hunt.
+Continuous scanning SHALL end when the post-shot review page deactivates (another page is pushed on top, or the page is popped) or is destroyed, and on deactivation a connected refractometer SHALL be disconnected. Off the review page the refractometer SHALL NOT be scanned for or connected.
 
 #### Scenario: Leaving the review page ends the hunt and disconnects the refractometer
 
@@ -57,3 +57,19 @@ Continuous scanning SHALL end when the post-shot review page deactivates (anothe
 - **WHEN** a connected refractometer disconnects while the post-shot review page remains active
 - **THEN** the hunt re-kicks the scan chain immediately, since a connected link leaves no in-flight scan for the scan-finished continuation to chain from
 - **AND** from that scan's finished event onward, the hunt keeps scanning continuously until reconnection or page exit
+
+### Requirement: Refractometer auto-reconnect is gated on the hunt
+Refractometer auto-reconnect, including the app-wide reconnect tick and every direct-connect path it drives, SHALL be gated on the hunt and SHALL take no action while the review page is closed. The tick SHALL stop rather than reschedule.
+
+
+#### Scenario: Tick stops off the review page
+- **WHEN** the review page is closed and the reconnect tick fires
+- **THEN** the tick stops rather than rescheduling, and no refractometer connection is attempted
+
+### Requirement: The scale and manual pairing are not gated by the hunt
+The scale SHALL keep its own independent, always-on reconnect, unaffected by the hunt. Manual refractometer pairing initiated from Settings SHALL NOT be gated by the hunt.
+
+
+#### Scenario: Scale reconnect is unaffected
+- **WHEN** the review page is closed
+- **THEN** the scale's reconnect continues as before

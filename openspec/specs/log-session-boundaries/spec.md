@@ -1,19 +1,12 @@
 # log-session-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change fix-log-trim-and-extend-marker-registry. Update Purpose after archive.
+Covers session boundaries in the persisted device log: when a SESSION START marker may be written, how a trimmed leading fragment is reported, and how sessions are addressed by index.
+
 ## Requirements
 ### Requirement: A session marker asserts when that session began
 
-A `SESSION START` marker in the persisted log SHALL carry the start time of the
-session whose lines follow it, and SHALL be written only at the moment that session
-begins.
-
-No process SHALL write a session marker carrying a time other than the start of the
-session it introduces. In particular, maintenance of the log file — trimming, rotation,
-compaction — SHALL NOT synthesize a session marker, because the only start time such a
-process holds is the *current* run's, and the lines it would introduce belong to an
-older one.
+A `SESSION START` marker in the persisted log SHALL carry the start time of the session whose lines follow it, and SHALL be written only when that session begins. No process SHALL write a session marker carrying any other time, including trimming, rotation or compaction of the log file.
 
 #### Scenario: A marker's time matches its lines
 

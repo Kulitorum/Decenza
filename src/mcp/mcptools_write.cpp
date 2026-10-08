@@ -1986,26 +1986,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
 
-            // Kind-gate both directions, mirroring action=update's rule.
-            static const QStringList kTeaOnly = {
-                "teaType", "garden", "cultivar", "flush", "brewTempC",
-                "leafGramsPer100Ml", "steepTime"};
-            static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
-            QStringList offending;
+            // Tea vocabulary on a coffee bag; the reverse (coffee-only columns on
+            // tea) is CoffeeBag::writeError's, below.
             if (kind == QLatin1String("coffee")) {
-                for (const QString& key : kTeaOnly)
+                QStringList offending;
+                for (const QString& key : CoffeeBag::teaOnlyKeys())
                     if (args.contains(key)) offending << key;
                 if (!offending.isEmpty()) {
                     respond(QJsonObject{{"error", offending.join(", ")
                         + " only apply to tea bags (this create has kind coffee)"}});
-                    return;
-                }
-            } else {
-                for (const QString& key : kCoffeeOnly)
-                    if (args.contains(key)) offending << key;
-                if (!offending.isEmpty()) {
-                    respond(QJsonObject{{"error", offending.join(", ")
-                        + " do not apply to tea bags"}});
                     return;
                 }
             }
@@ -2015,12 +2004,26 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             bag.insert("kind", kind);
             if (!roaster.isEmpty()) bag.insert("roasterName", roaster);
             if (!coffee.isEmpty()) bag.insert("coffeeName", coffee);
+            // A new bag has no portion in use yet, so thaw and opened are update-only
+            // (the app and web create forms don't offer them either).
+            for (const char* key : {"defrostDate", "openedDate"}) {
+                if (args.contains(QLatin1String(key))) {
+                    respond(QJsonObject{{"error", QStringLiteral("%1 is set with action=update; a new bag "
+                        "has no portion in use yet").arg(QLatin1String(key))}});
+                    return;
+                }
+            }
             for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
+                                       QStringLiteral("frozenDate"), QStringLiteral("storageHint"),
                                        QStringLiteral("grinderSetting"), QStringLiteral("notes")})
                 if (args.contains(key)) bag.insert(key, args[key].toString());
             if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
             if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
             bag.insert("inInventory", true);
+            if (const QString err = CoffeeBag::writeError({}, bag, QDate::currentDate()); !err.isEmpty()) {
+                respond(QJsonObject{{"error", err}});
+                return;
+            }
 
             // Details land in the blob (same vocabulary as action=update).
             static const QStringList kBlobKeys = {
@@ -2073,18 +2076,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Valid bagId is required"}});
                 return;
             }
-            // Reject an off-list storageHint loudly rather than writing junk the
-            // AI freshness block would then surface verbatim. "" clears it;
-            // "frozen" is intentionally invalid (freeze state = frozenDate).
-            if (args.contains("storageHint")) {
-                const QString hint = args["storageHint"].toString();
-                if (!CoffeeBag::isValidStorageHint(hint)) {
-                    respond(QJsonObject{{"error",
-                        QStringLiteral("storageHint must be one of %1 (or '' to clear); "
-                                       "there is no 'frozen' value — set frozenDate instead")
-                            .arg(CoffeeBag::storageHintValues().join(QStringLiteral(", ")))}});
-                    return;
-                }
+            if (const QString err = CoffeeBag::lifecycleFieldError(args.toVariantMap(), QDate::currentDate());
+                !err.isEmpty()) {
+                respond(QJsonObject{{"error", err}});
+                return;
+            }
+            if (args.contains("grinderBrand") || args.contains("grinderModel") || args.contains("grinderBurrs")) {
+                respond(QJsonObject{{"error", "A bag's grinder comes from its equipment package: set it with "
+                                              "the equipment tool, not on the bag"}});
+                return;
             }
             // yieldOverrideG was a real bag-update key until this change, so
             // scripts and agent workflows still send it. The field loop below
@@ -2105,7 +2105,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
                 "frozenDate", "defrostDate", "storageHint", "openedDate", "notes",
-                "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting", "rpm",
+                "grinderSetting", "rpm",
                 "doseWeightG", "inInventory"};
             for (const QString& key : kEditable) {
                 if (args.contains(key))
@@ -2219,13 +2219,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QMetaObject::invokeMethod(qApp, [bagStorage, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                         auto conn = std::make_shared<QMetaObject::Connection>();
                         *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
-                            [conn, bagId, respondWithBag, respond, onSuccess](qint64 updatedId, bool success) {
+                            [conn, bagId, respondWithBag, respond, onSuccess](qint64 updatedId, bool success,
+                                                                              const QString& refusal) {
                                 if (updatedId != bagId)
                                     return;  // a concurrent update of a different bag
                                 QObject::disconnect(*conn);
                                 if (!success) {
-                                    respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                                  + QString::number(bagId)}});
+                                    respond(QJsonObject{{"error", !refusal.isEmpty() ? refusal
+                                        : "Bag not found or update failed: " + QString::number(bagId)}});
                                     return;
                                 }
                                 if (onSuccess)
@@ -2241,17 +2242,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // static write. Skips the in-app refresh/sync signals.
                 QThread* thread = QThread::create([dbPath, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                     bool success = false;
+                    QString refusal;
                     withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
-                        success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields);
+                        success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields, &refusal);
                     });
                     if (success) {
                         if (onSuccess)
                             QMetaObject::invokeMethod(qApp, onSuccess, Qt::QueuedConnection);
                         respondWithBag();
                     } else {
-                        QMetaObject::invokeMethod(qApp, [bagId, respond]() {
-                            respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                          + QString::number(bagId)}});
+                        QMetaObject::invokeMethod(qApp, [bagId, respond, refusal]() {
+                            respond(QJsonObject{{"error", !refusal.isEmpty() ? refusal
+                                : "Bag not found or update failed: " + QString::number(bagId)}});
                         }, Qt::QueuedConnection);
                     }
                 });
@@ -2266,13 +2268,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // bag must not conjure one).
             const bool identityEdit = fields.contains("roasterName")
                 || fields.contains("coffeeName") || fields.contains("roastLevel");
-            // Coffee-only columns must reach the kind gate in the merge thread
-            // (the bag's kind isn't known until it's loaded). roastLevel already
-            // routes through via identityEdit; grinderSetting would otherwise
-            // short-circuit past the gate onto a tea bag.
-            const bool coffeeOnlyEdit = fields.contains("roastLevel")
-                || fields.contains("grinderSetting");
-            if (blobEdits.isEmpty() && !identityEdit && !coffeeOnlyEdit) {
+            // Coffee-only columns on a tea bag are refused in storage
+            // (CoffeeBag::writeError), so they need no detour through here.
+            if (blobEdits.isEmpty() && !identityEdit) {
                 proceed(fields);
                 return;
             }
@@ -2307,32 +2305,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     // teaType). Kind itself stays immutable, so the error names
                     // the rule instead of silently dropping the keys.
                     if (!isTea) {
-                        static const QStringList kTeaOnly = {
-                            "teaType", "garden", "cultivar", "flush", "brewTempC",
-                            "leafGramsPer100Ml", "steepTime"};
                         QStringList offending;
-                        for (const QString& key : kTeaOnly)
+                        for (const QString& key : CoffeeBag::teaOnlyKeys())
                             if (blobEdits.contains(key))
                                 offending << key;
                         if (!offending.isEmpty()) {
                             respond(QJsonObject{{"error",
                                 QString("%1 only apply to tea bags; bag %2 is a coffee bag "
                                         "(kind is set at creation and immutable)")
-                                    .arg(offending.join(", ")).arg(bagId)}});
-                            return;
-                        }
-                    } else {
-                        // Reverse gate (symmetry with action=create): roast level and
-                        // grinder setting are meaningless on a tea bag — reject
-                        // rather than store a value tea surfaces hide anyway.
-                        static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
-                        QStringList offending;
-                        for (const QString& key : kCoffeeOnly)
-                            if (fields.contains(key) && !fields.value(key).toString().trimmed().isEmpty())
-                                offending << key;
-                        if (!offending.isEmpty()) {
-                            respond(QJsonObject{{"error",
-                                QString("%1 do not apply to tea bags; bag %2 is a tea bag")
                                     .arg(offending.join(", ")).arg(bagId)}});
                             return;
                         }
@@ -2474,13 +2454,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"coffeeName", QJsonObject{{"type", "string"}, {"description", "Coffee name (coffee) / tea name (tea)"}}},
                 {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Coffee bags only"}}},
-                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD, '' to clear"}}},
-                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD, '' to clear"}}},
+                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear (also clears defrostDate)"}}},
+                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD this portion left the freezer, '' to clear"}}},
                 {"storageHint", QJsonObject{{"type", "string"}, {"description", "counter/airtight/vacuum-sealed/fridge, '' to clear. Valid in any freeze state"}}},
-                {"openedDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD this portion left airtight storage, '' to clear"}}},
-                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
-                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "update only"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"openedDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD this portion was first used; a shot sets it"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
                 {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder RPM, paired with grinderSetting"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}, {"description", "Dose in grams"}}},

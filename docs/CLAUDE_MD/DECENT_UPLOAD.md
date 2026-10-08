@@ -2,7 +2,7 @@
 
 Uploads shots to the owner's account at decentespresso.com, as de1app (`plugins/shot_upload`) and
 Decaid (`decentespresso/shot-upload`) do. The OpenSpec change is `add-decent-shot-upload`, rolled out in
-three stages: manual upload (#1988), automatic upload (#1990), then Upload missing shots. API reference:
+three stages: manual upload (PR Kulitorum/Decenza#1988), automatic upload (PR Kulitorum/Decenza#1990), then Upload missing shots. API reference:
 https://decentespresso.com/support/api/
 
 ## Pieces

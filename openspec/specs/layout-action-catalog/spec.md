@@ -1,7 +1,12 @@
 # layout-action-catalog Specification
 
 ## Purpose
-TBD - created by archiving change add-history-filter-widget-actions. Update Purpose after archive.
+
+Specifies the Custom layout widget's action catalog: a single C++ table of
+assignable actions, each with an id, a translatable label and its page contexts.
+The in-app editor and the web layout editor both derive their action pickers
+from this table.
+
 ## Requirements
 ### Requirement: The Custom widget action catalog is declared in one place
 
@@ -19,14 +24,12 @@ require no per-surface list edits beyond that table (the action's runtime behavi
 
 ### Requirement: All action-catalog consumers derive from the single table
 
-The in-app Custom widget editor's action list (`CustomEditorPopup.getFilteredActions()`)
-and the web layout editor's `ACTIONS` array SHALL both consume the single catalog — the
-web editor receiving it as injected JSON, by the same mechanism as the widget catalog. The
-hand-maintained copies in those two files SHALL be removed along with their
-keep-in-sync comments.
-
-Actions whose picker entry is dynamically expanded at selection time (the profile picker
-behind "Load Profile") SHALL keep that behaviour; only the catalog entry itself moves.
+The in-app Custom widget editor's action list
+(`CustomEditorPopup.getFilteredActions()`) and the web layout editor's `ACTIONS`
+array SHALL both consume the single catalog, which the web editor receives as
+injected JSON. The hand-maintained copies and their keep-in-sync comments SHALL
+be removed. Entries expanded at selection time, such as the profile picker
+behind "Load Profile", SHALL keep that behaviour; only the catalog entry moves.
 
 #### Scenario: No hand-synced action copies remain
 

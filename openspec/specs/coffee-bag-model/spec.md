@@ -2,18 +2,11 @@
 
 ## Purpose
 The single source of truth for the `CoffeeBag` data model and its `coffee_bags` database table: identity, freeze/notes lifecycle fields, last-used grinder/dose, the bean's own yield spec, and Visualizer sync bookkeeping, plus how bags survive backup restore and device-to-device transfer, how the active bag is selected and written through from bean/grinder edits, and how bag state is stamped onto each shot snapshot.
+
 ## Requirements
+
 ### Requirement: CoffeeBag data model
-The system SHALL define a `CoffeeBag` value type with the following fields:
-- Identity: `id` (int, DB primary key), `roasterName`, `coffeeName`, `roastDate`, `roastLevel`, `beanBaseId` (canonical UUID, nullable), `beanBaseData` (JSON blob, nullable)
-- Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `storageHint` (nullable string enum: `counter` / `airtight` / `vacuum-sealed` / `fridge` — the **out-of-freezer storage plan**: how the beans are kept when NOT in the freezer. It is forward-looking on a frozen bag ("when this is thawed, it goes in a vacuum jar") and descriptive on a thawed or never-frozen one, so it is orthogonal to the freezer axis and SHALL be settable and retained in every freeze state. The enum has no `"frozen"` value — frozen state is determined solely by `frozenDate` being set — but the two fields answer different questions and therefore cannot disagree; `storageHint` SHALL NOT be cleared, hidden, or otherwise suppressed on account of `frozenDate`), `openedDate` (nullable date — the non-frozen analogue of `defrostDate`: when the current portion started being actively used/exposed to room temperature), `notes` (nullable), `startWeightG` (double, nullable — column retained but UNSURFACED: the UI field was removed as low-value and Visualizer has no equivalent), `inInventory` (bool, default true)
-- Last-used grinder/dose: `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG` (all nullable)
-- Yield spec: `yieldValue` (double) + `yieldMode` (`none` | `absolute` | `ratio`) — the bean's **own** yield, a first-class anchor rather than a deviation from the active profile's target weight (`yield-anchor`). `mode = none` means the bag designs no yield and the ladder falls through to the profile. The legacy `yieldOverrideG` column is converted by migration and left dead in place.
-- Visualizer sync: `visualizerBagId` (nullable UUID string), `visualizerRoasterId` (nullable UUID string), `visualizerSyncPending` (bool, default false — a bag edit failed to push and awaits retry)
-
-The yield spec SHALL be a local-only field, same as the grinder/dose fields — it SHALL NOT be included in `touchesVisualizerFields()`, so an anchor edit never triggers a bag PATCH. `storageHint` and `openedDate` are local-only for the same reason (`bean-freshness-followup`): neither is included in `touchesVisualizerFields()` and neither is pushed to a Visualizer bag.
-
-The `beanBaseData` blob SHALL be valid **without** a canonical `id`: a manual bag may carry user-entered detail keys (`origin`, `region`, `farm`, `producer`, `variety`, `elevation`, `process`, `harvest`, `qualityScore`, `placeOfPurchase`, `tastingNotes`, `link`, `degree`) while remaining unlinked (`isLinked` stays defined solely by a non-empty `id`). A linked blob additionally carries a `canonical` sub-object — the pristine entry snapshot for revert — which consumers of the flat working keys ignore and shot snapshots carry along unchanged.
+The system SHALL define a `CoffeeBag` value type with identity fields `id` (int, DB primary key), `roasterName`, `coffeeName`, `roastDate`, `roastLevel`, `beanBaseId` (canonical UUID, nullable) and `beanBaseData` (JSON blob, nullable).
 
 #### Scenario: Bag creation with full canonical data
 - **WHEN** a user creates a bag from a Bean Base canonical result
@@ -45,6 +38,62 @@ The `beanBaseData` blob SHALL be valid **without** a canonical `id`: a manual ba
 #### Scenario: A bag cannot hold both an absolute yield and a ratio
 - **WHEN** a bag holding `{40.0, absolute}` is given a ratio of 1:3 from any surface (Change Beans dialog, Brew Settings, MCP `bag_update`, web bag editor)
 - **THEN** it holds `{3.0, ratio}` and retains no absolute yield
+
+### Requirement: CoffeeBag freeze fields
+The bag SHALL carry `frozenDate` and `defrostDate` (nullable), `storageHint` (nullable string enum `counter` / `airtight` / `vacuum-sealed` / `fridge`, the out-of-freezer storage plan) and `openedDate` (nullable, the non-frozen analogue of `defrostDate`). The enum SHALL have no `"frozen"` value; frozen state SHALL be determined solely by `frozenDate` being set. `storageHint` SHALL NOT be cleared, hidden or suppressed on account of `frozenDate`.
+
+#### Scenario: Storage plan is kept on a thawed bag
+- **WHEN** a bag with a storage hint is thawed
+- **THEN** the storage hint is retained
+
+### Requirement: CoffeeBag notes, start weight and inventory flag
+The bag SHALL carry `notes` (nullable), `startWeightG` (double, nullable, retained but NOT surfaced in the UI) and `inInventory` (bool, default true).
+
+#### Scenario: Start weight is retained but hidden
+- **WHEN** a bag with a stored start weight is shown in the UI
+- **THEN** the start weight is not displayed
+
+### Requirement: CoffeeBag last-used grinder and dose fields
+The bag SHALL carry `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting` and `doseWeightG`, all nullable, recording the last-used grinder and dose.
+
+#### Scenario: Last-used fields are optional
+- **WHEN** a bag is created without grinder or dose details
+- **THEN** those fields are stored as empty
+
+### Requirement: CoffeeBag yield spec
+The bag SHALL carry `yieldValue` (double) and `yieldMode` (`none`, `absolute` or `ratio`). The yield spec is the bean's own yield, a first-class anchor rather than a deviation from the profile's target weight (`yield-anchor`). `mode = none` means the bag designs no yield, so the ladder falls through to the profile. The legacy `yieldOverrideG` column SHALL be converted by migration and left dead in place.
+
+#### Scenario: No-yield bag falls through to the profile
+- **WHEN** a bag has `yieldMode = none`
+- **THEN** the yield resolves from the profile
+
+### Requirement: CoffeeBag Visualizer sync fields
+The bag SHALL carry `visualizerBagId` and `visualizerRoasterId` (nullable UUID strings) and `visualizerSyncPending` (bool, default false), which is true while a bag edit that failed to push awaits retry.
+
+#### Scenario: Failed push is marked pending
+- **WHEN** a bag edit fails to push to Visualizer
+- **THEN** `visualizerSyncPending` is true until the retry succeeds
+
+### Requirement: Yield spec and freeze fields are local-only
+The yield spec, `storageHint` and `openedDate` SHALL be local-only. None SHALL be included in `touchesVisualizerFields()`, so an anchor edit never triggers a bag PATCH, and none SHALL be pushed to a Visualizer bag.
+
+#### Scenario: Local-only edit sends nothing to Visualizer
+- **WHEN** only the yield spec, `storageHint` or `openedDate` changes
+- **THEN** no bag PATCH is sent
+
+### Requirement: beanBaseData is valid without a canonical id
+The `beanBaseData` blob SHALL be valid without a canonical `id`. A manual bag MAY carry user-entered detail keys (`origin`, `region`, `farm`, `producer`, `variety`, `elevation`, `process`, `harvest`, `qualityScore`, `placeOfPurchase`, `tastingNotes`, `link`, `degree`) while remaining unlinked. `isLinked` SHALL remain defined solely by a non-empty `id`.
+
+#### Scenario: Manual bag details without a link
+- **WHEN** a manual bag carries detail keys and no canonical id
+- **THEN** the bag is unlinked and its details are retained
+
+### Requirement: A linked blob carries a pristine canonical snapshot
+A linked `beanBaseData` blob SHALL additionally carry a `canonical` sub-object, the pristine entry snapshot used for revert. Consumers of the flat working keys SHALL ignore it, and shot snapshots SHALL carry it unchanged.
+
+#### Scenario: Revert restores the canonical snapshot
+- **WHEN** the user reverts a linked bag
+- **THEN** the working keys are restored from the `canonical` sub-object
 
 ### Requirement: coffee_bags database table
 The system SHALL store bags in a `coffee_bags` SQLite table created by migration 19 in `src/history/shothistorystorage.cpp` (current schema version is 18). The table SHALL include all CoffeeBag fields. All lifecycle and grinder fields SHALL be nullable. DB access SHALL follow the `withTempDb()` background-thread pattern.
@@ -93,9 +142,7 @@ The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `c
 - **AND** shots without a blob SHALL have a null `beanbase_id`
 
 ### Requirement: Active bag selection
-The system SHALL maintain a single global `activeBagId` in `SettingsDye` (replacing the `bean/selectedPreset` index). The active bag's fields drive the next shot's bean snapshot.
-
-Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: the resolution ladder of `yield-anchor` (recipe → bag → profile) SHALL be enforced explicitly, never left to emerge from the order in which the bag-selection and recipe-activation signals happen to arrive. **Applying a bag's dose SHALL be gated the same way**, per the ladder in `dose-source-precedence`. The two were previously asymmetric — the yield spec respected the ladder while the dose applied unconditionally, so selecting a bag replaced an active recipe's dose while leaving its yield alone. Nothing about the bag justified the difference; the dose simply had no ladder to obey.
+The system SHALL maintain a single global `activeBagId` in `SettingsDye`, replacing the `bean/selectedPreset` index. The active bag's fields SHALL drive the next shot's bean snapshot.
 
 #### Scenario: Bag selection applies all fields
 - **WHEN** the user selects a bag (from inventory or Change Beans dialog)
@@ -146,8 +193,15 @@ that write travels back to the bag, it would replace the dose the bean actually 
 - **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
 - **THEN** the bean summary SHALL display "No beans selected" and prompt the user to select a bag
 
+### Requirement: Bag yield spec and dose follow the recipe ladder
+Applying a bag's **yield spec** SHALL be gated on no recipe being active, and the `yield-anchor` ladder (recipe, then bag, then profile) SHALL be enforced explicitly, never left to the arrival order of signals. Applying a bag's dose SHALL be gated the same way, per `dose-source-precedence`.
+
+#### Scenario: Bag selection does not replace a recipe's dose
+- **WHEN** a bag is selected while a recipe is active
+- **THEN** the recipe's dose and yield are kept
+
 ### Requirement: Bean/grinder edits write through to the active bag
-Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write directly to the active bag, unconditionally — including while a recipe with its own owned grind (recipe-model) is active. There SHALL be no intermediate live-DYE copy of bean/grinder state that can diverge from the bag, and no modified-state computation or save prompt. When a recipe is active, the same edit SHALL also write to that recipe's own `grindPinned`/`rpmPinned` (recipe-model) — the bag and the active recipe's own grind both update immediately from the same edit, independently of each other; neither is ever deliberately withheld from the other.
+Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write directly to the active bag, unconditionally, including while a recipe with its own owned grind (recipe-model) is active. No intermediate live-DYE copy of bean or grinder state SHALL exist, and there SHALL be no modified-state computation or save prompt.
 
 #### Scenario: Grinder edit before a shot
 - **WHEN** the user changes the grinder setting in the brew dialog while a bag is active
@@ -172,6 +226,13 @@ Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write
 - **WHEN** a bean-less recipe with its own grind is activated
 - **THEN** the active bag is cleared as part of activation (recipe-activation), so the recipe's grind — and any subsequent grind edits — write through to no bag at all (the write-through is a no-op with no active bag)
 
+### Requirement: Grinder edits also write to the active recipe
+When a recipe is active, a pre-shot grinder edit SHALL also write to that recipe's own `grindPinned` and `rpmPinned` (recipe-model). The bag and the recipe's grind SHALL each update immediately from the same edit, independently of each other.
+
+#### Scenario: Grinder edit updates bag and recipe together
+- **WHEN** a grinder field is edited while a recipe is active
+- **THEN** both the active bag and the recipe's pinned grind update immediately
+
 ### Requirement: Dose stamped on shot save
 The system SHALL update the active bag's `doseWeightG` to the shot's actual dose whenever a shot is saved (dose may originate from SAW/profile settings rather than a manual edit).
 
@@ -180,9 +241,7 @@ The system SHALL update the active bag's `doseWeightG` to the shot's actual dose
 - **THEN** the active bag's `doseWeightG` SHALL be updated to the shot's value with no user prompt
 
 ### Requirement: The bag's yield spec is button-protected
-The bag's dial memory SHALL split along the measurement/intent line of `yield-anchor`. `grinderSetting`, `rpm`, and `doseWeightG` are dial-in — things the user physically did — and SHALL keep their existing unconditional write-through. The yield spec is design intent and SHALL reach the bag **only** via the explicit "Update Bag" action in Brew Settings (`recipe-aware-brew-settings`).
-
-No other action SHALL write the bag's yield spec: not a shot save, not Brew Settings OK, not a dose capture, and not a bag selection.
+The bag's dial memory SHALL split along the measurement/intent line of `yield-anchor`. `grinderSetting`, `rpm` and `doseWeightG` are dial-in and SHALL keep their unconditional write-through. The yield spec is design intent and SHALL reach the bag only via the explicit "Update Bag" action in Brew Settings (`recipe-aware-brew-settings`).
 
 #### Scenario: Yield is not stamped on shot save
 - **WHEN** a shot is saved at a target that differs from the active bag's stored yield spec
@@ -206,8 +265,15 @@ No other action SHALL write the bag's yield spec: not a shot save, not Brew Sett
 - **WHEN** the user changes the grinder setting or RPM while a bag is active
 - **THEN** the active bag's `grinderSetting`/`rpm` SHALL be updated immediately, exactly as before this change
 
+### Requirement: No other action writes the bag's yield spec
+No other action SHALL write the bag's yield spec: not a shot save, not Brew Settings OK, not a dose capture, and not a bag selection.
+
+#### Scenario: Shot save leaves the yield spec alone
+- **WHEN** a shot is saved
+- **THEN** the bag's stored yield spec is unchanged
+
 ### Requirement: Shot snapshot includes bag lifecycle fields
-The system SHALL snapshot `frozenDate`, `defrostDate`, `storageHint`, and `openedDate` from the active bag into the shot record at save time, in the `shots` table's own `frozen_date`, `defrost_date`, `storage_hint`, and `opened_date` columns — the same columns-on-`shots` pattern `frozen_date`/`defrost_date` already use (`shothistorystorage.cpp`), not a foreign-key-only reference to the bag row (a later bag edit must not retroactively change what an already-saved shot recorded).
+The system SHALL snapshot `frozenDate`, `defrostDate`, `storageHint` and `openedDate` from the active bag into the shot record at save time, in the `shots` table's own `frozen_date`, `defrost_date`, `storage_hint` and `opened_date` columns.
 
 #### Scenario: Frozen bean shot snapshot
 - **WHEN** a shot is saved while the active bag has `frozenDate` and `defrostDate` set
@@ -217,6 +283,13 @@ The system SHALL snapshot `frozenDate`, `defrostDate`, `storageHint`, and `opene
 - **WHEN** a shot is saved while the active bag has `storageHint = "airtight"` and `openedDate` set, with no `frozenDate`/`defrostDate`
 - **THEN** the shot record SHALL include `storageHint` and `openedDate` in its snapshot
 - **AND** `frozenDate`/`defrostDate` SHALL remain absent from that shot's snapshot
+
+### Requirement: Shot snapshots are stored on the shot, not referenced
+The snapshot SHALL use the shot's own columns, the same pattern `frozen_date` and `defrost_date` already use (`shothistorystorage.cpp`), and SHALL NOT be a foreign-key-only reference to the bag row. A later bag edit therefore never changes what a saved shot recorded.
+
+#### Scenario: Later bag edit leaves a saved shot unchanged
+- **WHEN** a bag's freeze fields are edited after a shot was saved
+- **THEN** the saved shot's snapshot is unchanged
 
 ### Requirement: canonical_roaster_id stored in beanBaseData blob
 The system SHALL include `canonical_roaster_id` in the beanBaseData blob when populated via `parseCanonicalPayload`.
@@ -245,8 +318,7 @@ A schema migration SHALL add nullable `storage_hint` (TEXT) and `opened_date` (T
 - **THEN** the imported bag SHALL carry the same `storageHint` and `openedDate` values
 
 ### Requirement: shots table gains storage_hint and opened_date columns
-
-The same schema migration (or a paired one) SHALL add nullable `storage_hint` (TEXT) and `opened_date` (TEXT, ISO date) columns to the `shots` table, mirroring the existing `frozen_date`/`defrost_date` columns added by an earlier migration. Every code path that reads or writes `frozen_date`/`defrost_date` on `shots` SHALL be extended to the same two new columns: the shot-save `INSERT` and its bound parameters, the shot-read `SELECT` and its `ShotRecord` field mapping, and the device-transfer/backup-restore `INSERT` (including the source-column-presence index resolution used for older source databases that predate the columns).
+The same schema migration (or a paired one) SHALL add nullable `storage_hint` (TEXT) and `opened_date` (TEXT, ISO date) columns to the `shots` table, mirroring `frozen_date` and `defrost_date`.
 
 #### Scenario: Migration adds the shots columns
 - **WHEN** the schema migration runs on an existing database
@@ -262,8 +334,15 @@ The same schema migration (or a paired one) SHALL add nullable `storage_hint` (T
 - **THEN** the imported shot row SHALL carry the source shot's `storage_hint`/`opened_date` values
 - **AND** a source database predating this migration (columns absent) SHALL import with both columns NULL rather than failing or logging an "unknown field" warning per row
 
+### Requirement: Every freeze-column path carries the new columns
+Every code path that reads or writes `frozen_date` or `defrost_date` on `shots` SHALL be extended to the two new columns: the shot-save `INSERT` and its bound parameters, the shot-read `SELECT` and its `ShotRecord` mapping, and the device-transfer and backup-restore `INSERT`. The last SHALL resolve source-column presence for older source databases that predate the columns.
+
+#### Scenario: Restore from an older database
+- **WHEN** a backup from a database predating the columns is restored
+- **THEN** the new columns are resolved as absent and restored as empty
+
 ### Requirement: Bags carry a kind set at creation
-The `coffee_bags` table SHALL gain a `kind` TEXT column (`"coffee"` default, `"tea"`), added by migration with kCols registration. The kind SHALL be set by the creation entry point and SHALL NOT be editable afterwards (no editor toggle; a mis-created zero-shot bag is deleted and recreated). The kind SHALL ride backup restore and device-to-device transfer, and pre-migration bags SHALL default to coffee. Bag surfaces (inventory cards, unified bean search, idle pills, MCP bag tools) SHALL be able to read the kind; the recipe wizard's bean step filters by it.
+The `coffee_bags` table SHALL gain a `kind` TEXT column (`"coffee"` default, `"tea"`), added by migration with kCols registration. The kind SHALL be set by the creation entry point and SHALL NOT be editable afterwards. The kind SHALL ride backup restore and device-to-device transfer, and pre-migration bags SHALL default to coffee.
 
 #### Scenario: Existing bags stay coffee
 - **WHEN** the migration runs on an existing database
@@ -273,8 +352,15 @@ The `coffee_bags` table SHALL gain a `kind` TEXT column (`"coffee"` default, `"t
 - **WHEN** a tea bag is imported via device transfer or backup restore
 - **THEN** it arrives with kind "tea"
 
+### Requirement: Bag surfaces read the kind
+Bag surfaces (inventory cards, unified bean search, idle pills, MCP bag tools) SHALL be able to read the kind, and the recipe wizard's bean step SHALL filter by it.
+
+#### Scenario: Wizard bean step filters by kind
+- **WHEN** the recipe wizard's bean step is shown for a tea recipe
+- **THEN** only tea bags are offered
+
 ### Requirement: Tea bags store structured brewing data in the blob
-For tea bags, the `beanBaseData` blob vocabulary SHALL include: `teaType` (black/green/oolong/white/herbal/pu-erh), `garden` (estate), `cultivar`, `flush`, `brewTempC` (number, Celsius), `leafGramsPer100Ml` (number), and `steepTime` (display string), alongside the shared descriptive keys (origin, region, tastingNotes). These are schemaless blob keys — no migration. Absent keys mean "vendor did not state it"; consumers SHALL treat them as empty, never inferring values.
+For tea bags, the `beanBaseData` blob vocabulary SHALL include `teaType` (black, green, oolong, white, herbal or pu-erh), `garden` (estate), `cultivar`, `flush`, `brewTempC` (number, Celsius), `leafGramsPer100Ml` (number) and `steepTime` (display string), alongside the shared descriptive keys. These schemaless keys need no migration. Absent keys mean the vendor did not state it, and consumers SHALL treat them as empty, never inferring values.
 
 #### Scenario: Brewing data seeds without guessing
 - **WHEN** a tea bag has no `brewTempC`
@@ -299,12 +385,7 @@ A schema migration SHALL add a `bean_repair_pending INTEGER NOT NULL DEFAULT 0` 
 - **THEN** the still-flagged shots SHALL remain flagged and be retried on a later launch
 
 ### Requirement: Stored bags carrying a borrowed canonical record are unlinked by migration
-
-A schema migration SHALL apply the identity check to every stored bag and unlink those whose own roaster/coffee name a different coffee than the record they point at. Detection is offline and SHALL be conservative: it can only prove a conflict while the stored snapshot still carries the record's own names, and an empty name on either side SHALL NOT be treated as a disagreement.
-
-Because each shot carries its own copy of the snapshot and the upload path reads that copy rather than the bag, the unlink SHALL propagate to the shots of every bag it fixes; otherwise every subsequent upload re-asserts the borrowed id and the bag fix changes nothing. Uploaded shots of those bags SHALL additionally be flagged for repair, since those are exactly the shots the server may already have renamed.
-
-The unlink is the correctness fact and SHALL be applied even if the repair-queue column could not be added; only the cloud repair is lost in that case. Where the migration cannot determine whether the column exists, it SHALL defer to a later launch rather than unlink without queueing, because a version stamp is permanent and would retire the repair for that database forever.
+A schema migration SHALL apply the identity check to every stored bag and unlink those whose own roaster or coffee name names a different coffee than the record they point at. Detection SHALL be offline and conservative: it can only prove a conflict while the stored snapshot still carries the record's own names, and an empty name on either side SHALL NOT count as disagreement.
 
 #### Scenario: A stored borrowed link is dropped
 
@@ -328,3 +409,36 @@ The unlink is the correctness fact and SHALL be applied even if the repair-queue
 - **THEN** only the uploaded shots SHALL be flagged `bean_repair_pending`
 - **AND** the never-uploaded shots SHALL NOT be flagged, since the server cannot have renamed a shot it does not have
 
+### Requirement: The unlink propagates to each bag's shots
+The unlink SHALL propagate to the shots of every bag it fixes, because each shot carries its own snapshot and upload reads that copy. Uploaded shots of those bags SHALL additionally be flagged for repair.
+
+#### Scenario: Uploaded shots are queued for repair
+- **WHEN** an unlinked bag has shots that were already uploaded
+- **THEN** those shots are flagged for repair
+
+### Requirement: The unlink does not depend on the repair queue
+The unlink SHALL be applied even if the repair-queue column could not be added, and only the cloud repair is lost in that case. Where the migration cannot determine whether that column exists, it SHALL defer to a later launch rather than unlink without queueing.
+
+#### Scenario: Unknown column state defers the migration
+- **WHEN** the migration cannot determine whether the repair-queue column exists
+- **THEN** it defers to a later launch and does not unlink
+
+### Requirement: The active bag moves when it is finished
+When the active bag is finished, the active selection SHALL move to the newest other in-inventory bag of the same coffee (canonical id, else roaster + coffee; `CoffeeBagStorage::successorBagStatic`, the same lookup recipes roll to), and SHALL be cleared when there is none, so later shots are never recorded against a finished bag.
+
+#### Scenario: Finishing a bag with a restock waiting
+- **GIVEN** the active bag and a newer in-inventory bag of the same coffee
+- **WHEN** the active bag is marked finished
+- **THEN** the newer bag SHALL become active and recipes using the finished bag SHALL point at it
+
+#### Scenario: Finishing the last bag of a coffee
+- **WHEN** the active bag is finished and no other bag of that coffee is in inventory
+- **THEN** no bag SHALL be active
+
+### Requirement: A new frozen bag does not take over from the bag in use
+Creating a bag that is stored frozen SHALL NOT make it the active bag while another bag is active; a bag that is not frozen, or the first bag, still becomes active as before.
+
+#### Scenario: Adding a delivery to the freezer
+- **GIVEN** an active bag in use
+- **WHEN** the user adds a new bag with freezing on
+- **THEN** the active bag SHALL stay the one in use

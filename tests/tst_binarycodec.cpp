@@ -166,7 +166,7 @@ private slots:
     }
 
     // ===== U8P0: 8-bit integer, range 0-255 (de1app encode_U8P0) =====
-    // This is the encoding used for TargetEspressoVol — bug #556 had it hardcoded to 36
+    // This is the encoding used for TargetEspressoVol — bug #555 had it hardcoded to 36
 
     void u8p0RoundTrip_data() {
         QTest::addColumn<double>("input");
@@ -190,7 +190,7 @@ private slots:
     }
 
     void u8p0TargetEspressoVol200() {
-        // Bug #556: TargetEspressoVol was hardcoded to 36 instead of 200
+        // Bug #555: TargetEspressoVol was hardcoded to 36 instead of 200
         // Verify 200 encodes to 0xC8 (de1app espresso_typical_volume = 200)
         uint8_t encoded = BinaryCodec::encodeU8P0(200.0);
         QCOMPARE(encoded, uint8_t(0xC8));

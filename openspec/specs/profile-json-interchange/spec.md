@@ -1,7 +1,12 @@
 # profile-json-interchange Specification
 
 ## Purpose
-TBD - created by archiving change align-profile-json-with-reaprime. Update Purpose after archive.
+
+Defines the JSON that Decenza writes for profiles so de1app, Decaid and
+Visualizer can read it: one canonical serializer, the required and standard DE1
+metadata keys, string-encoded numeric fields, non-empty steps, and a readability
+lint for built-in profiles.
+
 ## Requirements
 ### Requirement: Single canonical profile serializer
 
@@ -88,14 +93,11 @@ The built-in profile set SHALL be regenerated in the canonical format, and a lin
 
 ### Requirement: The emitted key set carries no derived cache
 
-Every key the canonical serializer emits SHALL hold state that is independent of the frames, or
-be a value derived from the frames at emit time. The serializer SHALL NOT emit a stored copy of
-values it recomputes on read.
-
-This is what separates the keys Decenza adds beyond de1app's set — `read_only`,
-`recommended_dose`, `has_recommended_dose`, `mode` — from the retired `recipe` block. An
-independent scalar cannot be invalidated by an edit to the frames; a cache of frame-derived
-values can, and did.
+Every key the canonical serializer emits SHALL hold state that is independent of
+the frames, or be a value derived from the frames at emit time. The serializer
+SHALL NOT emit a stored copy of values it recomputes on read. An independent
+scalar cannot go stale when frames are edited; a stored copy of frame-derived
+values can.
 
 #### Scenario: No emitted key duplicates frame-derived state
 

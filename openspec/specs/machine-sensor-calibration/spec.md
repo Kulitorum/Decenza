@@ -18,14 +18,7 @@ Decenza SHALL expose exactly one way to change a DE1 sensor's calibration: a gui
 - **THEN** the Flow Calibration, Weight Stop Timing and Heater Calibration cards are present and behave exactly as before this change
 
 ### Requirement: Each sensor is a separate operation on the Calibration settings tab
-
-Settings → Calibration SHALL offer **Pressure Calibration** and **Temperature Calibration** as two separate operations, in a Sensor Calibration card beside the existing Flow Calibration, Weight Stop Timing and Heater Calibration cards, each opening its own guided session for that sensor alone. They belong with the other calibration surfaces, not with machine maintenance.
-
-Their rows SHALL use the same visual grammar as the Maintenance card's guided operations, and that grammar SHALL have one definition shared by both surfaces rather than a copy per card. There SHALL NOT be a combined operation that asks the user to choose a sensor after entering. No operation SHALL be offered for flow.
-
-Each row SHALL state the external instrument its sensor requires before the user enters it, because the two need different equipment and a user may own one and not the other — a pressure-gauge portafilter is a purchase, a thermocouple basket is a fabrication. A user without the instrument SHALL be able to tell that from the Maintenance card without opening the wizard.
-
-Each operation SHALL be disabled, with a stated reason, when no DE1 is connected.
+Settings → Calibration SHALL offer **Pressure Calibration** and **Temperature Calibration** as two separate operations, in a Sensor Calibration card beside the Flow Calibration, Weight Stop Timing and Heater Calibration cards. Each SHALL open a guided session for that sensor alone. No combined operation that asks the user to choose a sensor SHALL exist, and no operation SHALL be offered for flow.
 
 #### Scenario: Two separate operations are listed
 - **WHEN** the user opens Settings → Calibration
@@ -53,6 +46,30 @@ Each operation SHALL be disabled, with a stated reason, when no DE1 is connected
 - **WHEN** no DE1 is connected
 - **THEN** both calibration rows are disabled and state that a connected machine is required
 
+### Requirement: Sensor rows share one visual grammar
+Their rows SHALL use the visual grammar of the Maintenance card's guided operations, defined once and shared by both surfaces rather than copied per card.
+
+#### Scenario: Sensor rows match Maintenance rows
+
+- **WHEN** a sensor calibration row is shown
+- **THEN** it uses the same visual grammar as a Maintenance guided operation
+
+### Requirement: Each row names its required instrument
+Each row SHALL state the external instrument its sensor requires before the user enters it, since a pressure-gauge portafilter and a thermocouple basket are different purchases. A user without the instrument SHALL be able to tell from the Maintenance card without opening the wizard.
+
+#### Scenario: Missing instrument is recognised from the card
+
+- **WHEN** a user does not own the thermocouple basket
+- **THEN** the temperature row's stated instrument tells them so without opening the wizard
+
+### Requirement: Operations need a connected DE1
+Each operation SHALL be disabled, with a stated reason, when no DE1 is connected.
+
+#### Scenario: Disabled operation states its reason
+
+- **WHEN** no DE1 is connected
+- **THEN** each sensor operation is disabled and shows why
+
 ### Requirement: The wizard prepares the machine and states the hardware needed
 
 Before any run, the wizard SHALL state in full the physical preparation its sensor requires — repeating and expanding what the Calibration-card row summarised — and SHALL make that sensor's test profile the active profile. It SHALL NOT start the shot itself; the user starts it as they normally would. A user who finds at this step that they lack the instrument SHALL be able to leave without anything having been written.
@@ -72,12 +89,7 @@ Before any run, the wizard SHALL state in full the physical preparation its sens
 - **THEN** the wizard waits for the user to start the shot and does not start it
 
 ### Requirement: The machine-reported value comes from the profile, never from the user
-
-The machine's half of a correction SHALL be the loaded profile's declared final-frame value — the pressure or temperature it holds to and displays. The user SHALL enter only their external instrument's reading; the wizard SHALL offer no field for what the app showed.
-
-A correction SHALL be computed only while that sensor's own test profile is the active profile, so the declared hold is the value the user is watching. With any other profile loaded the wizard SHALL refuse and say which profile to load.
-
-The value SHALL NOT be taken from a per-profile scalar. de1app's is a global that goes stale — observed showing 6.0 bar with the calibration profile loaded and holding at 9.0 — and a correction computed against it is wrong by the difference.
+The machine's half of a correction SHALL be the loaded profile's declared final-frame value, the pressure or temperature it holds to and displays. The user SHALL enter only their instrument's reading, and the wizard SHALL offer no field for what the app showed. A correction SHALL be computed only while that sensor's own test profile is active; with any other profile loaded, the wizard SHALL refuse and say which profile to load.
 
 #### Scenario: The declared hold is offered, not a typed value
 - **WHEN** the sensor's test profile is loaded
@@ -91,6 +103,14 @@ The value SHALL NOT be taken from a per-profile scalar. de1app's is a global tha
 #### Scenario: One sensor's profile does not satisfy the other
 - **WHEN** the pressure test profile is loaded
 - **THEN** the temperature wizard still refuses
+
+### Requirement: The declared value is never a per-profile scalar
+The declared value SHALL NOT be taken from a per-profile scalar. That scalar is a de1app global which goes stale, so a correction computed against it would be wrong by the difference.
+
+#### Scenario: Stale global is not used
+
+- **WHEN** the calibration profile is loaded and the stale global reads 6.0 while the profile holds 9.0
+- **THEN** the correction uses the profile's declared 9.0
 
 ### Requirement: The pair reaching the machine is assembled in one place
 

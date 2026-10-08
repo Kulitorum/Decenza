@@ -165,8 +165,8 @@ inline QString firmwareUpdateStartingMessage(const QString& targetVersion) {
 
 // A targeted WiFi-update request (opcode 0x1B) carries the release to install
 // as three payload bytes, each biased with 0x80. The bias is what lets one
-// request form be correct against every scale: firmware carrying openscale
-// PR #165 disambiguates on `data[2] >= 0x80` (include/decent_protocol.h, the
+// request form be correct against every scale: firmware carrying
+// PR decentespresso/openscale#165 disambiguates on `data[2] >= 0x80` (include/decent_protocol.h, the
 // 0x1B arm), and older firmware ignores the payload — on Bluetooth because
 // that path has no framer and never reads past data[1] (include/ble.h), and on
 // USB because the frame ends at two bytes and the rest falls to the text path
@@ -179,7 +179,7 @@ inline QString firmwareUpdateStartingMessage(const QString& targetVersion) {
 // (include/decent_protocol.h). Biasing puts every payload byte in 0x80..0xFF,
 // which no frame start can match.
 //
-// Verified against openscale PR #165 (bf425cf), re-checked at 910deb9.
+// Verified against PR decentespresso/openscale#165 (bf425cf), re-checked at 910deb9.
 inline constexpr uint8_t OtaTargetByteBias = 0x80;
 inline constexpr int OtaTargetPayloadBytes = 3;
 

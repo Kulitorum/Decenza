@@ -119,7 +119,7 @@ private slots:
 
     void shotSettingsTargetEspressoVol() {
         // de1app: TargetEspressoVol = U8P0(espresso_typical_volume) = 200
-        // Bug #556: was hardcoded to 36 instead of 200
+        // Bug #555: was hardcoded to 36 instead of 200
         TestFixture f;
         QByteArray data = f.callAndCapture(160, 120, 80, 200, 93.0);
         QCOMPARE(uint8_t(data[6]), uint8_t(200));  // 0xC8

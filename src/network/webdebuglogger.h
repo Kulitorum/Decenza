@@ -22,7 +22,7 @@ class WebDebugLogger : public QObject {
     // Exposed to QML by macro, in the header — never setContextProperty and never a
     // runtime qmlRegisterType. Both are invisible to qmllint, qmlcachegen and the
     // language server, which makes a typo indistinguishable from a real property
-    // (the #1661 defect class). See docs/CLAUDE_MD/QML_GOTCHAS.md.
+    // (the PR Kulitorum/Decenza#1661 defect class). See docs/CLAUDE_MD/QML_GOTCHAS.md.
     QML_ELEMENT
     QML_SINGLETON
 

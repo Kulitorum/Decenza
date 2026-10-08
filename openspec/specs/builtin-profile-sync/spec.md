@@ -1,21 +1,12 @@
 # builtin-profile-sync Specification
 
 ## Purpose
-TBD - created by archiving change sync-builtin-profiles. Update Purpose after archive.
+Covers equivalence of built-in profiles shared between Decenza and Decaid: the machine-observable comparison rule, keeping shared profiles content-equivalent with de1app as the reference, and classifying divergences by cause rather than suppressing them.
+
 ## Requirements
 ### Requirement: Cross-app profile equivalence is machine-observable
 
-Two copies of the same profile SHALL be considered equivalent when they cause the DE1 to do the same thing, not when their files agree textually. The comparison SHALL normalise the following before declaring a difference:
-
-- absent, `""` and `0` are the same value;
-- the axis a frame's pump does not drive is not compared, because the DE1 ignores it;
-- a `limiter` with `value == 0` equals an absent `limiter`;
-- numbers compare numerically, never as strings — `"8.00"` equals `"8.0"`;
-- `exit` compares as (type, condition, value) under the same numeric rule.
-
-This definition is load-bearing rather than stylistic. A structural JSON diff over the 63 profiles common to Decenza and Decaid reports 55 of them differing; under this relation the true count is 11, and the 630-odd remaining rows are three encoding conventions — an omitted zero `weight`, a no-op zero-valued `limiter`, and `""` versus `0.00` on the inactive axis. A comparison that cannot tell those apart buries the real findings.
-
-The scalar fields that decide when a shot **stops** are part of the comparison, not metadata. Frames alone are insufficient: a profile can carry identical frames and still stop at a different weight.
+Two copies of a profile SHALL be considered equivalent when they cause the DE1 to do the same thing, not when their files agree textually. The comparison SHALL normalise these before declaring a difference: absent, "" and 0 are the same; the axis a frame's pump does not drive is not compared; a limiter with value 0 equals an absent limiter; numbers compare numerically; exit compares as (type, condition, value).
 
 #### Scenario: Encoding differences are not divergences
 
@@ -27,13 +18,17 @@ The scalar fields that decide when a shot **stops** are part of the comparison, 
 - **WHEN** two copies of a profile have identical frames but different target weight or target volume
 - **THEN** they are reported as divergent, because the shot ends differently
 
+### Requirement: Stop fields are part of profile equivalence
+The scalar fields that decide when a shot stops SHALL be part of the comparison, not metadata. Frames alone are insufficient for equivalence.
+
+
+#### Scenario: Identical frames, different stop weight
+- **WHEN** two copies of a profile have identical frames but stop at different weights
+- **THEN** they are not reported as equivalent
+
 ### Requirement: Common built-in profiles are content-equivalent across apps
 
-The bundled profiles Decenza and Decaid share SHALL produce the same extraction — importing a shared profile into either app yields functionally-identical frames and stops at the same point. Divergences SHALL be resolved case-by-case against de1app as the reference, never against de1app's stored `advanced_shot` frames for a profile type that derives its frames.
-
-Reconciliation is **bidirectional in principle**: neither app is automatically authoritative, and a blanket "de1app wins" rule governed the de1app leg of this work and MUST NOT be carried across to Decaid as an assumption.
-
-In practice the audit found Decenza the more faithful side in all 11 divergent cases, each traceable to one of two upstream mechanisms — de1app writing `advanced_shot` out of the global `::settings` array, and de1app issue #350 shadowing the A-Flow profiles. That outcome is a finding, not a rule: it was reached case-by-case and MUST be re-established, not assumed, if the comparison is re-run.
+The bundled profiles Decenza and Decaid share SHALL produce the same extraction: importing a shared profile into either app SHALL yield functionally identical frames and stop at the same point. Divergences SHALL be resolved case-by-case against de1app as the reference, never against de1app's stored advanced_shot frames for a profile type that derives its frames.
 
 #### Scenario: A reconciled shared profile makes the same coffee in either app
 
@@ -41,13 +36,17 @@ In practice the audit found Decenza the more faithful side in all 11 divergent c
 - **THEN** the two apps' copies parse to functionally-equal frames and the same stop targets
 - **AND** the divergence resolution is recorded in the audit with its chosen reference source
 
+### Requirement: Reconciliation is bidirectional and re-checked
+Neither app SHALL be automatically authoritative: a blanket "de1app wins" rule MUST NOT be carried across to Decaid as an assumption. Outcomes of the comparison MUST be re-established, not assumed, when it is re-run.
+
+
+#### Scenario: Re-run re-establishes outcomes
+- **WHEN** the comparison is re-run
+- **THEN** earlier findings are checked again rather than carried forward as assumptions
+
 ### Requirement: Divergences are classified by cause, never suppressed by category
 
-Every divergence the comparison finds SHALL be reported and classified by its cause. A divergence with a known upstream cause SHALL be recorded as such rather than queued as a Decenza defect, and a divergence with no established cause SHALL be surfaced as unexplained rather than filtered out.
-
-No profile family SHALL be excluded from the comparison in advance. An earlier draft of this spec excluded A-Flow and D-Flow from the Decaid comparison on the grounds that Decaid was "believed broken" for those editor types. The measurement disproved the premise: Decaid's A-Flow files are byte-faithful copies of de1app's stale 6-frame distribution snapshot — de1app issue #350, an upstream bug with a filed report and a known fix — and D-Flow is unaffected, its one common profile comparing equivalent. Excluding them would have suppressed the clearest signal the comparison produced.
-
-Classification reaches the same practical outcome as exclusion — a known-upstream difference is not treated as a Decenza defect — without the false premise or the blind spot.
+Every divergence the comparison finds SHALL be reported and classified by its cause. A divergence with a known upstream cause SHALL be recorded as such rather than queued as a Decenza defect, and one with no established cause SHALL be surfaced as unexplained. No profile family SHALL be excluded from the comparison in advance.
 
 #### Scenario: A known upstream cause is classified, not queued as a defect
 
@@ -72,3 +71,6 @@ regression gate. Both were descoped — see design D3 and D5 — so specifying t
 would describe behaviour this change does not deliver.
 -->
 
+#### Scenario: A-Flow profiles are compared
+- **WHEN** the Decaid comparison runs over A-Flow and D-Flow profiles
+- **THEN** they are included, and any divergence is classified by cause rather than filtered out

@@ -17,7 +17,7 @@ The app SHALL connect with a client ID that belongs to this install alone: gener
 - **THEN** each SHALL generate its own client ID and stop disconnecting the other
 
 ### Requirement: Stable Home Assistant Identity
-Every Home Assistant entity `unique_id` and the device identifier SHALL be built from a Home Assistant device ID, not from the client ID. The device ID SHALL be generated once, saved, carried by backup, restore and device migration, and reused across restarts and updates. An install upgrading from a version before this change SHALL take its device ID from its previous client ID, so its `unique_id`s and device identifier do not change. The user SHALL be able to replace the device ID with a new random one from the app and from the web settings page, connected or not. Doing so SHALL NOT clear any discovery message published under the previous device ID, because another install restored from the same backup may share it; a previous device used by this install alone stays in Home Assistant until the user deletes it there, and while it shares this install's base topic it keeps showing this machine's state. A new device ID has no earlier per-entity topics, so the move to device-based discovery SHALL NOT run for it. A backup made before this change carries only a client ID; restoring it SHALL use that client ID as the device ID, because it built that install's `unique_id`s, and SHALL NOT use it as the client ID.
+Every Home Assistant entity `unique_id` and the device identifier SHALL be built from a Home Assistant device ID, not from the client ID. The device ID SHALL be generated once, saved, carried by backup, restore and device migration, and reused across restarts and updates. An upgrading install SHALL take its device ID from its previous client ID, so its identifiers do not change.
 
 #### Scenario: Upgrading an existing install
 - **WHEN** a user who already uses MQTT discovery installs this version
@@ -35,15 +35,19 @@ Every Home Assistant entity `unique_id` and the device identifier SHALL be built
 - **WHEN** a backup made by an earlier version is restored onto a new tablet that replaces the old one
 - **THEN** the new tablet SHALL take the backup's client ID as its device ID, keep its own client ID, and Home Assistant SHALL keep showing the same device and entities
 
+### Requirement: Home Assistant Device ID Replacement
+The user SHALL be able to replace the device ID with a new random one, from the app or the web settings page, connected or not. Replacing it SHALL NOT clear any discovery message published under the previous device ID, because another install restored from the same backup may share it. A new device ID SHALL NOT run the per-entity discovery move.
+
+#### Scenario: Previous device used by this install alone
+- **WHEN** the user replaces the device ID and the previous device was used by this install alone
+- **THEN** the previous device SHALL stay in Home Assistant until the user deletes it there
+- **AND** while it shares this install's base topic it SHALL keep showing this machine's state
+
 ### Requirement: Broker Message Contract
 The app SHALL publish and subscribe as follows:
-- State values are published at QoS 0 under the configured base topic, retained only when the user has enabled retained messages. The topics entity availability reads (`availability`, `connected`, `scale_connected`) are always retained, at QoS 1, like the last-will message; otherwise Home Assistant reads the retained `offline` when it subscribes.
-- The command and profile-select topics are subscribed at QoS 1.
-- The availability topic carries `online` after connecting.
-- A last-will message of `offline` is registered on the availability topic, at QoS 1 and retained.
-- Home Assistant discovery is published as one device-based discovery message, retained when the user has enabled retained messages (as before; otherwise it is re-sent when Home Assistant restarts), at `homeassistant/device/<device ID>/config` when discovery is enabled. It carries the device and origin information and one component per entity, each with its platform and `unique_id`. This requires Home Assistant 2024.11 or newer.
-
-The connection SHALL use a clean session and a 60-second keepalive. It SHALL use MQTT 3.1.1, and SHALL retry once with MQTT 3.1 if the broker rejects the protocol version.
+- State values SHALL be published at QoS 0 under the base topic, retained only when retained messages are enabled; `availability`, `connected` and `scale_connected` SHALL always be retained at QoS 1.
+- The command and profile-select topics SHALL be subscribed at QoS 1.
+- `online` SHALL be published on the availability topic after connecting, with a retained QoS 1 `offline` last-will.
 
 #### Scenario: Home Assistant sees the app go online
 - **WHEN** the app connects to the broker
@@ -57,6 +61,20 @@ The connection SHALL use a clean session and a 60-second keepalive. It SHALL use
 #### Scenario: Broker only speaks MQTT 3.1
 - **WHEN** the broker rejects the connection because it does not support MQTT 3.1.1
 - **THEN** the app SHALL connect with MQTT 3.1 instead of reporting a failure
+
+### Requirement: Device-Based Discovery Message
+Discovery SHALL be one device-based message at `homeassistant/device/<device ID>/config` when discovery is enabled, retained when retained messages are enabled. It SHALL carry the device and origin information and one component per entity, each with its platform and `unique_id`. It requires Home Assistant 2024.11 or newer.
+
+#### Scenario: Discovery message carries one component per entity
+- **WHEN** discovery is enabled and the device-based message is published
+- **THEN** it SHALL carry the device and origin information and one component per entity, each with its platform and `unique_id`
+
+### Requirement: Connection Protocol Parameters
+The connection SHALL use MQTT 3.1.1, a clean session and a 60-second keepalive. It SHALL retry once with MQTT 3.1 if the broker rejects the protocol version.
+
+#### Scenario: Connection parameters on connect
+- **WHEN** the app opens a connection to the broker
+- **THEN** the session SHALL be clean, the keepalive SHALL be 60 seconds, and the protocol SHALL be MQTT 3.1.1
 
 ### Requirement: Availability On Clean Exit
 On a normal app exit while connected, the app SHALL publish a retained `offline` message on the availability topic before disconnecting.
@@ -92,9 +110,7 @@ Repeated connection attempts, whether successful or failed, SHALL NOT grow the a
 - **THEN** the open socket count SHALL NOT increase with each save
 
 ### Requirement: Connection Status Is Verified And Explained
-The status shown in the app and on the web settings page SHALL read connected only after the broker has accepted the login AND acknowledged the command and profile-select subscriptions. If the broker refuses a subscription, the status SHALL name the refused topic and say that the broker account lacks permission for it.
-
-When a connection attempt fails, the status SHALL state the reason in plain words. A broker rejection SHALL name its cause: unsupported protocol version, client ID rejected, broker unavailable, bad username or password, or not authorized. A transport failure SHALL say which kind it was: host unreachable, connection refused, timed out, name not resolved, or certificate rejected. A bare numeric code SHALL NOT be the only reason shown.
+The status SHALL read connected only after the broker has accepted the login and acknowledged the command and profile-select subscriptions. If the broker refuses a subscription, the status SHALL name the refused topic and say that the broker account lacks permission for it. A failed attempt SHALL state its reason in plain words, never only as a bare numeric code.
 
 #### Scenario: Account cannot subscribe to commands
 - **WHEN** the broker accepts the login but refuses the subscription to the command topic
@@ -108,6 +124,11 @@ When a connection attempt fails, the status SHALL state the reason in plain word
 - **WHEN** the broker host cannot be reached
 - **THEN** the status SHALL say the broker could not be reached, and SHALL show the retry schedule
 
+#### Scenario: Failure reasons are named
+- **WHEN** a connection attempt fails
+- **THEN** a broker rejection SHALL name its cause: unsupported protocol version, client ID rejected, broker unavailable, bad username or password, or not authorized
+- **AND** a transport failure SHALL say which kind it was: host unreachable, connection refused, timed out, name not resolved, or certificate rejected
+
 ### Requirement: Local Broker Names Resolve On Android
 On Android, a broker host ending in `.local` SHALL be resolved through the app's own mDNS lookup before connecting, because the platform resolver does not reliably answer `.local` names. If the lookup finds no address, the app SHALL still try the name as given.
 
@@ -116,12 +137,7 @@ On Android, a broker host ending in `.local` SHALL be resolved through the app's
 - **THEN** the app SHALL connect to the address that name resolves to
 
 ### Requirement: Encrypted Connection
-The user SHALL be able to turn on an encrypted (TLS) connection to the broker. It SHALL be off by default and existing setups SHALL remain unencrypted until the user turns it on. With TLS on:
-- the broker's certificate SHALL always be verified, and there SHALL be no option to skip verification;
-- verification SHALL use the platform's trusted certificates, plus a CA certificate the user supplies, if any;
-- the certificate SHALL be checked against the broker host name the user entered, even when that name was resolved to an address by the app's own lookup.
-
-The TLS setting and CA certificate SHALL be editable both in the app and on the web settings page.
+The user SHALL be able to turn on TLS to the broker. With TLS on, the broker certificate SHALL always be verified, with no option to skip verification, against the platform's trusted certificates plus any user-supplied CA certificate. It SHALL be checked against the broker host name the user entered, even when the app resolved that name itself. The TLS setting and CA certificate SHALL be editable in the app and on the web settings page.
 
 #### Scenario: Cloud broker with a public certificate
 - **WHEN** TLS is on and the broker presents a certificate from a publicly trusted authority matching its host name
@@ -138,6 +154,11 @@ The TLS setting and CA certificate SHALL be editable both in the app and on the 
 #### Scenario: TLS to a .local broker on Android
 - **WHEN** TLS is on and the broker host is a `.local` name resolved by the app's mDNS lookup
 - **THEN** the certificate SHALL be verified against the `.local` name, not the resolved address
+
+#### Scenario: TLS is off by default
+- **GIVEN** an existing setup with no TLS setting
+- **WHEN** the user upgrades to this version
+- **THEN** the connection SHALL remain unencrypted until the user turns TLS on
 
 ### Requirement: Changes That Would Expose The Stored Password Need It Again
 While a broker password is stored, a change to the broker host, the port, turning TLS off, or a different CA certificate SHALL NOT be applied from the web settings page unless the password is entered again in the same request, and SHALL NOT be applied through MCP, which cannot carry the password. The app's own settings tab, used by someone at the machine, is not restricted. Each refusal SHALL say which change was refused and where it can be made.
@@ -158,7 +179,7 @@ The app SHALL subscribe to Home Assistant's status topic (`homeassistant/status`
 - **THEN** the DE1 device and its entities SHALL reappear in Home Assistant with current values, without the app reconnecting
 
 ### Requirement: Existing Entities Move To Device Discovery
-An install that published per-entity discovery topics (`homeassistant/<component>/de1_<object>/config`) under an earlier version SHALL move to device-based discovery once, following Home Assistant's documented procedure: publish `{"migrate_discovery": true}` to each earlier topic, then publish the device-based discovery message, then publish an empty retained payload to each earlier topic. Entity IDs, names and user customizations SHALL survive the move. Once it has completed, the app SHALL NOT publish to the per-entity topics again.
+An install with per-entity discovery topics (`homeassistant/<component>/de1_<object>/config`) SHALL move to device-based discovery once, following Home Assistant's documented procedure: publish `{"migrate_discovery": true}` to each earlier topic, publish the device-based message, then publish an empty retained payload to each earlier topic. Entity IDs, names and customizations SHALL survive. Afterwards it SHALL NOT publish to those topics again.
 
 #### Scenario: Upgrade with a customised entity
 - **WHEN** a user who renamed a DE1 entity in Home Assistant and uses it in a dashboard upgrades to this version
@@ -184,7 +205,7 @@ Home Assistant entities whose values come from the DE1 SHALL be available only w
 - **AND** the DE1 connected entity SHALL show disconnected
 
 ### Requirement: Profile Selection From Home Assistant
-When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are the titles of the installed profiles, in the profile page's default order (the current profile, then most recently used, then never-used profiles alphabetically), and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the existing profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain, still working for anyone who has it, but SHALL be marked disabled by default, so a device Home Assistant creates from now on shows the dropdown as its profile control and the text entity only if the user enables it.
+When discovery is enabled, the app SHALL publish a Home Assistant select entity whose options are installed profile titles, in the profile page's default order, and whose state is the active profile. Choosing an option SHALL activate that profile, exactly as the profile-select topic does. The options SHALL be re-published whenever profiles are added, removed or renamed. The existing profile text entity SHALL remain, disabled by default.
 
 #### Scenario: Pick a profile from a dashboard
 - **WHEN** the user picks a profile in the Home Assistant dropdown while the machine is idle
@@ -197,6 +218,10 @@ When discovery is enabled, the app SHALL publish a Home Assistant select entity 
 #### Scenario: New profile added
 - **WHEN** the user adds a profile in the app
 - **THEN** the dropdown SHALL list it without the app reconnecting
+
+#### Scenario: Options follow the profile page order
+- **WHEN** the select entity's options are published
+- **THEN** the current profile SHALL come first, then the most recently used profiles, then never-used profiles alphabetically
 
 ### Requirement: Recipe Selection From Home Assistant
 When discovery is enabled and at least one recipe exists, the app SHALL publish a Home Assistant select entity whose options are the names of the non-archived recipes, and whose state is the active recipe's name, or unknown when no recipe is active. Choosing an option SHALL activate that recipe through the app's own recipe activation. The options SHALL be re-published whenever recipes are added, renamed, archived or restored.
@@ -225,12 +250,7 @@ After each espresso shot is saved to history, the app SHALL publish a retained s
 - **THEN** the summary SHALL omit yield and ratio, rather than reporting 0
 
 ### Requirement: Shot Events
-When discovery is enabled, the app SHALL publish a Home Assistant event entity for espresso shots, and SHALL publish non-retained shot events to it:
-- `started` when an espresso begins;
-- `finished` when the shot is saved to history, carrying its duration, yield and profile;
-- `aborted` when an espresso ends without being saved.
-
-Each espresso SHALL produce exactly one `started` and at most one `finished` or `aborted`. An espresso run with a cleaning, descale or calibration profile, which history never saves, SHALL produce no shot events at all.
+When discovery is enabled, the app SHALL publish a Home Assistant event entity for espresso shots, and SHALL publish non-retained events to it. `started` SHALL be sent when an espresso begins, `finished` when the shot is saved to history, and `aborted` when an espresso ends without being saved. Each espresso SHALL produce exactly one `started` and at most one `finished` or `aborted`.
 
 #### Scenario: Automation on shot finished
 - **WHEN** a shot completes and is saved
@@ -242,6 +262,14 @@ Each espresso SHALL produce exactly one `started` and at most one `finished` or 
 
 #### Scenario: Backflush with a cleaning profile
 - **WHEN** the user runs a cleaning profile
+- **THEN** Home Assistant SHALL receive no shot events
+
+#### Scenario: Finished event payload
+- **WHEN** a shot is saved to history
+- **THEN** its `finished` event SHALL carry the shot's duration, yield and profile
+
+#### Scenario: Descale or calibration run emits nothing
+- **WHEN** the user runs a descale or calibration profile
 - **THEN** Home Assistant SHALL receive no shot events
 
 ### Requirement: Remote Stop

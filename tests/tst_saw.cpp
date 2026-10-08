@@ -328,7 +328,7 @@ private slots:
     }
 
     // ===== A stale reading that keeps recurring after a spike-rejected real zero
-    // never fires, even across many alternating cycles (#1838 review finding) =====
+    // never fires, even across many alternating cycles (PR Kulitorum/Decenza#1838 review finding) =====
 
     void untaredCupAlternatingReadingsNeverConfirm() {
         WeightProcessor wp;
@@ -360,7 +360,7 @@ private slots:
     }
 
     // ===== A streak starting just before the 3s window still confirms, even if
-    // confirmation lands just after it (#1838 review finding) =====
+    // confirmation lands just after it (PR Kulitorum/Decenza#1838 review finding) =====
 
     void untaredCupStreakStartingNearWindowBoundaryStillFires() {
         WeightProcessor wp;
@@ -390,7 +390,7 @@ private slots:
     }
 
     // ===== A retare mid-extraction re-arms the popup for a later, genuinely new
-    // untared-cup condition (#1838 review finding) =====
+    // untared-cup condition (PR Kulitorum/Decenza#1838 review finding) =====
 
     void untaredCupReArmsAfterRetare() {
         WeightProcessor wp;

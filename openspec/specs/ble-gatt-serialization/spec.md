@@ -5,11 +5,7 @@ Guarantees that every Bluetooth Low Energy GATT operation from every connected p
 ## Requirements
 ### Requirement: At most one GATT operation is outstanding across all peripherals
 
-The system SHALL permit at most one GATT operation to be in flight at any moment, counted across every connected or connecting BLE peripheral rather than per peripheral. An operation SHALL be considered in flight from the moment it is issued to the platform until it reaches a terminal outcome.
-
-Operations covered SHALL include service discovery, characteristic discovery, characteristic read, characteristic write, and descriptor write. (Not descriptor read: nothing in the app issues one, and listing it would describe untested capability as behaviour.) Serialization SHALL NOT be limited to writes: the observed failure was a descriptor write rejected while another peripheral was performing service discovery.
-
-Peripheral connection SHALL NOT be a queued operation. A connect that waits its turn behind queued work would let a scale reconnect stall a DE1 write, and stop-at-weight sits on that path. Instead the system SHALL apply backpressure: a scale or refractometer connect SHALL be deferred while any GATT operation is outstanding or queued, and SHALL be released when the queue reports itself drained. This is de1app's rule (`bluetooth.tcl:2276`, "Too much backpressure, waiting with the connect"), event-driven rather than polled.
+The system SHALL permit at most one GATT operation to be in flight at any moment, counted across every connected or connecting BLE peripheral rather than per peripheral. An operation SHALL be in flight from the moment it is issued to the platform until it reaches a terminal outcome.
 
 #### Scenario: A second peripheral connects while the first is enabling notifications
 
@@ -35,13 +31,30 @@ Peripheral connection SHALL NOT be a queued operation. A connect that waits its 
 - **THEN** the refractometer's connect and discovery are serialized against the DE1's traffic
 - **AND** the DE1's notification delivery is not interrupted by the refractometer's arrival
 
+### Requirement: Serialized GATT operation kinds
+
+Serialization SHALL cover service discovery, characteristic discovery, characteristic read, characteristic write and descriptor write, and SHALL NOT be limited to writes. Descriptor reads are not covered, because nothing in the app issues one.
+
+#### Scenario: Descriptor write waits behind another peripheral's discovery
+
+- **WHEN** one peripheral is performing service discovery
+- **AND** another peripheral issues a descriptor write
+- **THEN** the descriptor write SHALL wait its turn in the queue
+
+### Requirement: Peripheral connect is backpressured, not queued
+
+Peripheral connection SHALL NOT be a queued operation. A scale or refractometer connect SHALL be deferred while any GATT operation is outstanding or queued, and SHALL be released when the queue reports itself drained. This is event-driven rather than polled, as de1app does (`bluetooth.tcl:2276`).
+
+#### Scenario: Connect waits while the queue is busy
+
+- **WHEN** a GATT operation is queued and a scale connect is requested
+- **THEN** the connect SHALL NOT start until the queue reports itself drained
+
 ### Requirement: The in-flight slot is released by events, not by a clock of its own
 
-The system SHALL release the in-flight slot on an observed terminal outcome for the operation — its success callback, its error callback, or the requesting transport's teardown. Serialization SHALL NOT introduce a timer of its own to decide that an operation has finished.
+The system SHALL release the in-flight slot on an observed terminal outcome for the operation: its success callback, its error callback, or the transport's teardown. Serialization SHALL NOT introduce a timer of its own to decide that an operation has finished.
 
-Where the platform can fail to deliver any terminal callback at all, the release SHALL be driven by the requesting transport's existing terminal machinery — the machinery that already bounds that operation and verifies real state before acting — rather than by a second bound added alongside it. Two clocks racing on one operation is the condition this requirement exists to prevent.
-
-An operation released without success SHALL be treated as failed by its own device's error handling, never silently as succeeded.
+Where the platform can fail to deliver any terminal callback, the release SHALL come from the requesting transport's existing terminal machinery, not a second bound.
 
 #### Scenario: An operation fails and the platform reports it
 
@@ -61,6 +74,15 @@ An operation released without success SHALL be treated as failed by its own devi
 - **WHEN** the peripheral holding the in-flight slot disconnects or its transport is torn down
 - **THEN** the slot is released immediately
 - **AND** operations belonging to the disconnected peripheral are discarded rather than retried against a dead link
+
+### Requirement: Slots released without success are failures
+
+An operation released without success SHALL be treated as failed by its own device's error handling, never silently as succeeded.
+
+#### Scenario: Teardown while in flight is a failure
+
+- **WHEN** the requesting transport is torn down while its operation is in flight
+- **THEN** the requesting device SHALL see a failure for that operation, not a success
 
 ### Requirement: Serialization behaviour is identical on every platform
 

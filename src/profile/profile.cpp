@@ -1128,7 +1128,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // truth for what the machine actually brews. The top-level scalar stays
     // authoritative when the author set it — it may legitimately differ from
     // steps[0] (a cooler group preheat target paired with a hotter preinfusion ramp,
-    // as on the D-Flow / A-Flow built-ins; see PR #961). Two cases need repair:
+    // as on the D-Flow / A-Flow built-ins; see PR Kulitorum/Decenza#961). Two cases need repair:
     //
     //   1. Key absent → derive from the first frame. Visualizer's
     //      /profile?format=json omits espresso_temperature entirely (per-step temps
@@ -1890,7 +1890,7 @@ QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile&
     // frames: profile.cpp's fromJson reconciliation keeps the top-level scalar
     // authoritative when the author set it, precisely because it may
     // legitimately differ from steps[0] — a cooler group preheat paired with a
-    // hotter preinfusion ramp, as on the D-Flow / A-Flow built-ins (PR #961).
+    // hotter preinfusion ramp, as on the D-Flow / A-Flow built-ins (PR Kulitorum/Decenza#961).
     //
     // This comment previously claimed the opposite and omitted the row on that
     // basis, which meant a D-Flow copy whose only change was the group preheat

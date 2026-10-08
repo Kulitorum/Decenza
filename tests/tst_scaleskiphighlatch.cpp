@@ -289,7 +289,7 @@ private slots:
 
     // --- Epoch-gate decision trichotomy (pure logic, no BLEManager TU) ---
     // Regression-locks the headline backward-compat guarantee + the
-    // corrupt-negative handling at the DECISION level (PR #1220 review
+    // corrupt-negative handling at the DECISION level (PR Kulitorum/Decenza#1220 review
     // Crit-9/8 + silent-failure #2). decideBleEpochGate() is the exact
     // function BLEManager::setSettings() dispatches on.
 

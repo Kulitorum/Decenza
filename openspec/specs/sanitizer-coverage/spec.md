@@ -5,9 +5,10 @@ Governs the runtime instrumentation the project relies on to find defects the co
 
 ## Requirements
 ### Requirement: UndefinedBehaviorSanitizer Is Available as a Build Option
-`CMakeLists.txt` SHALL provide an `ENABLE_UBSAN` option that instruments the build with UndefinedBehaviorSanitizer, mirroring the structure of the existing `ENABLE_ASAN` block.
 
-UBSan is the highest-value sanitizer for this codebase because it detects a class of defect that neither the compiler nor the existing tests find: signed overflow, invalid shifts, misaligned loads, null-reference binding, and out-of-range enum and bool values. Unlike a warning flag, its coverage does not depend on third-party headers carrying annotations.
+`CMakeLists.txt` SHALL provide an `ENABLE_UBSAN` option that instruments the
+build with UndefinedBehaviorSanitizer, mirroring the structure of the existing
+`ENABLE_ASAN` block.
 
 #### Scenario: Local instrumented build
 - **WHEN** a developer configures with `-DENABLE_UBSAN=ON`
@@ -20,6 +21,12 @@ UBSan is the highest-value sanitizer for this codebase because it detects a clas
 #### Scenario: Multi-config generators
 - **WHEN** CMake is configured with a multi-config generator (Visual Studio, Xcode) that does not set `CMAKE_BUILD_TYPE` at configure time
 - **THEN** sanitizer flags are not leaked into Release builds, consistent with the existing ASan guard
+
+#### Scenario: UBSan reports defects the other checks miss
+
+- **WHEN** the instrumented suite executes signed overflow, an invalid shift, a misaligned load, a null-reference binding or an out-of-range enum or bool value
+- **THEN** the run reports the undefined behaviour at runtime
+
 
 ### Requirement: The Test Suite Runs Under Sanitizers in CI
 A scheduled (nightly) workflow SHALL run the `ctest` suite with UBSan instrumentation enabled, and separately with ASan, as two independent builds. A sanitizer diagnostic SHALL fail the run.
@@ -42,11 +49,11 @@ A CI failure SHALL make clear whether it was an assertion failure in a test or a
 - **THEN** the summary distinguishes a failing test assertion from a sanitizer report, without requiring the full log to be read to tell them apart
 
 ### Requirement: The Sanitizer Proves It Is Armed
-The instrumented suite SHALL include a canary that commits deliberate undefined behaviour and SHALL fail if the sanitizer does not trap it.
 
-A sanitizer that is silently not applied produces exactly the same green suite as a codebase with no undefined behaviour in it. The first instrumented run here reported zero findings across all 82 tests — a good result, and one indistinguishable from `-fsanitize=undefined` having been dropped by a flag-ordering mistake, a toolchain quietly ignoring it, or a configure without `-DENABLE_UBSAN=ON`. Every subsequent clean run carries the same ambiguity. Without a canary, the gate can rot into a green no-op and the rot is invisible by construction — which is the same silent-failure shape this whole change exists to remove.
-
-The canary SHALL verify both halves of the evidence: that the process failed, **and** that it failed by printing a sanitizer diagnostic. Exit status alone is insufficient — a canary that failed to link, or crashed for an unrelated reason, would otherwise be read as proof the sanitizer works.
+The instrumented suite SHALL include a canary that commits deliberate undefined
+behaviour and SHALL fail if the sanitizer does not trap it. The canary SHALL
+verify both that the process failed and that it failed by printing a sanitizer
+diagnostic; exit status alone is insufficient.
 
 #### Scenario: Sanitizer is active
 - **WHEN** the suite runs with instrumentation correctly applied
@@ -61,29 +68,34 @@ The canary SHALL verify both halves of the evidence: that the process failed, **
 - **THEN** the canary is neither compiled nor registered as a test
 
 ### Requirement: A Finding Fails the Run By Construction, Not By Environment
-The build SHALL be configured so that a sanitizer finding aborts the process, independently of any environment variable set by a CI workflow.
 
-`UBSAN_OPTIONS=halt_on_error=1` achieves this, but only where it is set: it lives in the workflow file, where an unrelated-looking edit can drop it, and it is absent from a developer's local run entirely — so the same code can report undefined behaviour and exit zero on a laptop while failing in CI. Compiling with `-fno-sanitize-recover=all` makes "instrumented" and "fails on a finding" the same switch. The environment variable is kept as well, but as belt-and-braces rather than as the mechanism.
+The build SHALL compile with `-fno-sanitize-recover=all`, so that a sanitizer
+finding aborts the process independently of any environment variable set by a CI
+workflow. `UBSAN_OPTIONS` MAY still be set as belt-and-braces, but it is not the
+mechanism.
 
 #### Scenario: Local instrumented run without CI environment
 - **WHEN** a developer runs the instrumented suite without setting `UBSAN_OPTIONS`
 - **THEN** a finding still aborts the test and fails the run
 
 ### Requirement: Check Selection Excludes Well-Defined Behaviour
-The enabled sanitizer checks SHALL cover genuine undefined behaviour and SHALL NOT include groups that flag legal, intentional constructs.
 
-Beyond the default `undefined` group, `local-bounds` (array index out of bounds on locals) and `float-divide-by-zero` (defined as infinity by IEEE 754, but a defect every time in flow, pressure and ratio arithmetic) are real defects in this codebase's terms. The `integer` group — unsigned overflow and implicit conversions — is deliberately excluded: it is well-defined C++ that CRC and hashing code wraps on purpose, so it reports intent as though it were a defect. A detector that cries wolf gets switched off, which costs more than it ever finds.
+The enabled sanitizer checks SHALL be the default `undefined` group plus `local-
+bounds` and `float-divide-by-zero`. The `integer` group SHALL NOT be enabled,
+because it flags well-defined unsigned wrapping and implicit conversions that
+CRC and hashing code uses on purpose.
 
 #### Scenario: Proposal to enable the integer group
 - **WHEN** someone proposes adding `-fsanitize=integer` or `unsigned-integer-overflow` to the gating build
 - **THEN** it is rejected for the gate unless each flagged site is shown to be an actual defect, because wrapping unsigned arithmetic is legal and used deliberately here
 
 ### Requirement: Detection Extends Past Language-Level Undefined Behaviour
-The sanitizer build SHALL additionally enable hardened standard-library assertions and keep Qt assertions live.
 
-There is a defect class that **both** sanitizers miss: an out-of-bounds `std::vector`/`QVector` `operator[]` whose index still lands inside the allocation. ASan sees nothing, because the memory is validly owned; UBSan sees nothing, because there is no undefined behaviour at the language level. The read silently returns garbage which then propagates into a shot. Hardened mode (`_LIBCPP_HARDENING_MODE` on libc++, `_GLIBCXX_ASSERTIONS` on libstdc++) turns that into a trap — verified against a plain build, which prints garbage and exits zero.
-
-`QT_FORCE_ASSERTS` is required for the same reason: the sanitizer job configures a Release-type build, in which every `Q_ASSERT` in Qt's code and ours compiles to nothing. The invariants those assertions document would go unchecked in precisely the run built to check invariants.
+The sanitizer build SHALL additionally enable hardened standard-library
+assertions (`_LIBCPP_HARDENING_MODE` on libc++, `_GLIBCXX_ASSERTIONS` on
+libstdc++) and SHALL set `QT_FORCE_ASSERTS`, keeping `Q_ASSERT` live in a
+Release-type build. Hardened mode is needed because an out-of-range `operator[]`
+that stays inside its allocation is missed by both sanitizers.
 
 #### Scenario: Out-of-bounds container access inside the allocation
 - **WHEN** a test executes an out-of-range `operator[]` whose index still falls within the allocated block
@@ -94,9 +106,9 @@ There is a defect class that **both** sanitizers miss: an out-of-bounds `std::ve
 - **THEN** `Q_ASSERT` remains active, so documented invariants are still checked
 
 ### Requirement: Existing ASan Configuration Is Exercised
-The ASan configuration already present in `CMakeLists.txt` SHALL be run by CI on a defined cadence, rather than existing only as configuration nothing executes.
 
-ASan is currently auto-enabled for local non-Apple Debug builds and is invoked by no workflow, so memory defects it would catch are found only if a developer happens to run a Debug build locally.
+The ASan configuration already in `CMakeLists.txt` SHALL be run by CI on a
+defined cadence, rather than existing as configuration nothing executes.
 
 #### Scenario: ASan run occurs
 - **WHEN** the defined cadence elapses (per-pull-request, nightly, or a documented alternative)

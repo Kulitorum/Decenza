@@ -2341,7 +2341,7 @@ private slots:
     // must use (a JS array through the generic QVariant setter arrives as a
     // wrapped QJSValue and would be stored as null). Regression for the Shot
     // Plan chip editor saving "shotPlanItems": null, which read back as absent
-    // and silently reverted the user's edits (#1426).
+    // and silently reverted the user's edits (PR Kulitorum/Decenza#1426).
     void itemPropertyListPersistsArrays() {
         SettingsNetwork* net = m_settings.network();
         const QString orig = net->layoutConfiguration();
@@ -2652,7 +2652,7 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
-    // A user who installed before #1372 ("Layout editor: drag-reorder...
+    // A user who installed before PR Kulitorum/Decenza#1372 ("Layout editor: drag-reorder...
     // default cleanups") and never customized still carries the legacy
     // centerStatus readouts {temperature, waterLevel, machineStatus} —
     // nothing ever migrated that zone to empty. That's still pristine (never
@@ -3564,7 +3564,7 @@ private slots:
     // permanent, because nothing else in the build would notice its return.
     //
     // The change this test belongs to exists because that failure mode shipped once already
-    // (#1661), and during the migration an equivalent break passed the build, the linter AND the
+    // (fixed in PR Kulitorum/Decenza#1661), and during the migration an equivalent break passed the build, the linter AND the
     // full suite while the app was unusable. So assert it against a real QQmlEngine.
     //
     // NOTE ON SCOPE: this publishes the instance as a context property, which is NOT how the app

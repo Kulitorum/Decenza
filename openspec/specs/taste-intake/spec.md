@@ -1,21 +1,13 @@
 # taste-intake Specification
 
 ## Purpose
-TBD - created by archiving change add-ai-taste-intake. Update Purpose after archive.
+
+Defines the tap-only taste intake the AI advisor shows for shots with no saved taste feedback, the structured taste columns stored on each shot, how a saved taste counts toward the advisor's feedback gate, and how taste taps map to Visualizer CVA attributes on upload.
+
 ## Requirements
 ### Requirement: Tap-only taste intake, gated per shot
 
-When `Settings.ai.tasteIntakeOnAsk` is true, the system SHALL present a text-free,
-tap-only taste intake on opening the AI advisor for a shot **whenever that shot has
-no taste feedback saved yet** — a non-empty `taste_balance`, `taste_body`, or a
-non-zero `enjoyment0to100` suppresses it; otherwise it is shown. The gate SHALL be
-**per shot and independent of conversation history**: the conversation is keyed by
-bean+profile and shared across many shots, so an ongoing conversation SHALL NOT
-suppress the intake for a new, unrated shot. When shown, the intake SHALL contain
-no free-text input of any kind and SHALL offer three rows — Extraction (`Sour` /
-`Balanced` / `Bitter`), Body (`Thin` / `Medium` / `Heavy`), and Overall (the
-existing `RatingInput`, values 25/50/75/100) — an "Ask" action, and a "Skip"
-action.
+When `Settings.ai.tasteIntakeOnAsk` is true, the advisor SHALL show a text-free, tap-only taste intake whenever the shot has no saved taste feedback: no non-empty `taste_balance` or `taste_body`, and no non-zero `enjoyment0to100`. The gate SHALL be per shot and independent of conversation history, because the conversation is shared across many shots. The intake SHALL contain no free-text input of any kind.
 
 #### Scenario: Fresh shot with no saved feedback
 - **WHEN** the user opens the advisor for a shot with no saved enjoyment/taste, with the setting ON
@@ -37,6 +29,14 @@ action.
 #### Scenario: Saved taste feedback suppresses the intake
 - **WHEN** the shot already has a saved rating and/or taste axis (data entered and saved)
 - **THEN** opening the advisor SHALL go straight to the text conversation, with no intake
+
+### Requirement: Intake rows and actions
+
+The intake SHALL offer three rows: Extraction (`Sour`, `Balanced`, `Bitter`), Body (`Thin`, `Medium`, `Heavy`), and Overall (the existing `RatingInput` with values 25, 50, 75 and 100). It SHALL also offer an "Ask" action and a "Skip" action.
+
+#### Scenario: Intake offers three rows and two actions
+- **WHEN** the intake is shown
+- **THEN** it SHALL display the Extraction, Body and Overall rows, plus "Ask" and "Skip"
 
 ### Requirement: Ask composes a question from taps and attaches the shot
 
@@ -69,13 +69,7 @@ no taste/body values.
 
 ### Requirement: Structured taste storage on the shot
 
-The system SHALL store taste as structured shot columns `taste_balance` (values
-`sour` / `balanced` / `bitter`, empty = unset) and `taste_body` (values `thin` /
-`medium` / `heavy`, empty = unset), added by shots migration 33, with the
-empty-string sentinel for unset. Overall SHALL continue to use the existing
-`enjoyment0to100`. The same picker and the same columns SHALL be used on the
-post-shot review page — there SHALL NOT be a second taste UI or a second storage
-representation (e.g. encoding taste into free-text notes).
+The system SHALL store taste as shot columns `taste_balance` (`sour`, `balanced`, `bitter`) and `taste_body` (`thin`, `medium`, `heavy`), with an empty string meaning unset. Overall SHALL keep using `enjoyment0to100`. The post-shot review page SHALL use the same picker and columns: there SHALL NOT be a second taste UI or storage representation, such as encoding taste into notes.
 
 #### Scenario: Migration on an existing database
 - **WHEN** a pre-33 shots database is opened
@@ -103,19 +97,7 @@ prompted to ask "how did it taste?" for that shot.
 
 ### Requirement: Tap enums map to Visualizer CVA fields on upload
 
-When a shot with taste taps is uploaded or updated to Visualizer, the system SHALL
-translate the tap enums to the SCA CVA descriptive attributes (integer intensity
-0–15) on the existing shot request body: `taste_balance` → `acidity` +
-`bitterness` (sour = 12/4, balanced = 8/8, bitter = 4/12); `taste_body` →
-`mouthfeel` (thin = 4, medium = 8, heavy = 12). Overall continues to map to
-`espresso_enjoyment`. The system SHALL NOT set any CVA attribute a tap does not
-speak to (`sweetness`, `aftertaste`, `aroma`, `flavor`, `fragrance`). A mapped
-CVA field SHALL be written ONLY when the corresponding local taste tap is set,
-and SHALL NEVER be sent as null — so a shot the user never taps in Decenza never
-has its CVA attributes written or cleared, preserving anything scored by hand in
-Visualizer. (The mapping does not read remote CVA state, so for a shot the user
-does tap, the tap is authoritative for the mapped fields.) The mapping is
-one-directional; CVA values are not reverse-mapped into a tap enum on download.
+When a tapped shot is uploaded or updated to Visualizer, the system SHALL translate the taps to SCA CVA attributes on the existing request body. `taste_balance` maps to `acidity` and `bitterness` (sour 12/4, balanced 8/8, bitter 4/12), and `taste_body` maps to `mouthfeel` (thin 4, medium 8, heavy 12). Overall SHALL continue to map to `espresso_enjoyment`. The mapping is one-directional; CVA values are not reverse-mapped on download.
 
 #### Scenario: Sour tap maps to acidity/bitterness
 - **WHEN** a shot with `taste_balance = sour` is PATCHed to Visualizer
@@ -138,4 +120,13 @@ one-directional; CVA values are not reverse-mapped into a tap enum on download.
 #### Scenario: Auto-sync off defers upload
 - **WHEN** the user taps a taste chip and Visualizer auto-sync is disabled
 - **THEN** the taste SHALL persist locally and upload on the next manual push, like any other shot field
+
+### Requirement: CVA fields are written only for tapped values
+
+A mapped CVA field SHALL be written ONLY when its local taste tap is set, and SHALL NEVER be sent as null. The system SHALL NOT set any CVA attribute a tap does not speak to (`sweetness`, `aftertaste`, `aroma`, `flavor`, `fragrance`). The mapping SHALL NOT read remote CVA state, so for a tapped shot the tap is authoritative for the mapped fields.
+
+#### Scenario: Tap overrides a hand-entered CVA value for a tapped shot
+- **GIVEN** a shot with `taste_body = heavy` and a `mouthfeel` value entered by hand in Visualizer
+- **WHEN** the shot is PATCHed to Visualizer
+- **THEN** `mouthfeel` SHALL be set to 12 from the tap
 

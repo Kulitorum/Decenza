@@ -449,7 +449,7 @@ private:
     // Used by the slow path of `summarizeFromHistory()` (saved-shot recompute),
     // so detector wiring lives in one place. The fast path of `summarizeFromHistory` bypasses
     // this helper — it consumes pre-computed `summaryLines` +
-    // `detectorResults.pourTruncated` from `convertShotRecord` (PR #939, D).
+    // `detectorResults.pourTruncated` from `convertShotRecord` (PR Kulitorum/Decenza#939, D).
     void runShotAnalysisAndPopulate(ShotSummary& summary,
         const QVector<QPointF>& pressure,
         const QVector<QPointF>& flow,

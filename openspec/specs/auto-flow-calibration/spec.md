@@ -39,16 +39,7 @@ be skipped as ambiguous.
 - **THEN** the system SHALL skip the window and log that it spans mixed frames
 
 ### Requirement: Achieved-flow deviation check for flow-controlled windows
-For a window classified flow-controlled, the system SHALL compare the window's measured mean
-machine flow against the frame's target flow before computing a calibration ideal. If the measured
-flow falls short of (undershoots) target flow by more than the configured threshold, the system
-SHALL skip the window entirely — the shot contributes no ideal to the profile's batch — because the
-window measured the pump model at an operating point the profile does not pour at, and a single
-per-profile multiplier cannot describe two operating points at once. The check SHALL NOT trigger on
-overshoot (measured flow above target) regardless of magnitude — a pressure ceiling can only hold
-flow below its setpoint, never push it above, so an overshoot reading has no pressure-cap
-explanation. The system SHALL log the skip with the measured flow, the target flow and the
-deviation, so a shot that produced no ideal is explicable from a submitted debug log.
+For a flow-controlled window, the system SHALL compare the measured mean machine flow with the frame's target flow before computing an ideal. If measured flow undershoots target by more than the configured threshold, the system SHALL skip the window entirely, contributing no ideal to the profile's batch. The check SHALL NOT trigger on overshoot, whatever its size. The skip SHALL be logged with measured flow, target flow and deviation.
 
 #### Scenario: Flow-controlled window achieves its target flow
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow is within the
@@ -80,6 +71,10 @@ deviation, so a shot that produced no ideal is explicable from a submitted debug
 - **WHEN** a window is classified pressure-controlled
 - **THEN** the system computes the ideal as
   `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, unaffected by this requirement
+
+#### Scenario: Overshoot does not trigger the skip
+- **WHEN** a window classified flow-controlled measures a mean machine flow above the frame's target flow by any margin
+- **THEN** the system SHALL NOT skip the window on that account
 
 ### Requirement: Batched median updates
 The system SHALL accumulate per-profile ideals across a fixed batch size, persisted across app
@@ -113,12 +108,7 @@ calibration to an extreme value.
 - **THEN** the system SHALL clamp the value to those bounds before storing or applying it
 
 ### Requirement: Formula-version migration on behavior change
-When a change alters how calibration ideals are computed, or which windows produce one at all, the
-system SHALL clear all profiles' pending (not-yet-applied) batch accumulators as a one-time
-migration under a version key, so no batch median mixes ideals computed under different rules.
-Already-applied per-profile multipliers and the global multiplier SHALL NOT be reset by this
-migration when the change is per-window rather than systemic, so users whose data does not exhibit
-the defect are not forced back through several batches of re-convergence.
+When a change alters how calibration ideals are computed, or which windows produce one, the system SHALL clear all profiles' pending (not-yet-applied) batch accumulators once, under a version key, so no batch median mixes ideals computed under different rules. Already-applied per-profile multipliers and the global multiplier SHALL NOT be reset when the change is per-window rather than systemic.
 
 #### Scenario: App launches for the first time after the formula-selection logic changes
 - **WHEN** the app detects it has not yet run the formula-version migration for the current logic
@@ -212,12 +202,7 @@ guard SHALL apply to both control modes, on the two quantities the ideal divides
   divides by rather than the frame's target
 
 ### Requirement: One calibration ideal formula for both control modes
-The system SHALL compute a window's calibration ideal as
-`currentMultiplier * meanWeightFlow / (meanMachineFlow * density)` regardless of whether the window
-was flow- or pressure-controlled. The system SHALL NOT anchor a flow-controlled window's ideal to
-the frame's target flow. Window classification SHALL continue to select whether the off-target check applies, but SHALL NOT
-select a formula or a ratio guard — one ratio guard, on the quantities the formula divides, applies
-to both control modes.
+The system SHALL compute a window's calibration ideal as `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)` for both flow- and pressure-controlled windows, and SHALL NOT anchor a flow-controlled ideal to target flow. Window classification SHALL select only whether the off-target check applies, never the formula or the ratio guard. One ratio guard, on the quantities the formula divides, SHALL apply to both control modes.
 
 #### Scenario: Machine whose reported flow already matches the scale
 - **WHEN** a window's mean weight flow equals its mean machine flow times the density constant

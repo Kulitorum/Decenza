@@ -258,7 +258,7 @@ def main():
         # persists it there), profile_json target_weight is the fallback
         # for imported shots. Reading json_extract alone silently dropped
         # the common SAW dial-in cohort (no rating, no TDS) — review on
-        # PR #1236.
+        # PR Kulitorum/Decenza#1236.
         yo, jt = r["yield_override"] or 0, fnum(r["tw"]) or 0
         tw = yo if yo > 0 else jt
         fw = r["final_weight"]
@@ -286,7 +286,7 @@ def main():
     for nm, u, m in cands:
         print(f"  {nm:<26} ugs={u:<5} median={m}")
 
-    def select_anchors(pool):  # port of the PRE-#1236 selectAnchors (removed from dialing_blocks.cpp); kept only to reproduce the legacy #1223 failure
+    def select_anchors(pool):  # port of the PRE-Kulitorum/Decenza#1236 selectAnchors (removed from dialing_blocks.cpp); kept only to reproduce the legacy #1223 failure
         if len(pool) < 2:
             return None
         pool = sorted(pool, key=lambda c: c[1])

@@ -10,21 +10,7 @@ Capture a taste rating (`enjoyment0to100`) for as many shots as possible with th
 Ratings written by either path are user ratings — the system never infers a score from detector output. The precision slider in the metadata editor remains available for users who want a number other than 40/60/80.
 ## Requirements
 ### Requirement: Conversational user replies SHALL persist ratings back to the shot
-
-When the user replies to a conversation turn whose prior assistant message asked for taste feedback, AND the user's reply contains a parseable numeric score (1-100), AND the conversation turn pair has a non-zero `shotId` recorded (per #1053's per-turn linkage), the score SHALL be persisted to `ShotProjection.enjoyment0to100` for that shot. The remaining text of the reply (with the score token removed) SHALL be persisted to `espressoNotes` when non-empty.
-
-The score parser SHALL be permissive but conservative:
-
-- A bare integer token in `[1, 100]` SHALL count as a score.
-- The token MAY be followed by `/100`, `out of 100`, or `%` (the suffix consumed and discarded).
-- Decimal scores (e.g., `82.5`) SHALL be accepted and rounded to the nearest integer.
-- Non-numeric tokens SHALL NOT be inferred as scores. `"really good"`, `"loved it"`, `"better than last time"` SHALL all yield no score.
-- Out-of-range numbers (`0`, `150`, `-5`) SHALL NOT be accepted.
-- When the message contains multiple numeric tokens, the FIRST in-range token SHALL be taken as the score.
-
-The write SHALL go through the existing `ShotHistoryStorage::updateShotMetadataStatic` path. Failures SHALL log a warning; the conversation flow SHALL continue uninterrupted.
-
-When `shotId == 0` (legacy conversation, free-form follow-up, or pre-#1053 saved conversations) the reply SHALL NOT be persisted. The linkage is the load-bearing precondition.
+When the user replies to a turn whose prior assistant message asked for taste feedback, the reply contains a parseable numeric score, and the turn has a non-zero `shotId`, the score SHALL be persisted to `ShotProjection.enjoyment0to100` for that shot. The remaining reply text (score removed) SHALL be persisted to `espressoNotes` when non-empty. When `shotId == 0`, the reply SHALL NOT be persisted; the linkage is the load-bearing precondition.
 
 #### Scenario: User replies with a bare score → persisted
 
@@ -56,25 +42,22 @@ When `shotId == 0` (legacy conversation, free-form follow-up, or pre-#1053 saved
 - **THEN** no DB write SHALL occur
 - **AND** no warning SHALL be logged (this is normal for legacy conversations)
 
+### Requirement: Score parsing is permissive but conservative
+A bare integer token in [1, 100] SHALL count as a score. The token MAY be followed by `/100`, `out of 100` or `%`, which SHALL be consumed and discarded. Decimal scores SHALL be accepted and rounded to the nearest integer. Non-numeric tokens SHALL NOT be inferred as scores, and out-of-range numbers (`0`, `150`, `-5`) SHALL NOT be accepted. When a message contains several numeric tokens, the FIRST in-range token SHALL be the score.
+
+#### Scenario: Prose praise yields no score
+- **WHEN** the reply is "really good", "loved it" or "better than last time"
+- **THEN** no score is parsed
+
+### Requirement: Rating writes go through the metadata path
+Rating and notes writes SHALL go through the existing `ShotHistoryStorage::updateShotMetadataStatic` path. A failed write SHALL log a warning, and the conversation flow SHALL continue uninterrupted.
+
+#### Scenario: Write failure does not stop the conversation
+- **WHEN** the metadata write fails
+- **THEN** a warning is logged and the conversation continues
+
 ### Requirement: A saved shot SHALL be unrated, and no setting SHALL supply a rating
-
-A shot that has just been pulled has not been tasted, so it SHALL persist with
-`enjoyment0to100 == 0` (unrated). A rating SHALL originate only from a person, via
-one of the capture paths in this capability, the AI taste intake, or
-`shots_update enjoyment0to100`.
-
-No setting SHALL supply a shot rating. There SHALL be no "default shot rating"
-setting and no sticky enjoyment field in `Settings`, and the shot-save path SHALL
-NOT read a rating from `Settings` in any form. A rating held in settings is
-per-session state that lands on whichever shot happens to finish next, which is
-the defect this requirement exists to prevent: `dyeEspressoEnjoyment` was read at
-save time and reset to 0 only afterwards, so the last value it held stamped
-exactly one further shot before self-healing — invisible in testing, and enough to
-suppress that shot's taste intake permanently.
-
-The keys `shot/defaultRating` and `dye/espressoEnjoyment` SHALL be removed from
-the settings store rather than merely left unread, so no stale rating remains
-available to leak.
+A shot that has just been pulled SHALL persist with `enjoyment0to100 == 0` (unrated). A rating SHALL originate only from a person, via one of this capability's capture paths, the AI taste intake, or `shots_update enjoyment0to100`.
 
 #### Scenario: Freshly pulled shot saves unrated
 
@@ -98,16 +81,15 @@ available to leak.
   never as literal `0`
 - **AND** the shot SHALL therefore display as Unrated, not as "Rated 0/100"
 
+### Requirement: No setting SHALL supply a shot rating
+No setting SHALL supply a shot rating. `Settings` SHALL NOT have a default-rating or sticky enjoyment field, and the shot-save path SHALL NOT read a rating from `Settings` in any form. The keys `shot/defaultRating` and `dye/espressoEnjoyment` SHALL be removed from the settings store, not merely left unread.
+
+#### Scenario: Stale rating setting cannot stamp a shot
+- **WHEN** a shot finishes after a former rating key held a value
+- **THEN** the shot saves unrated
+
 ### Requirement: Migration 16 SHALL reset inferred ratings to unrated
-
-The one-time migration that drops `enjoyment_source` SHALL reset every row with
-`enjoyment_source = 'inferred'` to `enjoyment = 0`. It SHALL NOT read
-`shot/defaultRating` or any other setting to choose that value.
-
-Resetting these rows does not destroy user data: `enjoyment_source = 'inferred'`
-means the app computed the score and no person chose it. Rows carrying a rating a
-person set — including one produced by the user's own configured default while
-that feature existed — SHALL be left untouched.
+The one-time migration that drops `enjoyment_source` SHALL reset every row with `enjoyment_source = 'inferred'` to `enjoyment = 0`, and SHALL NOT read `shot/defaultRating` or any other setting to choose that value. Rows a person rated SHALL be left untouched, including a rating taken from a since-removed default.
 
 #### Scenario: Inferred rows reset regardless of any stale default
 
@@ -124,32 +106,7 @@ that feature existed — SHALL be left untouched.
 - **THEN** that row's `enjoyment` SHALL remain `90`
 
 ### Requirement: Post-shot review SHALL surface a rating row above the metadata fold
-
-`PostShotReviewPage.qml` SHALL display a rating row above the metadata editor
-consisting of a `"How was this shot?"` label and the shared `RatingInput`
-component. The row SHALL be shown for every shot, rated or not — there is no
-visibility gate and no dismiss control, because the row is one line of chrome
-rather than a nudge that needs suppressing.
-
-`RatingInput` SHALL offer both a coarse and a precise path to the same value:
-
-- preset buttons for 25 / 50 / 75 / 100, each writing its value directly,
-- a continuous slider over 0-100 for any other number,
-- keyboard adjustment (arrows by 1, PageUp/PageDown by 25).
-
-Setting a value by any path SHALL update `editEnjoyment` and persist through the
-page's autosave path. `RatingInput` SHALL NOT emit a value on construction or when
-its bound value changes programmatically — only a deliberate user gesture writes a
-rating, so that displaying the row on an unrated shot cannot itself rate it.
-
-The component SHALL follow project conventions:
-
-- registered in `CMakeLists.txt`'s `qt_add_qml_module` file list,
-- styled via `Theme.*` (no hardcoded colors / spacings),
-- text via `TranslationManager.translate(...)` or `Tr` components,
-- accessibility per `docs/CLAUDE_MD/ACCESSIBILITY.md`: `Accessible.role: Slider`,
-  an `Accessible.name` carrying the current value, `Accessible.focusable: true`,
-  and a description naming both interaction methods.
+`PostShotReviewPage.qml` SHALL display a rating row above the metadata editor: a "How was this shot?" label and the shared `RatingInput` component. The row SHALL be shown for every shot, rated or not, with no visibility gate and no dismiss control.
 
 #### Scenario: Rating row visible on an unrated shot
 
@@ -172,4 +129,25 @@ The component SHALL follow project conventions:
   the rating row
 - **THEN** no rating SHALL be written
 - **AND** the shot SHALL still satisfy the taste-intake gate as unrated
+
+### Requirement: RatingInput offers coarse and precise entry
+`RatingInput` SHALL offer preset buttons for 25, 50, 75 and 100 that each write their value directly, and a continuous 0-100 slider for any other number. It SHALL support keyboard adjustment (arrows by 1, PageUp/PageDown by 25). Setting a value by any path SHALL update `editEnjoyment` and persist through the page's autosave path.
+
+#### Scenario: Keyboard adjusts the rating
+- **WHEN** the rating control has focus and the user presses an arrow key or PageUp/PageDown
+- **THEN** the value changes by 1 or 25 respectively and persists through autosave
+
+### Requirement: Displaying the rating row never rates a shot
+`RatingInput` SHALL NOT emit a value on construction or when its bound value changes programmatically. Only a deliberate user gesture SHALL write a rating.
+
+#### Scenario: Programmatic value change emits nothing
+- **WHEN** the bound value of `RatingInput` changes programmatically
+- **THEN** no value is emitted and no rating is written
+
+### Requirement: RatingInput follows project conventions
+`RatingInput` SHALL be registered in `CMakeLists.txt`'s `qt_add_qml_module` list, styled via `Theme.*`, translated via `TranslationManager.translate(...)` or `Tr`, and accessible per `docs/CLAUDE_MD/ACCESSIBILITY.md`: `Accessible.role: Slider`, an `Accessible.name` carrying the current value, `Accessible.focusable: true`, and a description naming both interaction methods.
+
+#### Scenario: Control is announced as a slider
+- **WHEN** a screen reader focuses `RatingInput`
+- **THEN** it is announced as a slider with its current value and both interaction methods
 

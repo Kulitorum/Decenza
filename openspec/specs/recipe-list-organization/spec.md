@@ -6,7 +6,7 @@ Search and sort for the recipe list, in the app and on the web `/recipes` page, 
 ## Requirements
 
 ### Requirement: Recipe search
-The recipes management page SHALL provide a search field that filters the displayed recipe cards to those whose name, coffee/bean identity (roaster name or coffee name), profile title, or drink-type label match the entered text. Matching SHALL be token-based: the query SHALL be split into tokens on whitespace, and a recipe SHALL match only when every token appears as a substring in its combined searchable text (name, roaster name, coffee name, profile title, and drink-type label). Before matching, the query and the searchable text SHALL both have the punctuation characters `-`, `/`, and `.` removed, so a token like `df` matches text like `D-Flow / Q` (which collapses to `dflow  q`). A single token MAY appear in one field while another token appears in a different field. Matching SHALL be case-insensitive and SHALL update on every edit, the input method's in-progress word included. The field SHALL provide a clear control that empties the search and restores the full list. The search filter SHALL apply to both the active and archived recipe grids.
+The recipes page SHALL provide a search field filtering recipe cards by name, coffee (roaster or coffee name), profile title and drink-type label. A recipe SHALL match only when every whitespace token is a case-insensitive substring of the combined searchable text; tokens MAY match different fields. `-`, `/` and `.` SHALL be ignored on both sides. A clear control SHALL restore the full list. This SHALL apply to active and archived grids.
 
 #### Scenario: Filtering by recipe name
 - **WHEN** the user types text that appears in a recipe's name
@@ -48,8 +48,12 @@ The recipes management page SHALL provide a search field that filters the displa
 - **WHEN** the search text matches only archived recipes
 - **THEN** the page does not say nothing matches, and "Show archived (N)" counts the matches
 
+#### Scenario: Search updates during IME composition
+- **WHEN** the user types into the search field while the input method still holds an uncommitted word
+- **THEN** the list SHALL filter on every edit, including the in-progress word
+
 ### Requirement: Recipe sort
-The recipes management page SHALL provide a control to choose the order of the recipe cards. The available sort keys SHALL be: date used, date created, coffee/bean, profile, and name. The page SHALL also provide a control to toggle between ascending and descending order. The chosen order SHALL apply to both the active and archived recipe grids. Sorting SHALL be combined with the active search filter (the visible cards are the search matches, in the chosen order).
+The recipes page SHALL let the user order the cards by date used, date created, coffee/bean, profile or name, and toggle ascending or descending. The order SHALL apply to both the active and archived grids and to search results.
 
 #### Scenario: Sorting by a chosen key
 - **WHEN** the user selects a sort key

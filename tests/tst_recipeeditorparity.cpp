@@ -22,7 +22,7 @@
 // FIXTURES. A-Flow's five stock profiles come from the plugin's own profiles/
 // directory (vendored, byte-identical, all 9 frames). de1app's de1plus/profiles/
 // copies are a stale 6-frame snapshot missing default-light entirely (de1app
-// issue #350) and must never be used as the reference. D-Flow ships no .tcl at
+// issue decentespresso/de1app#350) and must never be used as the reference. D-Flow ships no .tcl at
 // all; its three profiles are extracted from plugin.tcl by
 // tools/extract_dflow_profiles.py — see that fixture dir's README.
 
@@ -220,7 +220,7 @@ private slots:
     }
 
     void aflowFixturesAreTheNineFrameOnes() {
-        // The guard that keeps de1app #350's stale snapshot from becoming the
+        // The guard that keeps decentespresso/de1app#350's stale snapshot from becoming the
         // oracle. Those copies have 6 frames; the plugin's have 9. Verifying
         // against 6 would produce a suite that passes against the wrong source.
         QFETCH(QString, file);
@@ -898,7 +898,7 @@ private slots:
     //
     // proc set_profile_index, code.tcl:171-190. Still in the field: de1app's
     // distribution ships four A-Flow profiles at 6 frames and cannot
-    // self-correct (issue #350), so anyone who installed those still has them.
+    // self-correct (issue decentespresso/de1app#350), so anyone who installed those still has them.
     // ==================================================================
 
     void aflowLegacyFixtureIsSixFrames() {

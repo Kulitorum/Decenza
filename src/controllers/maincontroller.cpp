@@ -1613,6 +1613,25 @@ void MainController::setupRecipeConnections() {
     connect(m_bagStorage, &CoffeeBagStorage::bagFinished, this, [this](qint64 bagId) {
         m_recipeStorage->requestRelinkForFinishedBag(bagId);
     });
+    // Shots must not keep landing on a finished bag: the active selection moves
+    // with the recipes, to the successor the roll chose, once they have moved.
+    connect(m_recipeStorage, &RecipeStorage::finishedBagRolled, this,
+            [this](qint64 finishedBagId, qint64 successorBagId, const QVariantList& movedRecipeIds) {
+        if (finishedBagId != m_settings->dye()->activeBagId())
+            return;  // not the bag in use, or the user picked another meanwhile
+        // The active recipe moved onto the successor in the database; follow in
+        // the cache before the switch, or the bag watcher reads the switch as a
+        // swap away and deactivates it (the recipeReady re-read then confirms).
+        const qint64 activeRecipeId = m_settings->dye()->activeRecipeId();
+        if (activeRecipeId > 0 && movedRecipeIds.contains(QVariant(activeRecipeId))
+            && m_activeRecipe.value(QStringLiteral("resolvedBagId")).toLongLong() == finishedBagId) {
+            m_activeRecipe.insert(QStringLiteral("bagId"), successorBagId);
+            m_activeRecipe.insert(QStringLiteral("resolvedBagId"), successorBagId);
+        }
+        DIAG_INFO(BEANBASE, "maincontroller") << "active bag" << finishedBagId << "finished - now"
+            << (bagIdIsSet(successorBagId) ? QString::number(successorBagId) : QStringLiteral("no bag"));
+        m_settings->dye()->setActiveBagId(bagIdIsSet(successorBagId) ? static_cast<int>(successorBagId) : -1);
+    });
     connect(m_bagStorage, &CoffeeBagStorage::bagCreated, this,
             [this](qint64 bagId, const QVariantMap&) {
         if (bagId > 0)
@@ -4753,6 +4772,16 @@ void MainController::onShotEnded() {
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
+            // Pulling a shot is what opens the bag, so the shot's own snapshot
+            // already carries the date it stamps below.
+            const QString openedNow = bagIdIsSet(metadata.bagId)
+                ? CoffeeBag::openedDateForShot(metadata.roastDate, metadata.frozenDate,
+                                               metadata.defrostDate, metadata.openedDate,
+                                               QDate::currentDate())
+                : QString();
+            if (!openedNow.isEmpty())
+                metadata.openedDate = openedNow;
+
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 duration, finalWeight, doseWeight,
@@ -4777,6 +4806,8 @@ void MainController::onShotEnded() {
                 if (doseWeight > 0)
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
                 stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
+                if (!openedNow.isEmpty())
+                    stamp.insert(QStringLiteral("openedDate"), openedNow);
                 m_bagStorage->requestUpdateBag(metadata.bagId, stamp);
             }
 

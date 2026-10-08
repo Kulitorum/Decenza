@@ -1555,45 +1555,7 @@ QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint
     QVector<qint64> moved;
     if (outTargetBagId)
         *outTargetBagId = -1;
-    const CoffeeBag finished = CoffeeBagStorage::loadBagStatic(db, finishedBagId);
-    if (!finished.isValid())
-        return moved;
-    if (finished.beanBaseId.isEmpty() && finished.roasterName.isEmpty()
-        && finished.coffeeName.isEmpty())
-        return moved;   // no identity, nothing to match a successor against
-
-    // Successor: the newest open bag of the same bean identity — canonical
-    // id first, else case-insensitive roaster+coffee (the resolver's
-    // matching order). "Newest" = most recently added (id DESC), so a roll
-    // lands on the freshest bag, not the most recently touched one.
-    qint64 targetBagId = -1;
-    if (!finished.beanBaseId.isEmpty()) {
-        QSqlQuery query(db);
-        query.prepare("SELECT id FROM coffee_bags WHERE beanbase_id = :bb "
-                      "AND in_inventory = 1 AND id <> :self ORDER BY id DESC LIMIT 1");
-        query.bindValue(":bb", finished.beanBaseId);
-        query.bindValue(":self", finishedBagId);
-        if (!query.exec())
-            DIAG_WARN(RECIPES, "RecipeStorage") << "roll successor canonical query failed:"
-                       << query.lastError().text();
-        else if (query.next())
-            targetBagId = query.value(0).toLongLong();
-    }
-    if (targetBagId <= 0) {
-        QSqlQuery query(db);
-        query.prepare("SELECT id FROM coffee_bags WHERE in_inventory = 1 AND id <> :self "
-                      "AND LOWER(COALESCE(roaster_name,'')) = LOWER(COALESCE(:roaster,'')) "
-                      "AND LOWER(COALESCE(coffee_name,'')) = LOWER(COALESCE(:coffee,'')) "
-                      "ORDER BY id DESC LIMIT 1");
-        query.bindValue(":self", finishedBagId);
-        query.bindValue(":roaster", finished.roasterName);
-        query.bindValue(":coffee", finished.coffeeName);
-        if (!query.exec())
-            DIAG_WARN(RECIPES, "RecipeStorage") << "roll successor identity query failed:"
-                       << query.lastError().text();
-        else if (query.next())
-            targetBagId = query.value(0).toLongLong();
-    }
+    const qint64 targetBagId = CoffeeBagStorage::successorBagStatic(db, finishedBagId);
     if (targetBagId <= 0)
         return moved;   // no successor: recipes keep the finished link (stale)
     if (outTargetBagId)
@@ -1688,7 +1650,15 @@ void RecipeStorage::requestRelinkForFinishedBag(qint64 finishedBagId)
             if (!moved.isEmpty())
                 *targetName = bagDisplayName(CoffeeBagStorage::loadBagStatic(db, target));
         },
-        [this, movedIds, targetBagId, targetName](bool) {
+        [this, finishedBagId, movedIds, targetBagId, targetName](bool dbOpened) {
+            // A roll that never ran says nothing about a successor; reporting -1
+            // would clear the active bag while one exists.
+            if (!dbOpened) {
+                DIAG_WARN(RECIPES, "RecipeStorage") << "roll for finished bag" << finishedBagId
+                    << "not run: database would not open - recipes and the active bag stay put";
+                return;
+            }
+            emit finishedBagRolled(finishedBagId, *targetBagId, *movedIds);
             if (movedIds->isEmpty())
                 return;
             emit recipesRelinked(*movedIds, *targetBagId, *targetName);

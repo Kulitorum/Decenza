@@ -1,10 +1,12 @@
 # profile-tank-preheat Specification
 
 ## Purpose
-TBD - created by archiving change heater-calibration-inline-labels. Update Purpose after archive.
+
+Covers writing a profile's tank preheat temperature to the DE1 on every profile upload, through the existing MMR write path, and the connect-time baseline of zero that the profile upload then replaces.
+
 ## Requirements
 ### Requirement: Profile tank preheat temperature is written on every profile upload
-`DE1Device` SHALL write the active profile's `tank_desired_water_temperature` to `DE1::MMR::TANK_TEMP_THRESHOLD` (0x80380C) as part of every profile upload, in both `uploadProfile()` and `uploadProfileAndStartEspresso()`. The value SHALL be rounded to the nearest integer and clamped to 0–45 °C (matching de1app's `range_check_variable` bounds). The write SHALL go through `writeMMR()` so the existing `m_lastMMRValues` dedup cache elides repeat writes of an unchanged value, and so the firmware-flash guard applies.
+`DE1Device` SHALL write the active profile's `tank_desired_water_temperature` to `DE1::MMR::TANK_TEMP_THRESHOLD` (0x80380C) on every profile upload, in both `uploadProfile()` and `uploadProfileAndStartEspresso()`. The value SHALL be rounded to the nearest integer and clamped to 0–45 °C. The write SHALL go through `writeMMR()`, so the `m_lastMMRValues` dedup cache elides repeat writes and the firmware-flash guard applies.
 
 #### Scenario: Profile with preheat request
 - **WHEN** a profile whose `tank_desired_water_temperature` is 35 is uploaded to the DE1

@@ -9,7 +9,7 @@ The layout palette SHALL provide a `milkWeight` widget that displays the measure
 - **WHEN** a steam session is in progress and a live in-session milk weight greater than zero is available
 - **THEN** the widget SHALL display that live in-session weight in grams
 
-#### Scenario: Milk has been measured (idle)
+#### Scenario: Milk has been measured
 
 - **WHEN** no live in-session milk weight is available and a committed milk weight greater than zero exists
 - **THEN** the widget SHALL display the committed milk weight in grams

@@ -50,7 +50,7 @@ DecenzaDialog {
         Settings.network.setZoneOption(popup.zoneName, key, value)
     }
 
-    // Fill the zone with the built-in "Brew bar" arrangement (the PR #1364 view).
+    // Fill the zone with the built-in "Brew bar" arrangement (the PR Kulitorum/Decenza#1364 view).
     function populateBrewBar() {
         var items = [
             { type: "profileName",      id: "lmb_profile" },
@@ -68,7 +68,7 @@ DecenzaDialog {
         setOption("style", "accentBar");        popup.zoneStyle = "accentBar"
     }
 
-    // Fill the zone with a compact, icon-led status bar (the PR #1362 view):
+    // Fill the zone with a compact, icon-led status bar (the PR Kulitorum/Decenza#1362 view):
     // icon-mode readouts + battery with a spacer-centred Sleep.
     function populateCompactStatusBar() {
         var items = [

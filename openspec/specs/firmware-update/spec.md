@@ -6,12 +6,7 @@ Decenza checks Decent's update CDN for newer DE1 firmware, downloads and validat
 ## Requirements
 ### Requirement: Firmware availability detection
 
-The system SHALL periodically check for new DE1 firmware on Decent's update CDN and compare the remote firmware version against the connected DE1's installed version (read from `MMR 0x800010`). Two channels are supported:
-
-- **Stable** (default): `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`
-- **Nightly** (opt-in via the `firmware/nightlyChannel` setting): `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat`
-
-The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running. The check SHALL minimise bandwidth: an `HTTP HEAD` with `If-None-Match` SHALL be issued first, and only when the `ETag` has changed SHALL the system fetch the 64-byte firmware header via `Range: bytes=0-63` to read the remote `BoardMarker` and `Version`. The full firmware payload SHALL NOT be downloaded until the user initiates an update.
+The system SHALL periodically check Decent's update CDN for newer DE1 firmware and compare the remote version with the connected DE1's installed version, read from `MMR 0x800010`. The stable channel SHALL be the default, and the nightly channel SHALL be used only when the `firmware/nightlyChannel` setting is enabled.
 
 #### Scenario: Newer firmware available
 
@@ -60,9 +55,22 @@ The check SHALL be performed at app startup (30 s after the main window is shown
 - **AND** the next availability check contacts the newly-selected channel's URL
 - **AND** the `ETag`/`Version` from the old channel is not reused against the new channel
 
+### Requirement: Availability checks are scheduled and bandwidth-light
+The check SHALL run 30 seconds after the main window is shown at startup and once per 168 hours while the app is running. It SHALL issue an HTTP HEAD with If-None-Match first, and SHALL fetch the 64-byte header via a Range request only when the ETag has changed. The full payload SHALL NOT be downloaded until the user initiates an update.
+
+
+#### Scenario: Unchanged ETag fetches no header
+- **WHEN** the HEAD request returns the same ETag as before
+- **THEN** no header range request is made
+
+#### Scenario: Channel download URLs
+- **WHEN** the stable channel is active
+- **THEN** the check uses `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`
+- **AND** when the nightly channel is active it uses `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat`
+
 ### Requirement: Firmware download and validation
 
-The system SHALL download the firmware file only when the user initiates an update and SHALL validate the file's 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven `u32` header fields in little-endian, confirm that `BoardMarker` at offset 4 equals `0xDE100001`, and confirm that the on-disk file size is at least `ByteCount + 64`. The DE1's own verify-phase response (`FirstError == {0xFF, 0xFF, 0xFD}`) is the authoritative correctness check for the written firmware; client-side validation over the encrypted payload (`CheckSum` / `DCSum` / `HeaderChecksum` algorithms) is deferred pending a protocol question to Decent, tracked by the `TODO(firmware-crc)` marker in `FirmwareAssetCache`. The system SHALL support resuming partially-downloaded files via HTTP `Range` requests.
+The system SHALL download the firmware file only when the user initiates an update and SHALL validate its 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven little-endian u32 header fields, confirm that BoardMarker at offset 4 equals 0xDE100001, and confirm that the file size is at least ByteCount + 64. The system SHALL support resuming partially-downloaded files via HTTP Range requests.
 
 #### Scenario: Successful download and validation
 
@@ -93,9 +101,17 @@ The system SHALL download the firmware file only when the user initiates an upda
 - **THEN** the flow enters `Failed` with `retryAvailable = true`
 - **AND** the cached file is deleted so a subsequent retry re-downloads from scratch
 
+### Requirement: The DE1's verify response is the correctness check
+The DE1's own verify-phase response (FirstError == {0xFF, 0xFF, 0xFD}) SHALL be the authoritative correctness check for the written firmware. Client-side checksum validation over the encrypted payload is deferred pending a protocol question to Decent.
+
+
+#### Scenario: Verify response decides correctness
+- **WHEN** the DE1's verify-phase response reports FirstError {0xFF, 0xFF, 0xFD}
+- **THEN** the written firmware is accepted as correct
+
 ### Requirement: Three-phase firmware flash procedure
 
-The system SHALL execute a three-phase flash procedure (erase, upload, verify) against the DE1 over BLE. Phase 1 SHALL write a `FWMapRequest` to characteristic `0000A009-…` with `FWToErase=1` and `FWToMap=1` and SHALL wait for the DE1 to notify `FWToErase=0` plus an OS-dependent post-erase delay (10 s on Android, 1 s on all other platforms). Phase 2 SHALL stream the firmware payload as 16-byte chunks to characteristic `0000A006-…` with opcode `0x10` and a 24-bit little-endian address field, paced by a 1 ms timer. Phase 3 SHALL write a `FWMapRequest` with `FWToErase=0`, `FWToMap=1`, `FirstError={0xFF, 0xFF, 0xFF}` and SHALL interpret the response's `firstError` field equal to `{0xFF, 0xFF, 0xFD}` as success.
+The system SHALL execute a three-phase erase, upload and verify procedure against the DE1 over BLE. Phase 1 SHALL write an FWMapRequest with FWToErase=1 and FWToMap=1 and wait for the DE1 to notify FWToErase=0, plus an OS-dependent post-erase delay. Phase 2 SHALL stream the payload in 16-byte chunks paced by a 1 ms timer. Phase 3 SHALL write an FWMapRequest with FWToErase=0, and SHALL treat a firstError of {0xFF, 0xFF, 0xFD} as success.
 
 #### Scenario: Successful end-to-end flash
 
@@ -133,9 +149,13 @@ The system SHALL execute a three-phase flash procedure (erase, upload, verify) a
 - **THEN** `firmwareUpdater.progress` reports values in `[0.0, 1.0]` weighted 10 % for erase, 80 % for upload, 10 % for verify
 - **AND** the value is strictly non-decreasing across the update
 
+#### Scenario: Wire details of each phase
+- **WHEN** phase 1 runs, the request is written to characteristic `0000A009-…`, with a post-erase delay of 10 s on Android and 1 s on other platforms
+- **AND** phase 2 writes to characteristic `0000A006-…` with opcode `0x10` and a 24-bit little-endian address field
+
 ### Requirement: Failure recovery
 
-The system SHALL treat any interruption during flash as a non-destructive failure and SHALL offer the user a one-tap retry that restarts the full erase-upload-verify sequence from scratch. Screensaver suppression and navigation guards SHALL remain in effect across failure → retry until either a successful update completes or the user explicitly cancels. The system SHALL distinguish a BLE disconnect during the verify phase from a genuine verify failure by inspecting the firmware version reported by the DE1 after the subsequent auto-reconnect.
+The system SHALL treat any interruption during flash as a non-destructive failure and SHALL offer a one-tap retry that restarts the full erase-upload-verify sequence from scratch. Screensaver suppression and navigation guards SHALL remain in effect across failure and retry until a successful update completes or the user cancels.
 
 #### Scenario: BLE disconnect during upload
 
@@ -171,6 +191,14 @@ The system SHALL treat any interruption during flash as a non-destructive failur
 - **THEN** the system writes a fresh erase request before any new chunks are sent
 - **AND** the chunk-upload index restarts from 0
 - **AND** a fresh verify request is issued at the end
+
+### Requirement: A verify-phase disconnect is distinguished from a verify failure
+The system SHALL distinguish a BLE disconnect during the verify phase from a genuine verify failure by inspecting the firmware version the DE1 reports after its auto-reconnect.
+
+
+#### Scenario: Disconnect during verify
+- **WHEN** the link drops during the verify phase and the DE1 reconnects
+- **THEN** the firmware version it reports decides between a disconnect and a verify failure
 
 ### Requirement: User control over availability
 

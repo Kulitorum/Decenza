@@ -24,7 +24,7 @@ private slots:
     // ===== σ constant lock-in =====
 
     void sigmaConstantMatchesNarrowedValue() {
-        // PR #870 narrowed σ from 1.5 to 0.25 ml/s. Pin the value here so a
+        // PR Kulitorum/Decenza#870 narrowed σ from 1.5 to 0.25 ml/s. Pin the value here so a
         // careless edit is caught even before any kernel test runs.
         QCOMPARE(SawPrediction::kFlowSimilaritySigma, 0.25);
         QCOMPARE(SawPrediction::kFlowSimilaritySigmaSq2, 0.125);

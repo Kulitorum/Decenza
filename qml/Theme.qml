@@ -110,7 +110,7 @@ QtObject {
             //
             // Do NOT "fix" this by adding setContextProperty("EmojiAssets", ...). A context
             // property of the same name SHADOWS the singleton and is invisible to qmllint,
-            // qmlcachegen and the language server — that is #1661, in this exact file. If this
+            // qmlcachegen and the language server — that is the defect PR Kulitorum/Decenza#1661 fixed, in this exact file. If this
             // warning ever fires, the thing to check is qml_register_types_Decenza().
             if (!_warnedNoEmojiAssets) {
                 _warnedNoEmojiAssets = true
@@ -899,7 +899,7 @@ QtObject {
     // tokens so they track light/dark/custom palettes (no hardcoded colors).
     //   "standard"  - transparent background, normal text (default, today's look)
     //   "surface"   - surface fill, normal text
-    //   "accentBar" - accent fill + contrast text + bold values (the PR #1364 look)
+    //   "accentBar" - accent fill + contrast text + bold values (the PR Kulitorum/Decenza#1364 look)
     function zoneBackgroundColor(style: string): color {
         if (style === "accentBar") return primaryColor
         if (style === "surface")   return surfaceColor

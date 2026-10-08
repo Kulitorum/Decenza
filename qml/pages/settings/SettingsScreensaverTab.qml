@@ -113,15 +113,6 @@ Item {
                 }
             }
         }
-
-        onRejected: {
-            // User cancelled - revert combobox to current type
-            typeComboBox.currentIndex = ScreensaverManager.screensaverType === "videos" ? 1 :
-                                        ScreensaverManager.screensaverType === "pipes" ? 2 :
-                                        ScreensaverManager.screensaverType === "flipclock" ? 3 :
-                                        ScreensaverManager.screensaverType === "attractor" ? 4 :
-                                      ScreensaverManager.screensaverType === "shotmap" ? 5 : 0
-        }
     }
 
     // Dialog to confirm clearing personal media
@@ -979,14 +970,14 @@ Item {
                             TranslationManager.translate("settings.screensaver.type.attractor", "Strange Attractors"),
                             TranslationManager.translate("settings.screensaver.type.shotmap", "Shot Map")
                         ]
-                        currentIndex: ScreensaverManager.screensaverType === "videos" ? 1 :
-                                      ScreensaverManager.screensaverType === "pipes" ? 2 :
-                                      ScreensaverManager.screensaverType === "flipclock" ? 3 :
-                                      ScreensaverManager.screensaverType === "attractor" ? 4 :
-                                      ScreensaverManager.screensaverType === "shotmap" ? 5 : 0
+                        readonly property var typeValues: ["disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"]
+                        // Shows the pending pick only while the clear-cache dialog is up, so
+                        // every way of closing it (either button, Escape, tap outside) falls
+                        // back to the type actually in force.
+                        currentIndex: Math.max(0, typeValues.indexOf(clearCacheDialog.visible
+                            ? screensaverTab.pendingScreensaverType : ScreensaverManager.screensaverType))
                         onActivated: {
-                            var types = ["disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"]
-                            var newType = types[currentIndex]
+                            var newType = typeValues[currentIndex]
 
                             // If switching away from videos and we have cached videos, offer to clear
                             if (ScreensaverManager.screensaverType === "videos" &&

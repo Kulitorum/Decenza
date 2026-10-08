@@ -4,8 +4,7 @@
 Covers general usability and accessibility fixes to the in-app and web layout editors: instruction text that matches the actual interactions, confirmation prompts before destructive actions (reset to default, removing a configured widget), a categorized and filterable widget picker, accessible controls with SVG icons, a live home-screen preview in the in-app editor, a stable chip remove control, and enforcing only one open widget-options editor at a time.
 ## Requirements
 ### Requirement: Editor guidance matches actual interactions
-
-The layout editors SHALL present help/instruction text that accurately describes how the editor works after this change. The text SHALL NOT instruct users to reorder via selecting and tapping arrows, and SHALL NOT imply that only `custom` widgets are configurable. It SHALL mention dragging to reorder and the visible options affordance for configurable widgets. The in-app and web editors SHALL be consistent in the guidance they give. The web editor's guidance SHALL describe the options affordance as an activatable control (the gear button) and SHALL NOT describe an interaction the editor does not support.
+The layout editors' help text SHALL describe how the editor actually works. It SHALL mention dragging to reorder and the visible options affordance for configurable widgets. It SHALL NOT instruct reordering by selecting and tapping arrows, and SHALL NOT imply that only `custom` widgets are configurable. The in-app and web guidance SHALL be consistent, and the web guidance SHALL describe the options affordance as the gear button.
 
 #### Scenario: In-app instructions describe drag and options
 
@@ -20,8 +19,7 @@ The layout editors SHALL present help/instruction text that accurately describes
 - **AND** every interaction the guidance names SHALL actually work as described
 
 ### Requirement: Confirmation for destructive layout actions
-
-The editors SHALL guard destructive layout actions with a confirmation step so a single tap cannot irreversibly discard a user's configured layout. Resetting the layout to default SHALL require explicit confirmation before it takes effect. Removing a configured widget instance (a widget whose type has options, or which holds non-default per-instance settings) SHALL require confirmation; removing a widget with no configuration MAY remain a single action. This applies in both editors where the corresponding action exists.
+The editors SHALL guard destructive layout actions with a confirmation step, so a single tap cannot irreversibly discard a configured layout. Resetting to default SHALL require explicit confirmation. Removing a configured widget instance SHALL require confirmation; removing an unconfigured widget MAY remain a single action. This applies in both editors where the action exists.
 
 #### Scenario: Reset to default asks for confirmation
 
@@ -39,6 +37,11 @@ The editors SHALL guard destructive layout actions with a confirmation step so a
 
 - **WHEN** a user removes a widget instance that has no options and no per-instance settings
 - **THEN** the editor MAY remove it without a confirmation step
+
+#### Scenario: Configured means options or non-default settings
+
+- **WHEN** a widget's type has options, or the instance holds non-default per-instance settings
+- **THEN** removing it asks for confirmation
 
 ### Requirement: Discoverable, sorted widget picker
 
@@ -76,8 +79,7 @@ Interactive controls in the layout editor (in the files modified by this change)
 - **THEN** the icon SHALL be an SVG asset from `qrc:/icons/`, not a Unicode glyph character
 
 ### Requirement: Live home-screen preview in the in-app editor
-
-The in-app layout editor SHALL show a live preview of the home screen rendered from the current layout configuration, using the same zone/widget components the real home screen uses so the preview is faithful. The web layout editor SHALL also show a live home-screen preview at the device aspect ratio, rendered from the same layout configuration data (zone membership and order, distribution/alignment/style, offsets, scales, and widget labels/colors); it MAY be a faithful approximation rather than pixel-identical, since it does not render the real QML components. Both previews SHALL update as the user adds, removes, reorders, or configures widgets.
+The in-app layout editor SHALL show a live home-screen preview rendered from the current layout, using the same zone and widget components as the real home screen. It SHALL update as the user adds, removes, reorders or configures widgets.
 
 #### Scenario: Preview reflects the current layout
 
@@ -98,6 +100,14 @@ The in-app layout editor SHALL show a live preview of the home screen rendered f
 
 - **WHEN** a user makes any layout edit in the web editor
 - **THEN** the web preview SHALL update to reflect the change without a page reload
+
+### Requirement: Web editor shows an approximate live preview
+The web layout editor SHALL show a live home-screen preview at the device aspect ratio, rendered from the same layout configuration data: zone membership and order, distribution, alignment, style, offsets, scales, and widget labels and colors. It MAY be an approximation rather than pixel-identical, since it does not render the real QML components, and SHALL update after each edit.
+
+#### Scenario: Web preview reflects a removed widget
+
+- **WHEN** a widget is removed in the web editor
+- **THEN** the preview no longer shows it after that edit
 
 ### Requirement: Stable, discoverable chip remove control
 

@@ -443,7 +443,7 @@ void QtScaleBleTransport::onControllerConnected() {
     // #1093/#1176). The DE1 always requests HIGH; the scale also requests
     // HIGH UNLESS a backoff was triggered earlier this app run, in which case
     // the link stays at the platform-default BALANCED — exactly the proven
-    // #1097 behaviour, decided by observed runtime behaviour instead of the
+    // PR Kulitorum/Decenza#1097 behaviour, decided by observed runtime behaviour instead of the
     // (retired) Android SDK<30 gate.
     //
     // The backoff decision is app-run-scoped and shared across ALL scales via
@@ -665,7 +665,7 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
              .arg(QString::fromUtf8(reason)));
     // Latch the decision app-run-wide so every scale (incl. one connected
     // after a scale-type change, which builds a fresh transport+detector)
-    // skips HIGH for the rest of this run; epoch-persisted (#1220) so the
+    // skips HIGH for the rest of this run; epoch-persisted (PR Kulitorum/Decenza#1220) so the
     // next launch also starts at BALANCED. In-memory part cleared on restart.
     if (auto* mgr = BLEManager::instance()) {
         mgr->latchScaleSkipHighPriority(triggerKind);

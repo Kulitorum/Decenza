@@ -31,7 +31,7 @@ Make the DE1 fan threshold user-configurable, persist it across launches, write 
 - **THEN** the BLE log shows `[MMR] write: 0x803808 = 60`
 
 ### Requirement: Fan threshold slider in heater calibration popup
-The heater calibration popup in `SettingsCalibrationTab.qml` SHALL include a `ValueInput` slider for fan threshold. The slider SHALL have range 0–60, step 1, and display the value as `N°C` for N > 0 or `"Always on"` for N = 0 (matching de1app's label behaviour). It SHALL be positioned after the existing heater test timeout slider. The `KeyNavigation` chain SHALL include the new slider (tab order: heaterTestTimeout → fanThreshold → defaultsButton). The "Defaults for cafe" button SHALL reset `Settings.hardware.fanThreshold` to 60 alongside the other hardware defaults.
+The heater calibration popup in `SettingsCalibrationTab.qml` SHALL include a `ValueInput` fan threshold slider after the heater test timeout slider, with range 0 to 60 and step 1. It SHALL display `N°C` for N above 0 and `"Always on"` for 0. The `KeyNavigation` chain SHALL run heaterTestTimeout, fanThreshold, defaultsButton. The "Defaults for cafe" button SHALL reset `Settings.hardware.fanThreshold` to 60 with the other hardware defaults.
 
 #### Scenario: Slider shows current value
 - **WHEN** the user opens the heater calibration popup

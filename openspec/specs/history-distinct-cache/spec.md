@@ -1,7 +1,8 @@
 # history-distinct-cache Specification
 
 ## Purpose
-TBD - created by archiving change keep-grind-step-across-cache-refresh. Update Purpose after archive.
+Covers the getDistinct* getters over shot history: each runs its query against the live database on every call with no cache, and the column names interpolated into those queries are allow-listed.
+
 ## Requirements
 ### Requirement: Distinct-value getters SHALL read the live database
 

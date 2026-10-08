@@ -210,7 +210,7 @@ for, that series may be a safety limiter, a ramp-down command, or a
 pump-ramp curve rather than a target — averaging actuals against it
 produces false-positive grind diagnoses. The `grind_check_skip` flag is
 still the way to opt a *known* profile family out of Arm 1 (the
-`advanced-spring-lever` pattern from #1230); the new gate handles
+`advanced-spring-lever` pattern from PR Kulitorum/Decenza#1230); the new gate handles
 *unknown* profiles by inferring "no opinion" from the resolver state.
 
 **Arm 1: flow-vs-goal averaging** (the "primary" path).
@@ -627,7 +627,7 @@ pass on every shot load, so detector improvements take effect on summary
 text the same way they do on badges — no save-time freeze. There is no
 DB persistence for summary lines; they're regenerated on every load.
 
-### AI advisor consumes the same line list (PR #930)
+### AI advisor consumes the same line list (PR Kulitorum/Decenza#930)
 
 The in-app AI advisor's prompt is built by `ShotSummarizer::buildUserPrompt`,
 which ships the same `analyzeShot` line list under a `## Detector
@@ -644,7 +644,7 @@ so they produce equivalent observation lines. The suppression cascade is enforce
 exactly one place — `analyzeShot` — so the badge UI, the dialog, and
 the AI advisor cannot drift.
 
-### External MCP agents see structured detectors (PR #933, resolved Issue #931)
+### External MCP agents see structured detectors (PR Kulitorum/Decenza#933, resolved Issue #931)
 
 `ShotHistoryStorage::convertShotRecord` runs `ShotAnalysis::analyzeShot`
 once per shot conversion and emits both `summaryLines` (the prose list
@@ -680,7 +680,7 @@ alongside the rest of the shot record. The historical fifth column
 (`temperature_unstable`) was added in migration 10 and dropped in
 migration 15 — see openspec change `remove-temperature-unstable-badge`.
 
-### Single-pass detector pipeline + projection (post PR #934, #935, #936)
+### Single-pass detector pipeline + projection (post PR Kulitorum/Decenza#934, Kulitorum/Decenza#935, Kulitorum/Decenza#936)
 
 `saveShot` and `loadShotRecordStatic` both compute all four quality
 badges via a single `ShotAnalysis::analyzeShot(...)` call and project the
@@ -705,7 +705,7 @@ Notes on the projection:
   channeling shows in the dialog as a "Transient channel at Xs"
   caution line and in MCP `detectorResults.channeling.severity` as
   `"transient"`, but the boolean badge column stays `false`. Carries
-  forward PR #922's invariant.
+  forward PR Kulitorum/Decenza#922's invariant.
 - `grindIssueDetected` mirrors `ShotAnalysis::detectGrindIssue` exactly.
   The `grindHasData` conjunct is a defensive zero — it short-circuits
   the projection if any of the grind sub-flags are set on a struct
@@ -716,12 +716,12 @@ The projection is unit-tested via `tst_shotanalysis::badgeProjection_*` —
 each row of the mapping table has at least one regression test, including
 the load-bearing `Transient` carve-out.
 
-### Load-time: always recompute (PR #893, extended for the 5th badge in PR #922)
+### Load-time: always recompute (PR Kulitorum/Decenza#893, extended for the 5th badge in PR Kulitorum/Decenza#922)
 
 `ShotHistoryStorage::loadShotRecordStatic` reads the stored columns, then
 **unconditionally recomputes all four badges** from the loaded curve data
 before returning. The recompute is now a single `analyzeShot` + projection
-call (post PR #936), so it cannot diverge from the save-time computation.
+call (post PR Kulitorum/Decenza#936), so it cannot diverge from the save-time computation.
 This means the in-memory `ShotRecord` always reflects the current detector
 logic and the cascade is consistent between save and load.
 
@@ -735,7 +735,7 @@ of the `DetectorResults` payload that `analyzeShot` produces; like
 on every load and emitted by `convertShotRecord` as part of the
 structured `detectorResults` JSON for MCP / dialog consumers.
 
-### Lazy persist on view (PR #893)
+### Lazy persist on view (PR Kulitorum/Decenza#893)
 
 Drift detection and persistence ride the load path: `loadShotRecordStatic`
 recomputes the four flags from the curve data and, when any differs from the
@@ -873,32 +873,32 @@ To add a fixture:
 
 ## 7. References
 
-- PR #649 — original Tier 1 diagnostics (badges, dC/dt, phase summary, mix
+- PR Kulitorum/Decenza#649 — original Tier 1 diagnostics (badges, dC/dt, phase summary, mix
   temperature, basic/advanced toggle).
-- PR #699 — bloom/soak channeling suppression via per-profile flags.
-- PR #811 — mode-aware shot analysis (`buildChannelingWindows` +
+- PR Kulitorum/Decenza#699 — bloom/soak channeling suppression via per-profile flags.
+- PR Kulitorum/Decenza#811 — mode-aware shot analysis (`buildChannelingWindows` +
   flow-mode-only `analyzeFlowVsGoal`) plus the `shot_eval` corpus.
-- PR #864 — first attempt at lever false-positive suppression
+- PR Kulitorum/Decenza#864 — first attempt at lever false-positive suppression
   (over-aggressive).
-- PR #866 — corpus-regression repair (rising-pressure gate in flow-mode
+- PR Kulitorum/Decenza#866 — corpus-regression repair (rising-pressure gate in flow-mode
   windows, ≥ 1 s post-trim guard on grind ranges).
-- PR #890 — skip-first-frame uses the configured first-frame seconds, not
+- PR Kulitorum/Decenza#890 — skip-first-frame uses the configured first-frame seconds, not
   a hard 2 s constant.
-- PR #891 — choked-puck arm on pressure-mode pours.
-- PR #892 — moderate grind-too-fine via yield/target ratio.
-- PR #893 — recompute every quality badge on shot load + lazy persist on
+- PR Kulitorum/Decenza#891 — choked-puck arm on pressure-mode pours.
+- PR Kulitorum/Decenza#892 — moderate grind-too-fine via yield/target ratio.
+- PR Kulitorum/Decenza#893 — recompute every quality badge on shot load + lazy persist on
   view.
 - Issue #894 — residual stored-column drift (history-list filter and
   `shots_list` MCP read stored, not recomputed values).
-- PR #898 — `temperatureUnstable` gating fix (`reachedExtractionPhase`)
+- PR Kulitorum/Decenza#898 — `temperatureUnstable` gating fix (`reachedExtractionPhase`)
   — superseded; the badge has since been removed entirely (see
   `remove-temperature-unstable-badge` openspec change).
-- PR #901 — flow/pressure-mode rising-pressure gate fix.
-- PR #910 — yield-overshoot ("gusher") arm in `analyzeFlowVsGoal`.
-- PR #922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
+- PR Kulitorum/Decenza#901 — flow/pressure-mode rising-pressure gate fix.
+- PR Kulitorum/Decenza#910 — yield-overshoot ("gusher") arm in `analyzeFlowVsGoal`.
+- PR Kulitorum/Decenza#922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
   suppression cascade across save / load / `analyzeShot`,
   meta-action verdict ("Don't tune off this shot"), migration 13.
-- PR #930 / Issue #921 — `ShotSummarizer` (AI advisor prompt path) now
+- PR Kulitorum/Decenza#930 / Issue #921 — `ShotSummarizer` (AI advisor prompt path) now
   shares the suppression cascade. Detector orchestration delegates to
   `ShotAnalysis::analyzeShot` — the same pipeline `convertShotRecord`
   uses to populate `summaryLines` for the dialog. The prompt's
@@ -912,7 +912,7 @@ To add a fixture:
   (`channelingDetected`, `timeToFirstDrip`, `preinfusionDuration`,
   `mainExtractionDuration`) and the wrapper helpers
   (`detectChannelingInPhases`) they fed.
-- PR #933 / Issue #931 — `convertShotRecord` runs `analyzeShot` once
+- PR Kulitorum/Decenza#933 / Issue #931 — `convertShotRecord` runs `analyzeShot` once
   per shot conversion and emits both `summaryLines` (prose) and
   structured `detectorResults` JSON on `shots_get_detail` /
   `shots_compare`. Refactored `generateSummary` into a thin wrapper
@@ -934,7 +934,7 @@ To add a fixture:
   `hasIntentionalTempStepping`, `avgTempDeviation`, and
   `reachedExtractionPhase` were removed. `shotBadgesUpdated` shrank
   from 6 to 5 args.
-- PR #1141 / Issue #1128 (grind half — same issue number, second
+- PR Kulitorum/Decenza#1141 / Issue #1128 (grind half — same issue number, second
   half of the report) — added the flow-goal stationarity gate to
   Arm 1 of the grind detector (`FLOW_GOAL_STATIONARY_HALF_SEC = 0.75`,
   `FLOW_GOAL_STATIONARY_REL = 0.15`, see §2.2). Fixes a false-positive

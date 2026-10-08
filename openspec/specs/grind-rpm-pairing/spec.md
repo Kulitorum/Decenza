@@ -1,8 +1,7 @@
 # grind-rpm-pairing Specification
 
 ## Purpose
-TBD - created by archiving change grind-widget-observed-step. Update Purpose after archive.
-
+Keeps the grinder RPM with the grind setting on every shot surface: storage projections, JSON serialization, reads, input and display. For variable-RPM grinders the motor RPM is emitted only when one is recorded, so a dial-in is never reduced to the burr setting alone.
 ## Requirements
 
 ### Requirement: Grinder RPM SHALL travel with the grind setting across all shot surfaces

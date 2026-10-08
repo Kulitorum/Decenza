@@ -5,7 +5,7 @@
 // Is a screen reader actually going to SPEAK what we hand the platform?
 //
 // AccessibilityManager suppresses its own QTextToSpeech when it believes one is
-// active, so the two do not talk over each other (#889). QAccessible::isActive()
+// active, so the two do not talk over each other (PR Kulitorum/Decenza#889). QAccessible::isActive()
 // cannot answer this: Qt documents it as false "until a tool such as a screen
 // reader accessed the accessibility framework", so it reports ATTACHMENT. An
 // automation tool or an inspector flips it with no reader present, and the app

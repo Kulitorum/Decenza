@@ -14,9 +14,12 @@ are tea only. Sending a gated field for the wrong kind is an error, not a silent
 
 ## Dates and freezing
 
-`roastDate`, `frozenDate`, `defrostDate` and `openedDate` are all `YYYY-MM-DD`, and `''` clears
-them. `openedDate` is when the current portion left airtight storage and is independent of the
-freeze dates. `storageHint` (counter / airtight / vacuum-sealed / fridge) is valid in any freeze
+`roastDate`, `frozenDate`, `defrostDate` and `openedDate` are `YYYY-MM-DD`, never in the future;
+`''` clears them. Beans are frozen in portions: `frozenDate` says the bag is kept frozen,
+`defrostDate` is when the current portion came out, and clearing `frozenDate` clears it.
+`openedDate` is when the current portion was first used, and the first shot from it sets it, so
+don't write it by hand. A new bag has no portion in use: `defrostDate` and `openedDate` are
+update-only. `storageHint` (counter / airtight / vacuum-sealed / fridge) is valid in any freeze
 state.
 
 ## The yield anchor

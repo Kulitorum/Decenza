@@ -26,6 +26,11 @@ be confirmed against the actual firmware release before it is wired in.
 - **WHEN** the user opens Transport Mode on a cold machine
 - **THEN** the ready-temperature precondition SHALL still apply
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Transport Mode SHALL require the machine to be ready before starting on current firmware`
+- TO: `### Requirement: Transport Mode SHALL require the machine to be ready before starting on unsupported firmware`
+
 ## MODIFIED Requirements
 
 ### Requirement: Transport Mode SHALL require the machine to be ready before starting on unsupported firmware
@@ -36,6 +41,19 @@ firmware at or above the threshold â€” which honors cold maintenance natively â€
 precondition SHALL NOT apply and the drain SHALL be startable from a cold
 machine. This supersedes the unconditional ready gate introduced by
 `add-maintenance-card`.
+
+#### Scenario: Start is unavailable while the machine is heating
+
+- **GIVEN** the machine is still preheating or heating on firmware below the threshold
+- **WHEN** the user opens Transport Mode
+- **THEN** the start action SHALL be unavailable
+- **AND** the page SHALL indicate the machine must reach ready temperature first
+
+#### Scenario: Start becomes available once ready
+
+- **GIVEN** the machine has reached ready temperature
+- **WHEN** the user views the Transport Mode prepare step
+- **THEN** the start action SHALL be available
 
 #### Scenario: Gate is firmware-conditional
 

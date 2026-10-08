@@ -1,21 +1,11 @@
 # settings-store-identity Specification
 
 ## Purpose
-TBD - created by archiving change consolidate-qsettings-stores. Update Purpose after archive.
+Keeps every `QSettings`-backed preference in one store, organization `DecentEspresso` and application `Decenza`, reached only through the `AppSettings` accessor. Covers the one-time migration from the legacy stores (verified before the legacy store is destroyed), test isolation, factory reset across every store, and the single-store rule on every platform.
+
 ## Requirements
 ### Requirement: Single Canonical Settings Store
-
-The application SHALL persist all `QSettings`-backed preferences in exactly one store, identified
-by organization `"DecentEspresso"` and application `"Decenza"` — the name under which the app
-ships on every platform. All access SHALL go through a single handle type (`AppSettings`, a `QSettings` subclass), which is
-the only place in the codebase naming that identity.
-
-Direct construction of a settings handle SHALL NOT appear outside the accessor's own translation
-unit and the one-time migration: neither the explicit two-argument form nor the bare
-default-constructed form. The bare form is prohibited specifically because it resolves against
-mutable `QCoreApplication` state — `main.cpp` temporarily reassigns `applicationName()` during
-app-name migration, so a bare handle constructed at the wrong moment silently addresses a
-different store.
+The application SHALL persist all `QSettings`-backed preferences in exactly one store, organization `"DecentEspresso"` and application `"Decenza"`. All access SHALL go through the `AppSettings` handle type, a `QSettings` subclass, which is the only place naming that identity. Direct construction of a settings handle, explicit or default, SHALL NOT appear outside the accessor and the one-time migration.
 
 #### Scenario: Every settings consumer goes through the accessor
 - **WHEN** the codebase is searched for `QSettings` constructions outside the accessor's source file, the migration, and test-support code
@@ -33,25 +23,13 @@ different store.
 - **THEN** the two paths are identical
 - **AND** on macOS that path ends in `com.decentespresso.Decenza.plist`
 
+#### Scenario: Bare handle would address a different store
+
+- **WHEN** `main.cpp` reassigns `applicationName()` temporarily during app-name migration
+- **THEN** a bare default-constructed handle made at that moment would resolve against the wrong store, which is why it is prohibited
+
 ### Requirement: One-Time Legacy Store Migration
-
-On startup the application SHALL perform a one-time migration that copies every key from the
-legacy `("DecentEspresso", "DE1Qt")` store into the canonical store, then destroys the legacy
-store. Keys already present in the canonical store SHALL be left untouched rather than
-overwritten. The migration SHALL be guarded by a done-flag stored in the canonical store so it
-runs at most once.
-
-The migration SHALL be implemented as a pure function over two supplied `QSettings` handles
-returning an outcome record (copied count, legacy key count, already-done, deferred-on-error,
-guard-stamped), mirroring `migrateAccessibilityLegacyStore()`, so it is unit-testable without
-touching a real store.
-
-The copy SHALL be **verified** before the legacy store is destroyed: every key written is read
-back from the canonical store and compared to the source value. If any key fails verification, or
-the legacy store cannot be read, the migration SHALL abort without destroying the legacy store and
-SHALL NOT stamp the done-flag, so a later launch retries. The migration SHALL log its outcome at
-`qInfo` level or higher, including the legacy key count, so a support log distinguishes "nothing
-to migrate" from "everything already present".
+On startup the application SHALL run a one-time migration that copies every key from the legacy `("DecentEspresso", "DE1Qt")` store into the canonical store, then destroys the legacy store. Keys already present in the canonical store SHALL NOT be overwritten. A done-flag stored in the canonical store SHALL guarantee at most one run.
 
 #### Scenario: Legacy settings survive the upgrade
 - **WHEN** a user upgrades from a build predating this change, with settings in the legacy store
@@ -78,6 +56,30 @@ to migrate" from "everything already present".
 - **WHEN** the application starts with the done-flag already stamped
 - **THEN** no keys are copied and no store is destroyed
 - **AND** settings the user changed since the migration are not reverted to legacy values
+
+### Requirement: Migration is a pure function over two handles
+The migration SHALL be a pure function over two supplied `QSettings` handles, returning an outcome record (copied count, legacy key count, already-done, deferred-on-error, guard-stamped). It SHALL mirror `migrateAccessibilityLegacyStore()`, so it is unit-testable without a real store.
+
+#### Scenario: Outcome record reports a deferred migration
+
+- **WHEN** the legacy store cannot be read
+- **THEN** the outcome record reports deferred-on-error and the done-flag is not stamped
+
+### Requirement: The legacy store is destroyed only after a verified copy
+The copy SHALL be verified before the legacy store is destroyed: every written key SHALL be read back from the canonical store and compared to its source value. If any key fails verification, or the legacy store cannot be read, the migration SHALL abort without destroying the legacy store and without stamping the done-flag, so a later launch retries.
+
+#### Scenario: Verification failure aborts without stamping
+
+- **WHEN** a key fails read-back verification
+- **THEN** the legacy store is left intact and the done-flag is not stamped
+
+### Requirement: Migration outcome is logged
+The migration SHALL log its outcome at `qInfo` or higher, including the legacy key count, so a support log distinguishes nothing-to-migrate from everything-already-present.
+
+#### Scenario: Support log distinguishes empty from already-present
+
+- **WHEN** the migration finds no legacy keys
+- **THEN** the logged outcome shows a legacy key count of zero, distinct from a run where every key was already present
 
 ### Requirement: Test Isolation Through The Accessor
 

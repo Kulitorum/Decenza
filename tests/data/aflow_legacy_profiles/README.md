@@ -9,7 +9,7 @@ This file is **de1app's stale snapshot**, copied from `de1plus/profiles/`. It is
 A-Flow plugin ships. The plugin's own `profiles/` directory carries all five profiles at **9**
 frames; de1app's distribution copy carries four at **6**, added in de1app commit `80eb34cc`
 (2025-09-03) and never refreshed. `check_profiles_exist` only copies a profile when the file is
-absent, so the stale copy wins forever and cannot self-correct. Upstream: de1app issue #350.
+absent, so the stale copy wins forever and cannot self-correct. Upstream: decentespresso/de1app#350.
 
 So:
 

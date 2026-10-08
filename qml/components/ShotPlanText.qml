@@ -18,7 +18,7 @@ import Decenza
 //  - stacked ON (sentence mode only, display path only): the detail tail
 //    renders on its own line(s) below the sentence instead of trailing after a
 //    separator. The accessibility string stays one dot-joined sentence.
-//    (Idea from PR #1415's "stacked" format.)
+//    (Idea from PR Kulitorum/Decenza#1415's "stacked" format.)
 // Tapping it opens Brew Settings.
 //
 // Root is an Item (icon + text) but it preserves the old ShotPlanText API the

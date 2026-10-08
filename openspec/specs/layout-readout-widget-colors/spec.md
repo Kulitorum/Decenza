@@ -5,7 +5,7 @@ Defines the per-instance `color` property that readout layout widgets (Clock, Te
 ## Requirements
 ### Requirement: Per-instance color override for readout widgets
 
-Each readout layout widget — Clock, Temperature, Steam Temp, Water Level, Machine Status, Scale Weight, Battery Level, Scale Battery, Dose Weight, Milk Weight, and Profile Name — SHALL support a per-instance `color` property selectable from a fixed set: `default` (the default), `white`, `green`, `red`, `blue`, and `orange`, as declared in the layout readout capability schema. The named non-default values SHALL map to existing semantic theme colors used elsewhere on the page (so the widget matches its surroundings and honours custom themes): `white` → theme text color, `green` → pressure color, `red` → temperature color, `blue` → flow color, `orange` → warning color. A non-default choice SHALL tint both the widget's value text and its optional icon. The value SHALL be read from the item's stored properties (`modelData`), persist per instance, and apply in any zone the widget is placed in.
+Each readout layout widget (Clock, Temperature, Steam Temp, Water Level, Machine Status, Scale Weight, Battery Level, Scale Battery, Dose Weight, Milk Weight and Profile Name) SHALL support a per-instance `color` from `default`, `white`, `green`, `red`, `blue` and `orange`. A named color SHALL tint both value text and icon as a full static override, persisted per instance and applied in any zone.
 
 #### Scenario: Default preserves the current color
 
@@ -32,9 +32,27 @@ Each readout layout widget — Clock, Temperature, Steam Temp, Water Level, Mach
 - **WHEN** two readout widgets are placed with different `color` values
 - **THEN** each SHALL render in its own color independently
 
+### Requirement: Named readout colors SHALL map to existing theme colors
+
+Named colors SHALL map to existing theme colors: `white` to the text color, `green` to pressure, `red` to temperature, `blue` to flow and `orange` to warning. A widget SHALL therefore match its surroundings and honour custom themes.
+
+#### Scenario: Green maps to the pressure color
+
+- **WHEN** a readout widget has `color` set to `green`
+- **THEN** its value text and icon SHALL be tinted with the theme's pressure color
+
+### Requirement: The default color SHALL keep the current rendering
+
+A widget whose `color` is unset or `default` SHALL render exactly as it does today, including dynamic state coloring for Machine Status, Scale Weight and battery widgets.
+
+#### Scenario: Unset color renders as before
+
+- **WHEN** a readout widget has no stored `color`
+- **THEN** it SHALL render in the color it used before this capability existed
+
 ### Requirement: Readout color is editable in both editors
 
-The unified readout options editor SHALL expose the `color` choice alongside the type's other schema-declared options (display mode where declared; data mode additionally for Scale Weight), in both the native QML editor and the web layout editor, for every readout type whose schema entry includes `color`. The native editor SHALL present the choice through the single shared color picker so all readout widgets offer an identical palette. Selecting a color SHALL persist it to the item's properties and update the rendered widget.
+The unified readout options editor SHALL expose the `color` choice, in both the native QML editor and the web layout editor, for every readout type whose schema entry includes `color`. The native editor SHALL present it through the single shared color picker. Selecting a color SHALL persist it to the item's properties and update the rendered widget.
 
 #### Scenario: Editing color in the native editor
 

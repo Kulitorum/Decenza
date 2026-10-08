@@ -1,11 +1,13 @@
 # layout-recipes-upgrade-offer Specification
 
 ## Purpose
-TBD - created by archiving change recipes-idle-layout-upgrade. Update Purpose after archive.
+
+Covers the one-time offer shown to existing users at first launch after the recipes-first update, the layout transform applied when the offer is accepted (preserving customizations and placing the Profiles button in the bottom bar), and the starter recipe created from the most recent shot, including the drink-type choice.
+
 ## Requirements
 ### Requirement: One-time upgrade offer for existing users
 
-At the first launch after updating to a version containing this feature, existing users SHALL be shown a one-time dialog offering to modernize their idle layout to the recipes-first arrangement. "Existing user" means a stored layout configuration exists (or first-run onboarding has already completed). The offer SHALL be recorded as shown via a persisted flag the moment the user answers, and SHALL never be shown again regardless of the answer. Fresh installs SHALL never see the dialog (they already get the new default). The dialog SHALL follow the app's accessibility rules (focusable, named, dismissible).
+At the first launch after updating, an existing user (one with a stored layout or completed first-run onboarding) SHALL be shown a one-time dialog offering to modernize the idle layout to the recipes-first arrangement. The offer SHALL be recorded as shown by a persisted flag the moment the user answers, whatever the answer. Fresh installs SHALL never see it. The dialog SHALL be focusable, named and dismissible.
 
 #### Scenario: Existing user sees the offer once
 
@@ -24,7 +26,7 @@ At the first launch after updating to a version containing this feature, existin
 
 ### Requirement: Accept-path layout transform preserves customizations
 
-Accepting the offer SHALL apply a targeted transform to the user's **current** layout — not a reset — **except** when the current layout is equivalent to the (migrated) old default, in which case the full new recipes-first default SHALL be applied instead, so uncustomized users land exactly on the same layout as fresh installs. Otherwise the transform SHALL: (1) remove the Profiles/espresso item from any center zone, inserting a Recipes item at its exact position if the layout does not already contain one; (2) place the Profiles/espresso item in the bottom bar immediately after the Equipment item — falling back to immediately before the Settings item in `bottomRight`, then to appending to `bottomRight`, when Equipment or Settings are absent; (3) remove every `autofavorites` item. All other items, their order, per-instance options, and zone options SHALL be preserved. The transform SHALL be idempotent and persisted once.
+Accepting the offer SHALL apply a targeted transform to the user's current layout, not a reset, except that a layout equivalent to the migrated old default SHALL receive the full recipes-first default. The transform SHALL move the Profiles/espresso item out of center zones into the bottom bar after Equipment, inserting a Recipes item where none exists, and SHALL remove every `autofavorites` item. Other items and their options SHALL be preserved.
 
 #### Scenario: Pristine old default gets the full new default
 
@@ -51,9 +53,21 @@ Accepting the offer SHALL apply a targeted transform to the user's **current** l
 - **WHEN** an accepting user has added widgets, reordered zones, or configured readout options
 - **THEN** after the transform those customizations are exactly as before; only the espresso/recipes/autofavorites placements described above change
 
+#### Scenario: Fallback placement without Equipment or Settings
+- **WHEN** the layout has no Equipment item
+- **THEN** the Profiles/espresso item is placed immediately before Settings in `bottomRight`, or appended to `bottomRight` when Settings is also absent
+
+### Requirement: Layout transform runs once
+
+The layout transform SHALL be idempotent and SHALL be persisted once.
+
+#### Scenario: Re-running the transform changes nothing
+- **WHEN** the transform has already been applied and runs again
+- **THEN** the layout is unchanged
+
 ### Requirement: Starter recipe from the last shot
 
-When the user accepts the offer and has **no existing recipes**, the app SHALL create a recipe from the most recent saved shot using the established promotion semantics (profile, bean link, equipment, dose, yield, temperature, steam block from the shot's steam snapshot with current-settings fallback, hot-water snapshot verbatim, grind inherited from the bag when the shot has a bean and pinned otherwise), and SHALL activate it through the single recipe-activation path. The drink type SHALL be chosen **by the user in the upgrade dialog** via an Espresso / Milk drink choice, **pre-selected** by a heuristic on the shot's steam snapshot (milk when `hasMilk` is true or `milkWeightG` > 0, espresso otherwise). The chosen type SHALL set the recipe's `hasMilk` intent and its default (translated) name. The drink-type choice SHALL only be shown when a starter recipe will actually be created. When no saved shots exist, or the user already has recipes, recipe creation SHALL be skipped silently and the layout transform SHALL still apply.
+When the user accepts the offer and has no existing recipes, the app SHALL create a starter recipe from the most recent saved shot using the established promotion semantics and SHALL activate it through the single recipe-activation path. With no saved shots, or with existing recipes, recipe creation SHALL be skipped silently. The layout transform SHALL apply either way.
 
 #### Scenario: Heuristic pre-selects the drink type
 
@@ -74,4 +88,16 @@ When the user accepts the offer and has **no existing recipes**, the app SHALL c
 
 - **WHEN** an accepting user already has one or more recipes
 - **THEN** no starter recipe is created, the drink-type choice is not shown, and the active recipe is not changed
+
+#### Scenario: Starter inherits from the shot
+- **WHEN** a starter recipe is created from a shot
+- **THEN** profile, bean link, equipment, dose, yield, temperature and hot-water snapshot come from the shot, the steam block comes from its steam snapshot with current-settings fallback, and grind is inherited from the bag when the shot has a bean and pinned otherwise
+
+### Requirement: Drink type is chosen in the upgrade dialog
+
+The user SHALL choose the drink type in the upgrade dialog as Espresso or Milk. The choice SHALL be pre-selected by a heuristic on the shot's steam snapshot: milk when `hasMilk` is true or `milkWeightG` is above zero, espresso otherwise. The chosen type SHALL set the recipe's `hasMilk` intent and its default translated name.
+
+#### Scenario: Choice shown only with a starter
+- **WHEN** no starter recipe will be created
+- **THEN** the drink-type choice is not shown
 

@@ -1,20 +1,13 @@
 # test-suite-cost Specification
 
 ## Purpose
-TBD - created by archiving change cut-test-build-cost. Update Purpose after archive.
+
+Governs how test targets share production sources and what the test suite costs to build. Covers compiling each shared source once into a narrow intermediate library, the build-free duplication check on every pull request, the rule that a new test states the defect shape it catches, single-place invariant assertions, and the measured attribution of test build cost.
+
 ## Requirements
 ### Requirement: A production source SHALL NOT be compiled into more than one test target
 
-Where two or more test targets require the same production source, that source SHALL be compiled
-once into an intermediate library shared by exactly those targets. The same SHALL hold for compiled
-Qt resource units.
-
-An intermediate library's consumer set SHALL be no wider than the set of targets that need it.
-Sources SHALL NOT be added to the universally-linked `decenza_testlib` merely to deduplicate them:
-that converts a bounded compile fan-out into a link fan-out across every test target, and makes
-every test target rebuild whenever any shared source changes.
-
-A test target SHALL NOT list a source that `decenza_testlib` already compiles.
+Where two or more test targets require the same production source, that source SHALL be compiled once into an intermediate library linked by exactly those targets. The same SHALL hold for compiled Qt resource units.
 
 #### Scenario: A source needed by several targets
 
@@ -40,6 +33,22 @@ A test target SHALL NOT list a source that `decenza_testlib` already compiles.
 - **GIVEN** `qrc_resources.cpp` required by three test targets
 - **WHEN** the test build is configured
 - **THEN** it SHALL be compiled once and linked by those three targets
+
+### Requirement: Intermediate library consumers are narrow
+
+An intermediate library's consumer set SHALL be no wider than the set of targets that need it. Sources SHALL NOT be added to the universally-linked `decenza_testlib` merely to deduplicate them.
+
+#### Scenario: Widening the shared library is rejected
+- **WHEN** a source needed by one or two targets is proposed for `decenza_testlib`
+- **THEN** it SHALL NOT be added there, because every test target would then link and rebuild on any change to that source
+
+### Requirement: A test target does not repeat the shared library
+
+A test target SHALL NOT list a source that `decenza_testlib` already compiles.
+
+#### Scenario: A test target lists a shared source
+- **WHEN** a test target lists a source that `decenza_testlib` already compiles
+- **THEN** that listing violates this requirement
 
 ### Requirement: The duplication rule SHALL be enforced by a build-free check on every pull request
 
@@ -122,14 +131,7 @@ SHALL be consolidated into one test over both fixtures.
 
 ### Requirement: Test build cost SHALL be attributed to where it is actually incurred
 
-Guidance about the cost of a test SHALL reflect measured distribution. On the reference clean macOS
-Debug rebuild (4,846 s cpu total), `tests/` accounts for 1,956 s (40%), distributed as: production
-sources recompiled inside test targets 688 s (35.2%), test source translation units 625 s (31.9%),
-moc and autogen 519 s (26.5%), Qt resource compilation 66 s (3.4%), link and timestamps 58 s (3.0%).
-
-Guidance SHALL NOT present link cost, or the number of test targets, as a primary driver. Guidance
-SHALL state that relocating test code between targets does not reduce the cost of compiling that
-code.
+Guidance about test build cost SHALL reflect the measured distribution, in which production sources recompiled inside test targets and test translation units dominate and link cost is about 3%. Guidance SHALL NOT present link cost or the number of test targets as a primary driver. It SHALL state that relocating test code between targets does not reduce the cost of compiling that code.
 
 #### Scenario: Documentation states the cost model
 
@@ -144,4 +146,12 @@ code.
 - **WHEN** the saving is described
 - **THEN** it SHALL be described as saving link cost and duplicated production-source compilation
 - **AND** it SHALL NOT be described as reducing the compile cost of the test body itself
+
+### Requirement: Reference cost breakdown
+
+The reference clean macOS Debug rebuild (4,846 s CPU) SHALL be cited with `tests/` at 1,956 s (40%), made up of production sources recompiled inside test targets 688 s (35.2%), test translation units 625 s (31.9%), moc and autogen 519 s (26.5%), Qt resource compilation 66 s (3.4%), and link and timestamps 58 s (3.0%).
+
+#### Scenario: Quoted breakdown keeps its buckets
+- **WHEN** documentation quotes the reference rebuild
+- **THEN** it quotes the same total and the same five buckets
 

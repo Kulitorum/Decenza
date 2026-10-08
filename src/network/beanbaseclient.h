@@ -208,6 +208,9 @@ public:
     // editor and MCP bag action=update share ONE merge/revert implementation. Pure
     // string→string; no instance state.
     Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
+    Q_INVOKABLE static QString mergeEditorDetails(const QString& blob, const QVariantMap& details,
+                                                  const QString& roasterName, const QString& coffeeName,
+                                                  const QString& roastLevel);
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
     // Write `link` and drop the marks describing whatever URL it replaces —
     // see BeanBaseBlob::setBlobLink for why. A writer that is SETTING the marks

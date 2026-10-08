@@ -175,3 +175,14 @@ function normalizeDateString(dateString) {
         + String(month).padStart(2, '0') + "-"
         + String(day).padStart(2, '0')
 }
+
+// Local ISO yyyy-mm-dd for a Date (default now). Not toISOString(), which is UTC.
+function toIso(d) {
+    var date = d || new Date()
+    return date.getFullYear() + "-" + _pad2(date.getMonth() + 1) + "-" + _pad2(date.getDate())
+}
+
+// True for a stored ISO yyyy-mm-dd date; legacy free text is not one.
+function isIsoDate(s) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(s || "")
+}

@@ -6,7 +6,7 @@ The split exists so that a **narrow consumer** — one that takes a `Settings<Do
 
 What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes every domain header (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
 
-The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
+The split was tricky to get right — the rules below capture every gotcha that came up during PR Kulitorum/Decenza#852 (issue #743). Follow them and the architecture stays healthy.
 
 ## Domain classes (today)
 
@@ -65,7 +65,7 @@ concrete types. Earlier guidance said the opposite — forward-declare, and decl
 That erasure cost more than it saved. qmllint cannot check a property behind a `QObject*`, so
 **1,310 QML call sites across 281 distinct settings** were unverifiable: `Settings.brew.slectedX`
 compiled, linted clean, and failed at runtime — the same class of defect that shipped in 2.0.1 as
-#1661. `qmlcachegen` also could not resolve those bindings ahead of time, and the QML language
+the bug PR Kulitorum/Decenza#1661 fixed. `qmlcachegen` also could not resolve those bindings ahead of time, and the QML language
 server could not complete or navigate them.
 
 `Q_DECLARE_OPAQUE_POINTER` is **not** a way to have both. It compiles and satisfies the linter,
@@ -185,7 +185,7 @@ Use this pattern only when the alternative (changing a public API) would force a
 
 ## Null-guard discipline
 
-When a class holds both `Settings*` and a sub-object pointer (e.g. `MqttClient` has `m_settings` for steam state + `m_settingsMqtt` for MQTT state), each guard must check the pointer it's about to dereference. Mismatched guards (`if (!m_settings) return;` followed by `m_settingsMqtt->X()`) are a recurring trap — they don't crash today only because the call sites in `main.cpp` always pass both non-null. The sed-based migration in PR #852 hit this twice; check carefully when you split a new domain.
+When a class holds both `Settings*` and a sub-object pointer (e.g. `MqttClient` has `m_settings` for steam state + `m_settingsMqtt` for MQTT state), each guard must check the pointer it's about to dereference. Mismatched guards (`if (!m_settings) return;` followed by `m_settingsMqtt->X()`) are a recurring trap — they don't crash today only because the call sites in `main.cpp` always pass both non-null. The sed-based migration in PR Kulitorum/Decenza#852 hit this twice; check carefully when you split a new domain.
 
 ```cpp
 // Right

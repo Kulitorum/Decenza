@@ -104,7 +104,7 @@ Indirect proxy for renderer allocations. Qt Graphs uses scene-graph nodes; Qt Ch
 
 Run the full protocol twice from the same hardware state:
 
-1. **Pre-migration**: `git checkout <commit immediately before PR #1144>` → rebuild release → install → measure
+1. **Pre-migration**: `git checkout <commit immediately before PR Kulitorum/Decenza#1144>` → rebuild release → install → measure
 2. **Post-migration**: `git checkout main` (or the latest Stage 1 commit) → rebuild release → install → measure
 
 Do not reuse old measurements from before the Qt 6.11.1 upgrade — that upgrade itself shifted the cup-fill cost and the comparison would be muddied.
