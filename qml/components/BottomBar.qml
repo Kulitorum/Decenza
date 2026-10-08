@@ -35,7 +35,7 @@ Item {
     // The action buttons are therefore Fixed, so an oversized leftContent does not
     // squeeze them: the row's minimum sum simply exceeds the bar and the whole row
     // is laid out past the right edge, which is what a long profile name did on
-    // Shot Review / Shot Detail. Capping leftContent lowers that minimum sum, so
+    // the shot page. Capping leftContent lowers that minimum sum, so
     // pages bind their leftContent's Layout.maximumWidth to this and the text elides.
     //
     // Floored at a couple of characters rather than at 0: Layout.maximumWidth: 0 is a

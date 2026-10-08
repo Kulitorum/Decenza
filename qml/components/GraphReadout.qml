@@ -9,13 +9,16 @@ import Decenza
 // row per shot with its values in fixed columns, so shots read against each other.
 // Under the plot rather than over it, so it never hides a curve, and a row per
 // visible shot whether or not anything is inspected, so a tap never moves anything.
+// The graph provides readoutCurves, readoutRowCount, readoutRowVisible(row) and
+// readoutText(row, dataKey); a single-shot graph has one row and no swatches.
 Flickable {
     id: root
 
     required property var graph
 
     readonly property real timeW: Theme.scaled(56)
-    readonly property real swatchW: Theme.scaled(30)
+    readonly property bool multiShot: graph.readoutRowCount > 1
+    readonly property real swatchW: multiShot ? Theme.scaled(30) : 0
     readonly property int curveCount: graph.readoutCurves.length
     // Capped, so on a wide window the values stay together instead of spanning it.
     readonly property real colW: Math.min(Theme.scaled(72), Math.max(Theme.scaled(46),
@@ -30,7 +33,7 @@ Flickable {
     flickableDirection: Flickable.HorizontalFlick
     boundsBehavior: Flickable.StopAtBounds
     clip: true
-    Accessible.ignored: true  // ComparisonGraph.inspectAtPosition() announces the values
+    Accessible.ignored: true  // the graph's inspectAtPosition() announces the values
 
     Column {
         id: grid
@@ -67,11 +70,11 @@ Flickable {
         }
 
         Repeater {
-            model: root.graph.comparisonModel ? root.graph.comparisonModel.shotCount : 0
+            model: root.graph.readoutRowCount
             delegate: Row {
                 id: shotRow
                 required property int index
-                visible: root.graph.shotVisible(index)
+                visible: root.graph.readoutRowVisible(index)
                 height: root.rowH
 
                 Item { width: root.timeW; height: 1 }
@@ -79,6 +82,7 @@ Flickable {
                     width: root.swatchW
                     height: root.rowH
                     ComparisonLineSwatch {
+                        visible: root.multiShot
                         anchors.verticalCenter: parent.verticalCenter
                         shotIndex: shotRow.index
                         heavy: shotRow.index === 0
@@ -94,8 +98,9 @@ Flickable {
                         height: root.rowH
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
-                        // A shot that has ended keeps its row; its cells go quiet.
-                        text: value.length > 0 ? value : "–"
+                        // Blank until a tap; a shot that has ended keeps its row and its
+                        // cells go quiet.
+                        text: value.length > 0 ? value : root.graph.inspecting ? "–" : ""
                         font.family: Theme.captionFont.family
                         font.pixelSize: Theme.captionFont.pixelSize
                         font.features: ({ "tnum": 1 })

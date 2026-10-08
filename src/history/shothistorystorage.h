@@ -181,10 +181,12 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-    // Async: the shot pulled just before `shotId` on the same profile and equipment
-    // package — the pair "Compare with previous shot" opens. Emits
-    // previousShotReady(shotId, 0) when there is none.
-    Q_INVOKABLE void requestPreviousShot(qint64 shotId);
+    // Async: how the shot went and how it differs from the shot pulled just before
+    // it on the same profile, drink and equipment package. Emits shotOutcomeReady with
+    // { previousShotId (0: none), comparison }, where comparison is
+    // ShotComparison::compare() with the previous shot as base, or of this shot alone,
+    // and previousDateTime, that shot's time as a label.
+    Q_INVOKABLE void requestShotOutcome(qint64 shotId);
 
     // Dial-in history for one profile family, scoped to one equipment package.
     // Summary data, no time-series. Thread-safe: the caller provides its own
@@ -308,6 +310,14 @@ public:
     // (id == 0, isValid() == false) when the record is empty. Replaces the
     // QVariantMap projection that lived here pre-#975 — see shotprojection.h.
     static ShotProjection convertShotRecord(const ShotRecord& record);
+    // A shot's time as a label, "Oct 6, 10:35 AM": the comparison headers, the shot
+    // page's previous shot and the web pages.
+    static QString shortDateTime(qint64 secsSinceEpoch);
+    // The shot pulled just before `shotId` on the same profile, drink and equipment
+    // package; 0 when there is none. Caller provides the connection.
+    static qint64 previousShotIdStatic(QSqlDatabase& db, qint64 shotId);
+    // The payload requestShotOutcome delivers, for a caller with its own connection.
+    static QVariantMap shotOutcomeStatic(QSqlDatabase& db, qint64 shotId);
 
     // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
     // Safe to call from any thread (does not use m_db). Returns shotId or -1 on failure.
@@ -659,7 +669,7 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
-    void previousShotReady(qint64 shotId, qint64 previousShotId);
+    void shotOutcomeReady(qint64 shotId, const QVariantMap& outcome);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void profileUsageReady(const QVariantMap& usage);
     void latestShotForBeanProfileReady(const QVariantMap& shot);

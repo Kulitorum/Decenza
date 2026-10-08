@@ -341,6 +341,7 @@ set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
 target_link_libraries(decenza_shotlib PUBLIC
     decenza_testlib
+    decenza_shotcomparisonlib   # ShotHistoryStorage::shotOutcomeStatic
     Qt6::Quick
 )
 # ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
@@ -1160,8 +1161,8 @@ set_target_properties(decenza_aiproviderlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_P
 target_link_libraries(decenza_aiproviderlib PUBLIC decenza_testlib)
 
 # Shot-to-shot comparison: the advisor's change detection (dialing_blocks.cpp),
-# MCP shots_compare and the comparison tests. Not in decenza_testlib, which every
-# target links; only these need it.
+# MCP shots_compare, the shot page's outcome (via decenza_shotlib) and the
+# comparison tests. Not in decenza_testlib, which every target links.
 add_library(decenza_shotcomparisonlib STATIC ${CMAKE_SOURCE_DIR}/src/history/shotcomparison.cpp)
 set_target_properties(decenza_shotcomparisonlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_shotcomparisonlib PUBLIC decenza_testlib)

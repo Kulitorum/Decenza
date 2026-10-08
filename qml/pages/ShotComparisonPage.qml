@@ -21,11 +21,6 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var comparisonModel: MainController.shotComparison
-    // Wording from the comparison's shared table (ShotComparisonText).
-    function txt(id) {
-        const e = (comparisonModel.texts || {})[id]
-        return e ? TranslationManager.translate(e.key, e.label) : id
-    }
 
     // Persisted plot height. The readout sits under the plot in the same card, so
     // inspecting never needs a scroll; the page scrolls as one for the comparison.
@@ -33,97 +28,17 @@ T.Page {
     // each left the plot too small to read.
     property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(320))
 
-    property bool showAllCurves: false
-
-    // Unique phase entries [{label, phaseIndex}] derived from graph data
+    // One chip per phase label, coloured as the graph draws it.
     readonly property var phaseEntries: {
-        var result = [], seen = {}
+        let result = [], seen = {}
         for (let i = 0; i < comparisonGraph.phaseData.length; i++) {
-            let pd = comparisonGraph.phaseData[i]
-            if (!seen[pd.label]) { seen[pd.label] = true; result.push({ label: pd.label, phaseIndex: pd.phaseIndex }) }
+            const pd = comparisonGraph.phaseData[i]
+            if (seen[pd.label]) continue
+            seen[pd.label] = true
+            result.push({ label: pd.label,
+                          color: comparisonGraph.phaseColors[pd.phaseIndex % comparisonGraph.phaseColors.length] })
         }
         return result
-    }
-
-    readonly property var curveEntries: {
-        var out = []
-        for (const e of GraphSeries.entries) {
-            if (e.portal) continue
-            if (e.advanced && !Settings.graph.advancedMode) continue
-            out.push(e)
-        }
-        return out
-    }
-    readonly property int hiddenCurveCount: {
-        var n = 0
-        for (const e of curveEntries) if (!Settings.graph[e.key]) n++
-        return n
-    }
-
-    component Chip: Rectangle {
-        id: chip
-        property string label
-        property string tip: ""
-        property color dotColor: "transparent"
-        property bool active: true
-        property bool checkable: true
-        property bool longPressShowing: false
-        signal toggled()
-
-        implicitHeight: Theme.scaled(28)
-        implicitWidth: chipRow.implicitWidth + Theme.scaled(18)
-        radius: height / 2
-        color: active ? Qt.alpha(dotColor.a > 0 ? dotColor : Theme.primaryColor, 0.16) : "transparent"
-        border.color: active ? (dotColor.a > 0 ? dotColor : Theme.primaryColor) : Theme.borderColor
-        border.width: 1
-        opacity: active ? 1.0 : 0.6
-        Accessible.description: tip
-        Behavior on color { ColorAnimation { duration: 120 } }
-
-        Row {
-            id: chipRow
-            anchors.centerIn: parent
-            spacing: Theme.scaled(5)
-            Rectangle {
-                visible: chip.dotColor.a > 0
-                width: Theme.scaled(7); height: width; radius: width / 2
-                anchors.verticalCenter: parent.verticalCenter
-                color: chip.dotColor
-                Accessible.ignored: true
-            }
-            Text {
-                text: chip.label
-                font: Theme.captionFont
-                color: chip.active ? Theme.textColor : Theme.textSecondaryColor
-                anchors.verticalCenter: parent.verticalCenter
-                Accessible.ignored: true
-            }
-        }
-        AccessibleMouseArea {
-            id: chipArea
-            anchors.fill: parent
-            accessibleName: chip.label
-            accessibleRole: chip.checkable ? Accessible.CheckBox : Accessible.Button
-            accessibleChecked: chip.active
-            hoverEnabled: chip.tip !== ""
-            supportLongPress: chip.tip !== ""
-            onAccessibleClicked: chip.toggled()
-            onAccessibleLongPressed: {
-                chip.longPressShowing = true
-                tipHideTimer.restart()
-            }
-        }
-        // UI auto-dismiss for a long-press tip, as CustomLegend does.
-        Timer {
-            id: tipHideTimer
-            interval: 4000
-            onTriggered: chip.longPressShowing = false
-        }
-        HoverTip {
-            text: chip.tip
-            shown: (chipArea.containsMouse && chipArea.pressedButtons === 0) || chip.longPressShowing
-            immediate: chip.longPressShowing
-        }
     }
 
     Flickable {
@@ -207,7 +122,7 @@ T.Page {
                     comparisonModel: shotComparisonPage.comparisonModel
                 }
 
-                ComparisonReadout {
+                GraphReadout {
                     id: readout
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -308,62 +223,14 @@ T.Page {
             }
 
             // Curves, phases and alignment, one row of chips
-            Flow {
-                id: chipFlow
+            GraphChipRow {
                 Layout.fillWidth: true
-                spacing: Theme.scaled(6)
-
-                Repeater {
-                    model: shotComparisonPage.curveEntries
-                    delegate: Chip {
-                        required property var modelData
-                        visible: active || shotComparisonPage.showAllCurves
-                        label: modelData.shortLabel
-                        tip: modelData.label + (modelData.tip ? ": " + modelData.tip : "")
-                        dotColor: modelData.sColor
-                        active: Settings.graph[modelData.key]
-                        onToggled: Settings.graph[modelData.key] = !Settings.graph[modelData.key]
-                    }
-                }
-                Chip {
-                    visible: shotComparisonPage.hiddenCurveCount > 0
-                    checkable: false
-                    active: false
-                    tip: shotComparisonPage.showAllCurves
-                        ? shotComparisonPage.txt("tip.fewerCurves")
-                        : shotComparisonPage.txt("tip.moreCurves")
-                    label: shotComparisonPage.showAllCurves
-                        ? shotComparisonPage.txt("ui.fewerCurves")
-                        : "+" + shotComparisonPage.hiddenCurveCount
-                    onToggled: shotComparisonPage.showAllCurves = !shotComparisonPage.showAllCurves
-                }
-
-                Rectangle {
-                    visible: shotComparisonPage.phaseEntries.length > 0
-                    width: 1
-                    height: Theme.scaled(28)
-                    color: Theme.borderColor
-                }
-
-                Repeater {
-                    model: shotComparisonPage.phaseEntries
-                    delegate: Chip {
-                        required property var modelData
-                        label: modelData.label
-                        tip: shotComparisonPage.txt("tip.phase").arg(modelData.label)
-                        dotColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
-                        active: !comparisonGraph.hiddenPhaseLabels[modelData.label]
-                        onToggled: comparisonGraph.togglePhaseLabel(modelData.label)
-                    }
-                }
-
-                Chip {
-                    visible: shotComparisonPage.comparisonModel.shotCount > 1
-                    label: shotComparisonPage.txt("ui.alignPours")
-                    tip: shotComparisonPage.txt("tip.alignPours")
-                    active: comparisonGraph.alignAtPourStart
-                    onToggled: comparisonGraph.alignAtPourStart = !comparisonGraph.alignAtPourStart
-                }
+                phaseEntries: shotComparisonPage.phaseEntries
+                hiddenPhaseLabels: comparisonGraph.hiddenPhaseLabels
+                onPhaseToggled: label => comparisonGraph.togglePhaseLabel(label)
+                showAlign: shotComparisonPage.comparisonModel.shotCount > 1
+                alignActive: comparisonGraph.alignAtPourStart
+                onAlignToggled: comparisonGraph.alignAtPourStart = !comparisonGraph.alignAtPourStart
             }
             Rectangle {
                 id: comparisonCard

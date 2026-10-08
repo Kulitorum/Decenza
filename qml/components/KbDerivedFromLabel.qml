@@ -6,7 +6,7 @@ import Decenza
 // inferred from the profile's structure and not read off its title.
 //
 // ONE definition for all three surfaces that show it (the profile selector
-// delegate, ShotDetailPage, PostShotReviewPage). Each of them carried its own
+// delegate, PostShotReviewPage). Each of them carried its own
 // copy of the translation key, its English fallback, the caption styling and
 // the accessibility wiring — three chances for the key to drift from the
 // string it renders, with nothing failing when one did.

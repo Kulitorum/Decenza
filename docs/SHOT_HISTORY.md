@@ -71,9 +71,8 @@ Imports legacy `.shot` files from de1app and JSON files exported by other Decenz
 ### Pages (`qml/pages/`)
 
 - **`ShotHistoryPage.qml`** — main list with filter dropdowns, FTS search box, multi-select, grouped favorites. Entry point from `IdlePage`.
-- **`ShotDetailPage.qml`** — single-shot detail (graph, metrics, bean/grinder/analysis/notes cards, debug log viewer, delete, Visualizer upload).
 - **`ShotComparisonPage.qml`** — overlaid graphs and comparison tables for 2–3 shots.
-- **`PostShotReviewPage.qml`** — immediately-after-extraction review flow. Prompts for enjoyment, notes, TDS/EY input, and (optionally) triggers `ShotAnalysisDialog`.
+- **`PostShotReviewPage.qml`** — the one shot page, opened after a shot and from history: graph, "What happened", "Since your last shot", rating, notes, TDS/EY, cards, newer/older stepping from a list, delete, debug log, uploads. See `docs/SHOT_REVIEW.md`.
 
 ### Graph & comparison components (`qml/components/`)
 

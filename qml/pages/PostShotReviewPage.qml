@@ -123,6 +123,83 @@ T.Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
+    readonly property bool hasCurves: !!(editShotData.pressure && editShotData.pressure.length > 0)
+
+    // How the shot went and what changed since the previous shot on its profile:
+    // ShotHistoryStorage::requestShotOutcome, re-read after each saved edit.
+    property var shotOutcome: ({})
+
+    // The list the page was opened from, newest first; empty when opened for one shot.
+    property var shotIds: []
+    readonly property int currentIndex: shotIds.indexOf(editShotId)
+    readonly property bool canGoNewer: currentIndex > 0
+    readonly property bool canGoOlder: currentIndex >= 0 && currentIndex < shotIds.length - 1
+    readonly property string positionText: TranslationManager.translate("shotdetail.accessible.position", "Shot %1 of %2")
+        .arg(currentIndex + 1).arg(shotIds.length)
+    property int _swipeDirection: 0
+    property bool _stepping: false
+
+    // Step to another shot in the list: the edit in hand is saved to the shot it was
+    // made on, and undo, the upload hold and auto-close end with it.
+    function stepTo(index) {
+        if (index < 0 || index >= shotIds.length || index === currentIndex) return
+        autosave()
+        reviewGraph.dismissInspect()
+        milkWeighButton.cancel()
+        autoClose = false
+        _swipeDirection = index > currentIndex ? 1 : -1
+        stepAnimation.targetId = shotIds[index]
+        stepAnimation.restart()
+    }
+    function _loadSteppedShot(shotId) {
+        if (_heldShotId > 0) MainController.shotUploads.releaseUpdates(_heldShotId)
+        _undoStack = []
+        _undoDepth = 0
+        _lastEditKey = ""
+        _committedState = ({})
+        _editLoaded = false
+        _saveFailed = false
+        r2CommitPending = false
+        pendingVisualizerUpdate = false
+        pendingDecentUpdate = false
+        _decentUploaded = false
+        _decentState = ({})
+        _visualizerId = ""
+        // onShotReady keeps a non-zero TDS as a live reading for the shot it loads.
+        editDrinkTds = 0
+        editDrinkEy = 0
+        shotOutcome = ({})
+        _stepping = true
+        editShotId = shotId
+        _heldShotId = shotId
+        MainController.shotUploads.holdUpdates(shotId)
+        loadShotForEditing()
+    }
+
+    SequentialAnimation {
+        id: stepAnimation
+        property int targetId: 0
+        ParallelAnimation {
+            NumberAnimation { target: pageColumn; property: "opacity"; to: 0; duration: 140; easing.type: Easing.InQuad }
+            NumberAnimation { target: contentSlide; property: "x"; to: postShotReviewPage._swipeDirection * -Theme.scaled(50); duration: 140; easing.type: Easing.InQuad }
+        }
+        ScriptAction {
+            script: {
+                contentSlide.x = postShotReviewPage._swipeDirection * Theme.scaled(50)
+                postShotReviewPage._loadSteppedShot(stepAnimation.targetId)
+            }
+        }
+    }
+    ParallelAnimation {
+        id: enterAnimation
+        NumberAnimation { target: pageColumn; property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutQuad }
+        NumberAnimation { target: contentSlide; property: "x"; to: 0; duration: 180; easing.type: Easing.OutQuad }
+    }
+
+    function inspectGraphAt(x, y) {
+        if (x > reviewGraph.plotArea.x + reviewGraph.plotArea.width) reviewGraph.toggleRightAxis()
+        else reviewGraph.inspectAtPosition(x, y)
+    }
 
     // Field selection + order for the snapshot line, taken from the user's first
     // idle-page Shot Plan widget so this line shows the fields they configured.
@@ -167,11 +244,9 @@ T.Page {
         return parts.join(" · ")
     }
     function recipeDoseYieldText() {
-        // The dial-in card states the PLAN — the shot's recorded target, the
-        // same authority ShotDetailPage's card uses (the two cards used to
-        // disagree: this one showed the achieved drink weight, which already
-        // has its own editable field above). Falls back to the achieved
-        // weight only when no target was recorded (volume/timer profiles).
+        // The dial-in card states the PLAN, the shot's recorded target; the
+        // achieved weight has its own editable field above. Falls back to the
+        // achieved weight only when no target was recorded (volume/timer profiles).
         var dose = editDoseWeight || 0
         var yieldG = (editShotData.targetWeightG || 0) > 0 ? editShotData.targetWeightG
                                                            : (editDrinkWeight || 0)
@@ -200,7 +275,7 @@ T.Page {
             let parts = []
             if (s.pitcherName) parts.push(s.pitcherName)
             if ((s.milkWeightG || 0) > 0)
-                parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
+                parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(Math.round(s.milkWeightG)))
             return parts.join(" · ")
         } catch (e) { WebDebugLogger.warn("Steam", "PostShotReviewPage", ["bad steamJson on shot", editShotData.id, e].map(String).join(" ")); return "" }
     }
@@ -289,8 +364,10 @@ T.Page {
     property string uploadSkipReason: ""
     property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
     property bool pendingDecentUpdate: false      // the same, for the Decent account
-    // Whether this shot is in the Decent account (decentUploadStateReady).
+    // Whether this shot is in the Decent account (decentUploadStateReady), and the
+    // whole state for the uploads card.
     property bool _decentUploaded: false
+    property var _decentState: ({})
     // visualizerId from DB, captured before any Object.assign strips Q_GADGET fields. Captured in onShotReady
     // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
     // this page or from the shot-completion background uploader) so the "Re-Upload" button label
@@ -328,8 +405,10 @@ T.Page {
     TapHandler {
         onTapped: postShotReviewPage.resetAutoCloseTimer()
     }
-    // Persisted graph height (like ShotComparisonPage)
-    property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
+    // One plot height for every way the page opens; the review page's old key
+    // seeds it once.
+    property real graphHeight: Settings.value("shotPage/graphHeight",
+                                              Settings.value("postShotReview/graphHeight", Theme.scaled(220)))
 
     // Load shot data for editing (async)
     function loadShotForEditing() {
@@ -343,6 +422,7 @@ T.Page {
         function onDecentUploadStateReady(shotId, state) {
             if (shotId !== postShotReviewPage.editShotId) return
             postShotReviewPage._decentUploaded = !!state.uploaded
+            postShotReviewPage._decentState = state
             // Decent kept an earlier copy (NotReplaced): the edit still has to reach it.
             if (state.replacePending) postShotReviewPage.pendingDecentUpdate = true
         }
@@ -362,6 +442,14 @@ T.Page {
             postShotReviewPage.editShotData = shot
             postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
             MainController.shotHistory.requestDecentUploadState(shotId)
+            MainController.shotHistory.requestShotOutcome(shotId)
+            if (postShotReviewPage._stepping) {
+                postShotReviewPage._stepping = false
+                Qt.callLater(function() {
+                    flickable.returnToBounds()
+                    enterAnimation.start()
+                })
+            }
             // Reset upload status text when loading a new shot so stale
             // error/skip messages from a previous shot don't carry over.
             postShotReviewPage.uploadError = ""
@@ -422,6 +510,9 @@ T.Page {
                 // empty baseline vs. dose defaulted from Settings).
                 postShotReviewPage._committedState = postShotReviewPage.captureEditState()
                 postShotReviewPage._editLoaded = true
+                // A control the user touched on the previous shot still shows that
+                // shot's value until its binding is restored.
+                postShotReviewPage.rebindInputs()
                 // Show what Visualizer holds now, not as of the last sync pass.
                 if (postShotReviewPage._visualizerId !== "")
                     MainController.visualizerSync.refreshShot(shotId)
@@ -447,6 +538,7 @@ T.Page {
             // in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
+                MainController.shotHistory.requestShotOutcome(shotId)
             } else {
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
                 postShotReviewPage._saveFailed = true
@@ -454,6 +546,15 @@ T.Page {
                     AccessibilityManager.announce(TranslationManager.translate(
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
+        }
+        function onShotOutcomeReady(shotId, outcome) {
+            if (shotId === postShotReviewPage.editShotId) postShotReviewPage.shotOutcome = outcome
+        }
+        function onShotDeleted(shotId) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            // Nothing left to save to.
+            postShotReviewPage._editLoaded = false
+            AppShell.backRequested()
         }
         function onShotPulledFromVisualizer(shotId, previous, written) {
             if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
@@ -684,23 +785,21 @@ T.Page {
         editTasteBody = s.tasteBody !== undefined ? s.tasteBody : ""
         editNotes = s.notes; editBeverageType = s.beverageType
         editBeanBaseJson = s.beanBaseJson !== undefined ? s.beanBaseJson : ""
-        // RatingInput (internal `root.value = …`) and the dose/out ValueInputs
-        // (handlers do `xInput.value = …`) imperatively assign their own
-        // `value` during interaction, which severs the `value: editX` binding.
-        // Re-establish the binding (not a bare assignment, which would sever it
-        // permanently) so Undo restores the UI and future edits keep tracking
-        // editX. The TDS/EY onValueModified handlers in THIS file (unlike
-        // dose/out) do not self-assign tdsInput.value/eyInput.value, so their
-        // `value: editDrinkTds`/`editDrinkEy` bindings stay live and must NOT
-        // be touched here — re-asserting them would sever the binding and
-        // break later R2 / calculateEy() updates. (If a future edit adds a
-        // self-assign to those handlers, re-bind them here too.)
+        rebindInputs()
+    }
+
+    // RatingInput (internal `root.value = …`), the dose/out ValueInputs (handlers do
+    // `xInput.value = …`) and the TastePicker chips imperatively assign their own
+    // value during interaction, which severs the `value: editX` binding. Re-establish
+    // it (not a bare assignment, which would sever it permanently) after Undo and
+    // after a step to another shot, so the controls show editX again and keep
+    // tracking it. The TDS/EY handlers do not self-assign, so their bindings stay
+    // live and must NOT be touched here: re-asserting them would sever the binding
+    // and break later R2 / calculateEy() updates.
+    function rebindInputs() {
         ratingInput.value = Qt.binding(function() { return editEnjoyment })
         doseInput.value = Qt.binding(function() { return editDoseWeight })
         outInput.value = Qt.binding(function() { return editDrinkWeight })
-        // TastePicker chips self-assign root.tasteBalance/tasteBody on tap, which
-        // severs the `tasteBalance: editTasteBalance` bindings — re-establish them
-        // so Undo visually reverts the chips (same pattern as the rating slider).
         tastePicker.tasteBalance = Qt.binding(function() { return editTasteBalance })
         tastePicker.tasteBody = Qt.binding(function() { return editTasteBody })
     }
@@ -801,7 +900,7 @@ T.Page {
     // Sync sticky metadata back to Settings (bean/grinder info) for the
     // next shot — but ONLY when editing the most recent shot. The sticky
     // settings are "prep for the next pull"; editing a HISTORIC shot
-    // (opened from Shot History / Shot Detail) must not touch the bean
+    // (opened from Shot History) must not touch the bean
     // dialog, dose/yield, or the live bean link. lastSavedShotId is
     // seeded from the DB at startup, so this holds across app restarts
     // too: the newest shot syncs forward, every older shot does not.
@@ -1063,22 +1162,27 @@ T.Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        contentHeight: mainColumn.height
+        contentHeight: pageColumn.implicitHeight + Theme.spacingMedium
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         onMovementStarted: postShotReviewPage.resetAutoCloseTimer()
         onContentYChanged: postShotReviewPage.resetAutoCloseTimer()
 
+        // One column at every width, graph full width under the header. Side by side
+        // was tried here, as on the comparison page, and left the plot too small to read.
+        // What the user records right after a pull (rating, taste, notes, measurements)
+        // comes straight after the graph; the outcome and comparison follow it.
         ColumnLayout {
-            id: mainColumn
-            width: parent.width
+            id: pageColumn
+            width: flickable.width
             spacing: Theme.scaled(6)
+            transform: Translate { id: contentSlide; x: 0 }
 
             // Header: Profile (Temp) + date + quality badges + sparkle + Read TDS + Basic/Advanced toggle
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
-                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
+                visible: postShotReviewPage.hasCurves
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -1123,7 +1227,7 @@ T.Page {
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                             elide: Text.ElideRight
-                            Layout.maximumWidth: postShotReviewPage.width * 0.35
+                            Layout.maximumWidth: pageColumn.width * 0.35
                         }
 
                         QualityBadges {
@@ -1139,7 +1243,7 @@ T.Page {
                             // candidate set that persists nothing. Chip conditions live
                             // inside QualityBadges and are untouched.
                             Layout.fillWidth: false
-                            Layout.maximumWidth: postShotReviewPage.width * 0.5
+                            Layout.maximumWidth: pageColumn.width * 0.5
                             channelingDetected: postShotReviewPage.editShotData.channelingDetected ?? false
                             grindIssueDetected: postShotReviewPage.editShotData.grindIssueDetected ?? false
                             skipFirstFrameDetected: postShotReviewPage.editShotData.skipFirstFrameDetected ?? false
@@ -1156,7 +1260,7 @@ T.Page {
                         // this line were computed under the entry named here.
                         KbDerivedFromLabel {
                             derivedFrom: postShotReviewPage.editShotData.profileKbDerivedFrom || ""
-                            Layout.maximumWidth: postShotReviewPage.width * 0.3
+                            Layout.maximumWidth: pageColumn.width * 0.3
                         }
 
                         ShotAnalysisDialog {
@@ -1208,9 +1312,19 @@ T.Page {
                     }
                 }
 
+                // Promote this shot to a recipe. Hidden when it came from one that still
+                // resolves: a recipe's shot never offers to become a recipe.
+                HeaderPillButton {
+                    visible: !((postShotReviewPage.editShotData.recipeId || -1) > 0 && (recipeResolver.recipe.name || "") !== "")
+                    text: TranslationManager.translate("shotpage.saveAsRecipe", "Save as recipe")
+                    accessibleName: TranslationManager.translate("shotdetail.button.recipe", "Create recipe from this shot")
+                    onClicked: AppShell.recipeWizardRequested("create", { promoteShotId: postShotReviewPage.editShotId })
+                }
+
                 // Milk weigh button: captures the milk for the next steam from this page,
                 // where a group-head steam is often started. Tap weighs, long-press
-                // changes pitcher.
+                // changes pitcher. Only on the shot just pulled: an old shot opened from
+                // history is not followed by a steam.
                 HeaderPillButton {
                     id: milkWeighButton
 
@@ -1287,6 +1401,7 @@ T.Page {
                     }
 
                     visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
+                             && postShotReviewPage.editShotId === MainController.lastSavedShotId
                     onVisibleChanged: if (!visible) cancel()
                     text: labelText
                     highlighted: armed
@@ -1479,26 +1594,28 @@ T.Page {
                 Accessible.focusable: true
             }
 
-            GraphInspectBar { graph: reviewGraph }
-
-            // Resizable Graph (visible when we have shot data)
+            // Resizable graph, with the crosshair values under the plot so a tap never
+            // covers a curve or moves the page.
             Rectangle {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), postShotReviewPage.graphHeight))
+                    + graphReadout.implicitHeight + resizeHandle.height + Theme.spacingSmall
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
+                visible: postShotReviewPage.hasCurves
                 Accessible.role: Accessible.Graphic
                 Accessible.name: TranslationManager.translate("shot.graph.accessible.name", "Shot graph. Tap to inspect values")
                 Accessible.focusable: true
-                Accessible.onPressAction: reviewGraphMouseArea.clicked(null)
+                Accessible.onPressAction: reviewGraph.inspectAtPosition(reviewGraph.plotArea.x + reviewGraph.plotArea.width / 2, 0)
 
                 HistoryShotGraph {
                     id: reviewGraph
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: graphReadout.top
                     anchors.margins: Theme.spacingSmall
-                    anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     showPhaseLabels: Settings.graph.advancedMode
                     pressureData: postShotReviewPage.editShotData.pressure || []
                     flowData: postShotReviewPage.editShotData.flow || []
@@ -1519,25 +1636,37 @@ T.Page {
                     maxTime: postShotReviewPage.editShotData.durationSec || 60
                 }
 
-                // Tap/drag-to-inspect overlay (shows crosshair, values shown above graph)
-                MouseArea {
-                    id: reviewGraphMouseArea
+                GraphReadout {
+                    id: graphReadout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: resizeHandle.top
+                    anchors.leftMargin: Theme.spacingMedium
+                    anchors.rightMargin: Theme.spacingMedium
+                    graph: reviewGraph
+                }
+
+                // Tap or drag to inspect; from a list, a horizontal swipe steps to the
+                // newer or older shot instead.
+                SwipeableArea {
                     anchors.fill: reviewGraph
-                    onClicked: function(mouse) {
-                        if (mouse.x > reviewGraph.plotArea.x + reviewGraph.plotArea.width) {
-                            reviewGraph.toggleRightAxis()
-                        } else {
-                            reviewGraph.inspectAtPosition(mouse.x, mouse.y)
-                        }
-                    }
+                    enabled: postShotReviewPage.shotIds.length > 1
+                    canSwipeLeft: postShotReviewPage.canGoOlder
+                    canSwipeRight: postShotReviewPage.canGoNewer
+                    onSwipedLeft: postShotReviewPage.stepTo(postShotReviewPage.currentIndex + 1)
+                    onSwipedRight: postShotReviewPage.stepTo(postShotReviewPage.currentIndex - 1)
+                    onTapped: function(x, y) { postShotReviewPage.inspectGraphAt(x, y) }
+                    onMoved: function(x, y) { reviewGraph.inspectAtPosition(x, y) }
+                }
+                MouseArea {
+                    anchors.fill: reviewGraph
+                    enabled: postShotReviewPage.shotIds.length <= 1
+                    onClicked: function(mouse) { postShotReviewPage.inspectGraphAt(mouse.x, mouse.y) }
                     onPositionChanged: function(mouse) {
-                        if (pressed) {
-                            reviewGraph.inspectAtPosition(mouse.x, mouse.y)
-                        }
+                        if (pressed) reviewGraph.inspectAtPosition(mouse.x, mouse.y)
                     }
                 }
 
-                // Resize handle at bottom
                 Rectangle {
                     id: resizeHandle
                     anchors.bottom: parent.bottom
@@ -1547,11 +1676,9 @@ T.Page {
                     color: "transparent"
                     Accessible.ignored: true
 
-                    // Visual indicator (three lines)
                     Column {
                         anchors.centerIn: parent
                         spacing: Theme.scaled(2)
-
                         Repeater {
                             model: 3
                             Rectangle {
@@ -1575,39 +1702,62 @@ T.Page {
 
                         onPressed: function(mouse) {
                             startY = mouse.y + resizeHandle.mapToItem(postShotReviewPage, 0, 0).y
-                            startHeight = graphCard.Layout.preferredHeight
+                            startHeight = Math.min(Theme.scaled(400), postShotReviewPage.graphHeight)
                         }
-
                         onPositionChanged: function(mouse) {
                             if (pressed) {
                                 let currentY = mouse.y + resizeHandle.mapToItem(postShotReviewPage, 0, 0).y
-                                let delta = currentY - startY
-                                let newHeight = startHeight + delta
-                                // Clamp between min and max
-                                newHeight = Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), newHeight))
-                                postShotReviewPage.graphHeight = newHeight
+                                postShotReviewPage.graphHeight = Math.max(Theme.scaled(100),
+                                    Math.min(Theme.scaled(400), startHeight + currentY - startY))
                             }
                         }
-
                         onReleased: {
-                            Settings.setValue("postShotReview/graphHeight", postShotReviewPage.graphHeight)
+                            Settings.setValue("shotPage/graphHeight", postShotReviewPage.graphHeight)
                             flickable.returnToBounds()
                         }
                     }
                 }
-
             }
 
-            GraphLegend {
-                portalAvailable: (postShotReviewPage.editShotData.portalSamples || []).length > 0
-                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
-            }
-
-            // Phase summary panel (advanced mode only)
-            PhaseSummaryPanel {
+            GraphChipRow {
                 Layout.fillWidth: true
-                phaseSummaries: postShotReviewPage.editShotData.phaseSummaries || []
-                visible: Settings.graph.advancedMode && (postShotReviewPage.editShotData.phaseSummaries || []).length > 0
+                visible: postShotReviewPage.hasCurves
+                portalAvailable: (postShotReviewPage.editShotData.portalSamples || []).length > 0
+                phaseEntries: reviewGraph.phaseEntries
+                hiddenPhaseLabels: reviewGraph.hiddenPhaseLabels
+                onPhaseToggled: label => reviewGraph.togglePhaseLabel(label)
+            }
+
+            // Newer / older in the list the page was opened from, newest first.
+            RowLayout {
+                visible: postShotReviewPage.shotIds.length > 1
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.newershot", "Newer Shot")
+                    accessibleName: TranslationManager.translate("shotdetail.accessible.newershot", "Newer shot")
+                        + ", " + postShotReviewPage.positionText
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 10
+                    enabled: postShotReviewPage.canGoNewer
+                    onClicked: postShotReviewPage.stepTo(postShotReviewPage.currentIndex - 1)
+                }
+                Text {
+                    text: (postShotReviewPage.currentIndex + 1) + " / " + postShotReviewPage.shotIds.length
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.oldershot", "Older Shot")
+                    accessibleName: TranslationManager.translate("shotdetail.accessible.oldershot", "Older shot")
+                        + ", " + postShotReviewPage.positionText
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 10
+                    enabled: postShotReviewPage.canGoOlder
+                    onClicked: postShotReviewPage.stepTo(postShotReviewPage.currentIndex + 1)
+                }
             }
 
             RowLayout {
@@ -1621,13 +1771,11 @@ T.Page {
                     color: Theme.textColor
                     font: Theme.bodyFont
                     // Cap on an ancestor whose width does not depend on this label,
-                    // instead of `parent.width`. `parent` is the RowLayout, whose width
-                    // depends on this child's preferred size — that mutual dependency
-                    // tripped Qt Quick Layouts' "recursive rearrange" guard in
-                    // production. Binding to postShotReviewPage.width breaks the cycle;
-                    // the label still sizes to its implicitWidth, capped to ~45% of
-                    // the page.
-                    Layout.maximumWidth: postShotReviewPage.width * 0.45
+                    // not `parent.width`: the RowLayout's width depends on this child's
+                    // preferred size, and that cycle tripped Qt Quick Layouts'
+                    // "recursive rearrange" guard in production. The flickable's width
+                    // does not; the cap is ~45% of the page.
+                    Layout.maximumWidth: flickable.width * 0.45
                     Accessible.ignored: true
                 }
 
@@ -1675,7 +1823,7 @@ T.Page {
                 }
             }
 
-            // Notes (moved to top, right after rating)
+            // Notes
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)
@@ -1963,6 +2111,27 @@ T.Page {
                 }
             }
 
+            ShotResultsCard {
+                Layout.fillWidth: true
+                comparison: postShotReviewPage.shotOutcome.comparison || ({})
+                previousWhen: postShotReviewPage.shotOutcome.previousDateTime || ""
+                onCompareRequested: {
+                    MainController.shotComparison.clearAll()
+                    MainController.shotComparison.addShots([postShotReviewPage.shotOutcome.previousShotId,
+                                                            postShotReviewPage.editShotId])
+                    AppShell.shotComparisonRequested()
+                }
+            }
+
+            // Phase summary panel (advanced mode only)
+            PhaseSummaryPanel {
+                Layout.fillWidth: true
+                phaseSummaries: postShotReviewPage.editShotData.phaseSummaries || []
+                visible: Settings.graph.advancedMode && (postShotReviewPage.editShotData.phaseSummaries || []).length > 0
+            }
+
+
+
             // Standalone bean summary (+ Change Beans) — shown ONLY when the
             // shot used no recipe. With a recipe these fold into the recipe card
             // above, so it reads as one cohesive recipe. Bean dialog + equipment
@@ -2028,281 +2197,188 @@ T.Page {
                 }
             }
 
-            // 3-column grid for all fields
-            GridLayout {
+            // Barista — advanced-only (most users are the sole barista).
+            SuggestionField {
+                id: baristaField
+                visible: Settings.graph.advancedMode
                 Layout.fillWidth: true
-                columns: 3
-                columnSpacing: 8
-                rowSpacing: 6
+                label: TranslationManager.translate("postshotreview.label.barista", "Barista")
+                text: postShotReviewPage.editBarista
+                suggestions: {
+                    var list = postShotReviewPage._baristaHistory.slice()
+                    if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
+                    return list
+                }
+                onVisibleChanged: if (visible && !postShotReviewPage._baristaHistoryLoaded) postShotReviewPage._refreshBaristaHistory()
+                onTextEdited: function(t) { postShotReviewPage.editBarista = t }
+                onInputBlurred: postShotReviewPage.autosave("barista", true)
+            }
 
-                // (Bean identity fields removed — the read-only BeanSummary +
-                // Change Beans dialog above replace them.)
-                //
-                // Grinder identity (brand/model/burrs) is owned by the equipment
-                // PACKAGE now (add-equipment-packages), so it is READ-ONLY here and
-                // changed by re-pointing the shot to a different package via the
-                // picker — not edited as free text (those edits were silently
-                // discarded).
-                // (Equipment identity card moved to the END of this grid — per-shot
-                // dial-in and shot metadata first, hardware context last.)
+            // Recipe card (recipeId > 0): the recipe AND its components in
+            // one cohesive card, modelled on the recipe editor's summary.
+            // Beans and equipment are edited right here; profile, dial-in
+            // and steam/water are read-only echoes (grind/RPM are edited in
+            // the Dial-in row at the top). Every value is this page's live
+            // edit state. When a recipe is used this replaces the standalone
+            // bean and equipment controls (which gate to the no-recipe case).
+            Rectangle {
+                id: recipeCard
+                Layout.fillWidth: true
+                Layout.preferredHeight: recipeColumn.implicitHeight + Theme.scaled(24)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                border.width: 1
+                border.color: Theme.borderColor
+                visible: (postShotReviewPage.editShotData.recipeId || -1) > 0
 
-                // Grind + RPM moved up into the Dial-in row (with Dose/Out).
+                readonly property string recipeName: recipeResolver.recipe.name || ""
+                readonly property string recipeDrinkLabel:
+                    DrinkType.shortLabel(DrinkType.fromRecipeMap(recipeResolver.recipe))
 
-                // Beverage type is captured from the profile at shot time and is
-                // not editable — we trust the profile, and the recipe now
-                // preserves the shot's context. (editBeverageType still carries
-                // the shot's captured value through save unchanged.)
-
-                // Barista — advanced-only (most users are the sole barista).
-                SuggestionField {
-                    id: baristaField
-                    visible: Settings.graph.advancedMode
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.barista", "Barista")
-                    text: postShotReviewPage.editBarista
-                    suggestions: {
-                        var list = postShotReviewPage._baristaHistory.slice()
-                        if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
-                        return list
-                    }
-                    onVisibleChanged: if (visible && !postShotReviewPage._baristaHistoryLoaded) postShotReviewPage._refreshBaristaHistory()
-                    onTextEdited: function(t) { postShotReviewPage.editBarista = t }
-                    onInputBlurred: postShotReviewPage.autosave("barista", true)
+                Accessible.role: Accessible.Grouping
+                Accessible.name: {
+                    var parts = [TranslationManager.translate("shotdetail.recipe", "Recipe")]
+                    if (recipeName !== "") parts.push(recipeName)
+                    if (recipeDrinkLabel !== "") parts.push(recipeDrinkLabel)
+                    var p = postShotReviewPage.recipeProfileText(); if (p !== "") parts.push(p)
+                    return parts.join(", ")
                 }
 
-                // Preset (profile) and Shot date were removed here — both were
-                // read-only and already shown in the title, the Shot Plan
-                // snapshot line, and the recipe card, so they only added clutter.
+                ColumnLayout {
+                    id: recipeColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.spacingSmall
 
-                // Recipe card (recipeId > 0): the recipe AND its components in
-                // one cohesive card, modelled on the recipe editor's summary.
-                // Beans and equipment are edited right here; profile, dial-in
-                // and steam/water are read-only echoes (grind/RPM are edited in
-                // the Dial-in row at the top). Every value is this page's live
-                // edit state. When a recipe is used this replaces the standalone
-                // bean and equipment controls (which gate to the no-recipe case).
-                Rectangle {
-                    id: recipeCard
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: recipeColumn.implicitHeight + Theme.scaled(24)
-                    color: Theme.cardBackgroundColor
-                    radius: Theme.cardRadius
-                    border.width: 1
-                    border.color: Theme.borderColor
-                    visible: (postShotReviewPage.editShotData.recipeId || -1) > 0
-
-                    readonly property string recipeName: recipeResolver.recipe.name || ""
-                    readonly property string recipeDrinkLabel:
-                        DrinkType.shortLabel(DrinkType.fromRecipeMap(recipeResolver.recipe))
-
-                    Accessible.role: Accessible.Grouping
-                    Accessible.name: {
-                        var parts = [TranslationManager.translate("shotdetail.recipe", "Recipe")]
-                        if (recipeName !== "") parts.push(recipeName)
-                        if (recipeDrinkLabel !== "") parts.push(recipeDrinkLabel)
-                        var p = postShotReviewPage.recipeProfileText(); if (p !== "") parts.push(p)
-                        return parts.join(", ")
+                    // --- Hero: eyebrow + recipe name + drink type ---
+                    Tr {
+                        key: "shotdetail.recipe"
+                        fallback: "Recipe"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        Accessible.ignored: true
                     }
-
-                    ColumnLayout {
-                        id: recipeColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.spacingSmall
-
-                        // --- Hero: eyebrow + recipe name + drink type ---
-                        Tr {
-                            key: "shotdetail.recipe"
-                            fallback: "Recipe"
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
+                    Text {
+                        Layout.fillWidth: true
+                        visible: recipeCard.recipeName !== ""
+                        textFormat: Text.StyledText
+                        text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+                        visible: recipeCard.recipeDrinkLabel !== ""
+                        ColoredIcon {
+                            Layout.alignment: Qt.AlignVCenter
+                            source: DrinkType.icon(DrinkType.fromRecipeMap(recipeResolver.recipe))
+                            iconWidth: Theme.scaled(16)
+                            iconHeight: Theme.scaled(16)
+                            iconColor: Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: recipeCard.recipeName !== ""
-                            textFormat: Text.StyledText
-                            text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
-                            font: Theme.titleFont
-                            color: Theme.textColor
+                            text: recipeCard.recipeDrinkLabel
+                            font: Theme.bodyFont
+                            color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(2)
+                        Layout.bottomMargin: Theme.scaled(2)
+                        Layout.preferredHeight: Theme.scaled(1)
+                        color: Theme.borderColor
+                        Accessible.ignored: true
+                    }
+
+                    // Profile (read-only)
+                    RecipeField {
+                        fieldLabel: trRowProfile.text
+                        value: postShotReviewPage.recipeProfileText()
+                    }
+
+                    // Beans (editable — Change Beans opens the shared dialog)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Text {
+                            text: trRowBeans.text
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(6)
-                            visible: recipeCard.recipeDrinkLabel !== ""
-                            ColoredIcon {
+                            spacing: Theme.scaled(8)
+                            BeanSummary {
+                                id: reviewRecipeBeanSummary
+                                Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
-                                source: DrinkType.icon(DrinkType.fromRecipeMap(recipeResolver.recipe))
-                                iconWidth: Theme.scaled(16)
-                                iconHeight: Theme.scaled(16)
-                                iconColor: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: recipeCard.recipeDrinkLabel
-                                font: Theme.bodyFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                                Accessible.ignored: true
-                            }
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.scaled(2)
-                            Layout.bottomMargin: Theme.scaled(2)
-                            Layout.preferredHeight: Theme.scaled(1)
-                            color: Theme.borderColor
-                            Accessible.ignored: true
-                        }
-
-                        // Profile (read-only)
-                        RecipeField {
-                            fieldLabel: trRowProfile.text
-                            value: postShotReviewPage.recipeProfileText()
-                        }
-
-                        // Beans (editable — Change Beans opens the shared dialog)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Text {
-                                text: trRowBeans.text
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(8)
-                                BeanSummary {
-                                    id: reviewRecipeBeanSummary
-                                    Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignVCenter
-                                    useShotData: true
-                                    roasterName: postShotReviewPage.editBeanBrand
-                                    coffeeName: postShotReviewPage.editBeanType
-                                    roastDate: postShotReviewPage.editRoastDate
-                                    roastLevel: postShotReviewPage.editRoastLevel
-                                    beanBaseData: postShotReviewPage.editBeanBaseJson
-                                    linkable: true
-                                    onLinkRequested: postShotReviewPage.requestBeanLink()
-                                }
-                                AccessibleButton {
-                                    Layout.preferredHeight: Theme.scaled(44)
-                                    Layout.alignment: Qt.AlignVCenter
-                                    text: reviewRecipeBeanSummary.hasBeans
-                                        ? TranslationManager.translate("beans.button.change", "Change Beans")
-                                        : TranslationManager.translate("beans.button.select", "Select Beans")
-                                    accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
-                                    onClicked: (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
-                                }
-                            }
-                            BeanBaseDetailsRow {
-                                Layout.fillWidth: true
-                                beanBaseJson: postShotReviewPage.editBeanBaseJson
-                            }
-                        }
-
-                        // Dial-in (read-only) — grind/RPM are edited in the
-                        // Dial-in row above; echoed here as part of the overview.
-                        RecipeField {
-                            fieldLabel: trRowDialIn.text
-                            value: postShotReviewPage.recipeDialInText()
-                        }
-
-                        // Steam / Hot water (read-only)
-                        RecipeField {
-                            fieldLabel: trRowSteam.text
-                            value: postShotReviewPage.recipeSteamText()
-                        }
-                        RecipeField {
-                            fieldLabel: trRowWater.text
-                            value: postShotReviewPage.recipeWaterText()
-                        }
-
-                        // Equipment (editable — Change Equipment opens the picker)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Text {
-                                text: trRowEquipment.text
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            EquipmentSummary {
-                                id: reviewRecipeEquipment
-                                Layout.fillWidth: true
-                                visible: reviewRecipeEquipment.accessibleSummary !== ""
-                                grinderName: postShotReviewPage.editEquipmentName || ""
-                                grinderBrand: postShotReviewPage.editGrinderBrand
-                                grinderModel: postShotReviewPage.editGrinderModel
-                                grinderBurrs: postShotReviewPage.editGrinderBurrs
-                                basketBrand: postShotReviewPage.editBasketBrand
-                                basketModel: postShotReviewPage.editBasketModel
-                                puckPrepCanonical: postShotReviewPage.editPuckPrep
+                                useShotData: true
+                                roasterName: postShotReviewPage.editBeanBrand
+                                coffeeName: postShotReviewPage.editBeanType
+                                roastDate: postShotReviewPage.editRoastDate
+                                roastLevel: postShotReviewPage.editRoastLevel
+                                beanBaseData: postShotReviewPage.editBeanBaseJson
+                                linkable: true
+                                onLinkRequested: postShotReviewPage.requestBeanLink()
                             }
                             AccessibleButton {
-                                Layout.preferredHeight: Theme.scaled(36)
-                                _customFontSize: Theme.captionFont.pixelSize
-                                leftPadding: Theme.scaled(10)
-                                rightPadding: Theme.scaled(10)
-                                text: (postShotReviewPage.editEquipmentName.length > 0 || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0)
-                                      ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
-                                      : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
-                                accessibleName: text
-                                onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
+                                Layout.preferredHeight: Theme.scaled(44)
+                                Layout.alignment: Qt.AlignVCenter
+                                text: reviewRecipeBeanSummary.hasBeans
+                                    ? TranslationManager.translate("beans.button.change", "Change Beans")
+                                    : TranslationManager.translate("beans.button.select", "Select Beans")
+                                accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
+                                onClicked: (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
                             }
                         }
-                    }
-                }
-
-                // Equipment identity card (grinder + basket + puck prep), styled
-                // like the inventory EquipmentCard and sharing its EquipmentSummary
-                // renderer. Deliberately LAST in the grid: the editable per-shot
-                // dial-in and shot metadata above come first; the card is trailing
-                // hardware context. Grind setting + RPM are omitted here — they are
-                // the per-shot dial-in edited in the fields above, so echoing them
-                // read-only would only duplicate. Re-point via the Change Equipment
-                // button (occupying the same action-button row the inventory card
-                // uses); all details live on the card, so there is no separate info
-                // button.
-                Rectangle {
-                    id: equipmentCard
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
-                    // With a recipe, equipment folds into the recipe card above.
-                    visible: (postShotReviewPage.editShotData.recipeId || -1) <= 0
-                    readonly property bool hasEquipment: postShotReviewPage.editEquipmentName.length > 0
-                                                         || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0
-                    color: Theme.cardBackgroundColor
-                    radius: Theme.cardRadius
-                    border.width: 1
-                    border.color: Theme.borderColor
-                    Accessible.role: Accessible.Grouping
-                    Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:")
-                        + " " + (hasEquipment ? equipmentSummary.accessibleSummary
-                                              : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
-
-                    ColumnLayout {
-                        id: equipmentCardColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(6)
-
-                        EquipmentSummary {
-                            id: equipmentSummary
+                        BeanBaseDetailsRow {
                             Layout.fillWidth: true
-                            visible: equipmentCard.hasEquipment
+                            beanBaseJson: postShotReviewPage.editBeanBaseJson
+                        }
+                    }
+
+                    // Dial-in (read-only) — grind/RPM are edited in the
+                    // Dial-in row above; echoed here as part of the overview.
+                    RecipeField {
+                        fieldLabel: trRowDialIn.text
+                        value: postShotReviewPage.recipeDialInText()
+                    }
+
+                    // Steam / Hot water (read-only)
+                    RecipeField {
+                        fieldLabel: trRowSteam.text
+                        value: postShotReviewPage.recipeSteamText()
+                    }
+                    RecipeField {
+                        fieldLabel: trRowWater.text
+                        value: postShotReviewPage.recipeWaterText()
+                    }
+
+                    // Equipment (editable — Change Equipment opens the picker)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Text {
+                            text: trRowEquipment.text
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        EquipmentSummary {
+                            id: reviewRecipeEquipment
+                            Layout.fillWidth: true
+                            visible: reviewRecipeEquipment.accessibleSummary !== ""
                             grinderName: postShotReviewPage.editEquipmentName || ""
                             grinderBrand: postShotReviewPage.editGrinderBrand
                             grinderModel: postShotReviewPage.editGrinderModel
@@ -2311,23 +2387,12 @@ T.Page {
                             basketModel: postShotReviewPage.editBasketModel
                             puckPrepCanonical: postShotReviewPage.editPuckPrep
                         }
-                        Text {
-                            Layout.fillWidth: true
-                            visible: !equipmentCard.hasEquipment
-                            elide: Text.ElideRight
-                            text: TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.subtitleFont.pixelSize
-                            font.bold: true
-                            color: Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
                         AccessibleButton {
                             Layout.preferredHeight: Theme.scaled(36)
                             _customFontSize: Theme.captionFont.pixelSize
                             leftPadding: Theme.scaled(10)
                             rightPadding: Theme.scaled(10)
-                            text: equipmentCard.hasEquipment
+                            text: (postShotReviewPage.editEquipmentName.length > 0 || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0)
                                   ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                   : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                             accessibleName: text
@@ -2335,10 +2400,189 @@ T.Page {
                         }
                     }
                 }
-
             }
 
-            Item { Layout.preferredHeight: 10 }
+            // Equipment identity card (grinder + basket + puck prep), styled
+            // like the inventory EquipmentCard and sharing its EquipmentSummary
+            // renderer. Deliberately LAST in the grid: the editable per-shot
+            // dial-in and shot metadata above come first; the card is trailing
+            // hardware context. Grind setting + RPM are omitted here — they are
+            // the per-shot dial-in edited in the fields above, so echoing them
+            // read-only would only duplicate. Re-point via the Change Equipment
+            // button (occupying the same action-button row the inventory card
+            // uses); all details live on the card, so there is no separate info
+            // button.
+            Rectangle {
+                id: equipmentCard
+                Layout.fillWidth: true
+                Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
+                // With a recipe, equipment folds into the recipe card above.
+                visible: (postShotReviewPage.editShotData.recipeId || -1) <= 0
+                readonly property bool hasEquipment: postShotReviewPage.editEquipmentName.length > 0
+                                                     || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                border.width: 1
+                border.color: Theme.borderColor
+                Accessible.role: Accessible.Grouping
+                Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:")
+                    + " " + (hasEquipment ? equipmentSummary.accessibleSummary
+                                          : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
+
+                ColumnLayout {
+                    id: equipmentCardColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(6)
+
+                    EquipmentSummary {
+                        id: equipmentSummary
+                        Layout.fillWidth: true
+                        visible: equipmentCard.hasEquipment
+                        grinderName: postShotReviewPage.editEquipmentName || ""
+                        grinderBrand: postShotReviewPage.editGrinderBrand
+                        grinderModel: postShotReviewPage.editGrinderModel
+                        grinderBurrs: postShotReviewPage.editGrinderBurrs
+                        basketBrand: postShotReviewPage.editBasketBrand
+                        basketModel: postShotReviewPage.editBasketModel
+                        puckPrepCanonical: postShotReviewPage.editPuckPrep
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !equipmentCard.hasEquipment
+                        elide: Text.ElideRight
+                        text: TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.subtitleFont.pixelSize
+                        font.bold: true
+                        color: Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
+                    AccessibleButton {
+                        Layout.preferredHeight: Theme.scaled(36)
+                        _customFontSize: Theme.captionFont.pixelSize
+                        leftPadding: Theme.scaled(10)
+                        rightPadding: Theme.scaled(10)
+                        text: equipmentCard.hasEquipment
+                              ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
+                              : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
+                        accessibleName: text
+                        onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
+                    }
+                }
+            }
+
+
+            // Where this shot has been uploaded. Uploading itself is the bottom bar's.
+            Rectangle {
+                id: uploadsCard
+                readonly property bool onVisualizer: postShotReviewPage._visualizerId !== ""
+                readonly property bool decentUploaded: !!postShotReviewPage._decentState.uploaded
+                readonly property bool decentRejected: !!postShotReviewPage._decentState.rejected
+                readonly property string decentUrl: decentUploaded
+                    ? MainController.decentUploader.shotViewUrl(postShotReviewPage._decentState.serial,
+                                                                postShotReviewPage._decentState.serverShotId)
+                    : ""
+                Layout.fillWidth: true
+                Layout.preferredHeight: uploadsColumn.implicitHeight + Theme.spacingMedium * 2
+                visible: onVisualizer || decentUploaded || decentRejected
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: uploadsColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    RowLayout {
+                        visible: uploadsCard.onVisualizer
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: TranslationManager.translate("shotdetail.uploadedtovisualizer", "Uploaded to Visualizer")
+                        ThemedIcon {
+                            source: "qrc:/icons/CloudUpload.svg"
+                            iconSize: Theme.labelFont.pixelSize
+                            color: Theme.successColor
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("shotdetail.uploadedtovisualizer", "Uploaded to Visualizer")
+                            font: Theme.labelFont
+                            color: Theme.successColor
+                            elide: Text.ElideRight
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    RowLayout {
+                        visible: uploadsCard.decentUploaded || uploadsCard.decentRejected
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+                        ThemedIcon {
+                            source: "qrc:/icons/CloudUpload.svg"
+                            iconSize: Theme.labelFont.pixelSize
+                            color: uploadsCard.decentUploaded ? Theme.successColor : Theme.errorColor
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: uploadsCard.decentUploaded
+                                  ? TranslationManager.translate("shotdetail.uploadedToDecent", "Uploaded to Decent")
+                                  : TranslationManager.translate("shotdetail.rejectedByDecent", "Not accepted by Decent (HTTP %1)")
+                                        .arg(postShotReviewPage._decentState.rejectedStatus || 0)
+                            font: Theme.labelFont
+                            color: uploadsCard.decentUploaded ? Theme.successColor : Theme.errorColor
+                            elide: Text.ElideRight
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+                        Text {
+                            id: decentViewLink
+                            visible: uploadsCard.decentUrl.length > 0
+                            text: TranslationManager.translate("shotdetail.viewOnDecent", "View on decentespresso.com")
+                            font: Theme.captionFont
+                            color: Theme.primaryColor
+                            Accessible.ignored: true
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(6)
+                                accessibleName: TranslationManager.translate("shotdetail.viewOnDecentAccessible",
+                                                                             "View this shot on decentespresso.com. Opens web browser")
+                                accessibleItem: decentViewLink
+                                onAccessibleClicked: Qt.openUrlExternally(uploadsCard.decentUrl)
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                AccessibleButton {
+                    visible: Settings.graph.advancedMode
+                    text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
+                    accessibleName: TranslationManager.translate("shotDetail.viewDebugLog", "View debug log for this shot")
+                    Layout.fillWidth: true
+                    onClicked: (debugLogLoader.ensure() as DecenzaDialog)?.open()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.deleteshot", "Delete Shot")
+                    accessibleName: TranslationManager.translate("shotDetail.deleteShotPermanently", "Permanently delete this shot from history")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: (deleteDialogLoader.ensure() as DecenzaDialog)?.open()
+                }
+            }
+
         }
     }
 
@@ -2454,6 +2698,141 @@ T.Page {
         }
     }
 
+    // Built on first open, like the dialogs above.
+    OnDemandLoader {
+        id: debugLogLoader
+        sourceComponent: Component {
+            DecenzaDialog {
+                id: debugLogDialog
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                width: parent.width * 0.9
+                height: parent.height * 0.8
+                modal: true
+                padding: 0
+                background: Rectangle {
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+                }
+                contentItem: ColumnLayout {
+                    spacing: 0
+                    Text {
+                        text: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        Accessible.ignored: true
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(20)
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                    }
+                    ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.margins: Theme.scaled(20)
+                        Layout.topMargin: Theme.scaled(10)
+                        contentWidth: availableWidth
+                        TextArea {
+                            text: postShotReviewPage.editShotData.debugLog
+                                  || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
+                            font.family: Theme.monoFontFamily
+                            font.pixelSize: Theme.scaled(12)
+                            color: Theme.textColor
+                            readOnly: true
+                            selectByMouse: true
+                            wrapMode: Text.Wrap
+                            background: Rectangle { color: "transparent" }
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                            Accessible.description: text.substring(0, 200)
+                        }
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("shotdetail.close", "Close")
+                        accessibleName: TranslationManager.translate("shotdetail.closeDebugLog", "Close debug log")
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.bottomMargin: Theme.scaled(20)
+                        onClicked: debugLogDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    OnDemandLoader {
+        id: deleteDialogLoader
+        sourceComponent: Component {
+            DecenzaDialog {
+                id: deleteConfirmDialog
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                width: Theme.scaled(360)
+                modal: true
+                padding: 0
+                background: Rectangle {
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+                }
+                contentItem: ColumnLayout {
+                    spacing: 0
+                    Text {
+                        text: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        Accessible.ignored: true
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(20)
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                    }
+                    Text {
+                        text: TranslationManager.translate("shotdetail.deleteconfirmmessage", "This will permanently delete this shot from history.")
+                        font: Theme.bodyFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.Wrap
+                        Accessible.ignored: true
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(10)
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.bottomMargin: Theme.scaled(20)
+                    }
+                    RowLayout {
+                        spacing: Theme.scaled(10)
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.bottomMargin: Theme.scaled(20)
+                        AccessibleButton {
+                            text: TranslationManager.translate("shotdetail.cancel", "Cancel")
+                            accessibleName: TranslationManager.translate("shotdetail.cancelDelete", "Cancel delete")
+                            Layout.fillWidth: true
+                            onClicked: deleteConfirmDialog.close()
+                        }
+                        AccessibleButton {
+                            text: TranslationManager.translate("shotdetail.delete", "Delete")
+                            accessibleName: TranslationManager.translate("shotdetail.confirmDelete", "Confirm delete shot")
+                            destructive: true
+                            Layout.fillWidth: true
+                            onClicked: {
+                                deleteConfirmDialog.close()
+                                // No flush after this: the row is going away.
+                                postShotReviewPage._editLoaded = false
+                                MainController.shotHistory.requestDeleteShot(postShotReviewPage.editShotId)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Bottom bar (stays visible under keyboard)
     BottomBar {
         id: bottomBar
@@ -2478,10 +2857,6 @@ T.Page {
             text: TranslationManager.translate("postshotreview.button.undo", "Undo")
             accessibleName: TranslationManager.translate("postshotreview.accessible.undo", "Undo last change")
             onClicked: postShotReviewPage.undoLastChange()
-        }
-
-        ComparePreviousButton {
-            shotId: postShotReviewPage.editShotId
         }
 
         // The one Upload button: sends the shot to every destination switched on
@@ -2613,9 +2988,9 @@ T.Page {
             onClicked: {
                 // Copy shot summary to clipboard if MCP is not connected
                 if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                    // Prose, not the JSON envelope — the user is pasting this into
-                    // an external AI tool. See #1042 / ShotDetailPage clipboard
-                    // path for rationale.
+                    // Prose, not the JSON envelope: the user is pasting this into an
+                    // external AI tool, where prose reads better and does not
+                    // double-ship the structured fields (#1042).
                     let summary = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
                     if (summary.length > 0) MainController.copyToClipboard(summary)
                 }

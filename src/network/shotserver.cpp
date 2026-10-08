@@ -1883,9 +1883,11 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         auto destroyed = m_destroyed;
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotProjection shot;
+            QJsonObject pageData;
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                 shot = ShotHistoryStorage::convertShotRecord(record);
+                if (record.summary.id != 0) pageData = shotPageData(db, record);
 
                 // Recipe identity for the detail page (history-recipe-identity).
                 // Resolved with a second PK lookup rather than by widening
@@ -1919,14 +1921,14 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             });
 
             if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, shotId,
-                                             shot = std::move(shot)]() {
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
+                                             shot = std::move(shot), pageData = std::move(pageData)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                     return;
                 }
-                sendHtml(socketGuard, generateShotDetailPage(shotId, shot));
+                sendHtml(socketGuard, generateShotDetailPage(shot, pageData));
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);

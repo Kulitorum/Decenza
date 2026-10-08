@@ -1340,6 +1340,7 @@ set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGL
 set_source_files_properties(qml/components/SteamLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/GraphSeries.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/ComparisonText.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/PuckPrepLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
@@ -1378,7 +1379,6 @@ set(QML_FILES
     qml/pages/ShotHistoryPage.qml
     qml/pages/AutoFavoritesPage.qml
     qml/pages/AutoFavoriteInfoPage.qml
-    qml/pages/ShotDetailPage.qml
     qml/pages/ShotComparisonPage.qml
     qml/pages/FlowCalibrationPage.qml
     qml/pages/ProfileInfoPage.qml
@@ -1500,13 +1500,15 @@ set(QML_FILES
     qml/components/ComparisonGraph.qml
     qml/components/HistoryShotGraph.qml
     qml/components/GraphInspectBar.qml
-    qml/components/ComparisonInspectBar.qml
-    qml/components/ComparePreviousButton.qml
     qml/components/ComparisonLineSwatch.qml
-    qml/components/ComparisonReadout.qml
+    qml/components/GraphReadout.qml
     qml/components/ComparisonRow.qml
     qml/components/ComparisonSectionHeader.qml
     qml/components/ComparisonShotTable.qml
+    qml/components/ComparisonText.qml
+    qml/components/GraphChip.qml
+    qml/components/GraphChipRow.qml
+    qml/components/ShotResultsCard.qml
     qml/components/GraphLegend.qml
     qml/components/GraphFlowScaleCard.qml
     qml/components/GraphOptionsButton.qml

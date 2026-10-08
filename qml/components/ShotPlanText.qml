@@ -167,8 +167,8 @@ Item {
                 && Math.abs(targetWeight - _yieldBaseline) > 0.1)
             return _yieldBaseline.toFixed(1) + " → " + targetWeight.toFixed(1) + "g" + mark
         // Poured shot: lead with the actual yield and park the target behind it,
-        // in the same "(target ...)" grammar ShotDetailPage's achieved ratio
-        // already uses ("1:2.1 (target 1:2)") — one phrasing for one idea.
+        // in a "(target ...)" grammar, the phrasing a ratio target reads in too
+        // ("1:2.1 (target 1:2)") — one phrasing for one idea.
         // Printed only when the two DIFFER once ROUNDED: "36.0g (target 36.0g)"
         // states one fact twice and costs a shot that hit its target the
         // glanceable single number it earned. The comparison is between the two

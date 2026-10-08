@@ -257,7 +257,7 @@ Per-shot debug log adds two key lines (and the system log lines above are also c
 - `[SAW] model: source=<…> lag=… profile=<…> scale=<…> basket=<…> historyN=k` — emitted at extraction start when WeightProcessor's snapshot is taken. Records which model is driving the prediction for *this* shot, including the basket whose bucket it came from.
 - `[SAW] accuracy: predictedDrip=… actualDrip=… delta=… overshoot=… flow=… scale=… profile=… basket=…` — emitted at settling completion. Headline number for "did SAW work for this shot."
 
-Together, opening any saved shot via the Shot Detail page or the `shots_get_debug_log` MCP tool is enough to reconstruct what model the controller used, how accurate it was, and whether this shot fed the model.
+Together, opening any saved shot via the shot page or the `shots_get_debug_log` MCP tool is enough to reconstruct what model the controller used, how accurate it was, and whether this shot fed the model.
 
 ## Storage Migration
 

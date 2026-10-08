@@ -1114,9 +1114,9 @@ Add a "Discuss" button in the bottom bar, next to the existing AI Advice button 
 - Label: "Discuss" (i18n key: `postShotReview.button.discuss`, fallback: `"Discuss"`)
 - Same styling as the adjacent AI Advice button (same size, background color, icon+text pattern)
 
-### UI Placement: ShotDetailPage
+### UI Placement: the shot page
 
-Same button in the bottom action bar, next to the existing AI Advice button. Uses the same handler logic.
+The button sits in PostShotReviewPage's bottom action bar, next to AI Advice.
 
 ### Behavior on Tap
 

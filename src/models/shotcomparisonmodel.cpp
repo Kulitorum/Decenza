@@ -5,7 +5,6 @@
 #include "../history/shotprojection.h"
 
 #include <QDateTime>
-#include <QLocale>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include "../core/dbutils.h"
@@ -331,9 +330,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["profileName"] = shot.profileName;
     result["pourStartSec"] = shot.pourStartSec;
 
-    QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);
-    static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
-    result["dateTime"] = dt.toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
+    result["dateTime"] = ShotHistoryStorage::shortDateTime(shot.timestamp);
     return result;
 }
 

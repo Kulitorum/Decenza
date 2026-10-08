@@ -589,6 +589,48 @@ private slots:
         });
     }
 
+    // The shot page's "Since your last shot": the previous shot is the one before on
+    // the SAME profile (a shot in between on another profile is skipped), and a first
+    // shot on its profile is compared with nothing.
+    void shotOutcome_comparesWithThePreviousShotOnTheSameProfile()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("shot_outcome"), [&](QSqlDatabase& db) {
+            const qint64 first = insertShot(db, { .timestamp = 1000, .profileName = QStringLiteral("D-Flow / Q"),
+                                                  .grinderSetting = QStringLiteral("10") });
+            insertShot(db, { .timestamp = 1500, .profileName = QStringLiteral("Blooming") });
+            const qint64 latest = insertShot(db, { .timestamp = 2000, .profileName = QStringLiteral("D-Flow / Q"),
+                                                   .grinderSetting = QStringLiteral("9.5") });
+
+            const QVariantMap outcome = ShotHistoryStorage::shotOutcomeStatic(db, latest);
+            QCOMPARE(outcome.value(QStringLiteral("previousShotId")).toLongLong(), first);
+            const QJsonObject comparison = QJsonObject::fromVariantMap(
+                outcome.value(QStringLiteral("comparison")).toMap());
+            QCOMPARE(comparison.value(QStringLiteral("baseShotId")).toInteger(), first);
+            const QJsonArray comparisons = comparison.value(QStringLiteral("comparisons")).toArray();
+            QCOMPARE(comparisons.size(), 1);
+            QVERIFY(comparisons[0].toObject().value(QStringLiteral("changedInputs")).toArray()
+                        .contains(QStringLiteral("grinderSetting")));
+            bool sawGrind = false;
+            for (const QJsonValue& row : comparison.value(QStringLiteral("inputs")).toArray()) {
+                if (row[QStringLiteral("key")].toString() != QLatin1String("grinderSetting")) continue;
+                sawGrind = true;
+                QCOMPARE(row[QStringLiteral("cells")][1][QStringLiteral("delta")].toDouble(), -0.5);
+            }
+            QVERIFY2(sawGrind, "the grind change must be an input row");
+
+            const QVariantMap alone = ShotHistoryStorage::shotOutcomeStatic(db, first);
+            QCOMPARE(alone.value(QStringLiteral("previousShotId")).toLongLong(), 0);
+            const QJsonObject aloneComparison = QJsonObject::fromVariantMap(
+                alone.value(QStringLiteral("comparison")).toMap());
+            QCOMPARE(aloneComparison.value(QStringLiteral("shots")).toArray().size(), 1);
+            QVERIFY(aloneComparison.value(QStringLiteral("comparisons")).toArray().isEmpty());
+            QVERIFY2(!aloneComparison.value(QStringLiteral("metrics")).toArray().isEmpty(),
+                     "a shot with no previous one still reports what happened");
+        });
+    }
+
     // -------------------------------------------------------------------
     // bestRecentShotBlock — rated shot inside the 90-day window emits
     // the full block, with daysSinceShot reflecting fixture-relative age

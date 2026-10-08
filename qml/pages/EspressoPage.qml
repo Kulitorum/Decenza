@@ -341,7 +341,7 @@ T.Page {
         var v = Settings.value("espresso/showStats", true)
         return v === true || v === "true"
     }
-    // Shared with Post-Shot Review and Shot Detail pages via the same setting.
+    // Shared with the shot page via the same setting.
 
     // Sync from Settings changes made elsewhere (e.g. SettingsMachineTab)
     Connections {

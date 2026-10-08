@@ -17,9 +17,12 @@ doubt.
 
 ### Pages
 
-Both **PostShotReviewPage** (auto-opens when a shot ends) and **ShotDetailPage**
-(opened from history) render the same shot data with the same components. A
-shared `shotReview/advancedMode` setting toggles information density on both.
+One page, **PostShotReviewPage**, shows and edits a shot however it is reached:
+after a shot (auto-close applies), from Shot History (stepping newer/older
+through the list), the last-shot widget or the layout action. Advanced mode
+(`Settings.graph.advancedMode`) toggles information density. One column at every
+width, graph full width (side by side made the plot too small, as on the compare
+page). The web `/shot/<id>` page mirrors it, beside-the-graph from 1300 px.
 
 ### Basic mode (default)
 
@@ -27,8 +30,13 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 - Goal overlays for pressure / flow / temperature (dashed).
 - Phase markers (frame boundaries) without label text.
 - Quality badges (one or more chips below the graph).
-- Metrics: duration, dose, output, ratio, rating.
-- Notes, bean / grinder info, barista.
+- "Shot results" (`ShotResultsCard`): the comparison's metrics, worded by
+  `ComparisonText`, default rows plus "Show more", and how the shot stopped.
+  With a previous shot on the profile it first names that shot (Compare opens
+  the comparison), then the comparison summary, changed inputs and profile
+  settings, and each metric carries its Δ
+  (`ShotHistoryStorage::requestShotOutcome`).
+- Rating, taste, notes, measurements, bean / recipe / equipment cards.
 
 ### Advanced mode adds
 
@@ -37,8 +45,7 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 - Phase marker label text (frame boundaries with transition reasons —
   `[W]` weight, `[P]` pressure, `[F]` flow, `[T]` time).
 - Phase summary panel — collapsible per-phase metrics table.
-- TDS / EY fields (review page) and analysis card + debug log button (detail
-  page).
+- TDS / EY fields, barista, and the debug log button.
 
 ### Quality badges
 
@@ -612,8 +619,7 @@ puck-integrity advice):
 
 ### Triggering and lifecycle
 
-The dialog is instantiated declaratively inside `ShotDetailPage.qml` and
-`PostShotReviewPage.qml`. The `Shot Summary` chip in `QualityBadges.qml`
+The dialog is instantiated declaratively inside `PostShotReviewPage.qml`. The `Shot Summary` chip in `QualityBadges.qml`
 emits `summaryRequested()` on tap, which the host page handles by calling
 `open()` on its `ShotAnalysisDialog` instance. Analysis lines come from
 `shotData.summaryLines`, populated by `convertShotRecord`'s `analyzeShot`
@@ -830,7 +836,7 @@ require another sweep.
 - `qml/components/ShotAnalysisDialog.qml` — Shot Summary dialog. Reads
   `shotData.summaryLines` directly (populated by `convertShotRecord`)
   and renders the `{ text, type }` lines via a `Repeater`.
-- `qml/pages/ShotDetailPage.qml` and `qml/pages/PostShotReviewPage.qml` —
+- `qml/pages/PostShotReviewPage.qml` —
   consume `shotData.channelingDetected` / `grindIssueDetected` /
   `skipFirstFrameDetected` / `pourTruncatedDetected`, listen for
   `shotBadgesUpdated`, call `requestReanalyzeBadges` on load, host the

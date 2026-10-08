@@ -6,7 +6,7 @@ import Decenza
 // The single source of truth for how a package's identity renders: grinder title,
 // burrs subtitle, last-dial line, basket line, and puck-prep line. Used by the
 // inventory EquipmentCard (which adds the selected border + action buttons around
-// it) and by the read-only Shot Detail / Post-Shot Review pages.
+// it) and by the shot page.
 //
 // Inputs are NORMALIZED SCALARS, not a package or shot object, so either shape can
 // feed it. Puck prep is taken as the CANONICAL comma-joined flag string (see

@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include <optional>
 #include "shothistorystorage.h"
+#include "shotcomparison.h"
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
 #include "ai/profileshapeindex.h"
@@ -3551,59 +3552,82 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
     });
 }
 
-void ShotHistoryStorage::requestPreviousShot(qint64 shotId)
+qint64 ShotHistoryStorage::previousShotIdStatic(QSqlDatabase& db, qint64 shotId)
 {
-    if (!m_ready) {
-        emit previousShotReady(shotId, 0);
-        return;
-    }
+    QSqlQuery q(db);
+    q.prepare("SELECT profile_kb_id, profile_name, equipment_id, timestamp, beverage_type "
+              "FROM shots WHERE id = ?");
+    q.addBindValue(shotId);
+    if (!q.exec() || !q.next()) return 0;
+    const QString kbId = q.value(0).toString();
+    const QString name = q.value(1).toString();
+    const qint64 equipmentId = q.value(2).toLongLong();
+    const qint64 timestamp = q.value(3).toLongLong();
+    const QString beverage = q.value(4).toString();
+    // No profile identity at all: an empty name would match every other
+    // unnamed shot, which is not "the previous shot on this setup".
+    if (kbId.isEmpty() && name.trimmed().isEmpty()) return 0;
 
+    // Same profile the way advisor threads key it — the knowledge-base id
+    // when the shot resolved one, else its name — same drink, same package.
+    // A row with no kb id (saved before migration 9 added it) is matched by
+    // name, so a new shot still finds an old one of the same profile.
+    QSqlQuery p(db);
+    p.prepare(QStringLiteral(
+        "SELECT id FROM shots WHERE %1 AND COALESCE(beverage_type, '') = ? "
+        "AND COALESCE(equipment_id, 0) = ? "
+        "AND timestamp < ? AND id != ? ORDER BY timestamp DESC LIMIT 1")
+        .arg(kbId.isEmpty() ? QStringLiteral("profile_name = ?")
+                            : QStringLiteral("(profile_kb_id = ? OR (COALESCE(profile_kb_id, '') = '' "
+                                             "AND profile_name = ?))")));
+    if (kbId.isEmpty()) {
+        p.addBindValue(name);
+    } else {
+        p.addBindValue(kbId);
+        p.addBindValue(name);
+    }
+    p.addBindValue(beverage);
+    p.addBindValue(equipmentId);
+    p.addBindValue(timestamp);
+    p.addBindValue(shotId);
+    return p.exec() && p.next() ? p.value(0).toLongLong() : 0;
+}
+
+QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotId)
+{
+    const ShotRecord shot = loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+    if (shot.summary.id == 0) return {};
+    QList<ShotProjection> pair;
+    const qint64 previousId = previousShotIdStatic(db, shotId);
+    QString previousWhen;
+    if (previousId > 0) {
+        const ShotRecord previous = loadShotRecordStatic(db, previousId, nullptr, Q_FUNC_INFO);
+        if (previous.summary.id != 0) {
+            pair << convertShotRecord(previous);
+            previousWhen = shortDateTime(previous.summary.timestamp);
+        }
+    }
+    pair << convertShotRecord(shot);
+    return QVariantMap{
+        { QStringLiteral("previousShotId"), pair.size() > 1 ? previousId : qint64(0) },
+        { QStringLiteral("previousDateTime"), previousWhen },
+        { QStringLiteral("comparison"), ShotComparison::compare(pair, 0).toVariantMap() },
+    };
+}
+
+void ShotHistoryStorage::requestShotOutcome(qint64 shotId)
+{
+    if (!m_ready) return;
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
     runOnDbThread([this, dbPath, shotId, destroyed]() {
-        qint64 previousId = 0;
-        withTempDb(dbPath, "shs_prev", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            q.prepare("SELECT profile_kb_id, profile_name, equipment_id, timestamp, beverage_type "
-                      "FROM shots WHERE id = ?");
-            q.addBindValue(shotId);
-            if (!q.exec() || !q.next()) return;
-            const QString kbId = q.value(0).toString();
-            const QString name = q.value(1).toString();
-            const qint64 equipmentId = q.value(2).toLongLong();
-            const qint64 timestamp = q.value(3).toLongLong();
-            const QString beverage = q.value(4).toString();
-            // No profile identity at all: an empty name would match every other
-            // unnamed shot, which is not "the previous shot on this setup".
-            if (kbId.isEmpty() && name.trimmed().isEmpty()) return;
-
-            // Same profile the way advisor threads key it — the knowledge-base id
-            // when the shot resolved one, else its name — same drink, same package.
-            // A row with no kb id (saved before migration 9 added it) is matched by
-            // name, so a new shot still finds an old one of the same profile.
-            QSqlQuery p(db);
-            p.prepare(QStringLiteral(
-                "SELECT id FROM shots WHERE %1 AND COALESCE(beverage_type, '') = ? "
-                "AND COALESCE(equipment_id, 0) = ? "
-                "AND timestamp < ? AND id != ? ORDER BY timestamp DESC LIMIT 1")
-                .arg(kbId.isEmpty() ? QStringLiteral("profile_name = ?")
-                                    : QStringLiteral("(profile_kb_id = ? OR (COALESCE(profile_kb_id, '') = '' "
-                                                     "AND profile_name = ?))")));
-            if (kbId.isEmpty()) {
-                p.addBindValue(name);
-            } else {
-                p.addBindValue(kbId);
-                p.addBindValue(name);
-            }
-            p.addBindValue(beverage);
-            p.addBindValue(equipmentId);
-            p.addBindValue(timestamp);
-            p.addBindValue(shotId);
-            if (p.exec() && p.next()) previousId = p.value(0).toLongLong();
+        QVariantMap outcome;
+        const bool opened = withTempDb(dbPath, "shs_outcome", [&](QSqlDatabase& db) {
+            outcome = shotOutcomeStatic(db, shotId);
         });
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, previousId, destroyed]() {
-            if (!*destroyed) emit previousShotReady(shotId, previousId);
+        if (*destroyed || !opened || outcome.isEmpty()) return;
+        QMetaObject::invokeMethod(this, [this, shotId, outcome, destroyed]() {
+            if (!*destroyed) emit shotOutcomeReady(shotId, outcome);
         }, Qt::QueuedConnection);
     });
 }
@@ -3663,7 +3687,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
 
     // loadShotRecordStatic already recomputes all four badges and persists to
     // the DB when any flag differs from the stored value. This path exists so
-    // QML callers (ShotDetailPage / PostShotReviewPage) can fire a background
+    // QML callers (PostShotReviewPage) can fire a background
     // worker after onShotReady and learn — via shotBadgesUpdated — when the
     // recompute actually changed anything. We forward the load's
     // outBadgesPersisted to drive that signal.

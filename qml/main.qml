@@ -1464,7 +1464,6 @@ T.ApplicationWindow {
             "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
             "beanInfoPage": TranslationManager.translate("main.pageBeanInfo", "Bean info"),
             "equipmentPage": TranslationManager.translate("main.pageEquipment", "Equipment"),
-            "shotDetailPage": TranslationManager.translate("main.pageShotDetail", "Shot detail"),
             "shotComparisonPage": TranslationManager.translate("main.pageShotComparison", "Shot comparison")
         }
         var displayName = pageNames[pageName] || pageName
@@ -4166,9 +4165,10 @@ T.ApplicationWindow {
         pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
     }
 
+    // Every shot opens on the one shot page; from a list it can step through the list.
     function goToShotDetail(shotId, shotIds) {
         if (!startNavigation()) return
-        pageStack.push(shotDetailPage, { shotId: shotId, shotIds: shotIds || [] })
+        pageStack.push(postShotReviewPage, { editShotId: shotId, shotIds: shotIds || [], autoClose: false })
     }
 
     function goToShotComparison() {
@@ -4388,11 +4388,6 @@ T.ApplicationWindow {
     Component {
         id: shotHistoryPage
         ShotHistoryPage {}
-    }
-
-    Component {
-        id: shotDetailPage
-        ShotDetailPage {}
     }
 
     Component {

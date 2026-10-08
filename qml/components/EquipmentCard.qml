@@ -88,7 +88,7 @@ Rectangle {
             grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
             // Grind/rpm are a per-shot dial-in, not equipment — the inventory
             // card lists only what the package IS, so the last-dial line is
-            // left unfed here (Shot Detail / Post-Shot Review still show it).
+            // left unfed here (the shot page still shows it).
             basketBrand: (card.pkg && card.pkg.basketBrand) || ""
             basketModel: (card.pkg && card.pkg.basketModel) || ""
             puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""

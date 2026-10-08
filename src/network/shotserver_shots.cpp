@@ -26,6 +26,8 @@
 #include <algorithm>
 #include <cmath>
 #include <QJsonDocument>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
@@ -1175,7 +1177,37 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
     return html;
 }
 
-QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& shot) const
+// JSON as a script literal. "<" only ever occurs inside a JSON string, where
+// < means the same, so no note or name can close the <script> or open a
+// comment that swallows it.
+static QString embedJson(const QJsonValue& v)
+{
+    const QByteArray json = v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
+                                        : QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact);
+    return QString::fromUtf8(json).replace(QLatin1Char('<'), QStringLiteral("\\u003c"));
+}
+
+// Worker thread: what the shot page shows beyond the shot itself — its curves, how
+// it went against the previous shot on its profile, and its neighbours in history.
+QJsonObject ShotServer::shotPageData(QSqlDatabase& db, const ShotRecord& record)
+{
+    const qint64 id = record.summary.id;
+    auto neighbour = [&](bool newer) -> qint64 {
+        QSqlQuery q(db);
+        q.prepare(newer ? QStringLiteral("SELECT id FROM shots WHERE timestamp > ? ORDER BY timestamp ASC, id ASC LIMIT 1")
+                        : QStringLiteral("SELECT id FROM shots WHERE timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT 1"));
+        q.addBindValue(record.summary.timestamp);
+        return q.exec() && q.next() ? q.value(0).toLongLong() : 0;
+    };
+    return QJsonObject{
+        { QStringLiteral("graph"), graphTraceJson(record, true) },
+        { QStringLiteral("outcome"), QJsonObject::fromVariantMap(ShotHistoryStorage::shotOutcomeStatic(db, id)) },
+        { QStringLiteral("newerId"), neighbour(true) },
+        { QStringLiteral("olderId"), neighbour(false) },
+    };
+}
+
+QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJsonObject& pageData) const
 {
     if (!shot.isValid()) {
         return QStringLiteral("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Not Found</title></head>"
@@ -1183,622 +1215,193 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                   "<h1>Shot not found</h1><a href=\"/\" style=\"color:#c9a227;\">Back to list</a></body></html>");
     }
 
-    double ratio = 0;
-    if (shot.doseWeightG > 0) {
-        ratio = shot.finalWeightG / shot.doseWeightG;
+    // The fields the page shows and edits. Text goes in as JSON and reaches the
+    // page through escapeHtml(), never through string templating.
+    QJsonObject fields{
+        { "id", shot.id },
+        { "profileName", shot.profileName },
+        { "dateTime", shot.dateTime },
+        { "temperatureOverrideC", shot.temperatureOverrideC },
+        { "doseWeightG", shot.doseWeightG },
+        { "finalWeightG", shot.finalWeightG },
+        { "enjoyment", shot.enjoyment0to100 },
+        { "tasteBalance", shot.tasteBalance },
+        { "tasteBody", shot.tasteBody },
+        { "beanBrand", shot.beanBrand },
+        { "beanType", shot.beanType },
+        { "roastDate", shot.roastDate },
+        { "roastLevel", shot.roastLevel },
+        { "grinderBrand", shot.grinderBrand },
+        { "grinderModel", shot.grinderModel },
+        { "grinderBurrs", shot.grinderBurrs },
+        { "grinderSetting", shot.grinderSetting },
+        { "rpm", shot.rpm },
+        { "targetWeightG", shot.targetWeightG },
+        { "espressoNotes", shot.espressoNotes },
+        { "barista", shot.barista },
+        { "beverageType", shot.beverageType.isEmpty() ? QStringLiteral("espresso") : shot.beverageType },
+        { "drinkTds", shot.drinkTdsPct },
+        { "drinkEy", shot.drinkEyPct },
+        { "debugLog", shot.debugLog },
+    };
+    // A recipe whose row is gone shows as no recipe.
+    if (shot.recipeId > 0 && !shot.recipeName.isEmpty()) {
+        fields[QStringLiteral("recipe")] = QJsonObject{
+            { "name", shot.recipeName },
+            { "archived", shot.recipeArchived },
+            { "icon", drinkTypeEmoji(shot.recipeDrinkType) },
+        };
     }
-
-    // Rating display: "N%" when rated, "-" when unrated. Mirrors ShotDetailPage.qml
-    // ("rating: N%" / "-"). 0-100 enjoyment is the canonical scale across the app.
-    QString ratingText = (shot.enjoyment0to100 > 0)
-        ? (QString::number(shot.enjoyment0to100) + QStringLiteral("%"))
-        : QStringLiteral("-");
-
-    // Escape for embedding in JavaScript string literals (inside double quotes).
-    // Does NOT double `%` → `%%` — see escapeForJs in generateShotListPage above
-    // for the full rationale. Short version: the doubling was visible-output
-    // wrong (Qt's arg() never reduces `%%` back to `%`) and didn't actually
-    // prevent placeholder shadowing either ("%12" still parses as %12 after
-    // doubling).
-    auto jsEscape = [](const QString& s) -> QString {
-        QString r = s;
-        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
-        r.replace(QLatin1String("\""), QLatin1String("\\\""));
-        r.replace(QLatin1String("\n"), QLatin1String("\\n"));
-        r.replace(QLatin1String("\r"), QLatin1String(""));
-        r.replace(QLatin1String("<"), QLatin1String("\\u003c")); // Prevent script tag breakout
-        return r;
-    };
-
-    // Temperature and target weight (always have values)
-    const double tempOverride = shot.temperatureOverrideC;
-    const double targetWeight = shot.targetWeightG;
-    const double finalWeight = shot.finalWeightG;
-
-    // Build yield display with optional target
-    QString yieldDisplay = QString("%1g").arg(finalWeight, 0, 'f', 1);
-    if (targetWeight > 0 && qAbs(targetWeight - finalWeight) > 0.5) {
-        yieldDisplay += QString(" <span class=\"target\">(%1g)</span>").arg(targetWeight, 0, 'f', 0);
-    }
-
-    // Convert time-series data to JSON arrays for Chart.js
-    auto pointsToJson = [](const QVariantList& points) -> QString {
-        QStringList items;
-        for (const QVariant& p : points) {
-            QVariantMap pt = p.toMap();
-            items << QString("{x:%1,y:%2}").arg(pt["x"].toDouble(), 0, 'f', 2).arg(pt["y"].toDouble(), 0, 'f', 2);
-        }
-        return "[" + items.join(",") + "]";
-    };
-
-    // Convert goal data with nulls at gaps (where time jumps > 0.5s)
-    auto goalPointsToJson = [](const QVariantList& points) -> QString {
-        QStringList items;
-        double lastX = -999;
-        for (const QVariant& p : points) {
-            QVariantMap pt = p.toMap();
-            double x = pt["x"].toDouble();
-            double y = pt["y"].toDouble();
-            // Insert null to break line if there's a gap > 0.5 seconds
-            if (lastX >= 0 && (x - lastX) > 0.5) {
-                items << QString("{x:%1,y:null}").arg((lastX + x) / 2, 0, 'f', 2);
-            }
-            items << QString("{x:%1,y:%2}").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2);
-            lastX = x;
-        }
-        return "[" + items.join(",") + "]";
-    };
-
-    QString pressureData = pointsToJson(shot.pressure);
-    QString flowData = pointsToJson(shot.flow);
-    QString tempData = pointsToJson(shot.temperature);
-    QString weightData = pointsToJson(shot.weight);
-    QString weightFlowRateData = pointsToJson(shot.weightFlowRate);
-    QString resistanceData = pointsToJson(shot.resistance);
-    QString pressureGoalData = goalPointsToJson(shot.pressureGoal);
-    QString flowGoalData = goalPointsToJson(shot.flowGoal);
-
-    // Convert phase markers to JSON for Chart.js
-    auto phasesToJson = [](const QVariantList& phases) -> QString {
-        QStringList items;
-        for (const QVariant& p : phases) {
-            QVariantMap phase = p.toMap();
-            QString label = phase["label"].toString();
-            if (label == "Start") continue;  // Skip start marker
-            // Escape both label and reason for safe embedding in JS string literals
-            auto jsStringEscape = [](QString s) -> QString {
-                s.replace(QLatin1String("\\"), QLatin1String("\\\\"));
-                s.replace(QLatin1String("\""), QLatin1String("\\\""));
-                s.replace(QLatin1String("\n"), QLatin1String("\\n"));
-                s.replace(QLatin1String("\r"), QLatin1String(""));
-                s.replace(QLatin1String("<"), QLatin1String("\\u003c"));
-                return s;
-            };
-            QString reason = jsStringEscape(phase["transitionReason"].toString());
-            label = jsStringEscape(label);
-            items << QString("{time:%1,label:\"%2\",reason:\"%3\"}")
-                .arg(phase["time"].toDouble(), 0, 'f', 2)
-                .arg(label)
-                .arg(reason);
-        }
-        return "[" + items.join(",") + "]";
-    };
-    QString phaseData = phasesToJson(shot.phases);
-
-    // Build quality-badge chips and the Shot Summary modal contents from the
-    // analyzeShot() outputs that already arrived on the projection. Mirrors
-    // the in-app QualityBadges + ShotAnalysisDialog. Both blobs contain
-    // detector-generated text that may include literal `%` (e.g. "75% of
-    // goal"), so they are NOT passed through .arg() — they are injected via
-    // replace() AFTER the .arg() chain below into __BADGES_HTML__ /
-    // __SUMMARY_LINES_HTML__ markers in the template. That sidesteps the
-    // QString::arg() placeholder-shadowing trap entirely; doubling `%` to
-    // `%%` doesn't actually escape (Qt's arg never reduces `%%` back to
-    // `%`, and "%5"→"%%5" still parses as a %5 placeholder via the
-    // continue+rescan in qstring.cpp).
-    auto badgeChip = [](const QString& kind, const QString& text) -> QString {
-        return QString("<span class=\"badge %1\"><span class=\"dot\"></span>%2</span>")
-            .arg(kind, text);
-    };
-    QString badgesHtml = QStringLiteral("<div class=\"shot-quality\">");
-    const bool hasFlag = shot.channelingDetected
-                       || shot.grindIssueDetected || shot.pourTruncatedDetected
-                       || shot.skipFirstFrameDetected;
-    if (shot.channelingDetected)     badgesHtml += badgeChip("danger",  "Channeling detected");
-    if (shot.grindIssueDetected)     badgesHtml += badgeChip("warning", "Grind issue");
-    if (shot.pourTruncatedDetected)  badgesHtml += badgeChip("danger",  "Puck failed");
-    if (shot.skipFirstFrameDetected) badgesHtml += badgeChip("danger",  "First step skipped");
-    if (!hasFlag)                    badgesHtml += badgeChip("success", "Clean extraction");
-    if (!shot.summaryLines.isEmpty()) {
-        badgesHtml += QStringLiteral(
-            "<button class=\"summary-btn\" onclick=\"openSummaryDialog()\">"
-            "&#128202; Shot Summary</button>");
-    }
-    badgesHtml += QStringLiteral("</div>");
-
-    QString summaryLinesHtml;
+    QJsonArray summaryLines;
     for (const QVariant& line : shot.summaryLines) {
         const QVariantMap m = line.toMap();
-        const QString type = m.value("type").toString();
-        const QString text = m.value("text").toString().toHtmlEscaped();
-        summaryLinesHtml += QString("<div class=\"summary-line %1\"><span class=\"line-dot\"></span><span>%2</span></div>")
-            .arg(type, text);
+        summaryLines.append(QJsonObject{ { "type", m.value("type").toString() }, { "text", m.value("text").toString() } });
     }
-    if (summaryLinesHtml.isEmpty()) {
-        summaryLinesHtml = QStringLiteral("<div class=\"summary-line\"><span>No summary available.</span></div>");
-    }
+    fields[QStringLiteral("summaryLines")] = summaryLines;
 
-    QString html = QString(R"HTML(
-<!DOCTYPE html>
+    QString html = QStringLiteral(R"HTML(<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>%1 - Decenza</title>
+    <title>Shot - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <style>)HTML" + QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU + R"HTML(
-        .header-content { max-width: 1400px; gap: 1rem; }
+    <style>)HTML");
+    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU
+          + QString::fromUtf8(WEB_CSS_SHOT_GRAPH) + QString::fromUtf8(WEB_CSS_COMPARISON_TEXT);
+    html += QStringLiteral(R"HTML(
+        .header { padding: 0.75rem 1.5rem; }
+        .header-content { max-width: 1600px; gap: 1rem; }
         .back-btn { line-height: 1; padding: 0.25rem; }
         .menu-wrapper { margin-left: auto; }
-        .header-title {
-            flex: 1;
-        }
-        .header-title h1 {
-            font-size: 1.125rem;
-            font-weight: 600;
-        }
-        .header-title .subtitle {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-        /* Recipe identity on the detail page (history-recipe-identity). Archived
-           dims AND carries a title attribute, so the state is not colour-only. */
-        .shot-drink-icon { margin-right: 0.35rem; }
-        .header-title .shot-detail-recipe { color: var(--accent); font-weight: 600; }
-        .header-title .shot-detail-recipe.archived {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 1.5rem;
-        }
-        .metrics-bar {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            margin-bottom: 1.5rem;
-        }
-        .metric-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem 1.25rem;
-            min-width: 100px;
-            text-align: center;
-        }
-        .metric-card .value {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--accent);
-        }
-        .metric-card .value .target {
-            font-size: 0.875rem;
-            font-weight: 400;
-            color: var(--text-secondary);
-        }
-        .metric-card .label {
-            font-size: 0.6875rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .shot-quality {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.5rem;
-            flex: 1;
-            min-width: 0;
-            padding: 0 0.5rem;
-        }
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            padding: 0 0.75rem;
-            height: 28px;
-            border-radius: 14px;
-            border: 1px solid;
-            font-size: 0.75rem;
-            line-height: 1;
-            white-space: nowrap;
-        }
-        .badge .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
+        .header-title { flex: 1; min-width: 0; }
+        .header-title h1 { font-size: 1.125rem; font-weight: 600; }
+        .header-title .subtitle { font-size: 0.75rem; color: var(--text-secondary); }
+        .header-title .override { color: var(--accent); }
+        .header-title .plan { font-size: 0.8125rem; color: var(--text); margin-top: 0.15rem; }
+        .header-title .plan:empty { display: none; }
+        /* Archived dims AND carries a title attribute, so the state is not colour-only. */
+        .shot-detail-recipe { color: var(--accent); font-weight: 600; }
+        .shot-detail-recipe.archived { color: var(--text-secondary); font-weight: 500; }
+        .nav-btn, .edit-btn { background: none; border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.875rem;
+                              cursor: pointer; padding: 0.375rem 0.75rem; border-radius: 6px; white-space: nowrap; text-decoration: none; font-family: inherit; }
+        .nav-btn:hover, .edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .nav-btn.disabled { opacity: 0.35; pointer-events: none; }
+        .col { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+
+        .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; align-items: baseline; padding: 0.35rem 0;
+               border-top: 1px solid rgba(48,54,61,0.6); font-variant-numeric: tabular-nums; }
+        .row .label { color: var(--text-secondary); font-size: 0.875rem; }
+        .row .value { font-weight: 500; text-align: right; }
+        .row .value .unit { font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.2rem; font-weight: 400; }
+        .row .value .target { font-size: 0.75rem; color: var(--text-secondary); font-weight: 400; margin-left: 0.3rem; }
+        .compared { display: flex; justify-content: space-between; gap: 1rem; color: var(--text-secondary); font-size: 0.875rem; margin: 0.2rem 0 0.4rem; }
+        .compared a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+        .since-summary { font-size: 0.95rem; line-height: 1.5; }
+        .changes { margin: 0.5rem 0 0; padding-left: 1.1rem; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; }
+
+        .rating-line { font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+        .rating-line .unrated { color: var(--text-secondary); font-weight: 400; font-size: 1rem; }
+        .shot-quality { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.6rem; }
+        .badge { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0 0.75rem; height: 28px; border-radius: 14px;
+                 border: 1px solid; font-size: 0.75rem; line-height: 1; white-space: nowrap; }
+        .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
         .badge.danger { color: #e73249; border-color: #e73249; background: rgba(231,50,73,0.15); }
         .badge.danger .dot { background: #e73249; }
         .badge.warning { color: #f0a020; border-color: #f0a020; background: rgba(240,160,32,0.15); }
         .badge.warning .dot { background: #f0a020; }
         .badge.success { color: #18c37e; border-color: #18c37e; background: rgba(24,195,126,0.15); }
         .badge.success .dot { background: #18c37e; }
-        .summary-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            padding: 0 0.75rem;
-            height: 28px;
-            border-radius: 14px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            cursor: pointer;
-            font-family: inherit;
-            line-height: 1;
-            white-space: nowrap;
-        }
+        .summary-btn { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0 0.75rem; height: 28px; border-radius: 14px;
+                       background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.75rem;
+                       cursor: pointer; font-family: inherit; line-height: 1; white-space: nowrap; }
         .summary-btn:hover { color: var(--accent); border-color: var(--accent); }
-        .summary-modal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 300;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-        }
+        .summary-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; align-items: center;
+                         justify-content: center; padding: 1rem; }
         .summary-modal.open { display: flex; }
-        .summary-modal-content {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            max-width: 450px;
-            width: 100%;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .summary-modal-content h2 {
-            text-align: center;
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-        }
-        .summary-line {
-            display: flex;
-            align-items: flex-start;
-            gap: 0.5rem;
-            padding: 0.375rem 0;
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            line-height: 1.4;
-        }
-        .summary-line .line-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            margin-top: 0.5rem;
-            flex-shrink: 0;
-        }
+        .summary-modal-content { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem;
+                                 max-width: 450px; width: 100%; max-height: 80vh; overflow-y: auto; }
+        .summary-modal-content h2 { text-align: center; font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+        .summary-line { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.375rem 0; color: var(--text-secondary);
+                        font-size: 0.875rem; line-height: 1.4; }
+        .summary-line .line-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 0.5rem; flex-shrink: 0; }
         .summary-line.good .line-dot { background: #18c37e; }
         .summary-line.caution .line-dot { background: #f0a020; }
         .summary-line.warning .line-dot { background: #e73249; }
         .summary-line.observation .line-dot { background: var(--text-secondary); }
-        .summary-line.verdict {
-            color: var(--text);
-            font-weight: 500;
-            padding-top: 0.75rem;
-            margin-top: 0.5rem;
-            border-top: 1px solid var(--border);
-        }
+        .summary-line.verdict { color: var(--text); font-weight: 500; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 1px solid var(--border); }
         .summary-line.verdict .line-dot { display: none; }
-        .summary-modal-close {
-            width: 100%;
-            margin-top: 1rem;
-            padding: 0.625rem;
-            background: var(--accent);
-            border: none;
-            border-radius: 8px;
-            color: #000;
-            font-weight: 500;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 0.875rem;
-        }
-        .summary-modal-close:hover { opacity: 0.9; }
-        .chart-container {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        .chart-title {
-            font-size: 1rem;
-            font-weight: 600;
-        }
-        .chart-toggles {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        .toggle-btn {
-            padding: 0.375rem 0.75rem;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            gap: 0.375rem;
-        }
-        .toggle-btn:hover { border-color: var(--text-secondary); }
-        .toggle-btn.active { background: var(--surface-hover); color: var(--text); }
-        .toggle-btn .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-        .toggle-btn.pressure .dot { background: var(--pressure); }
-        .toggle-btn.flow .dot { background: var(--flow); }
-        .toggle-btn.temp .dot { background: var(--temp); }
-        .toggle-btn.weight .dot { background: var(--weight); }
-        .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
-        .toggle-btn.resistance .dot { background: var(--resistance); }
-        .chart-wrapper {
-            position: relative;
-            height: 400px;
-        }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1rem;
-        }
-        .info-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.25rem;
-        }
-        .info-card h3 {
-            font-size: 0.875rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid var(--border);
-        }
-        .info-row:last-child { border-bottom: none; }
-        .info-row .label { color: var(--text-secondary); }
-        .info-row .value { font-weight: 500; }
-        .notes-text {
-            color: var(--text-secondary);
-            font-style: italic;
-        }
-        .rating { color: var(--accent); font-size: 1.125rem; }
-        .edit-btn {
-            background: none;
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            cursor: pointer;
-            padding: 0.375rem 0.75rem;
-            border-radius: 6px;
-            white-space: nowrap;
-        }
-        .edit-btn:hover { color: var(--accent); border-color: var(--accent); }
-        .edit-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--surface);
-            border-top: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            display: none;
-            justify-content: center;
-            gap: 1rem;
-            z-index: 200;
-        }
+        .modal-btn { width: 100%; margin-top: 1rem; padding: 0.625rem; background: var(--accent); border: none; border-radius: 8px;
+                     color: #000; font-weight: 500; cursor: pointer; font-family: inherit; font-size: 0.875rem; }
+        .modal-btn.secondary { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border); }
+        .modal-btn.danger { background: #e73249; color: #fff; }
+
+        .card h3 { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+        .notes-text { color: var(--text-secondary); font-style: italic; white-space: pre-wrap; }
+        .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+        .action-btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; background: var(--surface);
+                      border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.875rem; cursor: pointer; font-family: inherit; }
+        .action-btn:hover { border-color: var(--text-secondary); }
+        .action-btn.danger { color: #e73249; }
+        .action-btn.danger:hover { border-color: #e73249; }
+        #debugLogContent { background: var(--bg); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.75rem; line-height: 1.4;
+                           white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; }
+
+        .edit-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border);
+                    padding: 1rem 1.5rem; display: none; justify-content: center; gap: 1rem; z-index: 200; }
         .edit-bar.visible { display: flex; }
-        .edit-bar button {
-            padding: 0.75rem 2rem;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.9375rem;
-            font-weight: 600;
-            cursor: pointer;
-        }
+        .edit-bar button { padding: 0.75rem 2rem; border: none; border-radius: 8px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; font-family: inherit; }
         .save-btn { background: var(--accent); color: #000; }
-        .save-btn:hover { opacity: 0.9; }
         .cancel-btn { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border) !important; }
-        .cancel-btn:hover { border-color: var(--text-secondary) !important; }
-        .edit-input, .edit-select, .edit-textarea {
-            width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-family: inherit;
-            font-size: 0.875rem;
-            padding: 0.5rem 0.75rem;
-        }
-        .edit-input:focus, .edit-select:focus, .edit-textarea:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-        .edit-select { cursor: pointer; }
+        .edit-input, .edit-select, .edit-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+                                                    color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem; }
+        .edit-input:focus, .edit-select:focus, .edit-textarea:focus { outline: none; border-color: var(--accent); }
         .edit-select option { background: var(--surface); color: var(--text); }
-        .edit-textarea { min-height: 15em; resize: vertical; }
-        .notes-card-edit { grid-column: 1 / -1; }
-        .edit-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid var(--border);
-            gap: 1rem;
-        }
-        .edit-row:last-child { border-bottom: none; }
-        .edit-row .label { color: var(--text-secondary); white-space: nowrap; min-width: 80px; }
-        .edit-row .edit-field { flex: 1; text-align: right; }
+        .edit-textarea { min-height: 8em; resize: vertical; }
+        .edit-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; gap: 1rem; }
+        .edit-row .label { color: var(--text-secondary); white-space: nowrap; min-width: 80px; font-size: 0.875rem; }
+        .edit-row .edit-field { flex: 1; max-width: 16rem; }
         .edit-row .edit-input, .edit-row .edit-select { text-align: right; }
-        .metric-card .edit-input { text-align: center; width: 80px; }
+        .taste { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+        .editing .view-only { display: none; }
+        .editing { padding-bottom: 5rem; }
+        /* Phone: the title takes the first line; the shot buttons wrap under it. */
         @media (max-width: 600px) {
-            .container { padding: 1rem; }
-            .chart-wrapper { height: 300px; }
-            .metrics-bar { justify-content: center; }
+            .header { padding: 0.75rem 1rem; }
+            .header-content { flex-wrap: wrap; }
+            .header-title { flex: 1 1 calc(100% - 3rem); }
+            .nav-btn, .edit-btn { padding: 0.3rem 0.55rem; }
         }
     </style>
-</head>)HTML" R"HTML(
+</head>
 <body>
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&#8592;</a>
             <div class="header-title">
-                <h1>%1</h1>
-                <div class="subtitle">%2</div>
-                __DETAIL_RECIPE__
+                <h1 id="title"></h1>
+                <div class="subtitle" id="subtitle"></div>
+                <div class="plan" id="plan"></div>
             </div>
-            <button class="edit-btn" id="editBtn" onclick="toggleEditMode()">&#9998; Edit</button>
-)HTML" + generateMenuHtml() + R"HTML(
+            <a class="nav-btn" id="newerBtn" title="Newer shot">&#8249; Newer</a>
+            <a class="nav-btn" id="olderBtn" title="Older shot">Older &#8250;</a>
+            <button class="edit-btn view-only" id="editBtn" onclick="startEdit()">&#9998; Edit</button>
+)HTML");
+    html += generateMenuHtml();
+    html += QStringLiteral(R"HTML(
         </div>
     </header>
-    <main class="container">
-        <div class="metrics-bar">
-            <div class="metric-card">
-                <div class="value">%3g</div>
-                <div class="label">Dose</div>
+    <main class="layout" id="page">
+        <section class="col graph-col">
+            <div class="card">
+                <div class="chart-wrapper"><canvas id="shotChart"></canvas></div>
+                <div id="readout" class="readout"></div>
+                <div id="chips" class="chips"></div>
             </div>
-            <div class="metric-card">
-                <div class="value">%4</div>
-                <div class="label">Yield</div>
-            </div>
-            <div class="metric-card">
-                <div class="value">1:%5</div>
-                <div class="label">Ratio</div>
-            </div>
-            <div class="metric-card">
-                <div class="value">%6s</div>
-                <div class="label">Time</div>
-            </div>
-            <div class="metric-card">
-                <div class="value rating">%7</div>
-                <div class="label">Rating</div>
-            </div>
-            __BADGES_HTML__
-        </div>
-
-        <div class="chart-container">
-            <div class="chart-header">
-                <div class="chart-title">Extraction Curves</div>
-                <div class="chart-toggles">
-                    <button class="toggle-btn pressure active" onclick="toggleDataset(0, this)">
-                        <span class="dot"></span> Pressure
-                    </button>
-                    <button class="toggle-btn flow active" onclick="toggleDataset(1, this)">
-                        <span class="dot"></span> Flow
-                    </button>
-                    <button class="toggle-btn weight active" onclick="toggleDataset(2, this)">
-                        <span class="dot"></span> Yield
-                    </button>
-                    <button class="toggle-btn temp active" onclick="toggleDataset(3, this)">
-                        <span class="dot"></span> Temp
-                    </button>
-                    <button class="toggle-btn weightFlow active" onclick="toggleDataset(6, this)">
-                        <span class="dot"></span> Weight Flow
-                    </button>
-                    <button class="toggle-btn resistance" onclick="toggleDataset(7, this)">
-                        <span class="dot"></span> Resistance
-                    </button>
-                </div>
-            </div>
-            <div class="chart-wrapper">
-                <canvas id="shotChart"></canvas>
-            </div>
-        </div>
-
-        <div class="info-grid">
-            <div class="info-card" style="grid-column:1/-1;">
-                <h3>Notes</h3>
-                <p class="notes-text">%14</p>
-            </div>
-            <div class="info-card">
-                <h3>Beans (%13)</h3>
-                <div class="info-row">
-                    <span class="label">Brand</span>
-                    <span class="value">%8</span>
-                </div>
-                <div class="info-row">
-                    <span class="label">Type</span>
-                    <span class="value">%9</span>
-                </div>
-                <div class="info-row">
-                    <span class="label">Roast Date</span>
-                    <span class="value">%10</span>
-                </div>
-                <div class="info-row">
-                    <span class="label">Roast Level</span>
-                    <span class="value">%11</span>
-                </div>
-            </div>
-            <div class="info-card">
-                <h3>Grinder</h3>
-                <div class="info-row">
-                    <span class="label">Model</span>
-                    <span class="value">%12</span>
-                </div>
-                <div class="info-row">
-                    <span class="label">Setting</span>
-                    <span class="value">%13</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="actions-bar" style="margin-top:1.5rem;display:flex;gap:1rem;flex-wrap:wrap;">
-            <button onclick="downloadProfile()" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
-                &#128196; Download Profile JSON
-            </button>
-            <button onclick="window.location.href=window.location.pathname+'/shot.json'" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
-                &#11015; Download Shot JSON
-            </button>
-            <button onclick="var c=document.getElementById('debugLogContainer'); if(c){if(c.style.display==='none'){c.style.display='block';c.scrollIntoView({behavior:'smooth'});}else{c.style.display='none';}}" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
-                &#128203; View Debug Log
-            </button>
-        </div>
-
-        <div id="debugLogContainer" style="display:none;margin-top:1rem;">
-            <div class="info-card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
-                    <h3 style="margin-bottom:0;">Debug Log</h3>
-                    <button onclick="copyDebugLog()" style="padding:0.5rem 1rem;background:var(--accent);border:none;border-radius:6px;color:#000;font-weight:500;cursor:pointer;font-size:0.8125rem;">Copy to Clipboard</button>
-                </div>
-                <pre id="debugLogContent" style="background:var(--bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:0.75rem;line-height:1.4;white-space:pre-wrap;word-break:break-all;max-height:500px;overflow-y:auto;">%21</pre>
-            </div>
-        </div>
+            <div class="card" id="happened"></div>
+        </section>
+        <section class="col" id="details"></section>
     </main>
 
     <div class="edit-bar" id="editBar">
@@ -1806,631 +1409,343 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
     </div>
 
-    <div class="summary-modal" id="summaryModal" onclick="if(event.target===this)closeSummaryDialog()">
+    <div class="summary-modal" id="summaryModal" onclick="if(event.target===this)closeModal('summaryModal')">
         <div class="summary-modal-content">
             <h2>Shot Summary</h2>
-            __SUMMARY_LINES_HTML__
-            <button class="summary-modal-close" onclick="closeSummaryDialog()">OK</button>
+            <div id="summaryLines"></div>
+            <button class="modal-btn" onclick="closeModal('summaryModal')">OK</button>
+        </div>
+    </div>
+    <div class="summary-modal" id="deleteModal" onclick="if(event.target===this)closeModal('deleteModal')">
+        <div class="summary-modal-content">
+            <h2>Delete this shot?</h2>
+            <p class="note" style="text-align:center">It is removed from your history on this device. This cannot be undone.</p>
+            <button class="modal-btn danger" id="deleteConfirm" onclick="deleteShot()">Delete</button>
+            <button class="modal-btn secondary" onclick="closeModal('deleteModal')">Cancel</button>
         </div>
     </div>
 
     <script>
-        var shotData = {
-            id: %24,
-            beanBrand: "%25",
-            beanType: "%26",
-            roastDate: "%27",
-            roastLevel: "%28",
-            grinderBrand: "%40",
-            grinderModel: "%29",
-            grinderBurrs: "%41",
-            grinderSetting: "%30",
-            espressoNotes: "%31",
-            doseWeightG: %32,
-            finalWeightG: %33,
-            enjoyment: %34,
-            barista: "%35",
-            beverageType: "%36",
-            drinkTds: %37,
-            drinkEy: %38
-        };
-    </script>
-)HTML" R"HTML(
-
-    <script>
-        function downloadProfile() {
-            window.location.href = window.location.pathname + '/profile.json';
-        }
-        function showDebugLog() {
-            var container = document.getElementById('debugLogContainer');
-            if (container) {
-                container.style.display = container.style.display === 'none' ? 'block' : 'none';
-            } else {
-                alert('Debug log container not found');
+)HTML");
+    html += QStringLiteral("        var shot = ") + embedJson(fields)
+          + QStringLiteral(";\n        var page = ") + embedJson(pageData)
+          + QStringLiteral(";\n        var texts = ") + embedJson(ShotComparisonText::toJson())
+          + QStringLiteral(";\n        var dialInLabels = ") + embedJson(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
+          + QStringLiteral(";\n        var puckFlags = ") + embedJson(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
+          + QStringLiteral(";\n");
+    html += QString::fromLatin1(WEB_JS_ESCAPE_HTML);
+    html += QString::fromLatin1(WEB_JS_MENU);
+    html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
+    html += QString::fromLatin1(WEB_JS_GRIND_DATALIST);
+    html += QString::fromUtf8(WEB_JS_COMPARISON_TEXT);
+    html += QString::fromUtf8(WEB_JS_SHOT_GRAPH);
+    html += QStringLiteral(R"HTML(
+        // === Header and navigation ===
+        var cmp = (page.outcome && page.outcome.comparison) || {};
+        var cmpShots = cmp.shots || [];
+        var me = cmpShots.length - 1;                 // this shot's column: last, after the previous shot
+        var since = (cmp.comparisons || [])[0] || null;
+        function setHeader() {
+            var t = escapeHtml(shot.profileName);
+            if (shot.temperatureOverrideC > 0) t += " <span class='override'>(" + shot.temperatureOverrideC.toFixed(0) + "°C)</span>";
+            document.getElementById("title").innerHTML = t;
+            var sub = escapeHtml(shot.dateTime);
+            if (shot.recipe) sub += "  ·  <span class='shot-detail-recipe" + (shot.recipe.archived ? " archived' title='Archived recipe" : "") + "'>"
+                                  + shot.recipe.icon + " " + escapeHtml(shot.recipe.name) + "</span>";
+            document.getElementById("subtitle").innerHTML = sub;
+            // The plan line the app shows under its title: dose → yield (target) · ratio · grind · rpm.
+            var plan = [];
+            if (shot.doseWeightG > 0) {
+                var y = shot.finalWeightG.toFixed(1) + "g";
+                if (shot.targetWeightG > 0 && Math.abs(shot.targetWeightG - shot.finalWeightG) >= 0.05) y += " (target " + shot.targetWeightG.toFixed(1) + "g)";
+                plan.push(shot.doseWeightG.toFixed(1) + "g in → " + y);
+                if (shot.finalWeightG > 0) plan.push("1:" + (shot.finalWeightG / shot.doseWeightG).toFixed(1));
             }
+            if (shot.grinderSetting) plan.push("grind " + shot.grinderSetting + (shot.rpm > 0 ? " · " + shot.rpm + " rpm" : ""));
+            document.getElementById("plan").textContent = plan.join("  ·  ");
+            document.title = shot.profileName + " - Decenza";
+            [["newerBtn", page.newerId], ["olderBtn", page.olderId]].forEach(function(b) {
+                var el = document.getElementById(b[0]);
+                if (b[1] > 0) el.href = "/shot/" + b[1]; else el.classList.add("disabled");
+            });
+        }
+        document.addEventListener("keydown", function(e) {
+            if (editing || e.target.closest("input, textarea, select")) return;
+            if (e.key === "ArrowLeft" && page.newerId > 0) location.href = "/shot/" + page.newerId;
+            if (e.key === "ArrowRight" && page.olderId > 0) location.href = "/shot/" + page.olderId;
+        });
+
+        // === Shot results: against the previous shot on the profile, when there is one ===
+        var showMore = false;
+        function sinceHtml() {
+            if (!since || !page.outcome.previousShotId) return "";
+            var h = "<div class='compared'><span>Compared with your last " + escapeHtml(cmpShots[0].profileName) + " shot · "
+                  + escapeHtml(page.outcome.previousDateTime) + "</span><a href='/compare/" + page.outcome.previousShotId + "," + shot.id
+                  + "'>Compare &#8250;</a></div><div class='since-summary'>" + escapeHtml(summaryFor(since)) + "</div>";
+            var items = [];
+            (cmp.inputs || []).forEach(function(r) {
+                var a = r.cells[0], b = r.cells[me];
+                if (!b || b.state === "same") return;
+                items.push(escapeHtml(txt("input." + r.key, r.key) + " " + inputText(r, a) + " → " + inputText(r, b)) + pill(b.delta, inputDelta(r, b.delta)));
+            });
+            ((since.profile && since.profile.rows) || []).forEach(function(r) { items.push(escapeHtml(diffRowText(r))); });
+            // The summary already says "Same setup" when nothing changed.
+            if (items.length) h += "<ul class='changes'>" + items.map(function(i) { return "<li>" + i + "</li>"; }).join("") + "</ul>";
+            return h;
+        }
+        function renderHappened() {
+            var h = "<div class='section'>Shot results</div>" + sinceHtml() + "<div style='height:0.6rem'></div>", hidden = 0;
+            (cmp.metrics || []).forEach(function(r) {
+                if (r.more) hidden++;
+                if (r.more && !showMore) return;
+                var cell = r.cells[me] || {}, unit = unitLabel(r.unit);
+                var has = cell.value !== null && cell.value !== undefined;
+                var target = cmpShots[me] && cmpShots[me].targetYieldG;
+                var v = "<span>" + escapeHtml(metricText(r, cell.value)) + "</span>"
+                      + (has && r.key === "yieldG" && target ? "<span class='target'>/ " + target.toFixed(1) + "</span>" : "")
+                      + (has && unit && r.key !== "ratio" ? "<span class='unit'>" + escapeHtml(unit) + "</span>" : "");
+                if (cell.delta !== null && cell.delta !== undefined) v += pill(cell.delta, signed(cell.delta, r.decimals));
+                h += "<div class='row'><div class='label'>" + escapeHtml(txt("metric." + r.key, r.key)) + "</div><div class='value'>" + v + "</div></div>";
+            });
+            var stop = cmpShots[me] && cmpShots[me].stoppedBy;
+            if (stop) h += "<div class='row'><div class='label'>" + escapeHtml(txt("row.stopped")) + "</div><div class='value'>" + escapeHtml(txt("stop." + stop, DASH)) + "</div></div>";
+            if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderHappened()'>"
+                               + escapeHtml(showMore ? txt("ui.showLess") : txt("ui.showMore").replace("%1", hidden)) + "</button>";
+            document.getElementById("happened").innerHTML = h;
+        }
+
+        // === Details (view) ===
+        function rowHtml(label, value) {
+            return "<div class='row'><div class='label'>" + escapeHtml(label) + "</div><div class='value'>" + escapeHtml(value || DASH) + "</div></div>";
+        }
+        function badgesHtml() {
+            var b = cmpShots[me] ? cmpShots[me].badges || [] : [];
+            var kinds = { channeling: "danger", pourTruncated: "danger", skipFirstFrame: "danger", grindIssue: "warning" };
+            var h = "<div class='shot-quality'>";
+            b.forEach(function(k) { h += "<span class='badge " + (kinds[k] || "warning") + "'><span class='dot'></span>" + escapeHtml(txt("badge." + k, k)) + "</span>"; });
+            if (b.length === 0) h += "<span class='badge success'><span class='dot'></span>Clean extraction</span>";
+            if (shot.summaryLines.length) h += "<button class='summary-btn' onclick='openModal(\"summaryModal\")'>&#128202; Shot Summary</button>";
+            return h + "</div>";
+        }
+        function renderDetails() {
+            var rating = shot.enjoyment > 0 ? ratingText({ rating0to100: shot.enjoyment, tasteBalance: shot.tasteBalance, tasteBody: shot.tasteBody })
+                                            : (shot.tasteBalance || shot.tasteBody ? ratingText({ tasteBalance: shot.tasteBalance, tasteBody: shot.tasteBody }) : "");
+            var h = "<div class='card'><h3>" + escapeHtml(txt("row.rating")) + "</h3><div class='rating-line'>"
+                  + (rating ? escapeHtml(rating) : "<span class='unrated'>Not rated yet</span>") + "</div>" + badgesHtml() + "</div>";
+            h += "<div class='card'><h3>Notes</h3><p class='notes-text'>" + escapeHtml(shot.espressoNotes || "No notes") + "</p></div>";
+            var grinder = (shot.grinderBrand + " " + shot.grinderModel).trim();
+            h += "<div class='cards'><div class='card'><h3>Beans</h3>"
+               + rowHtml("Brand", shot.beanBrand) + rowHtml("Type", shot.beanType) + rowHtml("Roast date", shot.roastDate) + rowHtml("Roast level", shot.roastLevel)
+               + "</div><div class='card'><h3>Grinder</h3>"
+               + rowHtml("Model", grinder) + rowHtml("Burrs", shot.grinderBurrs) + rowHtml("Setting", shot.grinderSetting)
+               + (shot.rpm > 0 ? rowHtml("RPM", String(shot.rpm)) : "")
+               + "</div><div class='card'><h3>Additional</h3>"
+               + rowHtml("Dose", shot.doseWeightG.toFixed(1) + " g") + rowHtml("Barista", shot.barista) + rowHtml("Beverage", shot.beverageType)
+               + (shot.drinkTds > 0 ? rowHtml("TDS", shot.drinkTds.toFixed(2) + " %") + rowHtml("EY", shot.drinkEy.toFixed(1) + " %") : "")
+               + "</div></div>";
+            h += "<div class='actions'>"
+               + "<button class='action-btn' onclick='location.href=location.pathname+\"/profile.json\"'>&#128196; Profile JSON</button>"
+               + "<button class='action-btn' onclick='location.href=location.pathname+\"/shot.json\"'>&#11015; Shot JSON</button>"
+               + "<button class='action-btn' onclick='toggleDebugLog()'>&#128203; Debug Log</button>"
+               + "<button class='action-btn danger' onclick='openModal(\"deleteModal\")'>&#128465; Delete Shot</button></div>";
+            h += "<div class='card' id='debugLog' style='display:none'><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;'>"
+               + "<h3 style='margin:0'>Debug Log</h3><button class='action-btn' onclick='copyDebugLog()'>Copy</button></div>"
+               + "<pre id='debugLogContent'>" + escapeHtml(shot.debugLog || "No debug log available") + "</pre></div>";
+            document.getElementById("details").innerHTML = h;
+        }
+        function toggleDebugLog() {
+            var c = document.getElementById("debugLog");
+            c.style.display = c.style.display === "none" ? "block" : "none";
+            if (c.style.display === "block") c.scrollIntoView({ behavior: "smooth" });
         }
         function copyDebugLog() {
-            var text = document.getElementById('debugLogContent').textContent;
-            // Use fallback for non-HTTPS (clipboard API requires secure context)
-            var textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            try {
-                document.execCommand('copy');
-            } catch (err) {
-                alert('Failed to copy: ' + err);
-            }
-            document.body.removeChild(textarea);
+            // execCommand rather than the clipboard API, which needs a secure context.
+            var ta = document.createElement("textarea");
+            ta.value = document.getElementById("debugLogContent").textContent;
+            ta.style.position = "fixed"; ta.style.opacity = "0";
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand("copy"); } catch (err) { alert("Failed to copy: " + err); }
+            document.body.removeChild(ta);
         }
-        var isEditMode = false;
-        var originalMetricsHTML = '';
-        var originalInfoGridHTML = '';
-        var originalActionsDisplay = '';
-        var originalDebugDisplay = '';
+        function openModal(id) { document.getElementById(id).classList.add("open"); }
+        function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+        document.getElementById("summaryLines").innerHTML = shot.summaryLines.length
+            ? shot.summaryLines.map(function(l) {
+                  return "<div class='summary-line " + escapeHtml(l.type) + "'><span class='line-dot'></span><span>" + escapeHtml(l.text) + "</span></div>";
+              }).join("")
+            : "<div class='summary-line'><span>No summary available.</span></div>";
 
-        function toggleEditMode() {
-            if (isEditMode) return;
-            isEditMode = true;
-
-            var metricsBar = document.querySelector('.metrics-bar');
-            var infoGrid = document.querySelector('.info-grid');
-            var actionsBar = document.querySelector('.actions-bar');
-            var editBar = document.getElementById('editBar');
-            var editBtn = document.getElementById('editBtn');
-            var debugContainer = document.getElementById('debugLogContainer');
-
-            originalMetricsHTML = metricsBar.innerHTML;
-            originalInfoGridHTML = infoGrid.innerHTML;
-            originalActionsDisplay = actionsBar.style.display;
-
-            // Build edit form for metrics bar using DOM
-            // Note: shotData values are server-escaped and trusted (from our own database)
-            var ratingValue = shotData.enjoyment > 0 ? shotData.enjoyment : 0;
-            var metricsHtml =
-                '<div class="metric-card"><input type="number" class="edit-input" id="editDose" step="0.1" value="' + shotData.doseWeightG + '" oninput="autoCalcEY()"><div class="label">Dose (g)</div></div>' +
-                '<div class="metric-card"><input type="number" class="edit-input" id="editYield" step="0.1" value="' + shotData.finalWeightG + '" oninput="autoCalcEY()"><div class="label">Yield (g)</div></div>' +
-                '<div class="metric-card"><input type="number" class="edit-input" id="editRating" min="0" max="100" step="1" value="' + ratingValue + '"><div class="label">Rating (%)</div></div>';
-            metricsBar.innerHTML = metricsHtml;
-
-            var roastLevels = ['', 'Light', 'Medium-Light', 'Medium', 'Medium-Dark', 'Dark'];
-            var roastOptions = '';
-            for (var j = 0; j < roastLevels.length; j++) {
-                var rl = roastLevels[j];
-                roastOptions += '<option value="' + rl + '"' + (rl === shotData.roastLevel ? ' selected' : '') + '>' + (rl || '\u2014') + '</option>';
-            }
-
-            var bevTypes = ['espresso', 'pourover', 'tea', 'other'];
-            var bevOptions = '';
-            for (var k = 0; k < bevTypes.length; k++) {
-                var bt = bevTypes[k];
-                bevOptions += '<option value="' + bt + '"' + (bt === shotData.beverageType ? ' selected' : '') + '>' + bt.charAt(0).toUpperCase() + bt.slice(1) + '</option>';
-            }
-
-            // Build edit form for info grid
-            // All values come from shotData which is server-escaped in the C++ template
-            infoGrid.innerHTML =
-                '<div class="info-card notes-card-edit"><h3>Notes</h3>' +
-                    '<textarea class="edit-textarea" id="editNotes">' + escapeHtml(shotData.espressoNotes) + '</textarea>' +
-                '</div>' +
-                '<div class="info-card"><h3>Beans</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeHtml(shotData.beanBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeHtml(shotData.beanType) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeHtml(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
-                    '<div class="edit-row"><span class="label">Roast Level</span><div class="edit-field"><select class="edit-select" id="editRoastLevel">' + roastOptions + '</select></div></div>' +
-                '</div>' +
-                '<div class="info-card"><h3>Grinder</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeHtml(shotData.grinderBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeHtml(shotData.grinderModel) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeHtml(shotData.grinderBurrs) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeHtml(shotData.grinderSetting) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">RPM</span><div class="edit-field"><input type="number" class="edit-input" id="editRpm" step="1" min="0" value="' + (shotData.rpm > 0 ? shotData.rpm : '') + '"></div></div>' +
-                '</div>' +
-                '<div class="info-card"><h3>Additional</h3>' +
-                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeHtml(shotData.barista) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Beverage</span><div class="edit-field"><select class="edit-select" id="editBeverageType">' + bevOptions + '</select></div></div>' +
-                    '<div class="edit-row"><span class="label">TDS</span><div class="edit-field"><input type="number" class="edit-input" id="editTds" step="0.01" value="' + (shotData.drinkTds || '') + '" oninput="autoCalcEY()"></div></div>' +
-                    '<div class="edit-row"><span class="label">EY (%)</span><div class="edit-field"><input type="number" class="edit-input" id="editEy" step="0.1" value="' + (shotData.drinkEy || '') + '" readonly style="opacity:0.7"></div></div>' +
-                '</div>';
-
-            // Stepped candidates for the SHOT's own grinder — not the active
-            // one (grind-value-entry). Free text stays accepted either way.
-            attachGrindDatalist(document.getElementById('editGrinderSetting'),
-                                document.getElementById('editRpm'),
-                                shotData.grinderBrand, shotData.grinderModel);
-
-            actionsBar.style.display = 'none';
-            originalDebugDisplay = debugContainer ? debugContainer.style.display : '';
-            if (debugContainer) debugContainer.style.display = 'none';
-            editBar.classList.add('visible');
-            editBtn.style.display = 'none';
-            document.querySelector('.container').style.paddingBottom = '5rem';
-            editStartData = collectEdits();
+        function deleteShot() {
+            var btn = document.getElementById("deleteConfirm");
+            btn.disabled = true; btn.textContent = "Deleting...";
+            fetch("/api/shots/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [shot.id] }) })
+                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                .then(function() { location.href = page.olderId > 0 ? "/shot/" + page.olderId : (page.newerId > 0 ? "/shot/" + page.newerId : "/"); })
+                .catch(function(err) { alert("Delete failed: " + err); btn.disabled = false; btn.textContent = "Delete"; });
         }
-
-        // The form as edit mode opened it: a save sends only what changed from
-        // it, so a value Visualizer changed meanwhile is not written back over.
-        var editStartData = {};
-
+)HTML");
+    html += QStringLiteral(R"HTML(
+        // === Edit ===
+        var editing = false, editStart = {}, editTaste = {};
+        function field(label, inner) { return "<div class='edit-row'><span class='label'>" + escapeHtml(label) + "</span><div class='edit-field'>" + inner + "</div></div>"; }
+        function input(id, value, extra) { return "<input class='edit-input' id='" + id + "' value='" + escapeHtml(value === null || value === undefined ? "" : value) + "'" + (extra || "") + ">"; }
+        function select(id, options, value) {
+            return "<select class='edit-select' id='" + id + "'>" + options.map(function(o) {
+                return "<option value='" + escapeHtml(o[0]) + "'" + (o[0] === value ? " selected" : "") + ">" + escapeHtml(o[1]) + "</option>";
+            }).join("") + "</select>";
+        }
+        function tasteChips(axis, values) {
+            return "<div class='taste'>" + values.map(function(v) {
+                var on = editTaste[axis] === v;
+                return "<button type='button' class='chip" + (on ? " on" : "") + "' aria-pressed='" + on + "' onclick='pickTaste(\"" + axis + "\",\"" + v + "\")'>"
+                     + escapeHtml(txt("taste." + v, v)) + "</button>";
+            }).join("") + "</div>";
+        }
+        function pickTaste(axis, v) { editTaste[axis] = editTaste[axis] === v ? "" : v; renderEditForm(collectEdits()); }
+        function renderEditForm(d) {
+            var roast = ["", "Light", "Medium-Light", "Medium", "Medium-Dark", "Dark"].map(function(r) { return [r, r || DASH]; });
+            var bev = ["espresso", "pourover", "tea", "other"].map(function(b) { return [b, b.charAt(0).toUpperCase() + b.slice(1)]; });
+            var h = "<div class='card'><h3>" + escapeHtml(txt("row.rating")) + "</h3>"
+                  + field("Rating (%)", input("editRating", d.enjoyment || "", " type='number' min='0' max='100' step='1'"))
+                  + field("Balance", tasteChips("tasteBalance", ["sour", "balanced", "bitter"]))
+                  + field("Body", tasteChips("tasteBody", ["thin", "medium", "heavy"]))
+                  + "</div><div class='card'><h3>Notes</h3><textarea class='edit-textarea' id='editNotes'>" + escapeHtml(d.espressoNotes) + "</textarea></div>"
+                  + "<div class='cards'><div class='card'><h3>Shot</h3>"
+                  + field("Dose (g)", input("editDose", d.doseWeight, " type='number' step='0.1' oninput='autoCalcEY()'"))
+                  + field("Yield (g)", input("editYield", d.finalWeight, " type='number' step='0.1' oninput='autoCalcEY()'"))
+                  + field("TDS (%)", input("editTds", d.drinkTds || "", " type='number' step='0.01' oninput='autoCalcEY()'"))
+                  + field("EY (%)", input("editEy", d.drinkEy || "", " type='number' step='0.1' readonly style='opacity:0.7'"))
+                  + "</div><div class='card'><h3>Beans</h3>"
+                  + field("Brand", input("editBrand", d.beanBrand)) + field("Type", input("editType", d.beanType))
+                  + field("Roast date", input("editRoastDate", d.roastDate, " placeholder='YYYY-MM-DD'"))
+                  + field("Roast level", select("editRoastLevel", roast, d.roastLevel))
+                  + "</div><div class='card'><h3>Grinder</h3>"
+                  + field("Brand", input("editGrinderBrand", d.grinderBrand)) + field("Model", input("editGrinderModel", d.grinderModel))
+                  + field("Burrs", input("editGrinderBurrs", d.grinderBurrs)) + field("Setting", input("editGrinderSetting", d.grinderSetting))
+                  + field("RPM", input("editRpm", d.rpm > 0 ? d.rpm : "", " type='number' step='1' min='0'"))
+                  + "</div><div class='card'><h3>Additional</h3>"
+                  + field("Barista", input("editBarista", d.barista)) + field("Beverage", select("editBeverageType", bev, d.beverageType))
+                  + "</div></div>";
+            document.getElementById("details").innerHTML = h;
+            // Stepped candidates for the SHOT's own grinder, not the active one
+            // (grind-value-entry). Free text stays accepted either way.
+            attachGrindDatalist(document.getElementById("editGrinderSetting"), document.getElementById("editRpm"),
+                                d.grinderBrand, d.grinderModel);
+        }
+        function startEdit() {
+            if (editing) return;
+            editing = true;
+            editTaste = { tasteBalance: shot.tasteBalance || "", tasteBody: shot.tasteBody || "" };
+            renderEditForm({
+                enjoyment: shot.enjoyment, espressoNotes: shot.espressoNotes, doseWeight: shot.doseWeightG, finalWeight: shot.finalWeightG,
+                drinkTds: shot.drinkTds, drinkEy: shot.drinkEy, beanBrand: shot.beanBrand, beanType: shot.beanType, roastDate: shot.roastDate,
+                roastLevel: shot.roastLevel, grinderBrand: shot.grinderBrand, grinderModel: shot.grinderModel, grinderBurrs: shot.grinderBurrs,
+                grinderSetting: shot.grinderSetting, rpm: shot.rpm, barista: shot.barista, beverageType: shot.beverageType
+            });
+            document.getElementById("page").classList.add("editing");
+            document.getElementById("editBtn").style.display = "none";
+            document.getElementById("editBar").classList.add("visible");
+            // The form as edit mode opened it: a save sends only what changed from
+            // it, so a value Visualizer changed meanwhile is not written back over.
+            editStart = collectEdits();
+        }
         function cancelEdit() {
-            if (!isEditMode) return;
-            isEditMode = false;
-
-            document.querySelector('.metrics-bar').innerHTML = originalMetricsHTML;
-            document.querySelector('.info-grid').innerHTML = originalInfoGridHTML;
-            document.querySelector('.actions-bar').style.display = originalActionsDisplay;
-            document.getElementById('editBar').classList.remove('visible');
-            document.getElementById('editBtn').style.display = '';
-            document.querySelector('.container').style.paddingBottom = '';
-            var debugContainer = document.getElementById('debugLogContainer');
-            if (debugContainer) debugContainer.style.display = originalDebugDisplay;
+            if (!editing) return;
+            editing = false;
+            document.getElementById("page").classList.remove("editing");
+            document.getElementById("editBtn").style.display = "";
+            document.getElementById("editBar").classList.remove("visible");
+            renderDetails();
         }
-
         function autoCalcEY() {
-            var dose = parseFloat(document.getElementById('editDose').value) || 0;
-            var yieldVal = parseFloat(document.getElementById('editYield').value) || 0;
-            var tds = parseFloat(document.getElementById('editTds').value) || 0;
-            var eyField = document.getElementById('editEy');
-            if (dose > 0 && yieldVal > 0 && tds > 0) {
-                eyField.value = ((yieldVal * tds) / dose).toFixed(1);
-            }
+            var dose = parseFloat(document.getElementById("editDose").value) || 0;
+            var out = parseFloat(document.getElementById("editYield").value) || 0;
+            var tds = parseFloat(document.getElementById("editTds").value) || 0;
+            if (dose > 0 && out > 0 && tds > 0) document.getElementById("editEy").value = ((out * tds) / dose).toFixed(1);
         }
-
+        function val(id) { return document.getElementById(id).value; }
         function collectEdits() {
-            var ratingValue = parseInt(document.getElementById('editRating').value) || 0;
-            ratingValue = Math.max(0, Math.min(100, ratingValue));
-
             return {
-                beanBrand: document.getElementById('editBrand').value,
-                beanType: document.getElementById('editType').value,
-                roastDate: document.getElementById('editRoastDate').value,
-                roastLevel: document.getElementById('editRoastLevel').value,
-                grinderBrand: document.getElementById('editGrinderBrand').value,
-                grinderModel: document.getElementById('editGrinderModel').value,
-                grinderBurrs: document.getElementById('editGrinderBurrs').value,
-                grinderSetting: document.getElementById('editGrinderSetting').value,
-                rpm: parseInt(document.getElementById('editRpm').value) || 0,
-                espressoNotes: document.getElementById('editNotes').value,
-                doseWeight: parseFloat(document.getElementById('editDose').value) || 0,
-                finalWeight: parseFloat(document.getElementById('editYield').value) || 0,
-                enjoyment: ratingValue,
-                barista: document.getElementById('editBarista').value,
-                beverageType: document.getElementById('editBeverageType').value,
-                drinkTds: parseFloat(document.getElementById('editTds').value) || 0,
-                drinkEy: parseFloat(document.getElementById('editEy').value) || 0
+                enjoyment: Math.max(0, Math.min(100, parseInt(val("editRating")) || 0)),
+                tasteBalance: editTaste.tasteBalance, tasteBody: editTaste.tasteBody,
+                espressoNotes: val("editNotes"),
+                doseWeight: parseFloat(val("editDose")) || 0, finalWeight: parseFloat(val("editYield")) || 0,
+                drinkTds: parseFloat(val("editTds")) || 0, drinkEy: parseFloat(val("editEy")) || 0,
+                beanBrand: val("editBrand"), beanType: val("editType"), roastDate: val("editRoastDate"), roastLevel: val("editRoastLevel"),
+                grinderBrand: val("editGrinderBrand"), grinderModel: val("editGrinderModel"), grinderBurrs: val("editGrinderBurrs"),
+                grinderSetting: val("editGrinderSetting"), rpm: parseInt(val("editRpm")) || 0,
+                barista: val("editBarista"), beverageType: val("editBeverageType")
             };
         }
-
         function saveChanges() {
-            var edits = collectEdits();
-            var data = {};
-            Object.keys(edits).forEach(function(key) {
-                if (edits[key] !== editStartData[key]) data[key] = edits[key];
-            });
-            if (Object.keys(data).length === 0) {
-                cancelEdit();
-                return;
-            }
-
-            var btn = document.querySelector('.save-btn');
-            btn.textContent = 'Saving...';
-            btn.disabled = true;
-
-            fetch('/api/shot/' + shotData.id + '/metadata', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            }).then(function(r) {
-                if (!r.ok) throw new Error('Server error (' + r.status + ')');
-                return r.json();
-            }).then(function(result) {
-                if (result.success) {
-                    window.location.reload();
-                } else {
-                    alert('Save failed: ' + (result.error || 'Unknown error'));
-                    btn.textContent = 'Save';
-                    btn.disabled = false;
-                }
-            }).catch(function(err) {
-                alert('Save failed: ' + err);
-                btn.textContent = 'Save';
-                btn.disabled = false;
-            });
+            var edits = collectEdits(), data = {};
+            Object.keys(edits).forEach(function(k) { if (edits[k] !== editStart[k]) data[k] = edits[k]; });
+            if (Object.keys(data).length === 0) { cancelEdit(); return; }
+            var btn = document.querySelector(".save-btn");
+            btn.textContent = "Saving..."; btn.disabled = true;
+            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
+                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                .then(function(result) {
+                    if (result.success) { location.reload(); return; }
+                    alert("Save failed: " + (result.error || "Unknown error")); btn.textContent = "Save"; btn.disabled = false;
+                })
+                .catch(function(err) { alert("Save failed: " + err); btn.textContent = "Save"; btn.disabled = false; });
         }
 
-        )HTML" + QString::fromLatin1(WEB_JS_ESCAPE_HTML) + R"HTML(
-    </script>
-)HTML" R"HTML(
-    <script>
-        const pressureData = %15;
-        const flowData = %16;
-        const weightData = %17;
-        const tempData = %18;
-        const pressureGoalData = %19;
-        const flowGoalData = %20;
-        const phaseData = %22;
-        const weightFlowRateData = %23;
-        const resistanceData = %39;
+        function graphTraces() { return [{ curves: page.graph.curves, phases: page.graph.phases, offset: 0, hidden: false }]; }
+        var graphExtraChip = null;
 
-        // Chart.js plugin: draw vertical phase marker lines and labels
-        const phaseMarkerPlugin = {
-            id: 'phaseMarkers',
-            afterDraw: function(chart) {
-                if (!phaseData || phaseData.length === 0) return;
-                const ctx = chart.ctx;
-                const xScale = chart.scales.x;
-                const yScale = chart.scales.y;
-                const top = yScale.top;
-                const bottom = yScale.bottom;
-
-                ctx.save();
-                for (var i = 0; i < phaseData.length; i++) {
-                    var marker = phaseData[i];
-                    var x = xScale.getPixelForValue(marker.time);
-                    if (x < xScale.left || x > xScale.right) continue;
-
-                    // Draw vertical dotted line
-                    ctx.beginPath();
-                    ctx.setLineDash([3, 3]);
-                    ctx.strokeStyle = marker.label === 'End' ? '#FF6B6B' : 'rgba(255,255,255,0.4)';
-                    ctx.lineWidth = 1;
-                    ctx.moveTo(x, top);
-                    ctx.lineTo(x, bottom);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-
-                    // Draw label
-                    var suffix = '';
-                    if (marker.reason === 'weight') suffix = ' [W]';
-                    else if (marker.reason === 'pressure' || marker.reason === 'pressure_unconfirmed') suffix = ' [P]';
-                    else if (marker.reason === 'flow' || marker.reason === 'flow_unconfirmed') suffix = ' [F]';
-                    else if (marker.reason === 'time') suffix = ' [T]';
-                    var text = marker.label + suffix;
-
-                    ctx.save();
-                    ctx.translate(x + 4, top + 10);
-                    ctx.rotate(-Math.PI / 2);
-                    ctx.font = (marker.label === 'End' ? 'bold ' : '') + '11px sans-serif';
-                    ctx.fillStyle = marker.label === 'End' ? '#FF6B6B' : 'rgba(255,255,255,0.8)';
-                    ctx.textAlign = 'right';
-                    ctx.fillText(text, 0, 0);
-                    ctx.restore();
-                }
-                ctx.restore();
-            }
-        };
-
-        // Track mouse position for tooltip
-        var mouseX = 0, mouseY = 0;
-        document.addEventListener("mousemove", function(e) {
-            mouseX = e.pageX;
-            mouseY = e.pageY;
-        });
-
-        // Find closest data point to a given x value
-        function findClosestPoint(data, targetX) {
-            if (!data || data.length === 0) return null;
-            var closest = data[0];
-            var closestDist = Math.abs(data[0].x - targetX);
-            for (var i = 1; i < data.length; i++) {
-                var dist = Math.abs(data[i].x - targetX);
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    closest = data[i];
-                }
-            }
-            return closest;
-        }
-
-        // External tooltip showing all curves
-        function externalTooltip(context) {
-            var tooltipEl = document.getElementById("chartTooltip");
-            if (!tooltipEl) {
-                tooltipEl = document.createElement("div");
-                tooltipEl.id = "chartTooltip";
-                tooltipEl.style.cssText = "position:absolute;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px;pointer-events:none;font-size:13px;color:#e6edf3;z-index:100;";
-                document.body.appendChild(tooltipEl);
-            }
-
-            var tooltip = context.tooltip;
-            if (tooltip.opacity === 0) {
-                tooltipEl.style.opacity = 0;
-                return;
-            }
-
-            if (!tooltip.dataPoints || !tooltip.dataPoints.length) {
-                tooltipEl.style.opacity = 0;
-                return;
-            }
-
-            var targetX = tooltip.dataPoints[0].parsed.x;
-            var datasets = context.chart.data.datasets;
-            var lines = [];)HTML" R"HTML(
-
-            for (var i = 0; i < datasets.length; i++) {
-                var ds = datasets[i];
-                var meta = context.chart.getDatasetMeta(i);
-                if (meta.hidden) continue;
-
-                var pt = findClosestPoint(ds.data, targetX);
-                if (!pt || pt.y === null) continue;
-
-                var unit = "";
-                if (ds.label.includes("Pressure")) unit = " bar";
-                else if (ds.label.includes("Flow")) unit = " ml/s";
-                else if (ds.label.includes("Yield")) unit = " g";
-                else if (ds.label.includes("Temp")) unit = " °C";
-
-                lines.push('<div style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:12px;height:12px;background:' + ds.borderColor + ';border-radius:2px;"></span>' + ds.label + ': ' + pt.y.toFixed(1) + unit + '</div>');
-            }
-
-            tooltipEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px;">' + targetX.toFixed(1) + 's</div>' + lines.join('');
-            tooltipEl.style.opacity = 1;
-            tooltipEl.style.left = (mouseX + 15) + "px";
-            tooltipEl.style.top = (mouseY - 10) + "px";
-        }
-
-        const ctx = document.getElementById('shotChart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            plugins: [phaseMarkerPlugin],
-            data: {
-                datasets: [
-                    {
-                        label: 'Pressure',
-                        data: pressureData,
-                        borderColor: '#18c37e',
-                        backgroundColor: 'rgba(24, 195, 126, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Flow',
-                        data: flowData,
-                        borderColor: '#4e85f4',
-                        backgroundColor: 'rgba(78, 133, 244, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Yield',
-                        data: weightData,
-                        borderColor: '#a2693d',
-                        backgroundColor: 'rgba(162, 105, 61, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y2'
-                    },
-                    {
-                        label: 'Temp',
-                        data: tempData,
-                        borderColor: '#e73249',
-                        backgroundColor: 'rgba(231, 50, 73, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y3'
-                    },
-                    {
-                        label: 'Pressure Goal',
-                        data: pressureGoalData,
-                        borderColor: '#69fdb3',
-                        borderWidth: 1,
-                        borderDash: [5, 5],
-                        pointRadius: 0,
-                        tension: 0.1,
-                        yAxisID: 'y',
-                        spanGaps: false
-                    },
-                    {
-                        label: 'Flow Goal',
-                        data: flowGoalData,
-                        borderColor: '#7aaaff',
-                        borderWidth: 1,
-                        borderDash: [5, 5],
-                        pointRadius: 0,
-                        tension: 0.1,
-                        yAxisID: 'y',
-                        spanGaps: false
-                    },
-                    {
-                        label: 'Weight Flow',
-                        data: weightFlowRateData,
-                        borderColor: '#d4a574',
-                        backgroundColor: 'rgba(212, 165, 116, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Resistance',
-                        data: resistanceData,
-                        borderColor: '#eae83d',
-                        backgroundColor: 'rgba(234, 232, 61, 0.1)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.3,
-                        yAxisID: 'y',
-                        hidden: true
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'nearest',
-                    axis: 'x',
-                    intersect: false
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        enabled: false,
-                        external: externalTooltip
-                    }
-                },
-                scales: {
-                    x: {
-                        type: 'linear',
-                        title: { display: true, text: 'Time (s)', color: '#8b949e' },
-                        grid: { color: 'rgba(48, 54, 61, 0.5)' },
-                        ticks: { color: '#8b949e' }
-                    },
-                    y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: 'Pressure / Flow', color: '#8b949e' },
-                        min: 0,
-                        max: 12,
-                        grid: { color: 'rgba(48, 54, 61, 0.5)' },
-                        ticks: { color: '#8b949e' }
-                    },)HTML" R"HTML(
-                    y2: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: 'Yield (g)', color: '#a2693d' },
-                        min: 0,
-                        grid: { display: false },
-                        ticks: { color: '#a2693d' }
-                    },
-                    y3: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: false },
-                        min: 80,
-                        max: 100,
-                        display: false
-                    }
-                }
-            }
-        });
-
-        function toggleDataset(index, btn) {
-            const meta = chart.getDatasetMeta(index);
-            meta.hidden = !meta.hidden;
-            btn.classList.toggle('active');
-
-            // Also toggle goal lines for pressure/flow
-            if (index === 0) chart.getDatasetMeta(4).hidden = meta.hidden;
-            if (index === 1) chart.getDatasetMeta(5).hidden = meta.hidden;
-
-            chart.update();
-        }
-
-        function toggleMenu() {
-            var menu = document.getElementById("menuDropdown");
-            menu.classList.toggle("open");
-        }
-
-        function openSummaryDialog() {
-            document.getElementById("summaryModal").classList.add("open");
-        }
-        function closeSummaryDialog() {
-            document.getElementById("summaryModal").classList.remove("open");
-        }
-
-        document.addEventListener("click", function(e) {
-            var menu = document.getElementById("menuDropdown");
-            var btn = e.target.closest(".menu-btn");
-            if (!btn && menu.classList.contains("open")) {
-                menu.classList.remove("open");
-            }
-        });
-
-        // Power toggle
-)HTML");
-    html += WEB_JS_POWER_CONTROL;
-    html += WEB_JS_GRIND_DATALIST;
-    html += R"HTML(
+        setHeader();
+        graphInit("shotChart");
+        renderHappened();
+        renderDetails();
     </script>
 </body>
 </html>
-)HTML";
-    // Recipe identity, injected AFTER the .arg() chain: a recipe name is user
-    // text and may contain '%', which would shadow a numbered placeholder. Same
-    // reason the list card uses markers. Requires the name to resolve, not just
-    // the id — a dangling id must fall back to showing nothing rather than an
-    // empty line with an icon beside it.
-    QString detailRecipeHtml;
-    if (shot.recipeId > 0 && !shot.recipeName.isEmpty()) {
-        detailRecipeHtml =
-            QStringLiteral("<div class=\"subtitle shot-detail-recipe")
-            + (shot.recipeArchived ? QStringLiteral(" archived\" title=\"Archived recipe")
-                                   : QString())
-            + QStringLiteral("\"><span class=\"shot-drink-icon\">")
-            + drinkTypeEmoji(shot.recipeDrinkType)
-            + QStringLiteral("</span>")
-            + shot.recipeName.toHtmlEscaped().replace(QStringLiteral("__"),
-                                                      QStringLiteral("&#95;&#95;"))
-            + QStringLiteral("</div>");
+)HTML");
+    return html;
+}
+
+// One shot's curves and phase markers in the shape WEB_JS_SHOT_GRAPH draws:
+// [t, v] pairs at 0.01 precision. A goal curve breaks (null) across a gap of
+// more than half a second, where the profile had no goal, rather than drawing a
+// line through it.
+QJsonObject ShotServer::graphTraceJson(const ShotRecord& r, bool withGoals)
+{
+    auto round2 = [](double v) { return std::round(v * 100) / 100; };
+    auto curve = [&](const QVector<QPointF>& points) {
+        QJsonArray out;
+        for (const QPointF& p : points) out.append(QJsonArray{ round2(p.x()), round2(p.y()) });
+        return out;
+    };
+    auto goal = [&](const QVector<QPointF>& points) {
+        QJsonArray out;
+        double lastX = -1;
+        for (const QPointF& p : points) {
+            if (lastX >= 0 && p.x() - lastX > 0.5) out.append(QJsonArray{ round2((lastX + p.x()) / 2), QJsonValue() });
+            out.append(QJsonArray{ round2(p.x()), round2(p.y()) });
+            lastX = p.x();
+        }
+        return out;
+    };
+    QJsonObject curves{
+        { "pressure", curve(r.pressure) }, { "flow", curve(r.flow) },
+        { "temp", curve(r.temperature) }, { "weight", curve(r.weight) },
+        { "weightFlow", curve(r.weightFlowRate) }, { "resistance", curve(r.resistance) },
+        { "darcyR", curve(r.darcyResistance) }, { "conductance", curve(r.conductance) },
+        { "dCdt", curve(r.conductanceDerivative) }, { "mixTemp", curve(r.temperatureMix) },
+        { "mixTempGoal", curve(r.temperatureMixGoal) },
+    };
+    if (withGoals) {
+        curves[QStringLiteral("pressureGoal")] = goal(r.pressureGoal);
+        curves[QStringLiteral("flowGoal")] = goal(r.flowGoal);
     }
-
-    QString rendered = html
-    .arg(tempOverride > 0
-         ? shot.profileName.toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
-         : shot.profileName.toHtmlEscaped())
-    .arg(shot.dateTime)
-    .arg(shot.doseWeightG, 0, 'f', 1)
-    .arg(yieldDisplay)
-    .arg(ratio, 0, 'f', 1)
-    .arg(shot.durationSec, 0, 'f', 1)
-    .arg(ratingText)
-    .arg(shot.beanBrand.isEmpty() ? "-" : shot.beanBrand.toHtmlEscaped())
-    .arg(shot.beanType.isEmpty() ? "-" : shot.beanType.toHtmlEscaped())
-    .arg(shot.roastDate.isEmpty() ? "-" : shot.roastDate.toHtmlEscaped())
-    .arg(shot.roastLevel.isEmpty() ? "-" : shot.roastLevel.toHtmlEscaped())
-    .arg(shot.grinderBrand.isEmpty() && shot.grinderModel.isEmpty()
-         ? "-" : (shot.grinderBrand + " " + shot.grinderModel).trimmed().toHtmlEscaped())
-    .arg(shot.grinderSetting.isEmpty() ? "-" : shot.grinderSetting.toHtmlEscaped())
-    .arg(shot.espressoNotes.isEmpty() ? "No notes" : shot.espressoNotes.toHtmlEscaped())
-    .arg(pressureData)
-    .arg(flowData)
-    .arg(weightData)
-    .arg(tempData)
-    .arg(pressureGoalData)
-    .arg(flowGoalData)
-    .arg(shot.debugLog.isEmpty() ? "No debug log available" : shot.debugLog.toHtmlEscaped())
-    .arg(phaseData)
-    .arg(weightFlowRateData)
-    // shotData JS object fields (%24-%38)
-    .arg(shotId)                                                                     // %24 id
-    .arg(jsEscape(shot.beanBrand))                                                   // %25 beanBrand
-    .arg(jsEscape(shot.beanType))                                                    // %26 beanType
-    .arg(jsEscape(shot.roastDate))                                                   // %27 roastDate
-    .arg(jsEscape(shot.roastLevel))                                                  // %28 roastLevel
-    .arg(jsEscape(shot.grinderModel))                                                // %29 grinderModel
-    .arg(jsEscape(shot.grinderSetting))                                              // %30 grinderSetting
-    .arg(jsEscape(shot.espressoNotes))                                               // %31 espressoNotes
-    .arg(shot.doseWeightG, 0, 'f', 1)                                                // %32 doseWeightG
-    .arg(shot.finalWeightG, 0, 'f', 1)                                               // %33 finalWeightG
-    .arg(shot.enjoyment0to100)                                                       // %34 enjoyment
-    .arg(jsEscape(shot.barista))                                                     // %35 barista
-    .arg(jsEscape(shot.beverageType.isEmpty()
-                  ? QStringLiteral("espresso")
-                  : shot.beverageType))                                              // %36 beverageType
-    .arg(shot.drinkTdsPct, 0, 'f', 2)                                                // %37 drinkTds
-    .arg(shot.drinkEyPct, 0, 'f', 1)                                                 // %38 drinkEy
-    .arg(resistanceData)                                                             // %39 resistance
-    .arg(jsEscape(shot.grinderBrand))                                                // %40 grinderBrand
-    .arg(jsEscape(shot.grinderBurrs));                                               // %41 grinderBurrs
-
-    // badgesHtml / summaryLinesHtml carry detector-generated text and CSS that
-    // can contain literal `%`. Inject AFTER the .arg() chain via replace() so
-    // they can never feed Qt's placeholder scanner. See the build-site comment
-    // above for why doubling `%` doesn't actually escape.
-    rendered.replace(QStringLiteral("__BADGES_HTML__"), badgesHtml);
-    rendered.replace(QStringLiteral("__SUMMARY_LINES_HTML__"), summaryLinesHtml);
-    rendered.replace(QStringLiteral("__DETAIL_RECIPE__"), detailRecipeHtml);
-    return rendered;
+    QJsonArray phases;
+    for (const auto& ph : r.phases) {
+        if (ph.label == QLatin1String("Start")) continue;
+        phases.append(QJsonObject{ { "time", ph.time }, { "label", ph.label }, { "reason", ph.transitionReason } });
+    }
+    return QJsonObject{ { QStringLiteral("curves"), curves }, { QStringLiteral("phases"), phases } };
 }
 
 // Runs on the worker thread that loaded the shots: the comparison parses every
@@ -2443,37 +1758,15 @@ QJsonObject ShotServer::comparisonPageData(const QList<ShotRecord>& shotsIn)
         return a.summary.timestamp < b.summary.timestamp;
     });
 
-    auto curve = [](const QVector<QPointF>& points) {
-        QJsonArray out;
-        for (const QPointF& p : points)
-            out.append(QJsonArray{ std::round(p.x() * 100) / 100, std::round(p.y() * 100) / 100 });
-        return out;
-    };
-
-    static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
     QJsonArray shotData;
     QList<ShotProjection> projections;
     for (const ShotRecord& r : std::as_const(shots)) {
         projections.append(ShotHistoryStorage::convertShotRecord(r));
-        QJsonArray phases;
-        for (const auto& ph : r.phases) {
-            if (ph.label == QLatin1String("Start")) continue;
-            phases.append(QJsonObject{ { "time", ph.time }, { "label", ph.label }, { "reason", ph.transitionReason } });
-        }
-        shotData.append(QJsonObject{
-            { "id", r.summary.id },
-            { "date", QDateTime::fromSecsSinceEpoch(r.summary.timestamp).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm") },
-            { "pourStartSec", r.cachedAnalysis ? r.cachedAnalysis->detectors.pourStartSec : 0.0 },
-            { "phases", phases },
-            { "curves", QJsonObject{
-                { "pressure", curve(r.pressure) }, { "flow", curve(r.flow) },
-                { "temp", curve(r.temperature) }, { "weight", curve(r.weight) },
-                { "weightFlow", curve(r.weightFlowRate) }, { "resistance", curve(r.resistance) },
-                { "darcyR", curve(r.darcyResistance) }, { "conductance", curve(r.conductance) },
-                { "dCdt", curve(r.conductanceDerivative) }, { "mixTemp", curve(r.temperatureMix) },
-                { "mixTempGoal", curve(r.temperatureMixGoal) },
-            } },
-        });
+        QJsonObject shot = graphTraceJson(r, false);
+        shot[QStringLiteral("id")] = r.summary.id;
+        shot[QStringLiteral("date")] = ShotHistoryStorage::shortDateTime(r.summary.timestamp);
+        shot[QStringLiteral("pourStartSec")] = r.cachedAnalysis ? r.cachedAnalysis->detectors.pourStartSec : 0.0;
+        shotData.append(shot);
     }
     // The comparison against every possible base, so making a shot the base needs
     // no round trip. Same assembler as the app and MCP; at most ten shots.
@@ -2490,20 +1783,12 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
         return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
     }
 
-    // JSON as a script literal. "<" only ever occurs inside a JSON string, where
-    // \u003c means the same, so no note or name can close the <script> or open a
-    // comment that swallows it.
-    auto embed = [](const QJsonValue& v) {
-        const QByteArray json = v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
-                                            : QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact);
-        return QString::fromUtf8(json).replace(QLatin1Char('<'), QStringLiteral("\\u003c"));
-    };
     // The app's own icons, drawn in the text colour, so the two pages cannot drift.
     auto icon = [&](const QString& path) {
         QFile f(path);
         QString svg = f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
         svg.replace(QStringLiteral("\"white\""), QStringLiteral("\"currentColor\""));
-        return embed(QJsonArray{ svg }).mid(1).chopped(1);   // the JSON string literal alone
+        return embedJson(QJsonArray{ svg }).mid(1).chopped(1);   // the JSON string literal alone
     };
 
     QString html = QStringLiteral(R"HTML(<!DOCTYPE html>
@@ -2514,42 +1799,13 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
     <title>Compare Shots - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>)HTML");
-    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU;
+    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU
+          + QString::fromUtf8(WEB_CSS_SHOT_GRAPH) + QString::fromUtf8(WEB_CSS_COMPARISON_TEXT);
     html += QStringLiteral(R"HTML(
-        :root { --surface2: #1c2129; --up: #ffaa00; --down: #4e85f4; --warn: #ffaa00; }
+        :root { --surface2: #1c2129; --down: #4e85f4; --warn: #ffaa00; }
         .header { padding: 0.75rem 1.5rem; }
         .header-content { max-width: 1600px; gap: 1rem; }
         .menu-wrapper { margin-left: auto; }
-
-        .layout { max-width: 1600px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem;
-                  grid-template-columns: minmax(0, 1fr); }
-        /* Side by side once both fit: the graph stays in view while the comparison scrolls. */
-        @media (min-width: 1300px) {
-            .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-            .graph-col { position: sticky; top: 4.5rem; }
-        }
-        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
-        .chart-wrapper { position: relative; height: 360px; cursor: crosshair; }
-        @media (min-width: 1300px) { .chart-wrapper { height: 52vh; } }
-
-        .readout { margin-top: 0.5rem; overflow-x: auto; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-        .readout table { border-collapse: collapse; }
-        .readout th, .readout td { padding: 0.15rem 0.6rem; text-align: right; white-space: nowrap; }
-        .readout th:first-child, .readout td:first-child { text-align: left; }
-        .readout .quiet { color: var(--text-secondary); opacity: 0.5; }
-
-        .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.75rem; align-items: center; }
-        .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.7rem; border-radius: 999px;
-                border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
-                font-size: 0.8125rem; cursor: pointer; opacity: 0.6; }
-        .chip.on { opacity: 1; color: var(--text); }
-        .chip .dot { width: 7px; height: 7px; border-radius: 50%; }
-        .chip-sep { width: 1px; height: 1.4rem; background: var(--border); margin: 0 0.2rem; }
-
-        .swatch { display: inline-block; width: 22px; height: 2px; vertical-align: middle; background: var(--text); }
-        .swatch.heavy { height: 3px; }
-        .swatch.s1 { background: repeating-linear-gradient(90deg, var(--text) 0 4px, transparent 4px 6px); }
-        .swatch.s2 { background: repeating-linear-gradient(90deg, var(--text) 0 7px, transparent 7px 9px, var(--text) 9px 11px, transparent 11px 13px); }
 
         .heads, .row { display: grid; gap: 0.5rem; grid-template-columns: 7rem repeat(var(--n), minmax(0, 1fr)); }
         .heads { margin-bottom: 0.75rem; }
@@ -2572,25 +1828,14 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
         .head .eye svg { width: 16px; height: 16px; }
 
         .summary { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.9rem; margin: 0.2rem 0 0.2rem 0.2rem; }
-        .section { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); margin: 1.1rem 0 0.3rem; }
         .row { align-items: baseline; padding: 0.35rem 0; border-top: 1px solid rgba(48,54,61,0.6); font-variant-numeric: tabular-nums; }
         .row .label { color: var(--text-secondary); font-size: 0.875rem; }
         .row .label .unit { font-size: 0.75rem; opacity: 0.7; margin-left: 0.2rem; }
         .row .muted { color: var(--text-secondary); }
         .row .warn { color: var(--warn); }
-        .pill { font-size: 0.75rem; padding: 0 0.45rem; border-radius: 999px; margin-left: 0.4rem; white-space: nowrap; }
-        .pill.up { color: var(--up); background: rgba(255,170,0,0.16); }
-        .pill.down { color: var(--down); background: rgba(78,133,244,0.16); }
-        .note { color: var(--text-secondary); font-size: 0.8125rem; line-height: 1.6; }
-        .quote { color: var(--text-secondary); font-style: italic; font-size: 0.875rem; margin-top: 0.5rem; }
-        .more-btn { display: block; margin: 0.75rem auto 0; padding: 0.4rem 1rem; border-radius: 8px; border: 1px solid var(--border);
-                    background: var(--surface2); color: var(--text); cursor: pointer; }
-        .diff { font-size: 0.8125rem; color: var(--text-secondary); margin: 0.3rem 0; }
         /* Phone: each label takes its own line, so the value columns get the width. */
         @media (max-width: 600px) {
             .header { padding: 0.75rem 1rem; }
-            .chip-sep { display: none; }
-            .layout { padding: 0.5rem; }
             .heads, .row { grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
             .heads > .spacer { display: none; }
             .row .label { grid-column: 1 / -1; }
@@ -2619,50 +1864,27 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
     </main>
     <script>
 )HTML");
-    html += QStringLiteral("        var shots = ") + embed(shots)
-          + QStringLiteral(";\n        var comparisons = ") + embed(data.value(QStringLiteral("comparisons")))
-          + QStringLiteral(";\n        var texts = ") + embed(ShotComparisonText::toJson())
-          + QStringLiteral(";\n        var dialInLabels = ") + embed(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
-          + QStringLiteral(";\n        var puckFlags = ") + embed(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
+    html += QStringLiteral("        var shots = ") + embedJson(shots)
+          + QStringLiteral(";\n        var comparisons = ") + embedJson(data.value(QStringLiteral("comparisons")))
+          + QStringLiteral(";\n        var texts = ") + embedJson(ShotComparisonText::toJson())
+          + QStringLiteral(";\n        var dialInLabels = ") + embedJson(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
+          + QStringLiteral(";\n        var puckFlags = ") + embedJson(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
           + QStringLiteral(";\n        var icons = { eye: ") + icon(QStringLiteral(":/icons/eye.svg"))
           + QStringLiteral(", eyeOff: ") + icon(QStringLiteral(":/icons/eye-off.svg")) + QStringLiteral(" };\n");
     html += QString::fromLatin1(WEB_JS_ESCAPE_HTML);
     html += QString::fromLatin1(WEB_JS_MENU);
     html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
+    html += QString::fromUtf8(WEB_JS_COMPARISON_TEXT);
+    html += QString::fromUtf8(WEB_JS_SHOT_GRAPH);
     html += QStringLiteral(R"HTML(
-        // === Wording: ShotComparisonText, the table the app translates ===
-        function txt(id, fb) { var e = texts[id]; return e ? e.label : (fb !== undefined ? fb : id); }
-        var DASH = "—";
-
         // === State ===
         var base = 0;                 // index into shots (oldest first)
         var hiddenShots = {};          // by shot id
-        var hiddenPhases = {};
         var alignPours = false;
         var showMore = false;
-        var showAllCurves = false;
-        var crosshair = null;
-        var curves = [
-            { key: "pressure", label: "P", name: "Pressure", color: "#18c37e", axis: "y", on: true, tip: "Pressure at the group (bar)" },
-            { key: "flow", label: "F", name: "Flow", color: "#4e85f4", axis: "y", on: true, tip: "Flow through the puck (mL/s)" },
-            { key: "temp", label: "T", name: "Temp", color: "#e73249", axis: "y3", on: true, tip: "Group temperature (°C)" },
-            { key: "weight", label: "W", name: "Weight", color: "#a2693d", axis: "y2", on: true, tip: "Weight in the cup (g)" },
-            { key: "weightFlow", label: "WF", name: "Weight flow", color: "#d4a574", axis: "y", on: true, tip: "Weight flow into the cup (g/s)" },
-            { key: "resistance", label: "R", name: "Resistance", color: "#eae83d", axis: "y", on: false, tip: "Puck resistance (pressure / flow)" },
-            { key: "darcyR", label: "dR", name: "Resistance (P/F²)", color: "#f0a500", axis: "y", on: false, tip: "Darcy resistance (pressure / flow²)" },
-            { key: "conductance", label: "C", name: "Conductance", color: "#00c8d7", axis: "y", on: false, tip: "Conductance (flow² / pressure)" },
-            { key: "dCdt", label: "dC/dt", name: "dC/dt", color: "#e05aa0", axis: "y4", on: false, tip: "Rate of change of conductance; spikes reveal transient channels" },
-            { key: "mixTemp", label: "Tmix", name: "Mix temp", color: "#d79be0", axis: "y3", on: false, tip: "Water mix temperature" },
-            { key: "mixTempGoal", label: "Tmixg", name: "Mix temp goal", color: "#a983c9", axis: "y3", on: false, tip: "Water mix temperature goal" }
-        ];
-        var phaseColors = ["#FFD600", "#E91E63", "#00E5FF", "#76FF03", "#FF6D00"];
-        var dashes = [[], [6, 5], [10, 4, 2, 4]];
 
         var indexById = {};
         shots.forEach(function(s, i) { indexById[s.id] = i; });
-        var phaseLabels = [];
-        shots.forEach(function(s) { s.phases.forEach(function(p) { if (phaseLabels.indexOf(p.label) < 0) phaseLabels.push(p.label); }); });
-        for (var pl = 0; pl < phaseLabels.length - 2; pl++) hiddenPhases[phaseLabels[pl]] = true;
 
         function cmp() { return comparisons[base]; }
         // Shot indices in column order: the base, then the rest oldest first.
@@ -2672,209 +1894,14 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
             var b = shots[base].pourStartSec, o = shots[si].pourStartSec;
             return b > 0 && o > 0 ? b - o : 0;
         }
-        function swatch(col) { return "<span class='swatch s" + (col % 3) + (col === 0 ? " heavy" : "") + "'></span>"; }
-)HTML");
-    html += QStringLiteral(R"HTML(
-        // === Chart ===
-        var phasePlugin = {
-            id: "phases",
-            afterDraw: function(chart) {
-                var ctx = chart.ctx, xs = chart.scales.x, ys = chart.scales.y;
-                ctx.save();
-                columns().forEach(function(si, col) {
-                    if (hiddenShots[shots[si].id]) return;
-                    shots[si].phases.forEach(function(p) {
-                        if (hiddenPhases[p.label]) return;
-                        var x = xs.getPixelForValue(p.time + offsetFor(si));
-                        if (x < xs.left || x > xs.right) return;
-                        var color = phaseColors[phaseLabels.indexOf(p.label) % phaseColors.length];
-                        ctx.setLineDash(dashes[col % 3]); ctx.strokeStyle = color; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
-                        ctx.beginPath(); ctx.moveTo(x, ys.top); ctx.lineTo(x, ys.bottom); ctx.stroke();
-                        if (col === 0) {
-                            ctx.setLineDash([]); ctx.globalAlpha = 0.9; ctx.fillStyle = color; ctx.font = "11px sans-serif";
-                            ctx.fillText(p.label, x + 3, ys.top + 11);
-                        }
-                    });
-                });
-                if (crosshair !== null) {
-                    var cx = xs.getPixelForValue(crosshair);
-                    ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.globalAlpha = 1; ctx.lineWidth = 1;
-                    ctx.beginPath(); ctx.moveTo(cx, ys.top); ctx.lineTo(cx, ys.bottom); ctx.stroke();
-                }
-                ctx.restore();
-            }
-        };
-        function datasets() {
-            var out = [];
-            columns().forEach(function(si, col) {
-                if (hiddenShots[shots[si].id]) return;
-                var dx = offsetFor(si);
-                curves.forEach(function(c) {
-                    if (!c.on) return;
-                    var pts = (shots[si].curves[c.key] || []).map(function(p) { return { x: p[0] + dx, y: p[1] }; });
-                    out.push({ data: pts, borderColor: c.color, borderWidth: (col === 0 ? 2.5 : 1.5), pointRadius: 0,
-                               tension: 0.2, yAxisID: c.axis, borderDash: dashes[col % 3] });
-                });
+        function graphTraces() {
+            return columns().map(function(si) {
+                var s = shots[si];
+                return { curves: s.curves, phases: s.phases, offset: offsetFor(si), hidden: !!hiddenShots[s.id] };
             });
-            return out;
         }
-        var chart = new Chart(document.getElementById("compareChart").getContext("2d"), {
-            type: "line",
-            plugins: [phasePlugin],
-            data: { datasets: datasets() },
-            options: {
-                responsive: true, maintainAspectRatio: false, animation: false, events: [],
-                plugins: { legend: { display: false }, tooltip: { enabled: false } },
-                scales: {
-                    x: { type: "linear", min: 0, title: { display: true, text: "Time (s)", color: "#8b949e" },
-                         grid: { color: "rgba(48,54,61,0.5)" }, ticks: { color: "#8b949e" } },
-                    y: { min: 0, max: 12, title: { display: true, text: "bar / mL/s", color: "#8b949e" },
-                         grid: { color: "rgba(48,54,61,0.5)" }, ticks: { color: "#8b949e" } },
-                    y2: { position: "right", min: 0, title: { display: true, text: "g", color: "#a2693d" },
-                          grid: { display: false }, ticks: { color: "#a2693d" } },
-                    y3: { display: false, min: 40, max: 100 },
-                    y4: { display: false }
-                }
-            }
-        });
-        function redrawChart() { chart.data.datasets = datasets(); chart.update("none"); renderReadout(); }
-
-        // === Crosshair, read under the plot ===
-        var cvs = chart.canvas, dragging = false, touchDir = null, tsx = 0, tsy = 0;
-        function timeAt(clientX) {
-            var r = cvs.getBoundingClientRect(), xs = chart.scales.x;
-            return Math.max(xs.min, Math.min(xs.max, xs.getValueForPixel(clientX - r.left)));
-        }
-        function inspect(t) { crosshair = t; chart.update("none"); renderReadout(); }
-        cvs.addEventListener("mousedown", function(e) { dragging = true; inspect(timeAt(e.clientX)); });
-        document.addEventListener("mousemove", function(e) { if (dragging) inspect(timeAt(e.clientX)); });
-        document.addEventListener("mouseup", function() { dragging = false; });
-        cvs.addEventListener("touchstart", function(e) { touchDir = null; tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; }, { passive: true });
-        cvs.addEventListener("touchmove", function(e) {
-            var dx = e.touches[0].clientX - tsx, dy = e.touches[0].clientY - tsy;
-            if (!touchDir && Math.hypot(dx, dy) > 10) touchDir = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
-            if (touchDir === "h") { e.preventDefault(); inspect(timeAt(e.touches[0].clientX)); }
-        }, { passive: false });
-        cvs.addEventListener("touchend", function(e) { if (!touchDir) inspect(timeAt(e.changedTouches[0].clientX)); touchDir = null; });
-
-        function valueAt(si, key, t) {
-            var pts = shots[si].curves[key] || [], best = null, bd = 1;
-            var tt = t - offsetFor(si);
-            for (var i = 0; i < pts.length; i++) { var d = Math.abs(pts[i][0] - tt); if (d < bd) { bd = d; best = pts[i][1]; } }
-            return best;
-        }
-        // One row per visible shot whether or not anything is inspected, so a tap never moves the page.
-        function renderReadout() {
-            var on = curves.filter(function(c) { return c.on; });
-            var h = "<table><tr><th>" + (crosshair !== null ? crosshair.toFixed(1) + " s" : "") + "</th>";
-            on.forEach(function(c) { h += "<th style='color:" + c.color + "'>" + c.label + "</th>"; });
-            h += "</tr>";
-            columns().forEach(function(si, col) {
-                if (hiddenShots[shots[si].id]) return;
-                h += "<tr><td>" + swatch(col) + "</td>";
-                on.forEach(function(c) {
-                    var v = crosshair !== null ? valueAt(si, c.key, crosshair) : null;
-                    h += v === null ? "<td class='quiet'>–</td>" : "<td>" + v.toFixed(1) + "</td>";
-                });
-                h += "</tr>";
-            });
-            document.getElementById("readout").innerHTML = h + "</table>";
-        }
-
-        // === Chips: curves, phases, align pours ===
-        function renderChips() {
-            var h = "", off = 0;
-            curves.forEach(function(c, i) {
-                if (!c.on) off++;
-                if (!c.on && !showAllCurves) return;
-                h += "<button class='chip" + (c.on ? " on" : "") + "' title='" + escapeHtml(c.name + ": " + c.tip) + "' onclick='toggleCurve(" + i + ")'"
-                   + (c.on ? " style='border-color:" + c.color + "'" : "") + "><span class='dot' style='background:" + c.color + "'></span>" + c.label + "</button>";
-            });
-            if (off > 0) h += "<button class='chip' title='" + escapeHtml(txt(showAllCurves ? "tip.fewerCurves" : "tip.moreCurves"))
-                            + "' onclick='showAllCurves=!showAllCurves;renderChips()'>" + (showAllCurves ? escapeHtml(txt("ui.fewerCurves")) : "+" + off) + "</button>";
-            if (phaseLabels.length > 0) h += "<span class='chip-sep'></span>";
-            phaseLabels.forEach(function(p, i) {
-                var color = phaseColors[i % phaseColors.length], on = !hiddenPhases[p];
-                h += "<button class='chip" + (on ? " on" : "") + "' title='" + escapeHtml(txt("tip.phase").replace("%1", p)) + "' onclick='togglePhase(" + i + ")'"
-                   + (on ? " style='border-color:" + color + "'" : "") + "><span class='dot' style='background:" + color + "'></span>" + escapeHtml(p) + "</button>";
-            });
-            h += "<button class='chip" + (alignPours ? " on" : "") + "' title='" + escapeHtml(txt("tip.alignPours"))
-               + "' onclick='alignPours=!alignPours;renderChips();redrawChart()'>" + escapeHtml(txt("ui.alignPours")) + "</button>";
-            document.getElementById("chips").innerHTML = h;
-        }
-        function toggleCurve(i) { curves[i].on = !curves[i].on; renderChips(); redrawChart(); }
-        function togglePhase(i) { var p = phaseLabels[i]; if (hiddenPhases[p]) delete hiddenPhases[p]; else hiddenPhases[p] = true; renderChips(); chart.update("none"); }
-)HTML");
-    html += QStringLiteral(R"HTML(
-        // === Formatting (the app's ComparisonShotTable rules, in English) ===
-        function unitLabel(u) {
-            return { s: "s", g: "g", bar: "bar", mlPerSec: "mL/s", gPerSec: txt("unit.gPerSec"), celsius: "°C",
-                     celsiusDelta: "°C", percent: "%" }[u] || "";
-        }
-        function signed(v, d) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d); }
-        function metricText(row, v) {
-            if (v === null || v === undefined) return DASH;
-            var s = v.toFixed(row.decimals);
-            return row.key === "ratio" ? "1:" + s : s;
-        }
-        function puckLabels(canon) {
-            var flags = (canon || "").split(",");
-            return puckFlags.filter(function(f) { return flags.indexOf(f.key) >= 0; }).map(function(f) { return f.label; });
-        }
-        function inputText(row, cell) {
-            var has = cell.value !== null && cell.value !== undefined;
-            if (row.key === "temperatureOverrideC" && !has) return txt("input.profileTemp");
-            if (row.key === "puckPrep") return puckLabels(cell.text).join(" · ") || DASH;
-            if (!has || row.unit === "") return cell.text || DASH;
-            if (row.unit === "g") return cell.value.toFixed(1) + " g";
-            if (row.unit === "rpm") return Math.round(cell.value) + " " + txt("unit.rpm");
-            if (row.unit === "celsius") return cell.value.toFixed(1) + " °C";
-            return cell.text || String(cell.value);
-        }
-        function inputDelta(row, d) {
-            if (d === null || d === undefined) return "";
-            var t = signed(row.unit === "rpm" ? Math.round(d) : d, row.unit === "rpm" ? 0 : row.key === "grinderSetting" ? 2 : 1);
-            return t.indexOf(".") >= 0 ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
-        }
-        function pill(delta, text) {
-            if (!text) return "";
-            return "<span class='pill " + (delta > 0 ? "up" : "down") + "'>" + (delta > 0 ? "▲ " : "▼ ") + text.replace(/^[+−]/, "") + "</span>";
-        }
-        function plain(key, v) {
-            if (typeof v === "number") return key === "rpm" ? String(Math.round(v)) : key === "temperatureOverrideC" ? v.toFixed(1) + " °C" : v.toFixed(1);
-            return String(v);
-        }
-        function summaryFor(c) {
-            var out = [];
-            (c.summary || []).forEach(function(f) {
-                if (f.kind === "sameSetup") out.push(txt("phrase.sameSetup"));
-                else if (f.kind === "noNotable") out.push(txt("phrase.noNotable"));
-                else if (f.kind === "input") out.push(txt("input." + f.key, f.key) + " " + plain(f.key, f.from) + " → " + plain(f.key, f.to));
-                else if (f.kind === "inputChanged") out.push(txt("phrase.changed").replace("%1", txt("input." + f.key, f.key)));
-                else if (f.kind === "moreInputs") out.push(txt("phrase.moreInputs").replace("%1", f.count));
-                else if (f.kind === "metric") {
-                    var amount = Math.abs(f.delta).toFixed(f.decimals) + (unitLabel(f.unit) ? " " + unitLabel(f.unit) : "");
-                    out.push(txt(f.phrase).replace("%1", txt("metric." + f.key, f.key)).replace("%2", amount));
-                } else if (f.kind === "stopped") out.push(txt("stopped." + f.stoppedBy, ""));
-                else if (f.kind === "badgeAppeared") out.push(txt("phrase.badgeAppeared").replace("%1", txt("badge." + f.badge, f.badge)));
-                else if (f.kind === "badgeGone") out.push(txt("phrase.badgeGone").replace("%1", txt("badge." + f.badge, f.badge)));
-            });
-            out = out.filter(function(t) { return t.length > 0; });
-            return out.length > 0 ? out.join("  ·  ") : txt("phrase.noNotable");
-        }
-        // Profile-diff rows: ProfileDialInText's labels and the decimals C++ chose,
-        // as ProfileDialInDiffBlock.qml shows them.
-        function dialInLabel(id) { var e = dialInLabels[id]; return e ? e.label : id; }
-        function diffRowText(r) {
-            var name = dialInLabel(r.kind);
-            if (r.frameIndex >= 0) name = (r.frameName || dialInLabel("step").replace("%1", r.frameIndex + 1)) + " · " + name;
-            function val(v) {
-                var u = { celsius: " °C", celsiusTank: " °C", bar: " bar", mlPerSec: " mL/s", g: " g", ml: " mL" }[r.unit];
-                return v.toFixed(r.decimals) + (u !== undefined ? u : r.unit ? " " + r.unit : "");
-            }
-            return name + " " + (r.numeric ? val(r.oldValue) + " → " + val(r.newValue)
-                                           : (r.oldText || DASH) + " → " + (r.newText || DASH));
-        }
+        var graphExtraChip = { label: txt("ui.alignPours"), tip: txt("tip.alignPours"),
+                               on: function() { return alignPours; }, toggle: function() { alignPours = !alignPours; } };
 )HTML");
     html += QStringLiteral(R"HTML(
         // === The comparison ===
@@ -2892,7 +1919,7 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
                 var s = shots[si], hidden = !!hiddenShots[s.id];
                 h += "<div class='head" + (col === 0 ? " base" : "") + "'><div title='" + escapeHtml(txt(col === 0 ? "ui.baseShot" : "ui.makeBase").replace("%1", s.date)) + "'"
                    + (col === 0 ? "" : " onclick='setBase(" + si + ")'") + ">"
-                   + swatch(col) + "<span class='date'>" + escapeHtml(s.date) + "</span>"
+                   + graphSwatch(col) + "<span class='date'>" + escapeHtml(s.date) + "</span>"
                    + (col === 0 ? "<span class='tag'>" + escapeHtml(txt("ui.base")) + "</span>" : "")
                    + "<button class='eye" + (hidden ? " off" : "") + "' title='" + escapeHtml(txt(hidden ? "ui.showOnGraph" : "ui.hideOnGraph"))
                    + "' aria-pressed='" + !hidden + "' onclick='event.stopPropagation();toggleShot(" + s.id + ")'>"
@@ -2901,7 +1928,7 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
             h += "</div>";
 
             c.comparisons.forEach(function(cc, i) {
-                h += "<div class='summary'>" + swatch(i + 1) + "<span>" + escapeHtml(summaryFor(cc)) + "</span></div>";
+                h += "<div class='summary'>" + graphSwatch(i + 1) + "<span>" + escapeHtml(summaryFor(cc)) + "</span></div>";
             });
 
             h += "<div class='section'>" + escapeHtml(txt("ui.changed")) + "</div>";
@@ -2970,9 +1997,12 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
         function setBase(si) { base = si; renderComparison(); redrawChart(); }
         function toggleShot(id) { if (hiddenShots[id]) delete hiddenShots[id]; else hiddenShots[id] = true; renderComparison(); redrawChart(); }
 
-        renderChips();
+        // The last two phases on: the pour, where shots differ, without a wall of markers.
+        var allPhases = [];
+        shots.forEach(function(s) { s.phases.forEach(function(p) { if (allPhases.indexOf(p.label) < 0) allPhases.push(p.label); }); });
+        allPhases.slice(0, -2).forEach(function(p) { hiddenPhases[p] = true; });
+        graphInit("compareChart");
         renderComparison();
-        renderReadout();
     </script>
 </body>
 </html>
