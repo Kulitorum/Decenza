@@ -150,7 +150,7 @@ When weight-timed steaming applies the fixed duration instead of a weight-scaled
 
 ### Requirement: Review-page milk button
 
-The post-shot review page SHALL offer a milk-weigh button immediately left of the Read TDS button, shown only while weight-timed steaming is on, at least one usable pitcher exists, and a real (non-flow) scale is connected. A usable pitcher is an enabled pitcher preset with a saved empty-pitcher weight. At rest the button SHALL show the selected pitcher's name, followed by the captured milk weight once there is one.
+The shot page SHALL offer a milk-weigh button immediately left of the Read TDS button, shown only while weight-timed steaming is on, at least one usable pitcher exists, a real (non-flow) scale is connected, and the page shows the most recently saved shot. A usable pitcher is an enabled pitcher preset with a saved empty-pitcher weight. At rest the button SHALL show the selected pitcher's name, followed by the captured milk weight once there is one.
 
 #### Scenario: Button hidden without the prerequisites
 - **WHEN** weight-timed steaming is off, or no usable pitcher exists, or no real scale is connected
@@ -163,6 +163,10 @@ The post-shot review page SHALL offer a milk-weigh button immediately left of th
 #### Scenario: Captured weight shown
 - **WHEN** 180 g of milk has been captured against "Small"
 - **THEN** the button shows "Small · 180 g"
+
+#### Scenario: An older shot opened from history
+- **WHEN** the user opens a shot from history that is not the most recently saved one
+- **THEN** the milk-weigh button is not shown, since no steam follows that shot
 
 ### Requirement: Review-page capture is the shared capture attempt
 

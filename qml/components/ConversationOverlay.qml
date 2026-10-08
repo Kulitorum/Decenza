@@ -136,7 +136,7 @@ Rectangle {
 
     /**
      * Open the conversation overlay with shot context.
-     * Encapsulates the common AI button click logic from PostShotReviewPage and ShotDetailPage:
+     * Encapsulates the common AI button click logic from the shot page and its other callers:
      * checks beverage type, switches conversation, generates summary, and opens overlay.
      */
     function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {

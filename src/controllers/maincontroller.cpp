@@ -633,7 +633,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Authoritative C++ writeback: a successful Visualizer upload
     // persists its returned id to the originating local shot row here,
     // independent of any UI page. (Previously only a transient
-    // PostShotReviewPage/ShotDetailPage handler did this, so uploads
+    // PostShotReviewPage handler did this, so uploads
     // silently went unrecorded when the review page was disabled,
     // auto-closed, or navigated away before the ~1s round-trip — see
     // OpenSpec change persist-visualizer-id-in-controller.)

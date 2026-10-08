@@ -215,6 +215,51 @@ Item {
         inspecting = false
     }
 
+    // === Crosshair values for GraphReadout, and phase chips for GraphChipRow ===
+
+    readonly property var readoutCurves: {
+        let out = []
+        for (const e of GraphSeries.entries) {
+            if (e.advanced && !advancedMode) continue
+            if (e.portal && portalSamples.length === 0) continue
+            if (!Settings.graph[e.key]) continue
+            out.push(e)
+        }
+        return out
+    }
+    readonly property int readoutRowCount: 1
+    function readoutRowVisible(row) { return true }
+    // GraphSeries dataKeys, read from inspectValues; "" when there is no value there.
+    function readoutText(row, dataKey) {
+        if (!inspecting) return ""
+        switch (dataKey) {
+        case "portalEc":   return inspectValues.portalEc ? inspectValues.portalEc.value.toFixed(3) : ""
+        case "portalTemp": return inspectValues.portalTemperature ? inspectValues.portalTemperature.value.toFixed(1) : ""
+        }
+        const key = dataKey === "temp" ? "temperature" : dataKey === "darcyR" ? "darcyResistance" : dataKey
+        const v = inspectValues[key]
+        return v ? v.value.toFixed(1) : ""
+    }
+
+    // One entry per phase the shot entered, for GraphChipRow. Start and End are
+    // structural markers, not phases.
+    readonly property var phaseEntries: {
+        let out = [], seen = {}
+        for (const m of phaseMarkers) {
+            if (m.label === "Start" || m.label === "End" || seen[m.label]) continue
+            seen[m.label] = true
+            out.push({ label: m.label, color: "transparent" })
+        }
+        return out
+    }
+    property var hiddenPhaseLabels: ({})
+    function togglePhaseLabel(label) {
+        let h = Object.assign({}, hiddenPhaseLabels)
+        if (h[label]) delete h[label]
+        else h[label] = true
+        hiddenPhaseLabels = h
+    }
+
     function portalValuesAtTime(time) {
         var reading = GraphUtils.portalReadingAtTime(portalSamples, time)
         if (!reading) return null
@@ -620,7 +665,7 @@ Item {
             dashPattern: isStart ? [4, 2, 1, 2] : [1, 3]
             // "End" markers were inconsistently emitted in older history rows; the
             // last frame-transition marker already signals end of extraction.
-            visible: !isEnd
+            visible: !isEnd && !chart.hiddenPhaseLabels[markerLabel]
         }
     }
 
@@ -642,7 +687,7 @@ Item {
             y: graphsView.plotArea.y
             height: graphsView.plotArea.height
             visible: markerTime <= timeAxis.max && markerTime >= 0 && chart.showPhaseLabels
-                     && markerLabel !== "End"
+                     && markerLabel !== "End" && !chart.hiddenPhaseLabels[markerLabel]
 
             Text {
                 text: {

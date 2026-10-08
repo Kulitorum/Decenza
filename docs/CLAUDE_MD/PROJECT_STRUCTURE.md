@@ -128,7 +128,7 @@ src/
 
 ```
 qml/
-├── pages/                  # Full-screen pages (EspressoPage, ShotDetailPage, etc.)
+├── pages/                  # Full-screen pages (EspressoPage, PostShotReviewPage, etc.)
 │   └── settings/           # Settings tab pages
 ├── components/             # Reusable components (ShotGraph, StatusBar, etc.)
 ├── simulator/              # Simulator UI (GHCSimulatorWindow)

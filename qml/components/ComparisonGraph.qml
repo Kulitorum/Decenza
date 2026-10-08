@@ -553,7 +553,7 @@ Item {
         opacity: 0.6
     }
 
-    // === Crosshair values, read by ComparisonReadout under the plot ===
+    // === Crosshair values, read by GraphReadout under the plot ===
 
     // The curves currently drawn, from the one series table the chips also read.
     readonly property var readoutCurves: {
@@ -567,6 +567,9 @@ Item {
         }
         return out
     }
+
+    readonly property int readoutRowCount: comparisonModel ? comparisonModel.shotCount : 0
+    function readoutRowVisible(shotIdx) { return shotVisible(shotIdx) }
 
     // "" when the shot has no value there (not inspecting, or the shot had ended).
     function readoutText(shotIdx, dataKey) {

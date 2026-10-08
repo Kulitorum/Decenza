@@ -10,7 +10,7 @@ translation would be fetched by every user of that language when the element ren
 Safe patterns, all already used in the tree:
   * plain Text (no textFormat) -- the default, and what Tr.qml uses, so the ~3,200 ordinary
     call sites are not affected
-  * Theme.escapeHtml(TranslationManager.translate(...))  -- ShotDetailPage.qml:344
+  * Theme.escapeHtml(TranslationManager.translate(...))  -- BeanBaseDetailsRow.qml:79
   * Theme.joinWithBullet(parts)                          -- escapes each part
   * Theme.replaceEmojiWithImg(text, size)                -- escapes non-emoji chunks unless
     the third argument allowMarkup is true, which callers pass only for HTML they built

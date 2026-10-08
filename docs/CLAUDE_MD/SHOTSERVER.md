@@ -6,7 +6,7 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 
 - `shotserver.cpp` — core server + route dispatch
 - `shotserver_layout.cpp` — layout editor web UI (inline HTML/JS)
-- `shotserver_shots.cpp` — shot history endpoints
+- `shotserver_shots.cpp` — shot history endpoints and the `/shots`, `/shot/<id>` and `/compare/` pages. `/shot/<id>` is the web counterpart of the app's shot page (`PostShotReviewPage`): it edits in place through `POST /api/shot/<id>/metadata`, refreshes its results from `GET /api/shot/<id>/outcome`, and uploads through `POST /api/shot/<id>/upload`. Its graph and comparison text come from `webtemplates/shot_graph.h` and `webtemplates/comparison_text.h`, shared with `/compare/`.
 - `shotserver_backup.cpp` — backup/restore endpoints
 - `shotserver_settings.cpp` — settings endpoints
 - `shotserver_ai.cpp` — AI assistant endpoints
@@ -38,6 +38,24 @@ When adding or restyling any of these pages, use these helpers — do not paste 
 - **Always verify the operation was accepted** after calling `LibrarySharing` methods. Methods like `browseCommunity()` and `downloadEntry()` silently return if already busy (`m_browsing`/`m_downloading`). Check `isBrowsing()`/`isDownloading()` after the call and send an immediate error response if rejected — otherwise the request hangs until the 60s timeout.
 - **Always log timeout and cleanup events.** Use `qWarning()` when a timeout fires, `qDebug()` when a response is dropped (socket disconnected) or when a duplicate callback is blocked by the fired guard.
 - **Only one request per type** is allowed at a time (`hasInFlightLibraryRequest`), because `LibrarySharing` is a singleton that emits one signal consumed by whichever handler is connected.
+
+## Cross-site requests
+
+`WebRequestGuard::crossSiteReason()` (`src/network/webrequestguard.cpp`) runs in `onReadyRead()`
+as soon as a request's headers are complete, before any body is buffered, and refuses with 403:
+a `Host` that is not this machine (DNS rebinding: only IP literals, localhost, single labels,
+exactly the machine's hostname and LAN/mDNS/Tailscale suffixes pass); an `Origin` naming
+another host; and on `/api` or `/mcp` paths any `Sec-Fetch-Site` other than `same-origin` or
+`none`. The `Origin` check is the defence for writes, and browsers send it over plain HTTP too,
+so **every route with a side effect takes POST**; the `Sec-Fetch-*` headers reach only https,
+the tsnet funnel and localhost (Fetch Standard, "append the Fetch metadata headers"), so on the
+default `http://<ip>` page a GET from an `<img>` on another site is indistinguishable from curl.
+A top-level navigation to a page from another site still opens; HTML responses carry
+`frame-ancestors 'self'`, so no other site can frame a page and click through it. Non-browser
+clients (curl, Home Assistant, MCP clients) send none of these headers and pass. No ShotServer
+response carries `Access-Control-Allow-Origin` (`/mcp` keeps its own CORS handling behind its
+access token, `mcpserver.cpp`), so a page on another site cannot read the server's JSON. The web
+pages only ever fetch their own origin. `tests/tst_webrequestguard.cpp` holds the cases.
 
 ## JavaScript `fetch()` calls
 

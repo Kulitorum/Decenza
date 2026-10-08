@@ -9,7 +9,7 @@ import Decenza
 // Compact Bean Base summary: bag thumbnail + "origin · variety · process"
 // one-liner + tap-to-open-details. Zero footprint when the blob is empty —
 // unlinked beans and legacy shots render nothing. Mounted on BeanInfoPage,
-// PostShotReviewPage, and ShotDetailPage, each feeding its own blob source.
+// and PostShotReviewPage, each feeding its own blob source.
 Item {
     id: root
 

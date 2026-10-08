@@ -589,6 +589,96 @@ private slots:
         });
     }
 
+    // The shot page's "Shot results": the previous shot is the one before on the SAME
+    // profile (a shot in between on another profile is skipped), and a first shot on
+    // its profile is compared with nothing.
+    void shotOutcome_comparesWithThePreviousShotOnTheSameProfile()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("shot_outcome"), [&](QSqlDatabase& db) {
+            const qint64 first = insertShot(db, { .timestamp = 1000, .profileName = QStringLiteral("D-Flow / Q"),
+                                                  .grinderSetting = QStringLiteral("10") });
+            insertShot(db, { .timestamp = 1500, .profileName = QStringLiteral("Blooming") });
+            const qint64 latest = insertShot(db, { .timestamp = 2000, .profileName = QStringLiteral("D-Flow / Q"),
+                                                   .grinderSetting = QStringLiteral("9.5") });
+
+            const QVariantMap outcome = ShotHistoryStorage::shotOutcomeStatic(db, latest);
+            QCOMPARE(outcome.value(QStringLiteral("previousShotId")).toLongLong(), first);
+            QVERIFY2(!outcome.value(QStringLiteral("previousDateTime")).toString().isEmpty(),
+                     "the card names the previous shot by its time");
+            const QJsonObject comparison = QJsonObject::fromVariantMap(
+                outcome.value(QStringLiteral("comparison")).toMap());
+            QCOMPARE(comparison.value(QStringLiteral("baseShotId")).toInteger(), first);
+            const QJsonArray comparisons = comparison.value(QStringLiteral("comparisons")).toArray();
+            QCOMPARE(comparisons.size(), 1);
+            QVERIFY(comparisons[0].toObject().value(QStringLiteral("changedInputs")).toArray()
+                        .contains(QStringLiteral("grinderSetting")));
+            bool sawGrind = false;
+            for (const QJsonValue& row : comparison.value(QStringLiteral("inputs")).toArray()) {
+                if (row[QStringLiteral("key")].toString() != QLatin1String("grinderSetting")) continue;
+                sawGrind = true;
+                QCOMPARE(row[QStringLiteral("cells")][1][QStringLiteral("delta")].toDouble(), -0.5);
+            }
+            QVERIFY2(sawGrind, "the grind change must be an input row");
+
+            const QVariantMap alone = ShotHistoryStorage::shotOutcomeStatic(db, first);
+            QCOMPARE(alone.value(QStringLiteral("previousShotId")).toLongLong(), 0);
+            QVERIFY(alone.value(QStringLiteral("previousDateTime")).toString().isEmpty());
+            // The web route's 404 is this emptiness (the loader logs the miss).
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("operation=loadShotRecord.*shotId=\\s*999999")));
+            QVERIFY(ShotHistoryStorage::shotOutcomeStatic(db, 999999).isEmpty());
+            const QJsonObject aloneComparison = QJsonObject::fromVariantMap(
+                alone.value(QStringLiteral("comparison")).toMap());
+            QCOMPARE(aloneComparison.value(QStringLiteral("shots")).toArray().size(), 1);
+            QVERIFY(aloneComparison.value(QStringLiteral("comparisons")).toArray().isEmpty());
+            QVERIFY2(!aloneComparison.value(QStringLiteral("metrics")).toArray().isEmpty(),
+                     "a shot with no previous one still reports what happened");
+        });
+    }
+
+    // The production arm of the previous-shot query: every shot since migration 9 has
+    // a profile kb id. The kb id beats the name (a renamed profile still matches, the
+    // same name under another kb id does not), and a pre-migration row with no kb id
+    // is matched by the shot's own name.
+    void previousShot_matchesByKbIdThenByNameForOldRows()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("prev_kb"), [&](QSqlDatabase& db) {
+            const qint64 preMigration = insertShot(db, { .timestamp = 1000, .profileName = QStringLiteral("D-Flow / Q") });
+            insertShot(db, { .timestamp = 1500, .profileName = QStringLiteral("D-Flow / Q"), .profileKbId = QStringLiteral("kb-other") });
+            const qint64 mid = insertShot(db, { .timestamp = 1700, .profileName = QStringLiteral("D-Flow / Q"),
+                                                .profileKbId = QStringLiteral("kb-dflow") });
+            const qint64 renamed = insertShot(db, { .timestamp = 1800, .profileName = QStringLiteral("D-Flow / Q v2"),
+                                                    .profileKbId = QStringLiteral("kb-dflow") });
+            const qint64 latest = insertShot(db, { .timestamp = 2000, .profileName = QStringLiteral("D-Flow / Q"),
+                                                   .profileKbId = QStringLiteral("kb-dflow") });
+            QCOMPARE(ShotHistoryStorage::previousShotIdStatic(db, latest), renamed);
+            QCOMPARE(ShotHistoryStorage::previousShotIdStatic(db, renamed), mid);
+            QCOMPARE(ShotHistoryStorage::previousShotIdStatic(db, mid), preMigration);
+        });
+    }
+
+    // Newer and Older on the web page step by (timestamp, id): two imported shots
+    // that share a second are both reachable, and the ends answer 0.
+    void neighbourShots_orderByTimestampThenId()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("neighbours"), [&](QSqlDatabase& db) {
+            const qint64 a = insertShot(db, { .timestamp = 1000, .profileName = QStringLiteral("A") });
+            const qint64 b = insertShot(db, { .timestamp = 1000, .profileName = QStringLiteral("B") });
+            const qint64 c = insertShot(db, { .timestamp = 1200, .profileName = QStringLiteral("C") });
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, c, false), b);
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, b, false), a);
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, a, true), b);
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, b, true), c);
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, a, false), qint64(0));
+            QCOMPARE(ShotHistoryStorage::neighbourShotIdStatic(db, c, true), qint64(0));
+        });
+    }
+
     // -------------------------------------------------------------------
     // bestRecentShotBlock — rated shot inside the 90-day window emits
     // the full block, with daysSinceShot reflecting fixture-relative age

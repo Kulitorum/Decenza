@@ -181,10 +181,14 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-    // Async: the shot pulled just before `shotId` on the same profile and equipment
-    // package — the pair "Compare with previous shot" opens. Emits
-    // previousShotReady(shotId, 0) when there is none.
-    Q_INVOKABLE void requestPreviousShot(qint64 shotId);
+    // Async: how the shot went and how it differs from the shot pulled just before
+    // it on the same profile, drink and equipment package. Emits
+    // shotOutcomeReady(shotId, { previousShotId (0: none), previousDateTime (that
+    // shot's time as a label), comparison }), where comparison is
+    // ShotComparison::compare() with the previous shot as base, or of this shot
+    // alone. An empty map when the shot cannot be read; nothing before ready, so
+    // callers ask from onShotReady.
+    Q_INVOKABLE void requestShotOutcome(qint64 shotId);
 
     // Dial-in history for one profile family, scoped to one equipment package.
     // Summary data, no time-series. Thread-safe: the caller provides its own
@@ -263,7 +267,7 @@ public:
     // any recomputed flag differs from the stored column, issues an UPDATE on the same
     // connection so the DB converges with the current detector logic. outBadgesPersisted
     // (when non-null) is set true when a write happened, false otherwise — used by
-    // requestReanalyzeBadges to decide whether to emit shotBadgesUpdated.
+    // requestShot to decide whether to emit shotBadgesUpdated.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
                                             bool* outBadgesPersisted = nullptr,
                                             const char* requestedBy = "unspecified");
@@ -308,6 +312,17 @@ public:
     // (id == 0, isValid() == false) when the record is empty. Replaces the
     // QVariantMap projection that lived here pre-#975 — see shotprojection.h.
     static ShotProjection convertShotRecord(const ShotRecord& record);
+    // A shot's time as a label, "Oct 6, 10:35 AM": the comparison headers, the shot
+    // page's previous shot and the web pages.
+    static QString shortDateTime(qint64 secsSinceEpoch);
+    // The shot pulled just before `shotId` on the same profile, drink and equipment
+    // package; 0 when there is none. Caller provides the connection.
+    static qint64 previousShotIdStatic(QSqlDatabase& db, qint64 shotId);
+    // The shot after (newer) or before (older) this one in history, by (timestamp, id)
+    // so two imported shots sharing a second are both reachable; 0 at either end.
+    static qint64 neighbourShotIdStatic(QSqlDatabase& db, qint64 shotId, bool newer);
+    // The payload requestShotOutcome delivers, for a caller with its own connection.
+    static QVariantMap shotOutcomeStatic(QSqlDatabase& db, qint64 shotId);
 
     // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
     // Safe to call from any thread (does not use m_db). Returns shotId or -1 on failure.
@@ -449,13 +464,6 @@ public:
     // Async: recomputes all quality badge flags for a shot and updates the DB if changed.
     // Emits shotBadgesUpdated() only when at least one flag changed. No signal is emitted
     // if the shot ID is not in the database or if all flags are already up to date.
-    //
-    // The standard QML detail-page flow does NOT need to call this: requestShot already
-    // routes through loadShotRecordStatic, which persists drift on the same connection
-    // and lets requestShot itself emit shotBadgesUpdated. This entry point exists for
-    // any explicit "re-evaluate this one shot" use case (e.g., a future bulk-resweep UI).
-    Q_INVOKABLE void requestReanalyzeBadges(qint64 shotId);
-
     // Import a shot record directly (for .shot file import).
     // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error.
     // If overwriteExisting is true, duplicates will be replaced instead of skipped.
@@ -659,7 +667,7 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
-    void previousShotReady(qint64 shotId, qint64 previousShotId);
+    void shotOutcomeReady(qint64 shotId, const QVariantMap& outcome);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void profileUsageReady(const QVariantMap& usage);
     void latestShotForBeanProfileReady(const QVariantMap& shot);

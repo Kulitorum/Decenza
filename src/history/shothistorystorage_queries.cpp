@@ -518,7 +518,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
         "shots.recipe_id, r.name, r.drink_type, r.archived");
 
     // Recipe identity is resolved HERE, in the list query, and never per row: a
-    // RecipeResolver in the delegate (correct on Shot Detail, which shows one
+    // RecipeResolver in the delegate (correct on the shot page, which shows one
     // shot) would be one async database request per visible row, re-fired on
     // every scroll recycle. The join is on the recipes primary key, inside a
     // query that already runs off the main thread, and adds no per-row work —
@@ -624,7 +624,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             // be archived, never hard-deleted, so recipe_id always
                             // resolves; renaming a recipe therefore relabels its whole
                             // history, which is the same rule shot-recipe-card already
-                            // applies on Shot Detail. NULL for a shot with no recipe:
+                            // applies on the shot page. NULL for a shot with no recipe:
                             // recipeId reads 0, the rest empty/false.
                             shot["recipeId"] = query.value(22).toLongLong();
                             shot["recipeName"] = query.value(23).toString();

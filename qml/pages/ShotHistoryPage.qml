@@ -25,7 +25,7 @@ T.Page {
     property bool _waitingForShotLoad: false
 
     // First activation does a full reset-to-top load. Subsequent activations
-    // (returning from a pushed child page like Shot Detail) re-query the same
+    // (returning from a pushed child page like the shot page) re-query the same
     // window and restore the scroll position instead of jumping to the top.
     property bool _initialized: false
     property real _pendingRestoreContentY: -1
@@ -76,7 +76,7 @@ T.Page {
                 _populateSearchFromFilter(initialFilter)
             loadShots()
         } else {
-            // Returning from a pushed child page (Shot Detail, comparison,
+            // Returning from a pushed child page (the shot page, comparison,
             // post-shot review): re-query the same window so edited ratings or
             // badges stay fresh, then restore where the user was scrolled.
             reloadPreservingScroll()
@@ -421,24 +421,19 @@ T.Page {
         clearSelection()
     }
 
-    // Get the list of shot IDs for navigation (selected shots or all loaded shots)
+    // The shots the shot page can step through (the selection, else the whole list),
+    // newest first whatever the list's sort, since the page's buttons say Newer and Older.
     function getNavigableShotIds() {
-        if (selectedShots.length > 0) {
-            // Return selected shots sorted chronologically
-            return selectedShots.slice().sort(function(a, b) { return a - b })
-        } else {
-            // Return all loaded shots from the model
-            let ids = []
-            for (let i = 0; i < shotListModel.count; i++) {
-                ids.push(shotListModel.get(i).id)
-            }
-            return ids
-        }
+        let ids = selectedShots.slice()
+        if (ids.length === 0)
+            for (let i = 0; i < shotListModel.count; i++) ids.push(shotListModel.get(i).id)
+        return ids.sort(function(a, b) { return b - a })
     }
 
     function openShotDetail(shotId) {
+        // A row opened outside the selection is on its own.
         var shotIds = getNavigableShotIds()
-        AppShell.shotDetailRequested(shotId, shotIds)
+        AppShell.shotDetailRequested(shotId, shotIds.indexOf(shotId) >= 0 ? shotIds : [])
     }
 
     ListModel {
@@ -994,7 +989,7 @@ T.Page {
                                 // the Twemoji cloud this used to reach for: that asset's fills are
                                 // baked in at #CCD6DD/#E1E8ED, near-white, which all but vanished
                                 // against a light-mode row and could not follow the theme at all.
-                                // Matches the same indicator on ShotDetailPage.
+                                // Matches the same indicator on the shot page.
                                 ThemedIcon {
                                     source: "qrc:/icons/CloudUpload.svg"
                                     iconSize: Theme.scaled(16)
@@ -1080,9 +1075,7 @@ T.Page {
                         // Create-recipe button (promote this shot to a recipe —
                         // opens the composer prefilled from the shot, add-recipes).
                         // Hidden when the shot already came FROM a recipe: offering to
-                        // create one from it then reads as broken. Shot Detail has
-                        // gated this since shot-pages-card-cleanup; History, Auto
-                        // Favorites and the web list never got the same rule.
+                        // create one from it then reads as broken.
                         Rectangle {
                             visible: !shotDelegate.hasRecipe
                             Layout.preferredWidth: recipeButtonText.implicitWidth + Theme.scaled(20)
@@ -1113,36 +1106,7 @@ T.Page {
                             }
                         }
 
-                        // Edit button (green circle with E)
-                        Rectangle {
-                            Layout.preferredWidth: Theme.scaled(40)
-                            Layout.preferredHeight: Theme.scaled(40)
-                            radius: Theme.scaled(20)
-                            color: Theme.successColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: editArea.clicked(null)
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: "E"
-                                font.pixelSize: Theme.scaled(18)
-                                font.bold: true
-                                color: Theme.primaryContrastColor
-                                Accessible.ignored: true
-                            }
-
-                            MouseArea {
-                                id: editArea
-                                anchors.fill: parent
-                                onClicked: {
-                                    AppShell.postShotReviewRequested(shotDelegate.model.id, false)
-                                }
-                            }
-                        }
-
-                        // Detail arrow
+                        // Opens the shot on its page, with the list to step through.
                         Rectangle {
                             Layout.preferredWidth: Theme.scaled(40)
                             Layout.preferredHeight: Theme.scaled(40)

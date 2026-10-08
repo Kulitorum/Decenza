@@ -7,7 +7,7 @@ import Decenza
 // off-screen, and reads as a subtitle to the page title — which is why it lives in
 // leftContent (beside the title) rather than in the action slot.
 //
-// Shared by Shot Review and Shot Detail; both had a verbatim copy of this block.
+// The shot page's bottom-bar subtitle: profile and date.
 // Width is capped both by a share of the page and by whatever the bar has left after
 // its title and buttons (see BottomBar.leftContentMaxWidth), so a long profile name
 // elides instead of pushing the action buttons off the right edge.

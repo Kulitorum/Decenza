@@ -829,6 +829,13 @@ DecenzaDialog {
     function updateShotSnapshot(bagId, bag) {
         var sid = root.shotId ?? 0
         if (sid <= 0 || !MainController.shotHistory) return
+        // An inventory bag: the server writes the snapshot from the bag
+        // (CoffeeBag::shotSnapshot), as for the web page's picker. A row that is
+        // not a bag (a bean seen in history, bagId -1) has only its own fields.
+        if (bagId > 0) {
+            MainController.shotHistory.requestUpdateShotMetadata(sid, { "bagId": bagId })
+            return
+        }
         MainController.shotHistory.requestUpdateShotMetadata(sid, {
             "beanBrand": bag.roasterName || "",
             "beanType": bag.coffeeName || "",

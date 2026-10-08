@@ -341,6 +341,7 @@ set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
 target_link_libraries(decenza_shotlib PUBLIC
     decenza_testlib
+    decenza_shotcomparisonlib   # ShotHistoryStorage::shotOutcomeStatic
     Qt6::Quick
 )
 # ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
@@ -1160,8 +1161,8 @@ set_target_properties(decenza_aiproviderlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_P
 target_link_libraries(decenza_aiproviderlib PUBLIC decenza_testlib)
 
 # Shot-to-shot comparison: the advisor's change detection (dialing_blocks.cpp),
-# MCP shots_compare and the comparison tests. Not in decenza_testlib, which every
-# target links; only these need it.
+# MCP shots_compare, the shot page's outcome (via decenza_shotlib) and the
+# comparison tests. Not in decenza_testlib, which every target links.
 add_library(decenza_shotcomparisonlib STATIC ${CMAKE_SOURCE_DIR}/src/history/shotcomparison.cpp)
 set_target_properties(decenza_shotcomparisonlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_shotcomparisonlib PUBLIC decenza_testlib)
@@ -1181,6 +1182,9 @@ target_link_libraries(decenza_settingsserializerlib PUBLIC decenza_testlib)
 add_library(decenza_webdebugloggerlib STATIC ${CMAKE_SOURCE_DIR}/src/network/webdebuglogger.cpp)
 set_target_properties(decenza_webdebugloggerlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_webdebugloggerlib PUBLIC decenza_testlib)
+
+add_library(decenza_webrequestguardlib STATIC ${CMAKE_SOURCE_DIR}/src/network/webrequestguard.cpp)
+target_link_libraries(decenza_webrequestguardlib PUBLIC decenza_testlib)
 
 add_library(decenza_wifiscaleresultlib STATIC ${CMAKE_SOURCE_DIR}/src/network/wifiscaleresult.cpp)
 set_target_properties(decenza_wifiscaleresultlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -1683,6 +1687,12 @@ add_decenza_test(tst_webdebuglogger
 )
 target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
 target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_webrequestguard: the shot server's cross-site refusal. Its own file because
+# a cross-site write let through, or a same-origin or non-browser one refused, fails
+# nowhere else in the suite. ---
+add_decenza_test(tst_webrequestguard tst_webrequestguard.cpp)
+target_link_libraries(tst_webrequestguard PRIVATE decenza_webrequestguardlib)
 
 # --- tst_mcplogfilter: shared filter/tail helpers for debug_get_log / shots_get_debug_log ---
 # (mcplogfilter.h is header-only — nothing to link beyond decenza_testlib's Qt Core.)

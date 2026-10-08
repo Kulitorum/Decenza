@@ -27,6 +27,7 @@
 
 class ShotHistoryStorage;
 struct ShotRecord;
+class QSqlDatabase;
 class DE1Device;
 class MachineState;
 class MainController;
@@ -180,9 +181,13 @@ private:
 
     QString getLocalIpAddress() const;
     QString generateShotListPage(const QVariantList& shots) const;
-    QString generateShotDetailPage(qint64 shotId, const ShotProjection& shot) const;
+    // Worker thread: the shot page's curves, outcome, neighbours, phase summaries
+    // and Decent upload state.
+    static QJsonObject shotPageData(QSqlDatabase& db, const ShotRecord& record);
+    QString generateShotDetailPage(const ShotProjection& shot, const QJsonObject& pageData) const;
     // Worker thread: the shots and every base's comparison, as the page embeds them.
     static QJsonObject comparisonPageData(const QList<ShotRecord>& shots);
+    static QJsonObject graphTraceJson(const ShotRecord& record, bool withGoals);
     QString generateComparisonPage(const QJsonObject& data) const;
     QString generateDebugPage() const;
     QString generateUploadPage() const;

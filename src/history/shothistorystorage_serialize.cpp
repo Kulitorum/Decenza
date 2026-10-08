@@ -33,6 +33,12 @@ QVariantList pointsToVariant(const QVector<QPointF>& points)
 
 } // namespace
 
+QString ShotHistoryStorage::shortDateTime(qint64 secsSinceEpoch)
+{
+    return QDateTime::fromSecsSinceEpoch(secsSinceEpoch)
+        .toString(decenza::storage::detail::use12h() ? QStringLiteral("MMM d, h:mm AP") : QStringLiteral("MMM d, HH:mm"));
+}
+
 ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 {
     using decenza::storage::detail::AnalysisInputs;

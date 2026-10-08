@@ -8,8 +8,8 @@ import Decenza
 
 // The comparison against the base shot: shot headers, a summary sentence per
 // shot, what the user changed, and what the shot did. Everything is read from
-// ShotComparisonModel.comparison (ShotComparison::compare); this file only lays
-// it out and words it.
+// ShotComparisonModel.comparison (ShotComparison::compare); this file lays it
+// out, and ComparisonText words it.
 ColumnLayout {
     id: root
 
@@ -31,139 +31,6 @@ ColumnLayout {
     readonly property font numberFont: Theme.bodyFont
 
     function shotInfo(i) { return comparisonModel.getShotInfo(i) }
-
-    // ── Wording ─────────────────────────────────────────────────────────────
-    // ShotComparisonText: the same table the web page reads, translated here.
-    readonly property var texts: comparisonModel.texts || ({})
-    function txt(id, fallback) {
-        const e = texts[id]
-        return e ? TranslationManager.translate(e.key, e.label) : (fallback !== undefined ? fallback : id)
-    }
-    function inputLabel(key) { return txt("input." + key, key) }
-    function metricLabel(key) { return txt("metric." + key, key) }
-    function badgeLabel(key) { return txt("badge." + key, key) }
-    function stopText(by) { return by ? txt("stop." + by, "\u2014") : "\u2014" }
-    function puckLabels(canonical) { return PuckPrepLabels.labelsFor(canonical) }
-
-    function inputText(row, cell) {
-        const hasValue = cell.value !== null && cell.value !== undefined
-        // No override means the profile's own temperature, not a missing value.
-        if (row.key === "temperatureOverrideC" && !hasValue)
-            return txt("input.profileTemp")
-        if (row.key === "puckPrep")
-            return puckLabels(cell.text).join(" \u00b7 ") || "\u2014"
-        if (!hasValue || row.unit === "")
-            return cell.text || "\u2014"
-        switch (row.unit) {
-        case "g":       return cell.value.toFixed(1) + " " + TranslationManager.translate("common.unit.grams", "g")
-        case "rpm":     return Math.round(cell.value) + " " + txt("unit.rpm")
-        case "celsius": return Theme.formatTemperature(cell.value, 1)
-        }
-        return cell.text || String(cell.value)
-    }
-
-    function inputDelta(row, delta) {
-        if (delta === null || delta === undefined) return ""
-        const d = row.unit === "rpm" ? Math.round(delta) : row.unit === "celsius"
-            ? Theme.cDeltaToDisplay(delta) : delta
-        const decimals = row.unit === "rpm" ? 0 : row.key === "grinderSetting" ? 2 : 1
-        // Trim zeros only after a decimal point: "+0.50" reads "+0.5", "+100" stays.
-        const t = signed(d, decimals)
-        return t.indexOf(".") >= 0 ? t.replace(/0+$/, "").replace(/\.$/, "") : t
-    }
-
-    function unitLabel(unit) {
-        switch (unit) {
-        case "s":            return TranslationManager.translate("common.unit.seconds", "s")
-        case "g":            return TranslationManager.translate("common.unit.grams", "g")
-        case "bar":          return TranslationManager.translate("espresso.unit.bar", "bar")
-        case "mlPerSec":     return TranslationManager.translate("espresso.unit.flowRate", "mL/s")
-        case "gPerSec":      return txt("unit.gPerSec")
-        case "celsius":
-        case "celsiusDelta": return Theme.tempUnitSuffix()
-        case "percent":      return "%"
-        }
-        return ""
-    }
-
-    function displayValue(row, v) {
-        if (row.unit === "celsius") return Theme.cToDisplay(v)
-        if (row.unit === "celsiusDelta") return Theme.cDeltaToDisplay(v)
-        return v
-    }
-
-    function metricText(row, v) {
-        if (v === null || v === undefined) return "—"
-        const s = displayValue(row, v).toFixed(row.decimals)
-        return row.key === "ratio" ? "1:" + s : s
-    }
-
-    function signed(v, decimals) {
-        return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(decimals)
-    }
-
-    function metricDelta(row, d) {
-        if (d === null || d === undefined) return ""
-        const shown = row.unit === "celsius" || row.unit === "celsiusDelta" ? Theme.cDeltaToDisplay(d) : d
-        return signed(shown, row.decimals)
-    }
-
-    function ratingText(s) {
-        let parts = []
-        if (s.rating0to100 !== null && s.rating0to100 !== undefined) parts.push(s.rating0to100 + "%")
-        if (s.tasteBalance) parts.push(txt("taste." + s.tasteBalance, s.tasteBalance))
-        if (s.tasteBody) parts.push(txt("taste." + s.tasteBody, s.tasteBody))
-        return parts.length > 0 ? parts.join(" · ") : "—"
-    }
-
-    // One compared shot's summary, from the facts C++ chose and ordered; this only
-    // words them and formats the numbers.
-    function summaryFor(c) {
-        let out = []
-        for (const f of (c.summary || [])) {
-            switch (f.kind) {
-            case "sameSetup":
-                out.push(txt("phrase.sameSetup"))
-                break
-            case "noNotable":
-                out.push(txt("phrase.noNotable"))
-                break
-            case "input":
-                out.push(inputLabel(f.key) + " " + _plain(f.key, f.from) + " \u2192 " + _plain(f.key, f.to))
-                break
-            case "inputChanged":
-                out.push(txt("phrase.changed").arg(inputLabel(f.key)))
-                break
-            case "moreInputs":
-                out.push(txt("phrase.moreInputs").arg(f.count))
-                break
-            case "metric": {
-                const amount = metricDelta(f, Math.abs(f.delta)).replace(/^\+/, "")
-                    + (unitLabel(f.unit) ? " " + unitLabel(f.unit) : "")
-                out.push(txt(f.phrase).arg(metricLabel(f.key)).arg(amount))
-                break
-            }
-            case "stopped":
-                out.push(txt("stopped." + f.stoppedBy, ""))
-                break
-            case "badgeAppeared":
-                out.push(txt("phrase.badgeAppeared").arg(badgeLabel(f.badge)))
-                break
-            case "badgeGone":
-                out.push(txt("phrase.badgeGone").arg(badgeLabel(f.badge)))
-                break
-            }
-        }
-        out = out.filter(function(t) { return t.length > 0 })
-        return out.length > 0 ? out.join("  \u00b7  ") : txt("phrase.noNotable")
-    }
-
-    function _plain(key, v) {
-        if (typeof v === "number")
-            return key === "rpm" ? String(Math.round(v)) : key === "temperatureOverrideC"
-                ? Theme.formatTemperature(v, 1) : v.toFixed(1)
-        return String(v)
-    }
 
     readonly property var visibleMetrics: {
         const rows = cmp.metrics || []
@@ -205,18 +72,18 @@ ColumnLayout {
             const it = items[i]
             let v = it.text
             if (it.value !== null && it.value !== undefined && it.unit !== "")
-                v = inputText(it, it)
+                v = ComparisonText.inputText(it, it)
             if (it.key === "profile") {
                 let sameVersion = comparisons.length > 0
                 for (const c of comparisons) sameVersion = sameVersion && c.profile && c.profile.sameVersion === true
-                if (sameVersion) v += " " + root.txt("ui.sameVersion")
+                if (sameVersion) v += " " + ComparisonText.txt("ui.sameVersion")
             } else if (it.key === "puckPrep") {
                 // Commas, not the line's own dots, so the prep reads as one item.
-                v = root.txt("ui.prep")
-                    .arg(puckLabels(it.text).join(", "))
+                v = ComparisonText.txt("ui.prep")
+                    .arg(PuckPrepLabels.labelsFor(it.text).join(", "))
             } else if (selfDescribing.indexOf(it.key) < 0 && it.unit !== "rpm") {
                 // A bare date or number says nothing on its own; name it.
-                v = inputLabel(it.key) + " " + v
+                v = ComparisonText.inputLabel(it.key) + " " + v
             }
             parts.push(v)
         }
@@ -281,7 +148,7 @@ ColumnLayout {
                     Text {
                         id: baseTag
                         anchors.centerIn: parent
-                        text: root.txt("ui.base")
+                        text: ComparisonText.txt("ui.base")
                         font: Theme.captionFont
                         color: Theme.primaryColor
                         Accessible.ignored: true
@@ -302,8 +169,8 @@ ColumnLayout {
                     AccessibleMouseArea {
                         anchors.fill: parent
                         accessibleName: (headerCard.shownOnGraph
-                            ? root.txt("ui.hideOnGraph")
-                            : root.txt("ui.showOnGraph"))
+                            ? ComparisonText.txt("ui.hideOnGraph")
+                            : ComparisonText.txt("ui.showOnGraph"))
                             + ", " + (headerCard.info.dateTime || "")
                         accessibleRole: Accessible.CheckBox
                         accessibleChecked: headerCard.shownOnGraph
@@ -317,8 +184,8 @@ ColumnLayout {
                 anchors.rightMargin: Theme.scaled(34)
                 enabled: !headerCard.isBase
                 accessibleName: headerCard.isBase
-                    ? root.txt("ui.baseShot").arg(headerCard.info.dateTime || "")
-                    : root.txt("ui.makeBase").arg(headerCard.info.dateTime || "")
+                    ? ComparisonText.txt("ui.baseShot").arg(headerCard.info.dateTime || "")
+                    : ComparisonText.txt("ui.makeBase").arg(headerCard.info.dateTime || "")
                 onAccessibleClicked: root.comparisonModel.setBaseShot(headerCard.modelData.shotId)
             }
         }
@@ -342,7 +209,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: root.summaryFor(summaryLine.modelData)
+                text: ComparisonText.summaryFor(summaryLine.modelData)
                 font: Theme.labelFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap
@@ -354,7 +221,7 @@ ColumnLayout {
 
     // ── What you changed ────────────────────────────────────────────────────
     ComparisonSectionHeader {
-        text: root.txt("ui.changed")
+        text: ComparisonText.txt("ui.changed")
     }
 
     Repeater {
@@ -365,10 +232,10 @@ ColumnLayout {
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: root.cellW
-            label: root.inputLabel(modelData.key)
+            label: ComparisonText.inputLabel(modelData.key)
             cells: modelData.cells
-            textFor: function(cell) { return root.inputText(inputRow.modelData, cell) }
-            deltaFor: function(cell) { return root.inputDelta(inputRow.modelData, cell.delta) }
+            textFor: function(cell) { return ComparisonText.inputText(inputRow.modelData, cell) }
+            deltaFor: function(cell) { return ComparisonText.inputDelta(inputRow.modelData, cell.delta) }
             deltaSignFor: function(cell) { return cell.delta === null || cell.delta === undefined ? 0 : Math.sign(cell.delta) }
             mutedFor: function(cell) { return cell.state === "same" }
             numberFont: root.numberFont
@@ -381,7 +248,7 @@ ColumnLayout {
         visible: root.comparisons.length > 0
                  && root.comparisons.every(function(c) { return c.nothingChanged === true })
         Layout.fillWidth: true
-        text: root.txt("ui.nothingChanged")
+        text: ComparisonText.txt("ui.nothingChanged")
         font: Theme.labelFont
         color: Theme.textSecondaryColor
         wrapMode: Text.WordWrap
@@ -391,8 +258,8 @@ ColumnLayout {
         visible: root.unchangedText.length > 0
         Layout.fillWidth: true
         text: (root.columnCount > 2
-               ? root.txt("ui.sameForAll")
-               : root.txt("ui.sameForBoth"))
+               ? ComparisonText.txt("ui.sameForAll")
+               : ComparisonText.txt("ui.sameForBoth"))
               + "  ·  " + root.unchangedText
         font: Theme.captionFont
         color: Theme.textSecondaryColor
@@ -409,7 +276,7 @@ ColumnLayout {
             readonly property var diffRows: modelData.profile ? (modelData.profile.rows || []) : []
             visible: diffRows.length > 0
             Layout.fillWidth: true
-            headingOverride: root.txt("ui.profileChanged")
+            headingOverride: ComparisonText.txt("ui.profileChanged")
                              .arg(root.shotInfo(index + 1).dateTime || "")
             diff: ({ hasBase: true, unchanged: false, baseTitle: "", rows: diffRows })
         }
@@ -417,7 +284,7 @@ ColumnLayout {
 
     // ── What happened ───────────────────────────────────────────────────────
     ComparisonSectionHeader {
-        text: root.txt("ui.happened")
+        text: ComparisonText.txt("ui.happened")
     }
 
     Repeater {
@@ -428,11 +295,11 @@ ColumnLayout {
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: root.cellW
-            label: root.metricLabel(modelData.key)
-            unit: root.unitLabel(modelData.unit)
+            label: ComparisonText.metricLabel(modelData.key)
+            unit: ComparisonText.unitLabel(modelData.unit)
             cells: modelData.cells
-            textFor: function(cell) { return root.metricText(metricRow.modelData, cell.value) }
-            deltaFor: function(cell) { return root.metricDelta(metricRow.modelData, cell.delta) }
+            textFor: function(cell) { return ComparisonText.metricText(metricRow.modelData, cell.value) }
+            deltaFor: function(cell) { return ComparisonText.metricDelta(metricRow.modelData, cell.delta) }
             deltaSignFor: function(cell) { return cell.delta === null || cell.delta === undefined ? 0 : Math.sign(cell.delta) }
             mutedFor: function(cell) { return false }
             numberFont: root.numberFont
@@ -444,9 +311,9 @@ ColumnLayout {
         Layout.fillWidth: true
         labelWidth: root.labelColW
         cellWidth: root.cellW
-        label: root.txt("row.stopped")
+        label: ComparisonText.txt("row.stopped")
         cells: root.shots
-        textFor: function(s) { return root.stopText(s.stoppedBy) }
+        textFor: function(s) { return ComparisonText.stopText(s.stoppedBy) }
         numberFont: root.numberFont
     }
 
@@ -458,12 +325,12 @@ ColumnLayout {
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: root.cellW
-            label: root.badgeLabel(modelData)
+            label: ComparisonText.badgeLabel(modelData)
             cells: root.shots
             textFor: function(s) {
                 return (s.badges || []).indexOf(badgeRow.modelData) >= 0
-                    ? root.txt("ui.yes")
-                    : root.txt("ui.no")
+                    ? ComparisonText.txt("ui.yes")
+                    : ComparisonText.txt("ui.no")
             }
             warnFor: function(s) { return (s.badges || []).indexOf(badgeRow.modelData) >= 0 }
             numberFont: root.numberFont
@@ -476,9 +343,9 @@ ColumnLayout {
         Layout.fillWidth: true
         labelWidth: root.labelColW
         cellWidth: root.cellW
-        label: root.txt("row.rating")
+        label: ComparisonText.txt("row.rating")
         cells: root.shots
-        textFor: function(s) { return root.ratingText(s) }
+        textFor: function(s) { return ComparisonText.ratingText(s) }
         // Only between two rated shots; the base is the first cell.
         function ratingDelta(s) {
             const b = root.shots[0]
@@ -486,7 +353,7 @@ ColumnLayout {
                     || b.rating0to100 === null || b.rating0to100 === undefined) return 0
             return s.rating0to100 - b.rating0to100
         }
-        deltaFor: function(s) { const d = ratingRow.ratingDelta(s); return d === 0 ? "" : root.signed(d, 0) }
+        deltaFor: function(s) { const d = ratingRow.ratingDelta(s); return d === 0 ? "" : ComparisonText.signed(d, 0) }
         deltaSignFor: function(s) { return Math.sign(ratingRow.ratingDelta(s)) }
         numberFont: root.numberFont
     }
@@ -496,8 +363,8 @@ ColumnLayout {
         Layout.alignment: Qt.AlignHCenter
         subtle: true
         text: root.showMore
-            ? root.txt("ui.showLess")
-            : root.txt("ui.showMore").arg(root.hiddenMetricCount)
+            ? ComparisonText.txt("ui.showLess")
+            : ComparisonText.txt("ui.showMore").arg(root.hiddenMetricCount)
         accessibleName: text
         onClicked: root.showMore = !root.showMore
     }

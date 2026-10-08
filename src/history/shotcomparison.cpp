@@ -478,6 +478,11 @@ QJsonObject pairChanges(const ShotProjection& from, const ShotProjection& to,
 
 QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex)
 {
+    return compare(input, baseIndex, MetricRows::Supported);
+}
+
+QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex, MetricRows rows)
+{
     QJsonObject out;
     if (input.isEmpty() || baseIndex < 0 || baseIndex >= input.size()) return out;
 
@@ -546,7 +551,7 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex)
         const QString key = QLatin1String(def.key);
         bool any = false;
         for (const auto& m : metrics) any |= m.contains(key);
-        if (!any) continue;
+        if (!any && !(rows == MetricRows::Defaults && !def.more)) continue;
         QJsonArray cells;
         for (qsizetype i = 0; i < metrics.size(); ++i) {
             QJsonObject cell;

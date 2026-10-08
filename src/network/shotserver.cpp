@@ -1,6 +1,8 @@
 #include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "shotserver.h"
+#include "shotuploads.h"
+#include "webrequestguard.h"
 #include "shotserveruploadroute.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
@@ -796,6 +798,22 @@ void ShotServer::onReadyRead()
 
             if (pending.contentLength < 0) {
                 pending.contentLength = 0;
+            }
+
+            // Refused here, before a body is buffered or streamed, so a page on
+            // another site cannot write to this server through the user's browser.
+            {
+                const QStringList requestParts = requestLine.split(' ');
+                const QString crossSite = WebRequestGuard::crossSiteReason(
+                    requestParts.value(0), requestParts.value(1), pending.headerData.left(pending.headerEnd));
+                if (!crossSite.isEmpty()) {
+                    DIAG_WARN(NETWORK, "ShotServer") << "Refused request:" << crossSite;
+                    sendResponse(socket, 403, "text/plain; charset=utf-8", ("Refused: " + crossSite).toUtf8());
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    socket->close();
+                    return;
+                }
             }
 
             const StreamedUpload streamed = streamedUploadKind(requestLine);
@@ -1883,9 +1901,11 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         auto destroyed = m_destroyed;
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
             ShotProjection shot;
+            QJsonObject pageData;
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
                 shot = ShotHistoryStorage::convertShotRecord(record);
+                if (record.summary.id != 0) pageData = shotPageData(db, record);
 
                 // Recipe identity for the detail page (history-recipe-identity).
                 // Resolved with a second PK lookup rather than by widening
@@ -1919,14 +1939,17 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             });
 
             if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, shotId,
-                                             shot = std::move(shot)]() {
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
+                                             shot = std::move(shot), pageData = std::move(pageData)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                     return;
                 }
-                sendHtml(socketGuard, generateShotDetailPage(shotId, shot));
+                if (!shot.isValid())
+                    sendResponse(socketGuard, 404, "text/html; charset=utf-8", generateShotDetailPage(shot, pageData).toUtf8());
+                else
+                    sendHtml(socketGuard, generateShotDetailPage(shot, pageData));
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -2012,6 +2035,51 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
+    else if (path.startsWith("/api/shot/") && path.endsWith("/outcome") && method == "GET") {
+        // GET /api/shot/123/outcome: the shot page's results after an edit saved.
+        bool ok;
+        qint64 shotId = path.mid(10).chopped(8).toLongLong(&ok);
+        if (!ok) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+            return;
+        }
+        QPointer<QTcpSocket> socketGuard(socket);
+        QString dbPath = m_storage->databasePath();
+        auto destroyed = m_destroyed;
+        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
+            QVariantMap outcome;
+            bool dbOpened = withTempDb(dbPath, "shs_web_outc", [&](QSqlDatabase& db) {
+                outcome = ShotHistoryStorage::shotOutcomeStatic(db, shotId);
+            });
+            if (*destroyed) return;
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, outcome]() {
+                if (*destroyed || !socketGuard) return;
+                if (!dbOpened) sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
+                else if (outcome.isEmpty()) sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
+                else sendJson(socketGuard, QJsonDocument(QJsonObject::fromVariantMap(outcome)).toJson(QJsonDocument::Compact));
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        thread->start();
+    }
+    else if (path.startsWith("/api/shot/") && path.endsWith("/upload") && method == "POST") {
+        // POST /api/shot/123/upload: the shot page's Upload button, the same path as the app's.
+        bool ok;
+        qint64 shotId = path.mid(10).chopped(7).toLongLong(&ok);
+        ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr;
+        if (!ok || shotId <= 0) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+        } else if (!uploads) {
+            sendResponse(socket, 500, "application/json", R"({"error":"Uploads unavailable"})");
+        } else if (uploads->activeDestinations().isEmpty()) {
+            // enqueue() would drop it silently; the page's button was drawn when a
+            // destination was still signed in.
+            sendResponse(socket, 409, "application/json", R"({"error":"No upload destination is signed in"})");
+        } else {
+            uploads->uploadNow(shotId);
+            sendJson(socket, R"({"success":true})");
+        }
+    }
     else if (path.startsWith("/api/shot/")) {
         bool ok;
         qint64 shotId = path.mid(10).toLongLong(&ok);
@@ -2035,6 +2103,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
+                } else if (shot.id == 0) {
+                    sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
                 } else {
                     sendJson(socketGuard, QJsonDocument(shot.toJsonObject()).toJson());
                 }
@@ -2385,19 +2455,25 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         }
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
-    else if (path == "/api/power/wake") {
-        if (m_device) {
+    // Wake and sleep take POST only: over plain HTTP a GET from an <img> on another
+    // site is indistinguishable from curl (webrequestguard.h), and POST carries Origin.
+    else if (path == "/api/power/wake" || path == "/api/power/sleep") {
+        if (method != "POST") {
+            sendResponse(socket, 405, "application/json",
+                         R"JSON({"error":"Use POST (also POST /api/command with {\"command\":\"wake\"|\"sleep\"})"})JSON",
+                         "Allow: POST\r\n");
+            return;
+        }
+        if (path == "/api/power/wake" && m_device) {
             m_device->wakeUp();
             DIAG_DEBUG(NETWORK, "ShotServer") << "Wake command sent via web";
         }
-        sendJson(socket, R"({"success":true,"action":"wake"})");
-    }
-    else if (path == "/api/power/sleep") {
-        if (m_device) {
+        if (path == "/api/power/sleep" && m_device) {
             m_device->goToSleep();
             DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via web";
         }
-        sendJson(socket, R"({"success":true,"action":"sleep"})");
+        sendJson(socket, path == "/api/power/wake" ? R"({"success":true,"action":"wake"})"
+                                                   : R"({"success":true,"action":"sleep"})");
     }
     // Home Automation API endpoints
     else if (path == "/api/state") {
@@ -2752,8 +2828,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray sseHeaders = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n\r\n";
+                             "Connection: keep-alive\r\n\r\n";
         socket->write(sseHeaders);
         socket->flush();
         m_sseThemeClients.insert(socket);
@@ -2777,8 +2852,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray headers = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n\r\n";
+                             "Connection: keep-alive\r\n\r\n";
         socket->write(headers);
         socket->flush();
         m_sseLayoutClients.insert(socket);
@@ -2842,7 +2916,10 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
         case 302: statusText = "Found"; break;
         case 400: statusText = "Bad Request"; break;
         case 401: statusText = "Unauthorized"; break;
+        case 403: statusText = "Forbidden"; break;
         case 404: statusText = "Not Found"; break;
+        case 405: statusText = "Method Not Allowed"; break;
+        case 409: statusText = "Conflict"; break;
         case 413: statusText = "Payload Too Large"; break;
         case 429: statusText = "Too Many Requests"; break;
         case 503: statusText = "Service Unavailable"; break;
@@ -2853,9 +2930,10 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
     response.append(QString("HTTP/1.1 %1 %2\r\n").arg(statusCode).arg(statusText).toUtf8());
     response.append(QString("Content-Type: %1\r\n").arg(contentType).toUtf8());
     response.append(QString("Content-Length: %1\r\n").arg(body.size()).toUtf8());
-    if (!isSecurityEnabled()) {
-        response.append("Access-Control-Allow-Origin: *\r\n");
-    }
+    // A page framed by another site can be clicked through an overlay, and its
+    // own fetches are same-origin, so the cross-site guard would let them pass.
+    if (contentType.startsWith(QLatin1String("text/html")))
+        response.append("X-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: frame-ancestors 'self'\r\n");
     response.append("Connection: keep-alive\r\n");
     response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
     if (!extraHeaders.isEmpty()) {
@@ -2981,7 +3059,6 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
         "Content-Type: %1\r\n"
         "Content-Length: %2\r\n"
         "Content-Disposition: attachment; filename=\"%3\"\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
         "Connection: close\r\n"
         "\r\n"
     ).arg(contentType).arg(fileSize).arg(filename).toUtf8();
