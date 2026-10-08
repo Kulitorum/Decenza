@@ -1,8 +1,9 @@
 # Claude pull-request reviewer
 
 `.github/workflows/claude-review.yml` uses the official Anthropic action to post
-up to five inline findings on relevant, non-draft pull requests opened, updated,
-reopened, or marked ready for review. It focuses on Qt/C++ lifetimes, threading,
+up to five inline findings. Automatic reviews run on relevant, non-draft PRs
+opened by **skialpine** (GitHub account ID `1629894`), on open, new commits,
+reopen, or ready-for-review. Other PRs require skialpine's explicit request. It focuses on Qt/C++ lifetimes, threading,
 QML boundaries, BLE/machine-state regressions, database handling, and platform bugs.
 It reads source and existing tests; it never builds or runs the application.
 
@@ -31,7 +32,7 @@ and are included directly in both workflows; no Actions variables are required.
    job advisory: its path filters and skipped runs make it unsuitable as a required
    merge check.
 3. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
-   and triggered by a human with write access. In **Actions → Claude PR review**,
+   by skialpine. In **Actions → Claude PR review**,
    check completion and inspect any inline findings. Drafts, forks, and other bots
    are skipped. A run with no findings posts no comment.
 
@@ -51,14 +52,16 @@ needed for this exchange-only test.
 ### Trust scope and migration
 
 The rule's unrestricted branch setting permits authentication from all Decenza
-branches. The review/fix workflow guards separately reject untrusted fork and
-non-maintainer requests. Anyone able to write Decenza workflows is a trust
+branches. Automatic reviews and fix requests reject forks; explicit read-only
+reviews accept forks only on skialpine's request. Anyone able to write Decenza workflows is a trust
 boundary, because they can request an identity token from another workflow.
 
 For stronger isolation, an Anthropic admin can additionally require immutable
 `repository_id: 1121207637` and `repository_owner_id: 175644`, plus the exact
-workflow/event pair. Review tokens use `pull_request` with
+workflow/event pair. Automatic review tokens use `pull_request` with
 `Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/pull/<number>/merge`;
+Requested review tokens use `issue_comment` with
+`Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/heads/main`;
 fix tokens use `issue_comment` with
 `Kulitorum/Decenza/.github/workflows/claude-fix.yml@refs/heads/main`.
 Separate rules can express those restrictions. If keeping this diagnostic test,
@@ -97,6 +100,33 @@ The review job still explicitly passes `GITHUB_TOKEN`, even after App installati
 Its read-only contents restriction therefore continues to apply. Job permissions
 alone do not restrict a separate App token.
 
+## Requesting a review
+
+Automatic reviews run only on skialpine's same-repository, non-draft PRs touching
+the configured source paths. Commits pushed by the official Claude App can
+re-trigger a review on those PRs. PRs opened by anyone else, including Claude,
+do not receive automatic reviews.
+
+For any other open PR, skialpine can post this standalone **PR conversation
+comment**:
+
+```text
+@claude review
+```
+
+This requests one review of the current revision. Only skialpine's account ID
+can trigger it; other people's requests are skipped. It also works on draft PRs
+and public fork PRs, and bypasses the automatic path filter. Another push to
+someone else's PR requires another request. Edited comments, ordinary issue
+comments, and inline review replies do not trigger the command.
+
+The requested review is read-only. Its workflow runs from the default branch,
+checks out the trusted base at the workspace root, and reads the captured head
+in an isolated subdirectory without executing its code. A source update during
+context/diff fetching fails the stale run. Unrelated comments do not cancel a
+review in progress. The command becomes available after this workflow is merged
+to the default branch.
+
 ## Maintainer-requested fixes
 
 After the workflows and trusted publisher are merged, a human with repository
@@ -123,8 +153,9 @@ Claude edits an isolated checkout and can invoke only the trusted publisher as a
 shell command. The publisher checks the PR's captured head SHA, accepts at most
 20 source files, rejects workflow/agent configuration and symlinks, and chooses
 the destination from the original command. It never force-pushes, approves, or
-merges. Same-PR fixes post a validation-status comment and trigger another review.
-Separate drafts are reviewed when a maintainer marks them ready.
+merges. Same-PR fixes on skialpine's eligible PRs trigger another review.
+Fixes on other PRs, including separate Claude-authored drafts, require skialpine
+to post `@claude review` when a review is wanted.
 
 Fixes have a $5 client-side cost limit, 30 turns, and 20 minutes. Qt builds and
 tests **do not run** on this hosted fix runner. Review the diff and validate fixes
@@ -135,10 +166,12 @@ to stop accepting fix requests.
 
 ## Limits and security
 
-- Reviews accept human PRs and the official `claude[bot]` so requested fixes can
-  be reviewed. Other bots are skipped. Human triggers must have write access;
-  no `allowed_non_write_users` bypass is configured. Fork reviews require a separate design, not switching
-  this job to `pull_request_target` or granting more permissions.
+- Automatic reviews accept only PRs opened by skialpine. Explicit review
+  requests accept only skialpine's conversation comment. Automatic triggers from
+  bots other than the official `claude[bot]` are skipped. Human triggers must have write access;
+  no `allowed_non_write_users` bypass is configured. Forks are reviewed only on
+  skialpine's explicit request, using the trusted `issue_comment` workflow and
+  read-only source access.
 - Base and head are checked out by immutable SHA, without persisted credentials.
   The head lives in a subdirectory, and Claude ignores project/local executable
   settings and discovers only the action's explicit inline-comment MCP server.
@@ -165,7 +198,9 @@ credential value. If reconfiguring the service account/workspace/rule, update
 the non-secret IDs in both production workflows and the diagnostic workflow.
 `Resource not accessible by integration`: check repository/organization Actions
 policies allow this action and PR review comments. Keep contents read-only.
-Fork/draft/bot PR: skipped by design. Review a same-repository human PR to test.
+Automatic run skipped: check the PR author is skialpine, the PR is non-draft,
+and the source paths match. For another author's PR, draft, or fork, skialpine
+can request a review with a new standalone `@claude review` conversation comment.
 
 To stop spending, disable **Claude PR review** from its Actions workflow menu.
 Disable **Claude requested fix** separately to stop accepting fix requests.

@@ -15,20 +15,27 @@ on:
       - 'resources/**'
       - 'CMakeLists.txt'
       - '.github/workflows/claude-review.yml'
+  issue_comment:
+    types: [created]
 
 permissions: {}
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
+  group: ${{ (github.event_name == 'pull_request' || (github.event.issue.pull_request && github.event.comment.user.id == 1629894 && github.event.comment.body == '@claude review')) && format('claude-review-{0}', github.event.pull_request.number || github.event.issue.number) || format('claude-review-ignored-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
   review:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.pull_request.user.type == 'User' || github.event.pull_request.user.login == 'claude[bot]') &&
-      (!endsWith(github.actor, '[bot]') || github.actor == 'claude[bot]')
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.user.id == 1629894 &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       (!endsWith(github.actor, '[bot]') || github.actor == 'claude[bot]')) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.comment.user.id == 1629894 &&
+       github.event.comment.body == '@claude review')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -36,36 +43,78 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      - name: Resolve authorized review request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          event = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          repository = os.environ['GITHUB_REPOSITORY']
+          manual = os.environ['GITHUB_EVENT_NAME'] == 'issue_comment'
+          if manual:
+              if (not event['issue'].get('pull_request')
+                      or event['comment']['user']['id'] != 1629894
+                      or event['comment']['body'].strip() != '@claude review'):
+                  raise SystemExit('Only skialpine can request a review with a standalone @claude review comment.')
+              number = event['issue']['number']
+          else:
+              number = event['pull_request']['number']
+          pr = json.loads(subprocess.check_output(
+              ['gh', 'api', f'repos/{repository}/pulls/{number}'], text=True))
+          if pr['state'] != 'open' or not pr['head'].get('repo'):
+              raise SystemExit('Review requires an open PR with an available source repository.')
+          if pr['base']['repo']['full_name'] != repository:
+              raise SystemExit('PR base does not belong to this repository.')
+          if not manual:
+              if (pr['user']['id'] != 1629894 or pr['draft']
+                      or pr['head']['repo']['full_name'] != repository):
+                  raise SystemExit('Automatic review is limited to non-draft same-repository PRs opened by skialpine.')
+              if pr['head']['sha'] != event['pull_request']['head']['sha']:
+                  raise SystemExit('PR changed after this event; use the newer review run.')
+          data = pathlib.Path(os.environ['RUNNER_TEMP']) / 'decenza-review'
+          data.mkdir(exist_ok=True)
+          (data / 'pr.json').write_text(json.dumps({
+              'title': pr['title'], 'body': pr['body'],
+              'headRefOid': pr['head']['sha'], 'baseRefName': pr['base']['ref']}))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for name, value in {
+                  'number': number, 'head_sha': pr['head']['sha'],
+                  'base_sha': pr['base']['sha'],
+                  'head_repository': pr['head']['repo']['full_name']
+              }.items():
+                  output.write(f'{name}={value}\n')
+          PY
+
       # Keep executable project configuration on the trusted base revision.
       - name: Check out base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ steps.pr.outputs.base_sha }}
           persist-credentials: false
 
       - name: Check out review sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ steps.pr.outputs.head_repository }}
+          ref: ${{ steps.pr.outputs.head_sha }}
           path: pr-head
           persist-credentials: false
 
-      - name: Fetch review data
+      - name: Fetch review diff
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_REPOSITORY: ${{ github.repository }}
-          REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
-          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
-          mkdir -p "$RUNNER_TEMP/decenza-review"
           gh pr diff "$REVIEW_PR_NUMBER" --repo "$REVIEW_REPOSITORY" \
             > "$RUNNER_TEMP/decenza-review/pr.diff"
-          gh pr view "$REVIEW_PR_NUMBER" --repo "$REVIEW_REPOSITORY" \
-            --json title,body,headRefOid,baseRefName \
-            > "$RUNNER_TEMP/decenza-review/pr.json"
-          actual_head=$(jq -r .headRefOid "$RUNNER_TEMP/decenza-review/pr.json")
+          actual_head=$(gh pr view "$REVIEW_PR_NUMBER" --repo "$REVIEW_REPOSITORY" \
+            --json headRefOid --jq .headRefOid)
           if [ "$actual_head" != "$REVIEW_HEAD_SHA" ]; then
-            echo '::error::PR changed while fetching the diff; use the newer review run.'
+            echo '::error::PR changed while fetching the diff; use the newer run or request another review.'
             exit 1
           fi
 
@@ -87,8 +136,8 @@ jobs:
           classify_inline_comments: false
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
-            REVIEWED HEAD: ${{ github.event.pull_request.head.sha }}
+            PR NUMBER: ${{ steps.pr.outputs.number }}
+            REVIEWED HEAD: ${{ steps.pr.outputs.head_sha }}
 
             Review this PR as a senior Qt/C++ engineer. This is review-only.
             Read ${{ runner.temp }}/decenza-review/pr.diff and pr.json.
