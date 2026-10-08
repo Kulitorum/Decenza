@@ -2,16 +2,18 @@
 
 ## Purpose
 TBD - created by archiving change shot-pages-card-cleanup. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Shot pages show a Shot Plan snapshot line
-The Shot Detail and Shot Review pages SHALL display, directly beneath the title line (`<profile-or-recipe name> · <date>`), a single Shot Plan snapshot line rendering this shot's frozen dial-in as a sentence (e.g. `18.0g in · 42.0g · 88°C · Yemen West Haraz · grind 25 · 1400 rpm`), so the user can read a shot's key data at a glance without scrolling — including while swiping between shots to compare them.
+The shot page SHALL display, directly beneath the title line (`<profile-or-recipe name> · <date>`), a single Shot Plan snapshot line rendering this shot's frozen dial-in as a sentence (e.g. `18.0g in · 42.0g · 88°C · Yemen West Haraz · grind 25 · 1400 rpm`), so the user can read a shot's key data at a glance without scrolling — including while stepping between shots to compare them.
 
 #### Scenario: Shot with a full snapshot
 - **WHEN** the user opens a shot whose record has dose, yield, temperature, bean, grind, and RPM
 - **THEN** the snapshot line renders those values as a Shot Plan sentence beneath the title
 
 #### Scenario: Comparing shots by swipe
-- **WHEN** the user swipes from one shot to the next on the Shot Detail page
+- **WHEN** the user swipes from one shot to the next on the shot page
 - **THEN** each shot's snapshot line updates to that shot's own values with the graph, requiring no scroll to read the key data
 
 ### Requirement: The snapshot line mirrors the user's Shot Plan field configuration
@@ -49,4 +51,3 @@ The snapshot line SHALL expose its content to assistive technology as a single r
 #### Scenario: Screen reader reads the snapshot
 - **WHEN** a screen reader focuses the snapshot line
 - **THEN** it announces one coherent sentence of the shot's key values rather than separate fragments
-
