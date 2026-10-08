@@ -39,11 +39,11 @@
 ## 6. Spec and manual
 
 - [x] 6.1 Edit the Purpose line of `openspec/specs/advisor-model-selection/spec.md` to drop the retired model examples (Sonnet 4.6, Sonnet 5, GPT-5.4); verify `openspec validate --specs --strict` passes *(This spec passes strict. Repo-wide, all 169 specs pass non-strict, while 137 other specs fail strict on long descriptions, which predates this change.)*
-- [ ] 6.2 Pass path only: update the wiki Manual §13 model table's Anthropic row ("Sonnet 5.5, Haiku 5.5 (…cost note…)"). Keep it one table cell. Ask the maintainer whether to push now or hold for the release *(Asked 2026-10-07; no answer yet, so held.)*
+- [x] 6.2 Pass path only: update the wiki Manual §13 model table's Anthropic row ("Sonnet 5.5, Haiku 5.5 (…cost note…)"). Keep it one table cell. Ask the maintainer whether to push now or hold for the release *(Pushed 2026-10-07 at the maintainer's request: wiki b2fc20b, Anthropic and OpenRouter rows.)*
 
 ## 7. Review
 
-- [ ] 7.1 Open the PR and have it reviewed (maintainer, 2026-10-07: by GitHub agents, not `/pr-review-toolkit:review-pr`); address findings and confirm the `text-invariants` run for the final commit is green before merge
+- [x] 7.1 Open the PR and have it reviewed (maintainer, 2026-10-07: by GitHub agents, not `/pr-review-toolkit:review-pr`); address findings and confirm the `text-invariants` run for the final commit is green before merge *(Codex's one finding, the model-hint key bump, was fixed in 51c9f68. Checks are read on the archive commit before merge.)*
 
 ## Workflow follow-up
 
