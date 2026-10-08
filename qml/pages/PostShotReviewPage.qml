@@ -2163,6 +2163,9 @@ T.Page {
                     roastDate: postShotReviewPage.editRoastDate
                     roastLevel: postShotReviewPage.editRoastLevel
                     beanBaseData: postShotReviewPage.editBeanBaseJson
+                    frozenDate: postShotReviewPage.editShotData.frozenDate || ""
+                    defrostDate: postShotReviewPage.editShotData.defrostDate || ""
+                    openedDate: postShotReviewPage.editShotData.openedDate || ""
                     linkable: true
                     onLinkRequested: postShotReviewPage.requestBeanLink()
                 }
@@ -2341,6 +2344,9 @@ T.Page {
                                 roastDate: postShotReviewPage.editRoastDate
                                 roastLevel: postShotReviewPage.editRoastLevel
                                 beanBaseData: postShotReviewPage.editBeanBaseJson
+                                frozenDate: postShotReviewPage.editShotData.frozenDate || ""
+                                defrostDate: postShotReviewPage.editShotData.defrostDate || ""
+                                openedDate: postShotReviewPage.editShotData.openedDate || ""
                                 linkable: true
                                 onLinkRequested: postShotReviewPage.requestBeanLink()
                             }

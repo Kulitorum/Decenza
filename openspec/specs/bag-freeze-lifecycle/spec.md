@@ -1,7 +1,7 @@
 # bag-freeze-lifecycle Specification
 
 ## Purpose
-Defines how a bag tracks its current portion's storage lifecycle — the freeze/defrost pair (`frozenDate`/`defrostDate`) and the non-frozen pair (`storageHint`/`openedDate`) — the "Thaw" and "Mark Opened" actions that record a portion entering active use, the freeze toggle and storage-hint dropdown in the bag creation form, and the capture of all four fields into each shot's snapshot so a shot permanently records the beans' storage and thermal history.
+Defines how a bag tracks its current portion's storage lifecycle — the freeze/defrost pair (`frozenDate`/`defrostDate`) and the non-frozen pair (`storageHint`/`openedDate`) — the "Thaw" action and the first shot that record a portion entering active use, the freeze toggle and storage-hint dropdown in the bag creation form, and the capture of all four fields into each shot's snapshot so a shot permanently records the beans' storage and thermal history.
 
 ## Requirements
 ### Requirement: Bag tracks current freeze/defrost state

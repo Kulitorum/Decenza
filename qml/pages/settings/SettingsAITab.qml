@@ -271,13 +271,6 @@ KeyboardAwareContainer {
                         return 0
                     }
 
-                    // StyledComboBox assigns currentIndex imperatively on user
-                    // selection, which severs the declarative binding below. Re-arm
-                    // it on every provider switch so the combo tracks the stored
-                    // model for whichever provider is now showing (matters once a
-                    // second multi-model provider exists).
-                    onCurrentProviderChanged: modelCombo.currentIndex = Qt.binding(modelSelect.selectedIndex)
-
                     Tr {
                         key: "settings.ai.model"
                         fallback: "Model"

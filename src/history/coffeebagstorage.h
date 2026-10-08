@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QDate>
 #include <QHash>
 #include <QString>
 #include <QStringList>
@@ -149,16 +150,76 @@ struct CoffeeBag {
     // empty/invalid JSON or absent keys land on the struct defaults.
     static TeaBrewingData teaBrewingFromBlob(const QString& beanBaseData);
 
-    // Canonical out-of-freezer storageHint values (bean-freshness-followup). The
-    // single C++ source of truth for the enum; the QML dropdown
-    // (ChangeBeansDialog `hintValues`) must mirror it. "frozen" is deliberately
-    // NOT a value — frozen state is defined solely by `frozenDate` being set,
-    // so the two can never disagree.
+    // Out-of-freezer storage choices, unset first, as {value, labelKey, label}:
+    // the one list the app and web editors both render. "frozen" is deliberately
+    // NOT a value — frozen state is defined solely by `frozenDate`. Inline so the
+    // translation-key registry can list the labels without linking bag storage.
+    struct StorageHintOption { const char* value; const char* labelKey; const char* label; };
+    static constexpr StorageHintOption kStorageHintOptions[] = {
+        {"", "changebeans.form.storageHint.unset", "Not specified"},
+        {"counter", "changebeans.form.storageHint.counter", "Counter"},
+        {"airtight", "changebeans.form.storageHint.airtight", "Airtight container"},
+        {"vacuum-sealed", "changebeans.form.storageHint.vacuum", "Vacuum-sealed"},
+        {"fridge", "changebeans.form.storageHint.fridge", "Fridge"},
+    };
+    static QVariantList storageHintOptions()
+    {
+        QVariantList options;
+        for (const auto& o : kStorageHintOptions)
+            options << QVariantMap{{QStringLiteral("value"), QString::fromLatin1(o.value)},
+                                   {QStringLiteral("labelKey"), QString::fromLatin1(o.labelKey)},
+                                   {QStringLiteral("label"), QString::fromLatin1(o.label)}};
+        return options;
+    }
+    // The non-empty values of storageHintOptions().
     static const QStringList& storageHintValues();
     // Accepts "" (unset) or any canonical value; rejects "frozen" and junk.
     // The write boundary uses this so an off-list value from an MCP client
     // can't reach the DB (and thence the AI freshness block) unvalidated.
     static bool isValidStorageHint(const QString& hint);
+
+    // The opened date a shot pulled on `today` should stamp, or "" to leave it.
+    // A shot proves the current portion is open: stamp when nothing is
+    // recorded, or when the recorded date predates the latest thaw (it belongs
+    // to the previous portion). A shot from a frozen bag with no thaw recorded
+    // is one serving taken out with the rest put back, so it never stamps.
+    // Dates are ISO yyyy-MM-dd.
+    static QString openedDateForShot(const QString& frozenDate, const QString& defrostDate,
+                                     const QString& openedDate, const QDate& today);
+
+    // Checks the lifecycle fields a write carries: each storage date must be
+    // yyyy-MM-dd, no date may be after `today` (a roast or thaw that hasn't happened yet is a typo
+    // the AI would read as fact), and storageHint must be on the list. Returns a
+    // message naming the first bad field, or "" when all are fine.
+    static QString lifecycleFieldError(const QVariantMap& fields, const QDate& today);
+
+    // Days from an ISO date to `today`; -1 when unparsable or in the future.
+    static int daysSince(const QString& iso, const QDate& today);
+    // A bag's lifecycle line as data, in display order: {kind, date, ageDays}
+    // with kind roasted / frozen / thawed / opened. Each surface only words it.
+    static QVariantList lifecycleParts(const QVariantMap& bag, const QDate& today);
+
+    // Fields that apply to only one kind. The tea-only ones live in the blob.
+    static const QStringList& teaOnlyKeys();
+    static const QStringList& coffeeOnlyKeys();
+
+    // A new bag of the same coffee: `bag` minus its id and what belonged to that
+    // bag (its dates, notes, start weight and inventory state). The storage plan
+    // carries over, and a bag that was frozen starts frozen on `today`.
+    static QVariantMap restockTemplate(QVariantMap bag, const QDate& today);
+
+    // The lifecycle dates in `changes` out of order against `stored` overlaid with
+    // them (frozen before roast, thaw before freeze, opened before roast), as a
+    // message; "" when in order. Only pairs that `changes` touches are checked,
+    // so an unrelated edit never trips over an old record.
+    static QString lifecycleOrderError(const QVariantMap& stored, const QVariantMap& changes);
+
+    // What an edit changed: the keys of `current` that differ from `opened`. The
+    // detail blob goes key by key as beanBaseDataPatch (a removed key as null)
+    // unless `replaceBlob`, so an edit never overwrites a Visualizer pull it
+    // didn't see. A blob that isn't a JSON object goes whole.
+    static QVariantMap editChanges(const QVariantMap& opened, const QVariantMap& current,
+                                   bool replaceBlob);
 };
 
 // An inventory row: a bag plus its shot count. The count is NOT a CoffeeBag
@@ -170,6 +231,13 @@ struct CoffeeBag {
 struct InventoryBag {
     CoffeeBag bag;
     qint64 shotCount = 0;
+
+    // The actions a card offers, as ids both surfaces render: restock, restore,
+    // findInBeanBase, bagFinished, delete, edit, info, freeze, thaw.
+    QStringList cardActions(bool finished) const;
+    // The bag map plus what the inventory view derives: shotCount, actions and
+    // lifecycleParts.
+    QVariantMap toVariantMap(bool finished, const QDate& today) const;
 };
 
 // SQLite-backed bag storage in the shot history database (coffee_bags table,
@@ -239,6 +307,22 @@ public:
     // Deletes only when no shot references the bag (shots.bag_id count = 0);
     // emits bagDeleted(bagId, success) — success false when shots exist.
     Q_INVOKABLE void requestDeleteBag(qint64 bagId);
+
+    // The newest other in-inventory bag of the same coffee (canonical id, else
+    // roaster + coffee), or -1. Used when a bag is finished.
+    static qint64 successorBagStatic(QSqlDatabase& db, qint64 finishedBagId);
+    // Async successorBagStatic; answers with successorBagReady.
+    void requestSuccessorBag(qint64 finishedBagId);
+
+    // QML bridges to the CoffeeBag rules the web page uses too.
+    Q_INVOKABLE QVariantList storageHintOptions() const { return CoffeeBag::storageHintOptions(); }
+    Q_INVOKABLE QVariantList lifecycleParts(const QVariantMap& bag) const
+    { return CoffeeBag::lifecycleParts(bag, QDate::currentDate()); }
+    Q_INVOKABLE QVariantMap restockTemplate(const QVariantMap& bag) const
+    { return CoffeeBag::restockTemplate(bag, QDate::currentDate()); }
+    Q_INVOKABLE QVariantMap editChanges(const QVariantMap& opened, const QVariantMap& current,
+                                        bool replaceBlob) const
+    { return CoffeeBag::editChanges(opened, current, replaceBlob); }
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
@@ -364,6 +448,7 @@ public:
                                  const QHash<qint64, qint64>& packageIdMap);
 
 signals:
+    void successorBagReady(qint64 finishedBagId, qint64 successorBagId);
     void inventoryReady(const QVariantList& bags);
     // The read did not happen: the database would not open, or storage was
     // never initialized. Distinct from an empty inventoryReady, because a view

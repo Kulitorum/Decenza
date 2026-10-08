@@ -270,11 +270,9 @@ DecenzaDialog {
         fSteepTime = s("steepTime")
     }
 
-    // The edits map handed to BeanBaseBlob::mergeBeanDetails. All detail keys
-    // are always present (the form is the full truth for them: an emptied
-    // field removes its key). Identity working keys ride along only when a
-    // blob exists or details were entered — a plain rename of a detail-less
-    // manual bag must not conjure a blob.
+    // The detail fields handed to BeanBaseBlob::mergeEditorDetails. All are
+    // always present (the form is the full truth for them: an emptied field
+    // removes its key).
     function detailEdits() {
         var edits = {
             "origin": fOrigin, "region": fRegion, "farm": fFarm,
@@ -285,21 +283,13 @@ DecenzaDialog {
             "flush": fFlush, "brewTempC": fBrewTempC, "leafGramsPer100Ml": fLeafRatio,
             "steepTime": fSteepTime
         }
-        var anyDetail = false
-        for (let k in edits) {
-            if (String(edits[k]).trim().length > 0) { anyDetail = true; break }
-        }
-        if (fBeanBaseData.length > 0 || anyDetail) {
-            edits["roasterName"] = fRoaster.trim()
-            edits["roastName"] = fCoffee.trim()
-            edits["degree"] = fRoastLevel
-        }
         return edits
     }
 
     // Live-staged blob (current form values merged over the stored one).
     // Recomputed on any field edit; feeds the Save path and the Revert gate.
-    readonly property string stagedBlob: MainController.beanbase.mergeBeanDetails(fBeanBaseData, detailEdits())
+    readonly property string stagedBlob: MainController.beanbase.mergeEditorDetails(
+        fBeanBaseData, detailEdits(), fRoaster, fCoffee, fRoastLevel)
     readonly property bool canRevert: fBeanBaseId.length > 0
         && MainController.beanbase.blobDiffersFromCanonical(stagedBlob)
 
@@ -423,12 +413,6 @@ DecenzaDialog {
         }
     }
 
-    function todayIso() {
-        var now = new Date()
-        return now.getFullYear() + "-"
-            + String(now.getMonth() + 1).padStart(2, "0") + "-"
-            + String(now.getDate()).padStart(2, "0")
-    }
 
     // Link state, shown so two entries that differ in nothing else are still
     // distinguishable before the user commits to one. "unknown" renders as
@@ -745,7 +729,12 @@ DecenzaDialog {
     // as a new bag. The finished bag stays finished, with its shots.
     function openRestock(bag) {
         bagKind = String(bag.kind || "") === "tea" ? "tea" : "coffee"
-        openFormFromResult(bag)
+        var template = MainController.bagStorage.restockTemplate(bag)
+        openFormFromResult(template)
+        // The template carries the old bag's habits: frozen (from today) and storage.
+        fFrozenDate = template.frozenDate || ""
+        fFreeze = fFrozenDate.length > 0
+        fStorageHint = template.storageHint || ""
         _armedForm = true
         open()
     }
@@ -818,7 +807,10 @@ DecenzaDialog {
         if (root.context === "historicalShot") {
             updateShotSnapshot(bagId, bag)
         } else {
-            if (root.activateOnSave)
+            // A new bag going straight into the freezer doesn't take over from
+            // the bag in use.
+            var parked = root.formMode === "create" && root.fFreeze && Settings.dye.activeBagId > 0
+            if (root.activateOnSave && !parked)
                 Settings.dye.activeBagId = bagId
             if (root.context === "postShot")
                 updateShotSnapshot(bagId, bag)
@@ -904,23 +896,10 @@ DecenzaDialog {
             MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
         var fields = formFields()
         if (formMode === "edit") {
-            // Only what was changed here since the dialog opened: a field Visualizer
-            // (or another screen) changed meanwhile is not written back over by the
-            // form's older copy, nor pushed to Visualizer as an edit.
-            var changed = {}
-            for (var key in fields) {
-                if (fields[key] !== _openedFields[key])
-                    changed[key] = fields[key]
-            }
-            // The detail blob goes key by key too, unless the link itself
-            // changed, which replaces the whole blob.
-            if (changed.beanBaseData !== undefined && !fLinkDirty) {
-                var patch = blobPatch(_openedFields.beanBaseData, changed.beanBaseData)
-                if (patch !== null) {
-                    delete changed.beanBaseData
-                    if (Object.keys(patch).length > 0) changed.beanBaseDataPatch = patch
-                }
-            }
+            // Only what was changed here since the dialog opened, so a field
+            // Visualizer (or another screen) changed meanwhile is not written back
+            // over by the form's older copy. A link change replaces the blob whole.
+            var changed = MainController.bagStorage.editChanges(_openedFields, fields, fLinkDirty)
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
             if (Object.keys(changed).length > 0)
@@ -936,24 +915,6 @@ DecenzaDialog {
         }
     }
 
-    // The blob keys `after` changed from `before`, a removed key as null; null
-    // when either is not a JSON object.
-    function blobPatch(before, after) {
-        var a, b
-        try {
-            a = before ? JSON.parse(before) : {}
-            b = after ? JSON.parse(after) : {}
-        } catch (e) {
-            return null
-        }
-        if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return null
-        var patch = {}
-        for (var k in b)
-            if (JSON.stringify(b[k]) !== JSON.stringify(a[k])) patch[k] = b[k]
-        for (var r in a)
-            if (b[r] === undefined) patch[r] = null
-        return patch
-    }
 
     // The bag fields the form holds, as requestUpdateBag/requestCreateBag take them.
     function formFields() {
@@ -980,7 +941,7 @@ DecenzaDialog {
                        : (fYieldAnchor === "absolute" && parseWeight(fYield) > 0) ? "absolute"
                        : "none",
             "notes": fNotes,
-            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : "",
+            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : DateUtils.toIso()) : "",
             // Out-of-freezer storage plan: how the beans are kept when NOT in
             // the freezer. Orthogonal to the freeze axis, so it is written in
             // every freeze state — a plan is most useful precisely while the
@@ -1003,8 +964,8 @@ DecenzaDialog {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
             // openedDate marks the current portion leaving airtight storage —
             // the sibling of defrostDate (leaving the freezer), not its
-            // non-frozen substitute. Edit-mode only (the "Mark Opened" quick
-            // action on the bag card is the everyday path). Independent of the
+            // non-frozen substitute. Edit-mode only (a portion's first shot
+            // stamps it; MainController::onShotEnded). Independent of the
             // freeze axis: a bag frozen, later thawed, then moved to a counter
             // jar carries both.
             fields["openedDate"] = fOpenedDate.length === 10 ? fOpenedDate : ""
@@ -2358,7 +2319,7 @@ DecenzaDialog {
 
                         Tr {
                             key: "changebeans.form.freeze"
-                            fallback: "Frozen bag"
+                            fallback: "Stored frozen"
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
@@ -2371,7 +2332,7 @@ DecenzaDialog {
                             onToggled: {
                                 root.fFreeze = checked
                                 if (checked && root.fFrozenDate.length !== 10)
-                                    root.fFrozenDate = root.todayIso()
+                                    root.fFrozenDate = DateUtils.toIso()
                             }
                         }
 
@@ -2383,6 +2344,7 @@ DecenzaDialog {
                         visible: root.fFreeze
                         labelKey: "changebeans.form.frozenDate"
                         labelFallback: "Frozen"
+                        minimumIso: root.fRoastDate
                         value: root.fFrozenDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
@@ -2395,10 +2357,11 @@ DecenzaDialog {
                         id: defrostDateField
                         visible: root.fFreeze && root.formMode === "edit"
                         labelKey: "changebeans.form.defrostDate"
-                        labelFallback: "Defrosted"
+                        labelFallback: "Thawed"
+                        minimumIso: root.fFrozenDate
                         value: root.fDefrostDate
-                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
-                        calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Thawed date, optional.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick the thawed date")
                         onValueEdited: function(dateString) { root.fDefrostDate = dateString }
                     }
 
@@ -2409,29 +2372,27 @@ DecenzaDialog {
                     // The enum has no "frozen" value; frozenDate alone decides
                     // frozen-ness, so the two can never disagree. ---
                     FieldRow {
-                        labelKey: "changebeans.form.storageHint"
-                        labelFallback: "Out of freezer"
+                        // On a frozen bag this is where a thawed portion goes. Translated
+                        // here (an empty labelKey passes labelFallback through).
+                        labelFallback: root.fFreeze
+                            ? TranslationManager.translate("changebeans.form.storageHint.afterThaw", "After thawing")
+                            : TranslationManager.translate("changebeans.form.storageHint.label", "Storage")
 
                         StyledComboBox {
                             id: storageHintCombo
                             Layout.fillWidth: true
-                            // Canonical enum values (index-aligned with model);
-                            // index 0 = unset ("").
-                            readonly property var hintValues: ["", "counter", "airtight", "vacuum-sealed", "fridge"]
+                            // CoffeeBag::storageHintOptions(), unset first — the list
+                            // the web editor renders too.
+                            readonly property var options: MainController.bagStorage.storageHintOptions()
                             accessibleLabel: TranslationManager.translate("changebeans.form.storageHint.accessible", "Storage type when out of the freezer")
-                            model: [
-                                TranslationManager.translate("changebeans.form.storageHint.unset", "Not specified"),
-                                TranslationManager.translate("changebeans.form.storageHint.counter", "Counter"),
-                                TranslationManager.translate("changebeans.form.storageHint.airtight", "Airtight container"),
-                                TranslationManager.translate("changebeans.form.storageHint.vacuum", "Vacuum-sealed"),
-                                TranslationManager.translate("changebeans.form.storageHint.fridge", "Fridge")]
-                            currentIndex: Math.max(0, hintValues.indexOf(root.fStorageHint))
-                            onActivated: root.fStorageHint = currentIndex > 0 ? hintValues[currentIndex] : ""
+                            model: options.map(function(o) { return TranslationManager.translate(o.labelKey, o.label) })
+                            currentIndex: Math.max(0, options.findIndex(function(o) { return o.value === root.fStorageHint }))
+                            onActivated: root.fStorageHint = options[currentIndex].value
                         }
                     }
 
                     // Opened date is only directly editable in edit mode
-                    // ("Mark Opened" on the bag card is the everyday path),
+                    // (a portion's first shot stamps it),
                     // mirroring the defrost field above. Not freeze-gated: a
                     // bag frozen, later thawed, then moved to a counter jar
                     // legitimately carries both a defrost and an opened date.
@@ -2440,6 +2401,7 @@ DecenzaDialog {
                         visible: root.formMode === "edit"
                         labelKey: "changebeans.form.openedDate"
                         labelFallback: "Opened"
+                        minimumIso: root.fRoastDate
                         value: root.fOpenedDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.openedDate.accessible", "Opened date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.openedDate.openCalendar", "Open calendar to pick opened date")
@@ -2690,6 +2652,7 @@ DecenzaDialog {
         id: dateField
 
         property string value: ""                  // stored ISO yyyy-mm-dd (or "")
+        property string minimumIso: ""             // earliest allowed ISO date ("" = none)
         property string fieldAccessibleName: ""
         property string calendarAccessibleName: ""
         // Exposes the text input so the dialog's KeyboardAwareContainer can track
@@ -2764,11 +2727,13 @@ DecenzaDialog {
                     return
                 }
                 var iso = DateUtils.localizedToIso(text, dateField._order)
-                if (iso.length > 0) {
+                // A future date, or one before minimumIso, is refused like an invalid one.
+                if (iso.length > 0 && iso <= DateUtils.toIso()
+                        && (dateField.minimumIso.length !== 10 || iso >= dateField.minimumIso)) {
                     dateField.valueEdited(iso)
                     text = DateUtils.isoToLocalized(iso, dateField._order, dateField._sep)
                 } else {
-                    // Incomplete/invalid: revert to the stored value so the shown text
+                    // Incomplete/invalid/future: revert to the stored value so the shown text
                     // matches what Save would persist (no silent divergence).
                     text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
                 }
@@ -2790,6 +2755,8 @@ DecenzaDialog {
 
         DatePickerDialog {
             id: datePicker
+            allowFuture: false
+            minimumIso: dateField.minimumIso
             onDateSelected: function(dateString) { dateField.valueEdited(dateString) }
         }
     }

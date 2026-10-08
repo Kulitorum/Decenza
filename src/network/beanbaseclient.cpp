@@ -592,6 +592,12 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
     });
 }
 
+QString BeanBaseClient::mergeEditorDetails(const QString& blob, const QVariantMap& details,
+                                          const QString& roasterName, const QString& coffeeName,
+                                          const QString& roastLevel) {
+    return BeanBaseBlob::mergeEditorDetails(blob, details, roasterName, coffeeName, roastLevel);
+}
+
 QString BeanBaseClient::mergeBeanDetails(const QString& blob, const QVariantMap& edits) {
     return BeanBaseBlob::mergeBeanDetails(blob, edits);
 }

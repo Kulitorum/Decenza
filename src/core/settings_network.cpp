@@ -2,6 +2,7 @@
 #include "settings_network.h"
 #include "settings.h"
 #include "history/shotcomparisontext.h"
+#include "history/coffeebagstorage.h"
 #include "core/puckprep.h"
 #include "profile/profiledialintext.h"
 
@@ -1356,6 +1357,8 @@ QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationString
         out.append({ QString::fromLatin1(e.key), QString::fromLatin1(e.english) });
     for (const auto& f : PuckPrep::flagLabels())
         out.append({ QString::fromLatin1(f.translationKey), QString::fromLatin1(f.english) });
+    for (const auto& o : CoffeeBag::kStorageHintOptions)
+        out.append({ QString::fromLatin1(o.labelKey), QString::fromLatin1(o.label) });
     return out;
 }
 

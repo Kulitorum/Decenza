@@ -1612,6 +1612,18 @@ void MainController::setupRecipeConnections() {
     // courtesy toast lives in main.qml on recipesRelinked.
     connect(m_bagStorage, &CoffeeBagStorage::bagFinished, this, [this](qint64 bagId) {
         m_recipeStorage->requestRelinkForFinishedBag(bagId);
+        // Shots must not keep landing on a finished bag: the active selection
+        // moves with the recipes, to the next bag of the same coffee.
+        if (bagId == m_settings->dye()->activeBagId())
+            m_bagStorage->requestSuccessorBag(bagId);
+    });
+    connect(m_bagStorage, &CoffeeBagStorage::successorBagReady, this,
+            [this](qint64 finishedBagId, qint64 successorBagId) {
+        if (finishedBagId != m_settings->dye()->activeBagId())
+            return;  // the user picked another bag meanwhile
+        DIAG_INFO(BEANBASE, "maincontroller") << "active bag" << finishedBagId << "finished - now"
+            << (bagIdIsSet(successorBagId) ? QString::number(successorBagId) : QStringLiteral("no bag"));
+        m_settings->dye()->setActiveBagId(bagIdIsSet(successorBagId) ? static_cast<int>(successorBagId) : -1);
     });
     connect(m_bagStorage, &CoffeeBagStorage::bagCreated, this,
             [this](qint64 bagId, const QVariantMap&) {
@@ -4753,6 +4765,15 @@ void MainController::onShotEnded() {
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
+            // Pulling a shot is what opens the bag, so the shot's own snapshot
+            // already carries the date it stamps below.
+            const QString openedNow = bagIdIsSet(metadata.bagId)
+                ? CoffeeBag::openedDateForShot(metadata.frozenDate, metadata.defrostDate,
+                                               metadata.openedDate, QDate::currentDate())
+                : QString();
+            if (!openedNow.isEmpty())
+                metadata.openedDate = openedNow;
+
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 duration, finalWeight, doseWeight,
@@ -4777,6 +4798,8 @@ void MainController::onShotEnded() {
                 if (doseWeight > 0)
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
                 stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
+                if (!openedNow.isEmpty())
+                    stamp.insert(QStringLiteral("openedDate"), openedNow);
                 m_bagStorage->requestUpdateBag(metadata.bagId, stamp);
             }
 

@@ -2,6 +2,8 @@
 
 #include "../history/shotprojection.h"
 
+#include <QDate>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -64,6 +66,7 @@ struct ShotIdentity {
     QString grinderBurrs;
     QString beanBrand;
     QString beanType;
+    QString roastDate;
     // Bean storage lifecycle (bean-freshness-followup). Hoisted with the same
     // "shared → context, differing → per-shot override" discipline as the
     // identity fields: a session that spans a thaw/open event carries the
@@ -101,6 +104,9 @@ struct ShotIdentity {
         // caught, because it is emitted when there is no history to check it
         // against. So it is a flag on the one table, not a list beside it.
         bool equipment;
+        // True when an empty value is itself a fact: a shot with no thaw date
+        // recorded none, and must not inherit another shot's from the context.
+        bool emptyIsData = false;
     };
     static const QList<Field>& fields()
     {
@@ -113,13 +119,16 @@ struct ShotIdentity {
             { "puckPrep",     &ShotIdentity::puckPrep,     &ShotProjection::puckPrep, true },
             { "beanBrand",    &ShotIdentity::beanBrand,    &ShotProjection::beanBrand, false },
             { "beanType",     &ShotIdentity::beanType,     &ShotProjection::beanType, false },
+            // Two roasts of one coffee are different beans; without this a
+            // restock reads as the same bag.
+            { "roastDate",    &ShotIdentity::roastDate,    &ShotProjection::roastDate, false },
             // Bean storage lifecycle (bean-freshness-followup): hoisted like any
             // other identity field, so a session spanning a thaw or open event
             // carries the shared date and the differing shot overrides it.
-            { "frozenDate",   &ShotIdentity::frozenDate,   &ShotProjection::frozenDate, false },
-            { "defrostDate",  &ShotIdentity::defrostDate,  &ShotProjection::defrostDate, false },
+            { "frozenDate",   &ShotIdentity::frozenDate,   &ShotProjection::frozenDate, false, true },
+            { "defrostDate",  &ShotIdentity::defrostDate,  &ShotProjection::defrostDate, false, true },
             { "storageHint",  &ShotIdentity::storageHint,  &ShotProjection::storageHint, false },
-            { "openedDate",   &ShotIdentity::openedDate,   &ShotProjection::openedDate, false },
+            { "openedDate",   &ShotIdentity::openedDate,   &ShotProjection::openedDate, false, true },
         };
         return f;
     }
@@ -132,6 +141,9 @@ struct ShotIdentity {
 struct HoistedSession {
     ShotIdentity context;
     QList<ShotIdentity> perShotOverrides;
+    // Per shot, the emptyIsData keys it recorded nothing for while the context
+    // has a value; emitted as an explicit null.
+    QList<QStringList> unrecorded;
 };
 
 // The identity a shot carries. One row in ShotIdentity::fields() puts a new
@@ -182,7 +194,8 @@ inline QJsonObject identityToJson(const ShotIdentity& identity)
 //     (the JSON serializer should then omit the field from the context).
 //   - For each shot `i`, the per-shot override carries `shot[i].field`
 //     iff `shot[i].field != context.field`. Otherwise the override
-//     leaves the field empty (the serializer should omit it).
+//     leaves the field empty (the serializer should omit it). An empty
+//     emptyIsData field that differs is listed in `unrecorded[i]` instead.
 //
 // Pure function — no Qt object dependencies, easy to unit-test.
 inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
@@ -191,21 +204,22 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
     if (shots.isEmpty()) return out;
 
     out.perShotOverrides.resize(shots.size());
+    out.unrecorded.resize(shots.size());
 
-    auto fillField = [&](QString ShotIdentity::* member) {
+    for (const auto& f : ShotIdentity::fields()) {
         QString ctx;
         for (const auto& s : shots) {
-            if (!(s.*member).isEmpty()) { ctx = s.*member; break; }
+            if (!(s.*f.member).isEmpty()) { ctx = s.*f.member; break; }
         }
-        out.context.*member = ctx;
+        out.context.*f.member = ctx;
         for (qsizetype i = 0; i < shots.size(); ++i) {
-            if (shots[i].*member != ctx)
-                out.perShotOverrides[i].*member = shots[i].*member;
+            if (shots[i].*f.member == ctx)
+                continue;
+            out.perShotOverrides[i].*f.member = shots[i].*f.member;
+            if (f.emptyIsData && (shots[i].*f.member).isEmpty())
+                out.unrecorded[i] << QLatin1String(f.key);
         }
-    };
-
-    for (const auto& f : ShotIdentity::fields())
-        fillField(f.member);
+    }
 
     return out;
 }
@@ -227,8 +241,8 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
 // told), only — and only if the roast is old — when the current portion started
 // aging.
 inline constexpr const char* kBeanFreshnessInstruction =
-    "roastDate is the UPPER BOUND on staleness: freezing and airtight/vacuum "
-    "storage only pause staling, so these beans can never be older than their "
+    "roastDate is the UPPER BOUND on staleness: freezing pauses staling and "
+    "airtight/vacuum storage slows it, so these beans can never be older than their "
     "calendar age since roast — only fresher. So if the roast date is recent, "
     "treat the beans as fresh and do NOT ask about storage; nothing storage "
     "could reveal would make recently-roasted beans stale. ONLY when the roast "
@@ -240,34 +254,60 @@ inline constexpr const char* kBeanFreshnessInstruction =
 // IS known: the storage TYPE is no longer a missing variable, so the AI must
 // not re-ask it. %1 is the storage hint (e.g. "vacuum-sealed").
 inline constexpr const char* kBeanFreshnessStorageHintClause =
-    " The user already told you the storage type (%1), which pauses staling — "
+    " The user already told you the storage type (%1) — "
     "do NOT ask how they store the beans. If the roast is recent, they are "
     "fresh; only if the roast is old, ask solely when this portion started "
     "being used (its aging-start date), nothing else.";
 
 // Instruction shipped when the bag DOES carry storage history (a frozenDate,
-// defrostDate, and/or openedDate is present). Storage is no longer a missing
-// variable, so the AI must NOT ask about it — and must not treat calendar days
-// from roastDate as staleness. Freezing/sealing pauses staling, so the aging
-// clock runs from the most recent thaw/open date, not roastDate: beans frozen
-// since roast and recently thawed are fresh regardless of calendar age.
-//
-// It ALSO teaches the reverse direction (bean-freshness-followup): a *recent*
-// thaw/open date does NOT unconditionally mean "fresher is better." Freshly
-// thawed or just-opened beans are often UNDER-RESTED and gassy — they choke the
-// puck, run long, and over-extract, and typically want a COARSER grind that
-// settles back over the following few days as the CO2 degasses. Recent ≠
-// simply better; it can cut in either direction.
+// defrostDate, and/or openedDate is present). Only freezing pauses aging:
+// openedDate is air exposure, not a reset, and the days on the counter before
+// freezing still count. Gassy/under-rested follows from low age, so a portion
+// frozen soon after roast and just thawed is under-rested too.
 inline constexpr const char* kBeanFreshnessKnownInstruction =
     "Storage history is known from the dates below — do NOT ask the user "
-    "about storage. Freezing (and airtight/vacuum storage) pauses staling: "
-    "count bean age from the most recent of defrostDate/openedDate, not "
-    "roastDate. Beans frozen since roast and recently thawed are fresh "
-    "regardless of how many calendar days have passed since roast. But a "
-    "recent thaw/open cuts BOTH ways: freshly thawed or just-opened beans are "
-    "often under-rested and gassy (they choke the puck, run long, over-extract) "
+    "about storage. restAgeDays is how long these beans have aged by "
+    "referenceDate (the day this shot was pulled), computed for you with frozen "
+    "time removed: only freezing pauses aging, so it counts roastDate to "
+    "frozenDate plus defrostDate to referenceDate; with frozenDate and no "
+    "defrostDate the beans are ground straight from the freezer. Quote it rather "
+    "than recomputing. openedDate is when this portion was first used: it does "
+    "NOT reset age, it only tells you how long these beans have been exposed to "
+    "air. Low age (about a week or less, longer for light roasts) means "
+    "under-rested and gassy — such beans choke the puck, run long, over-extract, "
     "and usually want a COARSER grind that settles back over the next few days "
-    "as they degas — do NOT assume a recent date just means 'fresher is better.'";
+    "— so a recent roast, or a portion frozen soon after roast and just thawed, "
+    "is not simply 'fresher is better.'";
+
+// The local date a shot was pulled: what its freshness dates are measured to.
+inline QString shotLocalDate(const ShotProjection& shot)
+{
+    return shot.timestamp > 0
+        ? QDateTime::fromSecsSinceEpoch(shot.timestamp).date().toString(Qt::ISODate) : QString();
+}
+
+// Days the beans have aged by `referenceDate`, with frozen time removed:
+// roast→freeze plus thaw→reference, roast→freeze when ground straight from the
+// freezer, roast→reference when never frozen. -1 when the dates can't say
+// (unparsable, out of order, or a thaw with no freeze date).
+inline int restAgeDays(const QString& roastDate, const QString& frozenDate,
+                       const QString& defrostDate, const QString& referenceDate)
+{
+    auto iso = [](const QString& s) { return QDate::fromString(s.left(10), QStringLiteral("yyyy-MM-dd")); };
+    const QDate roast = iso(roastDate), frozen = iso(frozenDate), defrost = iso(defrostDate), ref = iso(referenceDate);
+    if (!roast.isValid() || !ref.isValid() || ref < roast)
+        return -1;
+    if (frozenDate.isEmpty())
+        return defrostDate.isEmpty() ? static_cast<int>(roast.daysTo(ref)) : -1;
+    if (!frozen.isValid() || frozen < roast || frozen > ref)
+        return -1;
+    const qint64 beforeFreezing = roast.daysTo(frozen);
+    if (defrostDate.isEmpty())
+        return static_cast<int>(beforeFreezing);
+    if (!defrost.isValid() || defrost < frozen || defrost > ref)
+        return -1;
+    return static_cast<int>(beforeFreezing + defrost.daysTo(ref));
+}
 
 // Build the `currentBean.beanFreshness` block. Replaces the deprecated
 // `daysSinceRoast` + `daysSinceRoastNote` fields. Returns an empty object
@@ -276,11 +316,10 @@ inline constexpr const char* kBeanFreshnessKnownInstruction =
 // `storageHint` still emits the block; see state 2 below).
 //
 // `freshnessKnown` is `true` when the bag carries a `frozenDate`, `defrostDate`,
-// and/or `openedDate` — a precise aging-anchor date exists, so the AI ages the
-// beans from the most recent thaw/open date rather than asking. `openedDate`
-// (bean-freshness-followup) is the non-frozen analogue of `defrostDate` — a
-// never-frozen bag that has simply been opened reports KNOWN too, so the common
-// non-freezer user isn't asked about storage forever.
+// and/or `openedDate`: the storage history is recorded, so the AI computes age
+// from it (kBeanFreshnessKnownInstruction) rather than asking. `referenceDate`
+// is the date the ages are measured to — the shot's date, or today for a live
+// snapshot.
 //
 // The instruction has THREE states, not two:
 //   1. No date, no storageHint → upper-bound instruction: roastDate caps
@@ -290,29 +329,43 @@ inline constexpr const char* kBeanFreshnessKnownInstruction =
 //      TYPE is already known (don't re-ask it) — at most ask for the aging-start
 //      date, and only if the roast is old. `freshnessKnown` stays false: a hint
 //      without a date is not a precise anchor.
-//   3. A date is set → the known-storage instruction (age from the thaw/open
-//      date, with the under-rested/gassy reverse-direction guidance).
-// `storageHint` is surfaced verbatim whenever set. The block still contains NO
-// precomputed day count under any field name — the AI judges "recent vs old"
-// and does the subtraction itself.
+//   3. A date is set → the known-storage instruction (age with frozen time
+//      removed, with the under-rested/gassy reverse-direction guidance).
+// `storageHint` is surfaced verbatim whenever set. Only the known case carries a
+// day count (restAgeDays): without storage history a calendar age would mislead.
 //
 // Pure function: easy to unit-test, no DB / Settings dependency.
 inline QJsonObject buildBeanFreshness(const QString& roastDate,
                                       const QString& frozenDate = QString(),
                                       const QString& defrostDate = QString(),
                                       const QString& storageHint = QString(),
-                                      const QString& openedDate = QString())
+                                      const QString& openedDate = QString(),
+                                      const QString& referenceDate = QString())
 {
+    // A shot stamps openedDate on every bag, so on its own it says nothing about
+    // storage; with a storageHint the user has told us how it is kept.
     const bool known = !frozenDate.isEmpty() || !defrostDate.isEmpty()
-                       || !openedDate.isEmpty();
-    if (roastDate.isEmpty() && !known && storageHint.isEmpty()) return QJsonObject();
+                       || (!openedDate.isEmpty() && !storageHint.isEmpty());
+    if (roastDate.isEmpty() && !known && storageHint.isEmpty() && openedDate.isEmpty())
+        return QJsonObject();
     QJsonObject block;
-    if (!roastDate.isEmpty()) block["roastDate"] = roastDate;
+    // Legacy roast dates can be free text ("04/05/2026" is ambiguous): pass it
+    // on as text, never as a date the AI would compute with.
+    const bool roastIsIso = QDate::fromString(roastDate.left(10), QStringLiteral("yyyy-MM-dd")).isValid();
+    if (!roastDate.isEmpty())
+        block[roastIsIso ? "roastDate" : "roastDateText"] = roastDate;
     if (!frozenDate.isEmpty()) block["frozenDate"] = frozenDate;
     if (!defrostDate.isEmpty()) block["defrostDate"] = defrostDate;
     if (!storageHint.isEmpty()) block["storageHint"] = storageHint;
-    if (!openedDate.isEmpty()) block["openedDate"] = openedDate;
+    // An opened date older than the latest thaw belongs to the previous portion.
+    if (!openedDate.isEmpty() && !(!defrostDate.isEmpty() && openedDate < defrostDate))
+        block["openedDate"] = openedDate;
+    if (!referenceDate.isEmpty()) block["referenceDate"] = referenceDate;
     block["freshnessKnown"] = known;
+    if (known && roastIsIso) {
+        const int age = restAgeDays(roastDate, frozenDate, defrostDate, referenceDate);
+        if (age >= 0) block["restAgeDays"] = age;
+    }
     if (known) {
         block["instruction"] = QString::fromUtf8(kBeanFreshnessKnownInstruction);
     } else {

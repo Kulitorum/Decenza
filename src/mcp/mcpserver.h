@@ -133,7 +133,12 @@ struct PendingConfirmation {
 // 1.16.0: devices_connection_status omits elapsedSinceAppStartSec for a scale-priority latch
 // restored from an earlier run, and elapsedSinceAppStartHuman says so instead of a negative
 // offset. Not visible to the fingerprint.
-inline constexpr const char* McpSurfaceVersion = "1.16.0";
+// 1.17.0: bag drops grinderBrand/Model/Burrs (the equipment package owns them), create
+// accepts frozenDate/storageHint, and lifecycle dates are validated (ISO, not future).
+// The current_context resource sends the shared currentBean block. beanFreshness adds
+// restAgeDays (storage known only); dialInSessions hoist roastDate; bestRecentShot adds
+// roastDate, restAgeDays, sameBagAsCurrent. Not visible to the fingerprint.
+inline constexpr const char* McpSurfaceVersion = "1.17.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";

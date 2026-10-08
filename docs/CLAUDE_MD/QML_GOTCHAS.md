@@ -175,6 +175,17 @@ An invokable **can** work if the same expression also reads a notifying property
 
 **Non-reactive is sometimes correct.** `EmojiAssets.has()` is an invokable on purpose: the bundled asset set is fixed at build time, so there is nothing to re-evaluate for. Say so in a comment when you do this, or the next reader will assume it is the bug.
 
+## Assigning a property from JS deletes its binding — including the caller's
+
+`combo.currentIndex = i` removes whatever `currentIndex: <expr>` was declared on that object
+(`qv4qobjectwrapper.cpp:724`), permanently. Inside a reusable component this deletes the
+*caller's* binding, so the control stops following its model after one user action — and a
+reused dialog then shows the previous pick over a different value. A write through the C++
+setter keeps the binding (`QQuickComboBox::setCurrentIndex`, `qquickcombobox.cpp:1240`), which
+is why Qt's own ComboBox popup never has this bug. `StyledComboBox` applies picks through
+`ComboBoxSelection.select()` for that reason; don't reintroduce the assignment, and don't patch
+callers with `Qt.binding(...)` re-asserts.
+
 ## Translucent element renders opaque (scene-graph opaque batch)
 
 A `Rectangle` with a translucent color (e.g. a `Theme.scrimColor(...)` fill at alpha 0.4) can render **fully opaque** — the wallpaper behind it doesn't show through — even though the computed color is correct. Qt Quick's renderer mis-sorts it into the *opaque* batch and drops its alpha. This is platform-independent (seen on Metal/macOS, and reported on Android), so it is **not** an RHI-backend bug.

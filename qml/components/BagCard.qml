@@ -6,10 +6,8 @@ import Decenza
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
 // selects the bag (sets activeBagId). Action row: Restock (a new bag of the
-// same coffee, prefilled from this one), Thaw (frozen bags),
-// Mark Opened (once a portion is out of the freezer — includes thawed bags,
-// so a thawed bag shows both), Edit, and ONE removal action that follows the
-// bag's life: a trash icon
+// same coffee, prefilled from this one), Thaw (frozen bags), Edit, and ONE
+// removal action that follows the bag's life: a trash icon
 // while no shot references it (a mistaken creation — deletes the row), then
 // "Bag finished" once shots exist (leaves inventory, history kept). Storage
 // still refuses deleting a referenced bag — a brief message explains if the
@@ -32,24 +30,11 @@ Rectangle {
     signal restockRequested(var bag)
 
     readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
-    readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
-    // isFrozen means "this bag is stored frozen". Beans are frozen in PORTIONS
-    // and pulled out one at a time, so the bag keeps portions in the freezer
-    // indefinitely — this stays true after a thaw, and "Thaw" stays available
-    // to record the next portion coming out. Do NOT read it as "nothing of
-    // this bag is out right now".
-    readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
-    // defrostDate is when the CURRENT portion left the freezer — not the bag.
-    readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
-    // True when beans are out at room temperature and could THEREFORE have been
-    // opened — not a claim that they are in use: a never-frozen bag trivially,
-    // or a frozen bag whose current portion has been thawed. Until the first
-    // thaw there is nothing out of the freezer to have opened. Deliberately NOT
-    // named for the freezer's contents: a frozen bag always has portions in the
-    // freezer, so "no portion in the freezer" would never be true of one.
-    readonly property bool portionOutOfFreezer: !isFrozen || defrostDate.length > 0
-    readonly property string openedDate: bag && bag.openedDate !== undefined ? String(bag.openedDate) : ""
+    // Which buttons the card shows: InventoryBag::cardActions, the list the web
+    // page renders too.
+    readonly property var actions: bag && bag.actions ? bag.actions : []
+    function offers(action) { return actions.indexOf(action) >= 0 }
 
     readonly property var beanBase: {
         if (!bag || !bag.beanBaseData || String(bag.beanBaseData).length === 0) return ({})
@@ -239,58 +224,8 @@ Rectangle {
     readonly property string attrLine: _attrParts.join("  ·  ")
     readonly property string attrLineRich: Theme.joinWithBullet(_attrParts)
 
-    function daysSince(isoDate) {
-        if (!isoDate || isoDate.length < 8) return -1
-        var d = new Date(isoDate.substring(0, 10) + "T00:00:00")
-        if (isNaN(d.getTime())) return -1
-        var now = new Date()
-        var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        var that = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-        var days = Math.round((today - that) / 86400000)
-        return days >= 0 ? days : -1
-    }
-
-    // Roast date as a short, locale-formatted string; falls back to the raw
-    // stored text if it isn't a parseable ISO date.
-    function formatRoastDate(raw) {
-        if (!raw || raw.length < 8) return raw || ""
-        var d = new Date(raw.substring(0, 10) + "T00:00:00")
-        if (isNaN(d.getTime())) return raw
-        return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
-    }
-
-    // Roast date · freeze/open state line (omits anything unknown — no
-    // placeholders). The user freezes beans, so the actual roast/thaw/open
-    // date is more meaningful than a bare day count — show both (the absolute
-    // date and the at-a-glance age), matching the roast-date convention.
-    readonly property var _metaParts: {
-        var _ = TranslationManager.translationVersion
-        var parts = []
-        var roast = formatRoastDate(bag && bag.roastDate ? String(bag.roastDate) : "")
-        if (roast.length > 0)
-            parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
-        // Freezer state: the current portion's thaw date, or "Frozen" while no
-        // portion has been pulled yet.
-        if (defrostDate.length > 0) {
-            let defAge = daysSince(defrostDate)
-            if (defAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
-                    .arg(formatRoastDate(defrostDate)).arg(defAge))
-        } else if (isFrozen) {
-            parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
-        }
-        // Opened is INDEPENDENT of the freezer state above, not an alternative
-        // to it: a thawed portion can also have been opened, and both dates are
-        // meaningful at once. Chaining this onto the else-if would render the
-        // "Mark Opened" action write-only on exactly the thawed bags that offer it.
-        if (openedDate.length > 0) {
-            let openAge = daysSince(openedDate)
-            if (openAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
-                    .arg(formatRoastDate(openedDate)).arg(openAge))
-        }
-        return parts
-    }
+    // Roasted · Thawed · Opened, from the lifecycleParts the inventory carries.
+    readonly property var _metaParts: BagLifecycleLabels.describe(bag ? bag.lifecycleParts : [])
     readonly property string metaLine: _metaParts.join("  ·  ")
     readonly property string metaLineRich: Theme.joinWithBullet(_metaParts)
 
@@ -323,18 +258,21 @@ Rectangle {
 
     DatePickerDialog {
         id: thawDatePicker
+        allowFuture: false
+        minimumIso: (card.bag && card.bag.frozenDate) || ""
+        heading: TranslationManager.translate("bagcard.thawHeading", "When did this portion leave the freezer?")
         onDateSelected: function(dateString) {
             MainController.bagStorage.requestUpdateBag(card.bag.id, { "defrostDate": dateString })
         }
     }
 
-    // "Mark Opened" quick action, the room-temperature analogue of
-    // thawDatePicker: available once a portion is out of the freezer (see
-    // portionOutOfFreezer), which includes thawed bags — not only never-frozen ones.
     DatePickerDialog {
-        id: openedDatePicker
+        id: freezeDatePicker
+        allowFuture: false
+        minimumIso: (card.bag && card.bag.roastDate) || ""
+        heading: TranslationManager.translate("bagcard.freezeHeading", "When did this bag go into the freezer?")
         onDateSelected: function(dateString) {
-            MainController.bagStorage.requestUpdateBag(card.bag.id, { "openedDate": dateString })
+            MainController.bagStorage.requestUpdateBag(card.bag.id, { "frozenDate": dateString })
         }
     }
 
@@ -507,7 +445,7 @@ Rectangle {
             }
 
             AccessibleButton {
-                visible: card.finishedCard
+                visible: card.offers("restore")
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -520,7 +458,7 @@ Rectangle {
             // Unlinked bag: one tap opens the edit dialog with the Bean Base
             // search already run for this coffee (was a passive hint before).
             AccessibleButton {
-                visible: !card.finishedCard && !card.hasCanonical
+                visible: card.offers("findInBeanBase")
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -531,7 +469,7 @@ Rectangle {
             }
 
             AccessibleButton {
-                visible: !card.finishedCard && card.hasShots
+                visible: card.offers("bagFinished")
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -552,7 +490,7 @@ Rectangle {
             // Everything we know about the bean, on demand — the card keeps
             // its dense subset (attrs + tasting notes), the popup shows all.
             StyledIconButton {
-                visible: card.hasCanonical
+                visible: card.offers("info")
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 icon.source: "qrc:/icons/info.svg"
@@ -560,13 +498,24 @@ Rectangle {
                 onClicked: beanDetailsPopup.open()
             }
 
-            // Frozen bag: "Thaw" records the latest portion leaving the
-            // freezer — calendar picker, always defaulting to today (a new
-            // thaw event happening today is overwhelmingly the common case;
-            // pass "" so the picker's "default to today" branch wins over any
-            // stored defrostDate).
+            // "Freeze" marks the bag as kept frozen; it records no thaw, since
+            // shots can be ground straight from the freezer.
             AccessibleButton {
-                visible: !card.finishedCard && card.isFrozen
+                visible: card.offers("freeze")
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.freeze", "Freeze")
+                accessibleName: TranslationManager.translate("bagcard.accessible.freeze", "Freeze: pick the date this bag went into the freezer")
+                onClicked: freezeDatePicker.openWithDate("")
+            }
+
+            // Frozen bag: "Thaw" records the latest portion leaving the
+            // freezer — calendar picker, always defaulting to today (pass "" so
+            // the picker's default wins over any stored defrostDate).
+            AccessibleButton {
+                visible: card.offers("thaw")
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -576,30 +525,11 @@ Rectangle {
                 onClicked: thawDatePicker.openWithDate("")
             }
 
-            // "Mark Opened" records when the current portion started being
-            // used at room temperature. Shown once a portion is actually out
-            // of the freezer — never-frozen bags, and frozen bags with a thaw
-            // recorded. A frozen bag carries BOTH actions once thawed, and
-            // keeps them: "Thaw" records the NEXT portion coming out of the
-            // freezer (portions are frozen and pulled one at a time, so the
-            // bag stays frozen), "Mark Opened" this portion leaving airtight
-            // storage. Same picker pattern as Thaw, always defaulting to today.
-            AccessibleButton {
-                visible: !card.finishedCard && card.portionOutOfFreezer
-                height: Theme.scaled(36)
-                _customFontSize: Theme.captionFont.pixelSize
-                leftPadding: Theme.scaled(10)
-                rightPadding: Theme.scaled(10)
-                text: TranslationManager.translate("bagcard.markOpened", "Mark Opened")
-                accessibleName: TranslationManager.translate("bagcard.accessible.markOpened", "Mark opened: pick the date this bag was opened")
-                onClicked: openedDatePicker.openWithDate("")
-            }
-
             // No shots yet: the bag is a mistaken creation — offer delete
             // instead of finishing. Swaps to "Bag finished" above once the
             // first shot lands (inventory refreshes via bagsChanged).
             StyledIconButton {
-                visible: !card.hasShots
+                visible: card.offers("delete")
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 icon.source: "qrc:/icons/trash.svg"

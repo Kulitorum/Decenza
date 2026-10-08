@@ -368,7 +368,7 @@ the `refresh()` / `rotateToken()` invokables.
 | `shots_upload` | Upload a shot to every destination switched on and connected (Visualizer, the Decent account) through `ShotUploads`, as the Upload button does. A shot a destination already holds is updated there, never duplicated. Rejects upfront for a maintenance profile or a shot shorter than `uploadMinDurationSec`, or when no destination is active. Response: `{success, destinations, message}`; each destination records its result when its answer arrives. | control |
 | `shots_delete` | Delete a shot by ID. Permanent and cannot be undone. | settings |
 
-`shots_get_detail` also surfaces the shot's coffee bag snapshot (bean-bag-inventory): sparse-emitted `bagId`, `frozenDate`, `defrostDate` (ISO dates; pre-bag shots and unfrozen beans omit them).
+`shots_get_detail` also surfaces the shot's coffee bag snapshot (bean-bag-inventory): sparse-emitted `bagId`, `frozenDate`, `defrostDate`, `storageHint`, `openedDate` (ISO dates; pre-bag shots and unfrozen beans omit them).
 
 ### Coffee Bags (bean-bag-inventory)
 | Tool | Description | Category |
@@ -376,8 +376,8 @@ the `refresh()` / `rotateToken()` invokables.
 | `bag` action=`list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, `kind` ("coffee"/"tea", creation-time), freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, `isActive`, and — tea bags — the structured brewing fields (teaType, brewTemperatureC, leafGramsPer100Ml, steepTime). | read |
 | `bag` action=`select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
 | `bag_extract_details` | Run the "Get info from page" AI extraction for a bag's URL and return the fields WITHOUT writing (`bag` action=update applies them). Reports stage (1 local fetch / 2 provider web-fetch fallback) + provider/model. Consumes provider tokens. Stays a separate tool: parsing a photographed label is a different job that happens to share the noun. | control |
-| `bag` action=`create` | Create an inventory bag; `kind` = coffee (default) \| tea, stamped at creation and immutable — the MCP counterpart of Add Coffee / Add Tea. Tea vocabulary only on tea bags; roastLevel/grinderSetting only on coffee. NOT auto-activated (use action=select). | settings |
-| `bag` action=`update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished"; setting `defrostDate` records a thaw. `kind` is NOT editable; tea vocabulary is rejected on coffee bags. | settings |
+| `bag` action=`create` | Create an inventory bag; `kind` = coffee (default) \| tea, stamped at creation and immutable — the MCP counterpart of Add Coffee / Add Tea. Tea vocabulary only on tea bags; roastLevel/grinderSetting/rpm only on coffee. Accepts `frozenDate`/`storageHint`; `defrostDate`/`openedDate` are update-only. NOT auto-activated (use action=select). | settings |
+| `bag` action=`update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished"; setting `defrostDate` records a thaw; clearing `frozenDate` clears it. Dates are YYYY-MM-DD and never in the future (`CoffeeBag::lifecycleFieldError`). `kind` is NOT editable; tea vocabulary is rejected on coffee bags; grinder identity belongs to the equipment package. | settings |
 
 ### Equipment Packages (add-equipment-packages)
 The grinder is a first-class, switchable **equipment package** (the active bag points at one via `equipment_id`). The grind setting + `rpm` stay as per-bag dial-in.

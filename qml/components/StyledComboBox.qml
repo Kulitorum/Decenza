@@ -102,8 +102,11 @@ ComboBox {
         options: control._buildItemList()
         currentIndex: control.currentIndex
         emptyItemText: control.emptyItemText
+        // Never `control.currentIndex = index`: that QML assignment deletes the caller's
+        // `currentIndex:` binding, so a reused dialog then shows a stale pick (see
+        // comboboxselection.h).
         onSelected: function(index, value) {
-            control.currentIndex = index
+            ComboBoxSelection.select(control, index)
             control.activated(index)
         }
     }

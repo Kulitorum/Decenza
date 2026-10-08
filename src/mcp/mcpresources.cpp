@@ -6,6 +6,7 @@
 #include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
 #include "../history/bagid.h"
+#include "../ai/dialing_blocks.h"
 #include "../core/logtags.h"
 #include "../core/memorymonitor.h"
 #include "../core/fddiagnostics.h"
@@ -191,32 +192,28 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 // The dye fields are read-throughs of the active coffee bag
                 // (bean-bag-inventory), so this block describes the active
                 // bag without needing a separate lookup.
-                bean["brand"] = settings->dye()->dyeBeanBrand();
-                bean["type"] = settings->dye()->dyeBeanType();
-                if (bagIdIsSet(settings->dye()->activeBagId()))
-                    bean["bagId"] = settings->dye()->activeBagId();
-                // Days out of the freezer, not a raw date: the AI shouldn't have
-                // to do date math (and may not reliably know today's date). This
-                // is the freshness clock the user already sees (the "Def %1d"
-                // line in BeanSummary). Omitted when there's no defrost date, it's
-                // unparseable, or it's in the future.
-                const QString defrostDate = settings->dye()->activeBagDefrostDate();
-                if (!defrostDate.isEmpty()) {
-                    const QDate def = QDate::fromString(defrostDate.left(10), Qt::ISODate);
-                    if (def.isValid()) {
-                        const qint64 daysOut = def.daysTo(QDate::currentDate());
-                        if (daysOut >= 0)
-                            bean["daysOutOfFreezer"] = daysOut;
-                    }
-                }
-                // Normalize roast date to ISO 8601 if parseable, otherwise pass through as user text
-                QString rawDate = settings->dye()->dyeRoastDate();
-                QDate parsed = QDate::fromString(rawDate, Qt::ISODate);
-                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "yyyy-MM-dd");
-                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "MM/dd/yyyy");
-                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "dd/MM/yyyy");
-                bean["roastDate"] = parsed.isValid() ? parsed.toString(Qt::ISODate) : rawDate;
-                bean["doseWeightG"] = settings->dye()->dyeBeanWeight();
+                // The same currentBean block every AI surface sends, from the live bag.
+                const SettingsDye* dye = settings->dye();
+                DialingBlocks::CurrentBeanBlockInputs in;
+                in.identity.beanBrand = dye->dyeBeanBrand();
+                in.identity.beanType = dye->dyeBeanType();
+                in.identity.roastDate = dye->dyeRoastDate();
+                in.identity.grinderBrand = dye->dyeGrinderBrand();
+                in.identity.grinderModel = dye->dyeGrinderModel();
+                in.identity.grinderBurrs = dye->dyeGrinderBurrs();
+                in.identity.frozenDate = dye->activeBagFrozenDate();
+                in.identity.defrostDate = dye->activeBagDefrostDate();
+                in.identity.storageHint = dye->activeBagStorageHint();
+                in.identity.openedDate = dye->activeBagOpenedDate();
+                in.roastLevel = dye->dyeRoastLevel();
+                in.referenceDate = QDate::currentDate().toString(Qt::ISODate);
+                in.grinderSetting = dye->dyeGrinderSetting();
+                in.rpm = dye->dyeGrinderRpm();
+                in.doseWeightG = dye->dyeBeanWeight();
+                in.beanBaseJson = dye->dyeBeanBaseData();
+                bean = DialingBlocks::buildCurrentBeanBlock(in);
+                if (bagIdIsSet(dye->activeBagId()))
+                    bean["bagId"] = dye->activeBagId();
                 grinder["brand"] = settings->dye()->dyeGrinderBrand();
                 grinder["model"] = settings->dye()->dyeGrinderModel();
                 grinder["setting"] = settings->dye()->dyeGrinderSetting();

@@ -779,23 +779,9 @@ private slots:
         QVERIFY(inAppEnvelope.contains(QStringLiteral("currentBean")));
         const QJsonObject inAppCurrentBean = inAppEnvelope.value(QStringLiteral("currentBean")).toObject();
 
-        // MCP surface: the same shared helper that mcptools_dialing.cpp
-        // calls on the resolved shot (mirrors the
-        // `mcptools_dialing.cpp:200`-block exactly — same field-by-field
-        // mapping from `sd` (the resolved shot) into
-        // `CurrentBeanBlockInputs`).
-        DialingBlocks::CurrentBeanBlockInputs in;
-        in.identity.beanBrand = shot.beanBrand;
-        in.identity.beanType = shot.beanType;
-        in.roastLevel = shot.roastLevel;
-        in.roastDate = shot.roastDate;
-        in.identity.grinderBrand = shot.grinderBrand;
-        in.identity.grinderModel = shot.grinderModel;
-        in.identity.grinderBurrs = shot.grinderBurrs;
-        in.grinderSetting = shot.grinderSetting;
-        in.rpm = static_cast<int>(shot.rpm);
-        in.doseWeightG = shot.doseWeightG;
-        const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(in);
+        // MCP surface: exactly what mcptools_dialing.cpp sends for the resolved shot.
+        const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(
+            DialingBlocks::beanInputsFromProjection(shot));
 
         // The contract: byte-equivalent JSON for the same shot.
         QCOMPARE(inAppCurrentBean, mcpCurrentBean);

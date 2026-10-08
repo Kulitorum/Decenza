@@ -354,6 +354,26 @@ inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
+// A bag editor's save: its detail fields (every one, an empty value removes the
+// key) merged into `blob`. The identity working keys follow the bag's own fields,
+// but only when a blob exists or a detail was entered — a plain rename of a
+// detail-less manual bag must not conjure a blob. The app's and web's editors
+// both go through here.
+inline QString mergeEditorDetails(const QString& blob, QVariantMap details,
+                                  const QString& roasterName, const QString& coffeeName,
+                                  const QString& roastLevel)
+{
+    bool anyDetail = false;
+    for (auto it = details.cbegin(); it != details.cend() && !anyDetail; ++it)
+        anyDetail = !it.value().toString().trimmed().isEmpty();
+    if (!blob.isEmpty() || anyDetail) {
+        details.insert(QStringLiteral("roasterName"), roasterName.trimmed());
+        details.insert(QStringLiteral("roastName"), coffeeName.trimmed());
+        details.insert(QStringLiteral("degree"), roastLevel);
+    }
+    return mergeBeanDetails(blob, details);
+}
+
 // Apply AI-extracted page values to a blob (add-beanbase-archive-link-fallback).
 //
 // Three-way, and the blob already carries what decides it — no new state and

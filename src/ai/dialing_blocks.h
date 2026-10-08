@@ -7,6 +7,7 @@
 #include "../history/shotprojection.h"  // source type for beanInputsFromProjection (inline)
 #include "../history/shotscope.h"       // AdviceScope — required by every DB-backed builder
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -269,14 +270,15 @@ struct CurrentBeanBlockInputs {
     //
     // Bean storage lifecycle (frozenDate / defrostDate / storageHint / openedDate)
     // rides in there too: when any is set, buildBeanFreshness reports storage as
-    // KNOWN and ages the beans from the most recent thaw/open date instead of asking
-    // the user. Basket specs (wall/flow/precision/dose range) and the puck-prep flag
+    // KNOWN and the AI computes age from those dates instead of asking the user. Basket specs (wall/flow/precision/dose range) and the puck-prep flag
     // rollup are DERIVED below from BasketAliases / PuckPrep — the caller supplies
     // identity only.
     DialingHelpers::ShotIdentity identity;
 
     QString roastLevel;
-    QString roastDate;
+    // The day the shot was pulled (local ISO date): what the freshness dates are
+    // measured to.
+    QString referenceDate;
     QString grinderSetting;
     // Grinder RPM the shot was ground at (0 = unset / not an adjustable-RPM
     // grinder). A second grind axis alongside grinderSetting on variable-RPM
@@ -303,7 +305,7 @@ inline CurrentBeanBlockInputs beanInputsFromProjection(const ShotProjection& sd)
     // One row in ShotIdentity::fields() now reaches all three slices.
     in.identity = DialingHelpers::identityFromShot(sd);
     in.roastLevel = sd.roastLevel;
-    in.roastDate = sd.roastDate;
+    in.referenceDate = DialingHelpers::shotLocalDate(sd);
     in.grinderSetting = sd.grinderSetting;
     in.rpm = static_cast<int>(sd.rpm);
     in.doseWeightG = sd.doseWeightG;
@@ -367,7 +369,8 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     }
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(
-        in.roastDate, in.identity.frozenDate, in.identity.defrostDate, in.identity.storageHint, in.identity.openedDate);
+        in.identity.roastDate, in.identity.frozenDate, in.identity.defrostDate, in.identity.storageHint,
+        in.identity.openedDate, in.referenceDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 
