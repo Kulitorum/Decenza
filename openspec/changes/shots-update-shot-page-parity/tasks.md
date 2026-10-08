@@ -7,4 +7,4 @@
 ## 2. Verification
 
 - [x] 2.1 Build and run the full suite; break-check the new test
-- [ ] 2.2 Correct the Hometown portion-1 shots with `mcp__de1__shots_update` (frozen 2026-09-03, thawed 2026-09-09, opened 2026-09-10, vacuum-sealed), after the user confirms the list
+- [ ] 2.2 HELD until the beta is on the tablet: correct the 45 Hometown (Sweet Bloom, Hometown Blend) shots from 2026-09-10 08:45 through 2026-10-07 10:05, all portion 1 (confirmed by the user), with `mcp__de1__shots_update`: frozen 2026-09-03, thawed 2026-09-09, opened 2026-09-10, vacuum-sealed
