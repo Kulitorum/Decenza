@@ -41,7 +41,7 @@ Transport Mode SHALL allow starting on a connected machine in idle/heating/ready
 
 ### Requirement: Transport exit restores the selected brew profile when idle
 
-After leaving Transport in an idle/heating/ready phase, the app SHALL restore the selected brew profile through its normal upload path. It SHALL NOT upload a brew profile over another active operation.
+Leaving or covering Transport SHALL request restoration of the selected brew profile through its normal upload path. Restoration SHALL wait until the device is idle and the UI phase is idle/heating/ready. It SHALL NOT write a brew profile or shot settings over another active operation, including steam warm-up displayed as Heating.
 
 #### Scenario: Returning after a prepared cold drain
 - **GIVEN** the shared handler installed a temporary cold-maintenance profile
@@ -50,7 +50,17 @@ After leaving Transport in an idle/heating/ready phase, the app SHALL restore th
 
 #### Scenario: Another operation replaces Transport
 - **WHEN** another active operation replaces Transport
-- **THEN** Transport's exit SHALL NOT upload a brew profile over that operation
+- **THEN** Transport's exit SHALL queue profile restoration without writing over that operation
+- **AND** the selected brew profile SHALL be restored once the device returns to idle
+
+#### Scenario: Another page covers Transport during preparation
+- **GIVEN** cold preparation installed the temporary maintenance profile
+- **WHEN** Settings or History covers Transport without destroying it
+- **THEN** the deferred start SHALL be cancelled and the selected profile restored while the device is idle
+
+#### Scenario: Steam warm-up replaces Transport
+- **WHEN** Steam replaces Transport while the UI reports Heating
+- **THEN** profile restoration SHALL remain deferred until the device is idle
 
 ### Requirement: Leaving Transport cancels a deferred cold start
 
@@ -61,6 +71,12 @@ Leaving or covering Transport during cold preparation SHALL cancel its deferred 
 - **WHEN** the user leaves Transport through Back, system navigation or another page
 - **THEN** the deferred AirPurge SHALL be cancelled before profile restoration
 - **AND** a later ready notification SHALL NOT start that cancelled purge
+
+#### Scenario: Group head starts a competing operation
+- **GIVEN** a deferred AirPurge is waiting for cold preparation
+- **WHEN** the device reports another operation, even in a heating substate
+- **THEN** the deferred purge SHALL be cancelled before state observers run
+- **AND** a later ready notification SHALL NOT revive it
 
 #### Scenario: Repeated cancellation or another operation
 - **WHEN** Transport exit is handled more than once, or another maintenance request is pending

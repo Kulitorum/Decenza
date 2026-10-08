@@ -15,7 +15,8 @@ See proposal.md. Decaid at local revision 94501c455d81fa9a31b4ce165bb0b0777e7bee
 - Gate the page on connection and idle/heating/ready phases, not temperature or firmware. Firmware policy belongs to the shared maintenance request, as it does in Decaid; repeating it in the page is what prevented the existing workaround from helping Transport.
 - Keep the existing event-driven preparation wait. Decaid's one-second delay is not copied because repository rules require events rather than timing guards.
 - Cancel deferred AirPurge synchronously before explicit exits and on StackView deactivation; destruction also cancels as a fallback. Cancel only AirPurge so a replacing Descale/Clean request retains its ownership. Disconnect discards all deferred requests from that connection.
-- Restore through ProfileManager.uploadCurrentProfile on page destruction only while idle/heating/ready. An operation that replaces Transport must not have its profile overwritten.
+- Cancel deferred AirPurge in the device state-notification path before flushing it or notifying observers when an operation, sleep or error replaces idle preparation.
+- Request profile restoration on deactivation (including covering) and destruction, once per start/exit cycle. ProfileManager.restoreCurrentProfile defers quietly until both the device is idle and the phase is idle/heating/ready; Steam warm-up reports Heating but remains an active device state. The existing uploader still owns actual writes and in-flight upload serialization.
 - Test actual requested-state writes with MockTransport for unknown/1352/1356/1358 GHC firmware and no-GHC hardware. A deferred request must wait until the state notification leaves heating; acknowledge the preparation profile so fixture teardown does not simulate a failed upload.
 
 ## Risks / Trade-offs

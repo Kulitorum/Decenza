@@ -564,6 +564,8 @@ public slots:
     bool persistCurrentProfile();  // Save to downloaded folder if not already installed (no re-upload)
     void refreshProfiles();
     Q_INVOKABLE void uploadCurrentProfile();
+    // Restore after maintenance; defer quietly until the device is idle.
+    Q_INVOKABLE void restoreCurrentProfile();
 
     // Connect/reconnect variant: defers while the DE1 is still asleep, because
     // the connect sequence wakes the machine and would otherwise upload into
@@ -837,6 +839,7 @@ private:
     QString m_previousProfileName;
     bool m_profileModified = false;
     bool m_profileUploadPending = false;
+    bool m_profileRestorePending = false;
     bool m_uploadInFlight = false;        // True while a profile upload is in progress at DE1Device
     bool m_uploadPendingAfterInFlight = false;  // True if a newer profile change arrived mid-upload
     bool m_startupLoadDone = false;

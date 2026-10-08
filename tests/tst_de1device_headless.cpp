@@ -128,6 +128,48 @@ private slots:
                  QList<QByteArray>{QByteArray(1, static_cast<char>(DE1::State::AirPurge))});
     }
 
+    void replacementStateCancelsColdTransportBeforeObservers_data() {
+        QTest::addColumn<int>("firmwareBuild");
+        QTest::addColumn<QByteArray>("replacement");
+        for (int build : {0, 1352}) {
+            const QList<QByteArray> packets = {
+                QByteArray::fromHex("0401"), // Espresso / Heating
+                QByteArray::fromHex("0405"), // Espresso / Pouring
+                QByteArray::fromHex("0501"), // Steam / Heating
+                QByteArray::fromHex("0507"), // Steam / Steaming
+                QByteArray::fromHex("0605"), // HotWater / Pouring
+                QByteArray::fromHex("0f05"), // Flush / Pouring
+                QByteArray::fromHex("0a08"), // Descale / Init
+                QByteArray::fromHex("120d"), // Clean / Init
+                QByteArray::fromHex("0000")  // Sleep / Ready
+            };
+            for (const auto& packet : packets)
+                QTest::newRow(qPrintable(QString::number(build) + '-' + packet.toHex())) << build << packet;
+        }
+    }
+
+    void replacementStateCancelsColdTransportBeforeObservers() {
+        QFETCH(int, firmwareBuild);
+        QFETCH(QByteArray, replacement);
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = firmwareBuild;
+        f.device.setIsHeadless(false);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.startAirPurge();
+        f.transport.ackAllWritesInOrder();
+        bool observerCalled = false;
+        connect(&f.device, &DE1Device::stateChanged, this, [&]() {
+            observerCalled = true;
+            QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
+            QVERIFY(requestedStates(f.transport).isEmpty());
+        });
+        f.device.parseStateInfo(replacement);
+        QVERIFY(observerCalled);
+        f.device.parseStateInfo(QByteArray::fromHex("0200"));
+        QVERIFY(requestedStates(f.transport).isEmpty());
+    }
+
     void transportExitDoesNotCancelAnotherMaintenanceRequest() {
         TestFixture f;
         f.device.setIsHeadless(false);

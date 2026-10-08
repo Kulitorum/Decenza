@@ -1579,6 +1579,15 @@ bool DE1Device::applyColdMaintenanceWorkaround(DE1::State state) {
 // every state/substate change, so the request goes out on the first packet showing
 // the machine is no longer heating.
 void DE1Device::flushPendingMaintenanceState() {
+    // A group-head operation supersedes the deferred drain before stateChanged
+    // can navigate away from Transport. Heating substates can belong to that
+    // operation too, so cancel before considering the heating wait.
+    if (m_pendingMaintenanceState == DE1::State::AirPurge &&
+        m_state != DE1::State::Idle && m_state != DE1::State::SchedIdle &&
+        m_state != DE1::State::Busy) {
+        cancelPendingAirPurge();
+        return;
+    }
     if (m_pendingMaintenanceState == DE1::State::NoRequest || isMachineHeating()) {
         return;
     }

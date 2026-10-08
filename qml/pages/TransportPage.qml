@@ -27,21 +27,22 @@ T.Page {
                                        MachineState.phase === MachineState.Phase.Heating ||
                                        MachineState.phase === MachineState.Phase.Ready))
 
-    Component.onDestruction: {
+    property bool profileRestoreRequested: false
+
+    function releaseTransport() {
         DE1Device.cancelPendingAirPurge()
-        // Restore the selected brew profile after the cold-maintenance profile,
-        // as DescalingPage does. Never upload over an operation that replaced us.
-        if (MachineState.phase === MachineState.Phase.Idle ||
-            MachineState.phase === MachineState.Phase.Heating ||
-            MachineState.phase === MachineState.Phase.Ready)
-            ProfileManager.uploadCurrentProfile()
+        if (!transportPage.profileRestoreRequested) {
+            transportPage.profileRestoreRequested = true
+            ProfileManager.restoreCurrentProfile()
+        }
     }
 
-    // Cancel at the start of navigation, before the outgoing transition.
-    StackView.onDeactivating: DE1Device.cancelPendingAirPurge()
+    Component.onDestruction: transportPage.releaseTransport()
+    // A covered page can remain on the stack without being destroyed.
+    StackView.onDeactivating: transportPage.releaseTransport()
 
     function leaveTransport() {
-        DE1Device.cancelPendingAirPurge()
+        transportPage.releaseTransport()
         transportPage.showComplete = false
         AppShell.dismissRequested()
     }
@@ -407,6 +408,7 @@ T.Page {
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
                     onClicked: {
+                        transportPage.profileRestoreRequested = false
                         transportPage.userStopped = false
                         transportPage.showComplete = false
                         DE1Device.startAirPurge()

@@ -5,7 +5,7 @@ The user explicitly requested the limited Decaid-matching path on October 8, 202
 ## 1. Existing handler and implementation
 
 - [x] 1.1 Compare Decaid's maintenance preparation with the existing Decenza handler; confirm the shared 1356 boundary and unknown-build preparation at Decaid revision 94501c455d81fa9a31b4ce165bb0b0777e7beec6, unified_de1.dart:339-400. Decenza keeps its event-driven wait instead of the fixed delay.
-- [x] 1.2 Remove Transport's Ready gate, allow connected idle/heating/ready, retain simulation and sleep/disconnection/other-operation gating; restore the selected profile on exit only in idle/heating/ready phases. No C++ capability or backend change was required.
+- [x] 1.2 Remove Transport's Ready gate, allow connected idle/heating/ready, retain simulation and sleep/disconnection/other-operation gating; request selected-profile restoration on leaving or covering the page, deferring until the device is idle if another operation replaces Transport (corrected in review). No new firmware capability was required.
 - [x] 1.3 Add five production-handler regression rows for unknown/1352/1356/1358 GHC firmware and no-GHC, checking preparation ACK, no premature AirPurge and release through the state-notification path. Qt Creator run 1791394637063 passed without warnings; the first fixture attempt exposed missing fake ACKs at teardown and was corrected.
 
 ## 2. Documentation and verification
@@ -38,3 +38,12 @@ Review validation: Qt Creator run 1791394637066 passed the affected target witho
 ## Review workflow follow-up
 
 - Push this correction to PR #2034 and resolve the addressed thread after checks pass.
+
+## PR #2034 second review follow-up
+
+- [x] R.5 Cancel old/unknown-GHC deferred AirPurge on competing device states before state observers can navigate, including replacement operations still heating.
+- [x] R.6 Restore on deactivation as well as destruction; queue restoration quietly during active operations, checking the raw device state so Steam warm-up cannot be mistaken for idle heating. Repeated cleanup is idempotent until the next explicit Start.
+- [x] R.7 Add production-path regressions for competing states, safe deferred restoration, covered idle/heating restoration and disconnect cleanup.
+- [x] R.8 Run affected and full Qt Creator tests and record results; publish and verify the updated manual. Head checks must pass before resolving Codex threads.
+
+Second-review validation: affected Qt Creator run 1791394637069 passed both targets in 4.73 s. Full run 1791394637070 passed 121/121 in 28.12 s, with zero failures, skips or test warnings. App build 1791394635059 succeeded without errors or warnings. All 180 specs/changes pass strict validation and source text-invariant checks pass. Wiki commit 83d2a43 is published and the rendered Transport sentence is verified. The initial new restoration tests incorrectly assumed synchronous phase notifications; they now wait for the actual queued notification, and expect the intentional disconnect warning. MockTransport verifies requested-state ordering and restored 93°C profile bytes; no physical machine was drained.

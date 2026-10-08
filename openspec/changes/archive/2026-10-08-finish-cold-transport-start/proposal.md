@@ -10,7 +10,7 @@ TransportPage still requires Ready even though DE1Device already supports cold A
 - Reuse startAirPurge/requestMaintenanceState: older or unknown GHC firmware gets the existing 1°C group / 0°C tank preparation; newer firmware requests AirPurge directly.
 - Retain Decenza's event-driven wait for preheat to end rather than Decaid's fixed one-second delay, per repository timer rules.
 - Cancel a deferred AirPurge before leaving/covering Transport, with disconnect cleanup; later ready notifications must not revive it.
-- Restore the selected brew profile when leaving Transport in an idle/heating/ready phase, without uploading over another operation.
+- Restore the selected brew profile when leaving or covering Transport; defer until the device is idle if another operation replaces it. Cancel competing-operation deferred AirPurge before state observers run.
 - Add focused regression coverage, update the hint/manual, and reconcile the maintenance spec.
 
 ## Capabilities
