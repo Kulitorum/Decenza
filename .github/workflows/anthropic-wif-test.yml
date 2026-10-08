@@ -398,6 +398,7 @@ jobs:
         show_full_output: false
         prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
         claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+          --bare
         github_token: ${{ github.token }}
         display_report: false
         classify_inline_comments: false
