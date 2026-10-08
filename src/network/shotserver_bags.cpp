@@ -462,6 +462,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
         QVariantMap fields = editorFieldsFromBody(bodyJson);
+        // A new bag has no portion in use yet; its first shot stamps the opened
+        // date (as the app form and MCP create refuse them too).
+        for (const char* key : {"defrostDate", "openedDate"}) {
+            if (!fields.value(QString::fromLatin1(key)).toString().isEmpty()) {
+                respondJson(QJsonObject{{"error", QStringLiteral("%1 is set by editing the bag; a new bag "
+                    "has no portion in use yet").arg(QLatin1String(key))}}, 400);
+                return;
+            }
+        }
         if (const QString err = CoffeeBag::lifecycleError({}, fields, QDate::currentDate()); !err.isEmpty()) {
             respondJson(QJsonObject{{"error", err}}, 400);
             return;
