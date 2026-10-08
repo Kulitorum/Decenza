@@ -6,7 +6,7 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 
 - `shotserver.cpp` — core server + route dispatch
 - `shotserver_layout.cpp` — layout editor web UI (inline HTML/JS)
-- `shotserver_shots.cpp` — shot history endpoints
+- `shotserver_shots.cpp` — shot history endpoints and the `/shots`, `/shot/<id>` and `/compare/` pages. `/shot/<id>` is the web counterpart of the app's shot page (`PostShotReviewPage`): it edits in place through `POST /api/shot/<id>/metadata`, refreshes its results from `GET /api/shot/<id>/outcome`, and uploads through `POST /api/shot/<id>/upload`. Its graph and comparison text come from `webtemplates/shot_graph.h` and `webtemplates/comparison_text.h`, shared with `/compare/`.
 - `shotserver_backup.cpp` — backup/restore endpoints
 - `shotserver_settings.cpp` — settings endpoints
 - `shotserver_ai.cpp` — AI assistant endpoints

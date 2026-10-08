@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "shotserver.h"
+#include "shotuploads.h"
 #include "shotserveruploadroute.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
@@ -2013,6 +2014,47 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
+    }
+    else if (path.startsWith("/api/shot/") && path.endsWith("/outcome")) {
+        // GET /api/shot/123/outcome: the shot page's results after an edit saved.
+        bool ok;
+        qint64 shotId = path.mid(10).chopped(8).toLongLong(&ok);
+        if (!ok) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+            return;
+        }
+        QPointer<QTcpSocket> socketGuard(socket);
+        QString dbPath = m_storage->databasePath();
+        auto destroyed = m_destroyed;
+        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
+            QVariantMap outcome;
+            bool dbOpened = withTempDb(dbPath, "shs_web_outc", [&](QSqlDatabase& db) {
+                outcome = ShotHistoryStorage::shotOutcomeStatic(db, shotId);
+            });
+            if (*destroyed) return;
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, outcome]() {
+                if (*destroyed || !socketGuard) return;
+                if (!dbOpened) sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
+                else if (outcome.isEmpty()) sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
+                else sendJson(socketGuard, QJsonDocument(QJsonObject::fromVariantMap(outcome)).toJson(QJsonDocument::Compact));
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        thread->start();
+    }
+    else if (path.startsWith("/api/shot/") && path.endsWith("/upload") && method == "POST") {
+        // POST /api/shot/123/upload: the shot page's Upload button, the same path as the app's.
+        bool ok;
+        qint64 shotId = path.mid(10).chopped(7).toLongLong(&ok);
+        ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr;
+        if (!ok || shotId <= 0) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+        } else if (!uploads) {
+            sendResponse(socket, 500, "application/json", R"({"error":"Uploads unavailable"})");
+        } else {
+            uploads->uploadNow(shotId);
+            sendJson(socket, R"({"success":true})");
+        }
     }
     else if (path.startsWith("/api/shot/")) {
         bool ok;

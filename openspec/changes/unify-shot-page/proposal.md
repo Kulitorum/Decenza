@@ -69,7 +69,10 @@ shot, and a one-line summary built by fixed rules.
   - The same "Shot results" metrics with "Show more" and stop reason, and the same "Since
     your last shot" summary, linking to `/compare/`.
   - The same curve and phase chips under the chart, and the same crosshair readout.
-  - Newer/older links, Delete, and taste (balance/body) in edit mode.
+  - Editing in place as in the app: rating, taste, notes, measurements and barista save as
+    they change, with Undo; beans and equipment are picked from the bags and packages.
+  - The phase summary, upload state with Upload, Save as recipe, newer/older links and
+    Delete.
   - The graph beside the details on browser windows 1300 px and wider, as `/compare/` does,
     built from the shared web CSS.
   - The summary and metric text helpers are extracted from the `/compare/` page into one shared

@@ -179,24 +179,34 @@ SHALL follow the visual order.
 
 ### Requirement: The web shot page mirrors the shot page
 
-The web shot page SHALL show the same information as the app's shot page:
-- "Shot results", with "Show more" and how the shot stopped
-- the comparison with the previous shot inside "Shot results", linking to the web comparison
-- curve and phase chips, and a crosshair readout under the chart
-- newer and older shot links
-- Delete, after a confirmation
-
-Its edit mode SHALL include taste.
+The web shot page SHALL show what the app's shot page shows, in the app's order: "Shot results" with "Show more",
+how the shot stopped and the comparison with the previous shot linking to the web comparison;
+curve and phase chips and a crosshair readout under the chart; the phase summary; the
+Visualizer and Decent upload state; newer and older shot links; the debug log; and Delete
+after a confirmation.
 
 #### Scenario: Web shot with a previous shot
 
 - **WHEN** a shot with an earlier shot on the same profile is opened in the browser
 - **THEN** the page shows the same summary sentence as the app and links to the comparison of the two shots
 
-#### Scenario: Web Beans header
+### Requirement: The web shot page edits in place as the app does
 
-- **WHEN** a shot with a grind setting is opened in the browser
-- **THEN** the Beans card header does not show the grind setting
+Rating, taste, notes, dose, yield, grind, RPM, TDS, EY and barista on the web shot page SHALL
+be editable in place and saved as each is changed, with Undo. Beans SHALL be chosen from the
+bags and equipment from the packages, as the app's dialogs do. The page SHALL offer Upload and
+Save as recipe. The refractometer and milk-weigh features, which need the user at the machine,
+SHALL NOT be on the web.
+
+#### Scenario: Rating a shot in the browser
+
+- **WHEN** the user taps 75 on the web shot page
+- **THEN** the rating is saved without a Save button, Undo appears, and "Shot results" refreshes
+
+#### Scenario: Changing beans in the browser
+
+- **WHEN** the user picks a bag from the web page's bean list
+- **THEN** the shot carries that bag's beans, as if changed in the app
 
 ### Requirement: The web shot page keeps its graph in view on a wide window
 

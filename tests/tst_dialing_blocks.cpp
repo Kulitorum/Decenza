@@ -589,9 +589,9 @@ private slots:
         });
     }
 
-    // The shot page's "Since your last shot": the previous shot is the one before on
-    // the SAME profile (a shot in between on another profile is skipped), and a first
-    // shot on its profile is compared with nothing.
+    // The shot page's "Shot results": the previous shot is the one before on the SAME
+    // profile (a shot in between on another profile is skipped), and a first shot on
+    // its profile is compared with nothing.
     void shotOutcome_comparesWithThePreviousShotOnTheSameProfile()
     {
         const QString path = freshDbPath();

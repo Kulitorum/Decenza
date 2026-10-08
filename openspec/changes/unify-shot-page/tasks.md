@@ -48,7 +48,7 @@
 
 - [x] 5.1 Compute the design D3 payload in the `/shot/<id>` route's worker lambda. Pass it to `generateShotDetailPage` by concatenation with the `<` escape. Render "Shot results" with "Show more", the stop reason and, when there is a previous shot, its name, the summary, changed inputs and a link to `/compare/<prev>,<cur>`. Verify in the built-in browser against the app for the same shot.
 - [x] 5.2 Replace the shot chart's series toggles with `WEB_JS_SHOT_GRAPH`: chips, phase chips and readout under the chart. Use two columns with a sticky graph from 1300 px, as `/compare/` does. Use shared CSS throughout. Verify at desktop and phone widths that there is no horizontal page scroll.
-- [x] 5.3 Add Newer/Older links, Delete with confirmation (existing `/api/shots/delete`, then back to the list), and taste balance/body chips in edit mode, saved through `/api/shot/<id>/metadata`. Fix the `Beans (%13)` header. Verify in the browser that a delete removes the shot, a taste edit round-trips into the app, and the Beans header shows no grind.
+- [x] 5.3 Make the web page edit in place like the app: rating presets and slider, taste and body chips, notes, dose/out/grind/RPM/TDS/EY and barista each saved on change through `/api/shot/<id>/metadata`, with Undo; beans from `/api/bags` and equipment from `/api/equipment` through the dialogs' metadata keys; phase summary; upload state with `POST /api/shot/<id>/upload`; Save as recipe through `/api/recipes/from-shot/<id>`; `GET /api/shot/<id>/outcome` refreshes "Shot results" after a save. Newer/Older links and Delete. Verify in the browser that a rating and a bean change round-trip into the app and the results refresh.
 
 ## 6. Docs and integration
 

@@ -49,8 +49,8 @@ The comparison work left reusable pieces:
 **Non-Goals:**
 - Overlaying the previous shot on the shot page's graph. The comparison is one tap away and does
   that fully, with re-basing and alignment.
-- Changing the web edit model. The web keeps its explicit Edit/Save mode, and its edit fields
-  are unchanged apart from adding taste.
+- A web Undo across page loads, and the refractometer and milk capture on the web: both
+  need the user at the machine.
 - Changing the MCP surface. `shots_compare` already serves pair comparisons.
 - Replacing `HistoryShotGraph` with `ComparisonGraph`.
 
@@ -166,9 +166,13 @@ abandoned.
   same `QThread::create` lambda that loads the record. It is embedded by concatenation with the
   `<` escape, as `/compare/` does.
 
-The edit mode gains taste chips (balance/body) that POST `tasteBalance` / `tasteBody` through the
-existing `/api/shot/<id>/metadata`. Delete POSTs to the existing `/api/shots/delete` and returns
-to the list.
+The Edit/Save mode is gone: every field POSTs its change through the existing
+`/api/shot/<id>/metadata` as it is made, with an in-page Undo stack of the values it replaced.
+Beans and equipment are picked from `/api/bags` and `/api/equipment` and written with the same
+metadata keys the app's dialogs use (`bagId` and the bean snapshot; `equipmentId`). Two small
+routes are new: `GET /api/shot/<id>/outcome` (shotOutcomeStatic as JSON, so "Shot results"
+refreshes after a save) and `POST /api/shot/<id>/upload` (`ShotUploads::uploadNow`). Delete
+POSTs to the existing `/api/shots/delete` and moves to the next shot.
 
 The `Beans (%13)` header bug is fixed by dropping the placeholder.
 

@@ -8,6 +8,8 @@
 #include "../history/shotcomparisontext.h"
 #include "../history/shotprojection.h"
 #include "../history/equipmentstorage.h"
+#include "../history/decentuploadstate.h"
+#include "decentshotuploader.h"
 #include "../profile/profiledialintext.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -1199,11 +1201,19 @@ QJsonObject ShotServer::shotPageData(QSqlDatabase& db, const ShotRecord& record)
         q.addBindValue(record.summary.timestamp);
         return q.exec() && q.next() ? q.value(0).toLongLong() : 0;
     };
+    DecentUploadState decent;
+    ShotHistoryStorage::loadDecentUploadStateStatic(db, id, &decent);
     return QJsonObject{
         { QStringLiteral("graph"), graphTraceJson(record, true) },
         { QStringLiteral("outcome"), QJsonObject::fromVariantMap(ShotHistoryStorage::shotOutcomeStatic(db, id)) },
         { QStringLiteral("newerId"), neighbour(true) },
         { QStringLiteral("olderId"), neighbour(false) },
+        { QStringLiteral("phaseSummaries"), QJsonDocument::fromJson(record.phaseSummariesJson.toUtf8()).array() },
+        { QStringLiteral("decent"), QJsonObject{
+            { QStringLiteral("uploaded"), decent.uploaded() },
+            { QStringLiteral("rejectedStatus"), decent.rejectedStatus },
+            { QStringLiteral("viewUrl"), decent.uploaded() ? DecentShotUploader::shotViewUrl(decent.serial, decent.serverShotId) : QString() },
+        } },
     };
 }
 
@@ -1219,6 +1229,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     // page through escapeHtml(), never through string templating.
     QJsonObject fields{
         { "id", shot.id },
+        // The app shows RPM only for grinders that report it (grinderRpmCapable).
+        { "rpmCapable", m_settings && m_settings->dye()->grinderRpmCapable(shot.grinderBrand, shot.grinderModel) },
         { "profileName", shot.profileName },
         { "dateTime", shot.dateTime },
         { "temperatureOverrideC", shot.temperatureOverrideC },
@@ -1243,6 +1255,13 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         { "drinkTds", shot.drinkTdsPct },
         { "drinkEy", shot.drinkEyPct },
         { "debugLog", shot.debugLog },
+        { "visualizerId", shot.visualizerId },
+        { "visualizerUrl", shot.visualizerUrl },
+        { "equipmentId", shot.equipmentId },
+        { "equipmentName", shot.equipmentName },
+        { "basketBrand", shot.basketBrand },
+        { "basketModel", shot.basketModel },
+        { "puckPrep", shot.puckPrep },
     };
     // A recipe whose row is gone shows as no recipe.
     if (shot.recipeId > 0 && !shot.recipeName.isEmpty()) {
@@ -1259,6 +1278,13 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     }
     fields[QStringLiteral("summaryLines")] = summaryLines;
 
+    // Which destinations an Upload can go to, read here on the main thread.
+    QJsonObject page = pageData;
+    page[QStringLiteral("uploads")] = QJsonObject{
+        { QStringLiteral("visualizerActive"), m_settings && m_settings->visualizer()->visualizerActive() },
+        { QStringLiteral("decentActive"), m_settings && m_settings->decent()->active() },
+    };
+
     QString html = QStringLiteral(R"HTML(<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1267,7 +1293,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     <title>Shot - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>)HTML");
-    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU
+    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU + WEB_CSS_TOAST
           + QString::fromUtf8(WEB_CSS_SHOT_GRAPH) + QString::fromUtf8(WEB_CSS_COMPARISON_TEXT);
     html += QStringLiteral(R"HTML(
         .header { padding: 0.75rem 1.5rem; }
@@ -1348,24 +1374,31 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         #debugLogContent { background: var(--bg); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.75rem; line-height: 1.4;
                            white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; }
 
-        .edit-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border);
-                    padding: 1rem 1.5rem; display: none; justify-content: center; gap: 1rem; z-index: 200; }
-        .edit-bar.visible { display: flex; }
-        .edit-bar button { padding: 0.75rem 2rem; border: none; border-radius: 8px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; font-family: inherit; }
-        .save-btn { background: var(--accent); color: #000; }
-        .cancel-btn { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border) !important; }
-        .edit-input, .edit-select, .edit-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-                                                    color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem; }
-        .edit-input:focus, .edit-select:focus, .edit-textarea:focus { outline: none; border-color: var(--accent); }
-        .edit-select option { background: var(--surface); color: var(--text); }
-        .edit-textarea { min-height: 8em; resize: vertical; }
+        .edit-input, .edit-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+                                      color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem; }
+        .edit-input:focus, .edit-textarea:focus { outline: none; border-color: var(--accent); }
+        .edit-textarea { min-height: 6em; resize: vertical; }
         .edit-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; gap: 1rem; }
         .edit-row .label { color: var(--text-secondary); white-space: nowrap; min-width: 80px; font-size: 0.875rem; }
-        .edit-row .edit-field { flex: 1; max-width: 16rem; }
-        .edit-row .edit-input, .edit-row .edit-select { text-align: right; }
+        .edit-row .edit-field { flex: 1; max-width: 22rem; }
+        .edit-row .edit-input { text-align: right; }
         .taste { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
-        .editing .view-only { display: none; }
-        .editing { padding-bottom: 5rem; }
+        .rating-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .rating-row input[type=range] { flex: 1; min-width: 8rem; accent-color: var(--accent); }
+        .rating-row #ratingPct { min-width: 3rem; text-align: right; font-weight: 600; color: var(--accent); }
+        .measure { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: 0.6rem; }
+        .measure label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; color: var(--text-secondary); }
+        .measure .edit-input { text-align: center; font-weight: 600; color: var(--text); }
+        .phases { width: 100%; border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+        .phases th { text-align: left; color: var(--text-secondary); font-weight: 500; padding: 0.2rem 0.4rem 0.2rem 0; }
+        .phases td { padding: 0.2rem 0.4rem 0.2rem 0; border-top: 1px solid rgba(48,54,61,0.6); }
+        .uploads .up.ok { color: #18c37e; } .uploads .up.bad { color: #e73249; }
+        .uploads a { color: var(--accent); text-decoration: none; margin-left: 0.5rem; font-size: 0.875rem; }
+        .action-btn.small { padding: 0.35rem 0.7rem; font-size: 0.8125rem; margin-top: 0.5rem; }
+        .picker-item { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; text-align: left; padding: 0.6rem 0.75rem; margin-top: 0.4rem;
+                       background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); cursor: pointer; font-family: inherit; font-size: 0.9rem; }
+        .picker-item.active { border-color: var(--accent); }
+        .picker-item:hover { border-color: var(--text-secondary); }
         /* Phone: the title takes the first line; the shot buttons wrap under it. */
         @media (max-width: 600px) {
             .header { padding: 0.75rem 1rem; }
@@ -1386,7 +1419,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             </div>
             <a class="nav-btn" id="newerBtn" title="Newer shot">&#8249; Newer</a>
             <a class="nav-btn" id="olderBtn" title="Older shot">Older &#8250;</a>
-            <button class="edit-btn view-only" id="editBtn" onclick="startEdit()">&#9998; Edit</button>
+            <button class="edit-btn" id="undoBtn" style="display:none" onclick="undoLast()">&#8630; Undo</button>
 )HTML");
     html += generateMenuHtml();
     html += QStringLiteral(R"HTML(
@@ -1399,21 +1432,23 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 <div id="readout" class="readout"></div>
                 <div id="chips" class="chips"></div>
             </div>
-            <div class="card" id="happened"></div>
         </section>
         <section class="col" id="details"></section>
     </main>
-
-    <div class="edit-bar" id="editBar">
-        <button class="save-btn" onclick="saveChanges()">Save</button>
-        <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
-    </div>
+)HTML") + WEB_HTML_TOAST + QStringLiteral(R"HTML(
 
     <div class="summary-modal" id="summaryModal" onclick="if(event.target===this)closeModal('summaryModal')">
         <div class="summary-modal-content">
             <h2>Shot Summary</h2>
             <div id="summaryLines"></div>
             <button class="modal-btn" onclick="closeModal('summaryModal')">OK</button>
+        </div>
+    </div>
+    <div class="summary-modal" id="pickerModal" onclick="if(event.target===this)closeModal('pickerModal')">
+        <div class="summary-modal-content">
+            <h2 id="pickerTitle"></h2>
+            <div id="pickerList"></div>
+            <button class="modal-btn secondary" onclick="closeModal('pickerModal')">Cancel</button>
         </div>
     </div>
     <div class="summary-modal" id="deleteModal" onclick="if(event.target===this)closeModal('deleteModal')">
@@ -1428,7 +1463,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     <script>
 )HTML");
     html += QStringLiteral("        var shot = ") + embedJson(fields)
-          + QStringLiteral(";\n        var page = ") + embedJson(pageData)
+          + QStringLiteral(";\n        var page = ") + embedJson(page)
           + QStringLiteral(";\n        var texts = ") + embedJson(ShotComparisonText::toJson())
           + QStringLiteral(";\n        var dialInLabels = ") + embedJson(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
           + QStringLiteral(";\n        var puckFlags = ") + embedJson(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
@@ -1437,6 +1472,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     html += QString::fromLatin1(WEB_JS_MENU);
     html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
     html += QString::fromLatin1(WEB_JS_GRIND_DATALIST);
+    html += QString::fromLatin1(WEB_JS_TOAST);
     html += QString::fromUtf8(WEB_JS_COMPARISON_TEXT);
     html += QString::fromUtf8(WEB_JS_SHOT_GRAPH);
     html += QStringLiteral(R"HTML(
@@ -1461,7 +1497,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 plan.push(shot.doseWeightG.toFixed(1) + "g in → " + y);
                 if (shot.finalWeightG > 0) plan.push("1:" + (shot.finalWeightG / shot.doseWeightG).toFixed(1));
             }
-            if (shot.grinderSetting) plan.push("grind " + shot.grinderSetting + (shot.rpm > 0 ? " · " + shot.rpm + " rpm" : ""));
+            if (shot.grinderSetting) plan.push("grind " + shot.grinderSetting + (shot.rpmCapable && shot.rpm > 0 ? " · " + shot.rpm + " rpm" : ""));
             document.getElementById("plan").textContent = plan.join("  ·  ");
             document.title = shot.profileName + " - Decenza";
             [["newerBtn", page.newerId], ["olderBtn", page.olderId]].forEach(function(b) {
@@ -1470,7 +1506,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             });
         }
         document.addEventListener("keydown", function(e) {
-            if (editing || e.target.closest("input, textarea, select")) return;
+            if (e.target.closest("input, textarea, select")) return;
             if (e.key === "ArrowLeft" && page.newerId > 0) location.href = "/shot/" + page.newerId;
             if (e.key === "ArrowRight" && page.olderId > 0) location.href = "/shot/" + page.olderId;
         });
@@ -1514,7 +1550,99 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             document.getElementById("happened").innerHTML = h;
         }
 
-        // === Details (view) ===
+        // === Details: every field saves as it changes, as the app's page does ===
+        // Shot fields → metadata keys of POST /api/shot/<id>/metadata.
+        var META = { enjoyment: "enjoyment", tasteBalance: "tasteBalance", tasteBody: "tasteBody", espressoNotes: "espressoNotes",
+                     doseWeightG: "doseWeight", finalWeightG: "finalWeight", grinderSetting: "grinderSetting", rpm: "rpm",
+                     drinkTds: "drinkTds", drinkEy: "drinkEy", barista: "barista" };
+        var undoStack = [];
+        function field(label, inner) { return "<div class='edit-row'><span class='label'>" + escapeHtml(label) + "</span><div class='edit-field'>" + inner + "</div></div>"; }
+        function numInput(key, step, min, max) {
+            var v = shot[key];
+            return "<input class='edit-input' id='f_" + key + "' type='number' step='" + step + "' min='" + min + "'" + (max ? " max='" + max + "'" : "")
+                 + " value='" + (v > 0 ? v : "") + "' onchange='fieldChanged(\"" + key + "\")'>";
+        }
+        function chips(key, values) {
+            return "<div class='taste'>" + values.map(function(v) {
+                var on = shot[key] === v;
+                return "<button type='button' class='chip" + (on ? " on" : "") + "' aria-pressed='" + on + "' onclick='pickChip(\"" + key + "\",\"" + v + "\")'>"
+                     + escapeHtml(txt("taste." + v, v)) + "</button>";
+            }).join("") + "</div>";
+        }
+        function ratingHtml() {
+            var r = shot.enjoyment || 0;
+            return "<div class='rating-row'>" + [25, 50, 75, 100].map(function(p) {
+                return "<button type='button' class='chip preset" + (r === p ? " on" : "") + "' onclick='setRating(" + p + ")'>" + p + "</button>";
+            }).join("") + "<input type='range' id='f_enjoyment' min='0' max='100' step='1' value='" + r
+                 + "' oninput='document.getElementById(\"ratingPct\").textContent=this.value+\"%\"' onchange='setRating(parseInt(this.value))'>"
+                 + "<span id='ratingPct'>" + r + "%</span></div>";
+        }
+        function phaseSummaryHtml() {
+            var rows = page.phaseSummaries || [];
+            if (!rows.length) return "";
+            var h = "<div class='card'><h3>Phase summary</h3><table class='phases'><tr><th>Phase</th><th>Duration</th><th>Avg press</th><th>Avg flow</th><th>Weight</th></tr>";
+            rows.forEach(function(p) {
+                h += "<tr><td>" + escapeHtml(p.name) + "</td><td>" + (p.duration || 0).toFixed(1) + "s</td><td>" + (p.avgPressure || 0).toFixed(1) + " bar</td><td>"
+                   + (p.avgFlow || 0).toFixed(1) + " mL/s</td><td>" + (p.weightGained || 0).toFixed(1) + "g</td></tr>";
+            });
+            return h + "</table></div>";
+        }
+        function uploadsHtml() {
+            var d = page.decent || {}, items = [];
+            if (shot.visualizerId) items.push("<span class='up ok'>&#9729; Uploaded to Visualizer</span>"
+                + (shot.visualizerUrl ? " <a href='" + escapeHtml(shot.visualizerUrl) + "' target='_blank' rel='noopener'>View on Visualizer</a>" : ""));
+            if (d.uploaded) items.push("<span class='up ok'>&#9729; Uploaded to Decent</span>" + (d.viewUrl ? " <a href='" + escapeHtml(d.viewUrl) + "' target='_blank' rel='noopener'>View on decentespresso.com</a>" : ""));
+            else if (d.rejectedStatus > 0) items.push("<span class='up bad'>Not accepted by Decent (HTTP " + d.rejectedStatus + ")</span>");
+            if (!items.length) return "";
+            return "<div class='card uploads'>" + items.map(function(i) { return "<div>" + i + "</div>"; }).join("") + "</div>";
+        }
+        function renderDetails() {
+            var h = "<div class='card'><h3>How was this shot?</h3>" + ratingHtml()
+                  + field("Taste", chips("tasteBalance", ["sour", "balanced", "bitter"]))
+                  + field("Body", chips("tasteBody", ["thin", "medium", "heavy"]))
+                  + badgesHtml() + "</div>";
+            h += "<div class='card'><h3>Notes</h3><textarea class='edit-textarea' id='f_espressoNotes' placeholder='Tasting notes' onchange='fieldChanged(\"espressoNotes\")'>"
+               + escapeHtml(shot.espressoNotes) + "</textarea></div>";
+            h += "<div class='card'><h3>Measurements</h3><div class='measure'>"
+               + "<label>Dose (g)" + numInput("doseWeightG", 0.1, 0, 40) + "</label>"
+               + "<label>Out (g)" + numInput("finalWeightG", 0.1, 0, 500) + "</label>"
+               + "<label>Grind<input class='edit-input' id='f_grinderSetting' value='" + escapeHtml(shot.grinderSetting) + "' onchange='fieldChanged(\"grinderSetting\")'></label>"
+               + (shot.rpmCapable ? "<label>RPM" + numInput("rpm", 1, 0) + "</label>" : "")
+               + "<label>TDS (%)" + numInput("drinkTds", 0.01, 0, 35) + "</label>"
+               + "<label>EY (%)" + numInput("drinkEy", 0.1, 0, 40) + "</label>"
+               + "</div></div>";
+            // After the rating, notes and measurements, as on the app's page: those are
+            // filled in first, the results read after.
+            h += "<div class='card' id='happened'></div>";
+            h += "<div class='cards'>";
+            h += "<div class='card'><h3>Beans</h3>" + rowHtml("Roaster", shot.beanBrand) + rowHtml("Coffee", shot.beanType)
+               + rowHtml("Roast date", shot.roastDate) + rowHtml("Roast level", shot.roastLevel)
+               + "<button class='action-btn small' onclick='pickBag()'>" + (shot.beanBrand || shot.beanType ? "Change beans" : "Select beans") + "</button></div>";
+            var grinder = (shot.grinderBrand + " " + shot.grinderModel).trim();
+            h += "<div class='card'><h3>Equipment</h3>" + rowHtml("Grinder", shot.equipmentName || grinder) + rowHtml("Burrs", shot.grinderBurrs)
+               + rowHtml("Basket", (shot.basketBrand + " " + shot.basketModel).trim()) + rowHtml("Puck prep", puckLabels(shot.puckPrep).join(" · "))
+               + "<button class='action-btn small' onclick='pickEquipment()'>" + (grinder || shot.equipmentName ? "Change equipment" : "Add equipment") + "</button></div>";
+            h += "<div class='card'><h3>Additional</h3>"
+               + field("Barista", "<input class='edit-input' id='f_barista' value='" + escapeHtml(shot.barista) + "' onchange='fieldChanged(\"barista\")'>")
+               + rowHtml("Beverage", shot.beverageType) + "</div></div>";
+            h += phaseSummaryHtml() + uploadsHtml();
+            h += "<div class='actions'>"
+               + (page.uploads && (page.uploads.visualizerActive || page.uploads.decentActive) ? "<button class='action-btn' onclick='uploadNow()'>&#9729; Upload</button>" : "")
+               + (shot.recipe ? "" : "<button class='action-btn' onclick='saveAsRecipe()'>&#128204; Save as recipe</button>")
+               + "<button class='action-btn' onclick='location.href=location.pathname+\"/profile.json\"'>&#128196; Profile JSON</button>"
+               + "<button class='action-btn' onclick='location.href=location.pathname+\"/shot.json\"'>&#11015; Shot JSON</button>"
+               + "<button class='action-btn' onclick='toggleDebugLog()'>&#128203; Debug Log</button>"
+               + "<button class='action-btn danger' onclick='openModal(\"deleteModal\")'>&#128465; Delete Shot</button></div>";
+            h += "<div class='card' id='debugLog' style='display:none'><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;'>"
+               + "<h3 style='margin:0'>Debug Log</h3><button class='action-btn small' onclick='copyDebugLog()'>Copy</button></div>"
+               + "<pre id='debugLogContent'>" + escapeHtml(shot.debugLog || "No debug log available") + "</pre></div>";
+            document.getElementById("details").innerHTML = h;
+            renderHappened();
+            // Stepped candidates for the SHOT's own grinder, not the active one
+            // (grind-value-entry). Free text stays accepted either way.
+            attachGrindDatalist(document.getElementById("f_grinderSetting"), document.getElementById("f_rpm"), shot.grinderBrand, shot.grinderModel);
+            renderUndo();
+        }
         function rowHtml(label, value) {
             return "<div class='row'><div class='label'>" + escapeHtml(label) + "</div><div class='value'>" + escapeHtml(value || DASH) + "</div></div>";
         }
@@ -1527,31 +1655,160 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             if (shot.summaryLines.length) h += "<button class='summary-btn' onclick='openModal(\"summaryModal\")'>&#128202; Shot Summary</button>";
             return h + "</div>";
         }
-        function renderDetails() {
-            var rating = shot.enjoyment > 0 ? ratingText({ rating0to100: shot.enjoyment, tasteBalance: shot.tasteBalance, tasteBody: shot.tasteBody })
-                                            : (shot.tasteBalance || shot.tasteBody ? ratingText({ tasteBalance: shot.tasteBalance, tasteBody: shot.tasteBody }) : "");
-            var h = "<div class='card'><h3>" + escapeHtml(txt("row.rating")) + "</h3><div class='rating-line'>"
-                  + (rating ? escapeHtml(rating) : "<span class='unrated'>Not rated yet</span>") + "</div>" + badgesHtml() + "</div>";
-            h += "<div class='card'><h3>Notes</h3><p class='notes-text'>" + escapeHtml(shot.espressoNotes || "No notes") + "</p></div>";
-            var grinder = (shot.grinderBrand + " " + shot.grinderModel).trim();
-            h += "<div class='cards'><div class='card'><h3>Beans</h3>"
-               + rowHtml("Brand", shot.beanBrand) + rowHtml("Type", shot.beanType) + rowHtml("Roast date", shot.roastDate) + rowHtml("Roast level", shot.roastLevel)
-               + "</div><div class='card'><h3>Grinder</h3>"
-               + rowHtml("Model", grinder) + rowHtml("Burrs", shot.grinderBurrs) + rowHtml("Setting", shot.grinderSetting)
-               + (shot.rpm > 0 ? rowHtml("RPM", String(shot.rpm)) : "")
-               + "</div><div class='card'><h3>Additional</h3>"
-               + rowHtml("Dose", shot.doseWeightG.toFixed(1) + " g") + rowHtml("Barista", shot.barista) + rowHtml("Beverage", shot.beverageType)
-               + (shot.drinkTds > 0 ? rowHtml("TDS", shot.drinkTds.toFixed(2) + " %") + rowHtml("EY", shot.drinkEy.toFixed(1) + " %") : "")
-               + "</div></div>";
-            h += "<div class='actions'>"
-               + "<button class='action-btn' onclick='location.href=location.pathname+\"/profile.json\"'>&#128196; Profile JSON</button>"
-               + "<button class='action-btn' onclick='location.href=location.pathname+\"/shot.json\"'>&#11015; Shot JSON</button>"
-               + "<button class='action-btn' onclick='toggleDebugLog()'>&#128203; Debug Log</button>"
-               + "<button class='action-btn danger' onclick='openModal(\"deleteModal\")'>&#128465; Delete Shot</button></div>";
-            h += "<div class='card' id='debugLog' style='display:none'><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;'>"
-               + "<h3 style='margin:0'>Debug Log</h3><button class='action-btn' onclick='copyDebugLog()'>Copy</button></div>"
-               + "<pre id='debugLogContent'>" + escapeHtml(shot.debugLog || "No debug log available") + "</pre></div>";
-            document.getElementById("details").innerHTML = h;
+
+        // --- Saving ---
+        function num(id) { var v = parseFloat(document.getElementById(id).value); return isNaN(v) ? 0 : v; }
+        function fieldChanged(key) {
+            var el = document.getElementById("f_" + key), changes = {};
+            changes[key] = el.type === "number" ? (key === "rpm" ? Math.round(num("f_" + key)) : num("f_" + key)) : el.value;
+            // EY = out × TDS / dose, as the app computes it.
+            if (key === "doseWeightG" || key === "finalWeightG" || key === "drinkTds") {
+                var dose = key === "doseWeightG" ? changes[key] : shot.doseWeightG, out = key === "finalWeightG" ? changes[key] : shot.finalWeightG,
+                    tds = key === "drinkTds" ? changes[key] : shot.drinkTds;
+                if (dose > 0 && out > 0 && tds > 0) changes.drinkEy = Math.round(out * tds / dose * 10) / 10;
+            }
+            save(changes);
+        }
+        function setRating(v) { save({ enjoyment: Math.max(0, Math.min(100, v)) }); }
+        function pickChip(key, v) { var c = {}; c[key] = shot[key] === v ? "" : v; save(c); }
+        function save(changes, opts) {
+            var data = {}, before = {}, any = false;
+            Object.keys(changes).forEach(function(k) {
+                if (changes[k] === shot[k]) return;
+                any = true;
+                data[META[k] || k] = changes[k];
+                before[k] = shot[k];
+            });
+            if (!any) return;
+            if (!(opts && opts.noUndo)) { undoStack.push(before); renderUndo(); }
+            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
+                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                .then(function(result) {
+                    if (!result.success) throw new Error(result.error || "Unknown error");
+                    Object.keys(changes).forEach(function(k) { shot[k] = changes[k]; });
+                    showToast("Saved");
+                    syncInputs();
+                    setHeader();
+                    refreshOutcome();
+                })
+                .catch(function(err) { showToast("Save failed: " + err.message, 4000); });
+        }
+        // Inputs show the saved values: EY after an auto-calculation, every field after Undo.
+        function syncInputs() {
+            ["doseWeightG", "finalWeightG", "grinderSetting", "rpm", "drinkTds", "drinkEy", "espressoNotes", "barista"].forEach(function(k) {
+                var el = document.getElementById("f_" + k);
+                if (!el || document.activeElement === el) return;
+                el.value = el.type === "number" ? (shot[k] > 0 ? shot[k] : "") : (shot[k] || "");
+            });
+            var r = document.getElementById("f_enjoyment"); if (r) { r.value = shot.enjoyment || 0; document.getElementById("ratingPct").textContent = (shot.enjoyment || 0) + "%"; }
+            document.querySelectorAll(".rating-row .preset").forEach(function(b) { b.classList.toggle("on", parseInt(b.textContent) === shot.enjoyment); });
+            ["tasteBalance", "tasteBody"].forEach(function(key) {
+                document.querySelectorAll(".taste button").forEach(function(b) {
+                    var m = b.getAttribute("onclick").match(/pickChip\("(\w+)","(\w+)"\)/);
+                    if (m && m[1] === key) { var on = shot[key] === m[2]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+                });
+            });
+        }
+        function undoLast() {
+            if (!undoStack.length) return;
+            var before = undoStack.pop();
+            save(before, { noUndo: true });
+            renderUndo();
+        }
+        function renderUndo() {
+            var b = document.getElementById("undoBtn");
+            if (b) b.style.display = undoStack.length ? "" : "none";
+        }
+
+        // --- Results follow a save: the Δs and summary are against the previous shot ---
+        function setOutcome(o) {
+            page.outcome = o || {};
+            cmp = (page.outcome && page.outcome.comparison) || {};
+            cmpShots = cmp.shots || [];
+            me = cmpShots.length - 1;
+            since = (cmp.comparisons || [])[0] || null;
+        }
+        function refreshOutcome() {
+            fetch("/api/shot/" + shot.id + "/outcome").then(function(r) { return r.ok ? r.json() : null; }).then(function(o) {
+                if (!o) return;
+                setOutcome(o);
+                renderHappened();
+            });
+        }
+        // After a bag or equipment pick the shot's own fields changed server-side.
+        function refreshShot() {
+            fetch("/api/shot/" + shot.id).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
+                if (!s) return;
+                ["beanBrand", "beanType", "roastDate", "roastLevel", "grinderBrand", "grinderModel", "grinderBurrs", "basketBrand", "basketModel",
+                 "puckPrep", "equipmentName", "equipmentId", "grinderSetting", "rpm"].forEach(function(k) { if (s[k] !== undefined) shot[k] = s[k]; });
+                renderDetails();
+                setHeader();
+                refreshOutcome();
+            });
+        }
+
+        // --- Pickers: the bag and equipment lists the app's dialogs show ---
+        function pickerModal(title, items, onPick) {
+            var m = document.getElementById("pickerModal");
+            document.getElementById("pickerTitle").textContent = title;
+            var list = document.getElementById("pickerList");
+            list.innerHTML = items.length ? "" : "<div class='note'>Nothing to choose from.</div>";
+            items.forEach(function(it) {
+                var b = document.createElement("button");
+                b.className = "picker-item" + (it.active ? " active" : "");
+                b.innerHTML = "<span>" + escapeHtml(it.label) + "</span>" + (it.sub ? "<span class='note'>" + escapeHtml(it.sub) + "</span>" : "");
+                b.onclick = function() { closeModal("pickerModal"); onPick(it); };
+                list.appendChild(b);
+            });
+            m.classList.add("open");
+        }
+        function pickBag() {
+            fetch("/api/bags").then(function(r) { return r.json(); }).then(function(d) {
+                var items = (d.bags || []).map(function(b) {
+                    return { bag: b, active: b.isActive, label: [b.roasterName, b.coffeeName].filter(Boolean).join(" · ") || "Bag " + b.id,
+                             sub: [b.roastDate, b.roastLevel].filter(Boolean).join(" · ") };
+                });
+                pickerModal("Beans", items, function(it) {
+                    var b = it.bag;
+                    // The fields the app's Change Beans writes to the shot.
+                    var data = { beanBrand: b.roasterName || "", beanType: b.coffeeName || "", roastDate: b.roastDate || "", roastLevel: b.roastLevel || "",
+                                 beanBaseJson: b.beanBaseData || "", beanBaseId: b.beanBaseId ? String(b.beanBaseId) : "", bagId: b.id,
+                                 frozenDate: b.frozenDate || "", defrostDate: b.defrostDate || "", storageHint: b.storageHint || "", openedDate: b.openedDate || "" };
+                    postMetadata(data, "Beans changed");
+                });
+            }).catch(function(e) { showToast("Could not load bags: " + e.message, 4000); });
+        }
+        function pickEquipment() {
+            fetch("/api/equipment").then(function(r) { return r.json(); }).then(function(d) {
+                var items = (d.equipment || []).map(function(p) {
+                    return { pkg: p, active: p.isActive, label: p.name || [p.grinderBrand, p.grinderModel].filter(Boolean).join(" ") || "Package " + p.id,
+                             sub: [p.grinderBurrs, [p.basketBrand, p.basketModel].filter(Boolean).join(" ")].filter(Boolean).join(" · ") };
+                });
+                pickerModal("Equipment", items, function(it) { postMetadata({ equipmentId: it.pkg.id }, "Equipment changed"); });
+            }).catch(function(e) { showToast("Could not load equipment: " + e.message, 4000); });
+        }
+        function postMetadata(data, done) {
+            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
+                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                .then(function(result) { if (!result.success) throw new Error(result.error || "Unknown error"); showToast(done); refreshShot(); })
+                .catch(function(err) { showToast("Save failed: " + err.message, 4000); });
+        }
+
+        // --- Actions ---
+        function uploadNow() {
+            fetch("/api/shot/" + shot.id + "/upload", { method: "POST" })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { showToast(d.success ? "Upload started" : (d.error || "Could not start the upload"), 3000); })
+                .catch(function(e) { showToast("Could not start the upload: " + e.message, 4000); });
+        }
+        function saveAsRecipe() {
+            var name = prompt("Name for the new recipe (e.g. Morning cappuccino):");
+            if (!name || !name.trim()) return;
+            var hasMilk = confirm("Is this a milk drink? (OK = yes, Cancel = no)");
+            fetch("/api/recipes/from-shot/" + shot.id, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), hasMilk: hasMilk }) })
+                .then(function(r) { return r.json().then(function(d) { if (!r.ok || d.error) throw new Error(d.error || ("Server error (" + r.status + ")")); return d; }); })
+                .then(function() { if (confirm("Recipe created. Open the Recipes page?")) location.href = "/recipes"; })
+                .catch(function(e) { showToast("Could not create recipe: " + e.message, 4000); });
         }
         function toggleDebugLog() {
             var c = document.getElementById("debugLog");
@@ -1583,121 +1840,12 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 .then(function() { location.href = page.olderId > 0 ? "/shot/" + page.olderId : (page.newerId > 0 ? "/shot/" + page.newerId : "/"); })
                 .catch(function(err) { alert("Delete failed: " + err); btn.disabled = false; btn.textContent = "Delete"; });
         }
-)HTML");
-    html += QStringLiteral(R"HTML(
-        // === Edit ===
-        var editing = false, editStart = {}, editTaste = {};
-        function field(label, inner) { return "<div class='edit-row'><span class='label'>" + escapeHtml(label) + "</span><div class='edit-field'>" + inner + "</div></div>"; }
-        function input(id, value, extra) { return "<input class='edit-input' id='" + id + "' value='" + escapeHtml(value === null || value === undefined ? "" : value) + "'" + (extra || "") + ">"; }
-        function select(id, options, value) {
-            return "<select class='edit-select' id='" + id + "'>" + options.map(function(o) {
-                return "<option value='" + escapeHtml(o[0]) + "'" + (o[0] === value ? " selected" : "") + ">" + escapeHtml(o[1]) + "</option>";
-            }).join("") + "</select>";
-        }
-        function tasteChips(axis, values) {
-            return "<div class='taste'>" + values.map(function(v) {
-                var on = editTaste[axis] === v;
-                return "<button type='button' class='chip" + (on ? " on" : "") + "' aria-pressed='" + on + "' onclick='pickTaste(\"" + axis + "\",\"" + v + "\")'>"
-                     + escapeHtml(txt("taste." + v, v)) + "</button>";
-            }).join("") + "</div>";
-        }
-        function pickTaste(axis, v) { editTaste[axis] = editTaste[axis] === v ? "" : v; renderEditForm(collectEdits()); }
-        function renderEditForm(d) {
-            var roast = ["", "Light", "Medium-Light", "Medium", "Medium-Dark", "Dark"].map(function(r) { return [r, r || DASH]; });
-            var bev = ["espresso", "pourover", "tea", "other"].map(function(b) { return [b, b.charAt(0).toUpperCase() + b.slice(1)]; });
-            var h = "<div class='card'><h3>" + escapeHtml(txt("row.rating")) + "</h3>"
-                  + field("Rating (%)", input("editRating", d.enjoyment || "", " type='number' min='0' max='100' step='1'"))
-                  + field("Balance", tasteChips("tasteBalance", ["sour", "balanced", "bitter"]))
-                  + field("Body", tasteChips("tasteBody", ["thin", "medium", "heavy"]))
-                  + "</div><div class='card'><h3>Notes</h3><textarea class='edit-textarea' id='editNotes'>" + escapeHtml(d.espressoNotes) + "</textarea></div>"
-                  + "<div class='cards'><div class='card'><h3>Shot</h3>"
-                  + field("Dose (g)", input("editDose", d.doseWeight, " type='number' step='0.1' oninput='autoCalcEY()'"))
-                  + field("Yield (g)", input("editYield", d.finalWeight, " type='number' step='0.1' oninput='autoCalcEY()'"))
-                  + field("TDS (%)", input("editTds", d.drinkTds || "", " type='number' step='0.01' oninput='autoCalcEY()'"))
-                  + field("EY (%)", input("editEy", d.drinkEy || "", " type='number' step='0.1' readonly style='opacity:0.7'"))
-                  + "</div><div class='card'><h3>Beans</h3>"
-                  + field("Brand", input("editBrand", d.beanBrand)) + field("Type", input("editType", d.beanType))
-                  + field("Roast date", input("editRoastDate", d.roastDate, " placeholder='YYYY-MM-DD'"))
-                  + field("Roast level", select("editRoastLevel", roast, d.roastLevel))
-                  + "</div><div class='card'><h3>Grinder</h3>"
-                  + field("Brand", input("editGrinderBrand", d.grinderBrand)) + field("Model", input("editGrinderModel", d.grinderModel))
-                  + field("Burrs", input("editGrinderBurrs", d.grinderBurrs)) + field("Setting", input("editGrinderSetting", d.grinderSetting))
-                  + field("RPM", input("editRpm", d.rpm > 0 ? d.rpm : "", " type='number' step='1' min='0'"))
-                  + "</div><div class='card'><h3>Additional</h3>"
-                  + field("Barista", input("editBarista", d.barista)) + field("Beverage", select("editBeverageType", bev, d.beverageType))
-                  + "</div></div>";
-            document.getElementById("details").innerHTML = h;
-            // Stepped candidates for the SHOT's own grinder, not the active one
-            // (grind-value-entry). Free text stays accepted either way.
-            attachGrindDatalist(document.getElementById("editGrinderSetting"), document.getElementById("editRpm"),
-                                d.grinderBrand, d.grinderModel);
-        }
-        function startEdit() {
-            if (editing) return;
-            editing = true;
-            editTaste = { tasteBalance: shot.tasteBalance || "", tasteBody: shot.tasteBody || "" };
-            renderEditForm({
-                enjoyment: shot.enjoyment, espressoNotes: shot.espressoNotes, doseWeight: shot.doseWeightG, finalWeight: shot.finalWeightG,
-                drinkTds: shot.drinkTds, drinkEy: shot.drinkEy, beanBrand: shot.beanBrand, beanType: shot.beanType, roastDate: shot.roastDate,
-                roastLevel: shot.roastLevel, grinderBrand: shot.grinderBrand, grinderModel: shot.grinderModel, grinderBurrs: shot.grinderBurrs,
-                grinderSetting: shot.grinderSetting, rpm: shot.rpm, barista: shot.barista, beverageType: shot.beverageType
-            });
-            document.getElementById("page").classList.add("editing");
-            document.getElementById("editBtn").style.display = "none";
-            document.getElementById("editBar").classList.add("visible");
-            // The form as edit mode opened it: a save sends only what changed from
-            // it, so a value Visualizer changed meanwhile is not written back over.
-            editStart = collectEdits();
-        }
-        function cancelEdit() {
-            if (!editing) return;
-            editing = false;
-            document.getElementById("page").classList.remove("editing");
-            document.getElementById("editBtn").style.display = "";
-            document.getElementById("editBar").classList.remove("visible");
-            renderDetails();
-        }
-        function autoCalcEY() {
-            var dose = parseFloat(document.getElementById("editDose").value) || 0;
-            var out = parseFloat(document.getElementById("editYield").value) || 0;
-            var tds = parseFloat(document.getElementById("editTds").value) || 0;
-            if (dose > 0 && out > 0 && tds > 0) document.getElementById("editEy").value = ((out * tds) / dose).toFixed(1);
-        }
-        function val(id) { return document.getElementById(id).value; }
-        function collectEdits() {
-            return {
-                enjoyment: Math.max(0, Math.min(100, parseInt(val("editRating")) || 0)),
-                tasteBalance: editTaste.tasteBalance, tasteBody: editTaste.tasteBody,
-                espressoNotes: val("editNotes"),
-                doseWeight: parseFloat(val("editDose")) || 0, finalWeight: parseFloat(val("editYield")) || 0,
-                drinkTds: parseFloat(val("editTds")) || 0, drinkEy: parseFloat(val("editEy")) || 0,
-                beanBrand: val("editBrand"), beanType: val("editType"), roastDate: val("editRoastDate"), roastLevel: val("editRoastLevel"),
-                grinderBrand: val("editGrinderBrand"), grinderModel: val("editGrinderModel"), grinderBurrs: val("editGrinderBurrs"),
-                grinderSetting: val("editGrinderSetting"), rpm: parseInt(val("editRpm")) || 0,
-                barista: val("editBarista"), beverageType: val("editBeverageType")
-            };
-        }
-        function saveChanges() {
-            var edits = collectEdits(), data = {};
-            Object.keys(edits).forEach(function(k) { if (edits[k] !== editStart[k]) data[k] = edits[k]; });
-            if (Object.keys(data).length === 0) { cancelEdit(); return; }
-            var btn = document.querySelector(".save-btn");
-            btn.textContent = "Saving..."; btn.disabled = true;
-            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
-                .then(function(result) {
-                    if (result.success) { location.reload(); return; }
-                    alert("Save failed: " + (result.error || "Unknown error")); btn.textContent = "Save"; btn.disabled = false;
-                })
-                .catch(function(err) { alert("Save failed: " + err); btn.textContent = "Save"; btn.disabled = false; });
-        }
 
         function graphTraces() { return [{ curves: page.graph.curves, phases: page.graph.phases, offset: 0, hidden: false }]; }
         var graphExtraChip = null;
 
         setHeader();
         graphInit("shotChart");
-        renderHappened();
         renderDetails();
     </script>
 </body>
