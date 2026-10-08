@@ -66,6 +66,10 @@ public:
     // Main analysis method
     virtual void analyze(const QString& systemPrompt, const QString& userPrompt) = 0;
 
+    // One-shot extraction (the recipe wizard's stage-1 bag text). Not advisor
+    // analysis, so a provider that thinks for the advisor keeps thinking off here.
+    virtual void extract(const QString& systemPrompt, const QString& userPrompt) { analyze(systemPrompt, userPrompt); }
+
     // Multi-turn conversation method (messages = array of {role, content} objects)
     virtual void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
@@ -290,6 +294,7 @@ public:
     void setModel(const QString& modelId) { selectCatalogModel(m_model, modelId); }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void extract(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     // Anthropic web_fetch server tool (web_fetch_20250910): the API fetches
     // the URL named in the user prompt during the request — no client-side
@@ -306,6 +311,7 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    void sendOneShot(const QString& systemPrompt, const QString& userPrompt, bool advisor);
     // betaFeature sets `anthropic-beta` for a body carrying a beta tool
     // (web_fetch); empty for the GA paths.
     void sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature = {});

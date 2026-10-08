@@ -576,8 +576,9 @@ private slots:
     }
 
     // Haiku 5.5 thinks on the advisor's two paths only. Test Connection's
-    // 10-token budget cannot hold thinking (#1691), and extraction was never
-    // shown to need it, so wiring the advisor setting into either must fail here.
+    // 10-token budget cannot hold thinking (#1691), and extraction (URL or
+    // text) was never shown to need it, so wiring the advisor setting into
+    // any of them must fail here.
     void anthropicHaikuThinksOnlyOnAdvisorPaths()
     {
         QNetworkAccessManager nam;
@@ -603,6 +604,10 @@ private slots:
         QCOMPARE(thinking(), QStringLiteral("adaptive/low"));
 
         p.analyzeUrl(QStringLiteral("system"), QStringLiteral("https://example.com/bag"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(thinking(), QStringLiteral("disabled"));
+
+        p.extract(QStringLiteral("system"), QStringLiteral("bag page text"));
         QVERIFY(complete.wait(5000));
         QCOMPARE(thinking(), QStringLiteral("disabled"));
 

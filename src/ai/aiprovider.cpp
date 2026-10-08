@@ -744,6 +744,16 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody, const QByteA
 
 void AnthropicProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
+    sendOneShot(systemPrompt, userPrompt, true);
+}
+
+void AnthropicProvider::extract(const QString& systemPrompt, const QString& userPrompt)
+{
+    sendOneShot(systemPrompt, userPrompt, false);
+}
+
+void AnthropicProvider::sendOneShot(const QString& systemPrompt, const QString& userPrompt, bool advisor)
+{
     if (!isConfigured()) {
         emit analysisFailed(tr_("ai.anthropic.keyMissing", "Anthropic API key not configured"));
         return;
@@ -757,7 +767,10 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    setAnthropicAdvisorThinking(requestBody, m_model);
+    if (advisor)
+        setAnthropicAdvisorThinking(requestBody, m_model);
+    else
+        disableAnthropicThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;

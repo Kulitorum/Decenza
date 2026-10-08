@@ -137,7 +137,9 @@ public:
     bool isConfigured() const override { return true; }
     bool supportsUrlAnalysis() const override { return true; }
     bool supportsWebSearch() const override { return true; }
+    int extracts = 0;
     void analyze(const QString&, const QString&) override { ++calls; }
+    void extract(const QString&, const QString&) override { ++extracts; }
     void analyzeUrl(const QString& s, const QString& u) override { analyze(s, u); }
     void analyzeConversation(const QString&, const QJsonArray&) override { ++calls; }
     void searchWeb(const QString& s, const QString& u) override { analyze(s, u); }
@@ -473,6 +475,9 @@ private slots:
             {"sensitive-page-response", "failed"}};
         for (const auto& [reply, outcome] : replies) {
             mgr.extractCoffeeBagDetails("token", "sensitive-page-body");
+            // Extraction is not advisor analysis: analyze() would give Haiku
+            // 5.5 its advisor thinking.
+            QCOMPARE(provider->calls, 0);
             const auto op = mgr.m_logOperation;
             QVERIFY(op);
             QVERIFY(!ids.contains(op->id));
@@ -500,7 +505,8 @@ private slots:
         QVERIFY(!all.contains("secret-key"));
         QVERIFY(!all.contains("sensitive-page"));
         QVERIFY(!all.contains("secret prompt"));
-        QCOMPARE(provider->calls, 5);
+        QCOMPARE(provider->extracts, 4);
+        QCOMPARE(provider->calls, 1);
     }
 
     void reusedDiagnosticIdentityCannotTerminateAnInFlightRequest()
@@ -520,7 +526,7 @@ private slots:
         mgr.extractCoffeeBagDetails("page", "text", "coffee", page->id);
         QCOMPARE(mgr.m_logOperation, page);
         mgr.extractCoffeeBagDetails("page", "text", "coffee", page->id);
-        QCOMPARE(provider->calls, 1);
+        QCOMPARE(provider->extracts, 1);
         QVERIFY(!page->terminal);
         QCOMPARE(logs.terminals().size(), 1);
         QVERIFY(logs.terminals().first().contains("outcome=rejected reason=busy"));
@@ -538,7 +544,7 @@ private slots:
         emit provider->analysisComplete("{\"origin\":\"Colombia\"}");
         QCOMPARE(logs.terminals().size(), 3);
         QVERIFY(logs.terminals().last().contains("outcome=failed reason=consumerTimeout"));
-        QCOMPARE(provider->calls, 2);
+        QCOMPARE(provider->extracts, 2);
     }
 
     void operationSnapshotSurvivesRejectionSettingsChangeAndAbandonment()

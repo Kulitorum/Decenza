@@ -43,7 +43,7 @@
 
 ## 7. Review
 
-- [x] 7.1 Open the PR and have it reviewed (maintainer, 2026-10-07: by GitHub agents, not `/pr-review-toolkit:review-pr`); address findings and confirm the `text-invariants` run for the final commit is green before merge *(Codex's one finding, the model-hint key bump, was fixed in 51c9f68. Checks are read on the archive commit before merge.)*
+- [x] 7.1 Open the PR and have it reviewed (maintainer, 2026-10-07: by GitHub agents, not `/pr-review-toolkit:review-pr`); address findings and confirm the `text-invariants` run for the final commit is green before merge *(Codex's one finding, the model-hint key bump, was fixed in 51c9f68. Codex's second finding, that bag extraction via `analyze()` got Haiku's thinking, was fixed after the archive: `AIProvider::extract()` keeps thinking off, and `tst_aimanager` asserts the routing (break-checked). Checks are read on the final commit before merge.)*
 
 ## Workflow follow-up
 
