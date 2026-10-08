@@ -3884,9 +3884,7 @@ QString ProfileManager::downloadedProfilesPath() const {
 
 double ProfileManager::getGroupTemperature() const {
     if (m_settings && m_settings->brew()->hasTemperatureOverride() && brewOverridesApply()) {
-        double temp = m_settings->brew()->temperatureOverride();
-        DIAG_DEBUG(PROFILES, "profilemanager") << "getGroupTemperature: using override" << temp << "C";
-        return temp;
+        return m_settings->brew()->temperatureOverride();
     }
     return m_currentProfile.espressoTemperature();
 }
@@ -4121,7 +4119,7 @@ void ProfileManager::stripStoredRecipeBlocks() {
     // promoting a genuinely-set dose to recommended_dose on the way.
     //
     // REPLACES migrateRecipeFrames(), which regenerated frames FROM the block. That
-    // was written before #1646 established the frames as the source of truth, and
+    // was written before PR Kulitorum/Decenza#1646 established the frames as the source of truth, and
     // retiring it is a deliberate behaviour change: an install that never ran it
     // keeps its frames instead of having them rebuilt from a block we now know is
     // untrustworthy — five shipped A-Flow built-ins carried blocks contradicting

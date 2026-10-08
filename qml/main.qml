@@ -150,10 +150,16 @@ T.ApplicationWindow {
         // Mark as shutting down to suppress screensaver from DE1 sleep response
         root.shuttingDown = true
 
-        // Send scale sleep first (it's faster/simpler)
+        // Scale first (it's faster/simpler). "Keep scale on" covers closing the app
+        // too: display off, as when the DE1 sleeps, but the scale stays on (#1981).
         if (ScaleDevice && ScaleDevice.connected) {
-            WebDebugLogger.debug("Scale", "main", ["Sending scale to sleep on app close"].map(String).join(" "))
-            ScaleDevice.sleep()
+            if (Settings.keepScaleOn) {
+                WebDebugLogger.debug("Scale", "main", "Turning the scale display off on app close (keep scale on)")
+                ScaleDevice.disableLcd()
+            } else {
+                WebDebugLogger.debug("Scale", "main", "Sending scale to sleep on app close")
+                ScaleDevice.sleep()
+            }
         }
 
         // Small delay before sending DE1 sleep to let scale command go through
@@ -163,6 +169,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: firmwareFlashExitDialog
+        logName: "Firmware flash exit"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -269,6 +276,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: firmwareRebootRequiredDialog
+        logName: "Firmware reboot required"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -572,7 +580,6 @@ T.ApplicationWindow {
             if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 root.stayAwakeSuppressionLogged = false
-                WebDebugLogger.debug("AutoSleep", "main", ["Reset by phase change: normal=" + root.sleepCountdownNormal].map(String).join(" "))
             }
             // Phase change is also user activity for the auto-load countdown
             root.autoLoadResetCountdown()
@@ -1415,7 +1422,7 @@ T.ApplicationWindow {
             // scale reconnect paused.
             if (root.screensaverActive && pageStack.currentItem
                     && pageStack.currentItem.objectName !== "screensaverPage")
-                root.leaveScreensaverState()
+                root.leaveScreensaverState("page changed to " + (pageStack.currentItem.objectName || "unnamed page"))
         }
     }
 
@@ -1544,6 +1551,7 @@ T.ApplicationWindow {
     // Global error dialog for BLE issues
     DecenzaDialog {
         id: bleErrorDialog
+        logName: "Bluetooth error"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1655,6 +1663,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: localNetworkDeniedDialog
+        logName: "Local network denied"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1816,6 +1825,7 @@ T.ApplicationWindow {
     // FlowScale fallback dialog (no scale found at startup)
     DecenzaDialog {
         id: flowScaleDialog
+        logName: "Using FlowScale"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1874,6 +1884,7 @@ T.ApplicationWindow {
     // Scale disconnected dialog
     DecenzaDialog {
         id: scaleDisconnectedDialog
+        logName: "Scale disconnected"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1939,6 +1950,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: noScaleAbortDialog
+        logName: "No scale, shot aborted"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1995,6 +2007,7 @@ T.ApplicationWindow {
     // DISCHARGING — the port is not delivering power (DE1 asleep, BLE command failed, cable issue).
     DecenzaDialog {
         id: chargingMismatchDialog
+        logName: "Charging mismatch"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -2068,6 +2081,7 @@ T.ApplicationWindow {
     // Water tank refill dialog
     DecenzaDialog {
         id: refillDialog
+        logName: "Refill water tank"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -2139,6 +2153,7 @@ T.ApplicationWindow {
     // false whenever disconnected or on old firmware — see machinestate.cpp.
     DecenzaDialog {
         id: standbySwitchDialog
+        logName: "Standby switch"
         modal: true
         dim: true
         x: 0
@@ -2202,6 +2217,7 @@ T.ApplicationWindow {
     // Update notification dialog
     DecenzaDialog {
         id: updateDialog
+        logName: "App update"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -2644,6 +2660,7 @@ T.ApplicationWindow {
     // Crash report dialog - shown on startup if app crashed previously
     CrashReportDialog {
         id: crashReportDialog
+        logName: "Crash report"
         crashLog: CrashReporter.previousCrashLog || ""
         debugLogTail: CrashReporter.previousDebugLogTail || ""
 
@@ -2667,6 +2684,7 @@ T.ApplicationWindow {
     // imperative showDialog()/hideDialog() coupling to maintain.
     De1CommunicationErrorDialog {
         id: de1CommunicationErrorDialog
+        logName: "DE1 communication error"
     }
 
     // A profile we refused to activate: unknown step setting or unreadable value.
@@ -2675,6 +2693,7 @@ T.ApplicationWindow {
     // has to be visible whichever surface asked for the switch.
     ProfileRefusedDialog {
         id: profileRefusedDialog
+        logName: "Profile refused"
     }
     Connections {
         target: ProfileManager
@@ -2720,6 +2739,7 @@ T.ApplicationWindow {
     }
     DecenzaDialog {
         id: recipeActivationFailedDialog
+        logName: "Recipe activation failed"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -2822,6 +2842,7 @@ T.ApplicationWindow {
     // one its shots are filed under. DecentAccount asks once per app run and sign-in.
     SelectionDialog {
         id: decentMachineDialog
+        logName: "Decent account machine"
         property var serials: []
         title: TranslationManager.translate("decent.machine.chooseTitle", "Which Decent machine is this?")
         onSelected: function(index, value) { MainController.decentAccount.chooseMachine(decentMachineDialog.serials[index]) }
@@ -2903,6 +2924,7 @@ T.ApplicationWindow {
     // is granted via `sudo setcap` and is frequently cleared by OS updates.
     DecenzaDialog {
         id: linuxBleCapabilityDialog
+        logName: "Linux Bluetooth capability"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3007,6 +3029,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: linuxBleBluezCacheDialog
+        logName: "Linux BlueZ cache"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3100,6 +3123,7 @@ T.ApplicationWindow {
     // First-run welcome dialog
     DecenzaDialog {
         id: firstRunDialog
+        logName: "First run"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3156,6 +3180,7 @@ T.ApplicationWindow {
     // Storage setup dialog (Android 11+ - request MANAGE_EXTERNAL_STORAGE permission)
     DecenzaDialog {
         id: storageSetupDialog
+        logName: "Storage setup"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3258,6 +3283,7 @@ T.ApplicationWindow {
     // permanent in-app UI. Dismissed permanently after either button.
     DecenzaDialog {
         id: autoRelaunchPromptDialog
+        logName: "Auto relaunch prompt"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3349,6 +3375,7 @@ T.ApplicationWindow {
     // design.md decision 8) — it must be dismissible, per ACCESSIBILITY.md.
     DecenzaDialog {
         id: recipesUpgradeDialog
+        logName: "Recipes upgrade"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -3852,8 +3879,6 @@ T.ApplicationWindow {
                     } else {
                         root.showCompletion(trFlushComplete.text, "flush")
                     }
-                } else {
-                    WebDebugLogger.debug("App", "main", ["Phase Idle/Ready: NOT on operation page, no completion shown"].map(String).join(" "))
                 }
 
                 // Always clear the flag, even when currentPage is no longer flushPage
@@ -4272,20 +4297,22 @@ T.ApplicationWindow {
 
     function goToScreensaver() {
         // Already showing (the P shortcut is unguarded): replacing the page with
-        // itself would only restart the video, and nothing here needs redoing.
-        if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage")
+        // itself would only restart the video. The flag is the one thing to check:
+        // left clear under a showing page, auto-sleep re-slept the machine every
+        // minute for four hours, since this early return never raised it again.
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage") {
+            if (!screensaverActive) {
+                WebDebugLogger.warn("Screensaver", "main", "Screensaver showing with its flag clear - raising it")
+                raiseScreensaverFlag()
+            }
             return
+        }
         WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
         // Before raising the flag: onCurrentItemChanged treats any other page under a raised
         // flag as having left the screensaver, so popping to home after it cleared the flag
         // at once, leaving the status bar over the screensaver and auto-sleep re-firing.
         root.showHome()
-        screensaverActive = true
-        // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
-        // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
-        ScreensaverManager.screensaverActive = true
-        // Reset sleep counter (stopped state)
-        root.sleepCountdownNormal = 0
+        raiseScreensaverFlag()
 
         // Close any open popups to prevent burn-in (Qt Popup renders above the
         // StackView on the overlay layer, so the screensaver can't cover them).
@@ -4335,19 +4362,36 @@ T.ApplicationWindow {
         // own popups would stay above the screensaver, so they are closed too.
         PopupCloser.closeAllUnder(pageStack.currentItem)
         pageStack.push(screensaverPage)
+        // Seen cleared between the raise above and here (an Oct 2026 log: 20 ms
+        // after this function started, before the page finished loading).
+        if (!screensaverActive && pageStack.currentItem
+                && pageStack.currentItem.objectName === "screensaverPage") {
+            WebDebugLogger.warn("Screensaver", "main", "Screensaver flag cleared while it opened - raising it again")
+            raiseScreensaverFlag()
+        }
+    }
+
+    function raiseScreensaverFlag() {
+        screensaverActive = true
+        // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
+        // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
+        ScreensaverManager.screensaverActive = true
+        // Reset sleep counter (stopped state)
+        root.sleepCountdownNormal = 0
     }
 
     // Both screensaver flags, the auto-sleep countdown and queued popups, cleared
     // together. Brightness is restored in ScreensaverPage.StackView.onRemoved.
     // The scheduled stay-awake window is evaluated live, so waking here
     // (manually or via auto-wake) needs no separate arming.
-    function leaveScreensaverState() {
+    // `reason` names the route out, so a log shows what cleared the flag.
+    function leaveScreensaverState(reason) {
         screensaverActive = false
         ScreensaverManager.screensaverActive = false
         root.sleepCountdownNormal = root.autoSleepMinutes
         root.stayAwakeSuppressionLogged = false
-        WebDebugLogger.debug("Screensaver", "main", ["Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
-                    " pendingPopups=" + pendingPopups.length].map(String).join(" "))
+        WebDebugLogger.debug("Screensaver", "main", "Waking from screensaver (" + reason + "): normal countdown="
+                    + root.sleepCountdownNormal + " pendingPopups=" + pendingPopups.length)
         // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
             Qt.callLater(root.showNextPendingPopup)
@@ -4360,7 +4404,7 @@ T.ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         root.wakePending = true
-        leaveScreensaverState()
+        leaveScreensaverState("wake requested")
         root.showHome()
     }
 
@@ -5394,6 +5438,7 @@ T.ApplicationWindow {
     // Empty database + backups exist: ask user if they want to restore
     DecenzaDialog {
         id: emptyDatabaseDialog
+        logName: "Empty database"
         modal: true
         dim: true
         anchors.centerIn: parent

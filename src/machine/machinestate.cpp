@@ -19,8 +19,8 @@
 #include <QMetaEnum>
 
 // MachineState carries no logMessage signal, so the stderr form. Aliased, never
-// copied — see de1logging.h. INFO throughout: all three lines are the user-facing
-// half of "why did (or didn't) the warning appear".
+// copied — see de1logging.h.
+#define STANDBY_LOG(msg)  DE1_LOG_STDERR_TAGGED("StandbySwitch", msg)
 #define STANDBY_INFO(msg) DE1_INFO_STDERR_TAGGED("StandbySwitch", msg)
 
 MachineState::MachineState(DE1Device* device, QObject* parent)
@@ -448,15 +448,21 @@ void MachineState::updatePhase() {
     const bool noAc = (subState == DE1::SubState::Error_NoAC);
     if (!noAc) {
         if (m_noAcEpisode.isValid()) {
-            STANDBY_INFO(QStringLiteral("machine reported no AC for %1 ms then cleared "
-                                        "it (substate is now %2); the wait is %3 ms, so "
-                                        "%4")
-                             .arg(m_noAcEpisode.elapsed())
-                             .arg(DE1::subStateToString(subState))
-                             .arg(m_noAcSettleTimer->interval())
-                             .arg(m_standbySwitchOpen
-                                      ? QStringLiteral("the warning had already shown")
-                                      : QStringLiteral("no warning was shown")));
+            // INFO only when the user saw the warning. A blip that cleared inside
+            // the wait is tuning data for that wait, so DEBUG.
+            const QString text = QStringLiteral("machine reported no AC for %1 ms then cleared "
+                                                "it (substate is now %2); the wait is %3 ms, so "
+                                                "%4")
+                                     .arg(m_noAcEpisode.elapsed())
+                                     .arg(DE1::subStateToString(subState))
+                                     .arg(m_noAcSettleTimer->interval())
+                                     .arg(m_standbySwitchOpen
+                                              ? QStringLiteral("the warning had already shown")
+                                              : QStringLiteral("no warning was shown"));
+            if (m_standbySwitchOpen)
+                STANDBY_INFO(text);
+            else
+                STANDBY_LOG(text);
             m_noAcEpisode.invalidate();
         }
         m_noAcSettleTimer->stop();
@@ -965,11 +971,11 @@ void MachineState::onScaleWeightSample(double weight) {
             m_settleWaitLogged = true;
             SCALE_INFO_STDERR_TAGGED("AutoTare",
                 QStringLiteral("Cup placed during %1 (weight %2 g) — holding tare until the "
-                               "reading settles (spread %3 g, needs under %4 g across "
+                               "reading settles (spread %3, needs under %4 g across "
                                "%5 samples)")
                     .arg(phaseString()).arg(weight, 0, 'f', 1)
                     .arg(spread < 0.0 ? QStringLiteral("not yet measured")
-                                      : QString::number(spread, 'f', 2))
+                                      : QString::number(spread, 'f', 2) + QStringLiteral(" g"))
                     .arg(kAutoTareSettleBandG, 0, 'f', 1)
                     .arg(kAutoTareSettleSamples));
         }
@@ -984,6 +990,9 @@ void MachineState::onScaleWeightSample(double weight) {
 
     m_lastAutoTareTime = now;
     resetAutoTareWindow();  // the tare itself moves the reading
+    // The samples still in flight carry the pre-tare weight; announcing a hold on
+    // them would describe a wait that is not happening.
+    m_settleWaitLogged = true;
     SCALE_INFO_STDERR_TAGGED("AutoTare",
         QStringLiteral("Cup placed during %1 (weight %2 g) — taring")
             .arg(phaseString()).arg(weight, 0, 'f', 1));

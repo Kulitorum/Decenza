@@ -652,7 +652,7 @@ private slots:
     }
 
     void decentV12TenByteWeightFrameDecodes() {
-        // #1891 dispatched every non-0x25 notification at exactly 7 bytes, so a
+        // PR Kulitorum/Decenza#1891 dispatched every non-0x25 notification at exactly 7 bytes, so a
         // v1.2 scale's 10-byte weight frames became undecodable: no weight, and
         // — because the watchdog is now fed only by a decoded frame — ten
         // "no initial weight data" retries and a disconnect loop.
@@ -981,7 +981,6 @@ private slots:
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
         // Exhaustion runs the disconnect handling directly (#1519)
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
 
         int baseNotifyCount = transport->m_notifyEnableCount;
 
@@ -1011,7 +1010,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
@@ -1211,7 +1209,6 @@ private slots:
 
         transport->m_isConnected = false;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         emit transport->error("controller error, link dead");
 
@@ -1251,7 +1248,6 @@ private slots:
         scale.m_serviceFound = false;
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*service not found.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         scale.onServicesDiscoveryFinished();
 
         QCOMPARE(transport->m_disconnectCount, 1);
@@ -1272,7 +1268,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
             scale.onWatchdogFired();
@@ -1302,7 +1297,6 @@ private slots:
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
             scale.onWatchdogFired();
@@ -1352,9 +1346,6 @@ private slots:
         scale.m_characteristicsReady = true;
         scale.startWatchdog();
 
-        // Expect the disconnect warning from onTransportDisconnected
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
-
         // Simulate transport disconnect (fires onTransportDisconnected via signal)
         emit transport->disconnected();
 
@@ -1386,7 +1377,7 @@ private slots:
         QCOMPARE(transport->m_disconnectCount, 0);
     }
 
-    // Regression for #1317: with the LCD intentionally off (disableLcd() — the
+    // Regression for PR Kulitorum/Decenza#1317: with the LCD intentionally off (disableLcd() — the
     // DE1-sleep + keepScaleOn=true path) the ~4-min battery refresh must NOT
     // re-send the display-on command, which is the same byte sequence wake()
     // uses and would silently relight the LCD ~4 min into the user's sleep.

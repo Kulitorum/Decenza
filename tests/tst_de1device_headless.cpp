@@ -4,7 +4,7 @@
 #include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
 
-// Guards the GHC "headless" gate default (PR #1470). m_isHeadless means "the
+// Guards the GHC "headless" gate default (PR Kulitorum/Decenza#1470). m_isHeadless means "the
 // app may start operations on-screen". It must default TRUE (matching de1app,
 // whose ghc_is_installed defaults to 0 → ghc_required()==0 → app can start): a
 // false default bricks every start button on the common no-GHC machine until
@@ -210,50 +210,61 @@ private slots:
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
     }
 
-    // #1976: the liveness watchdog tore down a sleeping machine's link and the
-    // reconnect woke it, overnight. That reconnect now leaves it asleep — but
-    // only that one: a wake asked for while the link is down (auto-wake, MQTT,
-    // a screensaver tap) is sent, and a teardown of an awake machine still wakes.
-    void reconnectAfterTeardownWhileAsleepLeavesItAsleep() {
+    // #1976: a reconnect woke a machine that had been asleep for hours. A connect
+    // wakes it only while the app is awake, or for a wake asked for while the
+    // link was down (auto-wake, MQTT, a screensaver tap) — which must outlive the
+    // failed attempts before the one that connects, and which a later sleep
+    // cancels.
+    void aConnectWakesTheMachineOnlyWhileTheAppIsAwake() {
         const QByteArray idle(1, static_cast<char>(DE1::State::Idle));
-        // Not brace-initialised: QByteArray{a, b} is the (size, fill) constructor.
-        const auto stateInfo = [](DE1::State s) {
-            QByteArray d;
-            d.append(static_cast<char>(s));
-            d.append(static_cast<char>(DE1::SubState::Ready));
-            return d;
-        };
-        const auto tearDown = [](TestFixture& t) {
-            emit t.transport.livenessTeardown();
+        const auto drop = [](TestFixture& t) {
             t.transport.setConnectedSim(false);
             t.transport.clearWrites();
         };
 
         TestFixture f;
-        f.device.parseStateInfo(stateInfo(DE1::State::Sleep));
-        tearDown(f);
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("leaving the machine asleep")));
+        f.transport.m_connected = false;
+        f.device.setAppAsleep(true);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("app is asleep; leaving the machine asleep")));
         f.transport.setConnectedSim(true);
         QVERIFY(requestedStates(f.transport).isEmpty());
 
-        tearDown(f);
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; nothing sent")));
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("wake the machine as usual")));
+        drop(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; it will be sent once connected")));
         f.device.wakeUp();
         QVERIFY(requestedStates(f.transport).isEmpty());  // nothing written to a dead link
+        f.device.m_connecting = true;
+        // A failed attempt, which must not read as a drop of the last session's link.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("Connect attempt failed before the DE1 was ready")));
+        f.device.onTransportDisconnected();
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("sending the wake requested while disconnected")));
         f.transport.setConnectedSim(true);
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{idle});
 
-        // A machine last seen awake, or one that never reported (m_state's
-        // default is Sleep), is woken as before.
-        for (const bool reported : {true, false}) {
-            TestFixture g;
-            if (reported)
-                g.device.parseStateInfo(stateInfo(DE1::State::Idle));
-            tearDown(g);
-            g.transport.setConnectedSim(true);
-            QCOMPARE(requestedStates(g.transport), QList<QByteArray>{idle});
-        }
+        drop(f);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; it will be sent once connected")));
+        f.device.wakeUp();
+        f.device.goToSleep();
+        f.transport.clearWrites();
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("app is asleep; leaving the machine asleep")));
+        f.transport.setConnectedSim(true);
+        QVERIFY(requestedStates(f.transport).isEmpty());
+
+        // The app falling asleep again while still disconnected cancels the owed
+        // wake: the tap that asked for it is hours old by the time the DE1 returns.
+        drop(f);
+        f.device.setAppAsleep(false);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; it will be sent once connected")));
+        f.device.wakeUp();
+        f.device.setAppAsleep(true);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("app is asleep; leaving the machine asleep")));
+        f.transport.setConnectedSim(true);
+        QVERIFY(requestedStates(f.transport).isEmpty());
+
+        TestFixture awake;
+        awake.transport.m_connected = false;
+        awake.transport.setConnectedSim(true);
+        QCOMPARE(requestedStates(awake.transport), QList<QByteArray>{idle});
     }
 
     void disconnectIsANoOpWhenSubStateAlreadyReady() {

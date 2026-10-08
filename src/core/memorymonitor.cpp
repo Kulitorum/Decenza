@@ -86,10 +86,10 @@ void MemoryMonitor::onSampleTimerTick()
                     .arg(currentRssMB(), 0, 'f', 1).arg(objCount)
                     + m_logCollapse.suffixSimilar(collapsed);
         }
-    } else {
-        m_logCollapse.flush(QStringLiteral("growth"), sample.timestampMs);
-        m_lastLoggedGrowthMB = -1.0;
     }
+    // No reset when a sample breaks the trend: a one-sample flicker used to forget
+    // the level and re-print the same growth line minutes later. A new line needs
+    // 5 MB above the last one printed.
 
     emit sampleTaken();
 

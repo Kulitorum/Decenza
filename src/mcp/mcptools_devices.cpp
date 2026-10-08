@@ -297,11 +297,17 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                         setT.toOffsetFromUtc(setT.offsetFromUtc()).toString(Qt::ISODate);
                 }
                 if (setT.isValid() && appStart.isValid()) {
+                    // A persisted latch predates this run, so the offset is negative.
                     const qint64 s = appStart.secsTo(setT);
-                    sp["elapsedSinceAppStartSec"] = static_cast<double>(s);
-                    sp["elapsedSinceAppStartHuman"] =
-                        QStringLiteral("%1 min %2 s after app start")
-                            .arg(s / 60).arg(s % 60);
+                    if (s >= 0) {
+                        sp["elapsedSinceAppStartSec"] = static_cast<double>(s);
+                        sp["elapsedSinceAppStartHuman"] =
+                            QStringLiteral("%1 min %2 s after app start")
+                                .arg(s / 60).arg(s % 60);
+                    } else {
+                        sp["elapsedSinceAppStartHuman"] =
+                            QStringLiteral("before this app run (restored from an earlier run)");
+                    }
                 }
             }
             // Backoff policy mode (observe-mode change) + recent observe
@@ -425,7 +431,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // the chat-confirmation handshake is owned entirely by the server
             // via needsChatConfirmation(). A handler-side `confirmed` check is
             // unreachable-true and makes the tool permanently uninvokable
-            // (this was the shipped #1219 bug). Confirmation for this tool is
+            // (it shipped that way in PR Kulitorum/Decenza#1219). Confirmation for this tool is
             // enforced by listing it in McpServer::needsChatConfirmation().
             const QString prev = BLEManager::backoffModeToString(
                 bleManager->backoffMode());

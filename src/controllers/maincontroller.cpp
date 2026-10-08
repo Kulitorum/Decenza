@@ -42,6 +42,7 @@
 #include "../network/shotserver.h"
 #include "../network/locationprovider.h"
 #include "../core/crashhandler.h"
+#include "../ble/blegattqueue.h"
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
@@ -93,6 +94,19 @@
 // value and close none of them.
 namespace {
 constexpr auto kDriftGiveUpLogKey = QLatin1String("shotSettingsDriftGiveUp");
+constexpr int kMaxDriftResendAttempts = 3;
+
+// The mismatch and its resends are DEBUG: one resend fixes them on every
+// connect to a sleeping DE1, which wipes the write it took before Sleep -> Init.
+// Only giving up is WARN, so an episode's end is INFO only when that WARN fired.
+// Call before flushDriftGiveUpLog(), which forgets it.
+void logDriftEnd(const LogCollapse& giveUpLog, const QString& text)
+{
+    if (giveUpLog.hasKey(kDriftGiveUpLogKey))
+        DRIFT_INFO(text);
+    else
+        DRIFT_LOG(text);
+}
 }  // namespace
 
 void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
@@ -372,7 +386,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         connect(m_decentAccount, &DecentAccount::machinesChanged, m_decentAccount, noteUnreportedSerial);
     }
     if (m_machineState) {
-        const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };
+        const auto operating = [this]() {
+            m_shotUploads->setMachineOperating(m_machineState->isOperating());
+            BleGattQueue::instance().setMachineOperating(m_machineState->isOperating());
+        };
         connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);
         operating();
     }
@@ -2852,15 +2869,13 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
                                              double deviceHotWaterTempC, int deviceHotWaterVolMl,
                                              double deviceGroupTargetC) {
     // A drift episode that ends by the link going away must still produce a
-    // terminal line. Without this the reader gets "DE1-dropped-write" and
-    // "resending attempt 1 of 3" at WARN and then nothing ever again — the
-    // failure half of a narrative, which reads as an unresolved fault. This is
-    // the disconnect path that actually runs; the isConnected() re-check further
-    // down cannot fire, because nothing between it and the WARN above pumps the
-    // event loop.
+    // terminal line, or the reader gets the mismatch and its resends and then
+    // nothing — the failure half of a narrative. This is the disconnect path
+    // that actually runs; the isConnected() re-check further down cannot fire,
+    // because nothing between it and here pumps the event loop.
     if (!m_device || !m_device->isConnected() || !m_settings) {
         if (m_shotSettingsDriftResendCount > 0) {
-            DRIFT_INFO(QStringLiteral(
+            logDriftEnd(m_driftGiveUpLog, QStringLiteral(
                 "device gone with a resend outstanding — ladder abandoned, drift unresolved"));
             m_shotSettingsDriftResendCount = 0;
             flushDriftGiveUpLog();
@@ -2927,14 +2942,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     if (!steamDrift && !durationDrift && !hotWaterTempDrift && !hotWaterVolDrift && !groupDrift) {
         // DE1 stored what we sent. Reset retry bookkeeping.
         if (m_shotSettingsDriftResendCount > 0) {
-            // INFO, not DEBUG: this is the resolution of a fault already
-            // reported at WARN. Left at DEBUG, a `[DE1]` minLevel=INFO read
-            // shows the dropped write and the resends and never shows that
-            // they worked — the failure half of a narrative, which reads as an
-            // unresolved fault. The terminal outcomes are INFO+ (this) or WARN
-            // ("giving up" below); the two DEBUG lines are intermediate steps
-            // nobody but a developer needs.
-            DRIFT_INFO(QString(
+            logDriftEnd(m_driftGiveUpLog, QString(
                 "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
@@ -2948,7 +2956,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         // Outside the count>0 guard above, though not because a reachable state
         // needs it: every reset of m_shotSettingsDriftResendCount is already
         // paired with a flush, and the give-up branch never resets the counter,
-        // so a pending tally always coexists with count >= kMaxResendAttempts.
+        // so a pending tally always coexists with count >= kMaxDriftResendAttempts.
         // Kept unguarded because the flush's precondition is "a tally exists",
         // which is what flush() itself tests, and coupling it to a counter it
         // does not depend on is how the next edit to that counter breaks this.
@@ -2998,8 +3006,8 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
 
-    DRIFT_WARN(QString(
-        "DE1-dropped-write: %1 | "
+    DRIFT_LOG(QString(
+        "DE1 reported settings other than the last write: %1 | "
         "reported(steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C) "
         "commanded(steam=%7C dur=%8s hw=%9C vol=%10ml group=%11C)")
         .arg(summary)
@@ -3018,12 +3026,11 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // (DE1Device::resendLastShotSettings), so a still-drifting report is that
     // resend's answer and must advance the ladder to the next rung. Gating on an
     // "is a resend in flight" flag consumed exactly that report without counting
-    // it, so the ladder stalled at attempt 1, kMaxResendAttempts was never
+    // it, so the ladder stalled at attempt 1, kMaxDriftResendAttempts was never
     // reached, and the episode ended on a WARN with no terminal line — the
     // failure half of a narrative, which LOGGING.md exists to prevent. The ladder
     // cannot spin: it is bounded below and advances only on a report.
-    constexpr int kMaxResendAttempts = 3;
-    if (m_shotSettingsDriftResendCount >= kMaxResendAttempts) {
+    if (m_shotSettingsDriftResendCount >= kMaxDriftResendAttempts) {
         // Collapsed, because this branch returns without latching and is
         // therefore re-entered on every later drifting indication — see
         // m_driftGiveUpLog for the measured 60-in-6.7-seconds this produced.
@@ -3048,14 +3055,15 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // where the ladder is abandoned with a terminal INFO. Kept because a cheap
     // guard immediately before a device write is worth having anyway.
     if (!m_device->isConnected()) {
-        DRIFT_INFO(QStringLiteral("device disconnected during drift handling — skipping resend"));
+        logDriftEnd(m_driftGiveUpLog,
+                    QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
 
     m_shotSettingsDriftResendCount++;
-    DRIFT_WARN(QString(
+    DRIFT_LOG(QString(
         "resending last ShotSettings payload (attempt %1 of %2)")
-        .arg(m_shotSettingsDriftResendCount).arg(kMaxResendAttempts));
+        .arg(m_shotSettingsDriftResendCount).arg(kMaxDriftResendAttempts));
     // Re-assert exactly what we last commanded — do NOT re-derive from
     // Settings via sendMachineSettings(). Some code paths (startSteamHeating,
     // softStopSteam, setSteamTimeoutImmediate) deliberately write values that
@@ -3094,7 +3102,6 @@ void MainController::sendMachineSettings(const QString& reason) {
     const double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
 
     double groupTemp = getGroupTemperature();
-    DIAG_DEBUG(DE1, "maincontroller") << "sendMachineSettings: steam=" << steamTemp << "°C, groupTemp=" << groupTemp << "°C";
 
     // 1. ShotSettings (single write with all temperatures).
     // DE1Device::setShotSettings() records the write so onShotSettingsReported()
@@ -3296,9 +3303,10 @@ void MainController::applyAllSettings() {
     // drift that ended in a reconnect left the WARN as the last word a reader
     // ever saw.
     if (m_shotSettingsDriftResendCount > 0) {
-        DRIFT_INFO(QString("drift ladder reset by reconnect after %1 resend(s) — "
-                           "the previous session's drift was never resolved")
-                       .arg(m_shotSettingsDriftResendCount));
+        logDriftEnd(m_driftGiveUpLog,
+                    QString("drift ladder reset by reconnect after %1 resend(s) — "
+                            "the previous session's drift was never resolved")
+                        .arg(m_shotSettingsDriftResendCount));
     }
     flushDriftGiveUpLog();
     m_shotSettingsDriftResendCount = 0;
@@ -4234,7 +4242,7 @@ void MainController::setSteamFlowImmediate(int flow) {
     // unified_de1.mmr.dart:116), while both retry MMR reads — which is the
     // asymmetry this protocol actually justifies.
     //
-    // writeMMR's dedup cache (#773) now applies here, where writeMMRVerified's
+    // writeMMR's dedup cache (PR Kulitorum/Decenza#773) now applies here, where writeMMRVerified's
     // force=true bypassed it, so a slider dragged back to its current value no
     // longer writes at all.
     m_device->writeMMR(DE1::MMR::STEAM_FLOW, flow,
@@ -4607,6 +4615,37 @@ void MainController::onShotEnded() {
     // produced. 0 here means the shot never latched, and saves as NULL.
     metadata.flowCalibration = shotFlowCalibration;
 
+    // Before the fallback below, so the log can say there was no weight target.
+    const double stopTargetG = shotTargetWeight;
+
+    // #1161: classify why the shot ended so the dial-in advisor
+    // can discount yield/duration on manually-stopped shots (their
+    // yield is user-chosen, not an extraction outcome). Precedence,
+    // in order:
+    //   1. SAW (wasSawTriggered, backed by m_stopAtWeightTriggered)
+    //      — C++ ground truth, survives settling, wins outright.
+    //   2. SAV (wasVolumeStopped) — C++ ground truth.
+    //   3. QML stopReason "manual" — a deliberate user stop.
+    //   4. QML stopReason "weight" — defensive fallback for a
+    //      weight stop the C++ SAW flag did not capture (e.g. a
+    //      QML-side weight signal without onSawTriggered); normally
+    //      branch 1 already handled it.
+    //   5. else → "profileEnd": profile ran its course OR the DE1's
+    //      own hardware button (the BLE protocol cannot distinguish
+    //      those). The consumer treats a sub-target "profileEnd"
+    //      like "manual", covering the DE1-button case.
+    QString stoppedBy;
+    if (m_timingController && m_timingController->wasSawTriggered())
+        stoppedBy = QStringLiteral("weight");
+    else if (m_machineState && m_machineState->wasVolumeStopped())
+        stoppedBy = QStringLiteral("volume");
+    else if (m_pendingStopReason == QStringLiteral("manual"))
+        stoppedBy = QStringLiteral("manual");
+    else if (m_pendingStopReason == QStringLiteral("weight"))
+        stoppedBy = QStringLiteral("weight");
+    else
+        stoppedBy = QStringLiteral("profileEnd");
+
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
     if (shotTargetWeight <= 0 && finalWeight > 0) {
@@ -4628,9 +4667,13 @@ void MainController::onShotEnded() {
         // line per shot and nothing else. This is a single decision record, not
         // a subsystem anyone greps as a group; it does not want a marker, so it
         // must not look like it has one.
-        DIAG_INFO(SHOT, "maincontroller").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4")
+        // The shot's one outcome line: how it ended and against what target.
+        DIAG_INFO(SHOT, "maincontroller").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 "
+                                                                     "targetWeightG=%3 stoppedBy=%4 verdict=%5 action=%6")
             .arg(QString::number(duration, 'f', 3),
                  QString::number(finalWeight, 'f', 1),
+                 stopTargetG > 0 ? QString::number(stopTargetG, 'f', 1) : QStringLiteral("none"),
+                 stoppedBy,
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
                  aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));
 
@@ -4644,8 +4687,6 @@ void MainController::onShotEnded() {
     }
 
     // Always save shot to local history (async — DB work runs on background thread)
-    DIAG_DEBUG(STORAGE, "maincontroller") << "Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
-             << "isReady:" << (m_shotHistory ? m_shotHistory->isReady() : false);
     if (m_shotHistory && m_shotHistory->isReady()) {
         if (m_savingShot) {
             DIAG_WARN(STORAGE, "maincontroller") << "Shot save already in progress, skipping";
@@ -4660,8 +4701,7 @@ void MainController::onShotEnded() {
                     [this, finalWeight, shotDateTime, showPostShot, duration](qint64 shotId) {
                 m_savingShot = false;
 
-                if (shotId > 0) {
-                    DIAG_DEBUG(STORAGE, "maincontroller") << "Shot saved to history with ID:" << shotId;
+                if (shotId > 0) {  // ShotHistoryStorage logs "Saved shot <id>"
 
                     // Store shot ID for post-shot review page (so it can edit the saved shot)
                     m_lastSavedShotId = shotId;
@@ -4678,18 +4718,15 @@ void MainController::onShotEnded() {
 
                     // Set shot date/time for display on metadata page
                     m_settings->dye()->setDyeShotDateTime(shotDateTime);
-                    DIAG_DEBUG(STORAGE, "maincontroller") << "Set dyeShotDateTime to:" << shotDateTime;
 
                     // Update the drink weight with actual final weight from this shot
                     m_settings->dye()->setDyeDrinkWeight(finalWeight);
-                    DIAG_DEBUG(STORAGE, "maincontroller") << "Set dyeDrinkWeight to:" << finalWeight;
 
                     // Reset shot-specific metadata for the next shot
                     // Bean/grinder info persists (sticky), but per-shot fields reset.
                     m_settings->dye()->setDyeShotNotes("");
                     m_settings->dye()->setDyeDrinkTds(0);
                     m_settings->dye()->setDyeDrinkEy(0);
-                    DIAG_DEBUG(STORAGE, "maincontroller") << "Reset notes, TDS, EY for next shot";
 
                     // Force QSettings to sync to disk immediately
                     m_settings->sync();
@@ -4715,34 +4752,6 @@ void MainController::onShotEnded() {
                     }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-            // #1161: classify why the shot ended so the dial-in advisor
-            // can discount yield/duration on manually-stopped shots (their
-            // yield is user-chosen, not an extraction outcome). Precedence,
-            // in order:
-            //   1. SAW (wasSawTriggered, backed by m_stopAtWeightTriggered)
-            //      — C++ ground truth, survives settling, wins outright.
-            //   2. SAV (wasVolumeStopped) — C++ ground truth.
-            //   3. QML stopReason "manual" — a deliberate user stop.
-            //   4. QML stopReason "weight" — defensive fallback for a
-            //      weight stop the C++ SAW flag did not capture (e.g. a
-            //      QML-side weight signal without onSawTriggered); normally
-            //      branch 1 already handled it.
-            //   5. else → "profileEnd": profile ran its course OR the DE1's
-            //      own hardware button (the BLE protocol cannot distinguish
-            //      those). The consumer treats a sub-target "profileEnd"
-            //      like "manual", covering the DE1-button case.
-            QString stoppedBy;
-            if (m_timingController && m_timingController->wasSawTriggered())
-                stoppedBy = QStringLiteral("weight");
-            else if (m_machineState && m_machineState->wasVolumeStopped())
-                stoppedBy = QStringLiteral("volume");
-            else if (m_pendingStopReason == QStringLiteral("manual"))
-                stoppedBy = QStringLiteral("manual");
-            else if (m_pendingStopReason == QStringLiteral("weight"))
-                stoppedBy = QStringLiteral("weight");
-            else
-                stoppedBy = QStringLiteral("profileEnd");
 
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
@@ -5451,9 +5460,14 @@ void MainController::processVisualizerBeanRepair()
         || s.value(QStringLiteral("visualizer/password")).toString().isEmpty()) {
         // Logged, like processVisualizerReconciliation's identical case: a
         // reader of the log must be able to tell "no account" from "never ran".
-        DIAG_DEBUG(VISUALIZER, "MainController") << "Visualizer bean repair skipped (no credentials)";
+        // Once per run without an account: every bag change re-enters here.
+        if (!m_beanRepairSkipLogged) {
+            m_beanRepairSkipLogged = true;
+            DIAG_DEBUG(VISUALIZER, "MainController") << "Visualizer bean repair skipped (no credentials)";
+        }
         return;
     }
+    m_beanRepairSkipLogged = false;
 
     // No run-once flag and no library walk: the queue IS the state. Shots are
     // flagged where their bag's borrowed canonical link is dropped (migration 38

@@ -264,8 +264,7 @@ void LocationProvider::onPositionError(QGeoPositionInfoSource::Error error)
     // still outstanding and awaiting its timeout.
     m_updateInFlight = false;
 
-    DIAG_DEBUG(APP, "LocationProvider") << "Error -" << errorStr;
-    emit locationError(errorStr);
+    emit locationError(errorStr);  // ShotReporter logs it with the prompt/GPS state
 }
 
 void LocationProvider::reverseGeocode(double lat, double lon)

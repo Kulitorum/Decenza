@@ -7,7 +7,7 @@ import Decenza
 // WHY IT EXISTS — AOT. A `Dialog {}` from QtQuick.Controls resolves to the active style's
 // Dialog.qml, a composite whose base chain qmlcachegen cannot walk at build time, so every
 // `root.<prop>` in a dialog and every property set on a dialog instance elsewhere lost AOT
-// compilation. Same defect #1715 fixed for pages and #1717 fixed for the button family;
+// compilation. Same defect PR Kulitorum/Decenza#1715 fixed for pages and PR Kulitorum/Decenza#1717 fixed for the button family;
 // dialogs were the largest class left.
 //
 // WHY A SHARED BASE RATHER THAN 27 RE-ROOTINGS. Unlike the buttons, the style's Dialog.qml
@@ -56,6 +56,15 @@ T.Dialog {
     topPadding: 16
 
     modal: true
+
+    // Set only on dialogs the app opens by itself (machine state, errors, updates), so
+    // a log can say which popup a user saw. Dialogs a tap opens leave it empty.
+    property string logName: ""
+    Connections {
+        target: control
+        enabled: control.logName !== ""
+        function onOpened() { WebDebugLogger.info("App", "Popup", control.logName + " dialog shown") }
+    }
 
     // grow_fade_in / shrink_fade_out, copied exactly from Material's Dialog.qml. Not one
     // dialog in the app declares `enter`/`exit`, so all 27 have always animated with these

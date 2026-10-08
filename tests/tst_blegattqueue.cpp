@@ -456,6 +456,7 @@ private slots:
 
     void waitingBehindAnotherDeviceIsReported() {
         BleGattQueue q;
+        q.setMachineOperating(true);   // a delay that could hold back a stop: WARN
         Recorder rec;
 
         q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
@@ -478,6 +479,49 @@ private slots:
         QVERIFY(!q.isBusy());
     }
 
+    // The same delay while nothing is operating is every app start's connect
+    // burst. It is reported, but not as a warning: one on each launch taught
+    // readers to skip the line that matters during a shot.
+    void aDelayWhileNotOperatingIsNotAWarning() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1 connect setup"), &rec));
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression(QStringLiteral("1 Bluetooth operation\\(s\\) were delayed.*not operating")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QVERIFY(!q.isBusy());
+    }
+
+    // The operating state is latched across the wait, not sampled at dispatch:
+    // a stop queued during a shot can go out after the machine reaches Idle.
+    void aDelayThatOverlappedAnOperationWarnsAfterItEnds() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
+        q.setMachineOperating(true);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        q.setMachineOperating(false);  // profile ended while the stop waited
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("1 Bluetooth operation\\(s\\) were delayed.*while the machine was operating")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QVERIFY(!q.isBusy());
+    }
+
     // One line per EPISODE, not per delayed operation. A contended connect
     // delayed six operations in 900 ms on real hardware and produced six
     // identical warnings, which is how a signal meant to mean "something is
@@ -485,6 +529,7 @@ private slots:
     // what makes "once" able to fail: a second unignored warning fails the slot.
     void severalDelayedOperationsAreReportedAsOneEpisode() {
         BleGattQueue q;
+        q.setMachineOperating(true);   // a delay that could hold back a stop: WARN
         Recorder rec;
 
         q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
@@ -516,6 +561,7 @@ private slots:
     // episode, so none of them could see the carry-over.
     void aSecondEpisodeCountsOnlyItsOwnOperations() {
         BleGattQueue q;
+        q.setMachineOperating(true);   // a delay that could hold back a stop: WARN
         Recorder rec;
 
         // Episode one: two operations delayed.

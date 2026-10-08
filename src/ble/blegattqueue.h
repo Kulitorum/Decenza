@@ -193,6 +193,10 @@ public:
         // per-controller queues did not have, and it is the number that decides
         // whether a stop-at-weight was ever actually held up in the field.
         qint64 foreignWaitMs = 0;
+        // The machine was operating at some point while this sat in the queue.
+        // Latched, not sampled at dispatch: a stop queued during a shot can go
+        // out after the machine reaches Idle, and the wait still overlapped it.
+        bool queuedWhileOperating = false;
         // When this operation was enqueued, on the queue's own clock. Set by
         // submit()/submitFront(), never by callers. Without it the charge below
         // is the AGE of the operation in flight rather than the part of it this
@@ -217,6 +221,11 @@ public:
      * radio and without sharing state between test functions.
      */
     static BleGattQueue& instance();
+
+    // Whether the machine is pouring, steaming or otherwise operating. A delay
+    // then could have held back a stop, so its episode is reported at WARN;
+    // the same delay while devices connect is reported at INFO.
+    void setMachineOperating(bool operating);
 
     explicit BleGattQueue(QObject* parent = nullptr);
 
@@ -408,6 +417,8 @@ private:
     qsizetype m_foreignWaitCount = 0;
     qint64 m_foreignWaitWorstMs = 0;
     QString m_foreignWaitWorstLabel;
+    bool m_machineOperating = false;
+    bool m_foreignWaitWhileOperating = false;   // in the current episode
 
     // One drained() per idle transition; see emitDrainedIfIdle().
     bool m_drainedPosted = false;

@@ -332,7 +332,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
             if (changeRate > 10.0 && m_consecutiveSpikeRejections < kMaxConsecutiveRejections) {
                 if (m_consecutiveSpikeRejections == 0) {
                     m_firstRejectedWeight = weight;
-                    DIAG_WARN(SHOT, "ShotDataModel") << "Rejecting spike - weight:" << weight
+                    DIAG_DEBUG(SHOT, "ShotDataModel") << "Rejecting spike - weight:" << weight
                                << "lastWeight:" << lastWeight
                                << "deltaWeight:" << deltaWeight
                                << "deltaTime:" << deltaTime
@@ -346,13 +346,18 @@ void ShotDataModel::addWeightSample(double time, double weight) {
 
     if (m_consecutiveSpikeRejections > 0) {
         // Either the reading came back into range on its own (an isolated glitch, which is what the
-        // filter is for) or the run hit the cap and this sample is being accepted despite the rate.
-        DIAG_WARN(SHOT, "ShotDataModel") << "Spike run ended after" << m_consecutiveSpikeRejections
-                   << "rejected sample(s) - first rejected:" << m_firstRejectedWeight
-                   << "accepting:" << weight
-                   << (m_consecutiveSpikeRejections >= kMaxConsecutiveRejections
-                           ? "(cap reached - treating as a real move, re-anchoring)"
-                           : "(back in range)");
+        // filter is for, so DEBUG) or the run hit the cap and this sample is being accepted despite
+        // the rate, which can put a real jump on the graph (WARN). The stop decision is not made
+        // from this model: WeightProcessor filters its own copy and warns there.
+        if (m_consecutiveSpikeRejections >= kMaxConsecutiveRejections) {
+            DIAG_WARN(SHOT, "ShotDataModel") << "Spike run ended after" << m_consecutiveSpikeRejections
+                       << "rejected sample(s) - first rejected:" << m_firstRejectedWeight
+                       << "accepting:" << weight << "(cap reached - treating as a real move, re-anchoring)";
+        } else {
+            DIAG_DEBUG(SHOT, "ShotDataModel") << "Spike run ended after" << m_consecutiveSpikeRejections
+                       << "rejected sample(s) - first rejected:" << m_firstRejectedWeight
+                       << "accepting:" << weight << "(back in range)";
+        }
         m_consecutiveSpikeRejections = 0;
     }
 

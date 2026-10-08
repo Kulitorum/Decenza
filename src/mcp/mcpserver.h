@@ -130,7 +130,10 @@ struct PendingConfirmation {
 // 1.15.0: shots_compare compares against the oldest requested shot: `comparison` replaces the
 // consecutive-shot `changes[]`. dialing_get_context's changeFromPrev/changeFromBest use the
 // same {inputs, outcomes} shape.
-inline constexpr const char* McpSurfaceVersion = "1.15.0";
+// 1.16.0: devices_connection_status omits elapsedSinceAppStartSec for a scale-priority latch
+// restored from an earlier run, and elapsedSinceAppStartHuman says so instead of a negative
+// offset. Not visible to the fingerprint.
+inline constexpr const char* McpSurfaceVersion = "1.16.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";
@@ -463,6 +466,10 @@ private:
     // than the spec, but the behaviour that shipped for a year, not a new
     // failure mode.
     QList<QString> m_terminatedSessions;
+    // Clients ("name version") whose initialize this run has logged at INFO. Bounded
+    // because the name is client-supplied.
+    QSet<QString> m_initializedClients;
+    static constexpr int MaxRememberedClients = 64;
 
     // Monotonic SSE event ID. Attaching one is a 2025-11-25 **MAY**, not a
     // SHOULD — the SHOULDs alongside it are the `retry` field and the priming

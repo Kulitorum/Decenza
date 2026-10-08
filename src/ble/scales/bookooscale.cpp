@@ -65,7 +65,7 @@ void BookooScale::onTransportConnected() {
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    BOOKOO_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

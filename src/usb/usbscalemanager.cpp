@@ -223,8 +223,8 @@ void UsbScaleManager::startPolling()
 
 void UsbScaleManager::onHotplugEvent()
 {
-    // info(), not log(): the views default to minLevel INFO.
-    info(QStringLiteral("Hotplug event — running a probe pass now"));
+    // DEBUG: one OS event reaches both USB managers; what each probe finds is the story.
+    log(QStringLiteral("Hotplug event — running a probe pass now"));
     onPollTimerTick();
 }
 

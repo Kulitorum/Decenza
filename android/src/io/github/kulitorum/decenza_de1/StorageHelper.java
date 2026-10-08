@@ -184,7 +184,7 @@ public class StorageHelper {
                 new android.media.MediaScannerConnection.OnScanCompletedListener() {
                     @Override
                     public void onScanCompleted(String path, Uri uri) {
-                        DiagnosticLog.i("Storage", TAG, "Media scan completed for: " + path + " (type: " + mimeType + ")");
+                        DiagnosticLog.d("Storage", TAG, "Media scan completed for: " + path + " (type: " + mimeType + ")");
                     }
                 }
             );

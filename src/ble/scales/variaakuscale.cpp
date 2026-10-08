@@ -73,7 +73,7 @@ void VariaAkuScale::onTransportConnected() {
 }
 
 void VariaAkuScale::onTransportDisconnected() {
-    VARIA_WARN(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    VARIA_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     stopWatchdog();
     setConnected(false);
 }

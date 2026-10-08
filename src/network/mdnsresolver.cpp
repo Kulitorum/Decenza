@@ -567,7 +567,7 @@ int openQuerySocket(int* boundPortOut)
     if (sock < 0)
         return -1;
 
-    // One report point for both backends' query sockets, since #1772 gave them a
+    // One report point for both backends' query sockets, since PR Kulitorum/Decenza#1772 gave them a
     // shared opener.
     reportFdPressureIfHigh(sock, "mDNS query socket");
 
@@ -653,9 +653,9 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
                                           buffer, sizeof(buffer), 0);
             ++sendCount;
             if (sendRet >= 0) ++sendOk;
-            MDNS_DBG << "  query #" << sendCount
-                               << "sent ret=" << sendRet
-                               << (sendRet < 0 ? QString(" errno=%1").arg(errno) : QString());
+            // Only a failed send: the summary line carries the count.
+            if (sendRet < 0)
+                MDNS_DBG << "  query #" << sendCount << "send failed, errno=" << errno;
             nextSendAt = deadline.elapsed() + kRetransmitMs;
         }
 

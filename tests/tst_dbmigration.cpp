@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QLoggingCategory>
 #include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -235,6 +236,9 @@ private slots:
 
     void initTestCase() {
         QVERIFY(m_tempDir.isValid());
+        // Past Qt Test's 2000-message cap the rest of the run's output is dropped;
+        // this suite's debug chatter alone crossed it.
+        QLoggingCategory::setFilterRules(QStringLiteral("default.debug=false"));
     }
 
     // Reset the migration fault-injection seam before every test so a one-shot
@@ -1893,7 +1897,7 @@ private slots:
     }
 
     // ==========================================
-    // Migration failure / retry branches (bean-bag-inventory #1327 follow-up)
+    // Migration failure / retry branches (follow-up to PR Kulitorum/Decenza#1327, bean bags)
     // ==========================================
 
     // The producer behind migration 20's gate: linkOrphanShotsStatic returns

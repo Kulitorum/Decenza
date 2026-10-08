@@ -230,8 +230,8 @@ void DecentShotUploader::onReplyFinished(QNetworkReply* reply) {
         m_storage->requestRecordDecentUpload(shotId, serverId, m_current.serial, m_editedInFlight);
         const QString how = duplicate ? QStringLiteral(" (already on the server)")
                             : m_current.replace ? QStringLiteral(" (replace)") : QString();
-        DIAG_INFO(DECENT, "DecentShotUploader") << QStringLiteral("shot %1 uploaded%2, serial %3, server id %4")
-                                                       .arg(QString::number(shotId), how, m_current.serial, serverId);
+        // Logged by sendFinished(), which knows whether Upload missing shots sent it.
+        m_uploadedNote = QStringLiteral("uploaded%1, serial %2, server id %3").arg(how, m_current.serial, serverId);
         endAttempt(Result::Uploaded, status);
         return;
     }
@@ -276,24 +276,32 @@ void DecentShotUploader::endAttempt(Result result, int httpStatus, const QString
 
 void DecentShotUploader::sendFinished(qint64 shotId, Attempt last) {
     const Result result = m_attemptResult;
+    // A shot sent by Upload missing shots is DEBUG: the run's start and end lines tell
+    // its story at INFO, where a line per shot buried them (1,133 in one run).
+    const auto note = [shotId, &last](const QString& text) {
+        const QString line = QStringLiteral("shot %1 %2").arg(shotId).arg(text);
+        if (last.background)
+            DIAG_DEBUG(DECENT, "DecentShotUploader") << line;
+        else
+            DIAG_INFO(DECENT, "DecentShotUploader") << line;
+    };
     switch (result) {
+    case Result::Uploaded:
+        note(m_uploadedNote); break;
     case Result::NoMachine:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: no DE1 connected"; break;
+        note(QStringLiteral("not uploaded: no DE1 connected")); break;
     case Result::NoSerial:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId
-                                                << "not uploaded: the DE1 reports no serial number and the account "
-                                                   "settled none for it"; break;
+        note(QStringLiteral("not uploaded: the DE1 reports no serial number and the account settled none for it")); break;
     case Result::NotFound:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded:" << m_current.failure; break;
     case Result::NotLinked:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: no Decent account linked"; break;
+        note(QStringLiteral("not uploaded: no Decent account linked")); break;
     case Result::NeedsSignIn:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId
-                                                << "not uploaded: the Decent account needs signing in again"; break;
+        note(QStringLiteral("not uploaded: the Decent account needs signing in again")); break;
     case Result::Maintenance:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: maintenance cycle"; break;
+        note(QStringLiteral("not uploaded: maintenance cycle")); break;
     case Result::TooShort:
-        DIAG_INFO(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded: shorter than the minimum length"; break;
+        note(QStringLiteral("not uploaded: shorter than the minimum length")); break;
     case Result::Failed:
         DIAG_WARN(DECENT, "DecentShotUploader") << "shot" << shotId << "not uploaded after" << last.attempts
                                                 << QStringLiteral("attempt(s) (%1)").arg(m_attemptWhy); break;

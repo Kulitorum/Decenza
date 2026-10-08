@@ -44,6 +44,7 @@ public class BleHelper {
      */
     public static void onFlowingStarted() {
         setHeapUtilization(HEAP_UTIL_DEFERRED);
+        sIdleGcLogged = false;
         DiagnosticLog.d("Memory", TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED);
     }
 
@@ -79,8 +80,16 @@ public class BleHelper {
             System.runFinalization();
             System.gc();
         }, "DecenzaIdleGC").start();
-        DiagnosticLog.d("Memory", TAG, "idleGc: heap utilization set to " + HEAP_UTIL_IDLE + ", proactive GC scheduled");
+        // Once per idle stretch: the identical line every 15 minutes was 195 of one
+        // 48-hour log. The next operation re-arms it.
+        if (!sIdleGcLogged) {
+            sIdleGcLogged = true;
+            DiagnosticLog.d("Memory", TAG, "idleGc: heap utilization set to " + HEAP_UTIL_IDLE
+                    + ", proactive GC scheduled (repeats every 15 min while idle, not logged again)");
+        }
     }
+
+    private static volatile boolean sIdleGcLogged = false;
 
     /**
      * Sets the ART heap utilization target via VMRuntime reflection.

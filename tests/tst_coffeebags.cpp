@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QLoggingCategory>
 #include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -144,6 +145,9 @@ private slots:
 
     void initTestCase() {
         QVERIFY(m_tempDir.isValid());
+        // Past Qt Test's 2000-message cap the rest of the run's output is dropped;
+        // this suite's debug chatter alone crossed it.
+        QLoggingCategory::setFilterRules(QStringLiteral("default.debug=false"));
     }
 
     // ==========================================

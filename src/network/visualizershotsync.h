@@ -121,6 +121,7 @@ private:
     qint64 m_newestChange = 0;
     qint64 m_listCount = -1;  // paging.count on the first list page
     QStringList m_changedIds;
+    qsizetype m_recheckedCount = 0;   // of m_changedIds, those in the cursor's own second
     QList<ShotToRead> m_shotQueue;
     QList<BagToRead> m_bagQueue;
     QHash<QString, QString> m_remoteArchivedAt;  // Visualizer bag id -> archived_at ("" = active)

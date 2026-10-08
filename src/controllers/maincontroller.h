@@ -706,7 +706,7 @@ private:
     // against the visualizerId argument on updateSuccess / updateFailed
     // so other concurrent PATCHes (e.g., from PostShotReviewPage's
     // metadata save) don't pop migration16 entries off the queue or
-    // stall the drain. See PR #1155 review note 2.
+    // stall the drain. See PR Kulitorum/Decenza#1155 review note 2.
     QString m_migration16InFlightVisualizerId;
 
     ProfileManager* m_profileManager = nullptr;
@@ -821,6 +821,7 @@ private:
 
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves
+    bool m_beanRepairSkipLogged = false;
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;

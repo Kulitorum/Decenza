@@ -3,7 +3,7 @@
 
 Comments here carry a lot of "why", and a wrong citation is worse than none: a
 reader follows it, finds something unrelated, and either distrusts the comment or
-believes the wrong story. In one PR a cache bug was cited as #1724 (a merged PR
+believes the wrong story. In one PR a cache bug was cited as Kulitorum/Decenza#1724 (a merged PR
 about turn scoring), corrected to #1713 (a real issue -- but the equipment-fork
 bug, a different mechanism with the same symptom), and only correct on the third
 pass, when it turned out the bug had no issue number at all.
@@ -30,8 +30,9 @@ import sys
 
 REPO = "Kulitorum/Decenza"
 SOURCE_SUFFIXES = (".cpp", ".h", ".qml", ".py", ".md")
-# A citation, not a colour literal (#1a2b3c) and not a markdown heading.
-CITATION = re.compile(r"(?<![\w#/])#(\d{3,5})\b")
+# A citation, not a colour literal (#1a2b3c, or a CSS `color:#999`) and not a markdown heading.
+# The colour case is matched by its property name, so a citation after a colon (`Fixes:#NNNN`) is still checked.
+CITATION = re.compile(r"(?<![\w#/])(?<!color:)(?<!background:)(?<!border-color:)#(\d{3,5})\b")
 # Paths that legitimately discuss PR numbers as PR numbers.
 EXEMPT_PREFIXES = ("openspec/changes/archive/", "docs/plans/", "CHANGELOG")
 

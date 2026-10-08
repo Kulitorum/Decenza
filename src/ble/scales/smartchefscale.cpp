@@ -63,7 +63,7 @@ void SmartChefScale::onTransportConnected() {
 }
 
 void SmartChefScale::onTransportDisconnected() {
-    SMARTCHEF_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    SMARTCHEF_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     setConnected(false);
 }
 

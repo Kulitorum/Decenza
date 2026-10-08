@@ -349,7 +349,7 @@ void DecentScaleWifi::attemptHostname() {
             // taking MdnsResolver's 2000 ms default.
             //
             // DO NOT read this as the fix for reconnect. It was introduced as
-            // one (#1737, on the theory that the 2 s default was too short for a
+            // one (PR Kulitorum/Decenza#1737, on the theory that the 2 s default was too short for a
             // responder that answers in 2-4 s) and the next Android session
             // FALSIFIED it: the misses continued, now ending at ~5002 ms having
             // received ZERO records, against a scale that had served a WebSocket
@@ -441,7 +441,7 @@ void DecentScaleWifi::attemptHostname() {
                     // BLEManager's connection timer (onScaleConnectionTimeout) is
                     // the backstop: it retries, recovers a still-booting scale, and
                     // for a genuinely-gone scale emits the FlowScale-fallback notice
-                    // that informs the user. (See #1253.)
+                    // that informs the user. (See PR Kulitorum/Decenza#1253.)
                     if (dialCachedIpAfterResolveFailure()) return;
                     WIFI_WARN(QString("mDNS resolution failed for %1 — no responder and no "
                                       "cached IP; not dialing (transient; auto-reconnect will retry)").arg(host));
@@ -978,8 +978,14 @@ void DecentScaleWifi::onRecognizedAsHds() {
 }
 
 void DecentScaleWifi::onRecognitionTimeout() {
-    WIFI_WARN(QString("No recognizable HDS frame within %1 ms from %2")
-              .arg(kRecognitionTimeoutMs).arg(m_currentTarget));
+    // WARN only when a peer answered and was not an HDS. Silence is DEBUG: the
+    // fallback below follows, and the attempt's own outcome is the line to read.
+    const QString noFrame = QString("No recognizable HDS frame within %1 ms from %2")
+                                .arg(kRecognitionTimeoutMs).arg(m_currentTarget);
+    if (m_wsHandshakeDone)
+        WIFI_WARN(noFrame);
+    else
+        WIFI_LOG(noFrame + QStringLiteral(" (nothing answered)"));
 
     // Cached-IP attempt failed validation → fall back to the hostname. (If we
     // were already on the hostname, we've exhausted options.)
@@ -1018,9 +1024,8 @@ void DecentScaleWifi::onRecognitionTimeout() {
                      .arg(m_currentTarget, m_hostname));
             if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
         } else {
-            WIFI_LOG(QString("Cached IP %1 did not answer at all — KEEPING it and falling back to "
-                             "hostname %2. Silence is not evidence the address is wrong, and "
-                             "dialling it again is what lets the scale answer mDNS at all.")
+            WIFI_LOG(QString("Cached IP %1 did not answer — keeping it and falling back to "
+                             "hostname %2")
                      .arg(m_currentTarget, m_hostname));
         }
         // Hand the fallback off to onDisconnected via an event-driven flag:
@@ -1041,7 +1046,7 @@ void DecentScaleWifi::onRecognitionTimeout() {
     // connect failure: log it but don't pop a modal. BLEManager's connection timer
     // (onScaleConnectionTimeout) is the backstop for the saved-scale reconnect
     // case — it retries, and a genuinely-gone scale is surfaced by the
-    // FlowScale-fallback notice. #1253
+    // FlowScale-fallback notice. PR Kulitorum/Decenza#1253
     //
     // For the MANUAL "Add WiFi Scale" path, the outer connection timer has
     // already been stopped (onScaleConnectedChanged stops it when setConnected(true)

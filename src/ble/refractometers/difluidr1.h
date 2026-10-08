@@ -102,6 +102,9 @@ private:
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "DiFluid R1";
     Phase m_phase = Phase::Disconnected;
+    // Whether the current link ever reached Ready. Survives resetLinkState() so the
+    // disconnect that follows a transport error is not reported as a failed connect.
+    bool m_linkReachedReady = false;
     double m_tds = 0.0;
     double m_temperature = 0.0;
     bool m_measuring = false;

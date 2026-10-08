@@ -90,7 +90,7 @@ private slots:
         f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
         QCOMPARE(countReadRequests(f.transport), qsizetype(1));
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
 
@@ -104,7 +104,7 @@ private slots:
         TestFixture f;
         f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
 
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
 
@@ -124,10 +124,10 @@ private slots:
         f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
 
         // MMR_READ_MAX_RETRIES retries, then one more sweep to expire.
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
-        QTest::ignoreMessage(QtWarningMsg,
+        QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
@@ -180,11 +180,11 @@ private slots:
         f.device.issueMMRReadWithRetry(DE1::MMR::MACHINE_MODEL, QStringLiteral("machine model"));
 
         // Exhaust both together: 2 retries then expire, each sweep emits one
-        // warning per still-pending read.
+        // line per still-pending read.
         for (int round = 0; round < 3; ++round) {
             for (auto it = f.device.m_pendingMMRReads.begin();
                  it != f.device.m_pendingMMRReads.end(); ++it) {
-                QTest::ignoreMessage(QtWarningMsg,
+                QTest::ignoreMessage(round < 2 ? QtDebugMsg : QtWarningMsg,
                     QRegularExpression(round < 2 ? "\\[DE1\\]\\[MMR\\] read timeout, retrying"
                                                  : "\\[DE1\\]\\[MMR\\] read FAILED after retries"));
             }

@@ -119,7 +119,7 @@ void AcaiaScale::onTransportConnected() {
 }
 
 void AcaiaScale::onTransportDisconnected() {
-    ACAIA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    ACAIA_LOG(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);  // ScaleDevice reports the drop
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;

@@ -252,7 +252,7 @@ Areas where bugs have shipped undetected due to missing test coverage:
 
 ### QML binding correctness (highest priority)
 
-No tests verify that QML files resolve property names and method calls to the expected C++ objects. During the ProfileManager extraction (PR #562), three QML bugs shipped past the full test suite:
+No tests verify that QML files resolve property names and method calls to the expected C++ objects. During the ProfileManager extraction (PR Kulitorum/Decenza#562), three QML bugs shipped past the full test suite:
 - `MainController.previousProfileName()` — method removed from MainController, QML silently returned `undefined`
 - `MainController.currentProfile` — never was a QML property (should be `currentProfileName`), always `undefined`
 - `typeof MainController` guards checking wrong object after data source moved to ProfileManager
@@ -518,6 +518,10 @@ shape rather than paying the chain per test.
 
 **This is enforced, not just convention.** Every test class calls `QTest::failOnWarning()` in its `init()`, so an *unexpected* `qWarning`/`qCritical` during a test function **fails that test** — even under `ctest -j` or Qt Creator's CTest runner, which otherwise hide passing-test stderr. Warnings marked expected via `QTest::ignoreMessage()` are consumed before the check and do **not** fail. **New test classes must add `void init() { QTest::failOnWarning(); }`** (or prepend the call to an existing `init()`); without it the class silently opts out of the guard. Do **not** rely on `QT_FATAL_WARNINGS` — it aborts on `ignoreMessage()`-expected warnings too.
 
+**Qt Test's own "Maximum amount of warnings exceeded" line also fails the test under CTest.** Qt Test caps a binary at 2000 messages of any level, debug included, then drops the rest. It writes that line past the message handler, so `failOnWarning()` cannot see it; `add_decenza_qtest` sets a `FAIL_REGULAR_EXPRESSION` for it instead. A suite that hits it is too chatty: silence debug in `initTestCase()` with `QLoggingCategory::setFilterRules("default.debug=false")`, as `tst_dbmigration` does.
+
+Each CTest run also writes per-function results to `<build>/test-results/<binary>.xml` (JUnit). A `<system-err>` element there is a warning the run printed.
+
 There are three legitimate outcomes for any warning fired during a test:
 
 ### 1. It's the behaviour under test — mark it expected per-test
@@ -599,7 +603,7 @@ A rule that disagrees with the shipped profiles is suspect regardless of how it 
 | `tests/data/aflow_legacy_profiles/` | one 6-frame profile from de1app's stale snapshot | **legacy case only** |
 
 de1app's `de1plus/profiles/` carries four A-Flow profiles at **6** frames and is missing
-`default-light`; the plugin ships all five at **9** (de1app issue #350). Verifying against the
+`default-light`; the plugin ships all five at **9** (issue decentespresso/de1app#350). Verifying against the
 stale copy would produce a suite that passes against the wrong source, so the suite asserts a
 9-frame count at load. The 6-frame layout is still covered — as the *legacy* branch of
 `set_profile_index`, never as the reference.

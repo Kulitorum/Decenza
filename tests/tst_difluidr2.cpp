@@ -710,8 +710,30 @@ private slots:
     static DiFluidR2* connectedDriver(MockR2Transport* transport) {
         auto* r2 = new DiFluidR2(transport);
         r2->m_connected = true;
+        r2->m_linkReachedReady = true;
         r2->m_characteristicsReady = true;
         return r2;
+    }
+
+    // A dropped link reports the transport error first and the disconnect second.
+    // The error clears m_connected, so a disconnect line reading it called every drop
+    // a failed connect — on a field log, right after "Connected and ready".
+    void droppedLinkIsNotReportedAsFailedConnect() {
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(new DiFluidR2(transport));
+        r2->m_characteristicsReady = true;
+        r2->m_initTimer.start(0);  // the real path to ready
+        QTRY_VERIFY(r2->isConnected());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Transport error: link lost$"));
+        r2->onTransportError("link lost");
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("Transport disconnected$"));
+        r2->onTransportDisconnected();
+
+        DiFluidR2 neverReady(nullptr);
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("Transport disconnected \\(connect attempt never reached ready\\)$"));
+        neverReady.onTransportDisconnected();
     }
 
     void averagedRequestSendsTheDocumentedBytes() {

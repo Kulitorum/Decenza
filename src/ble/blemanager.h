@@ -420,7 +420,7 @@ public:
     // default "hds.local"); IPs and dotted names pass through. Arms the connection
     // timer so a wrong/unreachable host surfaces as `manualWifiValidationFailed`
     // (driving the QML "Couldn't verify a scale at <address>" dialog) instead
-    // of silently — WiFi socket errors are otherwise log-only (#1253). Unlike a
+    // of silently — WiFi socket errors are otherwise log-only (PR Kulitorum/Decenza#1253). Unlike a
     // saved WiFi scale this does NOT fall back to a BLE scan on failure (the
     // user asked for a specific WiFi address).
     //
@@ -638,7 +638,13 @@ private:
     void de1RepeatFailure(const QString& message);
     bool shouldReportRepeatFailure(const QString& owner, const QString& source, const QString& message);
     void resetRepeatFailureBudget();
-    LogCollapse m_repeatFailureLog{LogCollapse::kChangesOnly};
+    // DE1 only. A DE1 connect says nothing about the scale, so it must not
+    // re-arm the scale's failure lines: with a scale switched off they repeated
+    // on every DE1 wake.
+    void resetDe1RepeatFailureBudget();
+    void flushRepeatFailures(LogCollapse& log, bool scale);
+    LogCollapse m_de1RepeatFailureLog{LogCollapse::kChangesOnly};
+    LogCollapse m_scaleRepeatFailureLog{LogCollapse::kChangesOnly};
 
 public:
 
@@ -1158,6 +1164,11 @@ private:
     // cycle would let stopScan()'s flush cut an ongoing hunt's tally in half
     // and report two bursts where there was one.
     LogCollapse m_huntChainLog{LogCollapse::kChangesOnly};
+    // The background scale ladder's scan announcement. It is the same line every
+    // cycle, forever while the scale is off (4,074 of them in one #1976 log), so
+    // only the first of a run prints; the scale connecting reports the count, and
+    // a change of saved scale starts a new run.
+    LogCollapse m_scaleLadderScanLog{LogCollapse::kChangesOnly};
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
     // Bounds a foreground direct-connect to ~4s (see kScaleDirectConnectAbortMs).

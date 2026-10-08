@@ -151,6 +151,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/belkaportaldiscovery.h"
+#include "ble/blegattqueue.h"
 #include "controllers/portalcontroller.h"
 // For the [DE1][Simulator] attach line below — main.cpp owns the simulator's
 // lifetime, so it is the only place that can report it.
@@ -2583,10 +2584,9 @@ int main(int argc, char *argv[])
                 const QString msg =
                     QString("Scale still absent after %1 attempts — slowing retries to every %2 min")
                         .arg(scaleReconnectAttempt).arg(kScaleSlowTailMs / 60000);
-                // qWarning, matching MQTT's equivalent crossing: this is the line
-                // that explains a log which otherwise looks like the reconnect
-                // died, and WARN is what makes it findable in a submitted log.
-                bleManager.scaleWarn(msg, QStringLiteral("main"));
+                // INFO: it explains a log that otherwise looks like the reconnect
+                // died, but a scale that is switched off is not a fault.
+                bleManager.scaleInfo(msg, QStringLiteral("main"));
             }
             scaleReconnectTimer.start(kScaleSlowTailMs);
         }
@@ -2825,12 +2825,6 @@ int main(int argc, char *argv[])
         bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
                                  .arg(de1ReconnectAttempt).arg(kDE1MaxReconnectAttempts),
                              QStringLiteral("main"));
-        // A wedged link is back on the first attempt (every #1976 case). Still
-        // absent after it means the machine went away — a power cut — and the
-        // connect that finds it again should wake it.
-        if (de1ReconnectAttempt >= 2)
-            de1Device.cancelReconnectSkip(QStringLiteral("the DE1 was absent past the first "
-                                                         "reconnect attempt"));
         bleManager.tryDirectConnectToDE1();
 
         if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
@@ -2885,7 +2879,7 @@ int main(int argc, char *argv[])
         if (de1Device.isConnected() || de1Device.isConnecting()) return;
         de1ReconnectAttempt = 0;
         de1ReconnectTimer.start(500);
-        DIAG_DEBUG(DE1, "main") << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder (#1309)";
+        DIAG_DEBUG(DE1, "main") << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder";
     });
 
     // When DE1 connects or disconnects, manage reconnect timer.
@@ -2998,7 +2992,7 @@ int main(int argc, char *argv[])
         // Single-scale invariant: at most one physical scale is connected at a
         // time (a different scale type replaces the old one below, never runs
         // alongside it). This caps concurrent forced-HIGH BLE links at two —
-        // DE1 + scale — the proven-good #1097 baseline. Connecting a second
+        // DE1 + scale — the proven-good PR Kulitorum/Decenza#1097 baseline. Connecting a second
         // scale simultaneously would make it a third HIGH link and reintroduce
         // the GATT-scheduler contention that tears the weakest link down (the
         // refractometer fix relies on this same 2-link ceiling). If
@@ -3137,8 +3131,8 @@ int main(int argc, char *argv[])
 
         // Forward scale-level error messages to BLEManager::errorOccurred, which
         // main.qml wires to the error dialog. Transient connect-failures are log-only
-        // inside the drivers — BLE transport/service-discovery errors (#1285, #1292)
-        // and WiFi mDNS-miss / host-not-found / 503 retries (#1253). What reaches
+        // inside the drivers — BLE transport/service-discovery errors (PR Kulitorum/Decenza#1285, PR Kulitorum/Decenza#1292)
+        // and WiFi mDNS-miss / host-not-found / 503 retries (PR Kulitorum/Decenza#1253). What reaches
         // here is an ACTIONABLE error worth showing unconditionally — e.g. WiFi 503
         // "Another client is connected to the scale" that the retry loop can't
         // resolve, or a measurement-side condition from a refractometer ("No liquid
@@ -3285,7 +3279,7 @@ int main(int argc, char *argv[])
                     DIAG_DEBUG(SCALE, "main") << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
                 } else {
                     bleManager.requestScaleReconnectRampRestart(
-                        QStringLiteral("Scale disconnected"));
+                        QStringLiteral("Scale disconnected, weight now estimated from flow"));
                 }
             }
         });
@@ -4342,14 +4336,14 @@ int main(int argc, char *argv[])
         // No "GHCSimulator" line: it is now a QML_SINGLETON too, and a singleton is per-type,
         // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
         // same instance main published. A context property of the same name would SHADOW it and
-        // be invisible to qmllint, which is the shape #1661 took. The same goes for "DE1Device".
+        // be invisible to qmllint, which is the shape PR Kulitorum/Decenza#1661 took. The same goes for "DE1Device".
         //
         // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
         // and it never reads that name; nothing else in qml/ does either.
         // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
         // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
         // context property of the same name would SHADOW the singleton and be invisible to
-        // qmllint, qmlcachegen and the language server — the #1661 shape. The TemperatureDisplay
+        // qmllint, qmlcachegen and the language server — the PR Kulitorum/Decenza#1661 shape. The TemperatureDisplay
         // line that sat beside this one went for the same reason.
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
@@ -4619,6 +4613,10 @@ int main(int argc, char *argv[])
     // refractometer restart only does real work while the review-page hunt is
     // active — off that page its tick fires once and self-stops.
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
+                     &de1Device, [&screensaverManager, &de1Device]() {
+        de1Device.setAppAsleep(screensaverManager.screensaverActive());
+    });
+    QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      handlerScope.get(), [&screensaverManager, &bleManager, &settings,
                       &scaleReconnectTimer, &reconnectDelays,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
@@ -4807,7 +4805,7 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &bleManager, &shotHistoryExporter]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &bleManager, &shotHistoryExporter, &settings]() {
         DIAG_DEBUG(APP, "main") << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
@@ -4852,10 +4850,22 @@ int main(int argc, char *argv[])
             needBleWait = de1TransportConnected;
         }
 
-        // Put scale to sleep if connected
-        if (physicalScale && physicalScale->isConnected()) {
+        // "Keep scale on" covers quitting the app too (#1981): display off, as when
+        // the DE1 sleeps, but the scale stays on. The display write has no completion
+        // signal of its own, so on BLE the wait below holds for the shared GATT queue
+        // to drain. A WiFi scale's command is a socket write, not queued there.
+        const bool scaleConnected = physicalScale && physicalScale->isConnected();
+        const bool sleepScaleOnExit = scaleConnected && !settings.keepScaleOn();
+        bool waitForGattQueue = false;
+        if (sleepScaleOnExit) {
             DIAG_DEBUG(SCALE, "main") << "Sending physical scale to sleep on app exit";
             needBleWait = true;
+        } else if (scaleConnected) {
+            DIAG_DEBUG(SCALE, "main") << "Turning the scale display off on app exit (keep scale on)";
+            physicalScale->disableLcd();
+            const BleGattQueue& gatt = BleGattQueue::instance();
+            waitForGattQueue = gatt.isBusy() || gatt.pendingCount() > 0;
+            needBleWait = needBleWait || waitForGattQueue;
         }
 
         // IMPORTANT: Ensure charger is ON before exiting, unless the user switched
@@ -4872,30 +4882,44 @@ int main(int argc, char *argv[])
         // tablet-dies-overnight case this call exists to prevent.
         batteryManager.ensureChargerOn();
 
-        // Wait for BLE writes to complete before exiting
+        // Wait for BLE writes to complete before exiting. Every write this exit
+        // issued must finish, not just the first: the DE1's queue draining used
+        // to end the wait with the scale's command still queued.
         if (needBleWait) {
             QEventLoop waitLoop;
-            bool drained = false;
+            bool de1Done = !de1TransportConnected;
+            bool de1Delivered = !de1TransportConnected;
+            bool scaleDone = !sleepScaleOnExit && !waitForGattQueue;
+            const auto quitWhenAllDone = [&]() {
+                if (de1Done && scaleDone) waitLoop.quit();
+            };
             int timeoutMs = 1500; // Safety-net timeout
 
             if (de1TransportConnected) {
                 QObject::connect(de1Transport, &DE1Transport::queueDrained,
-                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                                 &waitLoop, [&]() { de1Done = de1Delivered = true; quitWhenAllDone(); });
                 QObject::connect(de1Transport, &DE1Transport::disconnected,
-                                 &waitLoop, [&]() { waitLoop.quit(); });
+                                 &waitLoop, [&]() { de1Done = true; quitWhenAllDone(); });
                 timeoutMs = 2000;
             }
 
-            if (physicalScale && physicalScale->isConnected()) {
+            if (waitForGattQueue) {
+                QObject::connect(&BleGattQueue::instance(), &BleGattQueue::drained,
+                                 &waitLoop, [&]() { scaleDone = true; quitWhenAllDone(); });
+            }
+
+            if (sleepScaleOnExit) {
                 QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
-                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                                 &waitLoop, [&]() { scaleDone = true; quitWhenAllDone(); });
                 physicalScale->sleep();
             }
 
             DIAG_DEBUG(BLUETOOTH, "main") << "Waiting for BLE queue to drain before exit...";
             QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
-            waitLoop.exec();
+            if (!(de1Done && scaleDone))  // a source can finish synchronously above
+                waitLoop.exec();
 
+            const bool drained = de1Delivered && scaleDone;
             if (drained)
                 DIAG_DEBUG(BLUETOOTH, "main") << "BLE queue drained successfully, exiting.";
             else

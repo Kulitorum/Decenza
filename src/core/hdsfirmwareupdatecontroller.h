@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hdsfirmwarecatalog.h"
+#include "logcollapse.h"
 
 #include <QObject>
 #include <QPointer>
@@ -78,6 +79,7 @@ private slots:
     void onFirmwareUpdateRejected(const QString& reason);
 
 private:
+    void reportManifest(const QString& text, bool failure);
     void cancelReleaseNotesRequest();
     void reevaluateAvailability();
     void setUpdateAvailable(bool available);
@@ -94,4 +96,5 @@ private:
     bool m_updateStarted = false;
     QString m_releaseNotes;
     QString m_updateError;
+    LogCollapse m_manifestLog{LogCollapse::kChangesOnly};   // process lifetime: no flush
 };

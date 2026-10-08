@@ -247,7 +247,8 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // update the offline tool to match.
         bool cupRemoved = (weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G);
         if (cupRemoved) {
-            SAWT_WARN(QStringLiteral("Cup removed during settling (sample: %1 g peak: %2 g) "
+            // INFO: lifting the cup is a user action, not a fault.
+            SAWT_INFO(QStringLiteral("Cup removed during settling (sample: %1 g peak: %2 g) "
                                      "- skipping learning")
                           .arg(weight, 0, 'f', 2).arg(m_settlingPeakWeight, 0, 'f', 2));
             // Cup removal corrupts weight data — bypass learning entirely

@@ -177,11 +177,11 @@ private slots:
     }
 
     // ==========================================
-    // Volume reset between extractions (bug #505)
+    // Volume reset between extractions (bug PR Kulitorum/Decenza#505)
     // ==========================================
 
     void volumeResetOnNewExtraction() {
-        // Bug #505: stale volume counters from first shot caused instant stop on second shot
+        // Bug PR Kulitorum/Decenza#505: stale volume counters from first shot caused instant stop on second shot
         TestFixture f;
 
         // First extraction: accumulate volume
@@ -272,11 +272,11 @@ private slots:
     }
 
     // ==========================================
-    // Hot water weight (bugs #530, #509)
+    // Hot water weight (bugs PR Kulitorum/Decenza#530, PR Kulitorum/Decenza#509)
     // ==========================================
 
     void hotWaterFrozenWeightClearedOnNewFlow() {
-        // Bug #530: hot water frozen weight persists into espresso display
+        // Bug PR Kulitorum/Decenza#530: hot water frozen weight persists into espresso display
         TestFixture f;
 
         // Hot water SAW freezes display
@@ -520,7 +520,7 @@ private slots:
         TestFixture f;
         f.device.m_firmwareBuildNumber = 1363;
         f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
-        QTest::ignoreMessage(QtInfoMsg,
+        QTest::ignoreMessage(QtDebugMsg,  // cleared inside the wait: no warning was shown
             QRegularExpression("\\[DE1\\]\\[StandbySwitch\\].*reported no AC for "
                                "\\d+ ms then cleared it.*Heating"));
         f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);

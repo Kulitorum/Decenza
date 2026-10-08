@@ -200,6 +200,8 @@ signals:
 private:
     // Compare outcomes across repeating browse cycles; elapsed time is not a state change.
     LogCollapse m_browseLog{LogCollapse::kChangesOnly};
+    void logLookupMiss(const QString& hostname, const QString& text, const QString& detail);
+    void logLookupResolved(const QString& hostname, const QString& address);
     // Android's NsdManager browse, started alongside the mjansson one in browse().
     // A no-op everywhere else: on those platforms the system resolver already owns
     // port 5353, so there is no second, independent path to add. Full reasoning —

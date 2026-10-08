@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QLoggingCategory>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QJsonDocument>
@@ -186,6 +187,9 @@ private slots:
         // this the whole suite has been reading and writing the developer's own
         // ~/Library/Application Support profiles directory.
         QStandardPaths::setTestModeEnabled(true);
+        // Past Qt Test's 2000-message cap the rest of the run's output is dropped;
+        // this suite's debug chatter alone crossed it.
+        QLoggingCategory::setFilterRules(QStringLiteral("default.debug=false"));
     }
 
     void init() { QTest::failOnWarning(); }
@@ -2052,7 +2056,7 @@ private slots:
     // === QML binding smoke test ===
     // Verifies that ProfileManager properties resolve to real values when
     // registered as a QML context property. Would have caught the 3 QML bugs
-    // from the PR #562 code review (previousProfileName, currentProfile,
+    // from the review of PR Kulitorum/Decenza#562 (previousProfileName, currentProfile,
     // typeof guard).
 
     void qmlBindingsResolveCorrectly() {
