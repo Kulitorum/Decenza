@@ -4,8 +4,10 @@
 Defines how a bag tracks its current portion's storage lifecycle — the freeze/defrost pair (`frozenDate`/`defrostDate`) and the non-frozen pair (`storageHint`/`openedDate`) — the "Thaw" action and the first shot that record a portion entering active use, the freeze toggle and storage-hint dropdown in the bag creation form, and the capture of all four fields into each shot's snapshot so a shot permanently records the beans' storage and thermal history.
 
 ## Requirements
+
 ### Requirement: Bag tracks current freeze/defrost state
-A bag SHALL store `frozenDate` (nullable date), `defrostDate` (nullable date), `storageHint` (nullable enum: `counter` / `airtight` / `vacuum-sealed` / `fridge`) and `openedDate` (nullable date) for its current portion only. These fields SHALL NOT accumulate; the full defrost and open history is reconstructable from the shot snapshot fields.
+
+A bag SHALL store, for its current portion only, `frozenDate`, `defrostDate`, `storageHint` (`counter`, `airtight`, `vacuum-sealed` or `fridge`) and `openedDate`, all nullable; shot snapshots keep the history. These are three independent axes (freezer, container, use), and none SHALL gate, hide or clear another. Whether a bag is frozen SHALL be decided by `frozenDate` alone; beans are frozen in portions, so a thawed bag stays frozen.
 
 #### Scenario: Bag with active frozen portion
 - **WHEN** a bag has `frozenDate` set and `defrostDate` set
@@ -22,7 +24,7 @@ A bag SHALL store `frozenDate` (nullable date), `defrostDate` (nullable date), `
 #### Scenario: A thawed bag displays its opened date alongside its thaw date
 - **WHEN** a bag has `frozenDate` set, `defrostDate` set, and `openedDate` set
 - **THEN** the bag card SHALL display BOTH "Thawed {date} ({N}d)" and "Opened {date} ({N}d)"
-- **AND** the opened line SHALL NOT be suppressed by the presence of a thaw date — the two describe independent events and the card offers "Mark Opened" in exactly this state, so suppressing it would make that action write-only
+- **AND** the opened line SHALL NOT be suppressed by the presence of a thaw date — the two describe independent events, and a thawed portion's first shot stamps `openedDate` in exactly this state
 - **AND** the same SHALL hold for every surface rendering these fields (bag card and bean summary)
 
 #### Scenario: Bag with no lifecycle state at all
@@ -33,6 +35,17 @@ A bag SHALL store `frozenDate` (nullable date), `defrostDate` (nullable date), `
 - **WHEN** a bag has `frozenDate` set, `defrostDate` null, and `storageHint = "vacuum-sealed"`
 - **THEN** all three values SHALL coexist
 - **AND** the freshness aging anchor SHALL remain unaffected — `storageHint` contributes no date, so a plan with no thaw date yields no aging anchor
+
+#### Scenario: Storage hint is a plan on a frozen bag
+
+- **WHEN** a frozen bag carries `storageHint = "vacuum-sealed"`
+- **THEN** it SHALL mean where a thawed portion goes, and SHALL be settable and kept in every freeze state; the enum has no `"frozen"` value
+
+#### Scenario: Beans in use are tested by portion, not by freezer contents
+
+- **WHEN** any feature needs "beans are in use at room temperature right now"
+- **THEN** it SHALL test `frozenDate` empty OR `defrostDate` set, never "nothing is in the freezer", which is never true of a frozen bag
+- **AND** "Thaw" SHALL stay available on a thawed bag for the next portion
 
 ### Requirement: The freezer, container and use fields never gate each other
 The freezer fields (`frozenDate`, `defrostDate`) record whether and when the current portion left the freezer, `storageHint` records how the bag is kept out of the freezer, and `openedDate` records when the portion started being used at room temperature. No field SHALL gate, hide or clear another, and `openedDate` MAY be set on a bag with no freezer fields.
@@ -91,7 +104,8 @@ When a shot is saved, the active bag's `frozenDate`, `defrostDate`, `storageHint
 - **THEN** the shot record SHALL include `storageHint` and `openedDate` in its snapshot
 
 ### Requirement: Freeze toggle available in Change Beans dialog
-The bag creation form in the Change Beans dialog SHALL include a freeze toggle that is always visible. The `storageHint` dropdown (Counter / Airtight container / Vacuum-sealed / Fridge) SHALL also always be visible, regardless of the toggle. The freeze toggle SHALL NOT hide, disable or clear `storageHint` or `openedDate`.
+
+The bag creation form (in the Change Beans dialog) SHALL include an always-visible freeze toggle and an always-visible `storageHint` dropdown (Counter / Airtight container / Vacuum-sealed / Fridge), since a storage plan matters most while the bag is frozen. The freeze toggle SHALL NOT hide, disable or clear `storageHint` or `openedDate`.
 
 #### Scenario: Creating a bag with freeze enabled
 - **WHEN** the user enables the freeze toggle
@@ -106,7 +120,7 @@ The bag creation form in the Change Beans dialog SHALL include a freeze toggle t
 
 #### Scenario: openedDate is not offered on the create form
 - **WHEN** the bag creation form is shown (either freeze state)
-- **THEN** no `openedDate` picker SHALL appear — a bag being created has no portion in use yet, so the field is edit-mode only and the "Mark Opened" card action is the everyday path
+- **THEN** no `openedDate` picker SHALL appear — a bag being created has no portion in use yet, so the field is edit-mode only and a portion's first shot is what sets it
 - **AND** `openedDate` SHALL NOT be written on the create path
 
 #### Scenario: Toggling freeze on preserves a previously-selected storageHint
@@ -118,32 +132,75 @@ The bag creation form in the Change Beans dialog SHALL include a freeze toggle t
 - **THEN** `storageHint` and `openedDate` SHALL both be written back unchanged
 - **AND** this SHALL hold for values originally set through the `bag_update` MCP tool rather than the dialog
 
-### Requirement: "Mark Opened" action records the current portion's start date
-The system SHALL provide a "Mark Opened" action on bags with a portion out of the freezer, that is where `frozenDate` is null or `defrostDate` is set. It SHALL NOT appear while a frozen bag has no thaw recorded. Activating it SHALL open a calendar picker defaulted to today's date, not the existing `openedDate`, and picking a date SHALL set `openedDate`. A thawed bag SHALL offer both "Thaw" and "Mark Opened" and keep both indefinitely.
+### Requirement: A shot stamps the current portion's opened date
+When a shot is saved with an active bag whose current portion has no opened date, the system SHALL set the bag's `openedDate` to the shot's local date, and the shot's snapshot SHALL carry it. The rule SHALL be defined once in C++ (`CoffeeBag::openedDateForShot`). The date SHALL remain editable in the Change Beans dialog.
 
-#### Scenario: Marking a bag opened defaults the picker to today
-- **WHEN** the user activates "Mark Opened" on an eligible bag card, including one that already has an `openedDate` set from a previous portion
-- **THEN** the calendar picker SHALL open with today's date selected, regardless of any existing `openedDate`
-- **AND** confirming that default SHALL set `openedDate` to today with a single additional tap
+#### Scenario: First shot from a never-frozen bag
+- **WHEN** a shot is saved and the active bag has no `frozenDate` and no `openedDate`
+- **THEN** the bag's `openedDate` SHALL be set to the shot's date
+- **AND** the shot's snapshot SHALL carry that `openedDate`
 
-#### Scenario: Picking a different date than today
-- **WHEN** the user activates "Mark Opened" and navigates the calendar to a different date before confirming
-- **THEN** `openedDate` SHALL be set to the picked date, not today
-- **AND** the bag card SHALL update to show the new opened date/age immediately
+#### Scenario: Later shots leave the date alone
+- **WHEN** a shot is saved and the active bag's `openedDate` is on or after its `defrostDate` (or it has no `defrostDate`)
+- **THEN** `openedDate` SHALL NOT change
 
-#### Scenario: Available on a thawed bag alongside Thaw
-- **WHEN** a bag has `frozenDate` set AND `defrostDate` set (a portion has been pulled out)
-- **THEN** its card SHALL offer both "Thaw" and "Mark Opened"
-- **AND** "Thaw" SHALL remain available for the next portion — the bag is still frozen; thawing one portion does not empty the freezer
-- **AND** setting `openedDate` SHALL leave `frozenDate` and `defrostDate` untouched
+#### Scenario: First shot from a newly thawed portion
+- **WHEN** a shot is saved and the active bag's `openedDate` is earlier than its `defrostDate`
+- **THEN** `openedDate` SHALL be set to the shot's date
 
-#### Scenario: Not visible before the first portion is pulled
-- **WHEN** a bag has `frozenDate` set AND `defrostDate` null
-- **THEN** "Mark Opened" SHALL NOT appear on its card — no portion has come out of the freezer yet, so there is nothing to have opened; "Thaw" is the applicable action
+#### Scenario: Frozen bag with no thaw recorded
+- **WHEN** a shot is saved and the active bag has `frozenDate` set and `defrostDate` null
+- **THEN** `openedDate` SHALL NOT be set — the shot is taken as one serving out of the freezer with the rest put back
 
-#### Scenario: Re-marking opened on a new portion of the same bag
-- **WHEN** the user activates "Mark Opened" again later and confirms the defaulted-to-today picker
-- **THEN** each open event overwrites `openedDate` with that day's date
-- **AND** the bag card always shows the most recent opened date/age
-- **AND** prior open events are preserved implicitly via shot snapshots
+### Requirement: Bag lifecycle dates cannot be in the future
+A bag's `roastDate`, `frozenDate`, `defrostDate` and `openedDate` SHALL NOT be later than the device's local date. The rule SHALL be defined once in C++ (`CoffeeBag::futureDateError`) and enforced at the storage write boundary, with MCP and the web API returning its message as an error. The app's date pickers and typed date fields for these dates SHALL NOT accept a date after today. Existing stored values are not rewritten.
 
+#### Scenario: A future thaw date is refused
+- **WHEN** any surface writes a bag with `defrostDate` set to tomorrow
+- **THEN** the write SHALL be refused with a message naming the thaw date
+- **AND** the stored bag SHALL be unchanged
+
+#### Scenario: Today is allowed
+- **WHEN** a lifecycle date is set to today's local date
+- **THEN** the write SHALL succeed
+
+#### Scenario: The web Thaw button uses the local date
+- **WHEN** the user taps Thaw on the web page in the evening in a timezone behind UTC
+- **THEN** `defrostDate` SHALL be the user's local date, not the next UTC day
+
+### Requirement: Unfreezing a bag clears its thaw date on every surface
+Clearing a bag's `frozenDate` SHALL also clear its `defrostDate`, enforced in storage so the app, the web page and MCP behave the same. `openedDate` and `storageHint` SHALL be unaffected.
+
+#### Scenario: Web or MCP unfreezes a thawed bag
+- **WHEN** a bag with `frozenDate`, `defrostDate` and `openedDate` set is updated with `frozenDate = ""` from any surface
+- **THEN** `defrostDate` SHALL be cleared
+- **AND** `openedDate` and `storageHint` SHALL keep their values
+
+### Requirement: A card offers "Freeze" on a bag not yet frozen
+A bag card in inventory with no `frozenDate` SHALL offer "Freeze" where a frozen bag offers "Thaw" (`InventoryBag::cardActions`, so the web page offers it too). It opens a date picker defaulted to today, no earlier than the roast date, and sets only `frozenDate`: it records no thaw, because shots can be ground straight from the freezer.
+
+#### Scenario: Freezing a bag in use
+- **WHEN** the user taps Freeze on a bag with shots and confirms today
+- **THEN** `frozenDate` SHALL be today and `defrostDate` SHALL stay unset
+- **AND** the card SHALL then offer Thaw instead of Freeze
+
+### Requirement: Restock carries the storage habits of the bag it replaces
+Restocking a bag (app or web, both through `CoffeeBag::restockTemplate`) SHALL carry its `storageHint`, and a bag that had a `frozenDate` SHALL start frozen as of today. Roast, thaw and opened dates, notes and start weight SHALL NOT carry over.
+
+#### Scenario: Restocking a frozen, vacuum-sealed bag
+- **WHEN** the user restocks a bag with `frozenDate` set and `storageHint = "vacuum-sealed"`
+- **THEN** the new-bag form SHALL open with freezing on, today as the frozen date, and "Vacuum-sealed" as the storage type, and with the roast date empty
+
+### Requirement: Bag lifecycle dates must be in order
+A write SHALL be refused when it would put `frozenDate` before `roastDate`, `defrostDate` before `frozenDate`, or `openedDate` before `roastDate` (`CoffeeBag::lifecycleOrderError`). Only pairs the write touches are checked, so an unrelated edit is never refused for an older record. The app's thaw, freeze and editor date pickers SHALL not offer days before the date they must follow.
+
+#### Scenario: A thaw before the freeze
+- **WHEN** any surface sets `defrostDate` earlier than the stored `frozenDate`
+- **THEN** the write SHALL be refused, and the web and MCP SHALL say "Thaw date is before the frozen date"
+
+### Requirement: The post-shot review shows the beans' storage dates
+The post-shot review's bean summary SHALL show the shot's frozen, thaw and opened dates with the roast date, as the bag card does ("Roasted · Frozen <date>" or "Thawed <date> (Nd) · Opened <date> (Nd)"), so a missed thaw is visible after the shot it affected.
+
+#### Scenario: A shot from a frozen bag with no thaw recorded
+- **WHEN** the review page opens for that shot
+- **THEN** its bean summary SHALL read "Frozen <date>"
