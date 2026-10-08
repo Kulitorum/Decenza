@@ -2027,7 +2027,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
             if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
             bag.insert("inInventory", true);
-            if (const QString err = CoffeeBag::lifecycleFieldError(bag, QDate::currentDate()); !err.isEmpty()) {
+            if (const QString err = CoffeeBag::lifecycleError({}, bag, QDate::currentDate()); !err.isEmpty()) {
                 respond(QJsonObject{{"error", err}});
                 return;
             }
@@ -2226,13 +2226,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QMetaObject::invokeMethod(qApp, [bagStorage, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                         auto conn = std::make_shared<QMetaObject::Connection>();
                         *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
-                            [conn, bagId, respondWithBag, respond, onSuccess](qint64 updatedId, bool success) {
+                            [conn, bagId, respondWithBag, respond, onSuccess](qint64 updatedId, bool success,
+                                                                              const QString& refusal) {
                                 if (updatedId != bagId)
                                     return;  // a concurrent update of a different bag
                                 QObject::disconnect(*conn);
                                 if (!success) {
-                                    respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                                  + QString::number(bagId)}});
+                                    respond(QJsonObject{{"error", !refusal.isEmpty() ? refusal
+                                        : "Bag not found or update failed: " + QString::number(bagId)}});
                                     return;
                                 }
                                 if (onSuccess)
@@ -2248,17 +2249,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // static write. Skips the in-app refresh/sync signals.
                 QThread* thread = QThread::create([dbPath, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                     bool success = false;
+                    QString refusal;
                     withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
-                        success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields);
+                        success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields, &refusal);
                     });
                     if (success) {
                         if (onSuccess)
                             QMetaObject::invokeMethod(qApp, onSuccess, Qt::QueuedConnection);
                         respondWithBag();
                     } else {
-                        QMetaObject::invokeMethod(qApp, [bagId, respond]() {
-                            respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                          + QString::number(bagId)}});
+                        QMetaObject::invokeMethod(qApp, [bagId, respond, refusal]() {
+                            respond(QJsonObject{{"error", !refusal.isEmpty() ? refusal
+                                : "Bag not found or update failed: " + QString::number(bagId)}});
                         }, Qt::QueuedConnection);
                     }
                 });

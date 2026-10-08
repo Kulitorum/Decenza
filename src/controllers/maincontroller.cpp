@@ -4775,8 +4775,9 @@ void MainController::onShotEnded() {
             // Pulling a shot is what opens the bag, so the shot's own snapshot
             // already carries the date it stamps below.
             const QString openedNow = bagIdIsSet(metadata.bagId)
-                ? CoffeeBag::openedDateForShot(metadata.frozenDate, metadata.defrostDate,
-                                               metadata.openedDate, QDate::currentDate())
+                ? CoffeeBag::openedDateForShot(metadata.roastDate, metadata.frozenDate,
+                                               metadata.defrostDate, metadata.openedDate,
+                                               QDate::currentDate())
                 : QString();
             if (!openedNow.isEmpty())
                 metadata.openedDate = openedNow;

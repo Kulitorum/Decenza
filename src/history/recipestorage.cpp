@@ -1650,7 +1650,14 @@ void RecipeStorage::requestRelinkForFinishedBag(qint64 finishedBagId)
             if (!moved.isEmpty())
                 *targetName = bagDisplayName(CoffeeBagStorage::loadBagStatic(db, target));
         },
-        [this, finishedBagId, movedIds, targetBagId, targetName](bool) {
+        [this, finishedBagId, movedIds, targetBagId, targetName](bool dbOpened) {
+            // A roll that never ran says nothing about a successor; reporting -1
+            // would clear the active bag while one exists.
+            if (!dbOpened) {
+                DIAG_WARN(RECIPES, "RecipeStorage") << "roll for finished bag" << finishedBagId
+                    << "not run: database would not open - recipes and the active bag stay put";
+                return;
+            }
             emit finishedBagRolled(finishedBagId, *targetBagId, *movedIds);
             if (movedIds->isEmpty())
                 return;

@@ -2166,6 +2166,7 @@ T.Page {
                     frozenDate: postShotReviewPage.editShotData.frozenDate || ""
                     defrostDate: postShotReviewPage.editShotData.defrostDate || ""
                     openedDate: postShotReviewPage.editShotData.openedDate || ""
+                    referenceDate: (postShotReviewPage.editShotData.timestampIso || "").substring(0, 10)
                     linkable: true
                     onLinkRequested: postShotReviewPage.requestBeanLink()
                 }
@@ -2347,6 +2348,7 @@ T.Page {
                                 frozenDate: postShotReviewPage.editShotData.frozenDate || ""
                                 defrostDate: postShotReviewPage.editShotData.defrostDate || ""
                                 openedDate: postShotReviewPage.editShotData.openedDate || ""
+                                referenceDate: (postShotReviewPage.editShotData.timestampIso || "").substring(0, 10)
                                 linkable: true
                                 onLinkRequested: postShotReviewPage.requestBeanLink()
                             }

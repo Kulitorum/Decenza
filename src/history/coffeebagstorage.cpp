@@ -318,10 +318,14 @@ bool CoffeeBag::isValidStorageHint(const QString& hint)
 }
 
 // static
-QString CoffeeBag::openedDateForShot(const QString& frozenDate, const QString& defrostDate,
-                                     const QString& openedDate, const QDate& today)
+QString CoffeeBag::openedDateForShot(const QString& roastDate, const QString& frozenDate,
+                                     const QString& defrostDate, const QString& openedDate,
+                                     const QDate& today)
 {
     if (!frozenDate.isEmpty() && defrostDate.isEmpty())
+        return QString();
+    const QDate roast = QDate::fromString(roastDate.left(10), QStringLiteral("yyyy-MM-dd"));
+    if (roast.isValid() && roast > today)
         return QString();
     // ISO dates order as strings, and "" sorts before any date.
     if (!openedDate.isEmpty() && openedDate >= defrostDate)
@@ -429,6 +433,13 @@ QVariantMap CoffeeBag::restockTemplate(QVariantMap bag, const QDate& today)
     if (wasFrozen)
         bag.insert(QStringLiteral("frozenDate"), today.toString(Qt::ISODate));
     return bag;
+}
+
+// static
+QString CoffeeBag::lifecycleError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today)
+{
+    const QString fieldError = lifecycleFieldError(changes, today);
+    return fieldError.isEmpty() ? lifecycleOrderError(stored, changes) : fieldError;
 }
 
 // static
@@ -664,9 +675,7 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
     auto created = std::make_shared<QVariantMap>();
     runAsync("bags_create",
         [bagMap, newId, created](QSqlDatabase& db) {
-            QString fieldError = CoffeeBag::lifecycleFieldError(bagMap, QDate::currentDate());
-            if (fieldError.isEmpty())
-                fieldError = CoffeeBag::lifecycleOrderError({}, bagMap);
+            const QString fieldError = CoffeeBag::lifecycleError({}, bagMap, QDate::currentDate());
             if (!fieldError.isEmpty()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "create refused:" << fieldError;
                 return;
@@ -817,25 +826,27 @@ void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool p
     // callback, but the app is exiting, so an abandoned response is acceptable.)
     if (m_dbPath.isEmpty()) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestUpdateBag on uninitialized storage, bag" << bagId;
-        emit bagUpdated(bagId, false);
+        emit bagUpdated(bagId, false, QString());
         emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
     }
     auto success = std::make_shared<bool>(false);
+    auto refusal = std::make_shared<QString>();
     runAsync("bags_update",
-        [bagId, fields, success, propagateBeanBase](QSqlDatabase& db) {
-            *success = updateBagFieldsStatic(db, bagId, fields);
+        [bagId, fields, success, refusal, propagateBeanBase](QSqlDatabase& db) {
+            *success = updateBagFieldsStatic(db, bagId, fields, refusal.get());
             if (*success && propagateBeanBase)
                 propagateBeanBaseStatic(db, bagId);
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success](bool) { finishBagUpdate(bagId, fields, *success); });
+        [this, bagId, fields, success, refusal](bool) { finishBagUpdate(bagId, fields, *success, *refusal); });
 }
 
-void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success)
+void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
+                                       const QString& refusal)
 {
-    emit bagUpdated(bagId, success);
+    emit bagUpdated(bagId, success, refusal);
     if (!success) {
         // The dialog has already closed and bagsChanged() is not
         // emitted, so the card still shows the old value — without
@@ -1175,11 +1186,13 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db, bo
 }
 
 bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
-                                             const QVariantMap& inFields)
+                                             const QVariantMap& inFields, QString* refusal)
 {
     const QString fieldError = CoffeeBag::lifecycleFieldError(inFields, QDate::currentDate());
     if (!fieldError.isEmpty()) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << fieldError;
+        if (refusal)
+            *refusal = fieldError;
         return false;
     }
     QVariantMap fields = inFields;
@@ -1193,6 +1206,8 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
         const QString orderError = CoffeeBag::lifecycleOrderError(loadBagStatic(db, bagId).toVariantMap(), fields);
         if (!orderError.isEmpty()) {
             DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << orderError;
+            if (refusal)
+                *refusal = orderError;
             return false;
         }
     }

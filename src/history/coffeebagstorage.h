@@ -182,10 +182,13 @@ struct CoffeeBag {
     // A shot proves the current portion is open: stamp when nothing is
     // recorded, or when the recorded date predates the latest thaw (it belongs
     // to the previous portion). A shot from a frozen bag with no thaw recorded
-    // is one serving taken out with the rest put back, so it never stamps.
+    // is one serving taken out with the rest put back, so it never stamps. Nor
+    // does a bag whose roast date is after `today` (a legacy entry): the stamp
+    // would be out of order and refuse the dose written with it.
     // Dates are ISO yyyy-MM-dd.
-    static QString openedDateForShot(const QString& frozenDate, const QString& defrostDate,
-                                     const QString& openedDate, const QDate& today);
+    static QString openedDateForShot(const QString& roastDate, const QString& frozenDate,
+                                     const QString& defrostDate, const QString& openedDate,
+                                     const QDate& today);
 
     // Checks the lifecycle fields a write carries: each storage date must be
     // yyyy-MM-dd, no date may be after `today` (a roast or thaw that hasn't happened yet is a typo
@@ -213,6 +216,8 @@ struct CoffeeBag {
     // message; "" when in order. Only pairs that `changes` touches are checked,
     // so an unrelated edit never trips over an old record.
     static QString lifecycleOrderError(const QVariantMap& stored, const QVariantMap& changes);
+    // Both checks: each changed field, then the order against `stored`.
+    static QString lifecycleError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today);
 
     // What an edit changed: the keys of `current` that differ from `opened`. The
     // detail blob goes key by key as beanBaseDataPatch (a removed key as null)
@@ -314,8 +319,12 @@ public:
 
     // QML bridges to the CoffeeBag rules the web page uses too.
     Q_INVOKABLE QVariantList storageHintOptions() const { return CoffeeBag::storageHintOptions(); }
-    Q_INVOKABLE QVariantList lifecycleParts(const QVariantMap& bag) const
-    { return CoffeeBag::lifecycleParts(bag, QDate::currentDate()); }
+    // Ages are measured to `referenceIso` (a shot's date), today when empty.
+    Q_INVOKABLE QVariantList lifecycleParts(const QVariantMap& bag, const QString& referenceIso = QString()) const
+    {
+        const QDate reference = QDate::fromString(referenceIso, QStringLiteral("yyyy-MM-dd"));
+        return CoffeeBag::lifecycleParts(bag, reference.isValid() ? reference : QDate::currentDate());
+    }
     Q_INVOKABLE QVariantMap restockTemplate(const QVariantMap& bag) const
     { return CoffeeBag::restockTemplate(bag, QDate::currentDate()); }
     Q_INVOKABLE QVariantMap editChanges(const QVariantMap& opened, const QVariantMap& current,
@@ -336,7 +345,10 @@ public:
     static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db, bool finished = false,
                                                      QString* readError = nullptr);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
-    static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
+    // `refusal`, when given, receives why a write was refused for its dates or
+    // storage type (CoffeeBag::lifecycleError), "" for any other failure.
+    static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields,
+                                      QString* refusal = nullptr);
 
     // Enforce the canonical-link invariant on a bag about to be written: a bag
     // may carry a canonical id only while its own roaster/coffee still name the
@@ -460,7 +472,8 @@ signals:
     // acts on a missing bag (SettingsDye clears the selection) must not act on this.
     void bagReadFailed(qint64 bagId);
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
-    void bagUpdated(qint64 bagId, bool success);
+    // `refusal`: why the write was refused for its dates or storage type ("" otherwise).
+    void bagUpdated(qint64 bagId, bool success, const QString& refusal);
     // A write failed in a way the user must know about. bagUpdated carries the
     // same status, but it is a terminal signal for programmatic callers (the
     // MCP tool arms a one-shot to send its response) — the UI never consumed
@@ -491,7 +504,7 @@ signals:
 private:
     void requestShelf(bool finished);  // requestInventory / requestFinishedBags
     void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
-    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success);
+    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success, const QString& refusal);
     void emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields);
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is

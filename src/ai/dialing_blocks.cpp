@@ -84,12 +84,8 @@ QJsonObject shotToJson(const ShotProjection& shot,
         h[it.key()] = it.value();
     for (const QString& key : unrecorded)
         h[key] = QJsonValue::Null;
-    // This shot's own rest age, when its storage was recorded (see beanFreshness).
-    const QJsonObject freshness = DialingHelpers::buildBeanFreshness(
-        shot.roastDate, shot.frozenDate, shot.defrostDate, shot.storageHint, shot.openedDate,
-        DialingHelpers::shotLocalDate(shot));
-    if (freshness.contains(QStringLiteral("restAgeDays")))
-        h["restAgeDays"] = freshness.value(QStringLiteral("restAgeDays"));
+    if (const int age = DialingHelpers::shotRestAgeDays(shot); age >= 0)
+        h["restAgeDays"] = age;
     h["notes"] = shot.espressoNotes;
     // Structured taste taps (add-ai-taste-intake): emitted per history shot so
     // the advisor can see how a prior shot tasted (e.g. "last time you tapped
@@ -400,11 +396,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // comparable age: its roast, storage dates and rest age at the time.
     if (!best.roastDate.isEmpty())
         b["roastDate"] = best.roastDate;
-    const QJsonObject bestFreshness = DialingHelpers::buildBeanFreshness(
-        best.roastDate, best.frozenDate, best.defrostDate, best.storageHint, best.openedDate,
-        DialingHelpers::shotLocalDate(best));
-    if (bestFreshness.contains(QStringLiteral("restAgeDays")))
-        b["restAgeDays"] = bestFreshness.value(QStringLiteral("restAgeDays"));
+    if (const int age = DialingHelpers::shotRestAgeDays(best); age >= 0)
+        b["restAgeDays"] = age;
     if (bagIdIsSet(best.bagId) && bagIdIsSet(currentShot.bagId))
         b["sameBagAsCurrent"] = best.bagId == currentShot.bagId;
     if (!best.frozenDate.isEmpty())

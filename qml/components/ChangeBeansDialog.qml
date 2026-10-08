@@ -803,14 +803,12 @@ DecenzaDialog {
     }
 
     // Context-dependent selection semantics. `bag` must carry the bag-shaped keys.
-    function applySelection(bagId, bag) {
+    // `keepActive`: a just-created bag that must not take over the selection.
+    function applySelection(bagId, bag, keepActive) {
         if (root.context === "historicalShot") {
             updateShotSnapshot(bagId, bag)
         } else {
-            // A new bag going straight into the freezer doesn't take over from
-            // the bag in use.
-            var parked = root.formMode === "create" && root.fFreeze && Settings.dye.activeBagId > 0
-            if (root.activateOnSave && !parked)
+            if (root.activateOnSave && !keepActive)
                 Settings.dye.activeBagId = bagId
             if (root.context === "postShot")
                 updateShotSnapshot(bagId, bag)
@@ -1059,7 +1057,9 @@ DecenzaDialog {
             else if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
                 MainController.beanbase.ensureBagImage(
                     MainController.beanbase.bagImageKey(bagId, ""), root.fCoffee.trim(), root.fLink.trim())
-            root.applySelection(bagId, bag)
+            // A new bag going straight into the freezer doesn't take over from
+            // the bag in use.
+            root.applySelection(bagId, bag, root.fFreeze && Settings.dye.activeBagId > 0)
             root.close()
         }
     }
@@ -2729,7 +2729,7 @@ DecenzaDialog {
                 var iso = DateUtils.localizedToIso(text, dateField._order)
                 // A future date, or one before minimumIso, is refused like an invalid one.
                 if (iso.length > 0 && iso <= DateUtils.toIso()
-                        && (dateField.minimumIso.length !== 10 || iso >= dateField.minimumIso)) {
+                        && (!DateUtils.isIsoDate(dateField.minimumIso) || iso >= dateField.minimumIso)) {
                     dateField.valueEdited(iso)
                     text = DateUtils.isoToLocalized(iso, dateField._order, dateField._sep)
                 } else {

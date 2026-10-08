@@ -38,6 +38,8 @@ Item {
     // When the current portion was first used; a snapshot can carry it with
     // frozenDate and defrostDate.
     property string openedDate: ""
+    // The ISO date ages are measured to: the shot's date in shot mode ("" = today).
+    property string referenceDate: ""
 
     // Effective values for the active mode
     readonly property string effRoaster: useShotData ? roasterName : Settings.dye.dyeBeanBrand
@@ -87,7 +89,8 @@ Item {
         // Roasted · Thawed · Opened: the same parts the bag card shows.
         parts = parts.concat(BagLifecycleLabels.describe(MainController.bagStorage.lifecycleParts({
             "roastDate": effRoastDate, "frozenDate": effFrozenDate,
-            "defrostDate": effDefrostDate, "openedDate": effOpenedDate })))
+            "defrostDate": effDefrostDate, "openedDate": effOpenedDate },
+            useShotData ? referenceDate : "")))
         return parts
     }
 

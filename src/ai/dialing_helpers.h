@@ -309,6 +309,24 @@ inline int restAgeDays(const QString& roastDate, const QString& frozenDate,
     return static_cast<int>(beforeFreezing + defrost.daysTo(ref));
 }
 
+// Whether the storage history is recorded. A shot stamps openedDate on every
+// bag, so on its own it says nothing about storage; with a storageHint the user
+// has told us how it is kept.
+inline bool storageKnown(const QString& frozenDate, const QString& defrostDate,
+                         const QString& storageHint, const QString& openedDate)
+{
+    return !frozenDate.isEmpty() || !defrostDate.isEmpty()
+           || (!openedDate.isEmpty() && !storageHint.isEmpty());
+}
+
+// A shot's own rest age when its storage was recorded, else -1.
+inline int shotRestAgeDays(const ShotProjection& shot)
+{
+    if (!storageKnown(shot.frozenDate, shot.defrostDate, shot.storageHint, shot.openedDate))
+        return -1;
+    return restAgeDays(shot.roastDate, shot.frozenDate, shot.defrostDate, shotLocalDate(shot));
+}
+
 // Build the `currentBean.beanFreshness` block. Replaces the deprecated
 // `daysSinceRoast` + `daysSinceRoastNote` fields. Returns an empty object
 // (caller suppresses the parent assignment) only when there is nothing to say
@@ -342,10 +360,7 @@ inline QJsonObject buildBeanFreshness(const QString& roastDate,
                                       const QString& openedDate = QString(),
                                       const QString& referenceDate = QString())
 {
-    // A shot stamps openedDate on every bag, so on its own it says nothing about
-    // storage; with a storageHint the user has told us how it is kept.
-    const bool known = !frozenDate.isEmpty() || !defrostDate.isEmpty()
-                       || (!openedDate.isEmpty() && !storageHint.isEmpty());
+    const bool known = storageKnown(frozenDate, defrostDate, storageHint, openedDate);
     if (roastDate.isEmpty() && !known && storageHint.isEmpty() && openedDate.isEmpty())
         return QJsonObject();
     QJsonObject block;

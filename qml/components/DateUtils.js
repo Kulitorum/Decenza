@@ -181,3 +181,8 @@ function toIso(d) {
     var date = d || new Date()
     return date.getFullYear() + "-" + _pad2(date.getMonth() + 1) + "-" + _pad2(date.getDate())
 }
+
+// True for a stored ISO yyyy-mm-dd date; legacy free text is not one.
+function isIsoDate(s) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(s || "")
+}

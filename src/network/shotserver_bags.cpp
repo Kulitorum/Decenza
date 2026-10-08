@@ -462,11 +462,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
         QVariantMap fields = editorFieldsFromBody(bodyJson);
-        if (const QString err = CoffeeBag::lifecycleFieldError(fields, QDate::currentDate()); !err.isEmpty()) {
-            respondJson(QJsonObject{{"error", err}}, 400);
-            return;
-        }
-        if (const QString err = CoffeeBag::lifecycleOrderError({}, fields); !err.isEmpty()) {
+        if (const QString err = CoffeeBag::lifecycleError({}, fields, QDate::currentDate()); !err.isEmpty()) {
             respondJson(QJsonObject{{"error", err}}, 400);
             return;
         }
@@ -658,21 +654,19 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             }
             QVariantMap fields = editorFieldsFromBody(bodyJson);
             // The web editor sends the form as it opened too: write only what the
-            // user changed, as the app does (CoffeeBag::editChanges).
+            // user changed, as the app does (CoffeeBag::editChanges). Without it
+            // the order check runs in storage, whose refusal reaches the reply.
+            QVariantMap opened;
             if (bodyJson.contains(QStringLiteral("opened"))) {
-                const QVariantMap opened = editorFieldsFromBody(bodyJson.value(QStringLiteral("opened")).toObject());
+                opened = editorFieldsFromBody(bodyJson.value(QStringLiteral("opened")).toObject());
                 const bool linkChanged = opened.value(QStringLiteral("beanBaseId")).toString()
                     != fields.value(QStringLiteral("beanBaseId")).toString();
                 fields = CoffeeBag::editChanges(opened, fields, linkChanged);
-                if (const QString err = CoffeeBag::lifecycleOrderError(opened, fields); !err.isEmpty()) {
-                    respondJson(QJsonObject{{"error", err}}, 400);
-                    return;
-                }
             } else if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;
             }
-            if (const QString err = CoffeeBag::lifecycleFieldError(fields, QDate::currentDate()); !err.isEmpty()) {
+            if (const QString err = CoffeeBag::lifecycleError(opened, fields, QDate::currentDate()); !err.isEmpty()) {
                 respondJson(QJsonObject{{"error", err}}, 400);
                 return;
             }
@@ -756,12 +750,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson, afterWrite](qint64 updatedId, bool success) {
+                [conn, bagId, respondJson, afterWrite](qint64 updatedId, bool success, const QString& refusal) {
                     if (updatedId != bagId)
                         return;
                     disconnect(*conn);
                     if (!success) {
-                        respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
+                        if (!refusal.isEmpty())
+                            respondJson(QJsonObject{{"error", refusal}}, 400);
+                        else
+                            respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
                         return;
                     }
                     afterWrite();
@@ -991,6 +988,15 @@ QString ShotServer::generateBeansPage() const
         <div class="dialog-actions"><button onclick="el('infoDialog').close()">Close</button></div>
     </dialog>
 
+    <dialog id="dateDialog">
+        <h2 id="dateDialogTitle"></h2>
+        <input id="dateDialogInput" type="date">
+        <div class="dialog-actions">
+            <button onclick="el('dateDialog').close()">Cancel</button>
+            <button class="primary" onclick="saveDateDialog()">Save</button>
+        </div>
+    </dialog>
+
     <script>
 )HTML";
     html += WEB_JS_MENU;
@@ -1179,8 +1185,8 @@ QString ShotServer::generateBeansPage() const
                 bagFinished: '<button class="danger" onclick="finishBag(' + b.id + ')">Bag finished</button>',
                 edit: '<button onclick="openEditor(' + b.id + ')">Edit</button>',
                 info: '<button onclick="showInfo(' + b.id + ')">Info</button>',
-                freeze: '<button onclick="quickSet(' + b.id + ',{frozenDate:today()})">Freeze</button>',
-                thaw: '<button onclick="quickSet(' + b.id + ',{defrostDate:today()})">Thaw</button>',
+                freeze: '<button onclick="askBagDate(' + b.id + ',\'frozenDate\')">Freeze</button>',
+                thaw: '<button onclick="askBagDate(' + b.id + ',\'defrostDate\')">Thaw</button>',
                 delete: '<button class="danger" onclick="deleteBag(' + b.id + ')">Delete</button>'
             };
             let acts = '<div class="actions">';
@@ -1318,6 +1324,27 @@ QString ShotServer::generateBeansPage() const
 
         function activate(id) { post('/api/bag/' + id + '/activate').then(load).catch(e => status(e.message)); }
         function quickSet(id, fields) { post('/api/bag/' + id, fields).then(load).catch(e => status(e.message)); }
+        // Freeze and Thaw ask for the date, defaulting to today, within the same
+        // bounds as the app's pickers (the server refuses anything else anyway).
+        let dateDialogTarget = null;
+        function askBagDate(id, field) {
+            const b = bags.find(x => x.id === id) || {};
+            const freezing = field === 'frozenDate';
+            el('dateDialogTitle').textContent = freezing
+                ? 'When did this bag go into the freezer?' : 'When did this portion leave the freezer?';
+            const input = el('dateDialogInput');
+            input.value = today();
+            input.max = today();
+            input.min = (freezing ? b.roastDate : b.frozenDate) || '';
+            dateDialogTarget = { id, field };
+            el('dateDialog').showModal();
+        }
+        function saveDateDialog() {
+            const value = el('dateDialogInput').value;
+            el('dateDialog').close();
+            if (dateDialogTarget && value)
+                quickSet(dateDialogTarget.id, { [dateDialogTarget.field]: value });
+        }
         // No confirmation, as in the app: a finished bag is restorable, and only a
         // bag with no shots can be deleted.
         function finishBag(id) {

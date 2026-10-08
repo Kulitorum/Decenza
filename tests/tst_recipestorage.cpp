@@ -2097,11 +2097,17 @@ private slots:
         storage.initialize(path);
 
         // Moves: one relinked emission naming the target bag, + recipesChanged.
+        // finishedBagRolled carries the same successor and moved ids, which
+        // MainController follows with the active bag.
         {
             QSignalSpy relinked(&storage, &RecipeStorage::recipesRelinked);
             QSignalSpy changed(&storage, &RecipeStorage::recipesChanged);
+            QSignalSpy rolled(&storage, &RecipeStorage::finishedBagRolled);
             storage.requestRelinkForFinishedBag(finishedId);
             QTRY_COMPARE(relinked.count(), 1);
+            QCOMPARE(rolled.count(), 1);
+            QCOMPARE(rolled.at(0).at(1).toLongLong(), openId);
+            QCOMPARE(rolled.at(0).at(2).toList().first().toLongLong(), recipeId);
             const auto args = relinked.at(0);
             QCOMPARE(args.at(0).toList().size(), 1);
             QCOMPARE(args.at(0).toList().first().toLongLong(), recipeId);
@@ -2110,10 +2116,12 @@ private slots:
             QCOMPARE(changed.count(), 1);
         }
 
-        // Nothing left to move: silent (no phantom toast).
+        // Nothing left to move: silent (no phantom toast) — but the roll still
+        // reports the successor, so an active bag with no recipes follows too.
         {
             QSignalSpy relinked(&storage, &RecipeStorage::recipesRelinked);
             QSignalSpy changed(&storage, &RecipeStorage::recipesChanged);
+            QSignalSpy rolled(&storage, &RecipeStorage::finishedBagRolled);
             storage.requestRelinkForFinishedBag(finishedId);
             // Drain the worker with an unrelated read so the relink job has
             // definitely completed before asserting silence.
@@ -2122,6 +2130,9 @@ private slots:
             QTRY_COMPARE(inv.count(), 1);
             QCOMPARE(relinked.count(), 0);
             QCOMPARE(changed.count(), 0);
+            QCOMPARE(rolled.count(), 1);
+            QCOMPARE(rolled.at(0).at(1).toLongLong(), openId);
+            QVERIFY(rolled.at(0).at(2).toList().isEmpty());
         }
     }
 

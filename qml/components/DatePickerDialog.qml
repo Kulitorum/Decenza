@@ -25,7 +25,9 @@ DecenzaDialog {
     property string minimumIso: ""
     // What the date is for, shown above the month ("" = none).
     property string heading: ""
-    readonly property int _minimumMonthIndex: minimumIso.length === 10
+    // A legacy free-text date (e.g. a roast date "09/01/2026") is no minimum.
+    readonly property bool _hasMinimum: DateUtils.isIsoDate(minimumIso)
+    readonly property int _minimumMonthIndex: _hasMinimum
         ? parseInt(minimumIso.substring(0, 4)) * 12 + parseInt(minimumIso.substring(5, 7)) - 1 : -1
     // Month index (year * 12 + month) of today, the last month a no-future
     // picker can show.
@@ -230,7 +232,7 @@ DecenzaDialog {
                 property bool isCurrentMonth: model.month === monthGrid.month
                 readonly property string iso: DateUtils.toIso(new Date(model.year, model.month, model.day))
                 property bool selectable: isCurrentMonth && (root.allowFuture || iso <= DateUtils.toIso())
-                    && (root.minimumIso.length !== 10 || iso >= root.minimumIso)
+                    && (!root._hasMinimum || iso >= root.minimumIso)
 
                 color: isSelected ? Theme.primaryColor : "transparent"
 

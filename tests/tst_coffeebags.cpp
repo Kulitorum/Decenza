@@ -1196,24 +1196,28 @@ private slots:
     // whose opened date belongs to the portion before the latest thaw. A frozen
     // bag with no thaw recorded is a serving taken out: never stamped.
     void openedDateForShot_data() {
+        QTest::addColumn<QString>("roast");
         QTest::addColumn<QString>("frozen");
         QTest::addColumn<QString>("defrost");
         QTest::addColumn<QString>("opened");
         QTest::addColumn<QString>("expected");
         const QString today = QStringLiteral("2026-10-08");
-        QTest::newRow("never frozen, unopened") << "" << "" << "" << today;
-        QTest::newRow("never frozen, already opened") << "" << "" << "2026-10-01" << "";
-        QTest::newRow("frozen, no thaw recorded") << "2026-09-01" << "" << "" << "";
-        QTest::newRow("thawed, unopened") << "2026-09-01" << "2026-10-05" << "" << today;
-        QTest::newRow("opened before latest thaw") << "2026-09-01" << "2026-10-05" << "2026-09-20" << today;
-        QTest::newRow("opened the day of the thaw") << "2026-09-01" << "2026-10-05" << "2026-10-05" << "";
+        const QString roast = QStringLiteral("2026-08-30");
+        QTest::newRow("never frozen, unopened") << roast << "" << "" << "" << today;
+        QTest::newRow("never frozen, already opened") << roast << "" << "" << "2026-10-01" << "";
+        QTest::newRow("frozen, no thaw recorded") << roast << "2026-09-01" << "" << "" << "";
+        QTest::newRow("thawed, unopened") << roast << "2026-09-01" << "2026-10-05" << "" << today;
+        QTest::newRow("opened before latest thaw") << roast << "2026-09-01" << "2026-10-05" << "2026-09-20" << today;
+        QTest::newRow("opened the day of the thaw") << roast << "2026-09-01" << "2026-10-05" << "2026-10-05" << "";
+        QTest::newRow("legacy roast after today") << "2026-12-01" << "" << "" << "" << "";
     }
     void openedDateForShot() {
+        QFETCH(QString, roast);
         QFETCH(QString, frozen);
         QFETCH(QString, defrost);
         QFETCH(QString, opened);
         QFETCH(QString, expected);
-        QCOMPARE(CoffeeBag::openedDateForShot(frozen, defrost, opened, QDate(2026, 10, 8)), expected);
+        QCOMPARE(CoffeeBag::openedDateForShot(roast, frozen, defrost, opened, QDate(2026, 10, 8)), expected);
     }
 
     // Every lifecycle date is checked, today is allowed, storage dates must be
