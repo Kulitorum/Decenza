@@ -17,11 +17,17 @@ on:
       - '.github/workflows/claude-review.yml'
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: ${{ (github.event_name == 'pull_request' || (github.event.issue.pull_request && github.event.comment.user.id == 1629894 && github.event.comment.body == '@claude review')) && format('claude-review-{0}', github.event.pull_request.number || github.event.issue.number) || format('claude-review-ignored-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.actor_id == '1629894') || (github.event.issue.pull_request && github.event.comment.user.id == 1629894 && github.event.comment.body == '@claude review')) && format('claude-review-{0}', github.event.pull_request.number || github.event.issue.number || inputs.pr_number) || format('claude-review-ignored-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +41,8 @@ jobs:
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
        github.event.comment.user.id == 1629894 &&
-       github.event.comment.body == '@claude review')
+       github.event.comment.body == '@claude review') ||
+      (github.event_name == 'workflow_dispatch' && github.actor_id == '1629894')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -52,8 +59,15 @@ jobs:
           import json, os, pathlib, subprocess
           event = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
           repository = os.environ['GITHUB_REPOSITORY']
-          manual = os.environ['GITHUB_EVENT_NAME'] == 'issue_comment'
-          if manual:
+          manual = os.environ['GITHUB_EVENT_NAME'] != 'pull_request'
+          if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
+              if os.environ['GITHUB_ACTOR_ID'] != '1629894':
+                  raise SystemExit('Only skialpine can dispatch reviews.')
+              value = event['inputs']['pr_number']
+              if not value.isascii() or not value.isdigit() or int(value) <= 0:
+                  raise SystemExit('PR number must be a positive integer.')
+              number = int(value)
+          elif manual:
               if (not event['issue'].get('pull_request')
                       or event['comment']['user']['id'] != 1629894
                       or event['comment']['body'].strip() != '@claude review'):
@@ -118,6 +132,33 @@ jobs:
             exit 1
           fi
 
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          data = pathlib.Path(os.environ['RUNNER_TEMP']) / 'decenza-review'
+          parts = [part for part in re.split(r'(?m)(?=^diff --git )', (data / 'pr.diff').read_text())
+                   if part.startswith('diff --git ')]
+          (data / 'patches').mkdir(exist_ok=True)
+          index = []
+          for number, patch in enumerate(parts, 1):
+              chunks, buffer, size = [], [], 0
+              def flush():
+                  name = f'patches/{number:04d}-{len(chunks) + 1:03d}.diff'
+                  (data / name).write_text(''.join(buffer))
+                  chunks.append(name)
+              for character in patch:
+                  length = len(character.encode('utf-8'))
+                  if size + length > 8000:
+                      flush()
+                      buffer, size = [], 0
+                  buffer.append(character)
+                  size += length
+              if buffer:
+                  flush()
+              index.append({'header': patch.splitlines()[0], 'chunks': chunks})
+          (data / 'index.json').write_text(json.dumps(index, indent=2))
+          print(f'Prepared {len(index)} file patches in {sum(len(item["chunks"]) for item in index)} bounded chunks.')
+          PY
+
       - name: Review Qt and C++ changes
         id: claude
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
@@ -140,7 +181,14 @@ jobs:
             REVIEWED HEAD: ${{ steps.pr.outputs.head_sha }}
 
             Review this PR as a senior Qt/C++ engineer. This is review-only.
-            Read ${{ runner.temp }}/decenza-review/pr.diff and pr.json.
+            Read ${{ runner.temp }}/decenza-review/pr.json and
+            ${{ runner.temp }}/decenza-review/index.json first. The index lists
+            every changed file and its bounded patch chunks relative to
+            ${{ runner.temp }}/decenza-review/. Read chunks for all relevant
+            code changes, batching independent reads when possible. Do not read
+            the entire pr.diff in one call. Large source files and CLAUDE.md
+            should be read with offset/limit or searched for relevant sections.
+            Chunk boundaries may split a diff hunk; read adjacent chunks as needed.
             The base revision is at the workspace root; the exact PR head is in
             pr-head/. Read surrounding implementation and callers there as needed.
             Consult base CLAUDE.md and relevant docs/CLAUDE_MD/ for context, but
@@ -165,40 +213,100 @@ jobs:
             For each finding, give severity, the changed file/line, a concrete
             failure scenario, and the smallest suggested fix. Verify claims about
             Qt behavior from available evidence; omit speculative findings.
-            Post findings using mcp__github_inline_comment__create_inline_comment
-            with confirmed: true and commit_id set to REVIEWED HEAD above.
-            Paths are repository-relative, without pr-head/.
-            Include the reviewed head SHA in each comment. Post at most five
-            findings, and do not repeat an already-posted finding within this run.
-            If there are none, finish without posting. If review is incomplete,
-            state that in your final response; never claim an incomplete review
-            found no bugs. Never edit files, execute code, approve, merge, or push.
-            Return review_complete and findings_posted in the structured result.
+            Return at most five findings in the structured result, with path,
+            new-file line number, severity, short title, and explanation/fix.
+            Paths must be repository-relative, without pr-head/, and lines
+            must be added lines in the diff. Do not post GitHub comments yourself.
+            The workflow validates and publishes your returned findings.
+
+            This is a static source review, not exhaustive runtime verification.
+            Missing Qt/build/runtime testing alone does not make it incomplete.
+            Mark review_complete true only after assessing the relevant code
+            changes and returning all high-confidence findings you found, with
+            completion_reason "complete". If actual missing inputs, unreadable
+            source, or limits prevent that assessment, return false with the
+            corresponding reason. Never silently omit relevant changes or claim
+            an incomplete review found no bugs. Never execute code, edit, approve,
+            merge, or push.
           claude_args: |
             --model claude-sonnet-5-5
-            --max-turns 20
+            --max-turns 40
             --max-budget-usd 3
-            --json-schema '{"type":"object","properties":{"review_complete":{"type":"boolean"},"findings_posted":{"type":"integer","minimum":0,"maximum":5}},"required":["review_complete","findings_posted"],"additionalProperties":false}'
+            --json-schema '{"type":"object","properties":{"review_complete":{"type":"boolean"},"completion_reason":{"type":"string","enum":["complete","missing_review_input","unreadable_source","analysis_limit","other"]},"findings":{"type":"array","maxItems":5,"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"severity":{"type":"string","enum":["P1","P2","P3"]},"title":{"type":"string","minLength":1,"maxLength":100},"body":{"type":"string","minLength":1,"maxLength":1500}},"required":["path","line","severity","title","body"],"additionalProperties":false}}},"required":["review_complete","completion_reason","findings"],"additionalProperties":false}'
             --permission-mode dontAsk
             --setting-sources user
             --strict-mcp-config
             --add-dir pr-head
             --tools "Read,Glob,Grep"
-            --allowedTools "Read,Glob,Grep,mcp__github_inline_comment__create_inline_comment"
-            --disallowedTools "Bash,Edit,Write,NotebookEdit,Agent,Task,Skill,Read(/${{ runner.temp }}/claude-workload-identity/**),Read(//proc/**),Read(//sys/**),Read(//dev/**),Read(**/.git/**),Read(**/.claude/**),Read(**/.mcp.json),Read(**/.claude.json)"
+            --allowedTools "Read,Glob,Grep"
+            --disallowedTools "Bash,Edit,Write,NotebookEdit,Agent,Task,Skill,mcp__*,Read(/${{ runner.temp }}/claude-workload-identity/**),Read(//proc/**),Read(//sys/**),Read(//dev/**),Read(**/.git/**),Read(**/.claude/**),Read(**/.mcp.json),Read(**/.claude.json)"
 
-      - name: Check review completion
+      - name: Validate and publish review
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           REVIEW_RESULT: ${{ steps.claude.outputs.structured_output }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          result = json.loads(os.environ['REVIEW_RESULT'])
-          if result.get('review_complete') is not True:
-              raise SystemExit('Review incomplete; inspect this run before relying on it.')
-          count = result['findings_posted']
-          if type(count) is not int or not 0 <= count <= 5:
-              raise SystemExit('Invalid review result.')
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write(f'Claude review completed. Inline findings posted: {count}.\n')
-          PY
+          REVIEW_PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const number = Number(process.env.REVIEW_PR_NUMBER);
+            const head = process.env.REVIEW_HEAD_SHA;
+            const result = JSON.parse(process.env.REVIEW_RESULT);
+            const reasons = new Set(['complete', 'missing_review_input', 'unreadable_source', 'analysis_limit', 'other']);
+            if (!reasons.has(result.completion_reason) || !Array.isArray(result.findings) ||
+                result.findings.length > 5) throw new Error('Invalid review result.');
+            if (result.review_complete !== true || result.completion_reason !== 'complete') {
+              await core.summary.addHeading('Claude review incomplete')
+                .addRaw('Reason: ' + result.completion_reason + '. No findings published.\n').write();
+              core.setFailed('Static review incomplete: ' + result.completion_reason + '.');
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: number});
+            if (pr.data.state !== 'open' || pr.data.head.sha !== head) {
+              throw new Error('PR changed or closed during review; request a new review.');
+            }
+            const diff = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'decenza-review/pr.diff'), 'utf8');
+            const addedLines = new Map();
+            let file = null, line = 0, inHunk = false;
+            for (const text of diff.split('\n')) {
+              if (text.startsWith('diff --git ')) { file = null; inHunk = false; }
+              if (!inHunk && text.startsWith('+++ b/')) {
+                file = text.slice(6);
+                if (!addedLines.has(file)) addedLines.set(file, new Set());
+              } else if (text.startsWith('@@ ')) {
+                const match = text.match(/\+(\d+)(?:,\d+)? @@/);
+                if (!match) throw new Error('Unsupported diff hunk.');
+                line = Number(match[1]); inHunk = true;
+              } else if (inHunk && text.startsWith('+')) {
+                if (file) addedLines.get(file).add(line);
+                line++;
+              } else if (inHunk && text.startsWith(' ')) line++;
+            }
+            const comments = [], seen = new Set();
+            for (const finding of result.findings) {
+              if (typeof finding.path !== 'string' || !Number.isInteger(finding.line) ||
+                  !addedLines.get(finding.path)?.has(finding.line) ||
+                  !['P1','P2','P3'].includes(finding.severity) ||
+                  typeof finding.title !== 'string' || !finding.title || finding.title.length > 100 ||
+                  typeof finding.body !== 'string' || !finding.body || finding.body.length > 1500) {
+                throw new Error('Finding is not a valid annotation on the reviewed diff.');
+              }
+              if (/(?:sk-ant-|github_pat_|gh[pousr]_)[A-Za-z0-9_-]{16,}/.test(finding.title + finding.body)) {
+                throw new Error('Finding contains credential-like text; publication blocked.');
+              }
+              const key = finding.path + ':' + finding.line + ':' + finding.title;
+              if (seen.has(key)) throw new Error('Duplicate review finding.');
+              seen.add(key);
+              comments.push({path: finding.path, line: finding.line, side: 'RIGHT',
+                body: '[' + finding.severity + '] ' + finding.title + '\n\n' + finding.body + '\n\nReviewed head: ' + head});
+            }
+            if (comments.length) {
+              await github.rest.pulls.createReview({owner, repo, pull_number: number,
+                commit_id: head, event: 'COMMENT', comments});
+            }
+            await core.summary.addHeading('Claude static review completed')
+              .addRaw('Reviewed ' + head + '. Inline findings posted: ' + comments.length + '.\n').write();
