@@ -63,7 +63,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             QJsonObject result;
             if (!settings) {
                 // Not a bare `{}`: with no `error` key this ships as a SUCCESSFUL
-                // call (#1754 marks failure off that key), so the model reads an
+                // call (PR Kulitorum/Decenza#1754 marks failure off that key), so the model reads an
                 // empty settings object as "you have no settings" rather than
                 // "this app cannot answer".
                 result["error"] = "Settings not available";

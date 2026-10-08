@@ -1,7 +1,7 @@
 ## 1. Bundled Firmware Assets
 
 - [x] 1.1 Add `resources/firmware/de1/de1-1352.bin` from `https://github.com/decentespresso/decaid/blob/main/assets/firmware/de1/de1-1352.bin`.
-- [x] 1.2 Add `resources/firmware/de1/de1-1358.bin` from Decaid PR #594 blob `assets/firmware/de1/de1-1358.bin`.
+- [x] 1.2 Add `resources/firmware/de1/de1-1358.bin` from Decaid PR decentespresso/decaid#594 blob `assets/firmware/de1/de1-1358.bin`.
 - [x] 1.3 Pull in Decaid's firmware manifest for the bundled DE1 entries, preserving build, channel, asset path, byte length, SHA-256, expected header fields, release notes, supported models, and provenance.
 - [x] 1.4 Register the firmware `.bin` files and manifest in the Qt resource/CMake packaging so they are present on Windows, macOS, Linux, Android, and iOS.
 

@@ -23,7 +23,7 @@ class QWebSocket;
  * Reports type() == "decent-wifi" so the scale-creation hot-swap path in
  * main.cpp correctly distinguishes a BLE Decent reconnect from a WiFi one
  * (otherwise the type-change guard would always recreate the driver, see
- * #1246 review #6). NOTE: ScaleFactory::resolveScaleType maps "decent" and
+ * PR Kulitorum/Decenza#1246 review #6). NOTE: ScaleFactory::resolveScaleType maps "decent" and
  * "decent-wifi" to DIFFERENT enum values (DecentScale vs DecentScaleWifi),
  * so it cannot be used to unify the two transports — downstream code that
  * wants "same physical product" semantics must branch on the string with

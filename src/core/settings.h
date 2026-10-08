@@ -21,7 +21,7 @@
 //   - qmllint cannot check a property behind a QObject*. That blinded it to 1,310 QML call
 //     sites across 281 distinct settings, so `Settings.brew.slectedFlushPreset` compiled, linted
 //     clean, and failed silently at runtime — the exact class of defect that shipped in 2.0.1
-//     as #1661.
+//     as the bug PR Kulitorum/Decenza#1661 fixed.
 //   - qmlcachegen cannot resolve those bindings ahead of time and falls back to a runtime lookup.
 //   - The QML language server cannot autocomplete or navigate them.
 //   - A reader of this header cannot tell what is behind `Settings.brew`.

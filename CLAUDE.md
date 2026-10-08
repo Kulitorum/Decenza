@@ -170,7 +170,7 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
 
 - **Exposing a C++ type or object to QML is a macro in a header, never `setContextProperty()` and
   never a runtime `qmlRegisterType<>()`.** Both are invisible to qmllint, `qmlcachegen` and the
-  language server, and a context property is indistinguishable from a typo — the #1661 defect
+  language server, and a context property is indistinguishable from a typo — the PR Kulitorum/Decenza#1661 defect
   class. The table of which macro to use, the two mechanical traps (include directory,
   `qt_add_qml_module` `DEPENDENCIES`) and how to read the gate are in `QML_GOTCHAS.md`.
 - **A qmllint count going UP after a fix is usually the fix working** — resolving a type lets the

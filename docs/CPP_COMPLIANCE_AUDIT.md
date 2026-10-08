@@ -96,8 +96,8 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 | Method | QML Callers | Status |
 |--------|-------------|--------|
-| `getShots()` | `LastShotItem.qml` | **Fixed** (PR #362) — uses `requestMostRecentShotId()` (method removed) |
-| `getShot()` | `PostShotReviewPage.qml` | **Fixed** (PR #362) — uses `editShotData` + `Object.assign` (method removed) |
+| `getShots()` | `LastShotItem.qml` | **Fixed** (PR Kulitorum/Decenza#362) — uses `requestMostRecentShotId()` (method removed) |
+| `getShot()` | `PostShotReviewPage.qml` | **Fixed** (PR Kulitorum/Decenza#362) — uses `editShotData` + `Object.assign` (method removed) |
 | `getDistinctBeanBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only, returns `{}` on miss and triggers async `requestDistinctValueAsync()` |
 | `getDistinctBeanTypesForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
 | `getDistinctGrinderBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — pre-warmed by `requestDistinctCache()`, cache-only on access |
@@ -105,7 +105,7 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 | `getDistinctGrinderBurrsForModel()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
 | `getDistinctGrinderSettingsForGrinder()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
 | `getDistinctBaristas()` | `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only, returns `{}` on miss and triggers async fetch |
-| `updateVisualizerInfo()` | `PostShotReviewPage.qml`, `ShotDetailPage.qml` | **Fixed** (PR #362) — sync method removed, uses `requestUpdateVisualizerInfo()` |
+| `updateVisualizerInfo()` | `PostShotReviewPage.qml`, `ShotDetailPage.qml` | **Fixed** (PR Kulitorum/Decenza#362) — sync method removed, uses `requestUpdateVisualizerInfo()` |
 
 **Dead synchronous methods removed (zero callers):**
 

@@ -249,7 +249,7 @@ private:
     static constexpr qint64 kScaleStaleMs = 2000;
     // Confirm threshold: a suspected stall only CONFIRMS (→ enforce may latch)
     // if it persists this long with no recovery. PROVISIONAL — final value is
-    // calibrated from #1219 observe-mode field data (the recovered-gap
+    // calibrated from PR Kulitorum/Decenza#1219 observe-mode field data (the recovered-gap
     // distribution: above the transient self-recovery cluster, below genuine
     // sustained stalls). Distinct from kScaleStaleMs so the suspected signal
     // (observe/diagnostics) and the latch trigger tune independently. Still a

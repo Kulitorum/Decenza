@@ -394,7 +394,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // ai_advisor_invoke still build the same block inline via
     // DialingBlocks::buildGrinderCalibrationBlock — they have no follow-up
     // tool-call channel, so they need it in the initial payload. All three
-    // surfaces share the one builder, so they cannot drift. NOTE (#1236):
+    // surfaces share the one builder, so they cannot drift. NOTE (PR Kulitorum/Decenza#1236):
     // the block is anchored on the CURRENT roast batch, so it is NOT a
     // stable per-conversation constant — re-fetch when the coffee changes.
     registry->registerAsyncTool(
@@ -499,7 +499,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         // actionable data, and a top-level "unavailable" flag
                         // alongside a populated block makes some models
                         // discard the finer/coarser guidance entirely
-                        // (review #1236). `confidence` + `reason` already
+                        // (review of PR Kulitorum/Decenza#1236). `confidence` + `reason` already
                         // signal the constraint; the spec permits this form.
                         result["grinderCalibration"] = calibration;
                         if (calibration[QStringLiteral("confidence")].toString()

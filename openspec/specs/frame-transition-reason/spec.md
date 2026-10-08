@@ -65,7 +65,7 @@ The live frame-transition pill, the shot graph marker suffixes (in-app and histo
 
 ### Requirement: Persisted reason strings pass through unchanged
 
-Shot history persistence, serialization, comparison, and AI-summary consumers SHALL store and forward the `transitionReason` string verbatim without normalizing or remapping values, so previously recorded data (guessed `pressure`/`flow` from before PR #1421, `time` from the interim window, empty pre-feature values) retains its recorded meaning.
+Shot history persistence, serialization, comparison, and AI-summary consumers SHALL store and forward the `transitionReason` string verbatim without normalizing or remapping values, so previously recorded data (guessed `pressure`/`flow` from before PR Kulitorum/Decenza#1421, `time` from the interim window, empty pre-feature values) retains its recorded meaning.
 
 #### Scenario: Old shot loads with its recorded reason
 

@@ -34,7 +34,7 @@ them, and unlike a comment it cannot drift from what the tool actually reports.
 So `unqualified` is enforced PER FILE: files at zero are locked at zero, files above it carry a
 ceiling that may only fall. Suppressing the category outright is never an option — it is the
 only automated detector for an undeclared QML identifier, which compiles clean and throws only
-when its binding is first evaluated. That exact failure shipped in 2.0.1 (#1661).
+when its binding is first evaluated. That exact failure shipped in 2.0.1 (fixed by PR Kulitorum/Decenza#1661).
 """
 
 # PEP 604 annotations (`Path | None`) are used below and are 3.10+ syntax, but CMake's
@@ -97,7 +97,7 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # `typeof win.X === "function"` probe and used AppShell signals instead. Same lesson as
     # above: a duck-typed hop is counted here, so removing it lowers this ceiling.
     # 303 -> 268 by deleting the directory imports described above. (This line read `300 ->`
-    # until the #1687 review flagged the 3-diagnostic gap against the step above. The endpoints
+    # until the PR Kulitorum/Decenza#1687 review flagged the 3-diagnostic gap against the step above. The endpoints
     # are what the gate checks and they are right; the intermediate was a transcription slip.) A directory import resolves
     # a singleton .qml as a plain component type, so `DrinkType.shortLabel` and
     # `SettingsTabs.indexOf` — both real, both declared — reported as missing members. The types
@@ -180,7 +180,7 @@ IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # because the check this suppresses — a .qml on disk that nothing bundles or lints — is one of
 # the failure modes this gate exists to catch, and a loose pattern here would switch it off.
 # Deliberately empty. It held qml/designer/DE1AppStubs.qml, the Qt Design Studio backend stubs,
-# until that whole scaffold was deleted — it had been unresolvable since the #338 rename, so the
+# until that whole scaffold was deleted — it had been unresolvable since the PR Kulitorum/Decenza#338 rename, so the
 # reason for the exemption no longer exists. Left in place rather than removed because the check
 # it suppresses ("this .qml is on disk but not in the module") is one of the failure modes this
 # gate exists to catch, and a future exemption should have to be added deliberately, with its
@@ -578,7 +578,7 @@ def check_registry_fresh(import_path: str) -> None:
     nothing because no QML changed.
 
     That is not hypothetical either, and it is more expensive than the stale-QML case because it
-    fails SILENTLY IN THE SAFE-LOOKING DIRECTION. PR #1680 regenerated the baseline from a build
+    fails SILENTLY IN THE SAFE-LOOKING DIRECTION. PR Kulitorum/Decenza#1680 regenerated the baseline from a build
     whose registry predated its own C++ changes: the newly-migrated names did not resolve, qmllint
     gave up early on expressions it could not type, and it therefore reported FEWER warnings than
     the tree really produces. Those numbers were written to the baseline as ceilings. Every later
@@ -646,7 +646,7 @@ def check_registry_fresh(import_path: str) -> None:
             "generation and the counts would not describe this source:\n"
             + "".join(f"  {n}: {why}\n" for n, why in stale_types)
             + "Rebuild, then re-run. (--allow-stale to override, but not with --update-baseline.)\n"
-            "This is the shape that produced the bad baseline in #1680: an under-resolving run\n"
+            "This is the shape that produced the bad baseline in PR Kulitorum/Decenza#1680: an under-resolving run\n"
             "reports FEWER warnings, which looks like an improvement and ratchets the gate to a\n"
             "target the tree cannot meet."
         )
@@ -692,7 +692,7 @@ def cmd_check(state: dict, unlisted: list[str] | None = None) -> int:
     base_ceilings = dict(base["ceilings"])
     now_ceilings = state["ceilings"]
 
-    # A file on the clean list must stay at zero. This is the rule that would have caught #1661.
+    # A file on the clean list must stay at zero. This is the rule that would have caught the defect PR Kulitorum/Decenza#1661 fixed.
     for f in sorted(base_clean & set(now_ceilings)):
         failures.append(
             f"{f}: {now_ceilings[f]} unqualified warning(s) in a file that had none.\n"
@@ -804,7 +804,7 @@ def main() -> int:
     if args.allow_stale and args.update_baseline:
         sys.exit(
             "--update-baseline refuses --allow-stale. Those two together are precisely how the "
-            "#1680 baseline was written: the freshness checks are the only thing standing between "
+            "PR Kulitorum/Decenza#1680 baseline was written: the freshness checks are the only thing standing between "
             "a build that under-resolves and a set of ceilings the tree cannot meet, and a "
             "baseline is the one output where being wrong is durable — it becomes the target every "
             "later run is measured against. --allow-stale exists for reading a report off a build "
@@ -885,7 +885,7 @@ def main() -> int:
         # A ceiling that RISES is the one edit this file exists to resist, and until now
         # --update-baseline wrote it without comment — the same keystroke that records a genuine
         # improvement also relaxes the gate, and the output looked identical either way. Raising
-        # one is sometimes right (the #1680 baseline recorded three ceilings the tree could not
+        # one is sometimes right (the PR Kulitorum/Decenza#1680 baseline recorded three ceilings the tree could not
         # meet, and correcting them meant raising them), but it is never routine, so it costs a
         # flag and prints what it did.
         rises, drops = [], 0

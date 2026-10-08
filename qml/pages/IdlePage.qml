@@ -203,7 +203,7 @@ T.Page {
     // centre column reads nothing from it. A layout whose column never reaches the
     // band is untouched in both states. (Sizing centre-zone readouts to their
     // content — LayoutCenterZone's Layout.preferredHeight — does re-flow the column,
-    // once and at rest. That landed in #1848, in LayoutCenterZone.qml.)
+    // once and at rest. That landed in PR Kulitorum/Decenza#1848, in LayoutCenterZone.qml.)
     //
     // Last resort, once the band has spent both cheaper responses. It is shoved down
     // FIRST (lowerMidBarBottom reclaims the user's upward zone Y-offset, which is

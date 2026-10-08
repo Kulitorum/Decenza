@@ -14,7 +14,7 @@
 // `plugins/` sibling exists; when a plugin profile shares the same output filename as a
 // base profile, the plugin copy wins (canonical source). If the two copies DISAGREE the
 // tool prints a SOURCE CONFLICT to stderr naming both paths and what differs — the
-// precedence is still applied, but never silently (see de1app issue #350).
+// precedence is still applied, but never silently (see issue decentespresso/de1app#350).
 
 #include <QCoreApplication>
 #include <QDir>
@@ -375,12 +375,12 @@ int main(int argc, char* argv[])
             // SILENTLY. Before this, the tool reported "plugin overriding base"
             // whether the two agreed or contradicted each other, so a de1app
             // checkout carrying four A-Flow profiles at 6 frames alongside the
-            // plugin's 9 read as a clean run. That is de1app issue #350, and our
+            // plugin's 9 read as a clean run. That is issue decentespresso/de1app#350, and our
             // own tooling could not see it: the comparison it ran was
             // plugin-vs-built-in, and the discarded base copy was never examined.
             //
             // Deliberately non-gating. The precedence is a decision, not a guess,
-            // so a conflict is not the tool failing to do its job — and #350
+            // so a conflict is not the tool failing to do its job — and decentespresso/de1app#350
             // resolving EITHER way removes the conflict entirely (whichever
             // directory stops shipping the profile leaves one source). What the
             // report has to survive is the case where the surviving source is the
@@ -413,7 +413,7 @@ int main(int argc, char* argv[])
                      << "  B = base (discarded):   " << base.tclPath << "\n"
                      << scalarDiff << frameDiff
                      << "  → the plugin copy wins. Confirm that is still correct before\n"
-                        "    trusting this run; see de1app issue #350.\n";
+                        "    trusting this run; see issue decentespresso/de1app#350.\n";
                 ++sourceConflicts;
             }
             overriddenBy.insert(outName, tclPath);

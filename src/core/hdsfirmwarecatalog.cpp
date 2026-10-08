@@ -25,7 +25,7 @@ namespace {
 // of it is now visible: a build that recognizes the request but predates
 // d5860bf answers with an async, display-only refusal (pull_ota.h's
 // pullOtaFail — never crosses BLE/WiFi/USB, so HdsFirmwareUpdateController
-// cannot see it, confirmed against real hardware: #1952). A build that
+// cannot see it, confirmed against real hardware: PR Kulitorum/Decenza#1952). A build that
 // predates wifi_update() entirely (openscale commit bf425cf — earlier still)
 // answers with a synchronous "unknown_command" instead, which DOES cross the
 // wire and IS now surfaced via ScaleDevice::firmwareUpdateRejected /

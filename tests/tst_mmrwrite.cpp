@@ -8,7 +8,7 @@
 #include "mocks/MockTransport.h"
 
 // Verifies DE1Device::writeMMR per-register dedup (issue #783), modelled on
-// the setShotSettings dedup (#773). The session log captured after #780
+// the setShotSettings dedup (PR Kulitorum/Decenza#773). The session log captured after PR Kulitorum/Decenza#780
 // showed ~30 identical flush-flow MMR bursts in 2.5 s on FlushPage — one
 // slider change fanned out through multiple convergent QML signals into
 // applyFlushSettings → sendMachineSettings → 3× writeMMR each. With dedup

@@ -890,7 +890,7 @@ T.Page {
     // (predicate `editShotData.durationSec > 0`), the graph, the badges row,
     // the phase summary and the bottom-bar labels the moment the user made any
     // edit. (The `_visualizerId` cache in this file was added
-    // in #1241 as targeted band-aids for the same root cause.)
+    // in PR Kulitorum/Decenza#1241 as targeted band-aids for the same root cause.)
     //
     // This used to be a hand-written whitelist naming ~60 fields — a second
     // declaration of ShotProjection::toVariantMap's body, in another language,

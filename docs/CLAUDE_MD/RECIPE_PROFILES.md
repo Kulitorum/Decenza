@@ -37,7 +37,7 @@ right by definition.
 | A-Flow | `github.com/Jan3kJ/A_Flow` | `de1app/de1plus/plugins/A_Flow` | `e1a4d871` (v2.0-beta.2-2) |
 
 Both are git submodules of the de1app clone. **A-Flow's submodule pointer in de1app lags the
-plugin's own HEAD** — "latest de1app" is not "latest A-Flow" (see de1app issue #350 below).
+plugin's own HEAD** — "latest de1app" is not "latest A-Flow" (see de1app issue decentespresso/de1app#350 below).
 
 **Three facts about these plugins that are not obvious and that shape everything else:**
 
@@ -54,7 +54,7 @@ plugin's own HEAD** — "latest de1app" is not "latest A-Flow" (see de1app issue
 3. **Roles are positional, never pattern-matched.** `prep` indexes. A-Flow's `set_profile_index`
    picks a 9-frame or legacy 6-frame mapping; D-Flow always uses 0/1/2.
 
-**A-Flow profile provenance (de1app issue #350).** The plugin's `profiles/` directory ships all
+**A-Flow profile provenance (de1app issue decentespresso/de1app#350).** The plugin's `profiles/` directory ships all
 five stock profiles at 9 frames. de1app's `de1plus/profiles/` holds a stale snapshot: four profiles
 at 6 frames, `default-light` missing entirely, added in de1app commit `80eb34cc` (2025-09-03) and
 never refreshed — `check_profiles_exist` only copies a file when it is absent, so the stale copy
@@ -936,7 +936,7 @@ to suspect Decenza.** Decaid's bundled set was harvested from de1app copy-export
 converter that read `advanced_shot` verbatim, so it inherited exactly the bleed described
 above. A 2026-07-25 audit of the 63 profiles common to both apps found 11 brew-affecting
 divergences and **all 11 resolved in Decenza's favour** — five from this stale-`advanced_shot`
-mechanism, four from de1app issue #350 shadowing the A-Flow profiles, one profile occupying
+mechanism, four from de1app issue decentespresso/de1app#350 shadowing the A-Flow profiles, one profile occupying
 another's name, one stale harvest. The tell is physical implausibility: Decaid's `Default`
 ran frames at 75 °C and 54 °C against a declared `espresso_temperature` of 90.0.
 
@@ -950,7 +950,7 @@ profile stop at 60 g instead of 36 g.
 Both sides are now reconciled — Decaid fixed their converter, and the comparison returns
 64 of 64 equivalent. The audit, and the script that reproduces it, are in
 `openspec/changes/sync-builtin-profiles/`. **Two caveats that outlive it:** de1app's own users
-still brew 6-frame A-Flow until #350 is resolved, and encoding differences (omitted zero
+still brew 6-frame A-Flow until decentespresso/de1app#350 is resolved, and encoding differences (omitted zero
 `weight`, zero-value `limiter`, inactive-axis `""` vs `0.00`) persist by design in the
 hundreds of rows — a structural diff of the two corpora is not a useful signal.
 

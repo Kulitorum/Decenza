@@ -30,7 +30,7 @@
 // from a reading that never came, and filing them together sends a reader
 // hunting in the wrong subsystem.
 //
-// This was left open by #1707 ("shot logic, not a device") and resolved here on
+// This was left open by PR Kulitorum/Decenza#1707 ("shot logic, not a device") and resolved here on
 // that test rather than on whether the subsystem owns hardware. The registry is
 // not restricted to devices.
 //

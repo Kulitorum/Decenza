@@ -358,7 +358,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     const QVector<QPointF> derivCurve = curveToPoints(shotData.conductanceDerivative);
 
     // Per-shot targetWeight drives both arms of the grind-vs-yield check
-    // (the choked-puck yield arm and the gusher arm added in PR #910) —
+    // (the choked-puck yield arm and the gusher arm added in PR Kulitorum/Decenza#910) —
     // matches the input convertShotRecord passes to analyzeShot.
     const double targetWeightG = shotData.targetWeightG;
 

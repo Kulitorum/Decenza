@@ -3,7 +3,7 @@
 #include <QtGlobal>
 
 // Pure, dependency-free state machine behind MainController::selectedRecipeId
-// and the deferred recipe-shot start (add-recipes, PR #1470). Extracted from
+// and the deferred recipe-shot start (add-recipes, PR Kulitorum/Decenza#1470). Extracted from
 // MainController so it can be unit-tested directly — MainController itself is
 // never linked into the test suite (it pulls in nearly the whole app), so the
 // policy lives here and MainController only wires it to Qt signals + the device.

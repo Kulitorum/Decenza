@@ -1242,10 +1242,10 @@ private slots:
     // is isFlowMode=true from the firmware's perspective, but its flow
     // goal is a ramp-down command (firmware decays flow from preinfusion's
     // high rate to ~0 to let the puck bleed pressure naturally), not a
-    // target the puck is supposed to track. Pre-PR-#1141, Arm 1 captured
+    // target the puck is supposed to track. Before PR Kulitorum/Decenza#1141, Arm 1 captured
     // 5 samples inside that decay window and produced a confident +3.2
     // ml/s "actual above goal" delta on a clean 90/100 shot. The
-    // stationarity gate (introduced in #1141) must reject every sample
+    // stationarity gate (introduced in PR Kulitorum/Decenza#1141) must reject every sample
     // inside the rapidly-decaying goal window.
     void flowVsGoal_dynamicBloomDecay_silencedByStationarityGate()
     {
@@ -2696,7 +2696,7 @@ private slots:
     // phase-boundary range analyzeShot computed internally. MCP consumers
     // (`shots_get_detail`) read these directly instead of re-deriving the
     // window from phase markers; the previous `ShotSummarizer::computePourWindow`
-    // re-derivation is what let drift creep in (PR #944 deleted it).
+    // re-derivation is what let drift creep in (PR Kulitorum/Decenza#944 deleted it).
     // MCP consumers read `pourStartSec` / `pourEndSec` directly off
     // DetectorResults instead of re-deriving the window themselves.
     void analyzeShot_pourWindow_matchesPhaseBoundaries()
@@ -2769,7 +2769,7 @@ private slots:
     // uses the first preinfusion/start boundary as pourStart. MCP consumers
     // read this directly instead of re-deriving the window from phase markers
     // (the previous `ShotSummarizer::computePourWindow` did exactly that and
-    // was the drift hazard PR #944 closed).
+    // was the drift hazard PR Kulitorum/Decenza#944 closed).
     void analyzeShot_pourWindow_preinfusionOnly_usesPreinfusionBoundary()
     {
         const double duration = 30.0;
@@ -2814,7 +2814,7 @@ private slots:
         // that the wrapper threads it through to analyzeShot identically.
         // Without this assertion, a future change that drops the parameter
         // from the wrapper would silently regress 1-frame-profile callers
-        // (the dialog and the live AI advisor). Pre-merge of #934/#935 the
+        // (the dialog and the live AI advisor). Pre-merge of PRs Kulitorum/Decenza#934/#935 the
         // wrapper hardcoded -1 and the dialog/AI advisor diverged from
         // save/load/MCP for 1-frame profiles — see SHOT_REVIEW.md §4.
         const int frameCount = 2;
@@ -2926,7 +2926,7 @@ private slots:
     void badgeProjection_pourTruncatedAndSkipFirstFrame_bothFire()
     {
         // skipFirstFrameDetected is NOT suppressed by the pourTruncated
-        // cascade — they can co-fire. Locks in the PR #922 invariant.
+        // cascade — they can co-fire. Locks in the PR Kulitorum/Decenza#922 invariant.
         ShotAnalysis::DetectorResults d;
         d.pourTruncated = true;
         d.skipFirstFrame = true;
@@ -2956,7 +2956,7 @@ private slots:
     {
         // Critical regression lock: Transient channeling shows in the dialog
         // and in MCP detectorResults, but the boolean badge stays false.
-        // Matches PR #922's invariant. If this test ever fails alongside
+        // Matches PR Kulitorum/Decenza#922's invariant. If this test ever fails alongside
         // a "transient" severity in DetectorResults, the projection drifted.
         ShotAnalysis::DetectorResults d;
         d.channelingChecked = true;
@@ -2966,7 +2966,7 @@ private slots:
 
         const auto flags = decenza::deriveBadgesFromAnalysis(d);
         QVERIFY2(!flags.channelingDetected,
-                 "Transient channeling must NOT fire the badge (PR #922 invariant)");
+                 "Transient channeling must NOT fire the badge (PR Kulitorum/Decenza#922 invariant)");
     }
 
     void badgeProjection_chokedPuck_firesGrindBadge()

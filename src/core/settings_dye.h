@@ -25,7 +25,7 @@ namespace GrinderAliases { struct GrinderEntry; }
 //
 // It was once a sticky setting fed by a "default shot rating", so every
 // freshly pulled shot arrived pre-rated and the taste intake never appeared.
-// Removing the default (#1561) left the sticky field behind, still read at
+// Removing the default (PR Kulitorum/Decenza#1561) left the sticky field behind, still read at
 // save time and reset only afterwards, so the last value it ever held leaked
 // onto one further shot per upgrading user.
 //

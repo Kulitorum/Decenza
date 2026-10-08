@@ -5,7 +5,7 @@
 The system SHALL determine DE1 firmware availability from firmware images bundled with the installed Decenza application and compare the selected bundled firmware version against the connected DE1's installed version. Two bundled channels are supported:
 
 - **Stable** (default): bundled DE1 firmware build 1352, sourced from `decentespresso/decaid` `assets/firmware/de1/de1-1352.bin`
-- **Early access** (opt-in): bundled DE1 firmware build 1358, sourced from `decentespresso/decaid` PR #594 `assets/firmware/de1/de1-1358.bin`
+- **Early access** (opt-in): bundled DE1 firmware build 1358, sourced from `decentespresso/decaid` PR decentespresso/decaid#594 `assets/firmware/de1/de1-1358.bin`
 
 The selected bundled image SHALL expose enough metadata for the UI and update flow to identify its version, channel label, release notes, expected header fields, expected byte length, digest, and provenance. Availability checks SHALL NOT require network access. The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running so existing cadence, banners, and dismissal behavior remain stable across the source change.
 

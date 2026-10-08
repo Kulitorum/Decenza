@@ -1223,7 +1223,7 @@ private slots:
     // ===== Outcome reporting: success must mean the operation happened =====
     //
     // Each of these covers a tool that used to report success for an operation
-    // that did not take place. #1754 made a tool's `error` key reach the wire as
+    // that did not take place. PR Kulitorum/Decenza#1754 made a tool's `error` key reach the wire as
     // `isError`; it cannot reach these, because no `error` key was written at
     // all — the tool believed it had succeeded.
 

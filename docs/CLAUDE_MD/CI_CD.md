@@ -29,11 +29,11 @@ Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x6
 
 The full test suite is already run locally before every pull request, so tests are gated by process rather than by CI.
 
-**What a green night does not mean:** one platform (Linux x64) — #1558 was inside `#ifdef Q_OS_IOS` and would not be caught here; only code the test suite executes, and coverage is unmeasured; and nothing about data races, since ThreadSanitizer is unusable against an uninstrumented Qt (see `TESTING.md`).
+**What a green night does not mean:** one platform (Linux x64) — the break fixed by PR Kulitorum/Decenza#1558 was inside `#ifdef Q_OS_IOS` and would not be caught here; only code the test suite executes, and coverage is unmeasured; and nothing about data races, since ThreadSanitizer is unusable against an uninstrumented Qt (see `TESTING.md`).
 
 **Compiler diagnostics are not in CI at all, by design.** `-Wall -Wextra -Werror` is on in every build, so a warning is an error on the developer's own machine — which is where it should be found, not in a log read once a day.
 
-**Six-platform evidence rule for promoting a diagnostic to `-Werror`.** Before adding any `-Werror=<name>`, show a green build on all six platforms (Windows, macOS, iOS, Android, Linux x64, Linux arm64). This exists because `-Werror=unused-result` (#1553) was verified on macOS and Android only, then broke the iOS release build on code inside `#ifdef Q_OS_IOS`. Platform-guarded code is invisible to every platform that does not compile it, so evidence from a subset is not evidence.
+**Six-platform evidence rule for promoting a diagnostic to `-Werror`.** Before adding any `-Werror=<name>`, show a green build on all six platforms (Windows, macOS, iOS, Android, Linux x64, Linux arm64). This exists because `-Werror=unused-result` (PR Kulitorum/Decenza#1553) was verified on macOS and Android only, then broke the iOS release build on code inside `#ifdef Q_OS_IOS`. Platform-guarded code is invisible to every platform that does not compile it, so evidence from a subset is not evidence.
 
 **Compiler enforcement has an annotation boundary — a clean build is not a clean codebase.** `-Werror=unused-result` caught a discarded `SecRandomCopyBytes` result because Apple annotates it `warn_unused_result`; the identical defect on the OpenSSL path — a discarded `RAND_bytes`, compiled by five of six platforms — produced no diagnostic at all, because OpenSSL does not annotate it. Where a checked result is deliberately ignored, write `(void)call();` with a comment saying why.
 

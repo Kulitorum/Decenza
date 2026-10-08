@@ -157,7 +157,7 @@ by supplying that wording, so there is no bool that can disagree with the text b
   registry cannot resolve is gated as the tool's strictest verb, and confirmed if ANY verb would
   confirm. The handler's "valid actions are…" error comes after that gate, not instead of it.
 - Handlers still **never** inspect `confirmed` — the server strips it before dispatch. A
-  handler-side check is unreachable-true and was the shipped #1219 bug.
+  handler-side check is unreachable-true and was the bug shipped in PR Kulitorum/Decenza#1219.
 
 ## Settings: MCP Configuration (new `Settings` properties)
 
@@ -891,7 +891,7 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
 - `"skipped"` — non-espresso beverage or `grind_check_skip` analysis flag.
 - Field absent — the pourTruncated cascade is suppressing the grind block entirely, OR the pour window is degenerate (`pourEnd <= pourStart`).
 
-`grind.gates` exposes the inputs and thresholds the choked-puck arm (Arm 2) compared against, so consumers can answer "why didn't this badge fire?" without reading C++. Always emitted when Arm 2 ran — even on gate-fail paths. The arm has two split sub-arms (per #966):
+`grind.gates` exposes the inputs and thresholds the choked-puck arm (Arm 2) compared against, so consumers can answer "why didn't this badge fire?" without reading C++. Always emitted when Arm 2 ran — even on gate-fail paths. The arm has two split sub-arms (per PR Kulitorum/Decenza#966):
 - **Flow sub-arm** fires when `passed && meanPressurizedFlowMlPerSec < chokedFlowMaxMlPerSec`. `passed` requires `flowSamples >= minSamples && pressurizedDurationSec >= minPressurizedSec` (the original 15s ≥ 4 bar gate).
 - **Yield sub-arm** fires when `flowSamples >= minSamples && yieldRatio < chokedYieldRatioMax`. Looser gate — only requires that the puck briefly saw meaningful pressure, not that the pressurized window was sustained.
 

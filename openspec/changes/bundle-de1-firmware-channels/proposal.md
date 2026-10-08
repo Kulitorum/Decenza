@@ -5,7 +5,7 @@ Decenza currently depends on Decent's de1app CDN at update time, so firmware ava
 ## What Changes
 
 - Bundle DE1 firmware build 1352 as the default Stable firmware image, sourced from `decentespresso/decaid` `assets/firmware/de1/de1-1352.bin`.
-- Bundle DE1 firmware build 1358 as the opt-in Early access firmware image, sourced from `decentespresso/decaid` PR #594 `assets/firmware/de1/de1-1358.bin`.
+- Bundle DE1 firmware build 1358 as the opt-in Early access firmware image, sourced from PR decentespresso/decaid#594 `assets/firmware/de1/de1-1358.bin`.
 - Replace the firmware channel source from remote CDN URLs to Decaid's bundled firmware manifest, included in Decenza with the firmware assets and carrying version, expected size/header metadata, digest, channel, release notes, and provenance.
 - Show release notes from the bundled manifest in the app so users can see what the selected Stable or Early access firmware changes before flashing.
 - Rename the Settings -> Firmware toggle from "Use nightly firmware channel" to "Use early access firmware" and replace its historical preference with a new `firmware/EA` setting. A one-time upgrade removes the historical nightly preference and sets the new setting to Stable for every existing install.

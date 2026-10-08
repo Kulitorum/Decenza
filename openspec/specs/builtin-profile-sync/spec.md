@@ -33,7 +33,7 @@ The bundled profiles Decenza and Decaid share SHALL produce the same extraction 
 
 Reconciliation is **bidirectional in principle**: neither app is automatically authoritative, and a blanket "de1app wins" rule governed the de1app leg of this work and MUST NOT be carried across to Decaid as an assumption.
 
-In practice the audit found Decenza the more faithful side in all 11 divergent cases, each traceable to one of two upstream mechanisms — de1app writing `advanced_shot` out of the global `::settings` array, and de1app issue #350 shadowing the A-Flow profiles. That outcome is a finding, not a rule: it was reached case-by-case and MUST be re-established, not assumed, if the comparison is re-run.
+In practice the audit found Decenza the more faithful side in all 11 divergent cases, each traceable to one of two upstream mechanisms — de1app writing `advanced_shot` out of the global `::settings` array, and de1app issue decentespresso/de1app#350 shadowing the A-Flow profiles. That outcome is a finding, not a rule: it was reached case-by-case and MUST be re-established, not assumed, if the comparison is re-run.
 
 #### Scenario: A reconciled shared profile makes the same coffee in either app
 
@@ -45,7 +45,7 @@ In practice the audit found Decenza the more faithful side in all 11 divergent c
 
 Every divergence the comparison finds SHALL be reported and classified by its cause. A divergence with a known upstream cause SHALL be recorded as such rather than queued as a Decenza defect, and a divergence with no established cause SHALL be surfaced as unexplained rather than filtered out.
 
-No profile family SHALL be excluded from the comparison in advance. An earlier draft of this spec excluded A-Flow and D-Flow from the Decaid comparison on the grounds that Decaid was "believed broken" for those editor types. The measurement disproved the premise: Decaid's A-Flow files are byte-faithful copies of de1app's stale 6-frame distribution snapshot — de1app issue #350, an upstream bug with a filed report and a known fix — and D-Flow is unaffected, its one common profile comparing equivalent. Excluding them would have suppressed the clearest signal the comparison produced.
+No profile family SHALL be excluded from the comparison in advance. An earlier draft of this spec excluded A-Flow and D-Flow from the Decaid comparison on the grounds that Decaid was "believed broken" for those editor types. The measurement disproved the premise: Decaid's A-Flow files are byte-faithful copies of de1app's stale 6-frame distribution snapshot — de1app issue decentespresso/de1app#350, an upstream bug with a filed report and a known fix — and D-Flow is unaffected, its one common profile comparing equivalent. Excluding them would have suppressed the clearest signal the comparison produced.
 
 Classification reaches the same practical outcome as exclusion — a known-upstream difference is not treated as a Decenza defect — without the false premise or the blind spot.
 

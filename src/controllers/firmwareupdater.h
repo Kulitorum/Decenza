@@ -79,7 +79,7 @@ public:
         // reboots (captured on every flash we've instrumented), so we
         // prompt the user to power-cycle immediately and stay in this
         // state until the DE1 disconnects + reconnects reporting the
-        // expected version. Added after #822 — appending rather than
+        // expected version. Added after PR Kulitorum/Decenza#822 — appending rather than
         // inserting so existing numeric values are stable for QML/tests.
         AwaitingReboot
     };

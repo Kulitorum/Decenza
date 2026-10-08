@@ -169,7 +169,7 @@ private slots:
     }
 
     // A 720-minute (12 h) duration — the current Settings slider maximum
-    // (issue #1204, raised from 8 h by PR #1214) — must produce a full
+    // (issue #1204, raised from 8 h by PR Kulitorum/Decenza#1214) — must produce a full
     // 12 h window. The predicate itself enforces no cap: it honors
     // whatever autoWakeStayAwakeMinutes returns; the 12 h ceiling lives on
     // the UI slider, not here. This just verifies the math holds at that

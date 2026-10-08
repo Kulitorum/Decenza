@@ -365,7 +365,7 @@ bool loadVisualizerFormat(const QJsonObject& root, const QString& path,
     // matches the per-sample isFlowMode the production code captures from
     // BLE, instead of inferring mode from goal curves (which silently drops
     // pressure-mode preinfusion samples whose flow goal is a safety
-    // limiter, see PRs #811/#864). Fall back to inferPhasesFromGoals when
+    // limiter, see PRs Kulitorum/Decenza#811/#864). Fall back to inferPhasesFromGoals when
     // either source is absent.
     const QJsonArray stateChange = data.value("espresso_state_change").toArray();
     const QStringList pumpModes = loadSidecarPumpModes(path);
@@ -1230,7 +1230,7 @@ int main(int argc, char** argv)
             }
             // Substring match against the user-facing verdict text — guards
             // wording regressions in the verdict cascade (e.g. the puck-failed
-            // "Don't tune off this shot" lead-in from PR #922). Substring
+            // "Don't tune off this shot" lead-in from PR Kulitorum/Decenza#922). Substring
             // rather than exact so manifest authors can lock in the
             // diagnostic phrase without freezing the entire sentence.
             if (expect.contains("summaryVerdictContains")) {

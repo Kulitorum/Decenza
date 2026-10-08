@@ -41,7 +41,7 @@ Measured over the 14 days to 2026-07-19, each platform workflow ran **37-48 time
 
 Note that the version-tag list does not show this: those tags land every 1-2 weeks, and reading them as the build cadence understates it by an order of magnitude. The pre-release runs are the real signal.
 
-The gap this was aimed at is nonetheless real and demonstrated: local verification happens on macOS/clang, and #1558 — the break that motivated this whole change — was inside `#ifdef Q_OS_IOS` and compiled nowhere else. Enabling these diagnostics took **seven** rounds of platform burndown, each finding a class exactly one platform could see. But that burndown was the one-off cost of turning the flags on, and the pre-release cadence already closes the ongoing gap at a rate no nightly could match.
+The gap this was aimed at is nonetheless real and demonstrated: local verification happens on macOS/clang, and the break PR Kulitorum/Decenza#1558 fixed — the one that motivated this whole change — was inside `#ifdef Q_OS_IOS` and compiled nowhere else. Enabling these diagnostics took **seven** rounds of platform burndown, each finding a class exactly one platform could see. But that burndown was the one-off cost of turning the flags on, and the pre-release cadence already closes the ongoing gap at a rate no nightly could match.
 
 #### Scenario: Change touches platform-guarded code
 - **WHEN** a change modifies code inside `#ifdef Q_OS_IOS`, `Q_OS_ANDROID`, or another platform guard

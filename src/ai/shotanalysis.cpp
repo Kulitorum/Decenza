@@ -538,7 +538,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // Record the gate inputs unconditionally so consumers can answer
     // "why didn't this badge fire?" even on gate-fail paths. `gatePassed`
     // tracks the flow-arm gate (the original 15s ≥ 4 bar gate) — that's
-    // the specific gate shot 745 was silenced by before #966 split the arms.
+    // the specific gate shot 745 was silenced by before PR Kulitorum/Decenza#966 split the arms.
     // The yield arm has a looser gate (flowSamples ≥ 5), diagnosable from
     // the raw `flowSamples` field.
     result.gateRan = true;

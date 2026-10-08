@@ -68,7 +68,7 @@ Network failures go away, but packaging drift becomes the primary failure mode. 
 ## Risks / Trade-offs
 
 - [Risk] App package size increases by roughly 928 KB plus resource overhead. -> Mitigation: keep only the two requested DE1 images and avoid bundling historical builds.
-- [Risk] The Decaid PR #594 asset can change before merge. -> Mitigation: pin the exact blob metadata and SHA-256 used during implementation; if PR metadata changes, update the manifest and tests in the same change.
+- [Risk] The Decaid PR decentespresso/decaid#594 asset can change before merge. -> Mitigation: pin the exact blob metadata and SHA-256 used during implementation; if PR metadata changes, update the manifest and tests in the same change.
 - [Risk] Qt resource access differs across platforms for large binary files. -> Mitigation: test direct resource validation; if any platform needs a real path, extract to app data with overwrite-and-validate semantics.
 - [Risk] Existing users who enabled nightly may expect to remain on an experimental channel. -> Mitigation: start all users on Stable and make Early access a fresh, explicit opt-in through the Firmware tab.
 - [Risk] Removing CDN behavior may leave tests named around HEAD/Range/cache concepts. -> Mitigation: replace those tests with catalog/source tests rather than preserving obsolete implementation vocabulary.

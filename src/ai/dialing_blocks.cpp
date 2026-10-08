@@ -1156,7 +1156,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // this block exists to remove. A row/shot with empty bean is
     // "batch-unknowable": excluded from within-batch pairing and from the
     // current-batch anchor → the block degrades to directional, the
-    // correct honest outcome (review #1236).
+    // correct honest outcome (PR Kulitorum/Decenza#1236 review).
     auto beanResolved = [](const QString& brand, const QString& type) {
         return !brand.trimmed().isEmpty() || !type.trimmed().isEmpty();
     };
@@ -1240,7 +1240,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         // (native Decenza SAW shots persist it there, NOT in profile_json),
         // profile_json target_weight is only the fallback for imported
         // shots. Reading json_extract alone dropped the common SAW dial-in
-        // cohort (no rating, no refractometer) — review #1236.
+        // cohort (no rating, no refractometer) — PR Kulitorum/Decenza#1236 review.
         const double  yieldOv   = q.value(10).toDouble();
         const QVariant twv      = q.value(11);
         const double  jsonTw    = twv.isNull() ? 0.0 : twv.toString().toDouble();

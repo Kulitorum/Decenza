@@ -92,7 +92,7 @@ Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings l
 
   Two traps, both found in review of the first attempt at this guard, both worth not repeating:
   - **It must not fall through to the ranges-only `"followed"`.** The prompt reads `"followed"` as "the experiment ran", so a false `"followed"` is *worse* than the false `"ignored"` the guard was written to prevent — it makes the model revise direction or commit harder on an experiment that never ran.
-    - **The ranges-only branch itself had the same defect, and it was the last path still exempt.** A turn recommending only ranges still sets an experiment — "run this again, here is what I expect" — so `computeAdherence()` now compares the follow-up shot's setup against the prior shot's via `setupChangedFromPrior()` and returns `"ignored"` when the user regrinded, redosed or switched profile. It returned `"followed"` unconditionally from #1501 until then, which told the model a controlled repeat had happened whenever the user changed something nobody asked them to change. Two rules keep that from over-firing: the comparison uses the same tolerances as scoring, so scale noise is not a decision, and a field is only compared when BOTH shots record it — a blank grinder setting is missing data, not a regrind.
+    - **The ranges-only branch itself had the same defect, and it was the last path still exempt.** A turn recommending only ranges still sets an experiment — "run this again, here is what I expect" — so `computeAdherence()` now compares the follow-up shot's setup against the prior shot's via `setupChangedFromPrior()` and returns `"ignored"` when the user regrinded, redosed or switched profile. It returned `"followed"` unconditionally from PR Kulitorum/Decenza#1501 until then, which told the model a controlled repeat had happened whenever the user changed something nobody asked them to change. Two rules keep that from over-firing: the comparison uses the same tolerances as scoring, so scale noise is not a decision, and a field is only compared when BOTH shots record it — a blank grinder setting is missing data, not a regrind.
   - **Whitespace does not mean prose.** Compound notation writes `"1 + 4"`, used by every Eureka Mignon and 1Zpresso entry in the catalog. `GrinderAliases::looksLikeSetting()` is the shared authority for what a setting looks like. Its numeric and compound regexes live in `GrinderAliases::detail` and are shared with `parseGrinderSetting()`, so those two cannot drift. Its third shape — lettered dials like `"3F"` — is deliberately local: `parseGrinderSetting()` rejects lettered settings outright, so there is no second caller to stay in step with, and adherence compares them by exact string equality in `grinderMatches()`.
 
 #### Running-cost estimates (`AIProvider::costHintFor`)
@@ -411,7 +411,7 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 5. **Profile notes quality varies.** All shipped profiles have notes populated, but quality ranges from detailed (`blooming_espresso.json` — full paragraph explaining the technique) to minimal (`damian_s_q.json` — "A very popular profile made with D-Flow, spun out as its own profile"). The minimal ones don't help the AI much.
 
-6. ~~**Temperature stepping profiles beyond D-Flow.**~~ **Done** (April 2026, PR #635). Recipe-aware system prompt rules now cover all temperature-stepping profiles generically. Additionally, the April 2026 KB quality pass (PR #646) documented exact temperature stepping values for Extractamundo Dos (83.5→67.5→74.5°C), 80s Espresso (82→72°C), Filter 2.0 (92→85°C), and Filter3 (94→92→90→88°C).
+6. ~~**Temperature stepping profiles beyond D-Flow.**~~ **Done** (April 2026, PR #635). Recipe-aware system prompt rules now cover all temperature-stepping profiles generically. Additionally, the April 2026 KB quality pass (PR Kulitorum/Decenza#646) documented exact temperature stepping values for Extractamundo Dos (83.5→67.5→74.5°C), 80s Espresso (82→72°C), Filter 2.0 (92→85°C), and Filter3 (94→92→90→88°C).
 
 7. **A-Flow author knowledge.** A-Flow is the second most popular profile editor (after D-Flow) and the only other custom editor. Janek's design intent, expected ranges, and guidance are not well-documented in our KB. Source: check if Janek has published anything similar to Damian's coffee.brakel.com.au site.
 
@@ -701,7 +701,7 @@ For non-swappable grinders (e.g. Eureka Mignon, Comandante), the field auto-fill
 - Whether the grinder accepts aftermarket burrs → can suggest burr changes
 - Adjustment resolution → how much one click/turn changes the grind
 
-**Status**: Implemented in PR #368.
+**Status**: Implemented in PR Kulitorum/Decenza#368.
 
 ### 10. Espresso Dial-In Reference Tables in System Prompt
 
@@ -761,14 +761,14 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
 6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and the noise-filtered typical step (`stepSize`) in the user context. MCP uses the same shared helper; the Grind quick-select widget consumes the same estimator via `grindStepForGrinder()`.
 7. ~~**Bean age calculation**~~ — **Skipped.** The raw roast date is already in the user prompt. Pre-computing "days since roast" adds noise that can mislead the AI for users who freeze beans. The AI can do the math itself if relevant, and the "Forbidden Simplifications" section already prevents it from assuming old = stale.
-8. ~~**Refocus knowledge base**~~ — **Partial** (April 2026, PR #646). Systematic quality pass: all 19 entries verified against profile JSON frame data, incorrect temperatures/pressures/flows corrected, missing temperatures added to 6 entries, DO NOT flags added to 4 entries, thin entries expanded (Default, Flow Profile), Extractamundo Dos bloom phase documented, Londinium naming disambiguated. New Filter3 entry added with data from JSON frames, official Decent guide, Scott Rao blog, and Diaspora community. Remaining: shift entries away from derivable curve behavior toward non-derivable wisdom, seek A-Flow author guidance.
+8. ~~**Refocus knowledge base**~~ — **Partial** (April 2026, PR Kulitorum/Decenza#646). Systematic quality pass: all 19 entries verified against profile JSON frame data, incorrect temperatures/pressures/flows corrected, missing temperatures added to 6 entries, DO NOT flags added to 4 entries, thin entries expanded (Default, Flow Profile), Extractamundo Dos bloom phase documented, Londinium naming disambiguated. New Filter3 entry added with data from JSON frames, official Decent guide, Scott Rao blog, and Diaspora community. Remaining: shift entries away from derivable curve behavior toward non-derivable wisdom, seek A-Flow author guidance.
 9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 
 ### Phase 1: Quick wins (no external dependencies)
 1. ~~**System prompt bean guidance**~~ (idea #4 fallback B) — **Done.** `sharedBeanKnowledge()` in `shotsummarizer.cpp` includes proactive guidance about origin/processing characteristics, variety flavor profiles (Geisha, SL28, Caturra, Bourbon), roaster style recognition, and taste-to-bean mapping. Shared between espresso and filter prompts.
 2. ~~**Profile catalog**~~ (idea #1) — **Done** (April 2026). `buildProfileCatalog()` generates a compact one-liner per KB profile (name, category, roast suitability) from `profile_knowledge.md` during KB loading. Included in `shotAnalysisSystemPrompt()` as "Available Profiles with Curated Knowledge" section (~500 cacheable tokens). Covers the 19 profiles with KB entries. Enables cross-profile recommendations (e.g., "your light roast may work better on Blooming Espresso").
 3. ~~**Grinder knowledge base**~~ — **Done** (April 2026). Per-shot burr geometry (e.g. "83mm flat") was already in `buildUserPrompt()` via `GrinderAliases::burrGeometry()`. Added burr-swappable flag to the Grinder Context section so the AI knows when aftermarket burrs are an option. Full 150-grinder database is NOT loaded into the system prompt — only the user's own grinder specs from `GrinderAliases` are included, keeping tokens minimal.
-4. ~~**Structured grinder + burr fields**~~ (idea #8) — **Done** in PR #368.
+4. ~~**Structured grinder + burr fields**~~ (idea #8) — **Done** in PR Kulitorum/Decenza#368.
 5. ~~**Espresso dial-in reference tables**~~ (idea #10) — **Done** (April 2026, PR #635). Moved to Phase 0 item 3.
 
 ### Phase 2: Bean enrichment
@@ -789,7 +789,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 
 ### External Dependencies
 - **Loffee Labs API access**: Keith responded (March 2026) — API undergoing modernization, new keys paused. Beta access in ~1 month, full production ~2-3 months. Free usage offered. No manual key approval on new system. Required for Phase 2, step 4
-- ~~**Profile knowledge content**~~ — **Done.** 19 profiles documented from official Decent sources (quality pass April 2026, PR #646)
+- ~~**Profile knowledge content**~~ — **Done.** 19 profiles documented from official Decent sources (quality pass April 2026, PR Kulitorum/Decenza#646)
 
 ## Completed Data Collection
 - **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 19 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).

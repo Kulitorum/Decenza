@@ -106,7 +106,7 @@ The single-shot `ai_advisor_invoke` MCP path (no follow-up expected) MAY skip th
 
 ### Requirement: User-prompt envelope SHALL carry an optional `recentAdvice` block
 
-The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext`/`emitRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array (or, for the in-app advisor's prose-rendered `historicalContext`, an equivalent `## Recent Advice Tracking` section carrying the same data). The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from #1041).
+The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext`/`emitRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array (or, for the in-app advisor's prose-rendered `historicalContext`, an equivalent `## Recent Advice Tracking` section carrying the same data). The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from PR Kulitorum/Decenza#1041).
 
 The block SHALL be derived from the active `AIConversation` (matched by storage key — bean+profile hash) and from the user's shot history.
 

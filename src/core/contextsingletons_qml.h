@@ -10,7 +10,7 @@
 // THE REASON THIS FILE GIVES FOR NOT DOING THAT IS OUT OF DATE. It used to say the classes here
 // are compiled into test and tool targets that link no Qt6::Qml, citing add_decenza_test() as
 // linking "Test/Core/Bluetooth/Sql/Network/Gui and nothing else". That is false: decenza_testlib
-// links Qt6::Qml PUBLIC (tests/CMakeLists.txt, since #1617) and every add_decenza_test() target
+// links Qt6::Qml PUBLIC (tests/CMakeLists.txt, since PR Kulitorum/Decenza#1617) and every add_decenza_test() target
 // links decenza_testlib, so they all get it transitively — de1device.cpp, this file's headline
 // example, is compiled straight into decenza_testlib. The four targets that genuinely lack
 // Qt6::Qml (profile_sync, shot_eval, saw_replay, saw_parity) compile none of these classes.
@@ -29,10 +29,10 @@
 // A context property is invisible to qmllint, qmlcachegen and the language server: the name
 // resolves at runtime and at no other time. Every QML reference to one counts as an unqualified
 // access — and, worse, is indistinguishable from a typo, because nothing in the build can tell
-// the two apart. #1661 is what that costs when it goes wrong.
+// the two apart. The defect PR Kulitorum/Decenza#1661 fixed is what that costs when it goes wrong.
 //
 // The 30 context properties live when this file was created accounted for 943 such warnings. The
-// names registered BELOW are now ALL 943 — 660 in the first batch (#1680), plus
+// names registered BELOW are now ALL 943 — 660 in the first batch (PR Kulitorum/Decenza#1680), plus
 // SteamHealthTracker, FlowCalibrationModel, ProfileStorage and McpServer, plus USBManager and
 // UsbScaleManager (everywhere but iOS — see below), and finally GHCSimulator, ScaleDevice and
 // Refractometer. The figure is unchanged by the iOS exclusion, because the gate that counts runs
@@ -47,7 +47,7 @@
 // "Inside `#ifndef Q_OS_IOS`" used to be listed here as a blocker for USBManager and
 // UsbScaleManager, and it is still one — for the TYPE. On iOS these two are not registered at all,
 // because naming them means including headers that include <QSerialPort>, which that platform does
-// not build or link. What #1687 did remove is the blocker for a name whose INSTANCE is optional;
+// not build or link. What PR Kulitorum/Decenza#1687 did remove is the blocker for a name whose INSTANCE is optional;
 // that is decenzaOptionalSingleton() below, and GHCSimulator is what it covers. See the note above
 // USBManagerForeign.
 // "Types already registered uncreatable in their own headers"
@@ -696,7 +696,7 @@ public:
 // one `#include` away; it needs an iOS-buildable USB header, which is work with no payoff on a
 // platform that has no USB.
 //
-// Consequence, and it is the pre-#1687 behaviour restored: on iOS the NAMES do not resolve, so
+// Consequence, and it is the pre-PR Kulitorum/Decenza#1687 behaviour restored: on iOS the NAMES do not resolve, so
 // evaluating one throws a ReferenceError (qv4qmlcontext.cpp:552-553) rather than reading
 // `undefined`. Every call site is either short-circuited on `Qt.platform.os` before the read
 // (SettingsConnectionsTab's `usbAvailable`, main.qml:1576, ScaleWeightItem.qml:61) or unreachable
@@ -778,7 +778,7 @@ public:
 #endif
 
 // 79 references across 11 QML files — the largest single name in the tree, and the last context
-// property to go apart from Refractometer. (The file count read 18 until #1687 review; an
+// property to go apart from Refractometer. (The file count read 18 until the PR Kulitorum/Decenza#1687 review; an
 // exhaustive `git grep -lw ScaleDevice -- qml/` at the pre-change commit returns 11.)
 //
 // Registered as ScaleDeviceProxy but NAMED ScaleDevice, so every existing call site is unchanged.

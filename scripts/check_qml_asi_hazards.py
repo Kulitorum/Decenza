@@ -9,7 +9,7 @@ the line is parsed as a continuation of the one above:
 
 is `page.editEnjoyment(loader.ensure() as ...)?.openWithShot(...)` — a call on
 a number, which threw on every tap and left the post-shot AI Advice button dead
-(introduced by #1978, shipped in 2.0.8). It is valid JavaScript, so the
+(introduced by PR Kulitorum/Decenza#1978, shipped in 2.0.8). It is valid JavaScript, so the
 compiler and qmllint both pass it.
 
 Fix by binding the value to a local first (`const x = ...` then `x?.f()`). A

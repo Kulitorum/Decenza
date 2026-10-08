@@ -20,7 +20,7 @@ std::optional<bool> decenzaPlatformScreenReaderActive()
     // Treating that false as "no reader" is a real regression and was written
     // here once: the call SUCCEEDS and writes FALSE, so an engaged optional{false}
     // comes back, isScreenReaderActive() never consults QAccessible::isActive(),
-    // and the app speaks over Narrator — the overlap #889 removed, aimed at the
+    // and the app speaks over Narrator — the overlap PR Kulitorum/Decenza#889 removed, aimed at the
     // default reader on Windows.
     //
     // Returning nullopt instead cannot regress anything: nullopt is main's

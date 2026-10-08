@@ -30,7 +30,7 @@ The build SHALL produce zero CMake Qt policy warnings during configuration.
 ### Requirement: Verification Does Not Wait For A Release Tag
 The project SHALL verify changes before they reach a release tag: by failing the build on compiler diagnostics at every developer's keyboard, and by building all six platforms and running the sanitizer suite on a nightly schedule.
 
-The existing spec describes CI as the six tag-triggered platform workflows. That remains true for producing release artifacts, but as written it meant the first compile of a change on any platform other than the author's happened at release time — the wrong moment to discover that a change does not build, and how a build break reached a release tag (#1558).
+The existing spec describes CI as the six tag-triggered platform workflows. That remains true for producing release artifacts, but as written it meant the first compile of a change on any platform other than the author's happened at release time — the wrong moment to discover that a change does not build, and how a build break reached a release tag (fixed in PR Kulitorum/Decenza#1558).
 
 Note what this requirement does **not** say: it does not require per-pull-request CI. That was built, measured, and rejected — see the `change-verification` capability for the evidence, which needs to be read before anyone reinstates it.
 

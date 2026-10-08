@@ -17,7 +17,7 @@
 //   - channelingDetected fires ONLY on Sustained severity. Transient
 //     channeling surfaces as a "Transient channel at Xs" caution line in the
 //     dialog and as channelingSeverity == "transient" in MCP, but the
-//     boolean badge stays false (matches PR #922's invariant).
+//     boolean badge stays false (matches PR Kulitorum/Decenza#922's invariant).
 //   - grindIssueDetected fires on chokedPuck OR yieldOvershoot OR
 //     |flowDelta| > FLOW_DEVIATION_THRESHOLD, mirroring ShotAnalysis::
 //     detectGrindIssue's semantics.

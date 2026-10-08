@@ -1216,7 +1216,7 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // (below) builds the AI dialing/advisor context. None is per frame, per
 // keystroke, or a binding.
 //
-// (Until #1725 the QML side WAS a binding, and this sentence described it as
+// (Until PR Kulitorum/Decenza#1725 the QML side WAS a binding, and this sentence described it as
 // one; do not read the old shape back into it. It then listed only the two
 // picker callers, which read as exhaustive and was not — queryGrinderContext
 // returns early on an EMPTY model, which is a narrower thing than never

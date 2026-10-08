@@ -84,7 +84,7 @@ public slots:
     virtual void sleep() { emit sleepCompleted(); }  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
-    virtual void sendKeepAlive() {}  // Periodic 30 s hook; do not rewrite CCCDs here (#1092, #1965)
+    virtual void sendKeepAlive() {}  // Periodic 30 s hook; do not rewrite CCCDs here (PR Kulitorum/Decenza#1092, #1965)
     virtual void startFirmwareUpdate(const QString& targetVersion) { Q_UNUSED(targetVersion); }
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes
@@ -105,7 +105,7 @@ signals:
     // de-jitter need sample *arrival*, not value *change*: a healthy scale
     // reporting a constant weight (a static cup through DE1 preheat) is
     // otherwise indistinguishable from a dead feed and trips a false stall →
-    // mid-shot connection-priority backoff / ruined shot. See #1176, #1185.
+    // mid-shot connection-priority backoff / ruined shot. See #1176, PR Kulitorum/Decenza#1185.
     // WeightProcessor::processWeight is wired to THIS, never weightChanged.
     void weightSampleReceived(double weight);
     void flowRateChanged(double rate);

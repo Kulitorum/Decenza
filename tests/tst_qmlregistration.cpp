@@ -3,7 +3,7 @@
 // The failure this exists for is the quietest one in the codebase: a C++ type that QML is
 // supposed to know about does not reach the module's type description, and NOTHING says so. The
 // build is green, qmllint is green, the suite is green, and the app renders `undefined` on a
-// screen nobody opened during review. It shipped that way once as #1661, and it happened twice
+// screen nobody opened during review. It shipped that way once (fixed in PR Kulitorum/Decenza#1661), and it happened twice
 // more during the change that added this file:
 //
 //   - `Settings.<domain>.<prop>` was registered by runtime qmlRegisterUncreatableType<> calls in

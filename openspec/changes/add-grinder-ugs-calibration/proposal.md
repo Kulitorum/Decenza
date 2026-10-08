@@ -2,7 +2,7 @@
 
 > Split from `fix-grinder-calibration-cross-profile` (archived 2026-07-07). Phase 1 —
 > the #1223 harm-reduction fix (within-coffee conversion key, extrapolation cap,
-> directional-only fallback) — shipped in PR #1236. This change holds the deferred
+> directional-only fallback) — shipped in PR Kulitorum/Decenza#1236. This change holds the deferred
 > Phase 2. **Status: parked pending a go/no-go decision** — see Open Question below.
 
 ## Why

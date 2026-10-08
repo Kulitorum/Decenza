@@ -5,10 +5,10 @@
 // = 2.5 bar) and produced misleading observations the AI advisor would then
 // dial-in against.
 //
-// Post-#933 the canonical pipeline is ShotAnalysis::analyzeShot, which
+// Since PR Kulitorum/Decenza#933 the canonical pipeline is ShotAnalysis::analyzeShot, which
 // returns both prose lines and a structured DetectorResults struct.
 // ShotSummarizer's live path calls it via the generateSummary wrapper
-// (lines only); the historical-shot path (post-#935) reuses
+// (lines only); the historical-shot path (since PR Kulitorum/Decenza#935) reuses
 // shotData.summaryLines from ShotHistoryStorage::convertShotRecord's
 // analyzeShot pass when present, falling back to an inline re-run for
 // legacy or partial shots. Either way the suppression cascade is
@@ -291,7 +291,7 @@ private slots:
     }
     // ---- Fast path: pre-computed summaryLines from convertShotRecord ----
     //
-    // PR #933 made ShotHistoryStorage::convertShotRecord run analyzeShot per
+    // PR Kulitorum/Decenza#933 made ShotHistoryStorage::convertShotRecord run analyzeShot per
     // shot conversion and stash the prose in shotData["summaryLines"]. The
     // historical-shot AI advisor path used to call generateSummary inline
     // anyway — running the full detector pipeline a second time on the same

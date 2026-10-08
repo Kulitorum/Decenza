@@ -7,7 +7,7 @@ TBD - created by archiving change verify-recipe-editor-parity. Update Purpose af
 
 Decenza's D-Flow and A-Flow implementations SHALL be verified against the upstream de1app plugins — `Damian-AU/D_Flow_Espresso_Profile` and `Jan3kJ/A_Flow` — as the source of truth. Every expected value in the parity suite SHALL trace to a named proc in the plugin source or to a profile the plugin itself ships. No expected value SHALL be derived from Decenza's own code or from Decenza's built-in profile JSONs.
 
-Fixtures SHALL come from the plugin's own profile directory. The copies under de1app's `de1plus/profiles/` SHALL NOT be used as the reference, because four A-Flow profiles there are a stale 6-frame snapshot that shadows the plugin's 9-frame originals (de1app issue #350).
+Fixtures SHALL come from the plugin's own profile directory. The copies under de1app's `de1plus/profiles/` SHALL NOT be used as the reference, because four A-Flow profiles there are a stale 6-frame snapshot that shadows the plugin's 9-frame originals (issue decentespresso/de1app#350).
 
 #### Scenario: Expected values are traceable
 

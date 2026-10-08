@@ -30,14 +30,14 @@ The layout editors SHALL let a user open a zone-options panel for **any** zone �
 
 ### Requirement: Populate a zone from a built-in preset
 
-The zone-options panel SHALL offer a "populate from preset" action that fills a zone with a built-in widget arrangement in one step. The set of presets SHALL include a **"Brew bar"** preset that reproduces the PR #1364 view: the `profileName`, `scaleWeight` (context-aware data mode), `ratioQuickSelect`, `doseWeight`, and `milkWeight` widgets, with `equalWidth` distribution and the `accentBar` zone style. Populating SHALL set the zone's widgets and the relevant zone options together, and SHALL be available for the `lowerMidBar` zone.
+The zone-options panel SHALL offer a "populate from preset" action that fills a zone with a built-in widget arrangement in one step. The set of presets SHALL include a **"Brew bar"** preset that reproduces the PR Kulitorum/Decenza#1364 view: the `profileName`, `scaleWeight` (context-aware data mode), `ratioQuickSelect`, `doseWeight`, and `milkWeight` widgets, with `equalWidth` distribution and the `accentBar` zone style. Populating SHALL set the zone's widgets and the relevant zone options together, and SHALL be available for the `lowerMidBar` zone.
 
 #### Scenario: Populate the lower-mid bar with the brew-bar preset
 
 - **WHEN** a user opens zone options for `lowerMidBar` and chooses the "Brew bar" preset
 - **THEN** the zone SHALL be filled with the brew-bar widgets in order (profile, scale, ratio, dose, milk)
 - **AND** the zone's distribution SHALL be set to `equalWidth` and its style to `accentBar`
-- **AND** the result SHALL match the PR #1364 bar
+- **AND** the result SHALL match the PR Kulitorum/Decenza#1364 bar
 
 #### Scenario: Populate is non-destructive to other zones
 
@@ -123,7 +123,7 @@ This forbids the dead-control state in which a user sets an option, sees it conf
 
 Each zone SHALL support a **zone style** option chosen from named presets defined in `Theme.qml` (never hardcoded colors in the zone or widgets). At minimum the presets SHALL include:
 - `standard` — the default; transparent background with the normal theme text styling (matches today's look).
-- `accentBar` — matches the PR #1364 bar: an accent-filled background with contrasting text and emphasised (bold) values.
+- `accentBar` — matches the PR Kulitorum/Decenza#1364 bar: an accent-filled background with contrasting text and emphasised (bold) values.
 
 Each preset SHALL bundle the zone background and the text/value treatment so widgets in the zone stay readable on the chosen background across light, dark, and custom palettes. Themes SHALL be able to define their own preset values so the styles track the active theme.
 
@@ -137,7 +137,7 @@ Each preset SHALL bundle the zone background and the text/value treatment so wid
 - **WHEN** a zone's style is set to `accentBar`
 - **THEN** the zone SHALL render a full-width accent-colored fill using `Theme` tokens
 - **AND** widget labels and values within the zone SHALL use the matching contrast color
-- **AND** widget values SHALL render with the preset's emphasis (e.g. bold), matching the PR #1364 bar
+- **AND** widget values SHALL render with the preset's emphasis (e.g. bold), matching the PR Kulitorum/Decenza#1364 bar
 
 #### Scenario: Style follows the active theme
 
@@ -193,7 +193,7 @@ The zone-options "populate from preset" action SHALL include a **"Compact status
 
 - **WHEN** a user opens zone options for `statusBar` and chooses "Compact status bar"
 - **THEN** the zone SHALL be filled with the readout widgets in `icon` display mode plus a centred Sleep
-- **AND** the result SHALL reproduce the #1362 compact bar look
+- **AND** the result SHALL reproduce the PR Kulitorum/Decenza#1362 compact bar look
 - **AND** only that zone's widgets SHALL change
 
 #### Scenario: Populated widgets remain individually editable

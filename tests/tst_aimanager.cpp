@@ -2061,7 +2061,7 @@ private slots:
         // loadRecentAssistantTurnsForKey. Both must return byte-equivalent
         // turn lists for the same persisted conversation. Without parity,
         // the recentAdvice block built by buildRecentAdviceBlock cannot be
-        // byte-equivalent across surfaces (#1041 parity contract).
+        // byte-equivalent across surfaces (PR Kulitorum/Decenza#1041 parity contract).
         AppSettings s;
         s.clear();
 
@@ -2673,7 +2673,7 @@ private slots:
 
     // -----------------------------------------------------------------
     // AIConversation::stripStructuredNextBlock
-    // Pins the fix from PR #1074: the trailing ```json ... ``` block the
+    // Pins the fix from PR Kulitorum/Decenza#1074: the trailing ```json ... ``` block the
     // AI appends must be stripped before display in getConversationText.
     // -----------------------------------------------------------------
 
@@ -2868,7 +2868,7 @@ private slots:
 
     // Corrupted stored data must be flagged, not silently reported as an
     // empty-but-healthy conversation — see silent-failure-hunter finding on
-    // PR #1500: ai_conversations_list previously swallowed the parse error.
+    // PR Kulitorum/Decenza#1500: ai_conversations_list previously swallowed the parse error.
     void mcpAiConversationsList_corruptedEntry_flagsInsteadOfSwallowing()
     {
         AppSettings settings;

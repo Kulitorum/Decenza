@@ -54,7 +54,7 @@ of 115 tests passed**, while `tst_aiproviders` crashed in
 `retryKeepsOperationIdentityAndOneSuccess` on all three attempts, about one second
 into each run (the first retry). No artifacts were published by this check.
 
-The failing regression exercises an older production defect from PR #1114:
+The failing regression exercises an older production defect from PR Kulitorum/Decenza#1114:
 `tryScheduleRetry` calls `m_retryFn` directly, but every provider's `sendRequest`
 replaces that same callable before serializing its captured request by reference.
 The active capture can therefore be destroyed while still in use. The fix calls

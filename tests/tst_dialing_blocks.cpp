@@ -2065,7 +2065,7 @@ private slots:
                    const QString& burrs = QStringLiteral("63mm conical"),
                    const QString& basket = QString())
     {
-        // Non-empty bean so the shot is batch-knowable (#1236 empty-bean
+        // Non-empty bean so the shot is batch-knowable (PR Kulitorum/Decenza#1236 empty-bean
         // guard); shared across calSeed calls so they form one roast batch.
         // `basket` forks a second package off the same grinder.
         return insertShot(db, ShotRow{
@@ -2450,7 +2450,7 @@ private slots:
     // Variable-RPM grinder (DF83V): users annotate dial with RPM
     // ("24 1400rpm"). The parser accepts the leading dial and the rest
     // is ignorable annotation; without this fix 93% of such users' data
-    // was silently discarded (review on PR #1236 / #1223 reporter DB).
+    // was silently discarded (review on PR Kulitorum/Decenza#1236 / #1223 reporter DB).
     void calibrationBlock_acceptsNumericWithSuffix_DF83V()
     {
         const QString path = freshDbPath();
@@ -3587,7 +3587,7 @@ private slots:
                          "profile-implying D-Flow/A-Flow framing: ") + bad));
         }
 
-        // (d) #1160 / #1175 split mechanics — now expressed as RESOLUTION
+        // (d) #1160 / PR Kulitorum/Decenza#1175 split mechanics — now expressed as RESOLUTION
         // invariants on the structured KB (stronger and more direct than
         // the old md heading/alias-line byte-count drift-check, which the
         // JSON format obsoletes; the validator additionally enforces unique
@@ -3609,7 +3609,7 @@ private slots:
                  "#1160 twin: D-Flow / Q and Damian's Q must collapse to the "
                  "same canonical id");
         QVERIFY2(!idLaPavoni.isEmpty() && idLaPavoni != idDefault,
-                 "#1175 split: D-Flow / La Pavoni must resolve to its OWN id, "
+                 "PR Kulitorum/Decenza#1175 split: D-Flow / La Pavoni must resolve to its OWN id, "
                  "distinct from D-Flow / default");
         // Reversed deliberately. This once asserted the opposite, on the
         // strength of a KB claim the shipped files disprove: londonium.json

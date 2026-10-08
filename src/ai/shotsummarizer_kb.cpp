@@ -215,7 +215,7 @@ void ShotSummarizer::loadProfileKnowledge()
         const QString edt = po.value(QStringLiteral("defaultForEditorType")).toString();
         // D2: an editor-default entry's aliases name the editor *namespace*,
         // not a recipe identity — they MUST NOT anchor a prefix (the
-        // "D-Flow prefixes every D-Flow/* title" footgun #1192 deleted).
+        // "D-Flow prefixes every D-Flow/* title" footgun PR Kulitorum/Decenza#1192 deleted).
         // The editor namespace is served solely by the step-3 fallback.
         const bool isEditorDefault =
             (edt == QStringLiteral("dflow") || edt == QStringLiteral("aflow"));

@@ -28,7 +28,7 @@
 //   2. Does saving preserve the profile — untouched, and after a real edit?
 //
 // Fixtures are the plugins' own stock profiles (see tst_recipeeditorparity's
-// header for provenance and the de1app #350 caveat).
+// header for provenance and the decentespresso/de1app#350 caveat).
 
 #include <QtTest>
 #include <QFile>

@@ -77,7 +77,7 @@ The lazy-persist write-back in `loadShotRecordStatic` (when stored badge columns
 
 The DB schema, the badge column types, and the badge-driven UI surfaces (history-list filter chips, badge UI, `shots_list` MCP) are OUT OF SCOPE — they continue to read the same four boolean columns; only the *production* of those values is unified.
 
-The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly. A shot whose `DetectorResults.channelingSeverity` is `"transient"` MUST result in `channelingDetected = false`. This matches the badge behavior established by PR #922 and is documented in the projection table.
+The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly. A shot whose `DetectorResults.channelingSeverity` is `"transient"` MUST result in `channelingDetected = false`. This matches the badge behavior established by PR Kulitorum/Decenza#922 and is documented in the projection table.
 
 #### Scenario: Clean shot projects to all-false badge columns
 
@@ -91,7 +91,7 @@ The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly.
 - **WHEN** save-time or load-time badge derivation runs
 - **THEN** `pourTruncatedDetected` SHALL be `true`
 - **AND** `channelingDetected`, `grindIssueDetected` SHALL each be `false`
-- **AND** `skipFirstFrameDetected` SHALL reflect `d.skipFirstFrame` independently (skip-first-frame is NOT suppressed by the cascade, matching PR #922's invariant)
+- **AND** `skipFirstFrameDetected` SHALL reflect `d.skipFirstFrame` independently (skip-first-frame is NOT suppressed by the cascade, matching PR Kulitorum/Decenza#922's invariant)
 
 #### Scenario: Transient channeling does NOT set the badge
 
@@ -511,7 +511,7 @@ The `[good]` line text on `verifiedClean == true` SHALL branch on `GrindCheck.sa
 - **WHEN** `analyzeShot` resolves a profile whose cited entry is `pressure-peak` 6–9 bar (e.g. D-Flow / Q, `[SRC:profile-notes]`)
 - **THEN** the check SHALL compare the shot's peak pressure to 6–9 bar
 - **AND** `Damian's Q` (which shares the `## D-Flow Q variant` KB section) SHALL resolve to the same single entry by canonical-section identity, with no duplicate row
-- **AND** `D-Flow / La Pavoni` (its own `## D-Flow La Pavoni variant` section, post-#1175) SHALL resolve to its own distinct entry, and `D-Flow / default` (`## D-Flow`, no cited band) SHALL resolve to no entry
+- **AND** `D-Flow / La Pavoni` (its own `## D-Flow La Pavoni variant` section, since PR Kulitorum/Decenza#1175) SHALL resolve to its own distinct entry, and `D-Flow / default` (`## D-Flow`, no cited band) SHALL resolve to no entry
 
 #### Scenario: A profile with a cited flow band exposes the check on the flow axis
 
@@ -526,7 +526,7 @@ The `[good]` line text on `verifiedClean == true` SHALL branch on `GrindCheck.sa
 
 ### Requirement: An out-of-band shot SHALL emit one soft, observational, taste-deferring summary line
 
-When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one `summaryLines` entry of `type` **`observation`** (lowest authority) that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the #1155 failure). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling; anything ambiguous SHALL be silent. (Bean freshness is out of scope for the deterministic emitter — `analyzeShot` has no freshness input; freshness suppression remains the advisor-prose layer's responsibility, unchanged. D8.) This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
+When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one `summaryLines` entry of `type` **`observation`** (lowest authority) that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the failure PR Kulitorum/Decenza#1155 rolled back). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling; anything ambiguous SHALL be silent. (Bean freshness is out of scope for the deterministic emitter — `analyzeShot` has no freshness input; freshness suppression remains the advisor-prose layer's responsibility, unchanged. D8.) This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
 
 When the line fires AND no higher-severity verdict applies, `analyzeShot` SHALL set `verdictCategory` to the dedicated value **`expertBandDeviation`** — a value distinct from `clean` and from every fault category. This branch SHALL be ordered in the verdict cascade **below** every pour-truncated / skip-first-frame / yield-overshoot / choked-puck / `hasWarning` / `hasCaution` verdict (a real fault always dominates; the band line then remains only a corroborating summary line) and **above** `cleanGrindNotAnalyzable` and `clean` (a band-only, otherwise-clean shot resolves to `expertBandDeviation`). The accompanying verdict-line text SHALL be non-directional and taste-deferring (e.g. "Ran outside this profile's expert-recommended band — judge by taste"). The band line's own `summaryLines` `type` SHALL remain `observation`; it SHALL NOT be raised to `caution`/`warning` to achieve the verdict change.
 

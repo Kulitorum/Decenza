@@ -1072,7 +1072,7 @@ T.Page {
                     KeyNavigation.backtab: increaseTimeBtn.visible
                                            ? increaseTimeBtn
                                            : (steamPage.lastVisiblePresetPill() ?? steamingFlowSlider)
-                    // BLE write deferred to commit (PR #782 pattern): the drag
+                    // BLE write deferred to commit (PR Kulitorum/Decenza#782 pattern): the drag
                     // updates the local value and the pitcher record, and only
                     // the commit writes MMR.
                     //

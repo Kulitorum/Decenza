@@ -1705,7 +1705,7 @@ private slots:
         QCOMPARE(skipSpy.count(), 0);
     }
 
-    // Regression for the PR #1220 review bug: a rejected SPIKE packet during
+    // Regression for the PR Kulitorum/Decenza#1220 review bug: a rejected SPIKE packet during
     // a stall advances m_lastWallClockMs. If CONFIRM measured the gap from
     // m_lastWallClockMs it would be reset to ~0 by the spike and a genuinely
     // dead feed that emits periodic garbage (#1176/#610 overlap) would never

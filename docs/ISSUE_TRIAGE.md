@@ -45,7 +45,7 @@ Open issues triaged against release notes through v1.4.1-beta. 23 remain open, 1
 | 10 | #130 | iOS VoiceOver ghost overlay + keyboard | VoiceOver announces app name on empty space; keyboard won't open on Translation page |
 | 11 | #114 | Text field scrolls off screen | Notes/AI field invisible when typing. KeyboardAwareContainer issue |
 | 12 | #121 | MQTT profile set not working | Works for starred profiles but not others |
-| 13 | #132 | Weight data wrong on Visualizer | Cumulative weight instead of flow rate. PR #138 may address |
+| 13 | #132 | Weight data wrong on Visualizer | Cumulative weight instead of flow rate. PR Kulitorum/Decenza#138 may address |
 | 14 | #69 | Flow graph shows cumulative weight | Related to #132. Design decision |
 
 ## Tier 4 — Feature Requests

@@ -78,7 +78,7 @@ QtObject {
         // Found while reading the log attached to #1726, where the post-shot
         // review reached this branch with an empty model and pooled. It is not
         // that issue's reported symptom: that one matches the composite-key
-        // cache #1725 fixed, and #1726 was filed minutes after #1725 merged, so
+        // cache PR Kulitorum/Decenza#1725 fixed, and #1726 was filed minutes after PR Kulitorum/Decenza#1725 merged, so
         // against a build without it. That match is an inference from the log,
         // not a triaged diagnosis — #1726 is still open.
         //

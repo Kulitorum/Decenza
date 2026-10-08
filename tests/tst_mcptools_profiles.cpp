@@ -18,7 +18,7 @@ class Settings;
 void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
 
 // Test MCP profile tools against ProfileManager + MockTransport.
-// Critical regression: profiles_edit_params must trigger BLE upload (PR #561).
+// Critical regression: profiles_edit_params must trigger BLE upload (PR Kulitorum/Decenza#561).
 
 class tst_McpToolsProfiles : public QObject {
     Q_OBJECT
@@ -416,12 +416,12 @@ private slots:
         QVERIFY(result.contains("steps"));
     }
 
-    // ===== profiles_edit_params — PR #561 regression test =====
+    // ===== profiles_edit_params — PR Kulitorum/Decenza#561 regression test =====
 
     void editParamsDFlowTriggersBleUpload()
     {
         // The critical test: editing recipe params must write frames to BLE.
-        // PR #561 was a regression where this path silently stopped uploading.
+        // PR Kulitorum/Decenza#561 was a regression where this path silently stopped uploading.
         McpTestFixture f;
         registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f);
@@ -523,7 +523,7 @@ private slots:
     // Four profile reads returned a bare `{}` when ProfileManager was null, while
     // every other guard in the same file set `error`. An empty object is not an
     // answer: the model cannot tell "no profiles" from "this app cannot answer",
-    // and — since #1754 marks failure off the `error` key — an empty result ships
+    // and — since PR Kulitorum/Decenza#1754 marks failure off the `error` key — an empty result ships
     // as a SUCCESSFUL call.
     void profileReadsReportAnUnavailableManagerAsAnError_data() {
         QTest::addColumn<QString>("tool");

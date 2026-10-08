@@ -78,7 +78,7 @@ private:
     // range Jeff asked for. The poll auto-pauses when the scale is asleep
     // (sleep() calls stopHeartbeat) and is also gated on m_lcdOn so that
     // disableLcd() (DE1 sleep + keepScaleOn=true) doesn't relight the LCD
-    // every ~4 min — see #1279.
+    // every ~4 min — see PR Kulitorum/Decenza#1279.
     static constexpr int kBatteryPollHeartbeatTicks = 240;
 
     ScaleBleTransport* m_transport = nullptr;
