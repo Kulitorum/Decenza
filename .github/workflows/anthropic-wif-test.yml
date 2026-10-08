@@ -1,69 +1,624 @@
 name: Anthropic federation test
-
-on:
-  push:
-    branches: [codex/claude-workload-identity]
-    paths: ['.github/workflows/anthropic-wif-test.yml']
-  workflow_dispatch:
-
 permissions:
   contents: read
   id-token: write
-
 concurrency:
   group: anthropic-wif-test-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   token-exchange:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Test GitHub identity token exchange
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            const identityToken = await core.getIDToken('https://api.anthropic.com');
-            core.setSecret(identityToken);
-            let response;
-            try {
-              response = await fetch('https://api.anthropic.com/v1/oauth/token', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                  assertion: identityToken,
-                  federation_rule_id: 'fdrl_01845VJkqDXmxfEeoz22VNyg',
-                  organization_id: 'e3971c6d-a39b-46fc-a5e9-d152d5f5d476',
-                  service_account_id: 'svac_01Rjzffi5Zn9hAG3NSPrboZE',
-                  workspace_id: 'wrkspc_01CfPYtm6bgzXkKPucdyGATe'
-                }),
-                signal: AbortSignal.timeout(30000)
-              });
-            } catch {
-              core.setFailed('Anthropic token exchange could not be reached. No response body or token was logged.');
-              return;
-            }
-            if (!response.ok) {
-              core.setFailed(`Anthropic token exchange failed (HTTP ${response.status}). Check Claude Console authentication history for this rule.`);
-              return;
-            }
-            let result;
-            try {
-              result = await response.json();
-            } catch {
-              core.setFailed('Anthropic returned an invalid exchange response. The response body was not logged.');
-              return;
-            }
-            if (typeof result.access_token === 'string') core.setSecret(result.access_token);
-            if (!result.access_token || result.token_type?.toLowerCase() !== 'bearer' ||
-                !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
-              core.setFailed('Anthropic exchange response did not contain a valid expiring bearer token. No response body was logged.');
-              return;
-            }
-            core.info(`Federation succeeded. Anthropic token expires in ${result.expires_in} seconds.`);
-            await core.summary
-              .addHeading('Anthropic federation test')
-              .addRaw(`Token exchange succeeded. Lifetime: ${result.expires_in} seconds.\n\n`)
-              .addRaw('No model request was made; identity and access tokens were neither exported nor logged.\n')
-              .write();
+    - name: Test GitHub identity token exchange
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      with:
+        script: |
+          const identityToken = await core.getIDToken('https://api.anthropic.com');
+          core.setSecret(identityToken);
+          let response;
+          try {
+            response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: identityToken,
+                federation_rule_id: 'fdrl_01845VJkqDXmxfEeoz22VNyg',
+                organization_id: 'e3971c6d-a39b-46fc-a5e9-d152d5f5d476',
+                service_account_id: 'svac_01Rjzffi5Zn9hAG3NSPrboZE',
+                workspace_id: 'wrkspc_01CfPYtm6bgzXkKPucdyGATe'
+              }),
+              signal: AbortSignal.timeout(30000)
+            });
+          } catch {
+            core.setFailed('Anthropic token exchange could not be reached. No response body or token was logged.');
+            return;
+          }
+          if (!response.ok) {
+            core.setFailed(`Anthropic token exchange failed (HTTP ${response.status}). Check Claude Console authentication history for this rule.`);
+            return;
+          }
+          let result;
+          try {
+            result = await response.json();
+          } catch {
+            core.setFailed('Anthropic returned an invalid exchange response. The response body was not logged.');
+            return;
+          }
+          if (typeof result.access_token === 'string') core.setSecret(result.access_token);
+          if (!result.access_token || result.token_type?.toLowerCase() !== 'bearer' ||
+              !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
+            core.setFailed('Anthropic exchange response did not contain a valid expiring bearer token. No response body was logged.');
+            return;
+          }
+          core.info(`Federation succeeded. Anthropic token expires in ${result.expires_in} seconds.`);
+          if (process.env.TEST_INFERENCE !== 'true') {
+          await core.summary
+            .addHeading('Anthropic federation test')
+            .addRaw(`Token exchange succeeded. Lifetime: ${result.expires_in} seconds.\n\n`)
+            .addRaw('No model request was made; identity and access tokens were neither exported nor logged.\n')
+            .write();
+
+            return;
+          }
+          let inference;
+          try {
+            inference = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01',
+                authorization: 'Bearer '+result.access_token },
+              body: JSON.stringify({model:'claude-sonnet-5-5',max_tokens:16,
+                messages:[{role:'user',content:'Reply OK.'}]}),
+              signal: AbortSignal.timeout(30000)
+            });
+          } catch { core.setFailed('Inference endpoint could not be reached. No tokens or response were logged.'); return; }
+          let payload;
+          try { payload = await inference.json(); }
+          catch { core.setFailed('Invalid inference response. HTTP '+inference.status+'. No body logged.'); return; }
+          if (inference.ok) {
+            await core.summary.addHeading('Anthropic inference test')
+              .addRaw('Federation and one tiny paid model request succeeded. Tokens and model output were not logged.\n').write();
+            return;
+          }
+          const message = typeof payload.error?.message === 'string' ? payload.error.message : '';
+          const spend = /spend|spending|cost limit|monthly limit/i.test(message);
+          const reason = /workspace/i.test(message) && spend ? 'workspace_spending_limit'
+            : /organization/i.test(message) && spend ? 'organization_spending_limit'
+            : /credit balance|insufficient.?credit|not enough.?credit/i.test(message) ? 'insufficient_credits'
+            : spend ? 'spending_limit'
+            : /scope|permission/i.test(message) ? 'authorization_scope'
+            : /rate.?limit|quota/i.test(message) || inference.status === 429 ? 'rate_or_quota_limit'
+            : /model/i.test(message) ? 'model_access' : 'other_provider_error';
+          const allowedTypes = new Set(['invalid_request_error','authentication_error','permission_error',
+            'not_found_error','rate_limit_error','api_error','overloaded_error']);
+          const type = allowedTypes.has(payload.error?.type) ? payload.error.type : 'unknown';
+          const report = 'HTTP '+inference.status+'; type: '+type+'; reason: '+reason;
+          core.setFailed('Anthropic inference rejected: '+report+'.');
+          await core.summary.addHeading('Anthropic inference test failed')
+            .addRaw(report+'. No raw error response, identity token, or access token was logged.\n').write();
+      env:
+        TEST_INFERENCE: ${{ inputs.test_inference }}
+    if: ${{ github.actor_id == '1629894' }}
+  official_action:
+    if: ${{ github.actor_id == '1629894' && inputs.test_actions }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Native federation probe
+      id: claude
+      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      with:
+        anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
+        anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
+        anthropic_service_account_id: svac_01Rjzffi5Zn9hAG3NSPrboZE
+        anthropic_workspace_id: wrkspc_01CfPYtm6bgzXkKPucdyGATe
+        anthropic_oidc_audience: https://api.anthropic.com
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        github_token: ${{ github.token }}
+        display_report: false
+        classify_inline_comments: false
+        include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.cli.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+  official_base_action:
+    if: ${{ github.actor_id == '1629894' && inputs.test_actions }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Native federation probe
+      id: claude
+      uses: anthropics/claude-code-base-action@35251bb81980a07458140ec50413971d704550a9
+      with:
+        anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
+        anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
+        anthropic_service_account_id: svac_01Rjzffi5Zn9hAG3NSPrboZE
+        anthropic_workspace_id: wrkspc_01CfPYtm6bgzXkKPucdyGATe
+        anthropic_oidc_audience: https://api.anthropic.com
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        path_to_claude_code_executable: ${{ steps.cli.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+  official_action_clean_env:
+    if: ${{ github.actor_id == '1629894' && inputs.test_actions }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Remove empty credential overrides at CLI launch
+      id: launch
+      run: |
+        cat > "$RUNNER_TEMP/claude-wif-launch" <<'SH'
+        #!/bin/sh
+        # Refuse unexpected static credentials; only remove empty variables.
+        if [ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+          echo 'Unexpected static credential configured; federation diagnostic stopped.' >&2
+          exit 1
+        fi
+        exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_AUTH_TOKEN "$HOME/.local/bin/claude" "$@"
+        SH
+        chmod 700 "$RUNNER_TEMP/claude-wif-launch"
+        printf 'path=%s/claude-wif-launch\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+    - name: Native federation probe
+      id: claude
+      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      with:
+        anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
+        anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
+        anthropic_service_account_id: svac_01Rjzffi5Zn9hAG3NSPrboZE
+        anthropic_workspace_id: wrkspc_01CfPYtm6bgzXkKPucdyGATe
+        anthropic_oidc_audience: https://api.anthropic.com
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        github_token: ${{ github.token }}
+        display_report: false
+        classify_inline_comments: false
+        include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.launch.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+  official_action_bearer:
+    if: ${{ github.actor_id == '1629894' && inputs.test_bearer_action }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Exchange existing federated identity for runtime bearer token
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      with:
+        script: |
+          const identityToken = await core.getIDToken('https://api.anthropic.com');
+          core.setSecret(identityToken);
+          let response;
+          try {
+            response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: identityToken,
+                federation_rule_id: 'fdrl_01845VJkqDXmxfEeoz22VNyg',
+                organization_id: 'e3971c6d-a39b-46fc-a5e9-d152d5f5d476',
+                service_account_id: 'svac_01Rjzffi5Zn9hAG3NSPrboZE',
+                workspace_id: 'wrkspc_01CfPYtm6bgzXkKPucdyGATe'
+              }),
+              signal: AbortSignal.timeout(30000)
+            });
+          } catch {
+            core.setFailed('Anthropic token exchange could not be reached. No response body or token was logged.');
+            return;
+          }
+          if (!response.ok) {
+            core.setFailed(`Anthropic token exchange failed (HTTP ${response.status}). Check Claude Console authentication history for this rule.`);
+            return;
+          }
+          let result;
+          try {
+            result = await response.json();
+          } catch {
+            core.setFailed('Anthropic returned an invalid exchange response. The response body was not logged.');
+            return;
+          }
+          if (typeof result.access_token === 'string') core.setSecret(result.access_token);
+          if (!result.access_token || result.token_type?.toLowerCase() !== 'bearer' ||
+              !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
+            core.setFailed('Anthropic exchange response did not contain a valid expiring bearer token. No response body was logged.');
+            return;
+          }
+          core.exportVariable('ANTHROPIC_AUTH_TOKEN', result.access_token);
+          core.info('Short-lived bearer credential exchanged from the configured federation rule; value is masked.');
+    - name: Launch current CLI with federated bearer credential
+      id: launch
+      run: |
+        cat > "$RUNNER_TEMP/claude-wif-bearer-launch" <<'SH'
+        #!/bin/sh
+        if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+          echo 'Expected federated bearer credential missing or conflicting credential present.' >&2
+          exit 1
+        fi
+        exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN "$HOME/.local/bin/claude" "$@"
+        SH
+        chmod 700 "$RUNNER_TEMP/claude-wif-bearer-launch"
+        printf 'path=%s/claude-wif-bearer-launch\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+    - name: Native federation probe
+      id: claude
+      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      with:
+        anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
+        anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
+        anthropic_service_account_id: svac_01Rjzffi5Zn9hAG3NSPrboZE
+        anthropic_workspace_id: wrkspc_01CfPYtm6bgzXkKPucdyGATe
+        anthropic_oidc_audience: https://api.anthropic.com
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+          --bare
+        github_token: ${{ github.token }}
+        display_report: false
+        classify_inline_comments: false
+        include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.launch.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+  direct_cli:
+    if: ${{ github.actor_id == '1629894' && inputs.test_direct_cli }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Exchange existing federated identity for runtime bearer token
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      with:
+        script: |
+          const identityToken = await core.getIDToken('https://api.anthropic.com');
+          core.setSecret(identityToken);
+          let response;
+          try {
+            response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: identityToken,
+                federation_rule_id: 'fdrl_01845VJkqDXmxfEeoz22VNyg',
+                organization_id: 'e3971c6d-a39b-46fc-a5e9-d152d5f5d476',
+                service_account_id: 'svac_01Rjzffi5Zn9hAG3NSPrboZE',
+                workspace_id: 'wrkspc_01CfPYtm6bgzXkKPucdyGATe'
+              }),
+              signal: AbortSignal.timeout(30000)
+            });
+          } catch {
+            core.setFailed('Anthropic token exchange could not be reached. No response body or token was logged.');
+            return;
+          }
+          if (!response.ok) {
+            core.setFailed(`Anthropic token exchange failed (HTTP ${response.status}). Check Claude Console authentication history for this rule.`);
+            return;
+          }
+          let result;
+          try {
+            result = await response.json();
+          } catch {
+            core.setFailed('Anthropic returned an invalid exchange response. The response body was not logged.');
+            return;
+          }
+          if (typeof result.access_token === 'string') core.setSecret(result.access_token);
+          if (!result.access_token || result.token_type?.toLowerCase() !== 'bearer' ||
+              !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
+            core.setFailed('Anthropic exchange response did not contain a valid expiring bearer token. No response body was logged.');
+            return;
+          }
+          core.exportVariable('ANTHROPIC_AUTH_TOKEN', result.access_token);
+          core.info('Short-lived bearer credential exchanged from the configured federation rule; value is masked.');
+    - name: Launch current CLI with federated bearer credential
+      id: launch
+      run: |
+        cat > "$RUNNER_TEMP/claude-wif-bearer-launch" <<'SH'
+        #!/bin/sh
+        if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+          echo 'Expected federated bearer credential missing or conflicting credential present.' >&2
+          exit 1
+        fi
+        exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN "$HOME/.local/bin/claude" "$@"
+        SH
+        chmod 700 "$RUNNER_TEMP/claude-wif-bearer-launch"
+        printf 'path=%s/claude-wif-bearer-launch\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+    - name: Compare direct current CLI without action SDK
+      env:
+        LAUNCHER: ${{ steps.launch.outputs.path }}
+      run: |
+        set +e
+        "$LAUNCHER" --bare -p 'Reply exactly OK. Use no tools.' --model claude-sonnet-5-5 \
+          --tools '' --max-turns 2 --max-budget-usd 0.10 --output-format json \
+          > "$RUNNER_TEMP/direct-cli-result.json" 2> "$RUNNER_TEMP/direct-cli-stderr.txt"
+        status=$?
+        python3 - <<'PY'
+        import json, os, pathlib
+        file=pathlib.Path(os.environ['RUNNER_TEMP'])/'direct-cli-result.json'
+        try: result=json.loads(file.read_text())
+        except Exception: raise SystemExit('Direct CLI returned no parseable result. Private output was not logged.')
+        value=result.get('result','')
+        reason='success' if result.get('is_error') is False and value.strip()=='OK' else 'credit_error' if 'credit balance' in value.lower() else 'other_failure'
+        print('Safe direct CLI diagnostic: '+json.dumps({'reason':reason,'turns':result.get('num_turns'),'cost_usd':result.get('total_cost_usd')}))
+        with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary: summary.write('Direct CLI with existing federation identity: '+reason+'. Raw response and tokens remain private.\n')
+        if reason!='success': raise SystemExit('Direct CLI probe failed: '+reason)
+        PY
+        parse_status=$?
+        if [ "$status" -ne 0 ] || [ "$parse_status" -ne 0 ]; then exit 1; fi
+  official_action_api_key:
+    if: ${{ github.actor_id == '1629894' && inputs.test_api_key_action }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: API key probe
+      id: claude
+      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      with:
+        anthropic_api_key: ${{ secrets.JEFF_ANTHROPIC_API_KEY }}
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        github_token: ${{ github.token }}
+        display_report: false
+        classify_inline_comments: false
+        include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.cli.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+'on':
+  push:
+    branches:
+    - codex/claude-workload-identity
+    paths:
+    - .github/workflows/anthropic-wif-test.yml
+  workflow_dispatch:
+    inputs:
+      test_inference:
+        description: Also make one tiny paid API request to diagnose model/account limits
+        required: false
+        default: false
+        type: boolean
+      test_actions:
+        description: Compare tiny native WIF calls through both official Claude actions (up to USD 0.10 each)
+        required: false
+        default: false
+        type: boolean
+      test_bearer_action:
+        description: Test the official action with a short-lived token exchanged from the same WIF rule (USD 0.10 cap)
+        required: false
+        default: false
+        type: boolean
+      test_direct_cli:
+        description: Isolate the current CLI from the action SDK using the same federated runtime token (USD 0.10 cap)
+        required: false
+        default: false
+        type: boolean
+      test_api_key_action:
+        description: Run the same official-action probe with the JEFF_ANTHROPIC_API_KEY secret instead of WIF (USD 0.10 cap)
+        required: false
+        default: false
+        type: boolean

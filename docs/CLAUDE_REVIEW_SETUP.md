@@ -1,5 +1,13 @@
 # Claude pull-request reviewer
 
+> Current validation: federation, a direct Messages API call, and direct CLI
+> 2.1.294 inference succeeded. Both official actions' SDK execution path still
+> returns an immediate credit error. The revised workflow is **not a validated
+> repair** and should remain a draft until a real action-driven review succeeds.
+> Diagnostics: [direct API](https://github.com/Kulitorum/Decenza/actions/runs/37732584742),
+> [latest action probes](https://github.com/Kulitorum/Decenza/actions/runs/37733624717),
+> [direct CLI](https://github.com/Kulitorum/Decenza/actions/runs/37734789522).
+
 `.github/workflows/claude-review.yml` uses the official Anthropic action to post
 up to five inline findings. Automatic reviews run on relevant, non-draft PRs
 opened by **skialpine** (GitHub account ID `1629894`), on open, new commits,
@@ -34,7 +42,8 @@ and are included directly in both workflows; no Actions variables are required.
 3. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
    by skialpine. In **Actions → Claude PR review**,
    check completion and inspect any inline findings. Drafts, forks, and other bots
-   are skipped. A run with no findings posts no comment.
+   are skipped. Completed reviews update a Claude status comment on the PR even
+   with zero findings. Failed reviews report incomplete status, never zero findings.
 
 ### Verified token exchange
 
@@ -47,7 +56,32 @@ not verify model access, credits, or the complete review/fix execution.
 `.github/workflows/anthropic-wif-test.yml` runs on changes to itself on the setup
 branch and can be dispatched manually after merge. It uses the same four IDs and
 audience as the production workflows. No checkout, API key, or Claude App is
-needed for this exchange-only test.
+needed for this exchange-only test. Its manual `test_inference` option makes one
+tiny paid Messages request (16 output tokens maximum) to the same model and
+workspace. Only skialpine can run the diagnostic. It reports HTTP status, an
+allowlisted error type, and a safe category such as `workspace_spending_limit`;
+tokens, model output, and raw error bodies stay private. This option defaults off. The separate `test_actions` option compares tiny
+native federation calls through the current official action and current Base
+Action mirror, with at most $0.10 per probe. Diagnostic-only probes also compare
+a CLI launch with empty static-credential environment variables removed. They
+use Node 26.11.1 via setup-node v7.1.0 and CLI 2.1.294; no review or code changes
+run in these probes. The Base Action Marketplace `beta` tag is stale (August
+2025), so the diagnostic uses the current mirror commit rather than that tag.
+All test options default off. `test_bearer_action` tests a runtime bearer token
+exchanged from the same rule through the official action in documented bare mode;
+`test_direct_cli` isolates the latest CLI from the action SDK using that same
+exchange. Tokens are masked and retained only within the ephemeral job; no
+static key is stored by the federation tests. A separate optional
+`test_api_key_action` comparison, added by another maintainer session, uses the
+existing `JEFF_ANTHROPIC_API_KEY` secret. It defaults off and is not a production
+authentication fallback. That test requires a separately configured key and
+does not alter the reviewer or fix workflow's federation authentication. These probes are diagnostic comparisons, not automatic
+production fallbacks.
+
+If direct inference succeeds while native action probes report a credit error,
+that does not establish exhausted organization credits. Investigate differences in the action/SDK execution path and request settings
+before changing billing settings. Direct inference success does not by itself
+identify the action failure's root cause.
 
 ### Trust scope and migration
 
@@ -84,13 +118,21 @@ passes GitHub's short-lived `GITHUB_TOKEN` for repository operations. Its job gr
 `contents: read`, `pull-requests: write`, and `id-token: write`; all other
 permissions are disabled. OIDC permission allows Anthropic authentication and
 does not grant code-write permission.
+Direct workflow actions are pinned to current published versions: Claude action
+v1.0.245, checkout v7.0.1, GitHub Script v9.0.0, upload-artifact v7.0.2 and
+download-artifact v8.0.2. The latest Claude CLI, 2.1.294, is installed with the
+official installer and passed through the action's documented custom-executable
+input, since the current action itself installs CLI 2.1.293. Its embedded SDK
+remains the official action's dependency (currently latest SDK 0.3.293).
+
 Comments appear as `github-actions[bot]`. The token cannot push code or merge PRs.
 
 For requested fixes, an admin must install the official
 [Claude App](https://github.com/apps/claude). Select **Only select repositories →
 Decenza** and inspect the requested permissions. The official App requests
 contents, pull-request, issue, discussion, and workflow write access, plus
-Actions/checks read access; the installation screen is authoritative. Its
+Actions/checks write access and additional administration/member/merge-queue
+read, repository-hook write, and status read access; the installation screen is authoritative. Its
 permission set cannot be individually reduced by the installer. The fix job
 requests a repository-scoped token with contents/pull-request write and issue
 read access via `additional_permissions`, using `id-token: write` for exchange.
@@ -126,8 +168,14 @@ and publication checks.
 The requested review is read-only. Its workflow runs from the default branch,
 checks out the trusted base at the workspace root, and reads the captured head
 in an isolated subdirectory without executing its code. The diff is indexed into bounded per-file chunks, then assigned to sequential
-batches of at most eight files. Each batch assesses its assigned changes and can
-read surrounding source as needed. Every batch must complete before publication. Claude returns structured findings; the workflow checks every batch result,
+batches of at most eight files and eight chunks (at most 65 KB of patch input).
+Large files can span batches. Every assigned patch is supplied directly in the
+initial review prompt, so reading a subset of patch files cannot silently omit
+the remaining patch input. Each batch can read surrounding source as needed. Every batch must complete before publication. The publisher independently checks
+that chunk assignments are lossless and unique and that each successful result
+matches the hash/count/size of the patch text supplied to its action. This verifies
+input delivery, not the model's depth of analysis: assessment completion is still
+reported by Claude. Claude returns structured findings; the workflow checks every batch result,
 deduplicates findings, selects up to five by severity, and validates their paths,
 diff lines, and captured revision before posting a COMMENT review. It cannot approve or change code. A source
 update during context/diff fetching or review prevents stale publication. Unrelated comments do not cancel a
@@ -189,13 +237,14 @@ to stop accepting fix requests.
   overhead. Small PRs use one batch; large PRs take longer because batches run
   sequentially. Estimates can differ from the bill. Cancellation does not undo
   charges already incurred. Use Console workspace limits for total spend control.
-  New pushes cancel older runs for the same PR. Reruns can repeat comments.
+  New pushes cancel older runs for the same PR. Reruns update the status comment;
+  inline findings can repeat. Artifact and script actions use Node 24.
 - Only public PR context and sanitized batch findings are shared as one-day
   workflow artifacts. Raw execution traces and credential caches stay local to
   each runner. Full output and report display are disabled. Do not enable Actions debug
   logging: the action can enable full output in debug mode. Do not upload the
   action's execution files as public artifacts.
-- Completion means the static source assessment completed, not that runtime
+- Completion means every batch reported its static source assessment completed, not that runtime
   behavior was exhaustively verified or that the code is bug-free. Qt build/tests
   remain separate. Incomplete results report a reason (missing input, unreadable
   source, analysis limit, or other) and publish no partial findings. Publication
@@ -203,6 +252,15 @@ to stop accepting fix requests.
   checks and local/nightly test process.
 
 ## Troubleshooting and disabling
+
+A near-instant failure with no tools and no structured result can be a provider
+rejection before any review. The collector reports a safe error category without
+printing the private response. `reported_credit_error`, `spending_limit`, or
+`billing_or_quota`: check the selected organization's API credit balance and the
+federated workspace's spending/rate limits in Claude Console. A successful token
+exchange does not test credits. These failures are not automatically retried;
+request a new review after resolving the account limit. The workflow never raises
+Console limits or switches to a different paid account.
 
 Authentication failure: check Console authentication history, issuer/audience,
 repository/branch restrictions, service-account workspace membership, credits,
