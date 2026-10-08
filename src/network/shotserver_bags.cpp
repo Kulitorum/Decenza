@@ -462,6 +462,16 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
         QVariantMap fields = editorFieldsFromBody(bodyJson);
+        // kind is creation-time only (deliberately NOT in kBagEditableKeys, so
+        // the update route can never touch it): accept it here, default coffee.
+        // Set before CoffeeBag::writeError, whose kind check reads it.
+        const QString kind = bodyJson.value("kind").toString();
+        if (!kind.isEmpty() && kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
+            respondJson(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}}, 400);
+            return;
+        }
+        if (!kind.isEmpty())
+            fields.insert("kind", kind);
         // A new bag has no portion in use yet; its first shot stamps the opened
         // date (as the app form and MCP create refuse them too).
         for (const char* key : {"defrostDate", "openedDate"}) {
@@ -480,15 +490,6 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", "roasterName or coffeeName is required"}}, 400);
             return;
         }
-        // kind is creation-time only (deliberately NOT in kBagEditableKeys, so
-        // the update route can never touch it): accept it here, default coffee.
-        const QString kind = bodyJson.value("kind").toString();
-        if (!kind.isEmpty() && kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
-            respondJson(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}}, 400);
-            return;
-        }
-        if (!kind.isEmpty())
-            fields.insert("kind", kind);
         QPointer<BeanBaseClient> safeBeanbase = m_mainController ? m_mainController->beanbase() : nullptr;
         const QString createdImageUrl =
             bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
