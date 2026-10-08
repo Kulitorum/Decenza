@@ -186,7 +186,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // on a contended radio well over a second before it reaches the dispatcher.
     // kWatchdogFirstTimeoutMs is 1000 ms, so it expires against a question that
     // was never asked, logs "no initial weight data", and re-enables — the very
-    // duplicate CCCD write #1885 deleted the 400 ms repeat to avoid. Ten of those
+    // duplicate CCCD write PR Kulitorum/Decenza#1885 deleted the 400 ms repeat to avoid. Ten of those
     // force-disconnect a healthy scale.
     //
     // This is the same defect the guard in wake() was written for (arming a
@@ -534,7 +534,7 @@ void DecentScale::startWatchdog() {
     // timed as a first sight (kWatchdogFirstTimeoutMs) rather than as a stall.
     // Build 3574's log shows two arms 198 ms apart: the enable issued at 5.040 s
     // and cleared the pending flag, then the 500 ms wake() armed again at
-    // 5.238 s. Before #1885 quietened the connect burst the enable landed after
+    // 5.238 s. Before PR Kulitorum/Decenza#1885 quietened the connect burst the enable landed after
     // both wakes, so this was unreachable.
     //
     // The guard lives HERE rather than at the caller because startWatchdog() has

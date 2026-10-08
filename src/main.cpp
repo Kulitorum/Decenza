@@ -2991,7 +2991,7 @@ int main(int argc, char *argv[])
         // Single-scale invariant: at most one physical scale is connected at a
         // time (a different scale type replaces the old one below, never runs
         // alongside it). This caps concurrent forced-HIGH BLE links at two —
-        // DE1 + scale — the proven-good #1097 baseline. Connecting a second
+        // DE1 + scale — the proven-good PR Kulitorum/Decenza#1097 baseline. Connecting a second
         // scale simultaneously would make it a third HIGH link and reintroduce
         // the GATT-scheduler contention that tears the weakest link down (the
         // refractometer fix relies on this same 2-link ceiling). If
@@ -3130,8 +3130,8 @@ int main(int argc, char *argv[])
 
         // Forward scale-level error messages to BLEManager::errorOccurred, which
         // main.qml wires to the error dialog. Transient connect-failures are log-only
-        // inside the drivers — BLE transport/service-discovery errors (#1285, #1292)
-        // and WiFi mDNS-miss / host-not-found / 503 retries (#1253). What reaches
+        // inside the drivers — BLE transport/service-discovery errors (PR Kulitorum/Decenza#1285, PR Kulitorum/Decenza#1292)
+        // and WiFi mDNS-miss / host-not-found / 503 retries (PR Kulitorum/Decenza#1253). What reaches
         // here is an ACTIONABLE error worth showing unconditionally — e.g. WiFi 503
         // "Another client is connected to the scale" that the retry loop can't
         // resolve, or a measurement-side condition from a refractometer ("No liquid
@@ -4335,14 +4335,14 @@ int main(int argc, char *argv[])
         // No "GHCSimulator" line: it is now a QML_SINGLETON too, and a singleton is per-type,
         // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
         // same instance main published. A context property of the same name would SHADOW it and
-        // be invisible to qmllint, which is the shape #1661 took. The same goes for "DE1Device".
+        // be invisible to qmllint, which is the shape PR Kulitorum/Decenza#1661 took. The same goes for "DE1Device".
         //
         // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
         // and it never reads that name; nothing else in qml/ does either.
         // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
         // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
         // context property of the same name would SHADOW the singleton and be invisible to
-        // qmllint, qmlcachegen and the language server — the #1661 shape. The TemperatureDisplay
+        // qmllint, qmlcachegen and the language server — the PR Kulitorum/Decenza#1661 shape. The TemperatureDisplay
         // line that sat beside this one went for the same reason.
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
@@ -4849,13 +4849,17 @@ int main(int argc, char *argv[])
             needBleWait = de1TransportConnected;
         }
 
-        // Put the scale to sleep on exit only when the user has not asked to keep
-        // it on: "keep scale on" covers quitting the app too (#1981).
-        const bool sleepScaleOnExit = physicalScale && physicalScale->isConnected()
-                                      && !settings.keepScaleOn();
+        // "Keep scale on" covers quitting the app too (#1981): display off, as when
+        // the DE1 sleeps, but the scale stays on. The display write has no completion
+        // signal, so it rides the DE1 drain wait when there is one.
+        const bool scaleConnected = physicalScale && physicalScale->isConnected();
+        const bool sleepScaleOnExit = scaleConnected && !settings.keepScaleOn();
         if (sleepScaleOnExit) {
             DIAG_DEBUG(SCALE, "main") << "Sending physical scale to sleep on app exit";
             needBleWait = true;
+        } else if (scaleConnected) {
+            DIAG_DEBUG(SCALE, "main") << "Turning the scale display off on app exit (keep scale on)";
+            physicalScale->disableLcd();
         }
 
         // IMPORTANT: Ensure charger is ON before exiting, unless the user switched

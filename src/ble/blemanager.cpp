@@ -587,16 +587,16 @@ void BLEManager::setSettings(SettingsHardware* settings)
 #ifdef Q_OS_ANDROID
         // First-launch seed for the dual-HIGH-incapable cohort (#1238).
         //
-        // The runtime detector (#1185) does eventually catch these devices,
+        // The runtime detector (PR Kulitorum/Decenza#1185) does eventually catch these devices,
         // but only after one full DE1-outage detection window (~minutes of
         // broken scale discovery on the P80X chipset, then a ~70s DE1 GATT
         // collapse). Seeding the latch up front on the population that the
-        // retired #1097 SDK<30 gate used to cover (Android < 11) bypasses
+        // retired PR Kulitorum/Decenza#1097 SDK<30 gate used to cover (Android < 11) bypasses
         // that first-launch pain.
         //
         // This is a SEED, not a gate: the runtime detector continues to
         // handle SDK≥30 devices on weak chipsets (the #1176 Galaxy Tab A8 /
-        // T618 case that motivated #1185), unchanged.
+        // T618 case that motivated PR Kulitorum/Decenza#1185), unchanged.
         //
         // Sticky by design: SDK_INT is a permanent OS characteristic, so the
         // seed re-evaluates on every launch where the latch is absent (e.g.,
@@ -604,7 +604,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // latch persists, subsequent launches rehydrate it without re-running
         // this block. There is no in-app way to permanently restore HIGH on
         // SDK<30 hardware — the only exit is an OS upgrade to SDK≥30.
-        constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
+        constexpr int kSeedSdkBelow = 30;  // PR Kulitorum/Decenza#1097's predicate, now reused as a seed
         const int sdkInt = androidSdkInt();
         if (sdkInt <= 0) {
             SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
@@ -622,7 +622,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
             // stop. A seed that FAILS (above) is the problem, and stays WARN.
             SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
                 QStringLiteral("First-launch seed: Android SDK %1 < "
-                      "%2 (dual-HIGH-incapable cohort, ex-#1097) — skip-HIGH "
+                      "%2 (dual-HIGH-incapable cohort, the former Android < 11 rule) — skip-HIGH "
                       "latch SET without running the detection window. "
                       "Persisted under epoch %3; both BLE links start at "
                       "BALANCED. Seed re-applies on every launch where the "
@@ -1062,7 +1062,7 @@ void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& 
         emit disconnectScaleRequested();
 
     // Arm the connection timer so a wrong/unreachable host is caught by
-    // onScaleConnectionTimeout. WiFi socket errors are otherwise log-only (#1253),
+    // onScaleConnectionTimeout. WiFi socket errors are otherwise log-only (PR Kulitorum/Decenza#1253),
     // so without this a bad address fails with NO user feedback. m_manualWifiConnect
     // makes that timeout report "Not found" directly instead of starting a WiFi→BLE
     // fallback scan — the user asked for a specific WiFi address, so we don't
@@ -2332,6 +2332,9 @@ void BLEManager::switchToWifiPrimary() {
 }
 
 void BLEManager::setSavedScaleAddress(const QString& address, const QString& type, const QString& name) {
+    // A different saved scale starts a new absence, so its ladder announces itself.
+    if (address != m_savedScaleAddress)
+        m_scaleLadderScanLog.flush(QStringLiteral("scan"), QDateTime::currentMSecsSinceEpoch());
     m_savedScaleAddress = address;
     m_savedScaleType = type;
     m_savedScaleName = name;
@@ -3147,7 +3150,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // returns NOTHING for hours while the scale is plainly reachable: 82
         // consecutive reconnects received ZERO mDNS records over 7.5 h with the
         // scale awake and serving WebSocket traffic, while a browse resolved the
-        // same host in 362 ms. Raising that deadline (#1737) did not change it.
+        // same host in 362 ms. Raising that deadline (PR Kulitorum/Decenza#1737) did not change it.
         //
         // That state is host-side, NOT a property of the responder — a later run
         // on the same tablet resolved the same host by A-query in 357 ms, the

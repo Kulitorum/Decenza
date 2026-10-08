@@ -4,7 +4,7 @@
 #include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
 
-// Guards the GHC "headless" gate default (PR #1470). m_isHeadless means "the
+// Guards the GHC "headless" gate default (PR Kulitorum/Decenza#1470). m_isHeadless means "the
 // app may start operations on-screen". It must default TRUE (matching de1app,
 // whose ghc_is_installed defaults to 0 → ghc_required()==0 → app can start): a
 // false default bricks every start button on the common no-GHC machine until
@@ -246,6 +246,17 @@ private slots:
         f.device.wakeUp();
         f.device.goToSleep();
         f.transport.clearWrites();
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("app is asleep; leaving the machine asleep")));
+        f.transport.setConnectedSim(true);
+        QVERIFY(requestedStates(f.transport).isEmpty());
+
+        // The app falling asleep again while still disconnected cancels the owed
+        // wake: the tap that asked for it is hours old by the time the DE1 returns.
+        drop(f);
+        f.device.setAppAsleep(false);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("disconnected; it will be sent once connected")));
+        f.device.wakeUp();
+        f.device.setAppAsleep(true);
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral("app is asleep; leaving the machine asleep")));
         f.transport.setConnectedSim(true);
         QVERIFY(requestedStates(f.transport).isEmpty());

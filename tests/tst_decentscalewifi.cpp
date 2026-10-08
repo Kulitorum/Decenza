@@ -629,7 +629,7 @@ private slots:
     // The refusal that motivated firmwareUpdateRejected in the first place:
     // an old firmware's command parser doesn't recognize "wifi_update" at
     // all and replies with a generic error frame (real wire shape confirmed
-    // against a 3.1.13 scale this session — see #1952).
+    // against a 3.1.13 scale this session — see PR Kulitorum/Decenza#1952).
     void firmwareUpdateRejectedOnErrorFrameReply() {
         FakeHdsServer server;
         DecentScaleWifi driver;
@@ -860,7 +860,7 @@ private slots:
         // "Add WiFi Scale" dialog's "Use" button) passes it as preferredIp. It
         // must be dialed directly, AHEAD of the persisted cache, and must NOT be
         // written to the cache — only a verified connect persists, so a stale
-        // preferredIp can never clobber a good cached IP (#1603 review follow-up).
+        // preferredIp can never clobber a good cached IP (PR Kulitorum/Decenza#1603 review follow-up).
         FakeHdsServer fresh;     // the fresh, correct target handed as preferredIp
         SilentServer staleCache; // a stale cache entry that would time out if used
         DecentScaleWifi driver;

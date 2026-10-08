@@ -2105,7 +2105,7 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         ? QString() : QStringLiteral(" [%1]").arg(reason);
 
     // Dedup: skip the BLE write when this register's cached value matches.
-    // Matches the setShotSettings pattern (see #773). Multiple convergent
+    // Matches the setShotSettings pattern (see PR Kulitorum/Decenza#773). Multiple convergent
     // callers — applyFlushSettings/applySteamSettings/applyHotWaterSettings/
     // sendMachineSettings — otherwise produce bursts of identical MMR writes
     // when distinct UI paths (page activation, preset selection, slider

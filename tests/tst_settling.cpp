@@ -380,7 +380,7 @@ private slots:
     }
 
     void cupLiftAfterNoisyPlateauDoesNotCaptureTransients_1280() {
-        // Regression guard for the corpus-scan finding (PR #1282 review):
+        // Regression guard for the corpus-scan finding (PR Kulitorum/Decenza#1282 review):
         // shots whose scale was wobbly throughout settling had no real
         // plateau, but the rolling-window avg occasionally satisfied the
         // gate transiently. The original capture rule (fire on every
@@ -425,7 +425,7 @@ private slots:
     }
 
     void implausibleCleanAvgIsRejectedAsScaleFault_1280() {
-        // Regression guard for the corpus-scan finding (PR #1282 review):
+        // Regression guard for the corpus-scan finding (PR Kulitorum/Decenza#1282 review):
         // shot 825 had a scale fault — the cup-on-scale reading froze at
         // ~75 g for hundreds of milliseconds on a ~40 g target shot. The
         // stability gate held continuously (gate is purely a window-drift

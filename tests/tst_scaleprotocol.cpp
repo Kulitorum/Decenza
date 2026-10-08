@@ -652,7 +652,7 @@ private slots:
     }
 
     void decentV12TenByteWeightFrameDecodes() {
-        // #1891 dispatched every non-0x25 notification at exactly 7 bytes, so a
+        // PR Kulitorum/Decenza#1891 dispatched every non-0x25 notification at exactly 7 bytes, so a
         // v1.2 scale's 10-byte weight frames became undecodable: no weight, and
         // — because the watchdog is now fed only by a decoded frame — ten
         // "no initial weight data" retries and a disconnect loop.
@@ -1377,7 +1377,7 @@ private slots:
         QCOMPARE(transport->m_disconnectCount, 0);
     }
 
-    // Regression for #1317: with the LCD intentionally off (disableLcd() — the
+    // Regression for PR Kulitorum/Decenza#1317: with the LCD intentionally off (disableLcd() — the
     // DE1-sleep + keepScaleOn=true path) the ~4-min battery refresh must NOT
     // re-send the display-on command, which is the same byte sequence wake()
     // uses and would silently relight the LCD ~4 min into the user's sleep.

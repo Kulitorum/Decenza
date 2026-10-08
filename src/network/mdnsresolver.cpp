@@ -567,7 +567,7 @@ int openQuerySocket(int* boundPortOut)
     if (sock < 0)
         return -1;
 
-    // One report point for both backends' query sockets, since #1772 gave them a
+    // One report point for both backends' query sockets, since PR Kulitorum/Decenza#1772 gave them a
     // shared opener.
     reportFdPressureIfHigh(sock, "mDNS query socket");
 

@@ -140,28 +140,16 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                             SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                                 QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
                         } else {
-                            // Once per run of silence: a ladder probing for a scale
-                            // that is off repeats it every cycle. Resolving ends the run.
-                            const QString text = QString("mDNS no responder for %1").arg(hostname);
-                            if (self->m_browseLog.shouldLog(QStringLiteral("noresp:") + hostname, text,
-                                                            QDateTime::currentMSecsSinceEpoch(), nullptr)) {
-                                SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                                    text + QString(" (%1 queries sent, %2 records seen)")
-                                               .arg(rs.queries).arg(rs.recordsSeen));
-                            }
+                            self->logLookupMiss(hostname, QString("mDNS no responder for %1").arg(hostname),
+                                                QString(" (%1 queries sent, %2 records seen)")
+                                                    .arg(rs.queries).arg(rs.recordsSeen));
                         }
                     } else {
                         WifiScaleResult r;
                         r.foundBy = WifiScaleResult::Source::Fallback;
                         r.hostname = hostname;
                         r.address = ip;
-                        const LogCollapse::Collapsed silent = self->m_browseLog.flush(
-                            QStringLiteral("noresp:") + hostname, QDateTime::currentMSecsSinceEpoch());
-                        SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS resolved %1 to %2%3").arg(hostname, ip,
-                                silent.suppressed > 0
-                                    ? QString(" (after %1 more unanswered lookup(s))").arg(silent.suppressed)
-                                    : QString()));
+                        self->logLookupResolved(hostname, ip);
                         emit self->resultFound(r);
                     }
                     self->finishOneLookup();
@@ -179,16 +167,14 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                         // INFO, not WARN: hds-2/hds-3 are absent on most networks,
                         // so a per-name failure is the normal case. The spec needs it
                         // recorded per name so a partial result is diagnosable.
-                        SCALE_INFO_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS lookup failed for %1: %2")
-                                .arg(hostname, info.errorString()));
+                        logLookupMiss(hostname, QString("mDNS lookup failed for %1: %2")
+                                                    .arg(hostname, info.errorString()), QString());
                     } else {
                         WifiScaleResult r;
                         r.foundBy = WifiScaleResult::Source::Fallback;
                         r.hostname = hostname;
                         r.address = info.addresses().first().toString();
-                        SCALE_INFO_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS resolved %1 to %2").arg(hostname, r.address));
+                        logLookupResolved(hostname, r.address);
                         emit resultFound(r);
                     }
                     finishOneLookup();
@@ -637,4 +623,26 @@ void WifiScaleDiscovery::cancelInFlight() {
         QHostInfo::abortHostLookup(id);
     m_lookupIds.clear();
     if (m_timeoutTimer) m_timeoutTimer->stop();
+}
+
+// Once per run of misses per hostname: a ladder probing for a scale that is off
+// repeats the same miss every cycle. Resolving the name ends the run. `detail`
+// varies per lookup, so it is logged but not compared.
+void WifiScaleDiscovery::logLookupMiss(const QString& hostname, const QString& text,
+                                       const QString& detail)
+{
+    if (m_browseLog.shouldLog(QStringLiteral("miss:") + hostname, text,
+                              QDateTime::currentMSecsSinceEpoch(), nullptr))
+        SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery", text + detail);
+}
+
+void WifiScaleDiscovery::logLookupResolved(const QString& hostname, const QString& address)
+{
+    const LogCollapse::Collapsed misses =
+        m_browseLog.flush(QStringLiteral("miss:") + hostname, QDateTime::currentMSecsSinceEpoch());
+    SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+        QString("mDNS resolved %1 to %2%3").arg(hostname, address,
+            misses.suppressed > 0
+                ? QString(" (after %1 more unanswered lookup(s))").arg(misses.suppressed)
+                : QString()));
 }

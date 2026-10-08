@@ -1227,7 +1227,7 @@ void WeightProcessor::resetForRetare()
     // A retare mid-preheat (cup placed during preheat, #299) can follow a popup
     // that already fired for an earlier stale reading this same extraction —
     // without this, a genuinely new untared-cup condition later in the same
-    // extraction could never re-trigger the popup (review finding on #1838).
+    // extraction could never re-trigger the popup (review finding on PR Kulitorum/Decenza#1838).
     m_untaredCupSignalled = false;
     SAWW_LOG(QStringLiteral("Reset for auto-retare"));
 }

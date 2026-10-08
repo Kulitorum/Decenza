@@ -84,6 +84,8 @@ void RelayClient::setEnabled(bool enabled)
         m_statusPushTimer.stop();
         m_remoteActivityTimer.stop();
         m_reconnectAttempts = 0;
+        // Ends the offline run, so after re-enabling the first failure prints again.
+        m_reconnectLog.flush(QStringLiteral("reconnect"), QDateTime::currentMSecsSinceEpoch());
         // Destroy capture service synchronously BEFORE closing the socket.
         // m_socket.close() is async — onDisconnected() fires later, but by then
         // the capture timer may have already fired grabWindow() during a nested

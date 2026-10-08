@@ -422,7 +422,7 @@ void BleTransport::onControllerConnected() {
     //
     // EXCEPT when the dual-HIGH-incapable latch is set: a proven-weak radio
     // cannot sustain TWO HIGH GATT links (scale + DE1) — the scale-only
-    // backoff (#1185) is insufficient because a lone HIGH DE1 still starves
+    // backoff (PR Kulitorum/Decenza#1185) is insufficient because a lone HIGH DE1 still starves
     // even a BALANCED scale (field log, #1176 shot-2). So the latched device
     // skips HIGH here too and runs the DE1 at the platform-default BALANCED
     // interval — both links BALANCED, the known-good config (matches de1app,
@@ -430,7 +430,7 @@ void BleTransport::onControllerConnected() {
     // persisted BLEManager latch the scale transport consults (it is a
     // device-level property, not per-link). Eventually-consistent: a latch
     // set mid-run takes effect on the DE1's next connect — we do NOT
-    // renegotiate a live link (consistent with the scale path / #1185).
+    // renegotiate a live link (consistent with the scale path / PR Kulitorum/Decenza#1185).
     // Capable hardware never latches ⇒ DE1 keeps HIGH ⇒ no regression.
     // Logged in BOTH branches: this is the only DE1-side connection-priority
     // log line — it closes the long-standing DE1-priority observability gap.

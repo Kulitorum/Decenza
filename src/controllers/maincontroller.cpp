@@ -98,10 +98,11 @@ constexpr int kMaxDriftResendAttempts = 3;
 
 // The mismatch and its resends are DEBUG: one resend fixes them on every
 // connect to a sleeping DE1, which wipes the write it took before Sleep -> Init.
-// Only giving up is WARN, so an episode's end takes the tier its start had.
-void logDriftEnd(int resendCount, const QString& text)
+// Only giving up is WARN, so an episode's end is INFO only when that WARN fired.
+// Call before flushDriftGiveUpLog(), which forgets it.
+void logDriftEnd(const LogCollapse& giveUpLog, const QString& text)
 {
-    if (resendCount >= kMaxDriftResendAttempts)
+    if (giveUpLog.hasKey(kDriftGiveUpLogKey))
         DRIFT_INFO(text);
     else
         DRIFT_LOG(text);
@@ -2874,7 +2875,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // because nothing between it and here pumps the event loop.
     if (!m_device || !m_device->isConnected() || !m_settings) {
         if (m_shotSettingsDriftResendCount > 0) {
-            logDriftEnd(m_shotSettingsDriftResendCount, QStringLiteral(
+            logDriftEnd(m_driftGiveUpLog, QStringLiteral(
                 "device gone with a resend outstanding — ladder abandoned, drift unresolved"));
             m_shotSettingsDriftResendCount = 0;
             flushDriftGiveUpLog();
@@ -2941,7 +2942,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     if (!steamDrift && !durationDrift && !hotWaterTempDrift && !hotWaterVolDrift && !groupDrift) {
         // DE1 stored what we sent. Reset retry bookkeeping.
         if (m_shotSettingsDriftResendCount > 0) {
-            logDriftEnd(m_shotSettingsDriftResendCount, QString(
+            logDriftEnd(m_driftGiveUpLog, QString(
                 "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
@@ -3054,7 +3055,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // where the ladder is abandoned with a terminal INFO. Kept because a cheap
     // guard immediately before a device write is worth having anyway.
     if (!m_device->isConnected()) {
-        logDriftEnd(m_shotSettingsDriftResendCount,
+        logDriftEnd(m_driftGiveUpLog,
                     QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
@@ -3302,7 +3303,7 @@ void MainController::applyAllSettings() {
     // drift that ended in a reconnect left the WARN as the last word a reader
     // ever saw.
     if (m_shotSettingsDriftResendCount > 0) {
-        logDriftEnd(m_shotSettingsDriftResendCount,
+        logDriftEnd(m_driftGiveUpLog,
                     QString("drift ladder reset by reconnect after %1 resend(s) — "
                             "the previous session's drift was never resolved")
                         .arg(m_shotSettingsDriftResendCount));

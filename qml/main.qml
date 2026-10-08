@@ -150,10 +150,16 @@ T.ApplicationWindow {
         // Mark as shutting down to suppress screensaver from DE1 sleep response
         root.shuttingDown = true
 
-        // Send scale sleep first (it's faster/simpler)
+        // Scale first (it's faster/simpler). "Keep scale on" covers closing the app
+        // too: display off, as when the DE1 sleeps, but the scale stays on (#1981).
         if (ScaleDevice && ScaleDevice.connected) {
-            WebDebugLogger.debug("Scale", "main", ["Sending scale to sleep on app close"].map(String).join(" "))
-            ScaleDevice.sleep()
+            if (Settings.keepScaleOn) {
+                WebDebugLogger.debug("Scale", "main", "Turning the scale display off on app close (keep scale on)")
+                ScaleDevice.disableLcd()
+            } else {
+                WebDebugLogger.debug("Scale", "main", "Sending scale to sleep on app close")
+                ScaleDevice.sleep()
+            }
         }
 
         // Small delay before sending DE1 sleep to let scale command go through

@@ -7,7 +7,7 @@ import Decenza
 // WHY IT EXISTS — AOT. A `Dialog {}` from QtQuick.Controls resolves to the active style's
 // Dialog.qml, a composite whose base chain qmlcachegen cannot walk at build time, so every
 // `root.<prop>` in a dialog and every property set on a dialog instance elsewhere lost AOT
-// compilation. Same defect #1715 fixed for pages and #1717 fixed for the button family;
+// compilation. Same defect PR Kulitorum/Decenza#1715 fixed for pages and PR Kulitorum/Decenza#1717 fixed for the button family;
 // dialogs were the largest class left.
 //
 // WHY A SHARED BASE RATHER THAN 27 RE-ROOTINGS. Unlike the buttons, the style's Dialog.qml

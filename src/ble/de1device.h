@@ -241,8 +241,8 @@ public:
     // the forward declaration, so callers (including main.cpp's teardown
     // `setSimulator(nullptr)`) compile in every configuration.
     //
-    // #1629 is why. Two halves were needed and either alone was harmless: this
-    // line carried a `#ifdef QT_DEBUG` guard, and #1629 added an *unguarded*
+    // PR Kulitorum/Decenza#1629 is why. Two halves were needed and either alone was harmless: this
+    // line carried a `#ifdef QT_DEBUG` guard, and PR Kulitorum/Decenza#1629 added an *unguarded*
     // `setSimulator(nullptr)` teardown call in main.cpp. Together they broke the
     // nightly, which builds RelWithDebInfo, and would have broken the next
     // release tag — while every local debug build stayed green because QT_DEBUG
@@ -255,8 +255,13 @@ public:
 
     // The screensaver's state, mirrored from QML. A connect wakes the machine
     // only while the app is awake, or for a wake asked for while the link was
-    // down: a reconnect alone never wakes it (#1976).
-    void setAppAsleep(bool asleep) { m_appAsleep = asleep; }
+    // down: a reconnect alone never wakes it (#1976). The app falling asleep
+    // cancels an owed wake, since auto-sleep skips goToSleep() while disconnected.
+    void setAppAsleep(bool asleep) {
+        m_appAsleep = asleep;
+        if (asleep)
+            m_wakeOwed = false;
+    }
 
 public slots:
     void connectToDevice(const QString& address);
@@ -808,7 +813,7 @@ private:
     // same question as isConnected(), which goes true when the characteristics
     // register (bletransport.cpp:725) — about 0.75 s earlier on an SM-X210. Both
     // are true for that tail, writes go through, and the connect is not finished:
-    // #1955, #1956 and #1957 were all bugs in that gap. Test anything that cares
+    // PR Kulitorum/Decenza#1955, PR Kulitorum/Decenza#1956 and PR Kulitorum/Decenza#1957 were all bugs in that gap. Test anything that cares
     // against BOTH, the way goToSleep() and wakeUp() do.
     bool m_connecting = false;
     bool m_simulationMode = false;

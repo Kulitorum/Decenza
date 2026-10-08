@@ -420,7 +420,7 @@ public:
     // default "hds.local"); IPs and dotted names pass through. Arms the connection
     // timer so a wrong/unreachable host surfaces as `manualWifiValidationFailed`
     // (driving the QML "Couldn't verify a scale at <address>" dialog) instead
-    // of silently — WiFi socket errors are otherwise log-only (#1253). Unlike a
+    // of silently — WiFi socket errors are otherwise log-only (PR Kulitorum/Decenza#1253). Unlike a
     // saved WiFi scale this does NOT fall back to a BLE scan on failure (the
     // user asked for a specific WiFi address).
     //
@@ -1166,7 +1166,8 @@ private:
     LogCollapse m_huntChainLog{LogCollapse::kChangesOnly};
     // The background scale ladder's scan announcement. It is the same line every
     // cycle, forever while the scale is off (4,074 of them in one #1976 log), so
-    // only the first of a run prints; the scale connecting reports the count.
+    // only the first of a run prints; the scale connecting reports the count, and
+    // a change of saved scale starts a new run.
     LogCollapse m_scaleLadderScanLog{LogCollapse::kChangesOnly};
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
