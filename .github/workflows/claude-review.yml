@@ -315,7 +315,7 @@ jobs:
             const outcome = messages.findLast(message => message.type === 'result');
             const result = outcome?.structured_output;
             const errorText = [outcome?.result, ...(Array.isArray(outcome?.errors) ? outcome.errors : [])].filter(value => typeof value === 'string').join(' ');
-            const runtimeFailure = /credit balance|insufficient.?credit|not enough.?credit/i.test(errorText) ? 'insufficient_credits'
+            const runtimeFailure = /credit balance|insufficient.?credit|not enough.?credit/i.test(errorText) ? 'reported_credit_error'
               : /spend.?limit|spending.?limit/i.test(errorText) ? 'spending_limit'
               : /credit|balance|billing|quota/i.test(errorText) ? 'billing_or_quota'
               : /jti|federat|identity.?token|oauth|invalid.?grant/i.test(errorText) ? 'federation'
@@ -420,7 +420,7 @@ jobs:
           const allNames = JSON.parse(fs.readFileSync(path.join(inputDir,'index.json'),'utf8')).flatMap(item => item.chunks);
           const assignedNames = [], failures = new Set();
           let completed = 0, suppliedBytes = 0;
-          const safeReasons = new Set(['execution_failed','insufficient_credits','spending_limit','billing_or_quota',
+          const safeReasons = new Set(['execution_failed','reported_credit_error','spending_limit','billing_or_quota',
             'federation','authentication','transient_provider','runtime_error','missing_structured_output',
             'missing_patch_input','invalid_result','unsafe_finding','missing_review_input','unreadable_source',
             'analysis_limit','other','missing_batch','patch_input_mismatch']);

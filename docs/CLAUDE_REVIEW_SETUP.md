@@ -1,5 +1,13 @@
 # Claude pull-request reviewer
 
+> Current validation: federation, a direct Messages API call, and direct CLI
+> 2.1.294 inference succeeded. Both official actions' SDK execution path still
+> returns an immediate credit error. The revised workflow is **not a validated
+> repair** and should remain a draft until a real action-driven review succeeds.
+> Diagnostics: [direct API](https://github.com/Kulitorum/Decenza/actions/runs/37732584742),
+> [latest action probes](https://github.com/Kulitorum/Decenza/actions/runs/37733624717),
+> [direct CLI](https://github.com/Kulitorum/Decenza/actions/runs/37734789522).
+
 `.github/workflows/claude-review.yml` uses the official Anthropic action to post
 up to five inline findings. Automatic reviews run on relevant, non-draft PRs
 opened by **skialpine** (GitHub account ID `1629894`), on open, new commits,
@@ -59,11 +67,21 @@ a CLI launch with empty static-credential environment variables removed. They
 use Node 26.11.1 via setup-node v7.1.0 and CLI 2.1.294; no review or code changes
 run in these probes. The Base Action Marketplace `beta` tag is stale (August
 2025), so the diagnostic uses the current mirror commit rather than that tag.
-Both test options default off.
+All test options default off. `test_bearer_action` tests a runtime bearer token
+exchanged from the same rule through the official action in documented bare mode;
+`test_direct_cli` isolates the latest CLI from the action SDK using that same
+exchange. Tokens are masked and retained only within the ephemeral job; no
+static key is stored by the federation tests. A separate optional
+`test_api_key_action` comparison, added by another maintainer session, uses the
+existing `JEFF_ANTHROPIC_API_KEY` secret. It defaults off and is not a production
+authentication fallback. That test requires a separately configured key and
+does not alter the reviewer or fix workflow's federation authentication. These probes are diagnostic comparisons, not automatic
+production fallbacks.
 
 If direct inference succeeds while native action probes report a credit error,
-that does not establish exhausted organization credits. Investigate the action
-and CLI authentication path before changing billing settings.
+that does not establish exhausted organization credits. Investigate differences in the action/SDK execution path and request settings
+before changing billing settings. Direct inference success does not by itself
+identify the action failure's root cause.
 
 ### Trust scope and migration
 
@@ -113,7 +131,8 @@ For requested fixes, an admin must install the official
 [Claude App](https://github.com/apps/claude). Select **Only select repositories →
 Decenza** and inspect the requested permissions. The official App requests
 contents, pull-request, issue, discussion, and workflow write access, plus
-Actions/checks read access; the installation screen is authoritative. Its
+Actions/checks write access and additional administration/member/merge-queue
+read, repository-hook write, and status read access; the installation screen is authoritative. Its
 permission set cannot be individually reduced by the installer. The fix job
 requests a repository-scoped token with contents/pull-request write and issue
 read access via `additional_permissions`, using `id-token: write` for exchange.
@@ -236,7 +255,7 @@ to stop accepting fix requests.
 
 A near-instant failure with no tools and no structured result can be a provider
 rejection before any review. The collector reports a safe error category without
-printing the private response. `insufficient_credits`, `spending_limit`, or
+printing the private response. `reported_credit_error`, `spending_limit`, or
 `billing_or_quota`: check the selected organization's API credit balance and the
 federated workspace's spending/rate limits in Claude Console. A successful token
 exchange does not test credits. These failures are not automatically retried;
