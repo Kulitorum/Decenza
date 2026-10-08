@@ -55,6 +55,7 @@ int scaledSettingValue(double realWorldValue, double scale)
 #include "../screensaver/screensavervideomanager.h"
 
 #include <QDateTime>
+#include <algorithm>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -2276,11 +2277,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const bool identityEdit = fields.contains("roasterName")
                 || fields.contains("coffeeName") || fields.contains("roastLevel");
             // Coffee-only columns must reach the kind gate in the merge thread
-            // (the bag's kind isn't known until it's loaded). roastLevel already
-            // routes through via identityEdit; grinderSetting would otherwise
-            // short-circuit past the gate onto a tea bag.
-            const bool coffeeOnlyEdit = fields.contains("roastLevel")
-                || fields.contains("grinderSetting");
+            // (the bag's kind isn't known until it's loaded); derived from the
+            // gate's own list so a new coffee-only key can't short-circuit past it.
+            const bool coffeeOnlyEdit = std::any_of(
+                CoffeeBag::coffeeOnlyKeys().cbegin(), CoffeeBag::coffeeOnlyKeys().cend(),
+                [&fields](const QString& key) { return fields.contains(key); });
             if (blobEdits.isEmpty() && !identityEdit && !coffeeOnlyEdit) {
                 proceed(fields);
                 return;
