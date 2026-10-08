@@ -140,12 +140,17 @@ class EquipmentStorage : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("EquipmentStorage is created in C++ and reached via MainController")
 
+    // PuckPrep::flagLabels() for QML: [{key, labelKey, label}] in display order, the
+    // one list every puck-prep checkbox row and summary is built from.
+    Q_PROPERTY(QVariantList puckPrepFlags READ puckPrepFlags CONSTANT)
+
 public:
     explicit EquipmentStorage(QObject* parent = nullptr);
     ~EquipmentStorage();
 
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
+    static QVariantList puckPrepFlags();
 
     // True when no background CRUD work is queued, running, or waiting to
     // deliver its result — see ShotHistoryStorage::isDbWorkIdle() for the full

@@ -1,43 +1,31 @@
 #include "shotcomparisonmodel.h"
 #include "../history/shothistorystorage.h"
+#include "../history/shotcomparison.h"
+#include "../history/shotcomparisontext.h"
+#include "../history/shotprojection.h"
 
 #include <QDateTime>
 #include <QLocale>
 #include <QSqlDatabase>
+#include <QSqlQuery>
 #include "../core/dbutils.h"
 #include <QThread>
 #include <algorithm>
-
-// Shot colors: Green, Blue, Orange
-const QList<QColor> ShotComparisonModel::SHOT_COLORS = {
-    QColor("#4CAF50"),  // Green
-    QColor("#2196F3"),  // Blue
-    QColor("#FF9800")   // Orange
-};
-
-const QList<QColor> ShotComparisonModel::SHOT_COLORS_LIGHT = {
-    QColor("#81C784"),  // Light Green
-    QColor("#64B5F6"),  // Light Blue
-    QColor("#FFB74D")   // Light Orange
-};
 
 ShotComparisonModel::ShotComparisonModel(QObject* parent)
     : QObject(parent)
 {
 }
 
+QVariantMap ShotComparisonModel::texts() const
+{
+    static const QVariantMap t = ShotComparisonText::toJson().toVariantMap();
+    return t;
+}
+
 void ShotComparisonModel::setStorage(ShotHistoryStorage* storage)
 {
     m_storage = storage;
-}
-
-QVariantList ShotComparisonModel::shotsVariant() const
-{
-    QVariantList result;
-    for (int i = 0; i < m_displayShots.size(); ++i) {
-        result.append(getShotInfo(i));
-    }
-    return result;
 }
 
 void ShotComparisonModel::addShots(const QVariantList& shotIds)
@@ -57,62 +45,38 @@ void ShotComparisonModel::addShots(const QVariantList& shotIds)
     }
     if (!changed) return;
 
-    std::sort(m_shotIds.begin(), m_shotIds.end());
+    m_baseShotId = 0;   // the loader picks the oldest
+    m_windowStart = 0;
     scheduleLoad();
     emit shotsChanged();
-}
-
-bool ShotComparisonModel::addShot(qint64 shotId)
-{
-    if (!m_storage) {
-        emit errorOccurred("Storage not available");
-        return false;
-    }
-
-    if (m_shotIds.contains(shotId)) {
-        return true;  // Already added
-    }
-
-    // Add and sort by shot ID (chronological order - older shots have lower IDs)
-    m_shotIds.append(shotId);
-    std::sort(m_shotIds.begin(), m_shotIds.end());
-
-    // Update window start if needed (keep showing the same relative position)
-    scheduleLoad();
-    emit shotsChanged();
-    return true;
-}
-
-void ShotComparisonModel::removeShot(qint64 shotId)
-{
-    qsizetype index = m_shotIds.indexOf(shotId);
-    if (index >= 0) {
-        m_shotIds.removeAt(index);
-        // Adjust window start if needed
-        int shotCount = static_cast<int>(m_shotIds.size());
-        if (m_windowStart >= shotCount) {
-            m_windowStart = std::max(0, shotCount - DISPLAY_WINDOW_SIZE);
-        }
-        scheduleLoad();
-        emit shotsChanged();
-        emit windowChanged();
-    }
+    emit windowChanged();
 }
 
 void ShotComparisonModel::clearAll()
 {
     ++m_loadSerial;  // Invalidate any in-flight background loads
     m_shotIds.clear();
+    m_baseShotId = 0;
     m_displayShots.clear();
+    m_comparison.clear();
     m_windowStart = 0;
     m_maxTime = 60.0;
-    m_maxPressure = 12.0;
-    m_maxFlow = 8.0;
-    m_maxWeight = 50.0;
     if (m_loading) {
         m_loading = false;
         emit loadingChanged();
     }
+    emit shotsChanged();
+    emit windowChanged();
+}
+
+void ShotComparisonModel::setBaseShot(qint64 shotId)
+{
+    if (shotId == m_baseShotId || !m_shotIds.contains(shotId)) return;
+    m_baseShotId = shotId;
+    // The others restart from the earliest, so the previous base reappears in its
+    // place by date rather than behind a page the user has moved past.
+    m_windowStart = 0;
+    scheduleLoad();
     emit shotsChanged();
     emit windowChanged();
 }
@@ -122,7 +86,7 @@ void ShotComparisonModel::shiftWindowLeft()
     if (canShiftLeft()) {
         m_windowStart--;
         scheduleLoad();
-        emit shotsChanged();  // Triggers graph/data refresh
+        emit shotsChanged();
         emit windowChanged();
     }
 }
@@ -132,26 +96,9 @@ void ShotComparisonModel::shiftWindowRight()
     if (canShiftRight()) {
         m_windowStart++;
         scheduleLoad();
-        emit shotsChanged();  // Triggers graph/data refresh
+        emit shotsChanged();
         emit windowChanged();
     }
-}
-
-void ShotComparisonModel::setWindowStart(int index)
-{
-    int maxStart = std::max(0, static_cast<int>(m_shotIds.size()) - DISPLAY_WINDOW_SIZE);
-    int newStart = std::max(0, std::min(index, maxStart));
-    if (newStart != m_windowStart) {
-        m_windowStart = newStart;
-        scheduleLoad();
-        emit shotsChanged();  // Triggers graph/data refresh
-        emit windowChanged();
-    }
-}
-
-bool ShotComparisonModel::hasShotId(qint64 shotId) const
-{
-    return m_shotIds.contains(shotId);
 }
 
 void ShotComparisonModel::scheduleLoad()
@@ -162,6 +109,7 @@ void ShotComparisonModel::scheduleLoad()
 
     if (m_shotIds.isEmpty() || !m_storage) {
         m_displayShots.clear();
+        m_comparison.clear();
         calculateMaxValues();
         if (m_loading) {
             m_loading = false;
@@ -170,17 +118,9 @@ void ShotComparisonModel::scheduleLoad()
         return;
     }
 
-    // Compute window indices on the main thread before going async
-    int shotCount = static_cast<int>(m_shotIds.size());
-    if (m_windowStart < 0) m_windowStart = 0;
-    if (m_windowStart >= shotCount)
-        m_windowStart = std::max(0, shotCount - DISPLAY_WINDOW_SIZE);
-
-    QList<qint64> windowIds;
-    int windowEnd = std::min(m_windowStart + DISPLAY_WINDOW_SIZE, shotCount);
-    for (int i = m_windowStart; i < windowEnd; ++i)
-        windowIds.append(m_shotIds[i]);
-
+    const QList<qint64> ids = m_shotIds;
+    const qint64 requestedBase = m_baseShotId;
+    const int requestedStart = m_windowStart;
     const QString dbPath = m_storage->databasePath();
 
     if (!m_loading) {
@@ -188,39 +128,48 @@ void ShotComparisonModel::scheduleLoad()
         emit loadingChanged();
     }
 
-    // Open a dedicated SQLite connection on the worker thread, load the shots,
-    // and deliver results back to the main thread via a queued invocation.
-    // Qt guarantees the functor is not called if `this` is already destroyed.
-    QThread* thread = QThread::create([this, dbPath, windowIds, serial]() {
+    // Open a dedicated SQLite connection on the worker thread, order the selection, load
+    // the base and the window, and deliver results back to the main thread via a queued
+    // invocation. Qt guarantees the functor is not called if `this` is already destroyed.
+    QThread* thread = QThread::create([this, dbPath, ids, requestedBase, requestedStart, serial]() {
+        QList<qint64> ordered;
+        qint64 base = 0;
+        int windowStart = 0;
         QList<ComparisonShot> shots;
+        QList<ShotProjection> projections;
         withTempDb(dbPath, "scm_load", [&](QSqlDatabase& db) {
+            // Oldest first by when each shot was pulled, not by id: an imported shot gets
+            // a new id but keeps its old timestamp. A deleted shot drops out here, so a
+            // base that no longer exists falls back to the oldest one that does.
+            QStringList marks;
+            for (qsizetype i = 0; i < ids.size(); ++i) marks << QStringLiteral("?");
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT id FROM shots WHERE id IN (%1) ORDER BY timestamp ASC, id ASC")
+                      .arg(marks.join(QLatin1Char(','))));
+            for (qint64 id : ids) q.addBindValue(id);
+            if (q.exec())
+                while (q.next()) ordered << q.value(0).toLongLong();
+            if (ordered.isEmpty()) return;
+
+            base = ordered.contains(requestedBase) ? requestedBase : ordered.first();
+            QList<qint64> others = ordered;
+            others.removeAll(base);
+            windowStart = std::clamp(requestedStart, 0, std::max(0, int(others.size()) - OTHER_WINDOW_SIZE));
+            QList<qint64> windowIds{ base };
+            for (qsizetype i = windowStart; i < std::min<qsizetype>(windowStart + OTHER_WINDOW_SIZE, others.size()); ++i)
+                windowIds.append(others[i]);
+
             for (qint64 id : windowIds) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
                 if (record.summary.id == 0) continue;
+                projections.append(ShotHistoryStorage::convertShotRecord(record));
 
                 ComparisonShot shot;
                 shot.id = record.summary.id;
                 shot.profileName = record.summary.profileName;
-                shot.beanBrand = record.summary.beanBrand;
-                shot.beanType = record.summary.beanType;
-                shot.roastDate = record.roastDate;
-                shot.roastLevel = record.roastLevel;
-                shot.grinderBrand = record.grinderBrand;
-                shot.grinderModel = record.grinderModel;
-                shot.grinderBurrs = record.grinderBurrs;
-                shot.grinderSetting = record.grinderSetting;
-                shot.rpm = record.rpm;
-                shot.duration = record.summary.duration;
-                shot.doseWeight = record.summary.doseWeight;
-                shot.finalWeight = record.summary.finalWeight;
-                shot.drinkTds = record.drinkTds;
-                shot.drinkEy = record.drinkEy;
-                shot.enjoyment = record.summary.enjoyment;
                 shot.timestamp = record.summary.timestamp;
-                shot.notes = record.espressoNotes;
-                shot.barista = record.barista;
-                shot.temperatureOverride = record.temperatureOverride;
-                shot.targetWeight = record.targetWeight;
+                shot.duration = record.summary.duration;
+                shot.pourStartSec = record.cachedAnalysis ? record.cachedAnalysis->detectors.pourStartSec : 0.0;
                 shot.pressure = record.pressure;
                 shot.flow = record.flow;
                 shot.temperature = record.temperature;
@@ -245,57 +194,38 @@ void ShotComparisonModel::scheduleLoad()
             }
         });
 
-        // Post results back to the main thread.
-        // Qt discards this call automatically if `this` has been destroyed.
-        QMetaObject::invokeMethod(this, [this, shots = std::move(shots), serial]() mutable {
+        // Column 0 is the base only if it loaded; otherwise there is nothing to
+        // compare against, and no column may pose as the base.
+        const bool haveBase = !shots.isEmpty() && shots.first().id == base;
+        if (!haveBase) shots.clear();
+        const QVariantMap comparison = haveBase
+            ? ShotComparison::compare(projections, 0).toVariantMap() : QVariantMap();
+
+        QMetaObject::invokeMethod(this, [this, ordered, base, windowStart, shots = std::move(shots),
+                                         comparison, serial]() mutable {
             if (serial != m_loadSerial) return;  // superseded by a newer load
+            m_shotIds = ordered;
+            m_baseShotId = base;
+            m_windowStart = windowStart;
             m_displayShots = std::move(shots);
+            m_comparison = comparison;
             calculateMaxValues();
             m_loading = false;
             emit loadingChanged();
             emit shotsChanged();
+            emit windowChanged();
         }, Qt::QueuedConnection);
     });
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    m_loadThread = thread;
     thread->start();
 }
 
 void ShotComparisonModel::calculateMaxValues()
 {
     m_maxTime = 0.0;
-    m_maxPressure = 12.0;
-    m_maxFlow = 8.0;
-    m_maxWeight = 50.0;
-
-    for (const auto& shot : m_displayShots) {
-        // Max time from duration
-        if (shot.duration > m_maxTime) {
-            m_maxTime = shot.duration;
-        }
-
-        // Max pressure
-        for (const auto& pt : shot.pressure) {
-            if (pt.y() > m_maxPressure) {
-                m_maxPressure = pt.y() + 2.0;
-            }
-        }
-
-        // Max flow
-        for (const auto& pt : shot.flow) {
-            if (pt.y() > m_maxFlow) {
-                m_maxFlow = pt.y() + 1.0;
-            }
-        }
-
-        // Max weight
-        for (const auto& pt : shot.weight) {
-            if (pt.y() > m_maxWeight) {
-                m_maxWeight = pt.y() + 10.0;
-            }
-        }
-    }
+    for (const auto& shot : m_displayShots)
+        m_maxTime = std::max(m_maxTime, shot.duration);
 }
 
 // QPointF, not {x, y} maps: ComparisonGraph binds these straight to LineSeries.values,
@@ -397,43 +327,13 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
 
     const auto& shot = m_displayShots[index];
     result["id"] = shot.id;
+    result["isBase"] = shot.id == m_baseShotId;
     result["profileName"] = shot.profileName;
-    result["beanBrand"] = shot.beanBrand;
-    result["beanType"] = shot.beanType;
-    result["roastDate"] = shot.roastDate;
-    result["roastLevel"] = shot.roastLevel;
-    result["grinderBrand"] = shot.grinderBrand;
-    result["grinderModel"] = shot.grinderModel;
-    result["grinderBurrs"] = shot.grinderBurrs;
-    result["grinderSetting"] = shot.grinderSetting;
-    result["rpm"] = static_cast<qint64>(shot.rpm);  // integer RPM — avoid "1200.0"
-    result["durationSec"] = shot.duration;
-    result["doseWeightG"] = shot.doseWeight;
-    result["finalWeightG"] = shot.finalWeight;
-    result["drinkTds"] = shot.drinkTds;
-    result["drinkEy"] = shot.drinkEy;
-    result["enjoyment"] = shot.enjoyment;
-    result["timestamp"] = shot.timestamp;
-    result["notes"] = shot.notes;
-    result["barista"] = shot.barista;
-    result["temperatureOverrideC"] = shot.temperatureOverride;
-    result["targetWeightG"] = shot.targetWeight;
+    result["pourStartSec"] = shot.pourStartSec;
 
-    // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);
     static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
     result["dateTime"] = dt.toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
-
-    // Ratio
-    if (shot.doseWeight > 0) {
-        result["ratio"] = QString("1:%1").arg(shot.finalWeight / shot.doseWeight, 0, 'f', 1);
-    } else {
-        result["ratio"] = "-";
-    }
-
-    // Color
-    result["color"] = getShotColor(index);
-
     return result;
 }
 
@@ -514,20 +414,4 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     result["conductanceDerivative"] = dcdt;
 
     return result;
-}
-
-QColor ShotComparisonModel::getShotColor(int index) const
-{
-    if (index < 0 || index >= SHOT_COLORS.size()) {
-        return QColor("#888888");
-    }
-    return SHOT_COLORS[index];
-}
-
-QColor ShotComparisonModel::getShotColorLight(int index) const
-{
-    if (index < 0 || index >= SHOT_COLORS_LIGHT.size()) {
-        return QColor("#AAAAAA");
-    }
-    return SHOT_COLORS_LIGHT[index];
 }

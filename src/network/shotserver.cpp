@@ -1769,14 +1769,15 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 }
             });
 
+            const QJsonObject pageData = dbOpened ? comparisonPageData(shots) : QJsonObject();
+
             if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
-                                             shots = std::move(shots)]() {
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, pageData]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                 } else {
-                    sendHtml(socketGuard, generateComparisonPage(shots));
+                    sendHtml(socketGuard, generateComparisonPage(pageData));
                 }
             }, Qt::QueuedConnection);
         });

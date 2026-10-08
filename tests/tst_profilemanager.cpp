@@ -5588,7 +5588,8 @@ private slots:
         f.profileManager.refreshProfiles();
     }
 
-    // Every dial-in `kind` and `unit` C++ can emit must be handled by the QML.
+    // Every dial-in `kind` C++ can emit must have a label (ProfileDialInText), and
+    // every `unit` must be formatted by the QML.
     //
     // The two lists are produced at different sites in different languages with
     // nothing connecting them, which is exactly the drift the centralization
@@ -5609,8 +5610,8 @@ private slots:
                  "ProfileDialInDiffBlock.qml missing");
         const QString qml = QString::fromUtf8(block.readAll());
 
-        // Hardcoded rather than scraped from C++: the point is that adding a
-        // field fails HERE until someone updates the QML too.
+        // Hardcoded rather than scraped from the emitters: the point is that adding a
+        // field fails HERE until someone labels it too.
         const QStringList kinds{
             QStringLiteral("targetWeight"),    QStringLiteral("targetVolume"),
             QStringLiteral("maximumPressure"), QStringLiteral("maximumFlow"),
@@ -5623,11 +5624,12 @@ private slots:
             QStringLiteral("exitWeight"),      QStringLiteral("maxFlowOrPressure"),
             QStringLiteral("name"),
         };
+        const QVariantMap labels = ProfileDialInText::labelMap();
         QStringList missing;
         for (const QString& k : kinds)
-            if (!qml.contains(QStringLiteral("\"%1\":").arg(k))) missing << k;
+            if (!labels.contains(k)) missing << k;
         QVERIFY2(missing.isEmpty(),
-                 qPrintable(QStringLiteral("dial-in kinds with no label in the QML: %1")
+                 qPrintable(QStringLiteral("dial-in kinds with no label in ProfileDialInText: %1")
                                 .arg(missing.join(QStringLiteral(", ")))));
 
         // "celsiusTank" is deliberately distinct from "celsius" in C++ so the
@@ -5649,19 +5651,37 @@ private slots:
         QVERIFY2(qml.contains(QStringLiteral("suffix = \" \" + row.unit")),
                  "the unmapped-unit fallback must append the raw token");
 
-        // Display precision has to reach at least as fine as the tolerance the
-        // row was EMITTED at, or the block renders a real change as two
-        // identical numbers. celsius, bar and mlPerSec are compared at 0.005
-        // (ProfileJson writes them at two decimals and the editor steps them at
-        // 0.01), so the QML must be willing to spend a second decimal on them.
-        const qsizetype fine = qml.indexOf(QStringLiteral("function maxDecimalsFor"));
-        QVERIFY2(fine >= 0, "the block must pick its decimals from the row's unit");
-        const QString fineBody = qml.mid(fine, 400);
-        for (const QString& u : { QStringLiteral("celsius"), QStringLiteral("bar"),
-                                  QStringLiteral("mlPerSec") })
-            QVERIFY2(fineBody.contains(QStringLiteral("\"%1\"").arg(u)),
-                     qPrintable(QStringLiteral("unit %1 is compared at 0.005 but is not granted "
-                                               "two decimals of display").arg(u)));
+        QVERIFY2(qml.contains(QStringLiteral("row.decimals")),
+                 "the block must show values at the decimals C++ chose");
+    }
+
+    // Display precision has to reach as fine as the tolerance a row was EMITTED at,
+    // or a real change renders as two identical numbers; and a pair shares one
+    // decimal count, trimmed only where both sides spare it.
+    void profileDialInDiff_decimalsKeepTheChangeVisible_data()
+    {
+        QTest::addColumn<QString>("unit");
+        QTest::addColumn<double>("oldValue");
+        QTest::addColumn<double>("newValue");
+        QTest::addColumn<int>("decimals");
+        QTest::newRow("bar edit at 0.01") << "bar" << 9.00 << 8.98 << 2;
+        QTest::newRow("celsius half step") << "celsius" << 92.0 << 92.5 << 1;
+        QTest::newRow("whole grams") << "g" << 36.0 << 41.0 << 0;
+        QTest::newRow("symmetric pair") << "mlPerSec" << 2.00 << 2.02 << 2;
+        QTest::newRow("grams at authored precision") << "g" << 36.0 << 36.1 << 1;
+    }
+    void profileDialInDiff_decimalsKeepTheChangeVisible()
+    {
+        QFETCH(QString, unit);
+        QFETCH(double, oldValue);
+        QFETCH(double, newValue);
+        QFETCH(int, decimals);
+        ProfileFieldDelta d;
+        d.numeric = true;
+        d.unit = unit;
+        d.oldValue = oldValue;
+        d.newValue = newValue;
+        QCOMPARE(d.toVariantMap().value(QStringLiteral("decimals")).toInt(), decimals);
     }
 
     // The lookup order in loadProfileByFilename is what makes an IN-PLACE edit of

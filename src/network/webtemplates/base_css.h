@@ -17,6 +17,8 @@ inline constexpr const char* WEB_CSS_VARIABLES = R"CSS(
             --flow: #4e85f4;
             --temp: #e73249;
             --weight: #a2693d;
+            --weightFlow: #d4a574;
+            --resistance: #eae83d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {

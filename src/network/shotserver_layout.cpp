@@ -4652,13 +4652,8 @@ QString ShotServer::generateLayoutPage() const
     }
 )HTML";
 
+    html += WEB_JS_ESCAPE_HTML;
     html += R"HTML(
-    function escapeHtml(str) {
-        if (!str) return '';
-        var div = document.createElement("div");
-        div.textContent = str;
-        return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-    }
 
     // ===== Library panel =====
     var libCurrentTab = 'local';

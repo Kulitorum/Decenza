@@ -1,8 +1,5 @@
-// The phase-pill Repeater delegate, the resize-grip Repeater and the `layer.effect`
-// block read this file's ids (`shotComparisonPage`, `comparisonGraph`,
-// `resizeMouseArea`); Bound makes them statically resolvable. The phase-pill delegate
-// already declares its one injected role, `modelData`, required, and the resize-grip
-// delegate takes none, so Bound cannot break role injection here.
+// Every Repeater delegate here declares the roles it reads as required, so Bound
+// cannot break role injection, and it makes this file's ids statically resolvable.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -24,17 +21,23 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var comparisonModel: MainController.shotComparison
+    // Wording from the comparison's shared table (ShotComparisonText).
+    function txt(id) {
+        const e = (comparisonModel.texts || {})[id]
+        return e ? TranslationManager.translate(e.key, e.label) : id
+    }
 
-    // Persisted graph height
-    property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(280))
+    // Persisted plot height. The readout sits under the plot in the same card, so
+    // inspecting never needs a scroll; the page scrolls as one for the comparison.
+    // Side by side, and a graph pinned above a scrolling comparison, were both tried:
+    // each left the plot too small to read.
+    property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(320))
 
-    // Basic/Advanced mode toggle, shared with Post-Shot Review + Shot Detail via
-    // Settings so a user who prefers advanced curves sees them everywhere.
+    property bool showAllCurves: false
 
     // Unique phase entries [{label, phaseIndex}] derived from graph data
     readonly property var phaseEntries: {
-        var _dep = comparisonGraph.phaseData
-        var seen = {}, result = []
+        var result = [], seen = {}
         for (let i = 0; i < comparisonGraph.phaseData.length; i++) {
             let pd = comparisonGraph.phaseData[i]
             if (!seen[pd.label]) { seen[pd.label] = true; result.push({ label: pd.label, phaseIndex: pd.phaseIndex }) }
@@ -42,16 +45,89 @@ T.Page {
         return result
     }
 
-    // Re-assert on every activation, not just creation — returning here after a
-    // page was pushed on top would otherwise keep that page's header title.
-    StackView.onActivated: {
+    readonly property var curveEntries: {
+        var out = []
+        for (const e of GraphSeries.entries) {
+            if (e.portal) continue
+            if (e.advanced && !Settings.graph.advancedMode) continue
+            out.push(e)
+        }
+        return out
+    }
+    readonly property int hiddenCurveCount: {
+        var n = 0
+        for (const e of curveEntries) if (!Settings.graph[e.key]) n++
+        return n
     }
 
-    Component.onCompleted: {
+    component Chip: Rectangle {
+        id: chip
+        property string label
+        property string tip: ""
+        property color dotColor: "transparent"
+        property bool active: true
+        property bool checkable: true
+        property bool longPressShowing: false
+        signal toggled()
+
+        implicitHeight: Theme.scaled(28)
+        implicitWidth: chipRow.implicitWidth + Theme.scaled(18)
+        radius: height / 2
+        color: active ? Qt.alpha(dotColor.a > 0 ? dotColor : Theme.primaryColor, 0.16) : "transparent"
+        border.color: active ? (dotColor.a > 0 ? dotColor : Theme.primaryColor) : Theme.borderColor
+        border.width: 1
+        opacity: active ? 1.0 : 0.6
+        Accessible.description: tip
+        Behavior on color { ColorAnimation { duration: 120 } }
+
+        Row {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: Theme.scaled(5)
+            Rectangle {
+                visible: chip.dotColor.a > 0
+                width: Theme.scaled(7); height: width; radius: width / 2
+                anchors.verticalCenter: parent.verticalCenter
+                color: chip.dotColor
+                Accessible.ignored: true
+            }
+            Text {
+                text: chip.label
+                font: Theme.captionFont
+                color: chip.active ? Theme.textColor : Theme.textSecondaryColor
+                anchors.verticalCenter: parent.verticalCenter
+                Accessible.ignored: true
+            }
+        }
+        AccessibleMouseArea {
+            id: chipArea
+            anchors.fill: parent
+            accessibleName: chip.label
+            accessibleRole: chip.checkable ? Accessible.CheckBox : Accessible.Button
+            accessibleChecked: chip.active
+            hoverEnabled: chip.tip !== ""
+            supportLongPress: chip.tip !== ""
+            onAccessibleClicked: chip.toggled()
+            onAccessibleLongPressed: {
+                chip.longPressShowing = true
+                tipHideTimer.restart()
+            }
+        }
+        // UI auto-dismiss for a long-press tip, as CustomLegend does.
+        Timer {
+            id: tipHideTimer
+            interval: 4000
+            onTriggered: chip.longPressShowing = false
+        }
+        HoverTip {
+            text: chip.tip
+            shown: (chipArea.containsMouse && chipArea.pressedButtons === 0) || chip.longPressShowing
+            immediate: chip.longPressShowing
+        }
     }
 
-    // Scrollable content area (vertical only)
     Flickable {
+        id: content
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -59,33 +135,59 @@ T.Page {
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
-        contentWidth: width  // Lock horizontal scroll
-        contentHeight: contentColumn.height
+        contentWidth: width
+        contentHeight: graphPanel.implicitHeight + Theme.spacingSmall
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
-            id: contentColumn
-            width: parent.width
+            id: graphPanel
+            width: content.width
             spacing: Theme.spacingSmall
 
-            // Graph options button, right-aligned.
             RowLayout {
+                id: graphHeader
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingSmall
                 spacing: Theme.spacingSmall
+
+                // Page through the other shots; the base stays in column 0.
+                RowLayout {
+                    visible: shotComparisonPage.comparisonModel.totalShots > shotComparisonPage.comparisonModel.otherWindowSize + 1
+                    spacing: Theme.scaled(4)
+
+                    StyledIconButton {
+                        text: "\u2190"
+                        enabled: shotComparisonPage.comparisonModel.canShiftLeft
+                        accessibleName: TranslationManager.translate("comparison.previousShots", "Previous shots")
+                        onClicked: shotComparisonPage.comparisonModel.shiftWindowLeft()
+                    }
+                    Text {
+                        readonly property var m: shotComparisonPage.comparisonModel
+                        text: TranslationManager.translate("comparison.windowPosition", "%1–%2 of %3 others")
+                              .arg(m.windowStart + 1)
+                              .arg(Math.min(m.windowStart + m.otherWindowSize, m.totalShots - 1))
+                              .arg(m.totalShots - 1)
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    StyledIconButton {
+                        text: "\u2192"
+                        enabled: shotComparisonPage.comparisonModel.canShiftRight
+                        accessibleName: TranslationManager.translate("comparison.nextShots", "Next shots")
+                        onClicked: shotComparisonPage.comparisonModel.shiftWindowRight()
+                    }
+                }
 
                 Item { Layout.fillWidth: true }
 
-                // Graph display options (advanced curves, flow scale).
                 GraphOptionsButton {}
             }
 
-            // Graph with resize handle and window navigation
             Rectangle {
                 id: graphCard
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), shotComparisonPage.graphHeight))
+                Layout.preferredHeight: Math.max(Theme.scaled(180), Math.min(Theme.scaled(600), shotComparisonPage.graphHeight))
+                    + readout.implicitHeight + resizeHandle.height + Theme.spacingSmall
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
@@ -97,17 +199,29 @@ T.Page {
 
                 ComparisonGraph {
                     id: comparisonGraph
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: readout.top
                     anchors.margins: Theme.spacingSmall
-                    anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     comparisonModel: shotComparisonPage.comparisonModel
                 }
 
-                // Crosshair drag handler (tap or horizontal drag to scrub)
+                ComparisonReadout {
+                    id: readout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: resizeHandle.top
+                    anchors.leftMargin: Theme.spacingMedium
+                    anchors.rightMargin: Theme.spacingMedium
+                    graph: comparisonGraph
+                }
+
+                // Tap or horizontal drag to scrub the crosshair
                 MouseArea {
                     id: graphMouseArea
                     anchors.fill: parent
-                    anchors.bottomMargin: resizeHandle.height
+                    anchors.bottomMargin: resizeHandle.height + readout.height
 
                     property bool scrubbing: false
                     property real pressX: 0
@@ -136,7 +250,6 @@ T.Page {
                     }
                     onReleased: function(mouse) {
                         if (!scrubbing) {
-                            // Simple tap — inspect at tap position
                             let graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
                             comparisonGraph.inspectAtPosition(graphPos.x, graphPos.y)
                         }
@@ -145,83 +258,6 @@ T.Page {
                     }
                 }
 
-                // Window navigation bar (only show when more shots than display window)
-                Row {
-                    visible: shotComparisonPage.comparisonModel.totalShots > 3
-                    anchors.bottom: resizeHandle.top
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottomMargin: Theme.spacingSmall
-                    spacing: 0
-
-                    Rectangle {
-                        width: Theme.scaled(28)
-                        height: Theme.scaled(24)
-                        radius: Theme.scaled(12)
-                        color: shotComparisonPage.comparisonModel.canShiftLeft ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("comparison.previousShots", "Previous shots")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: prevMouseArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "\u25C0"
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            color: shotComparisonPage.comparisonModel.canShiftLeft ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
-                            Accessible.ignored: true
-                        }
-                        MouseArea {
-                            id: prevMouseArea
-                            anchors.fill: parent
-                            enabled: shotComparisonPage.comparisonModel.canShiftLeft
-                            onClicked: shotComparisonPage.comparisonModel.shiftWindowLeft()
-                        }
-                    }
-
-                    Rectangle {
-                        width: windowPositionText.width + Theme.scaled(12)
-                        height: Theme.scaled(24)
-                        color: Qt.rgba(0, 0, 0, 0.5)
-
-                        Text {
-                            id: windowPositionText
-                            anchors.centerIn: parent
-                            text: (shotComparisonPage.comparisonModel.windowStart + 1) + "-" +
-                                  Math.min(shotComparisonPage.comparisonModel.windowStart + 3, shotComparisonPage.comparisonModel.totalShots) +
-                                  " / " + shotComparisonPage.comparisonModel.totalShots
-                            font: Theme.captionFont
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    Rectangle {
-                        width: Theme.scaled(28)
-                        height: Theme.scaled(24)
-                        radius: Theme.scaled(12)
-                        color: shotComparisonPage.comparisonModel.canShiftRight ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("comparison.nextShots", "Next shots")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: nextMouseArea.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "\u25B6"
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            color: shotComparisonPage.comparisonModel.canShiftRight ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
-                            Accessible.ignored: true
-                        }
-                        MouseArea {
-                            id: nextMouseArea
-                            anchors.fill: parent
-                            enabled: shotComparisonPage.comparisonModel.canShiftRight
-                            onClicked: shotComparisonPage.comparisonModel.shiftWindowRight()
-                        }
-                    }
-                }
-
-                // Resize handle at bottom
                 Rectangle {
                     id: resizeHandle
                     anchors.bottom: parent.bottom
@@ -231,11 +267,9 @@ T.Page {
                     color: "transparent"
                     Accessible.ignored: true
 
-                    // Visual indicator (three lines)
                     Column {
                         anchors.centerIn: parent
                         spacing: Theme.scaled(2)
-
                         Repeater {
                             model: 3
                             Rectangle {
@@ -259,115 +293,85 @@ T.Page {
 
                         onPressed: function(mouse) {
                             startY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
-                            startHeight = graphCard.Layout.preferredHeight
+                            startHeight = Math.min(Theme.scaled(600), shotComparisonPage.graphHeight)
                         }
-
                         onPositionChanged: function(mouse) {
                             if (pressed) {
                                 let currentY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
-                                let delta = currentY - startY
-                                let newHeight = startHeight + delta
-                                // Clamp between min and max
-                                newHeight = Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), newHeight))
-                                shotComparisonPage.graphHeight = newHeight
+                                shotComparisonPage.graphHeight = Math.max(Theme.scaled(180),
+                                    Math.min(Theme.scaled(600), startHeight + currentY - startY))
                             }
                         }
-
-                        onReleased: {
-                            // Save the height
-                            Settings.setValue("comparison/graphHeight", shotComparisonPage.graphHeight)
-                        }
+                        onReleased: Settings.setValue("comparison/graphHeight", shotComparisonPage.graphHeight)
                     }
                 }
             }
 
-            // Card: crosshair data table + phase pills
-            Rectangle {
+            // Curves, phases and alignment, one row of chips
+            Flow {
+                id: chipFlow
                 Layout.fillWidth: true
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
-                implicitHeight: dataTableCard.implicitHeight + Theme.spacingMedium * 2
+                spacing: Theme.scaled(6)
 
-                ColumnLayout {
-                    id: dataTableCard
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
-
-                    ComparisonDataTable {
-                        graph: comparisonGraph
-                        comparisonModel: shotComparisonPage.comparisonModel
-                        Layout.fillWidth: true
-                    }
-
-                    // Phase toggle pills
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSmall
-                        visible: shotComparisonPage.phaseEntries.length > 0
-
-                        Repeater {
-                            model: shotComparisonPage.phaseEntries
-
-                            Rectangle {
-                                id: phasePill
-                                required property var modelData
-                                property color phaseColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
-                                property bool phaseOn: !comparisonGraph.hiddenPhaseLabels[modelData.label]
-
-                                height: Theme.scaled(26)
-                                width: pillRow.implicitWidth + Theme.scaled(16)
-                                radius: Theme.scaled(13)
-                                color: phaseOn ? Qt.rgba(phaseColor.r, phaseColor.g, phaseColor.b, 0.18) : "transparent"
-                                border.color: phaseOn ? phaseColor : Theme.borderColor
-                                border.width: 1
-                                opacity: phaseOn ? 1.0 : 0.55
-
-                                Accessible.role: Accessible.CheckBox
-                                Accessible.name: modelData.label
-                                Accessible.checked: phaseOn
-                                Accessible.focusable: true
-                                Accessible.onPressAction: comparisonGraph.togglePhaseLabel(modelData.label)
-
-                                Row {
-                                    id: pillRow
-                                    anchors.centerIn: parent
-                                    spacing: Theme.scaled(4)
-                                    Rectangle {
-                                        width: Theme.scaled(6); height: Theme.scaled(6); radius: Theme.scaled(3)
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        color: phasePill.phaseColor
-                                        Accessible.ignored: true
-                                    }
-                                    Text {
-                                        text: phasePill.modelData.label
-                                        font: Theme.captionFont
-                                        color: phasePill.phaseOn ? phasePill.phaseColor : Theme.textSecondaryColor
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: comparisonGraph.togglePhaseLabel(phasePill.modelData.label)
-                                }
-                            }
-                        }
+                Repeater {
+                    model: shotComparisonPage.curveEntries
+                    delegate: Chip {
+                        required property var modelData
+                        visible: active || shotComparisonPage.showAllCurves
+                        label: modelData.shortLabel
+                        tip: modelData.label + (modelData.tip ? ": " + modelData.tip : "")
+                        dotColor: modelData.sColor
+                        active: Settings.graph[modelData.key]
+                        onToggled: Settings.graph[modelData.key] = !Settings.graph[modelData.key]
                     }
                 }
-            }
+                Chip {
+                    visible: shotComparisonPage.hiddenCurveCount > 0
+                    checkable: false
+                    active: false
+                    tip: shotComparisonPage.showAllCurves
+                        ? shotComparisonPage.txt("tip.fewerCurves")
+                        : shotComparisonPage.txt("tip.moreCurves")
+                    label: shotComparisonPage.showAllCurves
+                        ? shotComparisonPage.txt("ui.fewerCurves")
+                        : "+" + shotComparisonPage.hiddenCurveCount
+                    onToggled: shotComparisonPage.showAllCurves = !shotComparisonPage.showAllCurves
+                }
 
-            // Shot comparison table (rows = metrics + phases, columns = shots)
+                Rectangle {
+                    visible: shotComparisonPage.phaseEntries.length > 0
+                    width: 1
+                    height: Theme.scaled(28)
+                    color: Theme.borderColor
+                }
+
+                Repeater {
+                    model: shotComparisonPage.phaseEntries
+                    delegate: Chip {
+                        required property var modelData
+                        label: modelData.label
+                        tip: shotComparisonPage.txt("tip.phase").arg(modelData.label)
+                        dotColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
+                        active: !comparisonGraph.hiddenPhaseLabels[modelData.label]
+                        onToggled: comparisonGraph.togglePhaseLabel(modelData.label)
+                    }
+                }
+
+                Chip {
+                    visible: shotComparisonPage.comparisonModel.shotCount > 1
+                    label: shotComparisonPage.txt("ui.alignPours")
+                    tip: shotComparisonPage.txt("tip.alignPours")
+                    active: comparisonGraph.alignAtPourStart
+                    onToggled: comparisonGraph.alignAtPourStart = !comparisonGraph.alignAtPourStart
+                }
+            }
             Rectangle {
+                id: comparisonCard
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingSmall
-                Layout.bottomMargin: Theme.spacingSmall
+                implicitHeight: shotTable.implicitHeight + Theme.spacingMedium * 2
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                implicitHeight: shotTable.implicitHeight + Theme.spacingMedium * 2
 
                 ComparisonShotTable {
                     id: shotTable
@@ -382,11 +386,10 @@ T.Page {
         }
     }
 
-    // Bottom bar
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("comparison.title", "Compare Shots")
-        rightText: shotComparisonPage.comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
+        rightText: shotComparisonPage.comparisonModel.totalShots + " " + TranslationManager.translate("comparison.shots", "shots")
         onBackClicked: AppShell.backRequested()
     }
 }

@@ -55,6 +55,8 @@
         <file>icons/glass-full.svg</file>
         <file alias="icons/flush.svg">icons/flush 8mm.svg</file>
         <file>icons/settings.svg</file>
+        <file>icons/eye.svg</file>
+        <file>icons/eye-off.svg</file>
         <file>icons/back.svg</file>
         <file>icons/edit.svg</file>
         <file>icons/taste-sour.svg</file>

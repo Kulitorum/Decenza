@@ -4,14 +4,19 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariantList>
-#include <QColor>
 #include <QThread>
+#include <QVariantMap>
+
+#include <algorithm>
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class ShotHistoryStorage;
 struct ShotRecord;
 
-// Model for comparing shots with sliding window display (shows 3 at a time)
+// Shots compared against a base shot. The base is pinned in column 0 and the
+// other shots page past it, OTHER_WINDOW_SIZE at a time. What changed and what
+// the shots did differently comes from ShotComparison::compare(), the same
+// assembler the web page and MCP use.
 class ShotComparisonModel : public QObject {
     Q_OBJECT
 
@@ -21,17 +26,20 @@ class ShotComparisonModel : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("ShotComparisonModel is created in C++ and reached via MainController")
 
-    // Display window properties (shows max 3 shots at a time)
+    // Visible shots: the base, then up to OTHER_WINDOW_SIZE others.
     Q_PROPERTY(int shotCount READ displayShotCount NOTIFY shotsChanged)
-    Q_PROPERTY(QVariantList shots READ shotsVariant NOTIFY shotsChanged)
     Q_PROPERTY(double maxTime READ maxTime NOTIFY shotsChanged)
-    Q_PROPERTY(double maxPressure READ maxPressure NOTIFY shotsChanged)
-    Q_PROPERTY(double maxFlow READ maxFlow NOTIFY shotsChanged)
-    Q_PROPERTY(double maxWeight READ maxWeight NOTIFY shotsChanged)
 
-    // Window navigation properties
+    Q_PROPERTY(qint64 baseShotId READ baseShotId NOTIFY shotsChanged)
+    // ShotComparison::compare() over the visible shots, base first.
+    Q_PROPERTY(QVariantMap comparison READ comparison NOTIFY shotsChanged)
+    // ShotComparisonText: {id: {key, label}}, the words the comparison is told in.
+    Q_PROPERTY(QVariantMap texts READ texts CONSTANT)
+
+    // Paging over the non-base shots.
     Q_PROPERTY(int windowStart READ windowStart NOTIFY windowChanged)
     Q_PROPERTY(int totalShots READ totalShots NOTIFY shotsChanged)
+    Q_PROPERTY(int otherWindowSize READ otherWindowSize CONSTANT)
     Q_PROPERTY(bool canShiftLeft READ canShiftLeft NOTIFY windowChanged)
     Q_PROPERTY(bool canShiftRight READ canShiftRight NOTIFY windowChanged)
 
@@ -45,29 +53,25 @@ public:
 
     int displayShotCount() const { return static_cast<int>(m_displayShots.size()); }
     int totalShots() const { return static_cast<int>(m_shotIds.size()); }
-
-    QVariantList shotsVariant() const;
     double maxTime() const { return m_maxTime; }
-    double maxPressure() const { return m_maxPressure; }
-    double maxFlow() const { return m_maxFlow; }
-    double maxWeight() const { return m_maxWeight; }
-
+    qint64 baseShotId() const { return m_baseShotId; }
+    QVariantMap comparison() const { return m_comparison; }
+    QVariantMap texts() const;
     bool loading() const { return m_loading; }
 
     int windowStart() const { return m_windowStart; }
+    int otherWindowSize() const { return OTHER_WINDOW_SIZE; }
     bool canShiftLeft() const { return m_windowStart > 0; }
-    bool canShiftRight() const { return m_windowStart + DISPLAY_WINDOW_SIZE < static_cast<int>(m_shotIds.size()); }
+    bool canShiftRight() const { return m_windowStart + OTHER_WINDOW_SIZE < otherCount(); }
 
-    Q_INVOKABLE bool addShot(qint64 shotId);
-    // Batch-add: one DB load, one shotsChanged emission.
+    // Adds to the selection; the oldest selected shot becomes the base.
     Q_INVOKABLE void addShots(const QVariantList& shotIds);
-    Q_INVOKABLE void removeShot(qint64 shotId);
     Q_INVOKABLE void clearAll();
-    Q_INVOKABLE bool hasShotId(qint64 shotId) const;
+    // Make a selected shot the base; it moves to column 0.
+    Q_INVOKABLE void setBaseShot(qint64 shotId);
 
     Q_INVOKABLE void shiftWindowLeft();
     Q_INVOKABLE void shiftWindowRight();
-    Q_INVOKABLE void setWindowStart(int index);
 
     Q_INVOKABLE QVariantList getPressureData(int index) const;
     Q_INVOKABLE QVariantList getFlowData(int index) const;
@@ -82,11 +86,9 @@ public:
     Q_INVOKABLE QVariantList getTemperatureMixGoalData(int index) const;
     Q_INVOKABLE QVariantList getPhaseMarkers(int index) const;
 
+    // id, profileName, dateTime, isBase and pourStartSec for a visible column.
     Q_INVOKABLE QVariantMap getShotInfo(int index) const;
     Q_INVOKABLE QVariantMap getValuesAtTime(int index, double time) const;
-
-    Q_INVOKABLE QColor getShotColor(int index) const;
-    Q_INVOKABLE QColor getShotColorLight(int index) const;
 
 signals:
     void shotsChanged();
@@ -96,34 +98,18 @@ signals:
 
 private:
     // Start a background QThread that opens its own SQLite connection, loads the
-    // current window, and delivers results back to the main thread via finished().
+    // base and the current window, and delivers results back to the main thread.
     void scheduleLoad();
     void calculateMaxValues();
     QVariantList pointsToVariant(const QVector<QPointF>& points) const;
+    int otherCount() const { return std::max(0, totalShots() - 1); }
 
     struct ComparisonShot {
         qint64 id = 0;
         QString profileName;
-        QString beanBrand;
-        QString beanType;
-        QString roastDate;
-        QString roastLevel;
-        QString grinderBrand;
-        QString grinderModel;
-        QString grinderBurrs;
-        QString grinderSetting;
-        qint64 rpm = 0;  // grinder motor RPM (variable-RPM grinders); 0 = none
-        double duration = 0;
-        double doseWeight = 0;
-        double finalWeight = 0;
-        double drinkTds = 0;
-        double drinkEy = 0;
-        int enjoyment = 0;
         qint64 timestamp = 0;
-        QString notes;
-        QString barista;
-        double temperatureOverride = 0;
-        double targetWeight = 0;
+        double duration = 0;
+        double pourStartSec = 0;
 
         QVector<QPointF> pressure;
         QVector<QPointF> flow;
@@ -146,19 +132,15 @@ private:
     };
 
     ShotHistoryStorage* m_storage = nullptr;
-    QList<qint64> m_shotIds;
+    QList<qint64> m_shotIds;          // every selected shot, oldest first
+    qint64 m_baseShotId = 0;
     QList<ComparisonShot> m_displayShots;
-    int m_windowStart = 0;
+    QVariantMap m_comparison;
+    int m_windowStart = 0;            // into the non-base shots
     bool m_loading = false;
-    QThread* m_loadThread = nullptr;  // Tracked so superseded loads can be abandoned
     int m_loadSerial = 0;             // Incremented on each scheduleLoad(); stale results ignored
 
     double m_maxTime = 60.0;
-    double m_maxPressure = 12.0;
-    double m_maxFlow = 8.0;
-    double m_maxWeight = 50.0;
 
-    static constexpr int DISPLAY_WINDOW_SIZE = 3;
-    static const QList<QColor> SHOT_COLORS;
-    static const QList<QColor> SHOT_COLORS_LIGHT;
+    static constexpr int OTHER_WINDOW_SIZE = 2;
 };

@@ -181,6 +181,11 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
+    // Async: the shot pulled just before `shotId` on the same profile and equipment
+    // package — the pair "Compare with previous shot" opens. Emits
+    // previousShotReady(shotId, 0) when there is none.
+    Q_INVOKABLE void requestPreviousShot(qint64 shotId);
+
     // Dial-in history for one profile family, scoped to one equipment package.
     // Summary data, no time-series. Thread-safe: the caller provides its own
     // connection. Shared by MCP and the in-app advisor.
@@ -654,6 +659,7 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
+    void previousShotReady(qint64 shotId, qint64 previousShotId);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void profileUsageReady(const QVariantMap& usage);
     void latestShotForBeanProfileReady(const QVariantMap& shot);

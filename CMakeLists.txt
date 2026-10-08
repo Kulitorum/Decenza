@@ -794,6 +794,7 @@ set(SOURCES
     src/history/recipepromotion.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
+    src/history/shotcomparison.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp
@@ -1002,6 +1003,7 @@ set(HEADERS
     src/machine/weightprocessor.h
     src/machine/stepexitarbiter.h
     src/profile/profile.h
+    src/profile/profiledialintext.h
     src/profile/profileframe.h
     src/profile/profileconverter.h
     src/profile/profileimporter.h
@@ -1054,6 +1056,8 @@ set(HEADERS
     src/history/unifiedbeansearchmodel.h
     src/history/equipmentjoin.h
     src/history/shotprojection.h
+    src/history/shotcomparison.h
+    src/history/shotcomparisontext.h
     src/history/decentuploadstate.h
     src/history/shotscope.h
     src/history/shotdebuglogger.h
@@ -1336,6 +1340,7 @@ set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGL
 set_source_files_properties(qml/components/SteamLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/GraphSeries.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/PuckPrepLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -1496,7 +1501,11 @@ set(QML_FILES
     qml/components/HistoryShotGraph.qml
     qml/components/GraphInspectBar.qml
     qml/components/ComparisonInspectBar.qml
-    qml/components/ComparisonDataTable.qml
+    qml/components/ComparePreviousButton.qml
+    qml/components/ComparisonLineSwatch.qml
+    qml/components/ComparisonReadout.qml
+    qml/components/ComparisonRow.qml
+    qml/components/ComparisonSectionHeader.qml
     qml/components/ComparisonShotTable.qml
     qml/components/GraphLegend.qml
     qml/components/GraphFlowScaleCard.qml
@@ -1505,6 +1514,8 @@ set(QML_FILES
     qml/components/GraphOptionToggleCard.qml
     qml/components/GraphRightAxisLabels.qml
     qml/components/GraphSeries.qml
+    qml/components/HoverTip.qml
+    qml/components/PuckPrepLabels.qml
     qml/components/QualityBadges.qml
     qml/components/PhaseSummaryPanel.qml
     qml/components/ShotAnalysisDialog.qml

@@ -5,6 +5,7 @@
 
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
+#include "../history/shotcomparison.h"
 #include "../core/grinderaliases.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
@@ -30,50 +31,18 @@
 #include <cmath>
 #include <limits>
 
+using ShotComparison::effectiveTargetWeightG;
+
 namespace {
 
-DialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
+// Dial-in inputs only: the bean and setup already reach the payload as each shot's
+// identity overrides, and repeating them here said every such change twice.
+QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr,
+                           const QMap<QString, double>& prevMetrics,
+                           const QMap<QString, double>& currMetrics)
 {
-    DialingHelpers::ShotDiffInputs d;
-    d.grinderSetting = s.grinderSetting;
-    d.rpm = static_cast<int>(s.rpm);
-    d.beanBrand = s.beanBrand;
-    d.doseWeightG = s.doseWeightG;
-    d.finalWeightG = s.finalWeightG;
-    d.durationSec = s.durationSec;
-    d.enjoyment0to100 = s.enjoyment0to100;
-    return d;
-}
-
-QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr)
-{
-    return DialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
-}
-
-// Effective stop-at-weight target for a shot: the stored value when set,
-// else parsed from the embedded profile JSON. The parse branch only runs
-// for shots imported from external formats (de1app / visualizer.coffee)
-// where the importer left targetWeight at 0; that cohort is the riskiest
-// for malformed input, so log parse failures rather than swallow them.
-// Returns 0 when neither source yields a positive target. Single source
-// of truth so the dialInSessions hoist decision (#1164 finding #3) and
-// the per-shot emission cannot disagree.
-double effectiveTargetWeightG(const ShotProjection& shot)
-{
-    if (shot.targetWeightG > 0)
-        return shot.targetWeightG;
-    if (shot.profileJson.isEmpty())
-        return 0.0;
-    QJsonParseError err{};
-    QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8(), &err).object();
-    if (err.error != QJsonParseError::NoError) {
-        DIAG_WARN(AI, "dialing_blocks") << "effectiveTargetWeightG: profileJson parse failed for shot" << shot.id
-                   << ":" << err.errorString();
-        return 0.0;
-    }
-    QJsonValue tw = profileObj["target_weight"];
-    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-    return twVal > 0 ? twVal : 0.0;
+    return ShotComparison::pairChanges(prev, curr, prevMetrics, currMetrics,
+                                       ShotComparison::PairInputs::DialIn);
 }
 
 // Per-shot serializer for dialInSessions. Identity/lifecycle overrides come
@@ -297,6 +266,11 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             && std::all_of(tempOverrides.cbegin(), tempOverrides.cend(),
                            [&](double t){ return t == tempOverrides.first(); });
 
+        // Each shot's metrics once, not once per pair it sits in.
+        QList<QMap<QString, double>> metrics;
+        metrics.reserve(ordered.size());
+        for (const ShotProjection& s : ordered) metrics << ShotComparison::metricsFor(s);
+
         QJsonArray sessionShots;
         for (qsizetype i = 0; i < ordered.size(); ++i) {
             QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
@@ -309,7 +283,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             if (!tempOverrideUniform && tempOverrides[i] > 0)
                 h["temperatureOverrideC"] = tempOverrides[i];
             if (i > 0) {
-                QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
+                const QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i], metrics[i-1], metrics[i]);
                 h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
             } else {
                 h["changeFromPrev"] = QJsonValue(QJsonValue::Null);
@@ -439,7 +413,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
         b["daysSinceShot"] = (nowSec - best.timestamp) / (24 * 3600);
     }
-    const QJsonObject diff = changeFromPrev(best, currentShot);
+    const QJsonObject diff = changeFromPrev(best, currentShot, ShotComparison::metricsFor(best),
+                                            ShotComparison::metricsFor(currentShot));
     if (!diff.isEmpty())
         b["changeFromBest"] = diff;
 
@@ -617,9 +592,10 @@ namespace {
 // ±0.3g — tighter than measurement noise but wider than the user's
 // typical scale precision. Yield-target tolerance is ±0.5g, so a target
 // derived from a ratio (ratio × dose) still matches its rounded recommendation.
-constexpr double kGrinderStepTolerance = 0.25;
-constexpr double kDoseToleranceG = 0.3;
-constexpr double kYieldToleranceG = 0.5;
+using ShotComparison::kGrinderStepTolerance;
+using ShotComparison::kDoseToleranceG;
+using ShotComparison::kYieldToleranceG;
+using ShotComparison::kRpmTolerance;
 
 // What a `structuredNext` field asks of adherence scoring. The fields are
 // authored by an LLM, so "the model recommended something we can check" is not
@@ -741,54 +717,6 @@ RecommendationKind classifyStringField(const QJsonObject& sn, const char* key,
     return RecommendationKind::Scoreable;
 }
 
-// Are two recorded dial settings the same position? Accepts every form
-// looksLikeSetting() admits, so notation cannot decide it: "1 + 4" is "1+4",
-// and "23.5 1400rpm" is "23.5".
-//
-// Unknown compares as "same". Only a POSITIVE difference counts as a change,
-// because the one caller that asks this question (setupChangedFromPrior)
-// downgrades a verdict on the answer, and a blank grinderSetting — common on
-// older shots — is absence of evidence, not evidence the user regrinded.
-//
-// grinderMatches() below asks a related but different question and keeps its
-// own guards: it compares against what was RECOMMENDED, not merely whether
-// two shots sit on the same setting.
-bool sameGrinderSetting(const QString& aRaw, const QString& bRaw)
-{
-    const QString a = aRaw.trimmed();
-    const QString b = bRaw.trimmed();
-    if (a.isEmpty() || b.isEmpty()) return true;   // unknown — no change proven
-    if (a == b) return true;
-
-    // Compound notation compares normalized, so spacing cannot decide it. If
-    // either side is compound they both must be, or they are not comparable
-    // and we decline to call it a change.
-    const QString aKey = GrinderAliases::compoundKey(a);
-    const QString bKey = GrinderAliases::compoundKey(b);
-    if (!aKey.isEmpty() || !bKey.isEmpty())
-        return aKey.isEmpty() || bKey.isEmpty() || aKey == bKey;
-
-    const std::optional<double> an = GrinderAliases::leadingDialNumber(a);
-    const std::optional<double> bn = GrinderAliases::leadingDialNumber(b);
-    if (!an || !bn) {
-        // Lettered dials ("3F" vs "3C") parse as no number — leadingDialNumber
-        // only knows numRe and compoundRe, not looksLikeSetting()'s third
-        // shape. They are still two REAL settings that plainly differ, so
-        // compare them the way grinderMatches() does: exact string equality.
-        //
-        // Only when both sides are recognisable settings. Prose and free text
-        // fail looksLikeSetting() and keep the conservative "unknown is not a
-        // change" answer, which is what the spec's both-shots-record-it rule
-        // requires. Returning "same" for everything incomparable — as this did
-        // first — made a lettered regrind invisible and scored it "followed",
-        // the exact defect this function exists to catch.
-        if (GrinderAliases::looksLikeSetting(a) && GrinderAliases::looksLikeSetting(b))
-            return false;   // trimmed, and a != b by the early-out above
-        return true;
-    }
-    return std::abs(*an - *bn) <= kGrinderStepTolerance + 1e-9;
-}
-
 // Match `actual` against `recommended` for adherence purposes. Also
 // guard against "the user kept the prior shot's setting" registering
 // as followed when the recommendation happens to be within tolerance
@@ -842,7 +770,6 @@ bool grinderMatches(const QString& recommendedRaw, const QString& actualRaw,
 // `recommended` is guaranteed positive by classifyPositiveNumberField(); the
 // guard below is defence in depth, and returns FALSE rather than the free
 // match it used to give.
-constexpr int kRpmTolerance = 25;
 bool rpmMatches(int recommended, int actual, int prior)
 {
     if (recommended <= 0) return false;
@@ -875,20 +802,12 @@ bool rpmMatches(int recommended, int actual, int prior)
 // not a setup change, so that check was false-positive-only and is gone.
 bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& actual)
 {
-    if (!sameGrinderSetting(prior.grinderSetting, actual.grinderSetting))
-        return true;
-    if (prior.rpm > 0 && actual.rpm > 0
-        && std::abs(actual.rpm - prior.rpm) > kRpmTolerance)
-        return true;
-    if (prior.doseWeightG > 0.0 && actual.doseWeightG > 0.0
-        && std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9)
-        return true;
-    const double priorTarget = effectiveTargetWeightG(prior);
-    const double actualTarget = effectiveTargetWeightG(actual);
-    if (priorTarget > 0.0 && actualTarget > 0.0
-        && std::abs(actualTarget - priorTarget) > kYieldToleranceG + 1e-9)
-        return true;
-    return false;
+    // Grind uses the adherence tolerance, not the comparison's exact rule: a
+    // quarter-step difference is click rounding to this question.
+    const ShotComparison::InputDiff d = ShotComparison::diffInputs(prior, actual);
+    return !ShotComparison::sameGrinderSetting(prior.grinderSetting, actual.grinderSetting)
+        || d.changed(QStringLiteral("rpm"))
+        || d.changed(QStringLiteral("doseG")) || d.changed(QStringLiteral("targetYieldG"));
 }
 
 // A recommended number counts as followed when the actual shot landed within

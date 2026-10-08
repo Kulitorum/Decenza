@@ -1159,9 +1159,20 @@ add_library(decenza_aiproviderlib STATIC ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.c
 set_target_properties(decenza_aiproviderlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_aiproviderlib PUBLIC decenza_testlib)
 
+# Shot-to-shot comparison: the advisor's change detection (dialing_blocks.cpp),
+# MCP shots_compare and the comparison tests. Not in decenza_testlib, which every
+# target links; only these need it.
+add_library(decenza_shotcomparisonlib STATIC ${CMAKE_SOURCE_DIR}/src/history/shotcomparison.cpp)
+set_target_properties(decenza_shotcomparisonlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_shotcomparisonlib PUBLIC decenza_testlib)
+
 add_library(decenza_dialingblockslib STATIC ${CMAKE_SOURCE_DIR}/src/ai/dialing_blocks.cpp)
 set_target_properties(decenza_dialingblockslib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
-target_link_libraries(decenza_dialingblockslib PUBLIC decenza_shotlib)
+target_link_libraries(decenza_dialingblockslib PUBLIC decenza_shotlib decenza_shotcomparisonlib)
+
+# --- tst_shotcomparison: shot-to-shot input diff, comparison metrics, profile version ---
+add_decenza_test(tst_shotcomparison tst_shotcomparison.cpp)
+target_link_libraries(tst_shotcomparison PRIVATE decenza_shotcomparisonlib)
 
 add_library(decenza_settingsserializerlib STATIC ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp)
 set_target_properties(decenza_settingsserializerlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -1543,6 +1554,7 @@ set(DECENZA_TESTLIB_PCH_REUSERS
     decenza_beanbaselib
     decenza_aiproviderlib
     decenza_dialingblockslib
+    decenza_shotcomparisonlib
     decenza_settingsserializerlib
     decenza_webdebugloggerlib
     decenza_wifiscaleresultlib
@@ -1685,7 +1697,7 @@ add_decenza_test(tst_mcptools_shots_debuglog
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_shots.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_shots_debuglog PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia)
+target_link_libraries(tst_mcptools_shots_debuglog PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib decenza_shotcomparisonlib Qt6::TextToSpeech Qt6::Multimedia)
 target_include_directories(tst_mcptools_shots_debuglog PRIVATE ${CMAKE_BINARY_DIR})
 # Same missing built-in profiles QRC as tst_mcptools_profiles above — McpTestFixture's
 # ProfileManager falls back to "default" at construction and warns without it.

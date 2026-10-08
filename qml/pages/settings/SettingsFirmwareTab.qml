@@ -468,7 +468,8 @@ Item {
                                     "firmware.tab.earlyAccessChannel",
                                     "Use early access firmware")
                 Accessible.focusable: true
-                Accessible.onPressAction: earlyAccessSwitch.toggle()
+                // No press handler: Qt's own calls click(), which emits the toggled this
+                // switch saves on; toggle() would not (see StyledSwitch).
             }
         }
 

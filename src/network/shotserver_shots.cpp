@@ -4,6 +4,11 @@
 #include "webtemplates/menu_js.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../history/shothistorystorage.h"
+#include "../history/shotcomparison.h"
+#include "../history/shotcomparisontext.h"
+#include "../history/shotprojection.h"
+#include "../history/equipmentstorage.h"
+#include "../profile/profiledialintext.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
@@ -19,6 +24,7 @@
 #include <QFile>
 #include <QBuffer>
 #include <algorithm>
+#include <cmath>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -350,59 +356,14 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Shot History - Decenza</title>
     <style>
-        :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --surface-hover: #1f2937;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text-secondary: #8b949e;
-            --accent: #c9a227;
-            --accent-dim: #a68a1f;
-            --pressure: #18c37e;
-            --flow: #4e85f4;
-            --temp: #e73249;
-            --weight: #a2693d;
-            --weightFlow: #d4a574;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-            min-height: 100vh;
-        }
 )HTML";
+    html += WEB_CSS_VARIABLES;
+    html += WEB_CSS_HEADER;
+    html += WEB_CSS_MENU;
 
-    // Part 2: Header and layout CSS
+    // Part 2: Layout CSS
     html += R"HTML(
-        .header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .logo {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--accent);
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
         .shot-count { color: var(--text-secondary); font-size: 0.875rem; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
         .shot-grid {
             display: grid;
             gap: 1rem;
@@ -545,45 +506,6 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         }
         .shot-checkbox:checked { background: var(--accent); border-color: var(--accent); }
         .shot-checkbox:checked::after { content: "✓"; color: var(--bg); font-size: 18px; font-weight: bold; line-height: 1; }
-        .header-right { display: flex; align-items: center; gap: 1rem; }
-        .menu-wrapper { position: relative; }
-        .menu-btn {
-            background: none;
-            border: none;
-            color: var(--text);
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 0.25rem 0.5rem;
-            line-height: 1;
-        }
-        .menu-btn:hover { color: var(--accent); }
-        .menu-dropdown {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            margin-top: 0.5rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            min-width: max-content;
-            display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 200;
-        }
-        .menu-dropdown.open { display: block; }
-        .menu-item {
-            display: block;
-            padding: 0.75rem 1rem;
-            color: var(--text);
-            text-decoration: none;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
-        }
-        .menu-item:last-child { border-bottom: none; }
-        .menu-item:hover { background: var(--surface-hover); }
-        .menu-item:first-child { border-radius: 7px 7px 0 0; }
-        .menu-item:last-child { border-radius: 0 0 7px 7px; }
-        .menu-item:only-child { border-radius: 7px; }
         .clickable { cursor: pointer; transition: color 0.2s; }
         .clickable:hover { color: var(--accent) !important; text-decoration: underline; }
 )HTML";
@@ -602,11 +524,9 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             box-shadow: 0 4px 16px rgba(0,0,0,0.4);
             min-width: 10rem;
             z-index: 100;
-            visibility: hidden;
-            opacity: 0;
-            transition: opacity 0.15s;
+            display: none;
         }
-        .sort-dropdown.open { visibility: visible; opacity: 1; }
+        .sort-dropdown.open { display: block; }
         .sort-option {
             padding: 0.5rem 0.75rem;
             cursor: pointer;
@@ -732,10 +652,9 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             font-size: 0.8rem;
         }
         @media (max-width: 600px) {
-            .shot-grid { grid-template-columns: 1fr; }
+            .shot-grid { grid-template-columns: minmax(0, 1fr); }
             .container { padding: 1rem; padding-bottom: 5rem; }
             .search-row { flex-wrap: wrap; }
-            .sort-dropdown { right: auto; left: 0; }
         }
     </style>
 </head>
@@ -1069,12 +988,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 )HTML";
 
     // Part 13: Script - saved searches
+    html += WEB_JS_ESCAPE_HTML;
     html += R"HTML(
-        function escapeHtml(str) {
-            var div = document.createElement('div');
-            div.appendChild(document.createTextNode(str));
-            return div.innerHTML;
-        }
 
         function loadSavedSearches() {
             fetch('/api/saved-searches')
@@ -1197,7 +1112,14 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         var sortLabels = { date: "Date", profile: "Profile", brand: "Roaster", coffee: "Coffee", rating: "Rating", ratio: "Ratio", duration: "Duration", dose: "Dose", yield: "Yield" };
 
         function toggleSortMenu() {
-            document.getElementById("sortDropdown").classList.toggle("open");
+            var dd = document.getElementById("sortDropdown");
+            dd.classList.toggle("open");
+            // Right-aligned to its button; flipped when that would leave the screen
+            // (on a phone the button can wrap to the left edge).
+            dd.style.left = ""; dd.style.right = "";
+            if (dd.classList.contains("open") && dd.getBoundingClientRect().left < 0) {
+                dd.style.left = "0"; dd.style.right = "auto";
+            }
         }
 
         function selectSort(field) {
@@ -1413,53 +1335,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>%1 - Decenza</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>)HTML" R"HTML(
-    <style>
-        :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --surface-hover: #1f2937;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text-secondary: #8b949e;
-            --accent: #c9a227;
-            --pressure: #18c37e;
-            --flow: #4e85f4;
-            --temp: #e73249;
-            --weight: #a2693d;
-            --weightFlow: #d4a574;
-            --resistance: #eae83d;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-        }
-        .header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .back-btn {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 1.5rem;
-            line-height: 1;
-            padding: 0.25rem;
-        }
-        .back-btn:hover { color: var(--accent); }
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>)HTML" + QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU + R"HTML(
+        .header-content { max-width: 1400px; gap: 1rem; }
+        .back-btn { line-height: 1; padding: 0.25rem; }
+        .menu-wrapper { margin-left: auto; }
         .header-title {
             flex: 1;
         }
@@ -1787,39 +1667,6 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         .edit-row .edit-field { flex: 1; text-align: right; }
         .edit-row .edit-input, .edit-row .edit-select { text-align: right; }
         .metric-card .edit-input { text-align: center; width: 80px; }
-        .menu-wrapper { position: relative; margin-left: auto; }
-        .menu-btn {
-            background: none;
-            border: none;
-            color: var(--text);
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 0.25rem 0.5rem;
-            line-height: 1;
-        }
-        .menu-btn:hover { color: var(--accent); }
-        .menu-dropdown {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            margin-top: 0.5rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            min-width: max-content;
-            display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 200;
-        }
-        .menu-dropdown.open { display: block; }
-        .menu-item {
-            display: block;
-            padding: 0.75rem 1rem;
-            color: var(--text);
-            text-decoration: none;
-            white-space: nowrap;
-        }
-        .menu-item:hover { background: var(--surface-hover); }
         @media (max-width: 600px) {
             .container { padding: 1rem; }
             .chart-wrapper { height: 300px; }
@@ -2069,20 +1916,20 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                     '<textarea class="edit-textarea" id="editNotes">' + escapeHtml(shotData.espressoNotes) + '</textarea>' +
                 '</div>' +
                 '<div class="info-card"><h3>Beans</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeAttr(shotData.beanBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeAttr(shotData.beanType) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeAttr(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeHtml(shotData.beanBrand) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeHtml(shotData.beanType) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeHtml(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
                     '<div class="edit-row"><span class="label">Roast Level</span><div class="edit-field"><select class="edit-select" id="editRoastLevel">' + roastOptions + '</select></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Grinder</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeAttr(shotData.grinderBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeAttr(shotData.grinderModel) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeAttr(shotData.grinderBurrs) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeAttr(shotData.grinderSetting) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeHtml(shotData.grinderBrand) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeHtml(shotData.grinderModel) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeHtml(shotData.grinderBurrs) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeHtml(shotData.grinderSetting) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">RPM</span><div class="edit-field"><input type="number" class="edit-input" id="editRpm" step="1" min="0" value="' + (shotData.rpm > 0 ? shotData.rpm : '') + '"></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Additional</h3>' +
-                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeAttr(shotData.barista) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeHtml(shotData.barista) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Beverage</span><div class="edit-field"><select class="edit-select" id="editBeverageType">' + bevOptions + '</select></div></div>' +
                     '<div class="edit-row"><span class="label">TDS</span><div class="edit-field"><input type="number" class="edit-input" id="editTds" step="0.01" value="' + (shotData.drinkTds || '') + '" oninput="autoCalcEY()"></div></div>' +
                     '<div class="edit-row"><span class="label">EY (%)</span><div class="edit-field"><input type="number" class="edit-input" id="editEy" step="0.1" value="' + (shotData.drinkEy || '') + '" readonly style="opacity:0.7"></div></div>' +
@@ -2193,14 +2040,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             });
         }
 
-        function escapeAttr(s) {
-            if (!s) return '';
-            return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
-        function escapeHtml(s) {
-            if (!s) return '';
-            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
+        )HTML" + QString::fromLatin1(WEB_JS_ESCAPE_HTML) + R"HTML(
     </script>
 )HTML" R"HTML(
     <script>
@@ -2593,901 +2433,552 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     return rendered;
 }
 
-QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
+// Runs on the worker thread that loaded the shots: the comparison parses every
+// shot's profile once per base, which is no work for the thread carrying BLE.
+QJsonObject ShotServer::comparisonPageData(const QList<ShotRecord>& shotsIn)
 {
+    // Oldest first, by when each shot was pulled: the default base, as in the app.
+    QList<ShotRecord> shots = shotsIn;
+    std::stable_sort(shots.begin(), shots.end(), [](const ShotRecord& a, const ShotRecord& b) {
+        return a.summary.timestamp < b.summary.timestamp;
+    });
+
+    auto curve = [](const QVector<QPointF>& points) {
+        QJsonArray out;
+        for (const QPointF& p : points)
+            out.append(QJsonArray{ std::round(p.x() * 100) / 100, std::round(p.y() * 100) / 100 });
+        return out;
+    };
+
+    static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+    QJsonArray shotData;
+    QList<ShotProjection> projections;
+    for (const ShotRecord& r : std::as_const(shots)) {
+        projections.append(ShotHistoryStorage::convertShotRecord(r));
+        QJsonArray phases;
+        for (const auto& ph : r.phases) {
+            if (ph.label == QLatin1String("Start")) continue;
+            phases.append(QJsonObject{ { "time", ph.time }, { "label", ph.label }, { "reason", ph.transitionReason } });
+        }
+        shotData.append(QJsonObject{
+            { "id", r.summary.id },
+            { "date", QDateTime::fromSecsSinceEpoch(r.summary.timestamp).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm") },
+            { "pourStartSec", r.cachedAnalysis ? r.cachedAnalysis->detectors.pourStartSec : 0.0 },
+            { "phases", phases },
+            { "curves", QJsonObject{
+                { "pressure", curve(r.pressure) }, { "flow", curve(r.flow) },
+                { "temp", curve(r.temperature) }, { "weight", curve(r.weight) },
+                { "weightFlow", curve(r.weightFlowRate) }, { "resistance", curve(r.resistance) },
+                { "darcyR", curve(r.darcyResistance) }, { "conductance", curve(r.conductance) },
+                { "dCdt", curve(r.conductanceDerivative) }, { "mixTemp", curve(r.temperatureMix) },
+                { "mixTempGoal", curve(r.temperatureMixGoal) },
+            } },
+        });
+    }
+    // The comparison against every possible base, so making a shot the base needs
+    // no round trip. Same assembler as the app and MCP; at most ten shots.
+    QJsonArray comparisons;
+    for (qsizetype i = 0; i < projections.size(); ++i)
+        comparisons.append(ShotComparison::compare(projections, i));
+    return QJsonObject{ { QStringLiteral("shots"), shotData }, { QStringLiteral("comparisons"), comparisons } };
+}
+
+QString ShotServer::generateComparisonPage(const QJsonObject& data) const
+{
+    const QJsonArray shots = data.value(QStringLiteral("shots")).toArray();
     if (shots.size() < 2) {
         return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
     }
 
-    // Colors for each shot (up to 5)
-    QStringList shotColors = {"#c9a227", "#e85d75", "#4ecdc4", "#a855f7", "#f97316"};
-
-    auto pointsToJson = [](const QVector<QPointF>& points) -> QString {
-        QStringList items;
-        for (const auto& pt : points) {
-            items << QString("{x:%1,y:%2}").arg(pt.x(), 0, 'f', 2).arg(pt.y(), 0, 'f', 2);
-        }
-        return "[" + items.join(",") + "]";
+    // JSON as a script literal. "<" only ever occurs inside a JSON string, where
+    // \u003c means the same, so no note or name can close the <script> or open a
+    // comment that swallows it.
+    auto embed = [](const QJsonValue& v) {
+        const QByteArray json = v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
+                                            : QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact);
+        return QString::fromUtf8(json).replace(QLatin1Char('<'), QStringLiteral("\\u003c"));
+    };
+    // The app's own icons, drawn in the text colour, so the two pages cannot drift.
+    auto icon = [&](const QString& path) {
+        QFile f(path);
+        QString svg = f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        svg.replace(QStringLiteral("\"white\""), QStringLiteral("\"currentColor\""));
+        return embed(QJsonArray{ svg }).mid(1).chopped(1);   // the JSON string literal alone
     };
 
-    // Per-shot line dash patterns (matching in-app: solid, dashed, dash-dot)
-    QStringList shotDashPatterns = {"[]", "[5,3]", "[8,4,2,4]"};
-
-    // Build datasets and shot info for each shot
-    QString datasets;
-    QJsonArray shotInfoArray;
-    QJsonArray allPhasesArray;
-    int shotIndex = 0;
-
-    // Escape for safe embedding in JS string literals (double-quoted)
-    auto jsEscape = [](const QString& s) -> QString {
-        QString r = s;
-        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
-        r.replace(QLatin1String("\""), QLatin1String("\\\""));
-        r.replace(QLatin1String("\n"), QLatin1String("\\n"));
-        r.replace(QLatin1String("\r"), QLatin1String(""));
-        r.replace(QLatin1String("<"), QLatin1String("\\u003c"));
-        return r;
-    };
-
-    for (const ShotRecord& shot : std::as_const(shots)) {
-        QString color = shotColors[shotIndex % shotColors.size()];
-        QString name = shot.summary.profileName;
-        static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
-        QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.summary.timestamp);
-        QString date = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
-        QString label = QString("%1 (%2)").arg(name, date);
-        QString dashPattern = shotDashPatterns[shotIndex % shotDashPatterns.size()];
-
-        QString pressureData = pointsToJson(shot.pressure);
-        QString flowData = pointsToJson(shot.flow);
-        QString weightData = pointsToJson(shot.weight);
-        QString tempData = pointsToJson(shot.temperature);
-        QString wfData = pointsToJson(shot.weightFlowRate);
-        QString resData = pointsToJson(shot.resistance);
-
-        // Add datasets for this shot — all curves share the shot's dash pattern
-        // Note: resistance is added in a separate QString::arg() pass because Qt's %N only supports 1-9
-        QString shotLabel = jsEscape(label);
-        datasets += QString(R"HTML(
-            { label: "Pressure - %1", data: %2, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "pressure" },
-            { label: "Flow - %1", data: %5, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "flow" },
-            { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: %9, shotIndex: %4, curveType: "weight" },
-            { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: %9, shotIndex: %4, curveType: "temp" },
-            { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "weightFlow" },
-        )HTML").arg(shotLabel, pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
-        datasets += QString(R"HTML(
-            { label: "Resistance - %1", data: %2, borderColor: "#eae83d", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %3, shotIndex: %4, curveType: "resistance", hidden: true },
-        )HTML").arg(shotLabel, resData, dashPattern).arg(shotIndex);
-
-        // Build shot info JSON for JS
-        QJsonObject info;
-        info["color"] = color;
-        info["name"] = name;
-        info["date"] = date;
-        info["durationSec"] = shot.summary.duration;
-        info["doseWeightG"] = shot.summary.doseWeight;
-        info["finalWeightG"] = shot.summary.finalWeight;
-        info["targetWeightG"] = shot.targetWeight;
-        info["temperatureOverrideC"] = shot.temperatureOverride;
-        info["enjoyment"] = shot.summary.enjoyment;
-        info["beanBrand"] = shot.summary.beanBrand;
-        info["beanType"] = shot.summary.beanType;
-        info["roastDate"] = shot.roastDate;
-        info["roastLevel"] = shot.roastLevel;
-        info["grinderBrand"] = shot.grinderBrand;
-        info["grinderModel"] = shot.grinderModel;
-        info["grinderBurrs"] = shot.grinderBurrs;
-        info["grinderSetting"] = shot.grinderSetting;
-        info["rpm"] = static_cast<double>(shot.rpm);  // RPM half of the dial-in
-        info["drinkTds"] = shot.drinkTds;
-        info["drinkEy"] = shot.drinkEy;
-        info["barista"] = shot.barista;
-        info["notes"] = shot.espressoNotes;
-        shotInfoArray.append(info);
-
-        // Build phase data for this shot
-        QJsonArray shotPhases;
-        for (const auto& phase : shot.phases) {
-            if (phase.label == "Start") continue;
-            QJsonObject phaseObj;
-            phaseObj["time"] = phase.time;
-            phaseObj["label"] = phase.label;
-            phaseObj["reason"] = phase.transitionReason;
-            shotPhases.append(phaseObj);
-        }
-        allPhasesArray.append(shotPhases);
-
-        shotIndex++;
-    }
-
-    QString shotInfoJson = QString::fromUtf8(QJsonDocument(shotInfoArray).toJson(QJsonDocument::Compact));
-    QString phasesJson = QString::fromUtf8(QJsonDocument(allPhasesArray).toJson(QJsonDocument::Compact));
-
-    // Prevent </script> injection when embedding JSON in <script> block
-    shotInfoJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
-    phasesJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
-
-    QString html = QString(R"HTML(
-<!DOCTYPE html>
+    QString html = QStringLiteral(R"HTML(<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Compare Shots - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <style>
-        :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text-secondary: #8b949e;
-            --accent: #c9a227;
-            --pressure: #18c37e;
-            --flow: #4e85f4;
-            --temp: #e73249;
-            --weight: #a2693d;
-            --weightFlow: #d4a574;
-            --resistance: #eae83d;
+    <style>)HTML");
+    html += QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + WEB_CSS_MENU;
+    html += QStringLiteral(R"HTML(
+        :root { --surface2: #1c2129; --up: #ffaa00; --down: #4e85f4; --warn: #ffaa00; }
+        .header { padding: 0.75rem 1.5rem; }
+        .header-content { max-width: 1600px; gap: 1rem; }
+        .menu-wrapper { margin-left: auto; }
+
+        .layout { max-width: 1600px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem;
+                  grid-template-columns: minmax(0, 1fr); }
+        /* Side by side once both fit: the graph stays in view while the comparison scrolls. */
+        @media (min-width: 1300px) {
+            .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+            .graph-col { position: sticky; top: 4.5rem; }
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; overflow: hidden; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-            display: flex;
-            flex-direction: column;
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
+        .chart-wrapper { position: relative; height: 360px; cursor: crosshair; }
+        @media (min-width: 1300px) { .chart-wrapper { height: 52vh; } }
+
+        .readout { margin-top: 0.5rem; overflow-x: auto; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+        .readout table { border-collapse: collapse; }
+        .readout th, .readout td { padding: 0.15rem 0.6rem; text-align: right; white-space: nowrap; }
+        .readout th:first-child, .readout td:first-child { text-align: left; }
+        .readout .quiet { color: var(--text-secondary); opacity: 0.5; }
+
+        .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.75rem; align-items: center; }
+        .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.7rem; border-radius: 999px;
+                border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+                font-size: 0.8125rem; cursor: pointer; opacity: 0.6; }
+        .chip.on { opacity: 1; color: var(--text); }
+        .chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+        .chip-sep { width: 1px; height: 1.4rem; background: var(--border); margin: 0 0.2rem; }
+
+        .swatch { display: inline-block; width: 22px; height: 2px; vertical-align: middle; background: var(--text); }
+        .swatch.heavy { height: 3px; }
+        .swatch.s1 { background: repeating-linear-gradient(90deg, var(--text) 0 4px, transparent 4px 6px); }
+        .swatch.s2 { background: repeating-linear-gradient(90deg, var(--text) 0 7px, transparent 7px 9px, var(--text) 9px 11px, transparent 11px 13px); }
+
+        .heads, .row { display: grid; gap: 0.5rem; grid-template-columns: 7rem repeat(var(--n), minmax(0, 1fr)); }
+        .heads { margin-bottom: 0.75rem; }
+        .head { container-type: inline-size; min-width: 0; }
+        .head > div { display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border: 1px solid var(--border);
+                      border-radius: 999px; background: var(--surface2); cursor: pointer; font-size: 0.8125rem; }
+        .head.base > div { border: 2px solid var(--down); cursor: default; }
+        .head .date { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .head .tag { font-size: 0.6875rem; color: var(--down); background: rgba(78,133,244,0.18); padding: 0 0.4rem; border-radius: 999px; }
+        /* Too narrow for the tag: the blue border still marks the base. */
+        @container (max-width: 11.5rem) { .head .tag { display: none; } }
+        /* Phone-narrow: the date takes two lines rather than an ellipsis. */
+        @container (max-width: 8rem) {
+            .head > div { gap: 0.25rem; padding-left: 0.4rem; border-radius: 12px; }
+            .head .swatch { width: 14px; }
+            .head .date { white-space: normal; line-height: 1.2; font-size: 0.75rem; }
         }
-        .header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 0.75rem 1.5rem;
-            flex-shrink: 0;
-            z-index: 100;
-        }
-        .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .back-btn {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 1.5rem;
-        }
-        .back-btn:hover { color: var(--accent); }
-        h1 { font-size: 1.125rem; font-weight: 600; }
-        .container {
-            max-width: 1400px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 1rem;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            overflow: hidden;
-        }
-        .chart-container {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1rem;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-        }
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            flex-shrink: 0;
-        }
-        .chart-title { font-size: 1rem; font-weight: 600; }
-        .curve-toggles {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        .toggle-btn {
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 0.8125rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .toggle-btn:hover { border-color: var(--text-secondary); }
-        .toggle-btn.active { background: var(--surface); color: var(--text); border-color: var(--text); }
-        .toggle-btn .dot { width: 10px; height: 10px; border-radius: 50%; }
-        .toggle-btn.pressure .dot { background: var(--pressure); }
-        .toggle-btn.flow .dot { background: var(--flow); }
-        .toggle-btn.weight .dot { background: var(--weight); }
-        .toggle-btn.temp .dot { background: var(--temp); }
-        .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
-        .toggle-btn.resistance .dot { background: var(--resistance); }
-        .chart-wrapper { position: relative; flex: 1; min-height: 150px; cursor: crosshair; }
-        .phase-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-        }
-        .phase-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.75rem;
-            border-radius: 999px;
-            border: 1px solid var(--border);
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 0.8125rem;
-            cursor: pointer;
-            opacity: 0.55;
-            transition: opacity 0.15s, background 0.15s;
-        }
-        .phase-pill.active { opacity: 1; }
-        .phase-pill .pill-dot {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-        }
-        .below-chart {
-            flex-shrink: 0;
-            max-height: 40vh;
-            overflow-y: auto;
-            margin-top: 0.5rem;
-        }
-        .data-section {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            overflow-x: auto;
-        }
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.8125rem;
-        }
-        .data-table th,
-        .data-table td {
-            padding: 0.375rem 0.5rem;
-            text-align: left;
-            white-space: nowrap;
-        }
-        .data-table thead th {
-            color: var(--text-secondary);
-            font-weight: 500;
-            border-bottom: 1px solid var(--border);
-        }
-        .data-table td { color: var(--text); }
-        .data-table .shot-row { cursor: pointer; }
-        .data-table .shot-row:hover { background: rgba(255,255,255,0.03); }
-        .data-table .dimmed { opacity: 0.4; }
-        .shot-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 2px;
-            margin-right: 6px;
-            vertical-align: middle;
-        }
-        .line-ind {
-            display: inline-block;
-            width: 16px;
-            height: 2px;
-            margin-right: 4px;
-            vertical-align: middle;
-        }
-        .line-solid { background: var(--text); }
-        .line-dashed {
-            background: repeating-linear-gradient(90deg,
-                var(--text) 0, var(--text) 3px,
-                transparent 3px, transparent 5px);
-        }
-        .line-dashdot {
-            background: repeating-linear-gradient(90deg,
-                var(--text) 0, var(--text) 5px,
-                transparent 5px, transparent 7px,
-                var(--text) 7px, var(--text) 9px,
-                transparent 9px, transparent 11px);
-        }
-        .col-hdr { cursor: pointer; user-select: none; text-align: center; }
-        .col-hdr:hover { color: var(--text); }
-        .metric-label {
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            min-width: 70px;
-        }
-        .notes-cell {
-            white-space: normal;
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .menu-wrapper { position: relative; margin-left: auto; }
-        .menu-btn {
-            background: none;
-            border: none;
-            color: var(--text);
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 0.25rem 0.5rem;
-            line-height: 1;
-        }
-        .menu-btn:hover { color: var(--accent); }
-        .menu-dropdown {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            margin-top: 0.5rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            min-width: max-content;
-            display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 200;
-        }
-        .menu-dropdown.open { display: block; }
-        .menu-item {
-            display: block;
-            padding: 0.75rem 1rem;
-            color: var(--text);
-            text-decoration: none;
-            white-space: nowrap;
-        }
-        .menu-item:hover { background: var(--surface); }
+        .head .eye { display: flex; background: none; border: none; color: var(--text); cursor: pointer; padding: 0.1rem; }
+        .head .eye.off { color: var(--text-secondary); }
+        .head .eye svg { width: 16px; height: 16px; }
+
+        .summary { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.9rem; margin: 0.2rem 0 0.2rem 0.2rem; }
+        .section { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); margin: 1.1rem 0 0.3rem; }
+        .row { align-items: baseline; padding: 0.35rem 0; border-top: 1px solid rgba(48,54,61,0.6); font-variant-numeric: tabular-nums; }
+        .row .label { color: var(--text-secondary); font-size: 0.875rem; }
+        .row .label .unit { font-size: 0.75rem; opacity: 0.7; margin-left: 0.2rem; }
+        .row .muted { color: var(--text-secondary); }
+        .row .warn { color: var(--warn); }
+        .pill { font-size: 0.75rem; padding: 0 0.45rem; border-radius: 999px; margin-left: 0.4rem; white-space: nowrap; }
+        .pill.up { color: var(--up); background: rgba(255,170,0,0.16); }
+        .pill.down { color: var(--down); background: rgba(78,133,244,0.16); }
+        .note { color: var(--text-secondary); font-size: 0.8125rem; line-height: 1.6; }
+        .quote { color: var(--text-secondary); font-style: italic; font-size: 0.875rem; margin-top: 0.5rem; }
+        .more-btn { display: block; margin: 0.75rem auto 0; padding: 0.4rem 1rem; border-radius: 8px; border: 1px solid var(--border);
+                    background: var(--surface2); color: var(--text); cursor: pointer; }
+        .diff { font-size: 0.8125rem; color: var(--text-secondary); margin: 0.3rem 0; }
+        /* Phone: each label takes its own line, so the value columns get the width. */
         @media (max-width: 600px) {
-            .container { padding: 0.5rem; }
+            .header { padding: 0.75rem 1rem; }
+            .chip-sep { display: none; }
+            .layout { padding: 0.5rem; }
+            .heads, .row { grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+            .heads > .spacer { display: none; }
+            .row .label { grid-column: 1 / -1; }
         }
     </style>
-</head>)HTML" R"HTML(
+</head>
 <body>
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&#8592;</a>
-            <h1>Compare %1 Shots</h1>
-)HTML" + generateMenuHtml() + R"HTML(
+            <h1>Compare )HTML") + QString::number(shots.size()) + QStringLiteral(R"HTML( Shots</h1>
+)HTML");
+    html += generateMenuHtml();
+    html += QStringLiteral(R"HTML(
         </div>
     </header>
-    <main class="container">
-        <div class="chart-container">
-            <div class="chart-header">
-                <div class="chart-title">Extraction Curves</div>
-                <div class="curve-toggles">
-                    <button class="toggle-btn pressure active" data-curve="pressure" onclick="toggleCurve('pressure', this)">
-                        <span class="dot"></span> Pressure
-                    </button>
-                    <button class="toggle-btn flow active" data-curve="flow" onclick="toggleCurve('flow', this)">
-                        <span class="dot"></span> Flow
-                    </button>
-                    <button class="toggle-btn weight active" data-curve="weight" onclick="toggleCurve('weight', this)">
-                        <span class="dot"></span> Yield
-                    </button>
-                    <button class="toggle-btn temp active" data-curve="temp" onclick="toggleCurve('temp', this)">
-                        <span class="dot"></span> Temp
-                    </button>
-                    <button class="toggle-btn weightFlow active" data-curve="weightFlow" onclick="toggleCurve('weightFlow', this)">
-                        <span class="dot"></span> Weight Flow
-                    </button>
-                    <button class="toggle-btn resistance" data-curve="resistance" onclick="toggleCurve('resistance', this)">
-                        <span class="dot"></span> Resistance
-                    </button>
-                </div>
+    <main class="layout">
+        <section class="graph-col">
+            <div class="card">
+                <div class="chart-wrapper"><canvas id="compareChart"></canvas></div>
+                <div id="readout" class="readout"></div>
+                <div id="chips" class="chips"></div>
             </div>
-            <div class="chart-wrapper">
-                <canvas id="compareChart"></canvas>
-            </div>
-        </div>
-        <div class="below-chart">
-            <div id="phasePills" class="phase-pills"></div>
-            <div class="data-section">
-                <table id="crosshairTable" class="data-table"></table>
-            </div>
-            <div class="data-section">
-                <table id="metricsTable" class="data-table"></table>
-            </div>
-        </div>
+        </section>
+        <section class="card" id="comparison"></section>
     </main>
     <script>
-        // === Data from C++ ===
-        var shotInfo = %3;
-        var allPhases = %4;
+)HTML");
+    html += QStringLiteral("        var shots = ") + embed(shots)
+          + QStringLiteral(";\n        var comparisons = ") + embed(data.value(QStringLiteral("comparisons")))
+          + QStringLiteral(";\n        var texts = ") + embed(ShotComparisonText::toJson())
+          + QStringLiteral(";\n        var dialInLabels = ") + embed(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
+          + QStringLiteral(";\n        var puckFlags = ") + embed(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
+          + QStringLiteral(";\n        var icons = { eye: ") + icon(QStringLiteral(":/icons/eye.svg"))
+          + QStringLiteral(", eyeOff: ") + icon(QStringLiteral(":/icons/eye-off.svg")) + QStringLiteral(" };\n");
+    html += QString::fromLatin1(WEB_JS_ESCAPE_HTML);
+    html += QString::fromLatin1(WEB_JS_MENU);
+    html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
+    html += QStringLiteral(R"HTML(
+        // === Wording: ShotComparisonText, the table the app translates ===
+        function txt(id, fb) { var e = texts[id]; return e ? e.label : (fb !== undefined ? fb : id); }
+        var DASH = "—";
 
         // === State ===
-        var visibleCurves = {pressure: true, flow: true, weight: true, temp: true, weightFlow: true, resistance: false};
-        var visibleShots = {};
+        var base = 0;                 // index into shots (oldest first)
+        var hiddenShots = {};          // by shot id
         var hiddenPhases = {};
-        var crosshairTime = null;
-        var phaseColors = ["#c9a227", "#e85d75", "#4ecdc4", "#66bb6a", "#ff9800"];
-        var lineClasses = ["line-solid", "line-dashed", "line-dashdot"];
+        var alignPours = false;
+        var showMore = false;
+        var showAllCurves = false;
+        var crosshair = null;
+        var curves = [
+            { key: "pressure", label: "P", name: "Pressure", color: "#18c37e", axis: "y", on: true, tip: "Pressure at the group (bar)" },
+            { key: "flow", label: "F", name: "Flow", color: "#4e85f4", axis: "y", on: true, tip: "Flow through the puck (mL/s)" },
+            { key: "temp", label: "T", name: "Temp", color: "#e73249", axis: "y3", on: true, tip: "Group temperature (°C)" },
+            { key: "weight", label: "W", name: "Weight", color: "#a2693d", axis: "y2", on: true, tip: "Weight in the cup (g)" },
+            { key: "weightFlow", label: "WF", name: "Weight flow", color: "#d4a574", axis: "y", on: true, tip: "Weight flow into the cup (g/s)" },
+            { key: "resistance", label: "R", name: "Resistance", color: "#eae83d", axis: "y", on: false, tip: "Puck resistance (pressure / flow)" },
+            { key: "darcyR", label: "dR", name: "Resistance (P/F²)", color: "#f0a500", axis: "y", on: false, tip: "Darcy resistance (pressure / flow²)" },
+            { key: "conductance", label: "C", name: "Conductance", color: "#00c8d7", axis: "y", on: false, tip: "Conductance (flow² / pressure)" },
+            { key: "dCdt", label: "dC/dt", name: "dC/dt", color: "#e05aa0", axis: "y4", on: false, tip: "Rate of change of conductance; spikes reveal transient channels" },
+            { key: "mixTemp", label: "Tmix", name: "Mix temp", color: "#d79be0", axis: "y3", on: false, tip: "Water mix temperature" },
+            { key: "mixTempGoal", label: "Tmixg", name: "Mix temp goal", color: "#a983c9", axis: "y3", on: false, tip: "Water mix temperature goal" }
+        ];
+        var phaseColors = ["#FFD600", "#E91E63", "#00E5FF", "#76FF03", "#FF6D00"];
+        var dashes = [[], [6, 5], [10, 4, 2, 4]];
 
-        // Init shot visibility
-        for (var _i = 0; _i < shotInfo.length; _i++) visibleShots[_i] = true;
+        var indexById = {};
+        shots.forEach(function(s, i) { indexById[s.id] = i; });
+        var phaseLabels = [];
+        shots.forEach(function(s) { s.phases.forEach(function(p) { if (phaseLabels.indexOf(p.label) < 0) phaseLabels.push(p.label); }); });
+        for (var pl = 0; pl < phaseLabels.length - 2; pl++) hiddenPhases[phaseLabels[pl]] = true;
 
-        // Collect unique phase labels
-        var uniquePhaseLabels = [];
-        for (var _si = 0; _si < allPhases.length; _si++) {
-            for (var _pi = 0; _pi < allPhases[_si].length; _pi++) {
-                var _lbl = allPhases[_si][_pi].label;
-                if (uniquePhaseLabels.indexOf(_lbl) === -1) uniquePhaseLabels.push(_lbl);
-            }
+        function cmp() { return comparisons[base]; }
+        // Shot indices in column order: the base, then the rest oldest first.
+        function columns() { return cmp().shots.map(function(s) { return indexById[s.shotId]; }); }
+        function offsetFor(si) {
+            if (!alignPours) return 0;
+            var b = shots[base].pourStartSec, o = shots[si].pourStartSec;
+            return b > 0 && o > 0 ? b - o : 0;
         }
-        // Default: only last 2 phase labels visible
-        for (var _j = 0; _j < Math.max(0, uniquePhaseLabels.length - 2); _j++) {
-            hiddenPhases[uniquePhaseLabels[_j]] = true;
-        }
-
-        // === Helpers ===
-        function escapeHtml(s) {
-            if (!s) return "";
-            return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        }
-        function escapeAttr(s) {
-            if (!s) return "";
-            return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        }
-        function findClosestPoint(data, targetX) {
-            if (!data || data.length === 0) return null;
-            var closest = data[0], closestDist = Math.abs(data[0].x - targetX);
-            for (var i = 1; i < data.length; i++) {
-                var dist = Math.abs(data[i].x - targetX);
-                if (dist < closestDist) { closestDist = dist; closest = data[i]; }
-            }
-            return closest;
-        }
-)HTML" R"HTML(
-        // === Phase marker plugin ===
-        var phaseMarkerPlugin = {
-            id: "phaseMarkers",
+        function swatch(col) { return "<span class='swatch s" + (col % 3) + (col === 0 ? " heavy" : "") + "'></span>"; }
+)HTML");
+    html += QStringLiteral(R"HTML(
+        // === Chart ===
+        var phasePlugin = {
+            id: "phases",
             afterDraw: function(chart) {
-                if (!allPhases || allPhases.length === 0) return;
-                var ctx = chart.ctx;
-                var xScale = chart.scales.x;
-                var yScale = chart.scales.y;
-                var top = yScale.top, bottom = yScale.bottom;
-                var dashPats = [[], [6, 5], [10, 4, 2, 4]];
-
+                var ctx = chart.ctx, xs = chart.scales.x, ys = chart.scales.y;
                 ctx.save();
-                for (var si = 0; si < allPhases.length; si++) {
-                    if (!visibleShots[si]) continue;
-                    var phases = allPhases[si];
-                    var color = shotInfo[si].color;
-                    var dash = dashPats[si % dashPats.length];
-
-                    for (var pi = 0; pi < phases.length; pi++) {
-                        var mk = phases[pi];
-                        if (hiddenPhases[mk.label]) continue;
-                        var x = xScale.getPixelForValue(mk.time);
-                        if (x < xScale.left || x > xScale.right) continue;
-
-                        ctx.beginPath();
-                        ctx.setLineDash(dash);
-                        ctx.strokeStyle = color;
-                        ctx.lineWidth = 1;
-                        ctx.globalAlpha = 0.6;
-                        ctx.moveTo(x, top);
-                        ctx.lineTo(x, bottom);
-                        ctx.stroke();
-                        ctx.setLineDash([]);
-                        ctx.globalAlpha = 1.0;
-
-                        // Label only for first visible shot with this phase
-                        var isFirst = true;
-                        for (var prev = 0; prev < si; prev++) {
-                            if (!visibleShots[prev]) continue;
-                            for (var pp = 0; pp < allPhases[prev].length; pp++) {
-                                if (allPhases[prev][pp].label === mk.label) { isFirst = false; break; }
-                            }
-                            if (!isFirst) break;
+                columns().forEach(function(si, col) {
+                    if (hiddenShots[shots[si].id]) return;
+                    shots[si].phases.forEach(function(p) {
+                        if (hiddenPhases[p.label]) return;
+                        var x = xs.getPixelForValue(p.time + offsetFor(si));
+                        if (x < xs.left || x > xs.right) return;
+                        var color = phaseColors[phaseLabels.indexOf(p.label) % phaseColors.length];
+                        ctx.setLineDash(dashes[col % 3]); ctx.strokeStyle = color; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
+                        ctx.beginPath(); ctx.moveTo(x, ys.top); ctx.lineTo(x, ys.bottom); ctx.stroke();
+                        if (col === 0) {
+                            ctx.setLineDash([]); ctx.globalAlpha = 0.9; ctx.fillStyle = color; ctx.font = "11px sans-serif";
+                            ctx.fillText(p.label, x + 3, ys.top + 11);
                         }
-                        if (isFirst) {
-                            var suffix = "";
-                            if (mk.reason === "weight") suffix = " [W]";
-                            else if (mk.reason === "pressure" || mk.reason === "pressure_unconfirmed") suffix = " [P]";
-                            else if (mk.reason === "flow" || mk.reason === "flow_unconfirmed") suffix = " [F]";
-                            else if (mk.reason === "time") suffix = " [T]";
-                            ctx.save();
-                            ctx.translate(x + 4, top + 10);
-                            ctx.rotate(-Math.PI / 2);
-                            ctx.font = (mk.label === "End" ? "bold " : "") + "11px sans-serif";
-                            ctx.fillStyle = color;
-                            ctx.globalAlpha = 0.8;
-                            ctx.textAlign = "right";
-                            ctx.fillText(mk.label + suffix, 0, 0);
-                            ctx.restore();
-                        }
-                    }
+                    });
+                });
+                if (crosshair !== null) {
+                    var cx = xs.getPixelForValue(crosshair);
+                    ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.globalAlpha = 1; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.moveTo(cx, ys.top); ctx.lineTo(cx, ys.bottom); ctx.stroke();
                 }
                 ctx.restore();
             }
         };
-
-        // === Crosshair plugin ===
-        var crosshairPlugin = {
-            id: "crosshairLine",
-            afterDraw: function(chart) {
-                if (crosshairTime === null) return;
-                var ctx = chart.ctx;
-                var xScale = chart.scales.x;
-                var yScale = chart.scales.y;
-                var x = xScale.getPixelForValue(crosshairTime);
-                if (x < xScale.left || x > xScale.right) return;
-                ctx.save();
-                ctx.beginPath();
-                ctx.setLineDash([3, 3]);
-                ctx.strokeStyle = "rgba(255,255,255,0.7)";
-                ctx.lineWidth = 1;
-                ctx.moveTo(x, yScale.top);
-                ctx.lineTo(x, yScale.bottom);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.restore();
-            }
-        };
-)HTML" R"HTML(
-        // === Create chart ===
-        var ctx = document.getElementById("compareChart").getContext("2d");
-        var chart = new Chart(ctx, {
+        function datasets() {
+            var out = [];
+            columns().forEach(function(si, col) {
+                if (hiddenShots[shots[si].id]) return;
+                var dx = offsetFor(si);
+                curves.forEach(function(c) {
+                    if (!c.on) return;
+                    var pts = (shots[si].curves[c.key] || []).map(function(p) { return { x: p[0] + dx, y: p[1] }; });
+                    out.push({ data: pts, borderColor: c.color, borderWidth: (col === 0 ? 2.5 : 1.5), pointRadius: 0,
+                               tension: 0.2, yAxisID: c.axis, borderDash: dashes[col % 3] });
+                });
+            });
+            return out;
+        }
+        var chart = new Chart(document.getElementById("compareChart").getContext("2d"), {
             type: "line",
-            plugins: [phaseMarkerPlugin, crosshairPlugin],
-            data: { datasets: [%2] },
+            plugins: [phasePlugin],
+            data: { datasets: datasets() },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                events: [],
+                responsive: true, maintainAspectRatio: false, animation: false, events: [],
                 plugins: { legend: { display: false }, tooltip: { enabled: false } },
                 scales: {
-                    x: {
-                        type: "linear",
-                        title: { display: true, text: "Time (s)", color: "#8b949e" },
-                        grid: { color: "rgba(48, 54, 61, 0.5)" },
-                        ticks: { color: "#8b949e" }
-                    },
-                    y: {
-                        type: "linear",
-                        position: "left",
-                        title: { display: true, text: "Pressure / Flow", color: "#8b949e" },
-                        min: 0, max: 12,
-                        grid: { color: "rgba(48, 54, 61, 0.5)" },
-                        ticks: { color: "#8b949e" }
-                    },
-                    y2: {
-                        type: "linear",
-                        position: "right",
-                        title: { display: true, text: "Yield (g)", color: "#a2693d" },
-                        min: 0,
-                        grid: { display: false },
-                        ticks: { color: "#a2693d" }
-                    },
-                    y3: {
-                        type: "linear",
-                        position: "right",
-                        title: { display: false },
-                        min: 80, max: 100,
-                        display: false
-                    }
+                    x: { type: "linear", min: 0, title: { display: true, text: "Time (s)", color: "#8b949e" },
+                         grid: { color: "rgba(48,54,61,0.5)" }, ticks: { color: "#8b949e" } },
+                    y: { min: 0, max: 12, title: { display: true, text: "bar / mL/s", color: "#8b949e" },
+                         grid: { color: "rgba(48,54,61,0.5)" }, ticks: { color: "#8b949e" } },
+                    y2: { position: "right", min: 0, title: { display: true, text: "g", color: "#a2693d" },
+                          grid: { display: false }, ticks: { color: "#a2693d" } },
+                    y3: { display: false, min: 40, max: 100 },
+                    y4: { display: false }
                 }
             }
         });
+        function redrawChart() { chart.data.datasets = datasets(); chart.update("none"); renderReadout(); }
 
-        // === Crosshair interaction ===
-        var cvs = chart.canvas;
-        var isDragging = false;
-        var touchCommit = null;
-        var touchStartX = 0, touchStartY = 0;
-
-        function getTimeFromEvent(e) {
-            var rect = cvs.getBoundingClientRect();
-            var cx = e.touches ? e.touches[0].clientX : e.clientX;
-            var canvasX = cx - rect.left;
-            var xScale = chart.scales.x;
-            var t = xScale.getValueForPixel(canvasX);
-            return Math.max(xScale.min, Math.min(xScale.max, t));
+        // === Crosshair, read under the plot ===
+        var cvs = chart.canvas, dragging = false, touchDir = null, tsx = 0, tsy = 0;
+        function timeAt(clientX) {
+            var r = cvs.getBoundingClientRect(), xs = chart.scales.x;
+            return Math.max(xs.min, Math.min(xs.max, xs.getValueForPixel(clientX - r.left)));
         }
-        function setCrosshair(t) {
-            crosshairTime = t;
-            chart.update("none");
-            updateCrosshairTable();
-        }
-
-        cvs.addEventListener("mousedown", function(e) {
-            isDragging = true;
-            setCrosshair(getTimeFromEvent(e));
-        });
-        document.addEventListener("mousemove", function(e) {
-            if (!isDragging) return;
-            setCrosshair(getTimeFromEvent(e));
-        });
-        document.addEventListener("mouseup", function() { isDragging = false; });
-
-        cvs.addEventListener("touchstart", function(e) {
-            if (e.touches.length !== 1) return;
-            touchCommit = null;
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        }, { passive: true });
+        function inspect(t) { crosshair = t; chart.update("none"); renderReadout(); }
+        cvs.addEventListener("mousedown", function(e) { dragging = true; inspect(timeAt(e.clientX)); });
+        document.addEventListener("mousemove", function(e) { if (dragging) inspect(timeAt(e.clientX)); });
+        document.addEventListener("mouseup", function() { dragging = false; });
+        cvs.addEventListener("touchstart", function(e) { touchDir = null; tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; }, { passive: true });
         cvs.addEventListener("touchmove", function(e) {
-            if (e.touches.length !== 1) return;
-            var dx = e.touches[0].clientX - touchStartX;
-            var dy = e.touches[0].clientY - touchStartY;
-            if (!touchCommit) {
-                if (Math.sqrt(dx * dx + dy * dy) > 10) {
-                    touchCommit = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
-                }
-            }
-            if (touchCommit === "h") {
-                e.preventDefault();
-                setCrosshair(getTimeFromEvent(e));
-            }
+            var dx = e.touches[0].clientX - tsx, dy = e.touches[0].clientY - tsy;
+            if (!touchDir && Math.hypot(dx, dy) > 10) touchDir = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+            if (touchDir === "h") { e.preventDefault(); inspect(timeAt(e.touches[0].clientX)); }
         }, { passive: false });
-        cvs.addEventListener("touchend", function(e) {
-            if (!touchCommit) {
-                var rect = cvs.getBoundingClientRect();
-                var touch = e.changedTouches[0];
-                var cx = touch.clientX - rect.left;
-                var xScale = chart.scales.x;
-                var t = xScale.getValueForPixel(cx);
-                t = Math.max(xScale.min, Math.min(xScale.max, t));
-                setCrosshair(t);
-            }
-            touchCommit = null;
-        });
-)HTML" R"HTML(
-        // === Crosshair data table ===
-        var curveInfo = [
-            { key: "pressure", label: "P", unit: "bar", color: "var(--pressure)" },
-            { key: "flow", label: "F", unit: "mL/s", color: "var(--flow)" },
-            { key: "temp", label: "T", unit: "\u00B0C", color: "var(--temp)" },
-            { key: "weight", label: "W", unit: "g", color: "var(--weight)" },
-            { key: "weightFlow", label: "WF", unit: "g/s", color: "var(--weightFlow)" },
-            { key: "resistance", label: "R", unit: "", color: "var(--resistance)" }
-        ];
+        cvs.addEventListener("touchend", function(e) { if (!touchDir) inspect(timeAt(e.changedTouches[0].clientX)); touchDir = null; });
 
-        function updateCrosshairTable() {
-            var tbl = document.getElementById("crosshairTable");
-            var h = "<thead><tr><th style='min-width:140px'>" +
-                (crosshairTime !== null ? crosshairTime.toFixed(1) + "s" : "") + "</th>";
-            for (var ci = 0; ci < curveInfo.length; ci++) {
-                var c = curveInfo[ci];
-                var on = visibleCurves[c.key];
-                h += "<th class='col-hdr" + (on ? "" : " dimmed") + "' onclick=\"toggleCurveFromTable('" + c.key + "')\" style='text-align:center'>";
-                h += "<span style='display:inline-block;width:6px;height:6px;border-radius:50%;background:" + c.color + ";margin-right:3px;vertical-align:middle;opacity:" + (on ? "1" : "0.3") + "'></span>";
-                h += c.label + "</th>";
-            }
-            h += "</tr></thead><tbody>";
-
-            var ds = chart.data.datasets;
-            for (var si = 0; si < shotInfo.length; si++) {
-                var s = shotInfo[si];
-                var vis = visibleShots[si];
-                var lc = lineClasses[si % lineClasses.length];
-                h += "<tr class='shot-row" + (vis ? "" : " dimmed") + "' onclick='toggleShot(" + si + ")'>";
-                h += "<td><span class='line-ind " + lc + "'></span>";
-                h += "<span class='shot-dot' style='background:" + s.color + "'></span>";
-                h += "<span style='font-weight:500'>" + escapeHtml(s.name) + "</span> ";
-                h += "<span style='color:var(--text-secondary);font-size:0.75rem'>" + escapeHtml(s.date) + "</span></td>";
-
-                for (var ci2 = 0; ci2 < curveInfo.length; ci2++) {
-                    var c2 = curveInfo[ci2];
-                    var val = "\u2014";
-                    if (crosshairTime !== null && vis && visibleCurves[c2.key]) {
-                        for (var di = 0; di < ds.length; di++) {
-                            if (ds[di].shotIndex === si && ds[di].curveType === c2.key) {
-                                var pt = findClosestPoint(ds[di].data, crosshairTime);
-                                if (pt && pt.y !== null) val = pt.y.toFixed(1) + " " + c2.unit;
-                                break;
-                            }
-                        }
-                    }
-                    h += "<td style='text-align:center;color:" + c2.color + "'>" + val + "</td>";
-                }
+        function valueAt(si, key, t) {
+            var pts = shots[si].curves[key] || [], best = null, bd = 1;
+            var tt = t - offsetFor(si);
+            for (var i = 0; i < pts.length; i++) { var d = Math.abs(pts[i][0] - tt); if (d < bd) { bd = d; best = pts[i][1]; } }
+            return best;
+        }
+        // One row per visible shot whether or not anything is inspected, so a tap never moves the page.
+        function renderReadout() {
+            var on = curves.filter(function(c) { return c.on; });
+            var h = "<table><tr><th>" + (crosshair !== null ? crosshair.toFixed(1) + " s" : "") + "</th>";
+            on.forEach(function(c) { h += "<th style='color:" + c.color + "'>" + c.label + "</th>"; });
+            h += "</tr>";
+            columns().forEach(function(si, col) {
+                if (hiddenShots[shots[si].id]) return;
+                h += "<tr><td>" + swatch(col) + "</td>";
+                on.forEach(function(c) {
+                    var v = crosshair !== null ? valueAt(si, c.key, crosshair) : null;
+                    h += v === null ? "<td class='quiet'>–</td>" : "<td>" + v.toFixed(1) + "</td>";
+                });
                 h += "</tr>";
-            }
-            h += "</tbody>";
-            tbl.textContent = "";
-            tbl.insertAdjacentHTML("afterbegin", h);
+            });
+            document.getElementById("readout").innerHTML = h + "</table>";
         }
 
-        // === Phase pills ===
-        function buildPhasePills() {
-            var el = document.getElementById("phasePills");
-            if (uniquePhaseLabels.length === 0) { el.style.display = "none"; return; }
-            var h = "";
-            for (var i = 0; i < uniquePhaseLabels.length; i++) {
-                var label = uniquePhaseLabels[i];
-                var color = phaseColors[i % phaseColors.length];
-                var on = !hiddenPhases[label];
-                h += "<button class='phase-pill" + (on ? " active" : "") + "' ";
-                h += "data-label='" + escapeAttr(label) + "' onclick='togglePhase(this)' ";
-                if (on) h += "style='background:" + color + "22;border-color:" + color + ";color:" + color + "' ";
-                h += "><span class='pill-dot' style='background:" + color + "'></span>" + escapeHtml(label) + "</button>";
-            }
-            el.textContent = "";
-            el.insertAdjacentHTML("afterbegin", h);
-        }
-        function togglePhase(btn) {
-            var label = btn.getAttribute("data-label");
-            if (hiddenPhases[label]) delete hiddenPhases[label];
-            else hiddenPhases[label] = true;
-            buildPhasePills();
-            chart.update("none");
-        }
-)HTML" R"HTML(
-        // === Shot metrics table ===
-        function metricVal(key, s) {
-            switch (key) {
-                case "profile": {
-                    var n = s.name || "\u2014";
-                    return s.temperatureOverrideC > 0 ? n + " (" + Math.round(s.temperatureOverrideC) + "\u00B0C)" : n;
-                }
-                case "duration": return (s.durationSec || 0).toFixed(1) + "s";
-                case "dose": return (s.doseWeightG || 0).toFixed(1) + "g";
-                case "output": {
-                    var a = (s.finalWeightG || 0).toFixed(1) + "g";
-                    var t = s.targetWeightG;
-                    return (t > 0 && Math.abs(t - s.finalWeightG) > 0.5) ? a + " (" + Math.round(t) + "g)" : a;
-                }
-                case "ratio": return s.doseWeightG > 0 ? "1:" + (s.finalWeightG / s.doseWeightG).toFixed(1) : "\u2014";
-                case "rating": return s.enjoyment > 0 ? s.enjoyment + "\u0025" : "\u2014";
-                case "bean": {
-                    var b = ((s.beanBrand || "") + (s.beanType ? " " + s.beanType : "")).trim();
-                    return b || "\u2014";
-                }
-                case "grinder": {
-                    var m = ((s.grinderBrand || "") + " " + (s.grinderModel || "")).trim();
-                    var g = s.grinderSetting || "";
-                    if (m && g) return m + " @ " + g;
-                    return m || g || "\u2014";
-                }
-                case "roast": {
-                    var p = [];
-                    if (s.roastLevel) p.push(s.roastLevel);
-                    if (s.roastDate) p.push(s.roastDate);
-                    return p.length > 0 ? p.join(", ") : "\u2014";
-                }
-                case "tdsEy": {
-                    var p = [];
-                    if (s.drinkTds > 0) p.push(s.drinkTds.toFixed(2) + "\u0025");
-                    if (s.drinkEy > 0) p.push(s.drinkEy.toFixed(1) + "\u0025");
-                    return p.join(" / ") || "\u2014";
-                }
-                case "barista": return s.barista || "\u2014";
-                case "notes": return s.notes || "\u2014";
-            }
-            return "\u2014";
-        }
-        function metricRowVis(key) {
-            for (var i = 0; i < shotInfo.length; i++) {
-                var s = shotInfo[i];
-                switch (key) {
-                    case "rating": if (s.enjoyment > 0) return true; break;
-                    case "grinder": if (s.grinderBrand || s.grinderModel || s.grinderSetting) return true; break;
-                    case "tdsEy": if (s.drinkTds > 0 || s.drinkEy > 0) return true; break;
-                    case "barista": if (s.barista) return true; break;
-                    case "notes": if (s.notes) return true; break;
-                    default: return true;
-                }
-            }
-            return false;
-        }
-        function buildMetricsTable() {
-            var tbl = document.getElementById("metricsTable");
-            var metrics = [
-                {key: "duration", label: "Duration"}, {key: "dose", label: "Dose"},
-                {key: "output", label: "Output"}, {key: "ratio", label: "Ratio"},
-                {key: "rating", label: "Rating"}, {key: "bean", label: "Bean"},
-                {key: "grinder", label: "Grinder"}, {key: "roast", label: "Roast"},
-                {key: "tdsEy", label: "TDS/EY"},
-                {key: "barista", label: "Barista"}, {key: "notes", label: "Notes"}
-            ];
-            var h = "<thead><tr><th></th>";
-            for (var si = 0; si < shotInfo.length; si++) {
-                var s = shotInfo[si];
-                var lc = lineClasses[si % lineClasses.length];
-                h += "<th><span class='line-ind " + lc + "'></span>";
-                h += "<span class='shot-dot' style='background:" + s.color + "'></span>";
-                h += escapeHtml(metricVal("profile", s));
-                h += "<br><span style='color:var(--text-secondary);font-size:0.7rem'>" + escapeHtml(s.date) + "</span></th>";
-            }
-            h += "</tr></thead><tbody>";
-            for (var mi = 0; mi < metrics.length; mi++) {
-                var m = metrics[mi];
-                if (!metricRowVis(m.key)) continue;
-                h += "<tr><td class='metric-label'>" + m.label + "</td>";
-                for (var si2 = 0; si2 < shotInfo.length; si2++) {
-                    var val = metricVal(m.key, shotInfo[si2]);
-                    var cls = m.key === "notes" ? " class='notes-cell'" : "";
-                    var sty = m.key === "rating" ? " style='color:#f0a500'" : "";
-                    h += "<td" + cls + sty + ">" + escapeHtml(val) + "</td>";
-                }
-                h += "</tr>";
-            }
-            h += "</tbody>";
-            tbl.textContent = "";
-            tbl.insertAdjacentHTML("afterbegin", h);
-        }
-
-        // === Toggle functions ===
-        function toggleCurve(curveType, btn) {
-            visibleCurves[curveType] = !visibleCurves[curveType];
-            btn.classList.toggle("active");
-            chart.data.datasets.forEach(function(ds, i) {
-                if (ds.curveType === curveType) {
-                    chart.getDatasetMeta(i).hidden = !visibleShots[ds.shotIndex] || !visibleCurves[curveType];
-                }
+        // === Chips: curves, phases, align pours ===
+        function renderChips() {
+            var h = "", off = 0;
+            curves.forEach(function(c, i) {
+                if (!c.on) off++;
+                if (!c.on && !showAllCurves) return;
+                h += "<button class='chip" + (c.on ? " on" : "") + "' title='" + escapeHtml(c.name + ": " + c.tip) + "' onclick='toggleCurve(" + i + ")'"
+                   + (c.on ? " style='border-color:" + c.color + "'" : "") + "><span class='dot' style='background:" + c.color + "'></span>" + c.label + "</button>";
             });
-            chart.update();
-            updateCrosshairTable();
-        }
-        function toggleCurveFromTable(curveType) {
-            visibleCurves[curveType] = !visibleCurves[curveType];
-            document.querySelectorAll(".toggle-btn").forEach(function(btn) {
-                if (btn.getAttribute("data-curve") === curveType)
-                    btn.classList.toggle("active", visibleCurves[curveType]);
+            if (off > 0) h += "<button class='chip' title='" + escapeHtml(txt(showAllCurves ? "tip.fewerCurves" : "tip.moreCurves"))
+                            + "' onclick='showAllCurves=!showAllCurves;renderChips()'>" + (showAllCurves ? escapeHtml(txt("ui.fewerCurves")) : "+" + off) + "</button>";
+            if (phaseLabels.length > 0) h += "<span class='chip-sep'></span>";
+            phaseLabels.forEach(function(p, i) {
+                var color = phaseColors[i % phaseColors.length], on = !hiddenPhases[p];
+                h += "<button class='chip" + (on ? " on" : "") + "' title='" + escapeHtml(txt("tip.phase").replace("%1", p)) + "' onclick='togglePhase(" + i + ")'"
+                   + (on ? " style='border-color:" + color + "'" : "") + "><span class='dot' style='background:" + color + "'></span>" + escapeHtml(p) + "</button>";
             });
-            chart.data.datasets.forEach(function(ds, i) {
-                if (ds.curveType === curveType) {
-                    chart.getDatasetMeta(i).hidden = !visibleShots[ds.shotIndex] || !visibleCurves[curveType];
-                }
-            });
-            chart.update();
-            updateCrosshairTable();
+            h += "<button class='chip" + (alignPours ? " on" : "") + "' title='" + escapeHtml(txt("tip.alignPours"))
+               + "' onclick='alignPours=!alignPours;renderChips();redrawChart()'>" + escapeHtml(txt("ui.alignPours")) + "</button>";
+            document.getElementById("chips").innerHTML = h;
         }
-        function toggleShot(idx) {
-            visibleShots[idx] = !visibleShots[idx];
-            chart.data.datasets.forEach(function(ds, i) {
-                if (ds.shotIndex === idx) {
-                    chart.getDatasetMeta(i).hidden = !visibleShots[idx] || !visibleCurves[ds.curveType];
-                }
-            });
-            chart.update("none");
-            updateCrosshairTable();
-        }
-
-        // === Menu ===
-        function toggleMenu() {
-            document.getElementById("menuDropdown").classList.toggle("open");
-        }
-        document.addEventListener("click", function(e) {
-            var menu = document.getElementById("menuDropdown");
-            if (!e.target.closest(".menu-btn") && menu.classList.contains("open"))
-                menu.classList.remove("open");
-        });
-
-        // === Power toggle ===
+        function toggleCurve(i) { curves[i].on = !curves[i].on; renderChips(); redrawChart(); }
+        function togglePhase(i) { var p = phaseLabels[i]; if (hiddenPhases[p]) delete hiddenPhases[p]; else hiddenPhases[p] = true; renderChips(); chart.update("none"); }
 )HTML");
-    html += WEB_JS_POWER_CONTROL;
-    html += R"HTML(
+    html += QStringLiteral(R"HTML(
+        // === Formatting (the app's ComparisonShotTable rules, in English) ===
+        function unitLabel(u) {
+            return { s: "s", g: "g", bar: "bar", mlPerSec: "mL/s", gPerSec: txt("unit.gPerSec"), celsius: "°C",
+                     celsiusDelta: "°C", percent: "%" }[u] || "";
+        }
+        function signed(v, d) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d); }
+        function metricText(row, v) {
+            if (v === null || v === undefined) return DASH;
+            var s = v.toFixed(row.decimals);
+            return row.key === "ratio" ? "1:" + s : s;
+        }
+        function puckLabels(canon) {
+            var flags = (canon || "").split(",");
+            return puckFlags.filter(function(f) { return flags.indexOf(f.key) >= 0; }).map(function(f) { return f.label; });
+        }
+        function inputText(row, cell) {
+            var has = cell.value !== null && cell.value !== undefined;
+            if (row.key === "temperatureOverrideC" && !has) return txt("input.profileTemp");
+            if (row.key === "puckPrep") return puckLabels(cell.text).join(" · ") || DASH;
+            if (!has || row.unit === "") return cell.text || DASH;
+            if (row.unit === "g") return cell.value.toFixed(1) + " g";
+            if (row.unit === "rpm") return Math.round(cell.value) + " " + txt("unit.rpm");
+            if (row.unit === "celsius") return cell.value.toFixed(1) + " °C";
+            return cell.text || String(cell.value);
+        }
+        function inputDelta(row, d) {
+            if (d === null || d === undefined) return "";
+            var t = signed(row.unit === "rpm" ? Math.round(d) : d, row.unit === "rpm" ? 0 : row.key === "grinderSetting" ? 2 : 1);
+            return t.indexOf(".") >= 0 ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
+        }
+        function pill(delta, text) {
+            if (!text) return "";
+            return "<span class='pill " + (delta > 0 ? "up" : "down") + "'>" + (delta > 0 ? "▲ " : "▼ ") + text.replace(/^[+−]/, "") + "</span>";
+        }
+        function plain(key, v) {
+            if (typeof v === "number") return key === "rpm" ? String(Math.round(v)) : key === "temperatureOverrideC" ? v.toFixed(1) + " °C" : v.toFixed(1);
+            return String(v);
+        }
+        function summaryFor(c) {
+            var out = [];
+            (c.summary || []).forEach(function(f) {
+                if (f.kind === "sameSetup") out.push(txt("phrase.sameSetup"));
+                else if (f.kind === "noNotable") out.push(txt("phrase.noNotable"));
+                else if (f.kind === "input") out.push(txt("input." + f.key, f.key) + " " + plain(f.key, f.from) + " → " + plain(f.key, f.to));
+                else if (f.kind === "inputChanged") out.push(txt("phrase.changed").replace("%1", txt("input." + f.key, f.key)));
+                else if (f.kind === "moreInputs") out.push(txt("phrase.moreInputs").replace("%1", f.count));
+                else if (f.kind === "metric") {
+                    var amount = Math.abs(f.delta).toFixed(f.decimals) + (unitLabel(f.unit) ? " " + unitLabel(f.unit) : "");
+                    out.push(txt(f.phrase).replace("%1", txt("metric." + f.key, f.key)).replace("%2", amount));
+                } else if (f.kind === "stopped") out.push(txt("stopped." + f.stoppedBy, ""));
+                else if (f.kind === "badgeAppeared") out.push(txt("phrase.badgeAppeared").replace("%1", txt("badge." + f.badge, f.badge)));
+                else if (f.kind === "badgeGone") out.push(txt("phrase.badgeGone").replace("%1", txt("badge." + f.badge, f.badge)));
+            });
+            out = out.filter(function(t) { return t.length > 0; });
+            return out.length > 0 ? out.join("  ·  ") : txt("phrase.noNotable");
+        }
+        // Profile-diff rows: ProfileDialInText's labels and the decimals C++ chose,
+        // as ProfileDialInDiffBlock.qml shows them.
+        function dialInLabel(id) { var e = dialInLabels[id]; return e ? e.label : id; }
+        function diffRowText(r) {
+            var name = dialInLabel(r.kind);
+            if (r.frameIndex >= 0) name = (r.frameName || dialInLabel("step").replace("%1", r.frameIndex + 1)) + " · " + name;
+            function val(v) {
+                var u = { celsius: " °C", celsiusTank: " °C", bar: " bar", mlPerSec: " mL/s", g: " g", ml: " mL" }[r.unit];
+                return v.toFixed(r.decimals) + (u !== undefined ? u : r.unit ? " " + r.unit : "");
+            }
+            return name + " " + (r.numeric ? val(r.oldValue) + " → " + val(r.newValue)
+                                           : (r.oldText || DASH) + " → " + (r.newText || DASH));
+        }
+)HTML");
+    html += QStringLiteral(R"HTML(
+        // === The comparison ===
+        function rowHtml(label, unit, cells) {
+            var h = "<div class='row'><div class='label'>" + escapeHtml(label)
+                  + (unit ? "<span class='unit'>" + escapeHtml(unit) + "</span>" : "") + "</div>";
+            cells.forEach(function(c) { h += "<div" + (c.cls ? " class='" + c.cls + "'" : "") + ">" + c.html + "</div>"; });
+            return h + "</div>";
+        }
+        function renderComparison() {
+            var c = cmp(), cols = columns();
+            document.getElementById("comparison").style.setProperty("--n", cols.length);
+            var h = "<div class='heads'><div class='spacer'></div>";
+            cols.forEach(function(si, col) {
+                var s = shots[si], hidden = !!hiddenShots[s.id];
+                h += "<div class='head" + (col === 0 ? " base" : "") + "'><div title='" + escapeHtml(txt(col === 0 ? "ui.baseShot" : "ui.makeBase").replace("%1", s.date)) + "'"
+                   + (col === 0 ? "" : " onclick='setBase(" + si + ")'") + ">"
+                   + swatch(col) + "<span class='date'>" + escapeHtml(s.date) + "</span>"
+                   + (col === 0 ? "<span class='tag'>" + escapeHtml(txt("ui.base")) + "</span>" : "")
+                   + "<button class='eye" + (hidden ? " off" : "") + "' title='" + escapeHtml(txt(hidden ? "ui.showOnGraph" : "ui.hideOnGraph"))
+                   + "' aria-pressed='" + !hidden + "' onclick='event.stopPropagation();toggleShot(" + s.id + ")'>"
+                   + (hidden ? icons.eyeOff : icons.eye) + "</button></div></div>";
+            });
+            h += "</div>";
 
-        // === Init ===
-        buildPhasePills();
-        buildMetricsTable();
-        updateCrosshairTable();
+            c.comparisons.forEach(function(cc, i) {
+                h += "<div class='summary'>" + swatch(i + 1) + "<span>" + escapeHtml(summaryFor(cc)) + "</span></div>";
+            });
+
+            h += "<div class='section'>" + escapeHtml(txt("ui.changed")) + "</div>";
+            (c.inputs || []).forEach(function(r) {
+                h += rowHtml(txt("input." + r.key, r.key), "", r.cells.map(function(cell) {
+                    return { cls: cell.state === "same" ? "muted" : "", html: escapeHtml(inputText(r, cell)) + pill(cell.delta, inputDelta(r, cell.delta)) };
+                }));
+            });
+            if (c.comparisons.every(function(cc) { return cc.nothingChanged === true; })) h += "<div class='note'>" + escapeHtml(txt("ui.nothingChanged")) + "</div>";
+            var same = (c.unchanged || []).map(function(it) {
+                var v = it.text;
+                if (it.value !== null && it.value !== undefined && it.unit !== "") v = inputText(it, it);
+                if (it.key === "profile") {
+                    if (c.comparisons.every(function(cc) { return cc.profile && cc.profile.sameVersion === true; })) v += " " + txt("ui.sameVersion");
+                } else if (it.key === "puckPrep") v = txt("ui.prep").replace("%1", puckLabels(it.text).join(", "));
+                else if (["grinder", "burrs", "basket", "bean", "roast"].indexOf(it.key) < 0 && it.unit !== "rpm") v = txt("input." + it.key, it.key) + " " + v;
+                return v;
+            });
+            if (same.length > 0) h += "<div class='note'>" + escapeHtml(txt(cols.length > 2 ? "ui.sameForAll" : "ui.sameForBoth")) + "  ·  " + escapeHtml(same.join(" · ")) + "</div>";
+            c.comparisons.forEach(function(cc, i) {
+                var rows = cc.profile ? cc.profile.rows || [] : [];
+                if (rows.length === 0) return;
+                h += "<div class='diff'>" + escapeHtml(txt("ui.profileChanged").replace("%1", shots[cols[i + 1]].date) + ": "
+                   + rows.map(diffRowText).join("; ")) + "</div>";
+            });
+
+            h += "<div class='section'>" + escapeHtml(txt("ui.happened")) + "</div>";
+            var hidden = 0;
+            (c.metrics || []).forEach(function(r) {
+                if (r.more) hidden++;
+                if (r.more && !showMore) return;
+                h += rowHtml(txt("metric." + r.key, r.key), unitLabel(r.unit), r.cells.map(function(cell) {
+                    var d = cell.delta;
+                    return { html: escapeHtml(metricText(r, cell.value)) + (d !== null && d !== undefined ? pill(d, signed(d, r.decimals)) : "") };
+                }));
+            });
+            var ss = c.shots;
+            if (ss.some(function(s) { return s.stoppedBy !== ss[0].stoppedBy; }))
+                h += rowHtml(txt("row.stopped"), "", ss.map(function(s) { return { html: escapeHtml(s.stoppedBy ? txt("stop." + s.stoppedBy, DASH) : DASH) }; }));
+            var counts = {};
+            ss.forEach(function(s) { (s.badges || []).forEach(function(b) { counts[b] = (counts[b] || 0) + 1; }); });
+            Object.keys(counts).forEach(function(b) {
+                if (counts[b] === ss.length) return;
+                h += rowHtml(txt("badge." + b, b), "", ss.map(function(s) {
+                    var on = (s.badges || []).indexOf(b) >= 0;
+                    return { cls: on ? "warn" : "muted", html: escapeHtml(txt(on ? "ui.yes" : "ui.no")) };
+                }));
+            });
+            if (ss.some(function(s) { return s.rating0to100 !== null || s.tasteBalance || s.tasteBody; }))
+                h += rowHtml(txt("row.rating"), "", ss.map(function(s, col) {
+                    var p = [];
+                    if (s.rating0to100 !== null) p.push(s.rating0to100 + "%");
+                    if (s.tasteBalance) p.push(txt("taste." + s.tasteBalance, s.tasteBalance));
+                    if (s.tasteBody) p.push(txt("taste." + s.tasteBody, s.tasteBody));
+                    // A Δ only between two rated shots.
+                    var d = col > 0 && s.rating0to100 !== null && ss[0].rating0to100 !== null ? s.rating0to100 - ss[0].rating0to100 : 0;
+                    return { html: escapeHtml(p.length ? p.join(" · ") : DASH) + (d !== 0 ? pill(d, signed(d, 0)) : "") };
+                }));
+            if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderComparison()'>" + escapeHtml(showMore ? txt("ui.showLess") : txt("ui.showMore").replace("%1", hidden)) + "</button>";
+            ss.forEach(function(s) {
+                if (s.notes) h += "<div class='quote'>" + escapeHtml(shots[indexById[s.shotId]].date) + "  “" + escapeHtml(s.notes) + "”</div>";
+            });
+            document.getElementById("comparison").innerHTML = h;
+        }
+
+        function setBase(si) { base = si; renderComparison(); redrawChart(); }
+        function toggleShot(id) { if (hiddenShots[id]) delete hiddenShots[id]; else hiddenShots[id] = true; renderComparison(); redrawChart(); }
+
+        renderChips();
+        renderComparison();
+        renderReadout();
     </script>
 </body>
 </html>
-)HTML";
-    return html.arg(QString::number(shots.size()), datasets, shotInfoJson, phasesJson);
+)HTML");
+
+    return html;
 }
 
 
@@ -3502,44 +2993,9 @@ QString ShotServer::generateDebugPage() const
     <title>Debugging Tools - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>if (typeof Chart === "undefined") document.getElementById("memoryBody").innerHTML = "<p style='color:#8b949e;padding:1em'>Chart.js failed to load (no internet?). Memory data is still available via <code>/api/memory</code>.</p>";</script>
-    <style>
-        :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text-secondary: #8b949e;
-            --accent: #c9a227;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-        }
-        .header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .back-btn {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 1.5rem;
-        }
-        .back-btn:hover { color: var(--accent); }
-        h1 { font-size: 1.125rem; font-weight: 600; flex: 1; }
+    <style>)HTML" + QString::fromLatin1(WEB_CSS_VARIABLES) + WEB_CSS_HEADER + R"HTML(
+        .header-content { max-width: 1400px; gap: 1rem; }
+        h1 { flex: 1; }
         .status {
             font-size: 0.75rem;
             color: var(--text-secondary);
@@ -3975,11 +3431,7 @@ R"HTML(        /* --- Memory section --- */
             return "<div class=\"log-line " + category + "\">" + escapeHtml(line) + "</div>";
         }
 
-        function escapeHtml(text) {
-            var div = document.createElement("div");
-            div.textContent = text;
-            return div.innerHTML;
-        }
+        )HTML" + QString::fromLatin1(WEB_JS_ESCAPE_HTML) + R"HTML(
 
         function fetchLogs() {
             fetch("/api/debug?after=" + lastIndex)

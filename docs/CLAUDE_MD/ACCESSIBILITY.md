@@ -45,6 +45,8 @@ Every interactive element must have `Accessible.role`, `Accessible.name`, and `A
 | Text input | `StyledTextField` | `Accessible.role: Accessible.EditableText` + `Accessible.name` + `Accessible.description: text` + `Accessible.focusable: true` |
 | Autocomplete field | `SuggestionField` | (same as text input) |
 | Checkbox | Qt `CheckBox` | `Accessible.name` + `Accessible.checked: checked` + `Accessible.focusable: true` |
+| Qt `Switch`/`CheckBox`/`RadioButton` | — | No `Accessible.onPressAction`/`onToggleAction` at all: Qt's own call `click()`, which emits `clicked` and `toggled`. A handler calling `toggle()` flips `checked` without `toggled` (`qquickabstractbutton.cpp:1163-1167`), so an `onToggled` save never runs |
+| Raw toggle (`CheckBox`/`RadioButton`/`Switch` role on a Rectangle) | `AccessibleMouseArea` with `accessibleRole` | `Accessible.onPressAction` **and** `Accessible.onToggleAction` doing the same thing — VoiceOver delivers its press on these roles as *toggle* (`qcocoaaccessibility.mm:336-341`), so a press handler alone is dead on macOS |
 | Dropdown | `StyledComboBox` | `Accessible.role: Accessible.ComboBox` + `Accessible.name` (use label, not displayText) + `Accessible.focusable: true` |
 | List delegate | — | `Accessible.role: Accessible.Button` + `Accessible.name` (summarize row content) + `Accessible.focusable: true` + `Accessible.onPressAction` |
 

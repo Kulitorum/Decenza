@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <QVector>
 
 // Puck-prep technique flags for an equipment package (add-puckprep-equipment).
 //
@@ -18,9 +19,8 @@ namespace PuckPrep {
 
 // The recorded flags, in DISPLAY order (the form renders them in this order). The
 // stored canonical identity is these keys SORTED, so it is order-independent.
-// MIRROR: the QML SwitchEquipmentDialog.qml `puckPrepRows` keys + its puckCanonical()
-// must match this set — a key added/renamed here has to change there too (the dialog
-// builds its dedup string independently and compares it to the C++-stored canonical).
+// Every QML list of flags derives from flagLabels() below via
+// EquipmentStorage.puckPrepFlags, so a flag is added here and only here.
 inline const QStringList& flagKeys()
 {
     static const QStringList keys = {
@@ -31,6 +31,25 @@ inline const QStringList& flagKeys()
         QStringLiteral("rdt"),
     };
     return keys;
+}
+
+// What each flag is called, in flagKeys() order, with the translation keys the
+// equipment dialog uses. Read by the shot comparison (app and web page).
+struct FlagLabel {
+    const char* key;
+    const char* translationKey;
+    const char* english;
+};
+inline const QVector<FlagLabel>& flagLabels()
+{
+    static const QVector<FlagLabel> labels = {
+        { "wdt",         "equipment.dialog.puckWdt",    "WDT" },
+        { "shaker",      "equipment.dialog.puckShaker", "Shaker" },
+        { "puckScreen",  "equipment.dialog.puckScreen", "Puck screen" },
+        { "paperFilter", "equipment.dialog.puckPaper",  "Bottom paper filter" },
+        { "rdt",         "equipment.dialog.puckRdt",    "RDT (spritz)" },
+    };
+    return labels;
 }
 
 // Canonical identity string for a flag map: the SET flag keys, sorted and

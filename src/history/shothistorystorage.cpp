@@ -3551,6 +3551,63 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
     });
 }
 
+void ShotHistoryStorage::requestPreviousShot(qint64 shotId)
+{
+    if (!m_ready) {
+        emit previousShotReady(shotId, 0);
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, shotId, destroyed]() {
+        qint64 previousId = 0;
+        withTempDb(dbPath, "shs_prev", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("SELECT profile_kb_id, profile_name, equipment_id, timestamp, beverage_type "
+                      "FROM shots WHERE id = ?");
+            q.addBindValue(shotId);
+            if (!q.exec() || !q.next()) return;
+            const QString kbId = q.value(0).toString();
+            const QString name = q.value(1).toString();
+            const qint64 equipmentId = q.value(2).toLongLong();
+            const qint64 timestamp = q.value(3).toLongLong();
+            const QString beverage = q.value(4).toString();
+            // No profile identity at all: an empty name would match every other
+            // unnamed shot, which is not "the previous shot on this setup".
+            if (kbId.isEmpty() && name.trimmed().isEmpty()) return;
+
+            // Same profile the way advisor threads key it — the knowledge-base id
+            // when the shot resolved one, else its name — same drink, same package.
+            // A row with no kb id (saved before migration 9 added it) is matched by
+            // name, so a new shot still finds an old one of the same profile.
+            QSqlQuery p(db);
+            p.prepare(QStringLiteral(
+                "SELECT id FROM shots WHERE %1 AND COALESCE(beverage_type, '') = ? "
+                "AND COALESCE(equipment_id, 0) = ? "
+                "AND timestamp < ? AND id != ? ORDER BY timestamp DESC LIMIT 1")
+                .arg(kbId.isEmpty() ? QStringLiteral("profile_name = ?")
+                                    : QStringLiteral("(profile_kb_id = ? OR (COALESCE(profile_kb_id, '') = '' "
+                                                     "AND profile_name = ?))")));
+            if (kbId.isEmpty()) {
+                p.addBindValue(name);
+            } else {
+                p.addBindValue(kbId);
+                p.addBindValue(name);
+            }
+            p.addBindValue(beverage);
+            p.addBindValue(equipmentId);
+            p.addBindValue(timestamp);
+            p.addBindValue(shotId);
+            if (p.exec() && p.next()) previousId = p.value(0).toLongLong();
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shotId, previousId, destroyed]() {
+            if (!*destroyed) emit previousShotReady(shotId, previousId);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ShotHistoryStorage::requestShot(qint64 shotId)
 {
     if (!m_ready) {

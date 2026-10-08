@@ -42,30 +42,20 @@ DecenzaDialog {
     // Optional basket identity (add-basket-equipment). Blank brand+model = no basket.
     property string fBasketBrand: ""
     property string fBasketModel: ""
-    // Optional puck-prep flags (add-puckprep-equipment). All false = no puck prep.
-    property var fPuck: ({ wdt: false, shaker: false, puckScreen: false, paperFilter: false, rdt: false })
-    // The checkbox rows, in display order (key + label). The KEY SET here must stay
-    // in sync with C++ PuckPrep::flagKeys() (core/puckprep.h): puckCanonical() below
-    // builds the dedup string from these keys and compares it against the C++-stored
-    // canonical, so a key added/renamed in one place must change in both.
-    readonly property var puckPrepRows: [
-        { key: "wdt",         label: TranslationManager.translate("equipment.dialog.puckWdt", "WDT") },
-        { key: "shaker",      label: TranslationManager.translate("equipment.dialog.puckShaker", "Shaker") },
-        { key: "puckScreen",  label: TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen") },
-        { key: "paperFilter", label: TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter") },
-        { key: "rdt",         label: TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)") }
-    ]
+    // Optional puck-prep flags (add-puckprep-equipment), {flag: bool}. None set = no puck prep.
+    property var fPuck: ({})
+    // The checkbox rows in display order, from C++ PuckPrep::flagLabels() — the same
+    // list the stored canonical string is built from, so the two cannot drift.
+    readonly property var puckPrepRows: (MainController.equipmentStorage
+                                         ? MainController.equipmentStorage.puckPrepFlags : [])
+        .map(function(f) { return { key: f.key, label: TranslationManager.translate(f.labelKey, f.label) } })
 
     // Parse a canonical "shaker,wdt" string into the fPuck flag object.
     function puckFromCanonical(canon) {
         var keys = (canon || "").split(",")
-        return {
-            wdt: keys.indexOf("wdt") >= 0,
-            shaker: keys.indexOf("shaker") >= 0,
-            puckScreen: keys.indexOf("puckScreen") >= 0,
-            paperFilter: keys.indexOf("paperFilter") >= 0,
-            rdt: keys.indexOf("rdt") >= 0
-        }
+        var p = {}
+        for (let i = 0; i < puckPrepRows.length; ++i) p[puckPrepRows[i].key] = keys.indexOf(puckPrepRows[i].key) >= 0
+        return p
     }
     // Set one puck flag (QML can't mutate a single key of a var object in place).
     function setPuck(key, on) {
@@ -194,13 +184,10 @@ DecenzaDialog {
         fBurrs = (pkg && pkg.grinderBurrs) || ""
         fBasketBrand = (pkg && pkg.basketBrand) || ""
         fBasketModel = (pkg && pkg.basketModel) || ""
-        fPuck = {
-            wdt: !!(pkg && pkg.puckPrep_wdt),
-            shaker: !!(pkg && pkg.puckPrep_shaker),
-            puckScreen: !!(pkg && pkg.puckPrep_puckScreen),
-            paperFilter: !!(pkg && pkg.puckPrep_paperFilter),
-            rdt: !!(pkg && pkg.puckPrep_rdt)
-        }
+        var p = {}
+        for (let i = 0; i < puckPrepRows.length; ++i)
+            p[puckPrepRows[i].key] = !!(pkg && pkg["puckPrep_" + puckPrepRows[i].key])
+        fPuck = p
         mode = "form"
         open()
     }

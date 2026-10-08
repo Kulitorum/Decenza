@@ -21,10 +21,24 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QJsonObject>
+#include <QPointF>
+#include <QVector>
 
 #include "history/bagid.h"
 
 struct ShotRecord;
+
+// A projection curve ({"x": t, "y": v} maps) as points, for code that computes on it.
+inline QVector<QPointF> curveToPoints(const QVariantList& curve)
+{
+    QVector<QPointF> out;
+    out.reserve(curve.size());
+    for (const QVariant& v : curve) {
+        const QVariantMap m = v.toMap();
+        out.append(QPointF(m.value(QStringLiteral("x")).toDouble(), m.value(QStringLiteral("y")).toDouble()));
+    }
+    return out;
+}
 
 class ShotProjection {
     Q_GADGET
