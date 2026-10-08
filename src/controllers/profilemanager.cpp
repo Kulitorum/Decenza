@@ -179,6 +179,8 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     });
 
     if (m_device) {
+        connect(m_device, &DE1Device::coldTransportEspressoBlocked,
+                this, &ProfileManager::restoreCurrentProfile);
         connect(m_device, &DE1Device::profileUploaded, this,
                 [this](bool success, const QString& reason) {
             // Clear the in-flight gate so the next uploadCurrentProfile() call can proceed.

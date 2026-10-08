@@ -428,6 +428,7 @@ public slots:
     void subscribeFirmwareNotifications();
 
 signals:
+    void coldTransportEspressoBlocked();
     void connectedChanged();
     void connectingChanged();
     void stateChanged();
@@ -579,6 +580,8 @@ private:
     // cold, deferred until it reports that it has left preheat. See requestMaintenanceState().
     void requestMaintenanceState(DE1::State state);
     bool applyColdMaintenanceWorkaround(DE1::State state);
+    void rejectColdTransportEspresso();
+    void uploadProfileImpl(const Profile& profile, bool coldTransport);
     bool isMachineHeating() const;
     void flushPendingMaintenanceState();
 
@@ -615,6 +618,9 @@ private:
     // by the state packet that shows the machine has left preheat — an event, not a
     // timer, so a slow machine waits as long as it needs to.
     DE1::State m_pendingMaintenanceState = DE1::State::NoRequest;
+    // Remains guarded until a selected-profile upload is verified, even across reconnect.
+    bool m_coldTransportProfileActive = false;
+    bool m_uploadIsColdTransport = false;
     double m_pressure = 0.0;
     double m_flow = 0.0;
     double m_mixTemp = 0.0;
@@ -876,6 +882,7 @@ private:
     // brick every start button until the GHC MMR read returns — and forever if
     // that read is ever slow or dropped.
     bool m_isHeadless = true;
+    bool m_ghcStatusKnown = false;
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
 
     // SAW stop latency instrumentation (monotonic ms timestamps)

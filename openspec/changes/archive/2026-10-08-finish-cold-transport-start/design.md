@@ -12,6 +12,8 @@ See proposal.md. Decaid at local revision 94501c455d81fa9a31b4ce165bb0b0777e7bee
 
 ## Decisions
 
+- Treat unconfirmed GHC hardware conservatively for cold preparation; keep the existing permissive in-app controls and confirmed no-GHC direct path. Hardware confirmation resets on disconnect.
+- Keep the temporary Transport profile guarded until the selected-profile upload is acknowledged. Refuse app espresso starts, urgently stop physical espresso starts, and reuse the existing restoration path once idle; require an explicit retry.
 - Gate the page on connection and idle/heating/ready phases, not temperature or firmware. Firmware policy belongs to the shared maintenance request, as it does in Decaid; repeating it in the page is what prevented the existing workaround from helping Transport.
 - Keep the existing event-driven preparation wait. Decaid's one-second delay is not copied because repository rules require events rather than timing guards.
 - Cancel deferred AirPurge synchronously before explicit exits and on StackView deactivation; destruction also cancels as a fallback. Cancel only AirPurge so a replacing Descale/Clean request retains its ownership. Disconnect discards all deferred requests from that connection.

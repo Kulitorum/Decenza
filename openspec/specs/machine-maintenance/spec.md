@@ -96,6 +96,13 @@ Transport Mode SHALL allow starting on a connected machine in idle/heating/ready
 - **WHEN** the user starts Transport
 - **THEN** the existing shared maintenance handler SHALL prepare the machine and send AirPurge after it leaves preheat
 
+#### Scenario: GHC status has not been read
+- **GIVEN** the machine is heating and firmware is old or unknown
+- **AND** GHC hardware status is still unconfirmed
+- **WHEN** the user starts Transport
+- **THEN** cold preparation SHALL be used conservatively
+- **AND** confirmed no-GHC hardware SHALL retain its direct start path
+
 #### Scenario: Supported firmware starts cold directly
 - **GIVEN** a connected idle/heating machine on native-supporting firmware
 - **WHEN** the user starts Transport
@@ -163,3 +170,23 @@ Leaving or covering Transport during cold preparation SHALL cancel its deferred 
 - **WHEN** that connection is lost
 - **THEN** the deferred request SHALL be discarded
 - **AND** later state notifications SHALL NOT start it
+
+### Requirement: Espresso cannot run the temporary Transport profile
+
+While the temporary cold-Transport profile is loaded or its restoration is unverified, app espresso requests SHALL be refused and a reported group-head espresso start SHALL be stopped urgently. The selected profile SHALL be restored when idle; a retry SHALL require a new user action after restoration is acknowledged.
+
+#### Scenario: Group head starts espresso during preparation
+- **GIVEN** cold Transport preparation installed its temporary profile
+- **WHEN** the device reports Espresso
+- **THEN** the deferred purge SHALL be cancelled and an urgent Idle request SHALL be sent before state observers run
+- **AND** the selected brew profile SHALL be restored when the device returns to idle
+
+#### Scenario: Restoration is dispatched but not verified
+- **WHEN** an espresso start is requested before the selected-profile upload is acknowledged
+- **THEN** the start SHALL remain blocked
+- **AND** a failed restoration SHALL NOT clear the guard
+
+#### Scenario: Retry after restoration
+- **GIVEN** the selected-profile upload has been acknowledged
+- **WHEN** the user explicitly retries espresso
+- **THEN** the normal espresso start path SHALL be available
