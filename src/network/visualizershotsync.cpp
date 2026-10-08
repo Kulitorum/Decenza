@@ -106,6 +106,7 @@ void VisualizerShotSync::start()
     m_newestChange = m_cursor;
     m_listCount = -1;
     m_changedIds.clear();
+    m_recheckedCount = 0;
     m_shotQueue.clear();
     m_bagQueue.clear();
     m_shotsRead = 0;
@@ -167,6 +168,8 @@ void VisualizerShotSync::fetchListPage(int page)
         for (const Entry& e : result.inWindow) {
             m_changedIds << e.visualizerId;
             m_newestChange = qMax(m_newestChange, e.updatedAtEpoch);
+            if (e.updatedAtEpoch <= m_cursor)
+                ++m_recheckedCount;
         }
         if (result.verdict == Verdict::Done)
             lookUpLinkedShots();
@@ -311,8 +314,12 @@ void VisualizerShotSync::finishShots(bool complete, const QString& failure)
         // next time, which is safe because applying a pull twice writes nothing.
         if (m_newestChange > m_cursor)
             saveCursor(m_newestChange);
-        DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "pull:" << m_changedIds.size()
-                 << "shot(s) changed on Visualizer," << m_shotsRead << "linked here and read";
+        // The cursor's own second comes back every pass (see fetchListPage), so
+        // a pass that found only that has nothing to report.
+        const qsizetype changed = m_changedIds.size() - m_recheckedCount;
+        if (changed > 0)
+            DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "pull:" << changed
+                     << "shot(s) changed on Visualizer," << m_shotsRead << "linked here and read";
         noteRecovered(&m_shotFailure);
     } else if (!failure.isEmpty()) {
         // The bags would meet the same offline network or account refusal.

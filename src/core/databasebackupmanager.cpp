@@ -376,7 +376,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     QFileInfo existingZip(zipPath);
     if (!force && existingZip.exists() && existingZip.size() > 0) {
         // Automatic backup - skip if valid backup exists
-        DIAG_INFO(STORAGE, "DatabaseBackupManager") << "Using existing valid backup for today:" << zipPath;
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using existing valid backup for today:" << zipPath;
         m_lastBackupDate = QDate::currentDate();
 
 #ifdef Q_OS_ANDROID

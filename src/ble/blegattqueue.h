@@ -218,6 +218,11 @@ public:
      */
     static BleGattQueue& instance();
 
+    // Whether the machine is pouring, steaming or otherwise operating. A delay
+    // then could have held back a stop, so its episode is reported at WARN;
+    // the same delay while devices connect is reported at INFO.
+    void setMachineOperating(bool operating) { m_machineOperating = operating; }
+
     explicit BleGattQueue(QObject* parent = nullptr);
 
     /** Enqueue at the back. */
@@ -408,6 +413,8 @@ private:
     qsizetype m_foreignWaitCount = 0;
     qint64 m_foreignWaitWorstMs = 0;
     QString m_foreignWaitWorstLabel;
+    bool m_machineOperating = false;
+    bool m_foreignWaitWhileOperating = false;   // in the current episode
 
     // One drained() per idle transition; see emitDrainedIfIdle().
     bool m_drainedPosted = false;

@@ -2056,7 +2056,7 @@ private slots:
     // === QML binding smoke test ===
     // Verifies that ProfileManager properties resolve to real values when
     // registered as a QML context property. Would have caught the 3 QML bugs
-    // from the PR #562 code review (previousProfileName, currentProfile,
+    // from the review of PR Kulitorum/Decenza#562 (previousProfileName, currentProfile,
     // typeof guard).
 
     void qmlBindingsResolveCorrectly() {

@@ -574,6 +574,16 @@ bool McpServer::isModernRequest(const QJsonObject& request, bool hasLegacySessio
     return meta.contains(QLatin1String(kMetaProtocolVersion));
 }
 
+// Methods the modern era does not have. `ping` and `logging/setLevel` were removed
+// by 2026-07-28; `resources/subscribe` / `resources/unsubscribe` were replaced
+// outright by `subscriptions/listen`. `initialize` is the handshake the era deleted.
+static bool removedInModernEra(const QString& method)
+{
+    return method == QLatin1String("initialize") || method == QLatin1String("ping")
+        || method == QLatin1String("logging/setLevel") || method == QLatin1String("resources/subscribe")
+        || method == QLatin1String("resources/unsubscribe");
+}
+
 // HTTP status for a modern JSON-RPC error.
 //
 // The modern era carries the outcome in the HTTP status as well as the body;
@@ -862,11 +872,11 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                     break;
                 }
             }
-            MCP_INFO_TAGGED("Server", QStringLiteral("SSE client disconnected, remaining: %1")
-                                          .arg(m_sseClients.size()));
+            MCP_LOG_TAGGED("Server", QStringLiteral("SSE client disconnected, remaining: %1")
+                                         .arg(m_sseClients.size()));
         });
-        MCP_INFO_TAGGED("Server", QStringLiteral("SSE client connected, total: %1")
-                                  .arg(m_sseClients.size()));
+        MCP_LOG_TAGGED("Server", QStringLiteral("SSE client connected, total: %1")
+                                 .arg(m_sseClients.size()));
 
     } else if (method == "DELETE") {
         // Already terminated — 404 rather than a second cheerful 200, so a client
@@ -885,6 +895,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == session->id())
                 abandonPendingConfirmation(QStringLiteral("its session was terminated"));
             m_sessions.remove(session->id());
+            MCP_LOG_TAGGED("Server", QStringLiteral("Client ended session %1").arg(session->id()));
             // Run end. This is the path a client that closes cleanly actually
             // takes, and it was missed while the two reaper paths were covered.
             flushStaleSessionLog(session->id());
@@ -1212,11 +1223,17 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         // bare `server/discover` routes to this path precisely BECAUSE it has no
         // `_meta`, so a misconfigured client got a 400 and the submitted log
         // recorded nothing to correlate it against.
-        MCP_WARN_TAGGED("Server", QStringLiteral("Refusing modern %1 — %2 (%3)")
-                                      .arg(sanitizeForLog(request.value(QLatin1String("method"))
-                                                              .toString()),
-                                           message)
-                                      .arg(code));
+        // A method this server never had is a client probing for an optional one
+        // (Claude Code asks for resources/templates/list): nothing is wrong. One
+        // the era REMOVED means a misconfigured client, and stays a warning.
+        const QString method = request.value(QLatin1String("method")).toString();
+        const QString refusal = QStringLiteral("Refusing modern %1 — %2 (%3)")
+                                    .arg(sanitizeForLog(method), message)
+                                    .arg(code);
+        if (code == -32601 && !removedInModernEra(method))
+            MCP_LOG_TAGGED("Server", refusal);
+        else
+            MCP_WARN_TAGGED("Server", refusal);
         sendHttpResponse(socket, modernHttpStatusForError(code),
                          QJsonDocument(response).toJson(QJsonDocument::Compact),
                          "application/json");
@@ -1532,21 +1549,10 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
 
-    // Methods the modern era does not have. `ping`, `logging/setLevel` and
-    // `notifications/roots/list_changed` were removed by 2026-07-28;
-    // `resources/subscribe` / `resources/unsubscribe` were replaced outright by
-    // `subscriptions/listen`. `initialize` is the handshake the era deleted.
-    //
     // Refused here rather than by omission because the handlers below are SHARED
     // with legacy, where all of these are correct and must keep working.
-    if (isModernProtocolVersion(protocolVersion)
-        && (method == QLatin1String("initialize")
-            || method == QLatin1String("ping")
-            || method == QLatin1String("logging/setLevel")
-            || method == QLatin1String("resources/subscribe")
-            || method == QLatin1String("resources/unsubscribe"))) {
+    if (isModernProtocolVersion(protocolVersion) && removedInModernEra(method))
         return makeErrorResult(-32601, "Method not found in this protocol era: " + method);
-    }
 
     if (method == QLatin1String("subscriptions/listen")) {
         // Modern-only: legacy reaches the same notifications through its GET
@@ -1776,13 +1782,22 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     if (session)
         session->setProtocolVersion(negotiatedVersion);
 
-    MCP_INFO_TAGGED("Server", QStringLiteral("initialize — client=%1 v%2 requested=%3 "
-                                             "negotiated=%4 session=%5")
-                                  .arg(sanitizeForLog(clientInfo["name"].toString()),
-                                       sanitizeForLog(clientInfo["version"].toString()),
-                                       sanitizeForLog(clientVersion),
-                                       negotiatedVersion,
-                                       session ? session->id() : QStringLiteral("(none)")));
+    // INFO the first time a client connects in this run: some re-initialize every few
+    // minutes (codex-mcp-client, 158 times in one day), which buried the tier.
+    const QString clientName = sanitizeForLog(clientInfo["name"].toString());
+    const QString clientBuild = sanitizeForLog(clientInfo["version"].toString());
+    const QString initLine = QStringLiteral("initialize — client=%1 v%2 requested=%3 negotiated=%4 session=%5")
+                                 .arg(clientName, clientBuild, sanitizeForLog(clientVersion), negotiatedVersion,
+                                      session ? session->id() : QStringLiteral("(none)"));
+    const QString clientKey = clientName + QLatin1Char(' ') + clientBuild;
+    const bool firstFromClient = !m_initializedClients.contains(clientKey)
+                                 && m_initializedClients.size() < MaxRememberedClients;
+    if (firstFromClient)
+        m_initializedClients.insert(clientKey);
+    if (firstFromClient)
+        MCP_INFO_TAGGED("Server", initLine);
+    else
+        MCP_LOG_TAGGED("Server", initLine);
 
     QJsonObject result;
     result["protocolVersion"] = negotiatedVersion;
@@ -2214,7 +2229,7 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
         }
     }
     for (const QString& id : orphaned) {
-        MCP_INFO_TAGGED("Server", QStringLiteral("Removing orphaned session %1").arg(id));
+        MCP_LOG_TAGGED("Server", QStringLiteral("Removing orphaned session %1").arg(id));
         flushStaleSessionLog(id);
         // No m_pendingConfirmation reset here: the guard above excludes any
         // confirmation-holding session from `orphaned`, so it is unreachable.
@@ -2288,7 +2303,7 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     auto* session = new McpSession(this);
     m_sessions[session->id()] = session;
     emit activeSessionCountChanged();
-    MCP_INFO_TAGGED("Server", QStringLiteral("Created session %1").arg(session->id()));
+    MCP_LOG_TAGGED("Server", QStringLiteral("Created session %1").arg(session->id()));
     return session;
 }
 
@@ -2318,7 +2333,7 @@ void McpServer::cleanupExpiredSessions()
     }
 
     for (const QString& id : expired) {
-        MCP_INFO_TAGGED("Server", QStringLiteral("Expiring session %1").arg(id));
+        MCP_LOG_TAGGED("Server", QStringLiteral("Expiring session %1").arg(id));
         flushStaleSessionLog(id);
         // Clear pending confirmation if it belongs to this expired session —
         // and ANSWER it, rather than leaving that client holding an open request

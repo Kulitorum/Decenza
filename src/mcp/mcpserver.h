@@ -463,6 +463,10 @@ private:
     // than the spec, but the behaviour that shipped for a year, not a new
     // failure mode.
     QList<QString> m_terminatedSessions;
+    // Clients ("name version") whose initialize this run has logged at INFO. Bounded
+    // because the name is client-supplied.
+    QSet<QString> m_initializedClients;
+    static constexpr int MaxRememberedClients = 64;
 
     // Monotonic SSE event ID. Attaching one is a 2025-11-25 **MAY**, not a
     // SHOULD — the SHOULDs alongside it are the `retry` field and the priming

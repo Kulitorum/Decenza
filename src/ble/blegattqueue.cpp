@@ -180,6 +180,7 @@ void BleGattQueue::dispatchNext() {
     // line that is supposed to mean something is wrong.
     if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS) {
         ++m_foreignWaitCount;
+        m_foreignWaitWhileOperating = m_foreignWaitWhileOperating || m_machineOperating;
         if (m_inFlight->foreignWaitMs > m_foreignWaitWorstMs) {
             m_foreignWaitWorstMs = m_inFlight->foreignWaitMs;
             m_foreignWaitWorstLabel = m_inFlight->label;
@@ -380,21 +381,28 @@ QString BleGattQueue::inFlightLabel() const {
 void BleGattQueue::reportForeignWaitEpisode() {
     if (m_foreignWaitCount == 0) return;
 
-    // WARN and self-contained: these logs are read by users and by their AI
-    // assistants, who have no knowledge of this subsystem. This is the one cost
-    // the shared queue introduced over the per-device queues it replaced, so a
-    // reader has to be able to see it rather than infer it — but once per
-    // episode, with the worst case named, rather than once per operation.
-    GQ_WARN(QString("%1 Bluetooth operation(s) were delayed because another device "
-                    "was using the radio; the worst (%2) waited %3 ms. One operation "
-                    "runs at a time across the machine, the scale and the "
-                    "refractometer, so a device that is slow to answer delays the "
-                    "others. Some delay is normal while devices are connecting; if "
-                    "this appears during a shot it may have delayed the stop.")
-                .arg(m_foreignWaitCount)
-                .arg(m_foreignWaitWorstLabel)
-                .arg(m_foreignWaitWorstMs));
+    // Self-contained: these logs are read by users and by their AI assistants,
+    // who have no knowledge of this subsystem. This is the one cost the shared
+    // queue introduced over the per-device queues it replaced, so a reader has to
+    // be able to see it rather than infer it — but once per episode, with the
+    // worst case named, rather than once per operation. WARN only when the
+    // machine was operating: every app start has a connect episode, and a
+    // warning on each trained readers to skip the one during a shot.
+    const QString line = QString("%1 Bluetooth operation(s) were delayed because another device "
+                                 "was using the radio; the worst (%2) waited %3 ms. One operation "
+                                 "runs at a time across the machine, the scale and the "
+                                 "refractometer, so a device that is slow to answer delays the "
+                                 "others.")
+                             .arg(m_foreignWaitCount)
+                             .arg(m_foreignWaitWorstLabel)
+                             .arg(m_foreignWaitWorstMs);
+    if (m_foreignWaitWhileOperating)
+        GQ_WARN(line + QStringLiteral(" This happened while the machine was operating, so it may "
+                                      "have delayed a stop."));
+    else
+        GQ_INFO(line + QStringLiteral(" The machine was not operating, so no stop was delayed."));
 
+    m_foreignWaitWhileOperating = false;
     m_foreignWaitCount = 0;
     m_foreignWaitWorstMs = 0;
     m_foreignWaitWorstLabel.clear();

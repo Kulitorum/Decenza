@@ -4,6 +4,7 @@
 #include "ble/scaledevice.h"
 #include "ble/scales/scalelogging.h"
 
+#include <QDateTime>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 
@@ -101,7 +102,7 @@ void HdsFirmwareUpdateController::checkForUpdates()
         if (!reply)
             return;
         if (reply->error() != QNetworkReply::NoError) {
-            HDS_UPDATE_WARN(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()));
+            reportManifest(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()), true);
             reply->deleteLater();
             return;
         }
@@ -109,20 +110,33 @@ void HdsFirmwareUpdateController::checkForUpdates()
         const auto catalog = HdsFirmwareCatalog::fromJson(reply->readAll(), &error);
         reply->deleteLater();
         if (!catalog) {
-            HDS_UPDATE_WARN(QStringLiteral("Manifest ignored: %1").arg(error));
+            reportManifest(QStringLiteral("Manifest ignored: %1").arg(error), true);
             return;
         }
         m_catalog = catalog;
         reevaluateAvailability();
         if (!m_scale || !m_scale->isConnected()) {
-            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: no scale connected to evaluate against"));
+            reportManifest(QStringLiteral("Checked manifest: no scale connected to evaluate against"), false);
         } else if (m_updateAvailable) {
-            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: update available, %1 -> %2")
-                             .arg(installedVersion(), availableVersion()));
+            reportManifest(QStringLiteral("Checked manifest: update available, %1 -> %2")
+                               .arg(installedVersion(), availableVersion()), false);
         } else {
-            HDS_UPDATE_INFO(QStringLiteral("Checked manifest: up to date at %1").arg(installedVersion()));
+            reportManifest(QStringLiteral("Checked manifest: up to date at %1").arg(installedVersion()), false);
         }
     });
+}
+
+// Checked hourly with the same answer almost every time (56 identical lines in two
+// days), so only a changed result is logged, carrying the count it replaced.
+void HdsFirmwareUpdateController::reportManifest(const QString& text, bool failure)
+{
+    LogCollapse::Collapsed collapsed;
+    if (!m_manifestLog.shouldLog(QStringLiteral("manifest"), text, QDateTime::currentMSecsSinceEpoch(), &collapsed))
+        return;
+    if (failure)
+        HDS_UPDATE_WARN(text + LogCollapse::suffix(collapsed));
+    else
+        HDS_UPDATE_INFO(text + LogCollapse::suffix(collapsed));
 }
 
 void HdsFirmwareUpdateController::loadReleaseNotes()

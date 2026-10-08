@@ -126,6 +126,7 @@ private:
         Send how = Send::UploadOrUpdate;
         int attempt = 0;
         Attempt last;   // the attempt a retry waits after
+        bool background = false;
     };
 
     void onShotEdited(qint64 shotId, bool success);

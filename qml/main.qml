@@ -1415,7 +1415,7 @@ T.ApplicationWindow {
             // scale reconnect paused.
             if (root.screensaverActive && pageStack.currentItem
                     && pageStack.currentItem.objectName !== "screensaverPage")
-                root.leaveScreensaverState()
+                root.leaveScreensaverState("page changed to " + (pageStack.currentItem.objectName || "unnamed page"))
         }
     }
 
@@ -4272,20 +4272,22 @@ T.ApplicationWindow {
 
     function goToScreensaver() {
         // Already showing (the P shortcut is unguarded): replacing the page with
-        // itself would only restart the video, and nothing here needs redoing.
-        if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage")
+        // itself would only restart the video. The flag is the one thing to check:
+        // left clear under a showing page, auto-sleep re-slept the machine every
+        // minute for four hours, since this early return never raised it again.
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "screensaverPage") {
+            if (!screensaverActive) {
+                WebDebugLogger.warn("Screensaver", "main", "Screensaver showing with its flag clear - raising it")
+                raiseScreensaverFlag()
+            }
             return
+        }
         WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
         // Before raising the flag: onCurrentItemChanged treats any other page under a raised
         // flag as having left the screensaver, so popping to home after it cleared the flag
         // at once, leaving the status bar over the screensaver and auto-sleep re-firing.
         root.showHome()
-        screensaverActive = true
-        // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
-        // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
-        ScreensaverManager.screensaverActive = true
-        // Reset sleep counter (stopped state)
-        root.sleepCountdownNormal = 0
+        raiseScreensaverFlag()
 
         // Close any open popups to prevent burn-in (Qt Popup renders above the
         // StackView on the overlay layer, so the screensaver can't cover them).
@@ -4335,19 +4337,36 @@ T.ApplicationWindow {
         // own popups would stay above the screensaver, so they are closed too.
         PopupCloser.closeAllUnder(pageStack.currentItem)
         pageStack.push(screensaverPage)
+        // Seen cleared between the raise above and here (an Oct 2026 log: 20 ms
+        // after this function started, before the page finished loading).
+        if (!screensaverActive && pageStack.currentItem
+                && pageStack.currentItem.objectName === "screensaverPage") {
+            WebDebugLogger.warn("Screensaver", "main", "Screensaver flag cleared while it opened - raising it again")
+            raiseScreensaverFlag()
+        }
+    }
+
+    function raiseScreensaverFlag() {
+        screensaverActive = true
+        // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
+        // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
+        ScreensaverManager.screensaverActive = true
+        // Reset sleep counter (stopped state)
+        root.sleepCountdownNormal = 0
     }
 
     // Both screensaver flags, the auto-sleep countdown and queued popups, cleared
     // together. Brightness is restored in ScreensaverPage.StackView.onRemoved.
     // The scheduled stay-awake window is evaluated live, so waking here
     // (manually or via auto-wake) needs no separate arming.
-    function leaveScreensaverState() {
+    // `reason` names the route out, so a log shows what cleared the flag.
+    function leaveScreensaverState(reason) {
         screensaverActive = false
         ScreensaverManager.screensaverActive = false
         root.sleepCountdownNormal = root.autoSleepMinutes
         root.stayAwakeSuppressionLogged = false
-        WebDebugLogger.debug("Screensaver", "main", ["Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
-                    " pendingPopups=" + pendingPopups.length].map(String).join(" "))
+        WebDebugLogger.debug("Screensaver", "main", "Waking from screensaver (" + reason + "): normal countdown="
+                    + root.sleepCountdownNormal + " pendingPopups=" + pendingPopups.length)
         // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
             Qt.callLater(root.showNextPendingPopup)
@@ -4360,7 +4379,7 @@ T.ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         root.wakePending = true
-        leaveScreensaverState()
+        leaveScreensaverState("wake requested")
         root.showHome()
     }
 

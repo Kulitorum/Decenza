@@ -207,7 +207,7 @@ void ShotUploads::sendNext(ShotUploadDestination* destination) {
     const Job job = *next;
     queue.erase(next);
     if (!job.background) {
-        m_current.insert(destination, Current{job.shotId, job.how, 1, {}});
+        m_current.insert(destination, Current{job.shotId, job.how, 1, {}, false});
         destination->attemptSavedShot(job.shotId, job.how);
         return;
     }
@@ -223,7 +223,7 @@ void ShotUploads::sendNext(ShotUploadDestination* destination) {
             pump(destination);
             return;
         }
-        m_current.insert(destination, Current{turn.shotId, turn.how, 1, {}});
+        m_current.insert(destination, Current{turn.shotId, turn.how, 1, {}, true});
         destination->attemptSavedShot(turn.shotId, turn.how);
     });
 }
@@ -242,6 +242,7 @@ void ShotUploads::onAttempt(ShotUploadDestination* destination, Attempt attempt)
     const auto current = m_current.find(destination);
     if (current == m_current.end() || current->shotId == 0) return;
     attempt.attempts = current->attempt;
+    attempt.background = current->background;
     // A retry seconds later cannot get past a rate limit measured in minutes.
     const bool rateLimited = attempt.outcome == Outcome::Transient && attempt.httpStatus == 429;
     if (attempt.outcome == Outcome::Transient && !rateLimited && current->attempt < kAttempts) {

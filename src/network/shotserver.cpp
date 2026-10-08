@@ -1059,7 +1059,7 @@ void ShotServer::onCleanupTimerTick()
         m_lastHealthListening = listening;
     }
 
-    QList<QTcpSocket*> staleConnections;
+    QList<QPair<QTcpSocket*, bool>> staleConnections;   // socket, sent nothing
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
         if (!it.value().lastActivity.isValid())
             continue;
@@ -1072,13 +1072,18 @@ void ShotServer::onCleanupTimerTick()
         const bool sentNothing = it.value().headerData.isEmpty() && it.value().headerEnd < 0;
         const int deadline = sentNothing ? SILENT_TIMEOUT_MS : CONNECTION_TIMEOUT_MS;
         if (it.value().lastActivity.elapsed() > deadline)
-            staleConnections.append(it.key());
+            staleConnections.append({it.key(), sentNothing});
     }
 
-    for (QTcpSocket* socket : staleConnections) {
+    for (const auto& [socket, sentNothing] : std::as_const(staleConnections)) {
         QString addr = (socket->state() != QAbstractSocket::UnconnectedState)
             ? socket->peerAddress().toString() : "unknown";
-        DIAG_WARN(NETWORK, "ShotServer") << "Cleaning up stale connection from" << addr;
+        // A client that connects and never speaks is a LAN scanner or an idle
+        // keep-alive, handled as designed; one that stalls mid-request lost data.
+        if (sentNothing)
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Closing silent connection from" << addr;
+        else
+            DIAG_WARN(NETWORK, "ShotServer") << "Closing connection stalled mid-request from" << addr;
         retireSocket(socket);
     }
 

@@ -30,6 +30,7 @@ public:
         Outcome outcome = Outcome::NothingToSend;
         int httpStatus = 0;
         int attempts = 1;   // how many the send made, set by ShotUploads before sendFinished()
+        bool background = false;   // sent by Upload missing shots, also set by ShotUploads
     };
 
     virtual ~ShotUploadDestination() = default;

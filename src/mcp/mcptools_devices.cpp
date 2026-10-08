@@ -431,7 +431,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // the chat-confirmation handshake is owned entirely by the server
             // via needsChatConfirmation(). A handler-side `confirmed` check is
             // unreachable-true and makes the tool permanently uninvokable
-            // (this was the shipped #1219 bug). Confirmation for this tool is
+            // (it shipped that way in PR Kulitorum/Decenza#1219). Confirmation for this tool is
             // enforced by listing it in McpServer::needsChatConfirmation().
             const QString prev = BLEManager::backoffModeToString(
                 bleManager->backoffMode());

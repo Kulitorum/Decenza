@@ -131,6 +131,7 @@ private:
     bool m_editedInFlight = false;
     Prepared m_current;
     Result m_attemptResult = Result::None;
+    QString m_uploadedNote;   // the success line's detail, logged by sendFinished()
     int m_attemptStatus = 0;
     QString m_attemptWhy;
     // A non-API answer's body is logged once per send, not per attempt.

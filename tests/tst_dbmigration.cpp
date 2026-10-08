@@ -1897,7 +1897,7 @@ private slots:
     }
 
     // ==========================================
-    // Migration failure / retry branches (bean-bag-inventory #1327 follow-up)
+    // Migration failure / retry branches (follow-up to PR Kulitorum/Decenza#1327, bean bags)
     // ==========================================
 
     // The producer behind migration 20's gate: linkOrphanShotsStatic returns

@@ -42,6 +42,7 @@
 #include "../network/shotserver.h"
 #include "../network/locationprovider.h"
 #include "../core/crashhandler.h"
+#include "../ble/blegattqueue.h"
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
@@ -372,7 +373,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         connect(m_decentAccount, &DecentAccount::machinesChanged, m_decentAccount, noteUnreportedSerial);
     }
     if (m_machineState) {
-        const auto operating = [this]() { m_shotUploads->setMachineOperating(m_machineState->isOperating()); };
+        const auto operating = [this]() {
+            m_shotUploads->setMachineOperating(m_machineState->isOperating());
+            BleGattQueue::instance().setMachineOperating(m_machineState->isOperating());
+        };
         connect(m_machineState, &MachineState::phaseChanged, m_shotUploads, operating);
         operating();
     }

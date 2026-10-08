@@ -252,7 +252,7 @@ Areas where bugs have shipped undetected due to missing test coverage:
 
 ### QML binding correctness (highest priority)
 
-No tests verify that QML files resolve property names and method calls to the expected C++ objects. During the ProfileManager extraction (PR #562), three QML bugs shipped past the full test suite:
+No tests verify that QML files resolve property names and method calls to the expected C++ objects. During the ProfileManager extraction (PR Kulitorum/Decenza#562), three QML bugs shipped past the full test suite:
 - `MainController.previousProfileName()` — method removed from MainController, QML silently returned `undefined`
 - `MainController.currentProfile` — never was a QML property (should be `currentProfileName`), always `undefined`
 - `typeof MainController` guards checking wrong object after data source moved to ProfileManager
@@ -603,7 +603,7 @@ A rule that disagrees with the shipped profiles is suspect regardless of how it 
 | `tests/data/aflow_legacy_profiles/` | one 6-frame profile from de1app's stale snapshot | **legacy case only** |
 
 de1app's `de1plus/profiles/` carries four A-Flow profiles at **6** frames and is missing
-`default-light`; the plugin ships all five at **9** (de1app issue #350). Verifying against the
+`default-light`; the plugin ships all five at **9** (issue decentespresso/de1app#350). Verifying against the
 stale copy would produce a suite that passes against the wrong source, so the suite asserts a
 9-frame count at load. The 6-frame layout is still covered — as the *legacy* branch of
 `set_profile_index`, never as the reference.
