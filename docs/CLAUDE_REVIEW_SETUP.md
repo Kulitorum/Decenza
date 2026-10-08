@@ -34,7 +34,8 @@ and are included directly in both workflows; no Actions variables are required.
 3. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
    by skialpine. In **Actions → Claude PR review**,
    check completion and inspect any inline findings. Drafts, forks, and other bots
-   are skipped. A run with no findings posts no comment.
+   are skipped. Completed reviews update a Claude status comment on the PR even
+   with zero findings. Failed reviews report incomplete status, never zero findings.
 
 ### Verified token exchange
 
@@ -47,7 +48,11 @@ not verify model access, credits, or the complete review/fix execution.
 `.github/workflows/anthropic-wif-test.yml` runs on changes to itself on the setup
 branch and can be dispatched manually after merge. It uses the same four IDs and
 audience as the production workflows. No checkout, API key, or Claude App is
-needed for this exchange-only test.
+needed for this exchange-only test. Its manual `test_inference` option makes one
+tiny paid Messages request (16 output tokens maximum) to the same model and
+workspace. Only skialpine can run the diagnostic. It reports HTTP status, an
+allowlisted error type, and a safe category such as `workspace_spending_limit`;
+tokens, model output, and raw error bodies stay private. This option defaults off.
 
 ### Trust scope and migration
 
@@ -126,8 +131,14 @@ and publication checks.
 The requested review is read-only. Its workflow runs from the default branch,
 checks out the trusted base at the workspace root, and reads the captured head
 in an isolated subdirectory without executing its code. The diff is indexed into bounded per-file chunks, then assigned to sequential
-batches of at most eight files. Each batch assesses its assigned changes and can
-read surrounding source as needed. Every batch must complete before publication. Claude returns structured findings; the workflow checks every batch result,
+batches of at most eight files and eight chunks (at most 65 KB of patch input).
+Large files can span batches. Every assigned patch is supplied directly in the
+initial review prompt, so reading a subset of patch files cannot silently omit
+the remaining patch input. Each batch can read surrounding source as needed. Every batch must complete before publication. The publisher independently checks
+that chunk assignments are lossless and unique and that each successful result
+matches the hash/count/size of the patch text supplied to its action. This verifies
+input delivery, not the model's depth of analysis: assessment completion is still
+reported by Claude. Claude returns structured findings; the workflow checks every batch result,
 deduplicates findings, selects up to five by severity, and validates their paths,
 diff lines, and captured revision before posting a COMMENT review. It cannot approve or change code. A source
 update during context/diff fetching or review prevents stale publication. Unrelated comments do not cancel a
@@ -189,13 +200,14 @@ to stop accepting fix requests.
   overhead. Small PRs use one batch; large PRs take longer because batches run
   sequentially. Estimates can differ from the bill. Cancellation does not undo
   charges already incurred. Use Console workspace limits for total spend control.
-  New pushes cancel older runs for the same PR. Reruns can repeat comments.
+  New pushes cancel older runs for the same PR. Reruns update the status comment;
+  inline findings can repeat. Artifact and script actions use Node 24.
 - Only public PR context and sanitized batch findings are shared as one-day
   workflow artifacts. Raw execution traces and credential caches stay local to
   each runner. Full output and report display are disabled. Do not enable Actions debug
   logging: the action can enable full output in debug mode. Do not upload the
   action's execution files as public artifacts.
-- Completion means the static source assessment completed, not that runtime
+- Completion means every batch reported its static source assessment completed, not that runtime
   behavior was exhaustively verified or that the code is bug-free. Qt build/tests
   remain separate. Incomplete results report a reason (missing input, unreadable
   source, analysis limit, or other) and publish no partial findings. Publication
@@ -203,6 +215,15 @@ to stop accepting fix requests.
   checks and local/nightly test process.
 
 ## Troubleshooting and disabling
+
+A near-instant failure with no tools and no structured result can be a provider
+rejection before any review. The collector reports a safe error category without
+printing the private response. `insufficient_credits`, `spending_limit`, or
+`billing_or_quota`: check the selected organization's API credit balance and the
+federated workspace's spending/rate limits in Claude Console. A successful token
+exchange does not test credits. These failures are not automatically retried;
+request a new review after resolving the account limit. The workflow never raises
+Console limits or switches to a different paid account.
 
 Authentication failure: check Console authentication history, issuer/audience,
 repository/branch restrictions, service-account workspace membership, credits,
