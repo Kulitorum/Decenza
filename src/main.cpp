@@ -151,6 +151,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/belkaportaldiscovery.h"
+#include "ble/blegattqueue.h"
 #include "controllers/portalcontroller.h"
 // For the [DE1][Simulator] attach line below — main.cpp owns the simulator's
 // lifetime, so it is the only place that can report it.
@@ -4851,15 +4852,20 @@ int main(int argc, char *argv[])
 
         // "Keep scale on" covers quitting the app too (#1981): display off, as when
         // the DE1 sleeps, but the scale stays on. The display write has no completion
-        // signal, so it rides the DE1 drain wait when there is one.
+        // signal of its own, so on BLE the wait below holds for the shared GATT queue
+        // to drain. A WiFi scale's command is a socket write, not queued there.
         const bool scaleConnected = physicalScale && physicalScale->isConnected();
         const bool sleepScaleOnExit = scaleConnected && !settings.keepScaleOn();
+        bool waitForGattQueue = false;
         if (sleepScaleOnExit) {
             DIAG_DEBUG(SCALE, "main") << "Sending physical scale to sleep on app exit";
             needBleWait = true;
         } else if (scaleConnected) {
             DIAG_DEBUG(SCALE, "main") << "Turning the scale display off on app exit (keep scale on)";
             physicalScale->disableLcd();
+            const BleGattQueue& gatt = BleGattQueue::instance();
+            waitForGattQueue = gatt.isBusy() || gatt.pendingCount() > 0;
+            needBleWait = needBleWait || waitForGattQueue;
         }
 
         // IMPORTANT: Ensure charger is ON before exiting, unless the user switched
@@ -4876,30 +4882,44 @@ int main(int argc, char *argv[])
         // tablet-dies-overnight case this call exists to prevent.
         batteryManager.ensureChargerOn();
 
-        // Wait for BLE writes to complete before exiting
+        // Wait for BLE writes to complete before exiting. Every write this exit
+        // issued must finish, not just the first: the DE1's queue draining used
+        // to end the wait with the scale's command still queued.
         if (needBleWait) {
             QEventLoop waitLoop;
-            bool drained = false;
+            bool de1Done = !de1TransportConnected;
+            bool de1Delivered = !de1TransportConnected;
+            bool scaleDone = !sleepScaleOnExit && !waitForGattQueue;
+            const auto quitWhenAllDone = [&]() {
+                if (de1Done && scaleDone) waitLoop.quit();
+            };
             int timeoutMs = 1500; // Safety-net timeout
 
             if (de1TransportConnected) {
                 QObject::connect(de1Transport, &DE1Transport::queueDrained,
-                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                                 &waitLoop, [&]() { de1Done = de1Delivered = true; quitWhenAllDone(); });
                 QObject::connect(de1Transport, &DE1Transport::disconnected,
-                                 &waitLoop, [&]() { waitLoop.quit(); });
+                                 &waitLoop, [&]() { de1Done = true; quitWhenAllDone(); });
                 timeoutMs = 2000;
+            }
+
+            if (waitForGattQueue) {
+                QObject::connect(&BleGattQueue::instance(), &BleGattQueue::drained,
+                                 &waitLoop, [&]() { scaleDone = true; quitWhenAllDone(); });
             }
 
             if (sleepScaleOnExit) {
                 QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
-                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                                 &waitLoop, [&]() { scaleDone = true; quitWhenAllDone(); });
                 physicalScale->sleep();
             }
 
             DIAG_DEBUG(BLUETOOTH, "main") << "Waiting for BLE queue to drain before exit...";
             QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
-            waitLoop.exec();
+            if (!(de1Done && scaleDone))  // a source can finish synchronously above
+                waitLoop.exec();
 
+            const bool drained = de1Delivered && scaleDone;
             if (drained)
                 DIAG_DEBUG(BLUETOOTH, "main") << "BLE queue drained successfully, exiting.";
             else
