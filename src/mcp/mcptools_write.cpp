@@ -306,7 +306,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     // the update lands on.
                     DbWriteTxn txn = DbWriteTxn::begin(db, "MCP shots_update");
                     if (!txn.ok()) {
-                        refusal = QStringLiteral("The shot database is busy; try again");
+                        refusal = txn.lockTimedOut()
+                            ? QStringLiteral("The shot database is busy; try again")
+                            : QStringLiteral("The shot database could not start a write; see the app log");
                         return;
                     }
                     // Storage dates follow the bag rules, checked against the
