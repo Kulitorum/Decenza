@@ -500,6 +500,28 @@ private slots:
         QVERIFY(!q.isBusy());
     }
 
+    // The operating state is latched across the wait, not sampled at dispatch:
+    // a stop queued during a shot can go out after the machine reaches Idle.
+    void aDelayThatOverlappedAnOperationWarnsAfterItEnds() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
+        q.setMachineOperating(true);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        q.setMachineOperating(false);  // profile ended while the stop waited
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("1 Bluetooth operation\\(s\\) were delayed.*while the machine was operating")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QVERIFY(!q.isBusy());
+    }
+
     // One line per EPISODE, not per delayed operation. A contended connect
     // delayed six operations in 900 ms on real hardware and produced six
     // identical warnings, which is how a signal meant to mean "something is

@@ -37,6 +37,7 @@ QString dispatchLine(const QString& label, qsizetype depth, int waitedMs) {
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
     op.enqueuedAtMs = nowMs();
+    op.queuedWhileOperating = m_machineOperating;
     m_queue.enqueue(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -45,6 +46,7 @@ void BleGattQueue::submit(Operation op) {
 void BleGattQueue::submitFront(Operation op) {
     if (!validate(op)) return;
     op.enqueuedAtMs = nowMs();
+    op.queuedWhileOperating = m_machineOperating;
     m_queue.prepend(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -180,7 +182,8 @@ void BleGattQueue::dispatchNext() {
     // line that is supposed to mean something is wrong.
     if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS) {
         ++m_foreignWaitCount;
-        m_foreignWaitWhileOperating = m_foreignWaitWhileOperating || m_machineOperating;
+        m_foreignWaitWhileOperating = m_foreignWaitWhileOperating
+                                      || m_inFlight->queuedWhileOperating || m_machineOperating;
         if (m_inFlight->foreignWaitMs > m_foreignWaitWorstMs) {
             m_foreignWaitWorstMs = m_inFlight->foreignWaitMs;
             m_foreignWaitWorstLabel = m_inFlight->label;
@@ -214,6 +217,14 @@ void BleGattQueue::chargeForeignWait() {
         const qint64 from = std::max(op.enqueuedAtMs, m_inFlightSince);
         const qint64 waited = now - from;
         if (waited > 0) op.foreignWaitMs += waited;
+    }
+}
+
+void BleGattQueue::setMachineOperating(bool operating) {
+    m_machineOperating = operating;
+    if (operating) {
+        for (Operation& op : m_queue)
+            op.queuedWhileOperating = true;
     }
 }
 
