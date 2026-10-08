@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 5
     steps:
     - name: Test GitHub identity token exchange
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       with:
         script: |
           const identityToken = await core.getIDToken('https://api.anthropic.com');
@@ -109,13 +109,24 @@ jobs:
       pull-requests: read
       id-token: write
     env:
-      NODE_VERSION: '24'
+      NODE_VERSION: 26.11.1
     steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
     - name: Check out trusted default branch
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: main
         persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
     - name: Native federation probe
       id: claude
       uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
@@ -132,9 +143,10 @@ jobs:
         display_report: false
         classify_inline_comments: false
         include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.cli.outputs.path }}
     - name: Report safe action result
       if: ${{ always() }}
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       with:
@@ -161,13 +173,24 @@ jobs:
       pull-requests: read
       id-token: write
     env:
-      NODE_VERSION: '24'
+      NODE_VERSION: 26.11.1
     steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
     - name: Check out trusted default branch
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: main
         persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
     - name: Native federation probe
       id: claude
       uses: anthropics/claude-code-base-action@35251bb81980a07458140ec50413971d704550a9
@@ -180,9 +203,88 @@ jobs:
         show_full_output: false
         prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
         claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        path_to_claude_code_executable: ${{ steps.cli.outputs.path }}
     - name: Report safe action result
       if: ${{ always() }}
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      with:
+        script: "const fs = require('fs');\nconst file = process.env.EXECUTION_FILE || process.env.RUNNER_TEMP+'/claude-execution-output.json';\n\
+          if (!fs.existsSync(file)) {core.setFailed('No private execution result was produced.'); return;}\nlet messages;\n\
+          try {messages=JSON.parse(fs.readFileSync(file,'utf8'));} catch {core.setFailed('Invalid private execution result.');\
+          \ return;}\nconst result = Array.isArray(messages) ? messages.findLast(value => value.type === 'result') : null;\n\
+          const value = typeof result?.result === 'string' ? result.result : '';\nconst reason = !result ? 'missing_result'\
+          \ : !result.is_error && value.trim() === 'OK' ? 'success'\n  : /credit balance|insufficient.?credit/i.test(value)\
+          \ ? 'credit_error'\n  : /jti|federat|invalid.?grant/i.test(value) ? 'federation_error'\n  : /401|403|authenticat|permission/i.test(value)\
+          \ ? 'authentication_error'\n  : /spend.?limit|spending.?limit/i.test(value) ? 'spending_limit'\n  : /429|rate.?limit/i.test(value)\
+          \ ? 'rate_limit' : 'other_failure';\nconst signals = {reason, exact_credit_preflight: /^Credit balance is too low(?:\\\
+          s*[\xB7\u2014-].*)?$/i.test(value.trim()),\n  contains_http_error: /API Error:|HTTP [45]\\d\\d/i.test(value),\n\
+          \  turns: Number.isSafeInteger(result?.num_turns) ? result.num_turns : null,\n  cost_usd: Number.isFinite(result?.total_cost_usd)\
+          \ ? result.total_cost_usd : null};\ncore.info('Safe diagnostic: '+JSON.stringify(signals));\nawait core.summary.addHeading('Official\
+          \ Claude action federation probe')\n  .addRaw('Result: '+reason+'. Tokens, model response and raw errors were not\
+          \ logged.\\n').write();\nif (reason !== 'success') core.setFailed('Official action probe failed: '+reason+'.');\n"
+  official_action_clean_env:
+    if: ${{ github.actor_id == '1629894' && inputs.test_actions }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    env:
+      NODE_VERSION: 26.11.1
+    steps:
+    - name: Use current Node runtime
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26.11.1
+        package-manager-cache: false
+    - name: Check out trusted default branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: main
+        persist-credentials: false
+    - name: Install current Claude CLI
+      id: cli
+      run: |
+        curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/install-claude.sh"
+        bash "$RUNNER_TEMP/install-claude.sh" 2.1.294
+        printf 'path=%s/.local/bin/claude\n' "$HOME" >> "$GITHUB_OUTPUT"
+    - name: Remove empty credential overrides at CLI launch
+      id: launch
+      run: |
+        cat > "$RUNNER_TEMP/claude-wif-launch" <<'SH'
+        #!/bin/sh
+        # Refuse unexpected static credentials; only remove empty variables.
+        if [ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+          echo 'Unexpected static credential configured; federation diagnostic stopped.' >&2
+          exit 1
+        fi
+        exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_AUTH_TOKEN "$HOME/.local/bin/claude" "$@"
+        SH
+        chmod 700 "$RUNNER_TEMP/claude-wif-launch"
+        printf 'path=%s/claude-wif-launch\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+    - name: Native federation probe
+      id: claude
+      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      with:
+        anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
+        anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
+        anthropic_service_account_id: svac_01Rjzffi5Zn9hAG3NSPrboZE
+        anthropic_workspace_id: wrkspc_01CfPYtm6bgzXkKPucdyGATe
+        anthropic_oidc_audience: https://api.anthropic.com
+        show_full_output: false
+        prompt: This is an authentication diagnostic. Reply exactly OK. Use no tools.
+        claude_args: --model claude-sonnet-5-5 --max-turns 2 --max-budget-usd 0.10 --tools "" --setting-sources user --strict-mcp-config
+        github_token: ${{ github.token }}
+        display_report: false
+        classify_inline_comments: false
+        include_fix_links: false
+        path_to_claude_code_executable: ${{ steps.launch.outputs.path }}
+    - name: Report safe action result
+      if: ${{ always() }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       with:

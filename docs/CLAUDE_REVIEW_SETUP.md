@@ -52,7 +52,18 @@ needed for this exchange-only test. Its manual `test_inference` option makes one
 tiny paid Messages request (16 output tokens maximum) to the same model and
 workspace. Only skialpine can run the diagnostic. It reports HTTP status, an
 allowlisted error type, and a safe category such as `workspace_spending_limit`;
-tokens, model output, and raw error bodies stay private. This option defaults off.
+tokens, model output, and raw error bodies stay private. This option defaults off. The separate `test_actions` option compares tiny
+native federation calls through the current official action and current Base
+Action mirror, with at most $0.10 per probe. Diagnostic-only probes also compare
+a CLI launch with empty static-credential environment variables removed. They
+use Node 26.11.1 via setup-node v7.1.0 and CLI 2.1.294; no review or code changes
+run in these probes. The Base Action Marketplace `beta` tag is stale (August
+2025), so the diagnostic uses the current mirror commit rather than that tag.
+Both test options default off.
+
+If direct inference succeeds while native action probes report a credit error,
+that does not establish exhausted organization credits. Investigate the action
+and CLI authentication path before changing billing settings.
 
 ### Trust scope and migration
 
@@ -89,6 +100,13 @@ passes GitHub's short-lived `GITHUB_TOKEN` for repository operations. Its job gr
 `contents: read`, `pull-requests: write`, and `id-token: write`; all other
 permissions are disabled. OIDC permission allows Anthropic authentication and
 does not grant code-write permission.
+Direct workflow actions are pinned to current published versions: Claude action
+v1.0.245, checkout v7.0.1, GitHub Script v9.0.0, upload-artifact v7.0.2 and
+download-artifact v8.0.2. The latest Claude CLI, 2.1.294, is installed with the
+official installer and passed through the action's documented custom-executable
+input, since the current action itself installs CLI 2.1.293. Its embedded SDK
+remains the official action's dependency (currently latest SDK 0.3.293).
+
 Comments appear as `github-actions[bot]`. The token cannot push code or merge PRs.
 
 For requested fixes, an admin must install the official
