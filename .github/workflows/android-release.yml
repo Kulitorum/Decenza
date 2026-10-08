@@ -273,7 +273,7 @@ jobs:
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
 
       - name: Upload APK as artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ inputs.qml_profiling && 'Decenza-Android-arm64-qmlprofiling' || 'Decenza-Android-arm64' }}
           path: ${{ steps.apk.outputs.apk_path }}
@@ -284,7 +284,7 @@ jobs:
       # (app_profiler.py -lib <dir containing it>).
       - name: Upload unstripped library for simpleperf
         if: ${{ inputs.qml_profiling }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: Decenza-Android-arm64-symbols
           path: build/libDecenza_arm64-v8a.so

@@ -146,7 +146,7 @@ jobs:
         PY
       id: batches
     - name: Save public review context
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: claude-review-input-${{ github.run_id }}
         path: ${{ runner.temp }}/decenza-review
@@ -335,7 +335,7 @@ jobs:
           if (!packet.batch_complete) core.setFailed('Batch '+batch+' incomplete: '+packet.completion_reason+'.');
     - name: Save sanitized batch result
       if: ${{ always() }}
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: claude-review-result-${{ github.run_id }}-${{ matrix.batch }}
         path: ${{ runner.temp }}/review-result
