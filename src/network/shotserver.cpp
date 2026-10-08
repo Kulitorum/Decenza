@@ -1946,7 +1946,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                     return;
                 }
-                sendHtml(socketGuard, generateShotDetailPage(shot, pageData));
+                if (!shot.isValid())
+                    sendResponse(socketGuard, 404, "text/html; charset=utf-8", generateShotDetailPage(shot, pageData).toUtf8());
+                else
+                    sendHtml(socketGuard, generateShotDetailPage(shot, pageData));
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -2032,7 +2035,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path.startsWith("/api/shot/") && path.endsWith("/outcome")) {
+    else if (path.startsWith("/api/shot/") && path.endsWith("/outcome") && method == "GET") {
         // GET /api/shot/123/outcome: the shot page's results after an edit saved.
         bool ok;
         qint64 shotId = path.mid(10).chopped(8).toLongLong(&ok);
@@ -2068,6 +2071,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
         } else if (!uploads) {
             sendResponse(socket, 500, "application/json", R"({"error":"Uploads unavailable"})");
+        } else if (uploads->activeDestinations().isEmpty()) {
+            // enqueue() would drop it silently; the page's button was drawn when a
+            // destination was still signed in.
+            sendResponse(socket, 409, "application/json", R"({"error":"No upload destination is signed in"})");
         } else {
             uploads->uploadNow(shotId);
             sendJson(socket, R"({"success":true})");
@@ -2096,6 +2103,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
+                } else if (shot.id == 0) {
+                    sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
                 } else {
                     sendJson(socketGuard, QJsonDocument(shot.toJsonObject()).toJson());
                 }
@@ -2446,19 +2455,25 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         }
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
-    else if (path == "/api/power/wake") {
-        if (m_device) {
+    // Wake and sleep take POST only: over plain HTTP a GET from an <img> on another
+    // site is indistinguishable from curl (webrequestguard.h), and POST carries Origin.
+    else if (path == "/api/power/wake" || path == "/api/power/sleep") {
+        if (method != "POST") {
+            sendResponse(socket, 405, "application/json",
+                         R"JSON({"error":"Use POST (also POST /api/command with {\"command\":\"wake\"|\"sleep\"})"})JSON",
+                         "Allow: POST\r\n");
+            return;
+        }
+        if (path == "/api/power/wake" && m_device) {
             m_device->wakeUp();
             DIAG_DEBUG(NETWORK, "ShotServer") << "Wake command sent via web";
         }
-        sendJson(socket, R"({"success":true,"action":"wake"})");
-    }
-    else if (path == "/api/power/sleep") {
-        if (m_device) {
+        if (path == "/api/power/sleep" && m_device) {
             m_device->goToSleep();
             DIAG_DEBUG(NETWORK, "ShotServer") << "Sleep command sent via web";
         }
-        sendJson(socket, R"({"success":true,"action":"sleep"})");
+        sendJson(socket, path == "/api/power/wake" ? R"({"success":true,"action":"wake"})"
+                                                   : R"({"success":true,"action":"sleep"})");
     }
     // Home Automation API endpoints
     else if (path == "/api/state") {
@@ -2903,6 +2918,8 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
         case 401: statusText = "Unauthorized"; break;
         case 403: statusText = "Forbidden"; break;
         case 404: statusText = "Not Found"; break;
+        case 405: statusText = "Method Not Allowed"; break;
+        case 409: statusText = "Conflict"; break;
         case 413: statusText = "Payload Too Large"; break;
         case 429: statusText = "Too Many Requests"; break;
         case 503: statusText = "Service Unavailable"; break;

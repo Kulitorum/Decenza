@@ -737,18 +737,13 @@ structured `detectorResults` JSON for MCP / dialog consumers.
 
 ### Lazy persist on view (PR #893)
 
-`ShotHistoryStorage::requestReanalyzeBadges(id)` runs on the DB worker
-thread and recomputes the four flags. If at least one flag differs from the
-stored value, it issues an `UPDATE` *and* emits `shotBadgesUpdated(shotId,
-channeling, grindIssue, skipFirstFrame, pourTruncated)` (five args) so the
-UI can refresh without a full reload. If every flag already matches the
-stored value, the worker exits silently — no `UPDATE`, no signal, no UI
-refresh.
-
-Note: the QML pages no longer call it from `onShotReady` — drift detection
-and persistence now ride the load path itself (`loadShotRecordStatic`
-recomputes via the badge projection and persists corrected flags inline),
-so the invokable survives mainly for programmatic re-analysis.
+Drift detection and persistence ride the load path: `loadShotRecordStatic`
+recomputes the four flags from the curve data and, when any differs from the
+stored column, issues an `UPDATE` on the same connection; `requestShot` then
+emits `shotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame,
+pourTruncated)` so the open page refreshes. When every flag already matches,
+nothing is written and nothing is emitted. The separate
+`requestReanalyzeBadges` invokable had no caller and was removed.
 
 ### Yield anchor provenance (add-yield-ratio-anchor, migration 34)
 
@@ -804,7 +799,6 @@ require another sweep.
 - `src/history/shothistorystorage.{h,cpp}`:
   - `loadShotRecordStatic` — load + recompute block (the "always recompute
     every quality badge" comment marks the section).
-  - `requestReanalyzeBadges` — lazy-persist worker.
   - `requestShotsFiltered` + `buildFilterQuery` — history-list filter that
     reads the stored columns.
   - `convertShotRecord` — runs `analyzeShot` once per shot conversion
@@ -839,8 +833,8 @@ require another sweep.
 - `qml/pages/PostShotReviewPage.qml` —
   consume `shotData.channelingDetected` / `grindIssueDetected` /
   `skipFirstFrameDetected` / `pourTruncatedDetected`, listen for
-  `shotBadgesUpdated`, call `requestReanalyzeBadges` on load, host the
-  `ShotAnalysisDialog` instance and wire `summaryRequested` to `open()`.
+  `shotBadgesUpdated`, host the `ShotAnalysisDialog` instance and wire
+  `summaryRequested` to `open()`.
 - `qml/pages/ShotHistoryPage.qml` — filter chips that consume the stored
   columns.
 

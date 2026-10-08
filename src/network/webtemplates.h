@@ -12,4 +12,5 @@
 #include "webtemplates/remote_page.h"
 #include "webtemplates/shot_graph.h"
 #include "webtemplates/toast.h"
+#include "webtemplates/recipe_from_shot_js.h"
 #include "webtemplates/vital_stats.h"

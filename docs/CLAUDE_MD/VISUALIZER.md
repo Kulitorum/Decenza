@@ -159,8 +159,8 @@ url)` fires and `MainController` calls
 `ShotHistoryStorage::requestUpdateVisualizerInfo(...)`. The shot-end
 auto-upload is dispatched from the `shotSaved` callback through
 `ShotUploads::shotSaved` (once the row id is known) — never before save, so it cannot orphan. The
-`PostShotReviewPage` `onUploadSuccess` handler does
-**not** persist (they only refresh UI); do not reintroduce a
+`PostShotReviewPage`'s `onUploadSucceededForShot` handler does
+**not** persist (it only refreshes the UI); do not reintroduce a
 page-gated writeback — it silently lost links whenever the review page
 was disabled, auto-closed, or navigated away before the ~1 s round
 trip (OpenSpec `persist-visualizer-id-in-controller`).

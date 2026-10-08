@@ -47,7 +47,13 @@ T.Page {
         _baristaHistory = MainController.shotHistory
             ? MainController.shotHistory.getDistinctBaristas().slice() : []
     }
+    // The shot was deleted while another page covered this one: leave when uncovered.
+    property bool _shotGone: false
     StackView.onActivated: {
+        if (_shotGone) {
+            AppShell.backRequested()
+            return
+        }
         // Hunt for the refractometer while this page is open: activation kicks
         // an immediate scan, and BLEManager keeps scans back-to-back until the
         // refractometer connects (C++ guards handle not-configured/connected).
@@ -129,7 +135,8 @@ T.Page {
     // ShotHistoryStorage::requestShotOutcome, re-read after each saved edit.
     property var shotOutcome: ({})
 
-    // The list the page was opened from, newest first; empty when opened for one shot.
+    // The list the page was opened from, newest first (ShotHistoryPage.getNavigableShotIds);
+    // empty when opened for one shot.
     property var shotIds: []
     readonly property int currentIndex: shotIds.indexOf(editShotId)
     readonly property bool canGoNewer: currentIndex > 0
@@ -142,7 +149,9 @@ T.Page {
     // Step to another shot in the list: the edit in hand is saved to the shot it was
     // made on, and undo, the upload hold and auto-close end with it.
     function stepTo(index) {
-        if (index < 0 || index >= shotIds.length || index === currentIndex) return
+        // Not while the previous step's shot is still loading: a second step would
+        // drop both loads and leave the page faded out with nothing to save to.
+        if (_stepping || index < 0 || index >= shotIds.length || index === currentIndex) return
         autosave()
         reviewGraph.dismissInspect()
         milkWeighButton.cancel()
@@ -405,8 +414,8 @@ T.Page {
     TapHandler {
         onTapped: postShotReviewPage.resetAutoCloseTimer()
     }
-    // One plot height for every way the page opens; the review page's old key
-    // seeds it once.
+    // One plot height for every way the page opens; the review page's old key is
+    // the default until the handle writes the new one.
     property real graphHeight: Settings.value("shotPage/graphHeight",
                                               Settings.value("postShotReview/graphHeight", Theme.scaled(220)))
 
@@ -552,9 +561,12 @@ T.Page {
         }
         function onShotDeleted(shotId) {
             if (shotId !== postShotReviewPage.editShotId) return
-            // Nothing left to save to.
+            // Nothing left to save to. Leave now if this page is on top; a page over
+            // it (the comparison, the recipe wizard) must not be the one popped.
             postShotReviewPage._editLoaded = false
-            AppShell.backRequested()
+            postShotReviewPage._shotGone = true
+            if (postShotReviewPage.StackView.status === StackView.Active)
+                AppShell.backRequested()
         }
         function onShotPulledFromVisualizer(shotId, previous, written) {
             if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
@@ -2404,9 +2416,8 @@ T.Page {
 
             // Equipment identity card (grinder + basket + puck prep), styled
             // like the inventory EquipmentCard and sharing its EquipmentSummary
-            // renderer. Deliberately LAST in the grid: the editable per-shot
-            // dial-in and shot metadata above come first; the card is trailing
-            // hardware context. Grind setting + RPM are omitted here — they are
+            // renderer: hardware context, after the per-shot dial-in and metadata
+            // it describes. Grind setting + RPM are omitted here — they are
             // the per-shot dial-in edited in the fields above, so echoing them
             // read-only would only duplicate. Re-point via the Change Equipment
             // button (occupying the same action-button row the inventory card
@@ -2822,8 +2833,8 @@ T.Page {
                             Layout.fillWidth: true
                             onClicked: {
                                 deleteConfirmDialog.close()
-                                // No flush after this: the row is going away.
-                                postShotReviewPage._editLoaded = false
+                                // Editing stops in onShotDeleted, not here: a delete that
+                                // fails leaves the page open, and its edits must still save.
                                 MainController.shotHistory.requestDeleteShot(postShotReviewPage.editShotId)
                             }
                         }

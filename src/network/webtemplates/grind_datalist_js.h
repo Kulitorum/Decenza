@@ -37,7 +37,8 @@ inline constexpr const char* WEB_JS_GRIND_DATALIST = R"JS(
         // input) for the given grinder identity. Candidates are an enhancement
         // over free text: on any failure the inputs simply stay plain text
         // fields, so the .catch is deliberately quiet.
-        function attachGrindDatalist(grindEl, rpmEl, brand, model) {
+        // `onRpmCapable(bool)`, when given, learns what the server said about the grinder.
+        function attachGrindDatalist(grindEl, rpmEl, brand, model, onRpmCapable) {
             if (!grindEl) return;
             var current = (grindEl.value || '').trim();
             var rpm = rpmEl ? (parseInt(rpmEl.value, 10) || 0) : 0;
@@ -63,6 +64,7 @@ inline constexpr const char* WEB_JS_GRIND_DATALIST = R"JS(
                         // never silently cleared).
                         var row = rpmEl.closest('.edit-row') || rpmEl.parentElement;
                         if (row) row.style.display = rpmList.length ? '' : 'none';
+                        if (onRpmCapable) onRpmCapable(rpmList.length > 0);
                     }
                 })
                 .catch(function() { /* free text still works without candidates */ });

@@ -38,7 +38,6 @@ Primary APIs (see the header for the full surface):
 - **Distinct value getters** (synchronous, live query) — `getDistinctBeanBrands()`, `getDistinctBaristas()`, `getDistinctBeanTypesForBrand(brand)`, `getDistinctGrinderBrands()`, `getDistinctGrinderModelsForBrand(brand)`, `getDistinctGrinderSettingsForGrinder(model)`. Each runs a `SELECT DISTINCT` on the calling thread through `queryDistinctList()` and returns the answer — 0.36–1.9 ms on a real 18.5 MB database. There is no cache: the one that used to back these was invalidated on every shot save, delete and metadata edit, more often than it was read, and its invalidation dropped composite keys it never refilled. **Do not call one from a QML binding that depends on text the user is typing** — hoist it to a property refreshed on load and on `historyDataChanged()`.
 - **Grouped reads for auto-favorites** — `requestAutoFavorites(groupBy, maxItems)`, `requestAutoFavoriteGroupDetails(groupBy, groupValue)`.
 - **Backup/import** — `requestCreateBackup(destPath)`, `requestImportDatabase(filePath, merge)`. See `docs/CLAUDE_MD/DATA_MIGRATION.md` for the device-to-device transfer story.
-- **Reanalysis** — `requestReanalyzeBadges(shotId)` recomputes channel/temperature/grind quality flags on legacy shots.
 
 Filter keys for `requestShotsFiltered` span exact-match text fields (profile, bean, grinder brand/model/burrs/setting, roast level), numeric ranges (enjoyment, dose, yield, duration, TDS, EY), a date window (`dateFrom`/`dateTo`), the `onlyWithVisualizer` toggle, quality-badge filters (channeling, temperature instability, grind issue, skip-first-frame), and `sortField`/`sortDirection`. `searchText` hits the FTS5 index. The authoritative list lives in `parseFilter` in `src/history/shothistorystorage.cpp` (around line 1333).
 
@@ -72,7 +71,7 @@ Imports legacy `.shot` files from de1app and JSON files exported by other Decenz
 
 - **`ShotHistoryPage.qml`** — main list with filter dropdowns, FTS search box, multi-select, grouped favorites. Entry point from `IdlePage`.
 - **`ShotComparisonPage.qml`** — overlaid graphs and comparison tables for 2–3 shots.
-- **`PostShotReviewPage.qml`** — the one shot page, opened after a shot and from history: graph, "What happened", "Since your last shot", rating, notes, TDS/EY, cards, newer/older stepping from a list, delete, debug log, uploads. See `docs/SHOT_REVIEW.md`.
+- **`PostShotReviewPage.qml`** — the one shot page, opened after a shot and from history: graph, rating, taste, notes, measurements, "Shot results" (the comparison with the previous shot on the profile), cards, newer/older stepping from a list, delete, debug log, uploads. See `docs/SHOT_REVIEW.md`.
 
 ### Graph & comparison components (`qml/components/`)
 

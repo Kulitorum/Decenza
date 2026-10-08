@@ -242,6 +242,23 @@ QVariantMap CoffeeBag::toVariantMap() const
     return map;
 }
 
+QVariantMap CoffeeBag::shotSnapshot() const
+{
+    return {
+        { QStringLiteral("beanBrand"), roasterName },
+        { QStringLiteral("beanType"), coffeeName },
+        { QStringLiteral("roastDate"), roastDate },
+        { QStringLiteral("roastLevel"), roastLevel },
+        { QStringLiteral("beanBaseJson"), beanBaseData },
+        { QStringLiteral("beanBaseId"), beanBaseId },
+        { QStringLiteral("bagId"), id },
+        { QStringLiteral("frozenDate"), frozenDate },
+        { QStringLiteral("defrostDate"), defrostDate },
+        { QStringLiteral("storageHint"), storageHint },
+        { QStringLiteral("openedDate"), openedDate },
+    };
+}
+
 CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
 {
     // Absent keys keep the struct's member defaults, which match the previous

@@ -1689,8 +1689,8 @@ target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
 target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_webrequestguard: the shot server's cross-site refusal. Its own file because
-# nothing else exercises an HTTP header block: a cross-site write let through, or a
-# same-origin or non-browser one refused, fails nowhere else in the suite. ---
+# a cross-site write let through, or a same-origin or non-browser one refused, fails
+# nowhere else in the suite. ---
 add_decenza_test(tst_webrequestguard tst_webrequestguard.cpp)
 target_link_libraries(tst_webrequestguard PRIVATE decenza_webrequestguardlib)
 

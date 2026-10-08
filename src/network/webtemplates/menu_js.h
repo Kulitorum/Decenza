@@ -42,7 +42,7 @@ inline constexpr const char* WEB_JS_POWER_CONTROL = R"JS(
         }
         function togglePower() {
             var action = powerState.awake ? "sleep" : "wake";
-            fetch("/api/power/" + action)
+            fetch("/api/power/" + action, { method: "POST" })
                 .then(function(r) {
                     if (!r.ok) throw new Error("Server error (" + r.status + ")");
                     return r.json();

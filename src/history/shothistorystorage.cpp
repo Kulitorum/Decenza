@@ -3558,7 +3558,11 @@ qint64 ShotHistoryStorage::previousShotIdStatic(QSqlDatabase& db, qint64 shotId)
     q.prepare("SELECT profile_kb_id, profile_name, equipment_id, timestamp, beverage_type "
               "FROM shots WHERE id = ?");
     q.addBindValue(shotId);
-    if (!q.exec() || !q.next()) return 0;
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Previous shot of" << shotId << "unreadable:" << q.lastError().text();
+        return 0;
+    }
+    if (!q.next()) return 0;
     const QString kbId = q.value(0).toString();
     const QString name = q.value(1).toString();
     const qint64 equipmentId = q.value(2).toLongLong();
@@ -3590,7 +3594,26 @@ qint64 ShotHistoryStorage::previousShotIdStatic(QSqlDatabase& db, qint64 shotId)
     p.addBindValue(equipmentId);
     p.addBindValue(timestamp);
     p.addBindValue(shotId);
-    return p.exec() && p.next() ? p.value(0).toLongLong() : 0;
+    if (!p.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Previous shot of" << shotId << "unreadable:" << p.lastError().text();
+        return 0;
+    }
+    return p.next() ? p.value(0).toLongLong() : 0;
+}
+
+qint64 ShotHistoryStorage::neighbourShotIdStatic(QSqlDatabase& db, qint64 shotId, bool newer)
+{
+    QSqlQuery q(db);
+    q.prepare(newer ? QStringLiteral("SELECT n.id FROM shots s JOIN shots n ON n.timestamp > s.timestamp OR (n.timestamp = s.timestamp AND n.id > s.id) "
+                                     "WHERE s.id = ? ORDER BY n.timestamp ASC, n.id ASC LIMIT 1")
+                    : QStringLiteral("SELECT n.id FROM shots s JOIN shots n ON n.timestamp < s.timestamp OR (n.timestamp = s.timestamp AND n.id < s.id) "
+                                     "WHERE s.id = ? ORDER BY n.timestamp DESC, n.id DESC LIMIT 1"));
+    q.addBindValue(shotId);
+    if (!q.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Neighbour of shot" << shotId << "unreadable:" << q.lastError().text();
+        return 0;
+    }
+    return q.next() ? q.value(0).toLongLong() : 0;
 }
 
 QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotId)
@@ -3625,7 +3648,9 @@ void ShotHistoryStorage::requestShotOutcome(qint64 shotId)
         const bool opened = withTempDb(dbPath, "shs_outcome", [&](QSqlDatabase& db) {
             outcome = shotOutcomeStatic(db, shotId);
         });
-        if (*destroyed || !opened || outcome.isEmpty()) return;
+        if (*destroyed) return;
+        if (!opened || outcome.isEmpty())
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Shot outcome of" << shotId << "unavailable";
         QMetaObject::invokeMethod(this, [this, shotId, outcome, destroyed]() {
             if (!*destroyed) emit shotOutcomeReady(shotId, outcome);
         }, Qt::QueuedConnection);
@@ -3678,45 +3703,6 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
                     record.pourTruncatedDetected);
             }
         }, Qt::QueuedConnection);
-    });
-}
-
-void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
-{
-    if (!m_ready) return;
-
-    // loadShotRecordStatic already recomputes all four badges and persists to
-    // the DB when any flag differs from the stored value. This path exists so
-    // QML callers (PostShotReviewPage) can fire a background
-    // worker after onShotReady and learn — via shotBadgesUpdated — when the
-    // recompute actually changed anything. We forward the load's
-    // outBadgesPersisted to drive that signal.
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, shotId, destroyed]() {
-        bool recordFound = false;
-        bool badgesPersisted = false;
-        bool newChanneling = false;
-        bool newGrindIssue = false, newSkipFirstFrame = false, newPourTruncated = false;
-
-        withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
-            ShotRecord record = loadShotRecordStatic(db, shotId, &badgesPersisted, Q_FUNC_INFO);
-            if (record.summary.id == 0) return;
-            recordFound = true;
-            newChanneling = record.channelingDetected;
-            newGrindIssue = record.grindIssueDetected;
-            newSkipFirstFrame = record.skipFirstFrameDetected;
-            newPourTruncated = record.pourTruncatedDetected;
-        });
-
-        if (!recordFound || !badgesPersisted || *destroyed) return;
-        QMetaObject::invokeMethod(
-            this,
-            [this, shotId, newChanneling, newGrindIssue, newSkipFirstFrame, newPourTruncated, destroyed]() {
-                if (*destroyed) return;
-                emit shotBadgesUpdated(shotId, newChanneling, newGrindIssue, newSkipFirstFrame, newPourTruncated);
-            },
-            Qt::QueuedConnection);
     });
 }
 
@@ -4293,6 +4279,12 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     // also carries legitimate fields (add-ai-taste-intake). Non-taste keys pass
     // through untouched.
     QVariantMap metadata = metadataIn;
+    // A bag pick sends only the bag id; the shot's bean snapshot comes from the
+    // bag here, so the app's Change Beans and the web page write the same fields.
+    if (bagIdIsSet(metadata.value(QStringLiteral("bagId"), -1).toLongLong()) && !metadata.contains(QStringLiteral("beanBrand"))) {
+        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, metadata.value(QStringLiteral("bagId")).toLongLong());
+        if (bag.id > 0) metadata.insert(bag.shotSnapshot());
+    }
     static const QStringList kTasteBalanceValues = {"sour", "balanced", "bitter"};
     static const QStringList kTasteBodyValues    = {"thin", "medium", "heavy"};
     const auto sanitizeTaste = [&](const QString& key, const QStringList& allowed) {

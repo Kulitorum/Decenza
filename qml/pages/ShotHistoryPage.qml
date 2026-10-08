@@ -421,24 +421,19 @@ T.Page {
         clearSelection()
     }
 
-    // Get the list of shot IDs for navigation (selected shots or all loaded shots)
+    // The shots the shot page can step through (the selection, else the whole list),
+    // newest first whatever the list's sort, since the page's buttons say Newer and Older.
     function getNavigableShotIds() {
-        if (selectedShots.length > 0) {
-            // Return selected shots sorted chronologically
-            return selectedShots.slice().sort(function(a, b) { return a - b })
-        } else {
-            // Return all loaded shots from the model
-            let ids = []
-            for (let i = 0; i < shotListModel.count; i++) {
-                ids.push(shotListModel.get(i).id)
-            }
-            return ids
-        }
+        let ids = selectedShots.slice()
+        if (ids.length === 0)
+            for (let i = 0; i < shotListModel.count; i++) ids.push(shotListModel.get(i).id)
+        return ids.sort(function(a, b) { return b - a })
     }
 
     function openShotDetail(shotId) {
+        // A row opened outside the selection is on its own.
         var shotIds = getNavigableShotIds()
-        AppShell.shotDetailRequested(shotId, shotIds)
+        AppShell.shotDetailRequested(shotId, shotIds.indexOf(shotId) >= 0 ? shotIds : [])
     }
 
     ListModel {

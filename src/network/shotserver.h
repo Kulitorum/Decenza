@@ -181,7 +181,8 @@ private:
 
     QString getLocalIpAddress() const;
     QString generateShotListPage(const QVariantList& shots) const;
-    // Worker thread: the shot page's curves, outcome and neighbours.
+    // Worker thread: the shot page's curves, outcome, neighbours, phase summaries
+    // and Decent upload state.
     static QJsonObject shotPageData(QSqlDatabase& db, const ShotRecord& record);
     QString generateShotDetailPage(const ShotProjection& shot, const QJsonObject& pageData) const;
     // Worker thread: the shots and every base's comparison, as the page embeds them.

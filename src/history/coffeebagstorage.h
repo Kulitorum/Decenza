@@ -138,6 +138,10 @@ struct CoffeeBag {
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
     static CoffeeBag fromVariantMap(const QVariantMap& map);
+    // What a shot pulled from this bag records, as ShotHistoryStorage metadata keys:
+    // the bean fields, the Bean Base snapshot and the bag link. One definition for
+    // the app's Change Beans and the web page's bean picker.
+    QVariantMap shotSnapshot() const;
 
     bool isTea() const { return kind == QLatin1String("tea"); }
 

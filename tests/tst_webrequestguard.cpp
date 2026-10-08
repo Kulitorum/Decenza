@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QSysInfo>
 
 #include "network/webrequestguard.h"
 
@@ -43,6 +44,13 @@ private slots:
         QTest::newRow("no Host header, not a browser") << "" << true;
         QTest::newRow("public domain pointed at the tablet") << "attacker.example:8888" << false;
         QTest::newRow("public domain, no port") << "coffee.example.com" << false;
+        // Android reports "localhost" as the machine name; a prefix rule would pass this.
+        QTest::newRow("localhost under the attacker's domain") << "localhost.attacker.example:8888" << false;
+        const QString machine = QSysInfo::machineHostName().toLower();
+        if (!machine.isEmpty() && machine != QLatin1String("localhost")) {
+            QTest::newRow("this machine's name, exactly") << machine + ":8888" << true;
+            QTest::newRow("this machine's name under the attacker's domain") << machine + ".attacker.example:8888" << false;
+        }
     }
 
     void hostIsOurs()
@@ -52,7 +60,7 @@ private slots:
         QCOMPARE(WebRequestGuard::hostIsOurs(host), ours);
     }
 
-    void writes_data()
+    void crossSiteReason_data()
     {
         QTest::addColumn<QString>("method");
         QTest::addColumn<QString>("path");
@@ -60,6 +68,7 @@ private slots:
         QTest::addColumn<bool>("refused");
 
         const char* host = "Host: 192.168.1.5:8888";
+        // Writes.
         QTest::newRow("same-origin fetch from the shot page")
             << "POST" << "/api/shot/5/metadata"
             << block({host, "Origin: http://192.168.1.5:8888", "Sec-Fetch-Site: same-origin"}) << false;
@@ -85,37 +94,25 @@ private slots:
         QTest::newRow("DNS rebinding: Origin and Host both the attacker's name")
             << "POST" << "/api/shot/5/metadata"
             << block({"Host: attacker.example:8888", "Origin: http://attacker.example:8888", "Sec-Fetch-Site: same-origin"}) << true;
-    }
+        // A form post is a navigation, but the navigation exemption is for GET only.
+        QTest::newRow("cross-site form post with Origin stripped by the browser")
+            << "POST" << "/api/shot/5/metadata"
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: document"}) << true;
 
-    void writes()
-    {
-        QFETCH(QString, method);
-        QFETCH(QString, path);
-        QFETCH(QByteArray, headers);
-        QFETCH(bool, refused);
-        QCOMPARE(!WebRequestGuard::crossSiteReason(method, path, headers).isEmpty(), refused);
-    }
-
-    void reads_data()
-    {
-        QTest::addColumn<QString>("method");
-        QTest::addColumn<QString>("path");
-        QTest::addColumn<QByteArray>("headers");
-        QTest::addColumn<bool>("refused");
-
-        const char* host = "Host: 192.168.1.5:8888";
+        // Reads and GETs.
         QTest::newRow("Home Assistant polling telemetry")
             << "GET" << "/api/telemetry" << block({host, "User-Agent: HomeAssistant/2026.9"}) << false;
-        QTest::newRow("Home Assistant waking the machine over the legacy GET")
-            << "GET" << "/api/power/wake" << block({host}) << false;
-        QTest::newRow("img tag on another site aimed at the legacy wake GET")
-            << "GET" << "/api/power/wake"
+        QTest::newRow("curl on the wake POST")
+            << "POST" << "/api/power/wake" << block({host}) << false;
+        // Only over https or localhost: on plain http a browser sends no Sec-Fetch headers.
+        QTest::newRow("img tag on another site aimed at an API GET")
+            << "GET" << "/api/state"
             << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: no-cors", "Sec-Fetch-Dest: image"}) << true;
-        QTest::newRow("iframe on another site aimed at the legacy wake GET")
-            << "GET" << "/api/power/wake"
+        QTest::newRow("iframe on another site aimed at an API GET")
+            << "GET" << "/api/state"
             << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << true;
         QTest::newRow("img tag from another port on this host")
-            << "GET" << "/api/power/sleep"
+            << "GET" << "/api/state"
             << block({host, "Sec-Fetch-Site: same-site", "Sec-Fetch-Mode: no-cors", "Sec-Fetch-Dest: image"}) << true;
         QTest::newRow("rebinding read of the shot list")
             << "GET" << "/api/shots"
@@ -139,7 +136,7 @@ private slots:
             << "POST" << "/mcp" << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: cors"}) << true;
     }
 
-    void reads()
+    void crossSiteReason()
     {
         QFETCH(QString, method);
         QFETCH(QString, path);

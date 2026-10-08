@@ -4,9 +4,9 @@ import QtQuick
 import Decenza
 
 // The chips under a shot graph: one per curve (the Settings.graph toggles the
-// options menu also sets, rarely used ones behind "+N"), then one per phase, then
-// an optional extra chip such as the comparison's pour alignment. They are the
-// graph's legend as well as its switches.
+// live graph's GraphLegend shows, rarely used ones behind "+N"), then one per
+// phase, then an optional extra chip such as the comparison's pour alignment.
+// They are the graph's legend as well as its switches.
 Flow {
     id: root
 

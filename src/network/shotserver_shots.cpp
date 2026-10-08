@@ -748,27 +748,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         var currentSort = { field: 'date', dir: 'desc' };
         var savedSearches = [];
 
-        // Promote a shot to a recipe (add-recipes): same action as the app's
-        // "Recipe" button beside Load — prefills from the shot server-side.
-        function promoteToRecipe(id) {
-            var name = prompt('Name for the new recipe (e.g. Morning cappuccino):');
-            if (!name || !name.trim()) return;
-            var hasMilk = confirm('Is this a milk drink? (OK = yes, Cancel = no)');
-            fetch('/api/recipes/from-shot/' + id, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name.trim(), hasMilk: hasMilk })
-            })
-            .then(function(r) { return r.json().then(function(d) {
-                if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')'));
-                return d;
-            }); })
-            .then(function() {
-                if (confirm('Recipe created. Open the Recipes page?'))
-                    window.location.href = '/recipes';
-            })
-            .catch(function(e) { alert('Could not create recipe: ' + e.message); });
-        }
+        // The app's "Recipe" button beside Load.
+        function promoteToRecipe(id) { createRecipeFromShot(id, alert); }
 
         function toggleSelect(id, card) {
             var idx = selectedShots.indexOf(id);
@@ -994,6 +975,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 
     // Part 13: Script - saved searches
     html += WEB_JS_ESCAPE_HTML;
+    html += WEB_JS_RECIPE_FROM_SHOT;
     html += R"HTML(
 
         function loadSavedSearches() {
@@ -1181,8 +1163,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 }
 
 // JSON as a script literal. "<" only ever occurs inside a JSON string, where
-// < means the same, so no note or name can close the <script> or open a
-// comment that swallows it.
+// the escape \u003c reads the same, so no note or name can close the <script>
+// or open a comment that swallows it.
 static QString embedJson(const QJsonValue& v)
 {
     const QByteArray json = v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
@@ -1195,23 +1177,18 @@ static QString embedJson(const QJsonValue& v)
 QJsonObject ShotServer::shotPageData(QSqlDatabase& db, const ShotRecord& record)
 {
     const qint64 id = record.summary.id;
-    auto neighbour = [&](bool newer) -> qint64 {
-        QSqlQuery q(db);
-        // (timestamp, id) is the ordering key: two imported shots can share a second.
-        q.prepare(newer ? QStringLiteral("SELECT id FROM shots WHERE timestamp > :t OR (timestamp = :t AND id > :id) ORDER BY timestamp ASC, id ASC LIMIT 1")
-                        : QStringLiteral("SELECT id FROM shots WHERE timestamp < :t OR (timestamp = :t AND id < :id) ORDER BY timestamp DESC, id DESC LIMIT 1"));
-        q.bindValue(QStringLiteral(":t"), record.summary.timestamp);
-        q.bindValue(QStringLiteral(":id"), id);
-        return q.exec() && q.next() ? q.value(0).toLongLong() : 0;
-    };
+    QJsonParseError phaseError;
+    const QJsonDocument phases = QJsonDocument::fromJson(record.phaseSummariesJson.toUtf8(), &phaseError);
+    if (!record.phaseSummariesJson.isEmpty() && phaseError.error != QJsonParseError::NoError)
+        DIAG_WARN(NETWORK, "ShotServer") << "Phase summaries of shot" << id << "unreadable:" << phaseError.errorString();
     DecentUploadState decent;
     ShotHistoryStorage::loadDecentUploadStateStatic(db, id, &decent);
     return QJsonObject{
         { QStringLiteral("graph"), graphTraceJson(record, true) },
         { QStringLiteral("outcome"), QJsonObject::fromVariantMap(ShotHistoryStorage::shotOutcomeStatic(db, id)) },
-        { QStringLiteral("newerId"), neighbour(true) },
-        { QStringLiteral("olderId"), neighbour(false) },
-        { QStringLiteral("phaseSummaries"), QJsonDocument::fromJson(record.phaseSummariesJson.toUtf8()).array() },
+        { QStringLiteral("newerId"), ShotHistoryStorage::neighbourShotIdStatic(db, id, true) },
+        { QStringLiteral("olderId"), ShotHistoryStorage::neighbourShotIdStatic(db, id, false) },
+        { QStringLiteral("phaseSummaries"), phases.array() },
         { QStringLiteral("decent"), QJsonObject{
             { QStringLiteral("uploaded"), decent.uploaded() },
             { QStringLiteral("rejectedStatus"), decent.rejectedStatus },
@@ -1484,6 +1461,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
     html += QString::fromLatin1(WEB_JS_GRIND_DATALIST);
     html += QString::fromLatin1(WEB_JS_TOAST);
+    html += QString::fromLatin1(WEB_JS_RECIPE_FROM_SHOT);
     html += QString::fromUtf8(WEB_JS_COMPARISON_TEXT);
     html += QString::fromUtf8(WEB_JS_SHOT_GRAPH);
     html += QStringLiteral(R"HTML(
@@ -1500,7 +1478,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             if (shot.recipe) sub += "  ·  <span class='shot-detail-recipe" + (shot.recipe.archived ? " archived' title='Archived recipe" : "") + "'>"
                                   + shot.recipe.icon + " " + escapeHtml(shot.recipe.name) + "</span>";
             document.getElementById("subtitle").innerHTML = sub;
-            // The plan line the app shows under its title: dose → yield (target) · ratio · grind · rpm.
+            // A fixed plan line in the app's default Shot Plan order (the app follows the user's widget layout).
             var plan = [];
             if (shot.doseWeightG > 0) {
                 var y = shot.finalWeightG.toFixed(1) + "g";
@@ -1562,7 +1540,6 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         }
 
         // === Details: every field saves as it changes, as the app's page does ===
-        // Shot fields → metadata keys of POST /api/shot/<id>/metadata.
         var META = { enjoyment: "enjoyment", tasteBalance: "tasteBalance", tasteBody: "tasteBody", espressoNotes: "espressoNotes",
                      doseWeightG: "doseWeight", finalWeightG: "finalWeight", grinderSetting: "grinderSetting", rpm: "rpm",
                      drinkTds: "drinkTds", drinkEy: "drinkEy", barista: "barista" };
@@ -1618,13 +1595,11 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                + "<label>Dose (g)" + numInput("doseWeightG", 0.1, 0, 40) + "</label>"
                + "<label>Out (g)" + numInput("finalWeightG", 0.1, 0, 500) + "</label>"
                + "<label>Grind<input class='edit-input' id='f_grinderSetting' value='" + escapeHtml(shot.grinderSetting) + "' onchange='fieldChanged(\"grinderSetting\")'></label>"
-               + (shot.rpmCapable ? "<label>RPM" + numInput("rpm", 1, 0) + "</label>" : "")
+               + "<label" + (shot.rpmCapable ? "" : " style='display:none'") + ">RPM" + numInput("rpm", 1, 0) + "</label>"
                + "<label>TDS (%)" + numInput("drinkTds", 0.01, 0, 35) + "</label>"
                + "<label>EY (%)" + numInput("drinkEy", 0.1, 0, 40) + "</label>"
                + "</div></div>";
-            // After the rating, notes and measurements, as on the app's page: those are
-            // filled in first, the results read after.
-            h += "<div class='card' id='happened'></div>";
+            h += "<div class='card' id='happened'></div>";   // same order as the app's page
             h += "<div class='cards'>";
             h += "<div class='card'><h3>Beans</h3>" + rowHtml("Roaster", shot.beanBrand) + rowHtml("Coffee", shot.beanType)
                + rowHtml("Roast date", shot.roastDate) + rowHtml("Roast level", shot.roastLevel)
@@ -1651,7 +1626,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             renderHappened();
             // Stepped candidates for the SHOT's own grinder, not the active one
             // (grind-value-entry). Free text stays accepted either way.
-            attachGrindDatalist(document.getElementById("f_grinderSetting"), document.getElementById("f_rpm"), shot.grinderBrand, shot.grinderModel);
+            attachGrindDatalist(document.getElementById("f_grinderSetting"), document.getElementById("f_rpm"), shot.grinderBrand, shot.grinderModel,
+                                function(capable) { if (shot.rpmCapable !== capable) { shot.rpmCapable = capable; setHeader(); } });
             renderUndo();
         }
         function rowHtml(label, value) {
@@ -1682,6 +1658,14 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         }
         function setRating(v) { save({ enjoyment: Math.max(0, Math.min(100, v)) }); }
         function pickChip(key, v) { var c = {}; c[key] = shot[key] === v ? "" : v; save(c); }
+        // The server's own words on failure: JSON {"error"} or the guard's plain text.
+        function readJson(r) {
+            return r.text().then(function(t) {
+                var d; try { d = JSON.parse(t); } catch (e) { d = { error: t }; }
+                if (!r.ok || (d && d.error)) throw new Error((d && d.error) || ("Server error (" + r.status + ")"));
+                return d;
+            });
+        }
         // Saves go out one after another, in the order they were made, and the page
         // shows each edit at once: an Undo pressed while a save is still in flight
         // then reverts that edit rather than reading the value it replaced as current.
@@ -1700,20 +1684,23 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             Object.keys(before).forEach(function(k) { shot[k] = changes[k]; });
             syncInputs();
             setHeader();
-            // A bag or package pick makes the server fill the shot's bean or grinder fields.
+            // A bag or package pick is resolved server-side: the bean or grinder fields
+            // come from the bag or package on re-read.
             var linksChanged = "bagId" in before || "equipmentId" in before;
             saveChain = saveChain.then(function() {
                 return fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                    .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                    .then(readJson)
                     .then(function(result) {
                         if (!result.success) throw new Error(result.error || "Unknown error");
                         showToast(opts && opts.toast ? opts.toast : "Saved");
                         if (linksChanged) refreshShot(); else refreshOutcome();
                     })
                     .catch(function(err) {
-                        Object.keys(before).forEach(function(k) { shot[k] = before[k]; });
+                        // Only what a later edit has not replaced goes back.
+                        Object.keys(before).forEach(function(k) { if (shot[k] === changes[k]) shot[k] = before[k]; });
                         var i = undoStack.lastIndexOf(before);
                         if (undoable && i >= 0) undoStack.splice(i, 1);
+                        if (opts && opts.onFail) opts.onFail();
                         renderUndo();
                         syncInputs();
                         setHeader();
@@ -1740,7 +1727,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         function undoLast() {
             if (!undoStack.length) return;
             var before = undoStack.pop();
-            save(before, { noUndo: true });
+            // A failed undo keeps its frame, so the step can be tried again.
+            save(before, { noUndo: true, onFail: function() { undoStack.push(before); } });
             renderUndo();
         }
         function renderUndo() {
@@ -1757,23 +1745,21 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             since = (cmp.comparisons || [])[0] || null;
         }
         function refreshOutcome() {
-            fetch("/api/shot/" + shot.id + "/outcome").then(function(r) { return r.ok ? r.json() : null; }).then(function(o) {
-                if (!o) return;
+            fetch("/api/shot/" + shot.id + "/outcome").then(readJson).then(function(o) {
                 setOutcome(o);
                 renderHappened();
-            });
+            }).catch(function(e) { showToast("Could not reload the results: " + e.message, 4000); });
         }
         // After a bag or equipment pick the shot's own fields changed server-side.
         function refreshShot() {
-            fetch("/api/shot/" + shot.id).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
-                if (!s) return;
+            fetch("/api/shot/" + shot.id).then(readJson).then(function(s) {
                 ["beanBrand", "beanType", "roastDate", "roastLevel", "bagId", "beanBaseJson", "beanBaseId", "frozenDate", "defrostDate", "storageHint", "openedDate",
                  "grinderBrand", "grinderModel", "grinderBurrs", "basketBrand", "basketModel",
                  "puckPrep", "equipmentName", "equipmentId", "grinderSetting", "rpm"].forEach(function(k) { if (s[k] !== undefined) shot[k] = s[k]; });
                 renderDetails();
                 setHeader();
                 refreshOutcome();
-            });
+            }).catch(function(e) { showToast("Could not reload the shot: " + e.message, 4000); });
         }
 
         // --- Pickers: the bag and equipment lists the app's dialogs show ---
@@ -1792,23 +1778,18 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             m.classList.add("open");
         }
         function pickBag() {
-            fetch("/api/bags").then(function(r) { return r.json(); }).then(function(d) {
+            fetch("/api/bags").then(readJson).then(function(d) {
                 var items = (d.bags || []).map(function(b) {
                     return { bag: b, active: b.isActive, label: [b.roasterName, b.coffeeName].filter(Boolean).join(" · ") || "Bag " + b.id,
                              sub: [b.roastDate, b.roastLevel].filter(Boolean).join(" · ") };
                 });
-                pickerModal("Beans", items, function(it) {
-                    var b = it.bag;
-                    // The fields the app's Change Beans writes to the shot.
-                    var data = { beanBrand: b.roasterName || "", beanType: b.coffeeName || "", roastDate: b.roastDate || "", roastLevel: b.roastLevel || "",
-                                 beanBaseJson: b.beanBaseData || "", beanBaseId: b.beanBaseId ? String(b.beanBaseId) : "", bagId: b.id,
-                                 frozenDate: b.frozenDate || "", defrostDate: b.defrostDate || "", storageHint: b.storageHint || "", openedDate: b.openedDate || "" };
-                    save(data, { toast: "Beans changed" });
-                });
+                // The bag's snapshot is written by the server (CoffeeBag::shotSnapshot), as
+                // for the app's Change Beans.
+                pickerModal("Beans", items, function(it) { save({ bagId: it.bag.id }, { toast: "Beans changed" }); });
             }).catch(function(e) { showToast("Could not load bags: " + e.message, 4000); });
         }
         function pickEquipment() {
-            fetch("/api/equipment").then(function(r) { return r.json(); }).then(function(d) {
+            fetch("/api/equipment").then(readJson).then(function(d) {
                 var items = (d.equipment || []).map(function(p) {
                     return { pkg: p, active: p.isActive, label: p.name || [p.grinderBrand, p.grinderModel].filter(Boolean).join(" ") || "Package " + p.id,
                              sub: [p.grinderBurrs, [p.basketBrand, p.basketModel].filter(Boolean).join(" ")].filter(Boolean).join(" · ") };
@@ -1819,19 +1800,11 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         // --- Actions ---
         function uploadNow() {
             fetch("/api/shot/" + shot.id + "/upload", { method: "POST" })
-                .then(function(r) { return r.json(); })
-                .then(function(d) { showToast(d.success ? "Upload started" : (d.error || "Could not start the upload"), 3000); })
+                .then(readJson)
+                .then(function() { showToast("Upload started. Reload the page for the result.", 4000); })
                 .catch(function(e) { showToast("Could not start the upload: " + e.message, 4000); });
         }
-        function saveAsRecipe() {
-            var name = prompt("Name for the new recipe (e.g. Morning cappuccino):");
-            if (!name || !name.trim()) return;
-            var hasMilk = confirm("Is this a milk drink? (OK = yes, Cancel = no)");
-            fetch("/api/recipes/from-shot/" + shot.id, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), hasMilk: hasMilk }) })
-                .then(function(r) { return r.json().then(function(d) { if (!r.ok || d.error) throw new Error(d.error || ("Server error (" + r.status + ")")); return d; }); })
-                .then(function() { if (confirm("Recipe created. Open the Recipes page?")) location.href = "/recipes"; })
-                .catch(function(e) { showToast("Could not create recipe: " + e.message, 4000); });
-        }
+        function saveAsRecipe() { createRecipeFromShot(shot.id, function(m) { showToast(m, 4000); }); }
         function toggleDebugLog() {
             var c = document.getElementById("debugLog");
             c.style.display = c.style.display === "none" ? "block" : "none";
@@ -1858,9 +1831,13 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             var btn = document.getElementById("deleteConfirm");
             btn.disabled = true; btn.textContent = "Deleting...";
             fetch("/api/shots/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [shot.id] }) })
-                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
-                .then(function() { location.href = page.olderId > 0 ? "/shot/" + page.olderId : (page.newerId > 0 ? "/shot/" + page.newerId : "/"); })
-                .catch(function(err) { alert("Delete failed: " + err); btn.disabled = false; btn.textContent = "Delete"; });
+                .then(readJson)
+                .then(function(d) {
+                    // 200 with deleted:0 is a row that was not removed.
+                    if (!(d.deleted > 0)) throw new Error("The shot was not deleted");
+                    location.href = page.olderId > 0 ? "/shot/" + page.olderId : (page.newerId > 0 ? "/shot/" + page.newerId : "/");
+                })
+                .catch(function(err) { alert("Delete failed: " + err.message); btn.disabled = false; btn.textContent = "Delete"; });
         }
 
         function graphTraces() { return [{ curves: page.graph.curves, phases: page.graph.phases, offset: 0, hidden: false }]; }

@@ -15,22 +15,25 @@ QString headerValue(const QByteArray& headerBlock, const char* name);
 
 // Whether a `Host` header names this machine rather than a public domain an
 // attacker pointed at its address (DNS rebinding): an IP literal, localhost, a
-// single label, this machine's hostname, or a LAN, mDNS or Tailscale suffix.
-// A missing Host passes: rebinding needs a browser, and a browser always sends it.
+// single label, exactly this machine's hostname, or a LAN, mDNS or Tailscale
+// suffix. A missing Host passes: rebinding needs a browser, which always sends it.
 bool hostIsOurs(const QString& host);
 
 // Why the request must be refused, or empty when it may proceed.
 //  - A Host that is not ours (see hostIsOurs) is refused on every path.
 //  - `Origin` is on every cross-origin fetch, XHR and form post, and on every
-//    non-GET request: it has to name the host the request was sent to.
-//  - `Sec-Fetch-Site` is on every browser request: anything but `same-origin`
-//    or `none` is refused on /api and /mcp paths, which covers an <img> or
-//    <iframe> aimed at a GET endpoint with a side effect from another site or
-//    from another port on this host. A top-level navigation to a page from
-//    another site (a link) still opens; a frame does not.
+//    non-GET request, over plain HTTP too: it has to name the host the request
+//    was sent to. This is the defence for writes, which is why every route
+//    with a side effect takes POST and not GET.
+//  - `Sec-Fetch-Site`: anything but `same-origin` or `none` is refused on /api
+//    and /mcp paths, and a frame from another site is refused everywhere; a
+//    top-level navigation to a page from another site (a link) still opens.
+//    Browsers send the Sec-Fetch headers only to a potentially trustworthy URL
+//    (Fetch Standard, "append the Fetch metadata headers for a request", step
+//    1): https, the tsnet funnel or localhost. On the default http://<ip> page
+//    they are absent and this branch passes, so it adds nothing there.
 // Anything that is not a browser (curl, QNetworkAccessManager, an MCP client,
-// Home Assistant) sends neither header and is let through, as is a browser
-// older than Sec-Fetch (Chrome 76, Safari 16.4).
+// Home Assistant) sends neither header and is let through.
 QString crossSiteReason(const QString& method, const QString& path, const QByteArray& headerBlock);
 
 }

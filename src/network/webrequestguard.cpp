@@ -38,8 +38,9 @@ bool hostIsOurs(const QString& host)
         return true;
     if (!name.contains(QLatin1Char('.')))
         return true;
-    const QString machine = QSysInfo::machineHostName().toLower();
-    if (!machine.isEmpty() && (name == machine || name.startsWith(machine + QLatin1Char('.'))))
+    // Exactly the machine's name only: "<name>.attacker.example" is the attacker's,
+    // and on Android the name is "localhost" (deviceinfo.h), which would pass anything.
+    if (name == QSysInfo::machineHostName().toLower())
         return true;
     // Suffixes that never resolve on the public internet, plus the two a home
     // network reaches this machine by: a FRITZ!Box router's names and Tailscale
