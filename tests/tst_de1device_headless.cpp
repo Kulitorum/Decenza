@@ -55,6 +55,50 @@ private slots:
         QCOMPARE(device.isHeadless(), true);
     }
 
+    void coldTransportUsesTheMaintenanceHandler_data() {
+        QTest::addColumn<int>("firmwareBuild");
+        QTest::addColumn<bool>("headless");
+        QTest::addColumn<bool>("deferred");
+        QTest::newRow("unknown-ghc") << 0 << false << true;
+        QTest::newRow("stable-ghc") << 1352 << false << true;
+        QTest::newRow("native-boundary-ghc") << 1356 << false << false;
+        QTest::newRow("early-access-ghc") << 1358 << false << false;
+        QTest::newRow("stable-no-ghc") << 1352 << true << false;
+    }
+
+    void coldTransportUsesTheMaintenanceHandler() {
+        QFETCH(int, firmwareBuild);
+        QFETCH(bool, headless);
+        QFETCH(bool, deferred);
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = firmwareBuild;
+        f.device.setIsHeadless(headless);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+
+        f.device.startAirPurge();
+        const QByteArray airPurge(1, static_cast<char>(DE1::State::AirPurge));
+        if (deferred) {
+            QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::AirPurge);
+            QVERIFY(requestedStates(f.transport).isEmpty());
+            QVERIFY(!f.transport.writesFor(DE1::Characteristic::HEADER_WRITE).isEmpty());
+            QSignalSpy uploaded(&f.device, &DE1Device::profileUploaded);
+            f.transport.ackAllWritesInOrder();
+            QCOMPARE(uploaded.count(), 1);
+            QVERIFY(uploaded.first().at(0).toBool());
+            // Still heating: no drain request may overtake preparation.
+            f.device.flushPendingMaintenanceState();
+            QVERIFY(requestedStates(f.transport).isEmpty());
+            // Drive the real state-notification path that releases preparation.
+            const QByteArray ready = QByteArray::fromHex("0200"); // Idle / Ready
+            f.device.parseStateInfo(ready);
+            QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
+        } else {
+            QVERIFY(f.transport.writesFor(DE1::Characteristic::HEADER_WRITE).isEmpty());
+        }
+        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{airPurge});
+    }
+
     // ---- Water level filtering (see DE1Device::parseWaterLevel) ----
 
     // The first sample IS the level. Without the seed the EMA ramps from zero and every connect

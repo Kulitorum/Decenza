@@ -7,7 +7,7 @@ Let the user pin a single "default" profile that Decenza auto-loads on app start
 
 ### Requirement: Auto-load profile setting
 
-The system SHALL persist a single, optional auto-load profile filename and a configurable revert-timeout in minutes.
+The system SHALL persist a single, optional auto-load profile filename and a configurable revert-timeout in minutes. Setting a non-empty auto-load profile filename SHALL clear any configured recipe auto-load (`Settings.dye.autoLoadRecipeId`), since exactly one of {a profile, a recipe} can be auto-loadable at a time.
 
 #### Scenario: Default state
 - **WHEN** the user has never configured auto-load
@@ -28,6 +28,14 @@ The system SHALL persist a single, optional auto-load profile filename and a con
 #### Scenario: Both keys round-trip through settings backup
 - **WHEN** the user exports a settings bundle while an auto-load is configured and imports it on another device
 - **THEN** the imported device's `autoLoadProfileFilename` and `autoLoadRevertMinutes` match the exported values
+
+#### Scenario: Setting a profile auto-load clears a recipe auto-load
+- **WHEN** `Settings.dye.autoLoadRecipeId` is not `-1` AND the user sets `Settings.app.autoLoadProfileFilename` to a non-empty filename
+- **THEN** `Settings.app.autoLoadProfileFilename` equals the new filename AND `Settings.dye.autoLoadRecipeId` becomes `-1`
+
+#### Scenario: Clearing the profile auto-load does not touch an unrelated recipe auto-load
+- **WHEN** `Settings.dye.autoLoadRecipeId` is `-1` AND the user clears `Settings.app.autoLoadProfileFilename`
+- **THEN** `Settings.dye.autoLoadRecipeId` remains `-1` (no spurious write)
 
 ### Requirement: Auto-load entry point
 
@@ -199,7 +207,7 @@ The MCP server SHALL expose an `auto_load` tool with `action: "get"` and `target
 
 ### Requirement: MCP — set auto-load
 
-The MCP server SHALL expose an `auto_load` tool with `action: "set"` and `target: "profile"`, at a settings access level, that pins a profile as the auto-load and optionally updates the revert minutes.
+The MCP server SHALL expose an `auto_load` tool with `action: "set"` and `target: "profile"`, at a settings access level, that pins a profile as the auto-load and optionally updates the revert minutes. Setting a profile clears recipe auto-load.
 
 #### Scenario: Successful set
 - **WHEN** the client calls `auto_load` with `action: "set"`, `target: "profile"` and a `filename` that exists and is a favorite
@@ -221,13 +229,22 @@ The MCP server SHALL expose an `auto_load` tool with `action: "set"` and `target
 - **WHEN** the client supplies `revertMinutes` alongside `filename`
 - **THEN** both `autoLoadProfileFilename` and `autoLoadRevertMinutes` (clamped to 0..60) are updated
 
+#### Scenario: Tool description documents the cross-clear
+- **WHEN** a client inspects auto_load guidance
+- **THEN** it documents that setting a profile clears recipe auto-load
+
 ### Requirement: MCP — clear auto-load
 
-The MCP server SHALL expose an `auto_load` tool with `action: "clear"` and `target: "profile"`, at a settings access level, that disables the auto-load without affecting the revert timeout.
+The MCP server SHALL expose an `auto_load` tool with `action: "clear"` and `target: "profile"`, at a settings access level, that disables the auto-load without affecting the revert timeout or an independently configured recipe auto-load.
 
 #### Scenario: Successful clear
 - **WHEN** the client calls `auto_load` with `action: "clear"` and `target: "profile"`
 - **THEN** `autoLoadProfileFilename` is set to `""` AND `autoLoadRevertMinutes` is unchanged AND the response is `{ success: true }`
+
+#### Scenario: Clearing the profile auto-load does not affect an unrelated recipe auto-load
+- **GIVEN** a recipe auto-load is configured
+- **WHEN** the client calls `auto_load` with `action: "clear"`, `target: "profile"`
+- **THEN** `Settings.dye.autoLoadRecipeId` is unchanged
 
 ### Requirement: The auto-load tool SHALL make profile/recipe exclusivity explicit
 

@@ -1,9 +1,10 @@
 # machine-maintenance Specification
 
 ## Purpose
-Covers the machine-maintenance surface in Decenza: a Maintenance card on the Settings → Machine tab that gathers machine upkeep operations in one place. It is the single home for the Descaling Wizard (moved off the Profiles page) and the new Transport Mode, which drains the machine's internal water system for storage or transport by driving the DE1 into the firmware air-purge state. It also defines the Transport machine phase that maps to air purge, its auto-sleep suppression, and the firmware-driven requirement that the machine be ready before a drain can start.
+Covers the machine-maintenance surface in Decenza: a Maintenance card on the Settings → Machine tab that gathers machine upkeep operations in one place. It is the single home for the Descaling Wizard (moved off the Profiles page) and the new Transport Mode, which drains the machine's internal water system for storage or transport by driving the DE1 into the firmware air-purge state. It also defines the Transport machine phase that maps to air purge, its auto-sleep suppression, and connection/operation eligibility for cold starts through the shared maintenance handler.
 
 ## Requirements
+
 ### Requirement: The system SHALL present a Maintenance card on the Machine settings tab
 
 The Settings → Machine tab SHALL include a Maintenance card directly below the Shot Map card, following the existing card grammar (`Theme.cardBackgroundColor`, `Theme.cardRadius`). The card SHALL list machine maintenance operations, each launching a full-screen guided page, and at minimum SHALL offer **Descaling Wizard** and **Transport Mode**.
@@ -76,25 +77,48 @@ existing treatment of the Descaling and Cleaning phases.
 - **THEN** the app SHALL NOT send the machine to sleep while the drain is in
   progress
 
-### Requirement: Transport Mode SHALL require the machine to be ready before starting on current firmware
+### Requirement: Transport start SHALL use connection and operation eligibility
 
-Because current firmware (builds 1333 / 1352) can silently drop an air-purge
-request while the machine is still preheating or heating on GHC-fitted hardware,
-Transport Mode SHALL only allow the drain to start once the machine has reached
-ready temperature. The prepare step SHALL make the "wait until ready" expectation
-clear and SHALL keep the start action unavailable until then. (Reliable
-cold-machine starts are handled by a separate, on-hold change gated on a firmware
-release.)
+Transport Mode SHALL allow starting on a connected machine in idle/heating/ready states, without waiting for Ready. Cold requests SHALL use the existing shared maintenance preparation for older or unknown GHC firmware and request AirPurge directly on native-supporting firmware. Simulation SHALL retain its bypass. Sleep, disconnection and other operations SHALL keep the real-machine Start action unavailable.
 
-#### Scenario: Start is unavailable while the machine is heating
-
-- **GIVEN** the machine is still preheating or heating
+#### Scenario: Heating alone does not block a connected idle machine
+- **GIVEN** a connected machine is idle/heating and not running another operation
 - **WHEN** the user opens Transport Mode
-- **THEN** the start action SHALL be unavailable
-- **AND** the page SHALL indicate the machine must reach ready temperature first
+- **THEN** Start SHALL be available before Ready
 
 #### Scenario: Start becomes available once ready
+- **GIVEN** the connected machine has reached ready temperature
+- **WHEN** the user views the Transport prepare step
+- **THEN** Start SHALL be available
 
-- **GIVEN** the machine has reached ready temperature
-- **WHEN** the user views the Transport Mode prepare step
-- **THEN** the start action SHALL be available
+#### Scenario: Cold old or unknown GHC firmware uses preparation
+- **GIVEN** a connected idle/heating GHC machine with old or unknown firmware
+- **WHEN** the user starts Transport
+- **THEN** the existing shared maintenance handler SHALL prepare the machine and send AirPurge after it leaves preheat
+
+#### Scenario: Supported firmware starts cold directly
+- **GIVEN** a connected idle/heating machine on native-supporting firmware
+- **WHEN** the user starts Transport
+- **THEN** AirPurge SHALL be requested without a preparation profile
+
+#### Scenario: Ineligible machine cannot start
+- **GIVEN** a real machine is asleep, disconnected, or running another operation
+- **WHEN** the user views the prepare step
+- **THEN** Start SHALL be unavailable and the hint SHALL explain connection/wake/operation eligibility
+
+#### Scenario: Simulation retains its start behavior
+- **WHEN** the user opens Transport Mode in simulation
+- **THEN** the connection/temperature gate SHALL remain bypassed
+
+### Requirement: Transport exit restores the selected brew profile when idle
+
+After leaving Transport in an idle/heating/ready phase, the app SHALL restore the selected brew profile through its normal upload path. It SHALL NOT upload a brew profile over another active operation.
+
+#### Scenario: Returning after a prepared cold drain
+- **GIVEN** the shared handler installed a temporary cold-maintenance profile
+- **WHEN** the user leaves Transport while the machine is idle/heating/ready
+- **THEN** the selected brew profile SHALL be uploaded
+
+#### Scenario: Another operation replaces Transport
+- **WHEN** another active operation replaces Transport
+- **THEN** Transport's exit SHALL NOT upload a brew profile over that operation
