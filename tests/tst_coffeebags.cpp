@@ -931,6 +931,8 @@ private slots:
         withRawDb(path, "pull_setup", [&](QSqlDatabase& db) {
             CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "C";
             bag.notes = "local";
+            bag.roastDate = "2026-09-01";
+            bag.frozenDate = "2026-09-03";
             bag.visualizerSeen = QStringLiteral(R"({"notes":"old"})");
             bagId = CoffeeBagStorage::insertBagStatic(db, bag);
         });
@@ -967,10 +969,22 @@ private slots:
         QCOMPARE(pulled.count(), 1);
         QCOMPARE(updated.count(), 0);
 
+        // Roast and freeze moved together are judged as a pair, not each against
+        // the other's old value.
+        storage.requestApplyVisualizerPull(bagId, [](const QVariantMap&) {
+            VisualizerSync::BagPull pull;
+            pull.fields.insert("roastDate", "2026-10-01");
+            pull.fields.insert("frozenDate", "2026-10-03");
+            return pull;
+        });
+        QTRY_COMPARE(pulled.count(), 2);
+
         withRawDb(path, "pull_verify", [&](QSqlDatabase& db) {
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
             QVERIFY(!bag.inInventory);
             QVERIFY(bag.defrostDate.isEmpty());
+            QCOMPARE(bag.roastDate, QString("2026-10-01"));
+            QCOMPARE(bag.frozenDate, QString("2026-10-03"));
             const QJsonObject seen = QJsonDocument::fromJson(bag.visualizerSeen.toUtf8()).object();
             QCOMPARE(seen.value("notes").toString(), QStringLiteral("old"));
             QCOMPARE(seen.value("archived_at").toString(), QStringLiteral("2026-10-01T09:00:00Z"));

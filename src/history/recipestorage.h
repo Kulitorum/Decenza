@@ -565,6 +565,10 @@ signals:
     // one recipe actually moved.
     void recipesRelinked(const QVariantList& movedRecipeIds, qint64 targetBagId,
                          const QString& targetBagName);
+    // A roll-on-finish ran: always emitted, after the recipes moved, with the
+    // successor bag (-1 when none) — so the active bag can follow in the same step.
+    void finishedBagRolled(qint64 finishedBagId, qint64 successorBagId,
+                           const QVariantList& movedRecipeIds);
     // Coarse "something changed" signal so views can re-request the inventory.
     void recipesChanged();
 

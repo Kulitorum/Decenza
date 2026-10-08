@@ -1612,15 +1612,22 @@ void MainController::setupRecipeConnections() {
     // courtesy toast lives in main.qml on recipesRelinked.
     connect(m_bagStorage, &CoffeeBagStorage::bagFinished, this, [this](qint64 bagId) {
         m_recipeStorage->requestRelinkForFinishedBag(bagId);
-        // Shots must not keep landing on a finished bag: the active selection
-        // moves with the recipes, to the next bag of the same coffee.
-        if (bagId == m_settings->dye()->activeBagId())
-            m_bagStorage->requestSuccessorBag(bagId);
     });
-    connect(m_bagStorage, &CoffeeBagStorage::successorBagReady, this,
-            [this](qint64 finishedBagId, qint64 successorBagId) {
+    // Shots must not keep landing on a finished bag: the active selection moves
+    // with the recipes, to the successor the roll chose, once they have moved.
+    connect(m_recipeStorage, &RecipeStorage::finishedBagRolled, this,
+            [this](qint64 finishedBagId, qint64 successorBagId, const QVariantList& movedRecipeIds) {
         if (finishedBagId != m_settings->dye()->activeBagId())
-            return;  // the user picked another bag meanwhile
+            return;  // not the bag in use, or the user picked another meanwhile
+        // The active recipe moved onto the successor in the database; follow in
+        // the cache before the switch, or the bag watcher reads the switch as a
+        // swap away and deactivates it (the recipeReady re-read then confirms).
+        const qint64 activeRecipeId = m_settings->dye()->activeRecipeId();
+        if (activeRecipeId > 0 && movedRecipeIds.contains(QVariant(activeRecipeId))
+            && m_activeRecipe.value(QStringLiteral("resolvedBagId")).toLongLong() == finishedBagId) {
+            m_activeRecipe.insert(QStringLiteral("bagId"), successorBagId);
+            m_activeRecipe.insert(QStringLiteral("resolvedBagId"), successorBagId);
+        }
         DIAG_INFO(BEANBASE, "maincontroller") << "active bag" << finishedBagId << "finished - now"
             << (bagIdIsSet(successorBagId) ? QString::number(successorBagId) : QStringLiteral("no bag"));
         m_settings->dye()->setActiveBagId(bagIdIsSet(successorBagId) ? static_cast<int>(successorBagId) : -1);

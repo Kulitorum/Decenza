@@ -718,19 +718,23 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
             if (!bag.isValid())
                 return;  // deleted here since
             *pull = decide(bag.toVariantMap());
-            // A value this bag can't hold (a future date) is skipped but stays
-            // seen, so one bad field can't block every later pull.
+            // A value this bag can't hold is skipped but stays seen, so one bad
+            // field can't block every later pull. Each date must be valid on its
+            // own; the dates that remain are ordered as a set, since a pull can
+            // move roast and freeze together.
             const QDate today = QDate::currentDate();
-            const QVariantMap stored = bag.toVariantMap();
             for (const QString& key : pull->fields.keys()) {
-                const QVariantMap one{{key, pull->fields.value(key)}};
-                QString err = CoffeeBag::lifecycleFieldError(one, today);
-                if (err.isEmpty())
-                    err = CoffeeBag::lifecycleOrderError(stored, one);
+                const QString err = CoffeeBag::lifecycleFieldError({{key, pull->fields.value(key)}}, today);
                 if (!err.isEmpty()) {
                     pull->fields.remove(key);
                     *refused << err;
                 }
+            }
+            const QString orderError = CoffeeBag::lifecycleOrderError(bag.toVariantMap(), pull->fields);
+            if (!orderError.isEmpty()) {
+                for (const char* key : {"roastDate", "frozenDate", "defrostDate", "openedDate"})
+                    pull->fields.remove(QString::fromLatin1(key));
+                *refused << orderError;
             }
             if (pull->isEmpty())
                 return;
@@ -946,14 +950,6 @@ qint64 CoffeeBagStorage::successorBagStatic(QSqlDatabase& db, qint64 finishedBag
     else if (query.next())
         return query.value(0).toLongLong();
     return -1;
-}
-
-void CoffeeBagStorage::requestSuccessorBag(qint64 finishedBagId)
-{
-    auto successor = std::make_shared<qint64>(-1);
-    runAsync("bags_successor",
-        [finishedBagId, successor](QSqlDatabase& db) { *successor = successorBagStatic(db, finishedBagId); },
-        [this, finishedBagId, successor](bool) { emit successorBagReady(finishedBagId, *successor); });
 }
 
 void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)

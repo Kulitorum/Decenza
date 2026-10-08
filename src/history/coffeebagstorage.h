@@ -309,10 +309,8 @@ public:
     Q_INVOKABLE void requestDeleteBag(qint64 bagId);
 
     // The newest other in-inventory bag of the same coffee (canonical id, else
-    // roaster + coffee), or -1. Used when a bag is finished.
+    // roaster + coffee), or -1. Where a finished bag's recipes roll to.
     static qint64 successorBagStatic(QSqlDatabase& db, qint64 finishedBagId);
-    // Async successorBagStatic; answers with successorBagReady.
-    void requestSuccessorBag(qint64 finishedBagId);
 
     // QML bridges to the CoffeeBag rules the web page uses too.
     Q_INVOKABLE QVariantList storageHintOptions() const { return CoffeeBag::storageHintOptions(); }
@@ -448,7 +446,6 @@ public:
                                  const QHash<qint64, qint64>& packageIdMap);
 
 signals:
-    void successorBagReady(qint64 finishedBagId, qint64 successorBagId);
     void inventoryReady(const QVariantList& bags);
     // The read did not happen: the database would not open, or storage was
     // never initialized. Distinct from an empty inventoryReady, because a view

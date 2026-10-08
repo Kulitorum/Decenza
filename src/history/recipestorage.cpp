@@ -1650,7 +1650,8 @@ void RecipeStorage::requestRelinkForFinishedBag(qint64 finishedBagId)
             if (!moved.isEmpty())
                 *targetName = bagDisplayName(CoffeeBagStorage::loadBagStatic(db, target));
         },
-        [this, movedIds, targetBagId, targetName](bool) {
+        [this, finishedBagId, movedIds, targetBagId, targetName](bool) {
+            emit finishedBagRolled(finishedBagId, *targetBagId, *movedIds);
             if (movedIds->isEmpty())
                 return;
             emit recipesRelinked(*movedIds, *targetBagId, *targetName);
