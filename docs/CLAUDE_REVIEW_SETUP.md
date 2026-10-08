@@ -11,90 +11,67 @@ It reads source and existing tests; it never builds or runs the application.
 Both workflows use **Workload Identity Federation (WIF)** for the Claude API.
 GitHub issues a short-lived OIDC identity token; the official action exchanges it
 for a short-lived Anthropic token and handles renewal. No stored Anthropic API key
-or subscription OAuth token is needed. Non-secret identifiers still live in
-repository Actions variables. Tokens exist temporarily at runtime, and neither
-Claude's read tools nor public artifacts should expose the action's token cache.
+or subscription OAuth token is needed. The configured IDs below are not secrets
+and are included directly in both workflows; no Actions variables are required.
 
-1. An Anthropic organization admin/owner opens
-   [Claude Console](https://platform.claude.com/) → **Settings → Workload identity →
-   Connect workload → GitHub Actions**. Select the organization/workspace holding
-   your API credits, set a workspace spending limit, and confirm Sonnet model access.
-2. Register the issuer `https://token.actions.githubusercontent.com` using JWKS
-   **discovery**. Create a service account named, for example, `decenza-ci`, and add
-   it to the selected workspace. Create two federation rules using the matches
-   below. Scope both rules to that one workspace with `workspace:developer` and a
-   600-second token lifetime; keep single-use assertion replay protection enabled.
-3. A repository admin opens
-   [Decenza's Actions variables](https://github.com/Kulitorum/Decenza/settings/variables/actions)
-   and creates the five variables in the table below. These IDs are not secrets.
-4. Install the Claude App if requested fixes are needed, as described below.
-   Review and merge the federation workflow PR when ready. Do not make the Claude job a
-   required merge check: path filters and skipped runs make it advisory.
-5. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
-   and triggered by a human with repository write access. Include a relevant
-   source change. In **Actions → Claude PR review**, check that the Claude step
-   completes, and inspect any inline findings. The job should be skipped on
-   drafts, fork PRs, and other bots. A run with no findings posts no comment.
-
-| Repository Actions variable | Value from Claude Console |
+| Federation setting | Configured value |
 | --- | --- |
-| `ANTHROPIC_ORGANIZATION_ID` | Organization UUID |
-| `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_...` for the service account |
-| `ANTHROPIC_WORKSPACE_ID` | `wrkspc_...` for the selected workspace |
-| `ANTHROPIC_REVIEW_FEDERATION_RULE_ID` | `fdrl_...` for the review rule |
-| `ANTHROPIC_FIX_FEDERATION_RULE_ID` | `fdrl_...` for the requested-fix rule |
+| Federation rule | `fdrl_01845VJkqDXmxfEeoz22VNyg` |
+| Organization | `e3971c6d-a39b-46fc-a5e9-d152d5f5d476` |
+| Service account | `svac_01Rjzffi5Zn9hAG3NSPrboZE` |
+| Workspace | `wrkspc_01CfPYtm6bgzXkKPucdyGATe` |
+| OIDC audience | `https://api.anthropic.com` |
 
-### Federation rule matches
+1. The Anthropic Console rule is configured for repository **Kulitorum/Decenza**,
+   with the branch left unrestricted. Confirm the service account belongs to the
+   selected workspace, that this is the organization/workspace holding your API
+   credits, and that it can use `claude-sonnet-5-5`. Set a workspace spending limit.
+2. Install the Claude App if requested fixes are needed, as described below.
+   Review and merge the federation workflow PR when ready. Keep the Claude review
+   job advisory: its path filters and skipped runs make it unsuitable as a required
+   merge check.
+3. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
+   and triggered by a human with write access. In **Actions → Claude PR review**,
+   check completion and inspect any inline findings. Drafts, forks, and other bots
+   are skipped. A run with no findings posts no comment.
 
-Both rules must require audience `https://api.anthropic.com`. Set the following
-exact claim matches on **both** rules:
+### Verified token exchange
 
-```json
-{
-  "repository": "Kulitorum/Decenza",
-  "repository_id": "1121207637",
-  "repository_owner_id": "175644",
-  "runner_environment": "github-hosted"
-}
-```
+[The federation test run](https://github.com/Kulitorum/Decenza/actions/runs/37706355051)
+successfully exchanged a GitHub identity token for an Anthropic bearer token with
+599 seconds of remaining lifetime. It made no model call and exported/logged
+neither token. This confirms authentication for the setup-branch push; it does
+not verify model access, credits, or the complete review/fix execution.
 
-For the **review rule**, also match `event_name` exactly to `pull_request` and add
-this CEL condition, which permits only this review workflow on PR merge refs:
+`.github/workflows/anthropic-wif-test.yml` runs on changes to itself on the setup
+branch and can be dispatched manually after merge. It uses the same four IDs and
+audience as the production workflows. No checkout, API key, or Claude App is
+needed for this exchange-only test.
 
-```text
-claims.workflow_ref.matches("^Kulitorum/Decenza/\\.github/workflows/claude-review\\.yml@refs/pull/[0-9]+/merge$")
-```
+### Trust scope and migration
 
-For the **fix rule**, also add these exact claim matches:
+The rule's unrestricted branch setting permits authentication from all Decenza
+branches. The review/fix workflow guards separately reject untrusted fork and
+non-maintainer requests. Anyone able to write Decenza workflows is a trust
+boundary, because they can request an identity token from another workflow.
 
-```json
-{
-  "event_name": "issue_comment",
-  "ref": "refs/heads/main",
-  "workflow_ref": "Kulitorum/Decenza/.github/workflows/claude-fix.yml@refs/heads/main"
-}
-```
+For stronger isolation, an Anthropic admin can additionally require immutable
+`repository_id: 1121207637` and `repository_owner_id: 175644`, plus the exact
+workflow/event pair. Review tokens use `pull_request` with
+`Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/pull/<number>/merge`;
+fix tokens use `issue_comment` with
+`Kulitorum/Decenza/.github/workflows/claude-fix.yml@refs/heads/main`.
+Separate rules can express those restrictions. If keeping this diagnostic test,
+its workflow/event must also be permitted. Such Console rule changes have not
+been applied by this PR.
 
-All populated matchers must pass. Bind the two rules to the same service account
-and selected workspace. These matches use immutable repository/owner IDs rather
-than relying only on a name or a broad subject prefix. They do not require a
-particular `sub` format, which can vary with GitHub's immutable/custom subjects.
-Workflow guards and actor permission checks still exclude untrusted fork and
-non-maintainer requests. Changing the default branch or workflow filename needs a
-matching rule update. Review rules authorize trusted same-repository PR workflows;
-repository write access remains a trust boundary for changing those workflows.
-
-The Console wizard can test the connection; a draft PR is skipped and will not
-produce an exchange. Use a non-draft eligible PR after the configuration is ready,
-and check Console authentication history plus the action's sanitized status.
-Never print or upload the raw identity/access token when troubleshooting.
-
-If migrating from the API-key version, configure the rules/variables before
-merging. The workflows no longer pass `ANTHROPIC_API_KEY`; they do not silently
-fall back to it. After a successful federated run, remove any obsolete dedicated
+The workflows no longer pass `ANTHROPIC_API_KEY` and do not fall back to it.
+After a successful federated production run, remove any obsolete dedicated
 repository secret and revoke that dedicated key in Console if no other workload
 uses it. Federation changes authentication, not the API billing account: usage is
 attributed to the chosen service account's workspace under its normal limits.
+Tokens exist only at runtime; Claude's read tools deny access to the action's
+temporary identity-token and credential-cache directory.
 
 ## GitHub permissions and the Claude App
 
@@ -180,19 +157,19 @@ to stop accepting fix requests.
 
 ## Troubleshooting and disabling
 
-Missing configuration: add the named repository Actions variables. Authentication
-failure: check Console authentication history, issuer/audience, claim matches,
-service-account workspace membership, credits, and model access. Do not weaken
-the rule to a broad repository subject prefix to hide a mismatch. An API-key or
-OAuth credential injected elsewhere takes precedence over federation; remove
-that injection rather than storing an empty credential value.
+Authentication failure: check Console authentication history, issuer/audience,
+repository/branch restrictions, service-account workspace membership, credits,
+and model access. An API-key or OAuth credential injected elsewhere takes
+precedence over federation; remove that injection rather than storing an empty
+credential value. If reconfiguring the service account/workspace/rule, update
+the non-secret IDs in both production workflows and the diagnostic workflow.
 `Resource not accessible by integration`: check repository/organization Actions
 policies allow this action and PR review comments. Keep contents read-only.
 Fork/draft/bot PR: skipped by design. Review a same-repository human PR to test.
 
 To stop spending, disable **Claude PR review** from its Actions workflow menu.
 Disable **Claude requested fix** separately to stop accepting fix requests.
-Archiving the two federation rules in Console prevents future token exchanges;
+Archiving the configured federation rule in Console prevents future token exchanges;
 already-issued tokens remain subject to their expiry. Do not delete a shared
 issuer/service account used by another workload.
 
