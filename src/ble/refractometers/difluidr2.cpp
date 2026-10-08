@@ -135,6 +135,7 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         m_transport->enableNotifications(Refractometer::DiFluidR2::SERVICE,
                                          Refractometer::DiFluidR2::CHARACTERISTIC);
         m_connected = true;
+        m_linkReachedReady = true;
         emit connectedChanged();
         R2_INFO("Connected and ready for measurements");
 
@@ -232,6 +233,7 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     R2_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name(), getDeviceIdentifier(device)));
 
+    m_linkReachedReady = false;
     m_transport->connectToDevice(device);
 }
 
@@ -393,17 +395,17 @@ void DiFluidR2::onTransportConnected() {
     R2_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED
            + QStringLiteral(" (instance=%1)")
                  .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
+    m_linkReachedReady = false;
     m_transport->discoverServices();
 }
 
 void DiFluidR2::onTransportDisconnected() {
-    // Says WHICH disconnect this is. The canonical wording alone cannot: a link
-    // that dropped after working and a connect attempt that never got as far as
-    // ready are different diagnoses, and both arrive through this one callback.
-    // (Same distinction DecentScaleWifi draws with its handshake flag.) Read
-    // before the state is cleared below.
+    // Says WHICH disconnect this is: a link that dropped after working and a
+    // connect attempt that never got as far as ready both arrive here. Reads
+    // m_linkReachedReady, not m_connected — a dropped link reports the error first,
+    // and onTransportError has already cleared m_connected by the time this runs.
     R2_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED
-            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_connected));
+            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_linkReachedReady));
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
@@ -416,7 +418,7 @@ void DiFluidR2::onTransportDisconnected() {
 
 void DiFluidR2::onTransportError(const QString& message) {
     R2_WARN(QString("Transport error: %1%2")
-                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_connected)));
+                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_linkReachedReady)));
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;

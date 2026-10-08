@@ -204,6 +204,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
     const bool nameChange = (newName != m_name);
     m_name = newName;
     m_phase = Phase::Disconnected;
+    m_linkReachedReady = false;
     if (nameChange) emit nameChanged();
 
     R1_LOG(QString("Connecting to %1 (%2)")
@@ -263,20 +264,22 @@ void DiFluidR1::onTransportConnected() {
            + QStringLiteral(" (instance=%1)")
                  .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
     m_phase = Phase::ServiceDiscovery;
+    m_linkReachedReady = false;
     m_transport->discoverServices();
 }
 
-// Both read isConnected() BEFORE resetLinkState(), which returns the phase to
-// Disconnected and would make every drop look like a failed connect.
+// Read m_linkReachedReady, not isConnected(): a dropped link reports the error
+// first and the disconnect after it, and the error's resetLinkState() has already
+// cleared the phase by the time the disconnect line is written.
 void DiFluidR1::onTransportDisconnected() {
     R1_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED
-            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(isConnected()));
+            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_linkReachedReady));
     resetLinkState();
 }
 
 void DiFluidR1::onTransportError(const QString& message) {
     R1_WARN(QString("Transport error: %1%2")
-                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(isConnected())));
+                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_linkReachedReady)));
     resetLinkState();
 }
 
@@ -382,6 +385,7 @@ void DiFluidR1::onCharacteristicRead(const QBluetoothUuid& characteristicUuid,
 
     if (m_phase != Phase::Ready) {
         m_phase = Phase::Ready;
+        m_linkReachedReady = true;
         emit connectedChanged();
         R1_INFO("Connected and ready for measurements");
     }

@@ -390,6 +390,26 @@ private slots:
         QCOMPARE(connSpy.count(), 1);
         QCOMPARE(r1.m_phase, DiFluidR1::Phase::Ready);
     }
+
+    // A dropped link reports the transport error first and the disconnect second.
+    // The error clears the phase, so a disconnect line reading it called every drop
+    // a failed connect — on a field log, right after "Connected and ready".
+    void droppedLinkIsNotReportedAsFailedConnect() {
+        DiFluidR1 r1(nullptr);
+        r1.m_phase = DiFluidR1::Phase::CharacteristicsReady;
+        r1.onCharacteristicRead(Refractometer::DiFluidR1::SALT, kSalt);
+        QVERIFY(r1.isConnected());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Transport error: link lost$"));
+        r1.onTransportError("link lost");
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("Transport disconnected$"));
+        r1.onTransportDisconnected();
+
+        DiFluidR1 neverReady(nullptr);
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("Transport disconnected \\(connect attempt never reached ready\\)$"));
+        neverReady.onTransportDisconnected();
+    }
 };
 
 QTEST_MAIN(tst_DiFluidR1)

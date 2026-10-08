@@ -297,11 +297,17 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                         setT.toOffsetFromUtc(setT.offsetFromUtc()).toString(Qt::ISODate);
                 }
                 if (setT.isValid() && appStart.isValid()) {
+                    // A persisted latch predates this run, so the offset is negative.
                     const qint64 s = appStart.secsTo(setT);
-                    sp["elapsedSinceAppStartSec"] = static_cast<double>(s);
-                    sp["elapsedSinceAppStartHuman"] =
-                        QStringLiteral("%1 min %2 s after app start")
-                            .arg(s / 60).arg(s % 60);
+                    if (s >= 0) {
+                        sp["elapsedSinceAppStartSec"] = static_cast<double>(s);
+                        sp["elapsedSinceAppStartHuman"] =
+                            QStringLiteral("%1 min %2 s after app start")
+                                .arg(s / 60).arg(s % 60);
+                    } else {
+                        sp["elapsedSinceAppStartHuman"] =
+                            QStringLiteral("before this app run (restored from an earlier run)");
+                    }
                 }
             }
             // Backoff policy mode (observe-mode change) + recent observe

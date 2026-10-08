@@ -117,6 +117,9 @@ private:
     QByteArray m_serialParts;
     quint8 m_serialPartsSeen = 0;  // bit N set once part N has arrived
     bool m_connected = false;
+    // Whether the current link ever reached ready. Unlike m_connected it is not
+    // cleared by a transport error, so the disconnect that follows is labelled right.
+    bool m_linkReachedReady = false;
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
     double m_tds = 0.0;
