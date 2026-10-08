@@ -192,12 +192,19 @@ const CostLine kCostLines[] = {
     { "claude-sonnet-5-5", "ai.cost.anthropic.sonnet55",
       "About $0.06 per shot — roughly $5.30/month at 3 shots a day. "
       "Follow-up questions within a few minutes cost much less." },
+    // Haiku 5.5: cold, with the cache write and ~1K thinking tokens (2026-10-07).
+    { "claude-haiku-5-5", "ai.cost.anthropic.haiku55",
+      "About $0.003 per shot — roughly $0.30/month at 3 shots a day. "
+      "Follow-up questions within a few minutes cost much less." },
     { "gemini-3.8-flash", "ai.cost.gemini.flash38",
       "About $0.012 per shot — roughly $1.10/month at 3 shots a day." },
     // OpenRouter-only lines, from the cost it reported (2026-10-06). Its other
     // models price as their direct counterpart; Sonnet differs, with no cache write.
     { "anthropic/claude-sonnet-5.5", "ai.cost.openrouter.sonnet55",
       "About $0.05 per shot — roughly $4.50/month at 3 shots a day." },
+    // Haiku 5.5 at reasoning "low", no cache hit (2026-10-07).
+    { "anthropic/claude-haiku-5.5", "ai.cost.openrouter.haiku55",
+      "About $0.003 per shot — roughly $0.29/month at 3 shots a day." },
     { "z-ai/glm-5.3-flash", "ai.cost.openrouter.glm53flash",
       "About $0.001 per shot — roughly $0.10/month at 3 shots a day." },
     { "google/gemma-4-31b-it", "ai.cost.openrouter.gemma4",
@@ -681,6 +688,7 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 
 // Shared with the bulk translator; see src/ai/airequestshape.h.
 using AIRequestShape::disableAnthropicThinking;
+using AIRequestShape::setAnthropicAdvisorThinking;
 
 AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
                                      const QString& apiKey,
@@ -693,16 +701,18 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
 {
-    // No value pick passed; see docs/CLAUDE_MD/AI_ADVISOR.md.
+    // Haiku 5.5 passed only with thinking on (AIRequestShape::setAnthropicAdvisorThinking).
     return {
         { "claude-sonnet-5-5", "Sonnet 5.5" },
+        { "claude-haiku-5-5", "Haiku 5.5" },
     };
 }
 
 QString AnthropicProvider::modelHint() const
 {
     return QStringLiteral(
-               "Sonnet 5.5: the most thorough dial-in reasoning, with the longest replies.");
+               "Sonnet 5.5 is recommended: the most thorough dial-in reasoning, with the longest "
+               "replies. Haiku 5.5 costs about a twentieth as much, with shorter replies.");
 }
 
 void AnthropicProvider::sendRequest(const QJsonObject& requestBody, const QByteArray& betaFeature)
@@ -747,7 +757,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody, m_model);
+    setAnthropicAdvisorThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -853,7 +863,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    disableAnthropicThinking(requestBody, m_model);
+    setAnthropicAdvisorThinking(requestBody, m_model);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
@@ -1533,6 +1543,7 @@ QList<AIProvider::ModelOption> OpenRouterProvider::availableModels() const
         { AIRequestShape::kOpenRouterDefaultModel, "GPT-6 Luna" },
         { "openai/gpt-6.1-sol", "GPT-6.1 Sol" },
         { "anthropic/claude-sonnet-5.5", "Sonnet 5.5" },
+        { "anthropic/claude-haiku-5.5", "Haiku 5.5" },
         { "google/gemini-3.8-flash", "Gemini 3.8 Flash" },
         { "z-ai/glm-5.3-flash", "GLM-5.3 Flash" },
         { AIRequestShape::kOpenRouterGemmaModel, "Gemma 4 31B" },
@@ -1542,8 +1553,8 @@ QList<AIProvider::ModelOption> OpenRouterProvider::availableModels() const
 QString OpenRouterProvider::modelHint() const
 {
     return QStringLiteral(
-               "GPT-6 Luna is the best value of any model tested. GPT-6.1 Sol, Sonnet 5.5 and "
-               "Gemini 3.8 Flash are the same models the direct providers offer, at the same "
+               "GPT-6 Luna is the best value of any model tested. GPT-6.1 Sol, Sonnet 5.5, Haiku 5.5 "
+               "and Gemini 3.8 Flash are the same models the direct providers offer, at the same "
                "per-token price. GLM-5.3 Flash and Gemma 4 31B cost about what Luna does, with less "
                "testing behind them. OpenRouter adds a 5.5% fee when you buy credits.");
 }

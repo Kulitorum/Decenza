@@ -61,10 +61,10 @@ still works, exactly as before.
 
 | Provider | Models (first = default) | Thinking setting | Caching | Cost |
 |----------|-------------------------|--------------|---------|------|
-| Anthropic | Sonnet 5.5 | `thinking: between_tools` | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
+| Anthropic | Sonnet 5.5, Haiku 5.5 | `thinking: between_tools` (Sonnet); Haiku: `adaptive` at `effort: low` on analysis requests, `disabled` elsewhere | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
 | OpenAI | GPT-6.1 Sol, GPT-6 Luna | `reasoning_effort`: `low` (Sol), `none` (Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
 | Google Gemini | 3.8 Flash | `thinkingLevel`: `low` | Implicit, automatic (system prompt first); it did not hit on 3.8 Flash in testing | Cloud |
-| OpenRouter | GPT-6 Luna, GPT-6.1 Sol, Sonnet 5.5, Gemini 3.8 Flash, GLM-5.3 Flash, Gemma 4 31B | `reasoning`: `effort: none` (Luna), `enabled: true` (Gemma), `effort: low` (the rest, where reasoning is mandatory and `none` is a 400) | Passes through | Cloud |
+| OpenRouter | GPT-6 Luna, GPT-6.1 Sol, Sonnet 5.5, Haiku 5.5, Gemini 3.8 Flash, GLM-5.3 Flash, Gemma 4 31B | `reasoning`: `effort: none` (Luna), `enabled: true` (Gemma), `effort: low` (the rest, where reasoning is mandatory and `none` is a 400) | Passes through | Cloud |
 | Ollama | User-selected | none sent | N/A | Local/free |
 
 The thinking settings live in one header, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` holds the live-verified table and fails for a catalogued model that is not in it (`tools/ai_model_eval/probe_request_shape.py` checks a candidate). A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`), and an empty one means the default.
@@ -74,9 +74,9 @@ The thinking settings live in one header, `src/ai/airequestshape.h`, shared by t
 One **balanced** and one **value** pick per provider, each the newest of its tier unless an older model is much cheaper. Flagship tiers (Opus 5.5 at $4/$20 with thinking that cannot be turned off, GPT-6 Astra, Gemini Pro) cost two or more times the balanced pick for no gain on this task.
 
 - **OpenAI**: `gpt-6.1-sol` ($2/$10) and `gpt-6-luna` ($0.10/$0.50) replace Terra, Luna 5.6, 5.4 and 5.4 mini — the same or lower price, a generation newer. Luna is the only value-tier model with no bad advice on the final prompt, which makes it the best value overall. Sol rejects `reasoning_effort: "none"` (lowest is `"low"`) and, at that effort, any `temperature` but the default; the translator omits temperature for it (`setOpenAITemperature`).
-- **Anthropic**: `claude-sonnet-5-5` only. Haiku 4.5 ($1/$5), the only cheaper tier, reversed the grind direction on two of three tasted scenarios (6.0 called "coarser" from 6.5; 11 on a sour shot, anchored on a different bean). Haiku 5.5 is announced for "the coming weeks"; probe and replay it as the value pick when it ships. Sonnet 5.5 rejects `thinking: disabled` and asks for `between_tools`.
+- **Anthropic**: `claude-sonnet-5-5` and `claude-haiku-5-5` ($0.10/$0.50 for prompts up to 100K tokens), the value pick. With thinking off, Haiku 5.5 gave bad advice on 4 of 12 replayed shots, the same direction reversals Haiku 4.5 made. With adaptive thinking at `effort: low` it gave bad advice on none of 12, for about $0.0005 more per shot, so `AIRequestShape::setAnthropicAdvisorThinking` turns thinking on for the advisor's analysis requests only. Test Connection's 10-token request cannot hold thinking (#1691). Sonnet 5.5 rejects `thinking: disabled` and asks for `between_tools`.
 - **OpenRouter**: the direct providers' models at their per-token price (plus a 5.5% fee on card credit purchases), Luna first as the default, and two cheap extras on the maintainer's call: GLM-5.3 Flash and Gemma 4 31B. Both gave right grind advice on the two scenarios tried but stated a guessed taste, which the prompt forbids, so they are the exception to the no-bad-advice rule below and carry less evidence than Luna. Six other cheap models failed; per-model results in the README findings log, 2026-10-06.
-- **Gemini**: `gemini-3.8-flash` ($0.75/$3.75, half of 3.5 Flash) only. A value pick must not give bad advice: on the final prompt 3.5 Flash-Lite reversed a grind direction and advised on an untasted blowout, 3.1 Flash-Lite jumped three steps on a prep failure, and 2.5 Flash went finer on a bitter shot. 3.8 Flash rejects `thinkingLevel: "minimal"`; `"low"` reported no thinking tokens. Google's page flags a price change for 3.8 Flash on January 1, 2027.
+- **Gemini**: `gemini-3.8-flash` ($0.75/$3.75, half of 3.5 Flash) only. A value pick must not give bad advice: on the final prompt 3.5 Flash-Lite reversed a grind direction and advised on an untasted blowout, 3.1 Flash-Lite jumped three steps on a prep failure, and 2.5 Flash went finer on a bitter shot. 3.8 Flash rejects `thinkingLevel: "minimal"`; `"low"` reported no thinking tokens. Google's page flags a price change for 3.8 Flash on January 1, 2027. With thinking on, 3.5 and 3.1 Flash-Lite would cost about $0.008 and $0.006 a shot against 3.8 Flash's $0.012, too small a saving to fill the value slot (maintainer, 2026-10-07).
 
 Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings log, 2026-10-05). On the trimmed prompt every catalog model emitted a usable block on every tasted scenario: `bitter-over`'s prose stop-weight change became a `targetWeightG`, and Sol's prose `grinderSetting` went away.
 
@@ -105,6 +105,7 @@ Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
 |---|---|---|---|---|---|
 | `claude-sonnet-5-5` | Right grind direction on every scenario; usable block every time | 2.00 / 10.00 | 20.9K / 0.95K | $0.059 (incl. 5m cache write) | $5.30 |
 | `gpt-6.1-sol` | Usable block every time on the trimmed prompt; never skipped the taste gate | 2.00 / 10.00 | 13.1K / 0.41K | $0.030 | $2.75 |
+| `claude-haiku-5-5` | With low-effort thinking: right direction on all 12 replayed shots, usable block on 8 of 8 tasted (2026-10-07) | 0.10 / 0.50 | 21K / ~2K incl. thinking | $0.0034 (incl. 5m cache write) | $0.31 |
 | `gemini-3.8-flash` | Usable block every time; on the old prompt moved the grind on an untasted blowout | 0.75 / 3.75 | 13.8K / 0.49K | $0.012 | $1.10 |
 | `gpt-6-luna` | Usable block on 7 of 8 tasted shots, right direction every time, asked before advising on untasted shots | 0.10 / 0.50 | 12.9K / 0.32K | $0.0015 | $0.13 |
 
@@ -113,6 +114,7 @@ OpenRouter-only lines, from the cost OpenRouter reported on the 2026-10-06 probe
 | Model | $/1M in / out | Per shot | Per month |
 |---|---|---|---|
 | `anthropic/claude-sonnet-5.5` | 2.00 / 10.00 | $0.05 (no cache write) | $4.50 |
+| `anthropic/claude-haiku-5.5` | 0.10 / 0.50 | $0.0032 (reasoning `low`, no cache hit; unset, it ran to the 4,096 cap once) | $0.29 |
 | `z-ai/glm-5.3-flash` | 0.15 / 0.50 | $0.0007–0.0014 | $0.10 |
 | `google/gemma-4-31b-it` | 0.09 / 0.34 | $0.0018–0.0019 | $0.17 |
 

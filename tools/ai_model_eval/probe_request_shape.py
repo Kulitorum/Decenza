@@ -17,16 +17,24 @@ import urllib.request
 
 # The aiprovider.cpp catalogs. Override with --anthropic / --gemini / --openai /
 # --openrouter (comma-separated) to probe candidates.
-ANTHROPIC_MODELS = ["claude-sonnet-5-5"]
+ANTHROPIC_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
 GEMINI_MODELS = ["gemini-3.8-flash"]
 OPENAI_MODELS = ["gpt-6.1-sol", "gpt-6-luna"]
 OPENROUTER_MODELS = ["openai/gpt-6-luna", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
+                     "anthropic/claude-haiku-5.5",
                      "google/gemini-3.8-flash", "z-ai/glm-5.3-flash", "google/gemma-4-31b-it"]
 
 
 # Mirrors of src/ai/airequestshape.h.
 def anthropic_thinking(model: str) -> dict:
     return {"type": "between_tools" if model == "claude-sonnet-5-5" else "disabled"}
+
+
+def anthropic_advisor_thinking(model: str) -> dict:
+    """setAnthropicAdvisorThinking: analyze()/analyzeConversation() only."""
+    if model == "claude-haiku-5-5":
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
+    return {"thinking": anthropic_thinking(model)}
 
 
 def gemini_thinking(model: str) -> dict:
@@ -102,7 +110,17 @@ def check_anthropic() -> None:
                   f"{'' if has_text else '  <-- no text block (the #1691 symptom)'}")
         else:
             print(f"  FAIL  {model} ({status}): {msg(payload)}")
-        # AnthropicProvider::analyzeUrl()/searchWeb(): server tools with the same setting.
+        # analyze()/analyzeConversation(): the advisor's setting at its 4,096 cap.
+        status, payload = post(
+            "https://api.anthropic.com/v1/messages",
+            {"x-api-key": key, "anthropic-version": "2023-06-01",
+             "Content-Type": "application/json"},
+            {"model": model, "max_tokens": 4096, **anthropic_advisor_thinking(model),
+             "messages": [{"role": "user", "content": "Reply with the single word: ok"}]})
+        blocks = [b.get("type") for b in payload.get("content", [])] if status == 200 else []
+        print(f"  {'PASS' if 'text' in blocks else 'FAIL'}  {model} advisor: "
+              f"{status} blocks={blocks}{'' if status == 200 else ' ' + msg(payload)}")
+        # AnthropicProvider::analyzeUrl()/searchWeb(): server tools, thinking off.
         for tool, beta in (({"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 2,
                              "max_content_tokens": 20000}, "web-fetch-2025-09-10"),
                            ({"type": "web_search_20250305", "name": "web_search", "max_uses": 3}, None)):

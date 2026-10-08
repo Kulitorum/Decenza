@@ -30,13 +30,28 @@ constexpr int kMaxOutputTokens = 4096;
 // and added here and to tst_aiproviders' verified table.
 
 // claude-sonnet-5-5 rejects {"type":"disabled"} and asks for "between_tools"
-// (no thinking before the reply); older models take "disabled".
+// (no thinking before the reply); every other model, Haiku 5.5 included, takes "disabled".
 inline void disableAnthropicThinking(QJsonObject& requestBody, const QString& model)
 {
     QJsonObject thinking;
     thinking["type"] = model == QLatin1String("claude-sonnet-5-5") ? QStringLiteral("between_tools")
                                                                      : QStringLiteral("disabled");
     requestBody["thinking"] = thinking;
+}
+
+// The advisor's analysis requests only. With thinking off, claude-haiku-5-5 gave
+// bad grind advice on 4 of 12 replayed shots; with adaptive thinking at low effort,
+// on none of 12, using 1-2.6K of the 4,096 cap (tools/ai_model_eval, 2026-10-07).
+// Test Connection's 10-token budget cannot hold thinking (#1691), so every other
+// caller keeps disableAnthropicThinking.
+inline void setAnthropicAdvisorThinking(QJsonObject& requestBody, const QString& model)
+{
+    if (model != QLatin1String("claude-haiku-5-5")) {
+        disableAnthropicThinking(requestBody, model);
+        return;
+    }
+    requestBody["thinking"] = QJsonObject{{QStringLiteral("type"), QStringLiteral("adaptive")}};
+    requestBody["output_config"] = QJsonObject{{QStringLiteral("effort"), QStringLiteral("low")}};
 }
 
 // gpt-6.1-sol accepts low/medium/high/xhigh only; the rest take "none".
@@ -77,8 +92,8 @@ inline QJsonObject geminiGenerationConfig(const QString& model)
 // OpenRouter: openai/gpt-6-luna takes "none" (1.1-1.4K reasoning tokens per
 // reply without it). Sol, Sonnet 5.5, 3.8 Flash and GLM-5.3 Flash make
 // reasoning mandatory and 400 on "none"; the first three reasoned 0-62 tokens
-// at "low". GLM and Gemma 4 were judged at these settings. Only catalog models
-// reach here.
+// at "low". GLM, Gemma 4 and Haiku 5.5 were judged at these settings. Only
+// catalog models reach here.
 inline const QString kOpenRouterDefaultModel = QStringLiteral("openai/gpt-6-luna");
 inline const QString kOpenRouterGemmaModel = QStringLiteral("google/gemma-4-31b-it");
 inline void setOpenRouterReasoning(QJsonObject& requestBody, const QString& model)
