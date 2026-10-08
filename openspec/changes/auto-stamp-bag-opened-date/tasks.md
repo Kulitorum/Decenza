@@ -11,6 +11,7 @@
 - [x] 1.9 Centralize the app/web bag rules in C++ (storage options, lifecycle line, card actions, restock, coffee-only fields, detail merge, edit diff)
 - [x] 1.10 Bean workflow review: opened date alone no longer marks storage known; restAgeDays when known; roastDate in history and the anchor (with sameBagAsCurrent); current_context built by the shared bean block; Freeze card action; Restock carries freeze and storage; dates must be in order; post-shot summary shows storage dates; finishing the active bag moves to its successor; a new frozen bag doesn't take over; "Thawed"/"Stored frozen"/"Storage" wording
 - [x] 1.11 StyledComboBox applies picks through the C++ setter (ComboBoxSelection) so caller bindings survive; removed the bag editor's local re-binds
+- [x] 1.12 Refuse roast level, grinder setting and rpm on tea bags in storage (`CoffeeBag::writeError`), so the app, web API and MCP give the same refusal
 
 ## 2. Verification
 
@@ -21,7 +22,7 @@
 - [x] 2.6 App Beans page: lifecycle line and buttons from the shared rules; Thaw picker blocks future days; typed future date reverts; a storage edit writes only storageHint
 - [x] 2.7 App, after a restart: pick a storage type in Edit, then open Restock — the combo shows "Not specified"
 - [x] 2.8 App: Freeze on an unfrozen bag opens a headed picker that stops at the roast month; Restock of a frozen vacuum-sealed bag opens frozen today and vacuum-sealed; the post-shot review shows the bean's dates
-- [ ] 2.5 Fix the shot snapshots from Hometown portion 1 (frozen 2026-09-03, thawed 2026-09-09, opened 2026-09-10) once shots can be corrected
+- [ ] 2.5 DEFERRED to a follow-up (MCP `shots_update` cannot edit storage dates yet): fix the shot snapshots from Hometown portion 1 (frozen 2026-09-03, thawed 2026-09-09, opened 2026-09-10)
 
 ## 3. Docs
 
