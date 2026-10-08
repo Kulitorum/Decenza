@@ -119,8 +119,8 @@ void ShotHistoryStorage::runDetachedDbThread(std::function<void()> body)
     };
 
     QThread* thread = QThread::create(
-        [body = std::move(body), guard = InFlightGuard(m_detachedDbThreads)]() mutable {
-            body();
+        [ownedBody = std::move(body), guard = InFlightGuard(m_detachedDbThreads)]() mutable {
+            ownedBody();
         });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
@@ -2717,14 +2717,14 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     // Run DB work on background thread
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, data = std::move(data), destroyed]() {
-        qint64 shotId = saveShotStatic(dbPath, data);
+    runOnDbThread([this, dbPath, ownedData = std::move(data), destroyed]() {
+        qint64 shotId = saveShotStatic(dbPath, ownedData);
 
         // Capture only the fields needed for logging (avoid copying the large compressedSamples blob)
-        QString profileName = data.profileName;
-        double shotDuration = data.duration;
-        int sampleCount = data.sampleCount;
-        qsizetype compressedSize = data.compressedSamples.size();
+        QString profileName = ownedData.profileName;
+        double shotDuration = ownedData.duration;
+        int sampleCount = ownedData.sampleCount;
+        qsizetype compressedSize = ownedData.compressedSamples.size();
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
@@ -3689,18 +3689,18 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         // (e.g., a future history-list filter that wants to refresh) get a
         // signal without having to re-query.
         if (*destroyed || !opened) return;
-        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), badgesPersisted, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotId, ownedRecord = std::move(record), badgesPersisted, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "requestShot callback dropped (object destroyed)";
                 return;
             }
-            emit shotReady(shotId, convertShotRecord(record));
+            emit shotReady(shotId, convertShotRecord(ownedRecord));
             if (badgesPersisted) {
                 emit shotBadgesUpdated(shotId,
-                    record.channelingDetected,
-                    record.grindIssueDetected,
-                    record.skipFirstFrameDetected,
-                    record.pourTruncatedDetected);
+                    ownedRecord.channelingDetected,
+                    ownedRecord.grindIssueDetected,
+                    ownedRecord.skipFirstFrameDetected,
+                    ownedRecord.pourTruncatedDetected);
             }
         }, Qt::QueuedConnection);
     });
@@ -4577,7 +4577,7 @@ void ShotHistoryStorage::requestApplyVisualizerPull(qint64 shotId, const QVarian
 {
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, shotId, remote, destroyed, done = std::move(done)]() {
+    runOnDbThread([this, dbPath, shotId, remote, destroyed, ownedDone = std::move(done)]() {
         bool ok = false;
         QVariantMap written;
         QVariantMap previous;
@@ -4585,7 +4585,7 @@ void ShotHistoryStorage::requestApplyVisualizerPull(qint64 shotId, const QVarian
             ok = applyVisualizerPullStatic(db, shotId, remote, &written, &previous);
         });
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, ok, written, previous, destroyed, done]() {
+        QMetaObject::invokeMethod(this, [this, shotId, ok, written, previous, destroyed, ownedDone]() {
             if (*destroyed) return;
             if (ok && !written.isEmpty()) {
                 DIAG_INFO(VISUALIZER, "ShotHistoryStorage") << "shot" << shotId << "updated from Visualizer:"
@@ -4593,8 +4593,8 @@ void ShotHistoryStorage::requestApplyVisualizerPull(qint64 shotId, const QVarian
                 emit historyDataChanged();
                 emit shotPulledFromVisualizer(shotId, previous, written);
             }
-            if (done)
-                done(ok);
+            if (ownedDone)
+                ownedDone(ok);
         }, Qt::QueuedConnection);
     });
 }
@@ -5771,15 +5771,15 @@ void ShotHistoryStorage::importShotRecordAsync(const ShotRecord& record, bool ov
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
     runOnDbThread([this, dbPath, record, overwriteExisting,
-                   onDone = std::move(onDone), destroyed]() {
+                   ownedOnDone = std::move(onDone), destroyed]() {
         qint64 result = -1;
         withTempDb(dbPath, "shs_import", [&](QSqlDatabase& db) {
             result = importShotRecordStatic(db, record, overwriteExisting);
         });
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [onDone = std::move(onDone), result, destroyed]() {
+        QMetaObject::invokeMethod(this, [finish = std::move(ownedOnDone), result, destroyed]() {
             if (*destroyed) return;
-            if (onDone) onDone(result);
+            if (finish) finish(result);
         }, Qt::QueuedConnection);
     });
 }

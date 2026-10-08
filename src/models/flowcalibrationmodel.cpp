@@ -82,14 +82,14 @@ void FlowCalibrationModel::loadRecentShots() {
             }
         });
 
-        QMetaObject::invokeMethod(this, [this, shotIds = std::move(shotIds),
-                                         firstRecord = std::move(firstRecord), dbFailed, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedShotIds = std::move(shotIds),
+                                         ownedFirstRecord = std::move(firstRecord), dbFailed, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(CALIBRATION, "FlowCalibrationModel") << "loadRecentShots callback dropped (object destroyed)";
                 return;
             }
 
-            m_shotIds = shotIds;
+            m_shotIds = ownedShotIds;
 
             if (m_shotIds.isEmpty()) {
                 m_errorMessage = dbFailed
@@ -110,7 +110,7 @@ void FlowCalibrationModel::loadRecentShots() {
                 emit multiplierChanged();
                 emit errorChanged();
 
-                applyShotRecord(firstRecord);
+                applyShotRecord(ownedFirstRecord);
             }
 
             emit navigationChanged();
@@ -166,20 +166,20 @@ void FlowCalibrationModel::loadCurrentShot() {
             record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
         });
 
-        QMetaObject::invokeMethod(this, [this, record = std::move(record), dbFailed, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedRecord = std::move(record), dbFailed, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(CALIBRATION, "FlowCalibrationModel") << "loadCurrentShot callback dropped (object destroyed)";
                 return;
             }
 
-            if (dbFailed || record.summary.id == 0) {
+            if (dbFailed || ownedRecord.summary.id == 0) {
                 m_errorMessage = tr("Failed to load shot data. The database may be unavailable.");
                 emit errorChanged();
                 setLoading(false);
                 return;
             }
 
-            applyShotRecord(record);
+            applyShotRecord(ownedRecord);
             setLoading(false);
         }, Qt::QueuedConnection);
     });

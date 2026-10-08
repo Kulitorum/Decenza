@@ -483,10 +483,10 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
     QPointer<QTcpSocket> socketGuard(socket);
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, mainThreadEntries = std::move(mainThreadEntries),
+    QThread* thread = QThread::create([this, ownedMainThreadEntries = std::move(mainThreadEntries),
                                        dbPath, profileDirs, mediaDir, backupDate,
                                        socketGuard, destroyed]() {
-        QList<Entry> entries = mainThreadEntries;
+        QList<Entry> entries = ownedMainThreadEntries;
 
         // 2. Shots database (checkpoint via temporary connection, then read file)
         if (!dbPath.isEmpty()) {
@@ -569,7 +569,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
 
         // Send response on main thread
         QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
-                                         archiveData = std::move(archiveData), backupDate]() {
+                                         ownedArchiveData = std::move(archiveData), backupDate]() {
             m_backupFullInProgress = false;  // Always reset before destroyed check
             if (*destroyed) {
                 DIAG_DEBUG(NETWORK, "ShotServer") << "Backup response dropped (server destroyed)";
@@ -582,7 +582,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
 
             QString filename = QString("decenza_backup_%1.dcbackup").arg(backupDate);
             QByteArray extraHeaders = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
-            sendResponse(socketGuard, 200, "application/octet-stream", archiveData, extraHeaders);
+            sendResponse(socketGuard, 200, "application/octet-stream", ownedArchiveData, extraHeaders);
         }, Qt::QueuedConnection);
     });
 

@@ -1576,7 +1576,7 @@ private slots:
 
         // The 100ms notification-enable timer armed by characteristic discovery is
         // still pending. It must not enable notifications on a dropped link — and it
-        // returns on the characteristicsReady check before reaching the m_service
+        // returns on the characteristicsReady check before reaching the m_serviceUuid
         // guard, so it does so silently. Let it fire to prove it stays quiet.
         QTest::qWait(200);
         QVERIFY2(transport->m_notifyEnableCount == 0,

@@ -48,9 +48,9 @@ void ScaleBleTransport::submitGattOperation(const QBluetoothUuid& key,
     op.key = key;
     op.label = label;
     // Policy left at its default: no retries. See the header.
-    op.issue = [this, timeoutMs, issue = std::move(issue)]() {
+    op.issue = [this, timeoutMs, ownedIssue = std::move(issue)]() {
         m_operationTimeoutTimer.start(timeoutMs);
-        issue();
+        ownedIssue();
     };
     op.onAbandoned = [this, key, label]() {
         m_operationTimeoutTimer.stop();

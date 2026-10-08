@@ -1749,12 +1749,12 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
-                                             shots = std::move(shots)]() {
+                                             ownedShots = std::move(shots)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!success) {
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                 } else {
-                    sendHtml(socketGuard, generateShotListPage(shots));
+                    sendHtml(socketGuard, generateShotListPage(ownedShots));
                 }
             }, Qt::QueuedConnection);
         });
@@ -1874,7 +1874,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, found,
-                                             payload = std::move(payload), shotId]() {
+                                             ownedPayload = std::move(payload), shotId]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
@@ -1883,7 +1883,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 } else {
                     QString filename = QString("shot%1.json").arg(shotId);
                     QByteArray headers = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
-                    sendResponse(socketGuard, 200, "application/json", payload, headers);
+                    sendResponse(socketGuard, 200, "application/json", ownedPayload, headers);
                 }
             }, Qt::QueuedConnection);
         });
@@ -1945,16 +1945,16 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
-                                             shot = std::move(shot), pageData = std::move(pageData)]() {
+                                             ownedShot = std::move(shot), ownedPageData = std::move(pageData)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                     return;
                 }
-                if (!shot.isValid())
-                    sendResponse(socketGuard, 404, "text/html; charset=utf-8", generateShotDetailPage(shot, pageData).toUtf8());
+                if (!ownedShot.isValid())
+                    sendResponse(socketGuard, 404, "text/html; charset=utf-8", generateShotDetailPage(ownedShot, ownedPageData).toUtf8());
                 else
-                    sendHtml(socketGuard, generateShotDetailPage(shot, pageData));
+                    sendHtml(socketGuard, generateShotDetailPage(ownedShot, ownedPageData));
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -1973,13 +1973,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
-                                             shots = std::move(shots)]() {
+                                             ownedShots = std::move(shots)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!success) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
                 } else {
                     QJsonArray arr;
-                    for (const QVariant& v : shots)
+                    for (const QVariant& v : ownedShots)
                         arr.append(QJsonObject::fromVariantMap(v.toMap()));
                     sendJson(socketGuard, QJsonDocument(arr).toJson(QJsonDocument::Compact));
                 }
@@ -2104,14 +2104,14 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
-                                             shot = std::move(shot)]() {
+                                             ownedShot = std::move(shot)]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else if (shot.id == 0) {
+                } else if (ownedShot.id == 0) {
                     sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
                 } else {
-                    sendJson(socketGuard, QJsonDocument(shot.toJsonObject()).toJson());
+                    sendJson(socketGuard, QJsonDocument(ownedShot.toJsonObject()).toJson());
                 }
             }, Qt::QueuedConnection);
         });
@@ -2208,10 +2208,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
-                                             fileData = std::move(fileData)]() {
+                                             ownedFileData = std::move(fileData)]() {
                 if (*destroyed || !socketGuard) return;
-                if (!fileData.isEmpty()) {
-                    sendResponse(socketGuard, 200, "application/x-sqlite3", fileData);
+                if (!ownedFileData.isEmpty()) {
+                    sendResponse(socketGuard, 200, "application/x-sqlite3", ownedFileData);
                 } else {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database checkpoint failed - download may be incomplete"})");
                 }
@@ -2718,10 +2718,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
-                                             fileData = std::move(fileData)]() {
+                                             ownedFileData = std::move(fileData)]() {
                 if (*destroyed || !socketGuard) return;
-                if (!fileData.isEmpty()) {
-                    sendResponse(socketGuard, 200, "application/x-sqlite3", fileData);
+                if (!ownedFileData.isEmpty()) {
+                    sendResponse(socketGuard, 200, "application/x-sqlite3", ownedFileData);
                 } else {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Failed to create backup"})");
                 }

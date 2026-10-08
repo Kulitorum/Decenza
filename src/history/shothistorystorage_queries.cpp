@@ -659,7 +659,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             if (*destroyed) return;
             QMetaObject::invokeMethod(
                 this,
-                [this, results = std::move(results), serial, isAppend, totalCount, destroyed,
+                [this, ownedResults = std::move(results), serial, isAppend, totalCount, destroyed,
                  queryError]() mutable {
                     if (*destroyed) {
                         DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shotsFiltered callback dropped (object destroyed)";
@@ -675,7 +675,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                     // user-visible toast in main.qml.
                     if (!queryError.isEmpty())
                         emit errorOccurred(tr("Could not load shot history: %1").arg(queryError));
-                    emit shotsFilteredReady(results, isAppend, totalCount);
+                    emit shotsFilteredReady(ownedResults, isAppend, totalCount);
                 },
                 Qt::QueuedConnection);
         });
@@ -813,9 +813,9 @@ void ShotHistoryStorage::requestRankedProfilesForBean(const QString& beanBrand,
         result.insert(QStringLiteral("queryType"), beanType);
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, result = std::move(result), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedResult = std::move(result), destroyed]() {
             if (*destroyed) return;
-            emit rankedProfilesForBeanReady(result);
+            emit rankedProfilesForBeanReady(ownedResult);
         }, Qt::QueuedConnection);
     });
 
@@ -921,9 +921,9 @@ void ShotHistoryStorage::requestProfileUsage()
         });
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, result = std::move(result), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedResult = std::move(result), destroyed]() {
             if (*destroyed) return;
-            emit profileUsageReady(result);
+            emit profileUsageReady(ownedResult);
         }, Qt::QueuedConnection);
     });
 }
@@ -974,9 +974,9 @@ void ShotHistoryStorage::requestLatestShotForBeanProfile(const QString& beanBran
         });
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shot = std::move(shot), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedShot = std::move(shot), destroyed]() {
             if (*destroyed) return;
-            emit latestShotForBeanProfileReady(shot);
+            emit latestShotForBeanProfileReady(ownedShot);
         }, Qt::QueuedConnection);
     });
 
@@ -1062,9 +1062,9 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
         grind.insert(QStringLiteral("queryRoast"), roastLevel);
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, grind = std::move(grind), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ownedGrind = std::move(grind), destroyed]() {
             if (*destroyed) return;
-            emit latestGrindForBeanReady(grind);
+            emit latestGrindForBeanReady(ownedGrind);
         }, Qt::QueuedConnection);
     });
 

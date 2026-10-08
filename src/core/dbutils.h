@@ -298,8 +298,8 @@ public:
         // worker — see m_outstanding's declaration for the use-after-free that
         // capturing `this` here caused.
         QMetaObject::invokeMethod(m_context,
-            [counter = m_outstanding, task = std::move(task)]() mutable {
-                task();
+            [counter = m_outstanding, ownedTask = std::move(task)]() mutable {
+                ownedTask();
                 counter->fetch_sub(1, std::memory_order_release);
             }, Qt::QueuedConnection);
     }
@@ -354,18 +354,18 @@ public:
         // forgot, and a leaked count makes isIdle() never true, i.e. a waiter
         // hangs until its timeout.
         auto ticket = roundTripTicket();
-        post([dbPath, connPrefix, work = std::move(work), done = std::move(done),
+        post([dbPath, connPrefix, ownedWork = std::move(work), ownedDone = std::move(done),
               receiver, destroyed, ticket]() mutable {
-            const bool dbOpened = withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); });
+            const bool dbOpened = withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { ownedWork(db); });
             if (!dbOpened)
                 DIAG_WARN(STORAGE, "SerialDbWorker") << "failed to open DB for" << connPrefix;
             if (destroyed->load())
                 return;
             QMetaObject::invokeMethod(receiver,
-                [done = std::move(done), dbOpened, destroyed, ticket]() {
+                [finish = std::move(ownedDone), dbOpened, destroyed, ticket]() {
                     if (destroyed->load())
                         return;
-                    done(dbOpened);
+                    finish(dbOpened);
                 }, Qt::QueuedConnection);
         });
     }

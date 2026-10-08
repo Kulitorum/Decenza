@@ -44,11 +44,11 @@ void enqueue(std::function<void()> start)
 void PermissionRequests::request(const QPermission& permission, QObject* context,
                                  std::function<void(const QPermission&)> callback)
 {
-    enqueue([permission, guard = QPointer<QObject>(context), callback = std::move(callback)] {
+    enqueue([permission, guard = QPointer<QObject>(context), ownedCallback = std::move(callback)] {
         // qApp, not `context`, as the receiver: the queue must advance even if `context` is gone.
-        qApp->requestPermission(permission, qApp, [guard, callback](const QPermission& answered) {
+        qApp->requestPermission(permission, qApp, [guard, ownedCallback](const QPermission& answered) {
             if (guard)
-                callback(answered);
+                ownedCallback(answered);
             finishCurrent();
         });
     });
@@ -58,14 +58,14 @@ void PermissionRequests::request(const QPermission& permission, QObject* context
 void PermissionRequests::requestAndroid(const QString& permission, QObject* context,
                                         std::function<void(std::optional<bool>)> callback)
 {
-    enqueue([permission, guard = QPointer<QObject>(context), callback = std::move(callback)] {
+    enqueue([permission, guard = QPointer<QObject>(context), ownedCallback = std::move(callback)] {
         // The continuation takes the future, not the value: a cancelled request finishes with no
         // result, and a value-taking continuation reads result 0 regardless (qfuture_impl.h:626-633).
         QtAndroidPrivate::requestPermission(permission).then(qApp,
-            [guard, callback](QFuture<QtAndroidPrivate::PermissionResult> future) {
+            [guard, ownedCallback](QFuture<QtAndroidPrivate::PermissionResult> future) {
                 const QList<QtAndroidPrivate::PermissionResult> results = future.results();
                 if (guard) {
-                    callback(results.isEmpty()
+                    ownedCallback(results.isEmpty()
                                  ? std::nullopt
                                  : std::optional<bool>(results.first() == QtAndroidPrivate::Authorized));
                 }
