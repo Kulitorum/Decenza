@@ -125,8 +125,8 @@ away is changing what the algorithm solves for, not how fast it gets there.
 
 The v6 expression is invariant under `C` on a **pressure** profile, so there the same EMA settles
 on `e` itself, halving the gap each batch — inside the 3% deadband within two or three batches from
-a 20% error. On a **flow** profile it is only *largely* invariant, and the loop is slower and lands
-somewhere a single batch cannot read off. See "Convergence on flow profiles" below.
+a 20% error. On a **flow** profile the reading also moves with window placement, pour pressure and
+the coffee, so there is no single value to land on. See "Convergence on flow profiles" below.
 
 Measured across four machines, each landing on what its branch's formula solves for:
 
@@ -142,41 +142,40 @@ populations differing, not a disagreement.
 | cablecj74 | pressure | **1.369** | 1.170 | 1.3555 |
 | mcastaldelli | pressure | **1.303** | 1.141 | 1.30 |
 
-The flow-row `e` values were measured at that machine's multiplier of the day, and on a flow profile
-`e` moves with `C` (next section). This repo's 0.737 was read at C = 0.8795; its fixed point is lower.
+The flow-row `e` values are one period's conditions on that machine: on a flow profile `e` moves with
+window placement, pressure and the coffee (next section).
 
 ### Convergence on flow profiles
 
 On a flow profile the DE1 pins *reported* flow to the frame target, so the v6 expression reduces to
-`C · weight_flow / (target · 0.963)`. Invariance would need delivered water to scale as `1/C`. It
-does not: pumping harder raises pressure through the puck, and the pump delivers less per stroke at
-that pressure. The puck-sim run above (48% on C, 22% on water) puts the elasticity near 0.6, and
-field batches on this repo's DE1 agree:
+`C · weight_flow / (target · 0.963)`; it is independent of `C` only if delivered water scales as
+`1/C`. Tested on this repo's DE1 in [#1884](https://github.com/Kulitorum/Decenza/issues/1884): 71
+D-Flow / Q shots from the tablet's own database, 46 on-target windows, replayed with the archived
+harness (it reproduces the device log's ideals exactly).
 
-| C in effect | batch median ideal | Δln ideal / Δln C |
+| term | R² alone | effect on the reading |
 |---|---|---|
-| 0.8795 | 0.762 | — |
-| 0.7912 | 0.715 | 0.60 |
-| 0.7533 | ~0.70 | 0.43 |
+| window start time | 0.35 | +1.6% per second later |
+| pour pressure | 0.11 | +1.5% per bar |
+| `ln C` | 0.01 | not measurable: exponent 0.13, 95% CI −0.28 to 0.54 |
 
-So a batch measures `ideal ≈ A · C^p` with `p ≈ 0.4–0.6`, not a constant. Two consequences:
+- **Window start is a measurement bias.** Cup flow lags pump flow early in the pour (median
+  cup ÷ pump 0.73 at 10–12 s, 0.96 at 18–22 s), and the longest-window chooser usually starts near
+  the 10 s floor. A chooser that requires flat cup flow (`pick_candidate` in the harness) moves
+  windows to ~17 s, lifts the median ~8% and finds more on-target windows, but the spread stays
+  ~±10% and pressure (~2.4%/bar) becomes the largest term. Replayed on this one flow profile only.
+- **The reading drifts with the coffee.** At fixed low pressure and grind it rose ~18% (0.72 to
+  0.85) over four weeks of one bag, day 11 to day 37 off roast; bean age is the likely cause, not
+  yet separated from calendar time.
+- **A `C` dependence is not established.** An earlier version of this section put it at
+  `ideal ≈ A · C^p`, `p ≈ 0.4–0.6`, from consecutive batch medians. Those batches differed in window
+  placement and pressure, which explain them without `C`. The puck-sim run above (48% on C, 22% on
+  water) still allows some dependence; the field data can neither confirm nor exclude it.
 
-- **The loop still converges, at ~0.7–0.8 per batch instead of 0.5.** Its slope at the fixed point
-  is `1 − alpha·(1 − p)`. Runaway needs `p = 1`, which the puck-sim run rules out. From the shipped
-  default of 1.0 to a fixed point of 0.7, count on ~10 batches, not three.
-- **A batch median is not the answer until `C` is already at it.** `ideal` read at some `C`
-  overstates the fixed point by `(C / C*)^p`. [#1884](https://github.com/Kulitorum/Decenza/issues/1884)
-  replayed 360 shots poured at C = 0.8795, found a median ideal of 0.770, and called that the
-  correct multiplier; the machine has since walked through 0.753 and its ideals are still falling.
-  Read a corpus median as "the loop's next target from here", never as the fixed point.
-
-`p` is the operating point, not a firmware constant: it is 0 on pressure profiles (delivered water
-does not depend on `C` at all) and varies with puck resistance, pressure ceiling and flow rate on
-flow profiles. That is why a faster Newton-style step is not taken — an exponent right for this
-machine on this profile overshoots on pressure profiles, and estimating it online from consecutive
-batch medians (spread 0.67–0.85 within one batch) is too noisy to use before the loop has converged
-anyway. The cost of the slow path is a flow profile pouring a few percent off for a couple of weeks
-on a new machine; pressure profiles are unaffected.
+So on a flow profile poured across a wide pressure range there is no fixed point: the multiplier
+follows window placement, pressure and the coffee, and wanders ~±10%. Read a batch median as that
+batch's conditions, never as the machine's answer. A faster Newton-style step is not taken: there is
+no measured exponent to tune it to, and on pressure profiles (where `C` drops out) it would overshoot.
 
 Flow-branch machines sit within ~2.5% of √e and roughly **16-19% away from e**;
 pressure-branch machines sit within ~1% of e. That gap is the defect.
@@ -344,7 +343,7 @@ Same shape as v4 and for the same reason: which windows produce an ideal changed
 
 Same shape as v4 and v5: a one-time migration (`calibration/v6UnifiedIdealFormula`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `e / C` where the new one produces `e`.
 
-Stored multipliers are again left alone. Flow-profile machines sat on √e rather than e — roughly a **16-19% error** (0.858 against e = 0.737; 1.200 against e = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces an ideal on the target's side of `C`, so the existing EMA closes the gap geometrically (at the flow-profile rate in "Convergence on flow profiles" above, not the pressure-profile one). Note the window ratio guard bounds one batch's ideal to `C × [0.741, 1.333]`, so an error near the top of that range takes an extra batch or two rather than the two or three a 20% error needs.
+Stored multipliers are again left alone. Flow-profile machines sat on √e rather than e — roughly a **16-19% error** (0.858 against e = 0.737; 1.200 against e = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces an ideal on the target's side of `C`, so the existing EMA closes the gap geometrically (on a flow profile, into the ~±10% band described in "Convergence on flow profiles" above). Note the window ratio guard bounds one batch's ideal to `C × [0.741, 1.333]`, so an error near the top of that range takes an extra batch or two rather than the two or three a 20% error needs.
 
 Both the classifier and the off-target skip stay exactly as they were. The pump-model error itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
 
