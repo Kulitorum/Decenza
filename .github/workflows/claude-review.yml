@@ -375,6 +375,11 @@ jobs:
           const number = Number(process.env.REVIEW_PR_NUMBER);
           const head = process.env.REVIEW_HEAD_SHA;
           const count = Number(process.env.REVIEW_BATCH_COUNT);
+          if (!Number.isSafeInteger(number) || number <= 0 ||
+              !Number.isSafeInteger(count) || count < 1 || count > 256 ||
+              !/^[0-9a-f]{40}$/.test(head || '')) {
+            throw new Error('Invalid review snapshot metadata.');
+          }
           const findings = [];
           let incomplete = false;
           for (let batch = 0; batch < count; batch++) {

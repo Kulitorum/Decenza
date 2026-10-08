@@ -125,10 +125,11 @@ and publication checks.
 
 The requested review is read-only. Its workflow runs from the default branch,
 checks out the trusted base at the workspace root, and reads the captured head
-in an isolated subdirectory without executing its code. The diff is indexed into bounded per-file chunks so large changes can be read
-without exceeding an individual Read call's limit. Claude returns structured
-findings; the workflow validates their paths, diff lines, and captured revision
-before posting a COMMENT review. It cannot approve or change code. A source
+in an isolated subdirectory without executing its code. The diff is indexed into bounded per-file chunks, then assigned to sequential
+batches of at most eight files. Each batch assesses its assigned changes and can
+read surrounding source as needed. Every batch must complete before publication. Claude returns structured findings; the workflow checks every batch result,
+deduplicates findings, selects up to five by severity, and validates their paths,
+diff lines, and captured revision before posting a COMMENT review. It cannot approve or change code. A source
 update during context/diff fetching or review prevents stale publication. Unrelated comments do not cancel a
 review in progress. The command becomes available after this workflow is merged
 to the default branch.
@@ -183,11 +184,15 @@ to stop accepting fix requests.
   settings. Claude can only read/search source and return findings; shell,
   editing, skill, delegation, and MCP tools are unavailable. A fixed workflow
   step validates and publishes the comments. No PR-controlled scripts execute.
-- Each run stops after 40 turns or 15 minutes, with a $3 client-side API cost
-  limit. The estimate can differ from the bill, and cancellation does not undo
+- Each batch has up to 40 turns and five minutes. A total $3 client-side API
+  estimate cap is divided among all batches according to patch size and context
+  overhead. Small PRs use one batch; large PRs take longer because batches run
+  sequentially. Estimates can differ from the bill. Cancellation does not undo
   charges already incurred. Use Console workspace limits for total spend control.
   New pushes cancel older runs for the same PR. Reruns can repeat comments.
-- Full output and report display are disabled. Do not enable Actions debug
+- Only public PR context and sanitized batch findings are shared as one-day
+  workflow artifacts. Raw execution traces and credential caches stay local to
+  each runner. Full output and report display are disabled. Do not enable Actions debug
   logging: the action can enable full output in debug mode. Do not upload the
   action's execution files as public artifacts.
 - Completion means the static source assessment completed, not that runtime
