@@ -266,18 +266,27 @@ inline constexpr const char* kBeanFreshnessStorageHintClause =
 // frozen soon after roast and just thawed is under-rested too.
 inline constexpr const char* kBeanFreshnessKnownInstruction =
     "Storage history is known from the dates below — do NOT ask the user "
-    "about storage. restAgeDays is how long these beans have aged by "
-    "referenceDate (the day this shot was pulled), computed for you with frozen "
-    "time removed: only freezing pauses aging, so it counts roastDate to "
-    "frozenDate plus defrostDate to referenceDate; with frozenDate and no "
-    "defrostDate the beans are ground straight from the freezer. Quote it rather "
-    "than recomputing. openedDate is when this portion was first used: it does "
-    "NOT reset age, it only tells you how long these beans have been exposed to "
-    "air. Low age (about a week or less, longer for light roasts) means "
-    "under-rested and gassy — such beans choke the puck, run long, over-extract, "
-    "and usually want a COARSER grind that settles back over the next few days "
-    "— so a recent roast, or a portion frozen soon after roast and just thawed, "
-    "is not simply 'fresher is better.'";
+    "about storage. ";
+// Followed by one of these two, depending on whether restAgeDays was computed.
+inline constexpr const char* kBeanFreshnessRestAgeClause =
+    "restAgeDays is how long these beans have aged by referenceDate (the day this "
+    "shot was pulled), computed for you with frozen time removed: only freezing "
+    "pauses aging, so it counts roastDate to frozenDate plus defrostDate to "
+    "referenceDate; with frozenDate and no defrostDate the beans are ground "
+    "straight from the freezer. Quote it rather than recomputing. ";
+inline constexpr const char* kBeanFreshnessNoRestAgeClause =
+    "No rest age could be computed from these dates (no usable YYYY-MM-DD roast "
+    "date), so do not state one; only freezing pauses aging, so ask for the roast "
+    "date if age matters to your advice. ";
+// Then this.
+inline constexpr const char* kBeanFreshnessKnownTail =
+    "openedDate is when this portion was first used: it does NOT reset age, it "
+    "only tells you how long these beans have been exposed to air. Low age (about "
+    "a week or less, longer for light roasts) means under-rested and gassy — such "
+    "beans choke the puck, run long, over-extract, and usually want a COARSER "
+    "grind that settles back over the next few days — so a recent roast, or a "
+    "portion frozen soon after roast and just thawed, is not simply 'fresher is "
+    "better.'";
 
 // The local date a shot was pulled: what its freshness dates are measured to.
 inline QString shotLocalDate(const ShotProjection& shot)
@@ -293,7 +302,10 @@ inline QString shotLocalDate(const ShotProjection& shot)
 inline int restAgeDays(const QString& roastDate, const QString& frozenDate,
                        const QString& defrostDate, const QString& referenceDate)
 {
-    auto iso = [](const QString& s) { return QDate::fromString(s.left(10), QStringLiteral("yyyy-MM-dd")); };
+    // The whole string, not a prefix: "2026-04-05T10:00" is not a stored date.
+    auto iso = [](const QString& s) {
+        return s.size() == 10 ? QDate::fromString(s, QStringLiteral("yyyy-MM-dd")) : QDate();
+    };
     const QDate roast = iso(roastDate), frozen = iso(frozenDate), defrost = iso(defrostDate), ref = iso(referenceDate);
     if (!roast.isValid() || !ref.isValid() || ref < roast)
         return -1;
@@ -366,7 +378,8 @@ inline QJsonObject buildBeanFreshness(const QString& roastDate,
     QJsonObject block;
     // Legacy roast dates can be free text ("04/05/2026" is ambiguous): pass it
     // on as text, never as a date the AI would compute with.
-    const bool roastIsIso = QDate::fromString(roastDate.left(10), QStringLiteral("yyyy-MM-dd")).isValid();
+    const bool roastIsIso = roastDate.size() == 10
+        && QDate::fromString(roastDate, QStringLiteral("yyyy-MM-dd")).isValid();
     if (!roastDate.isEmpty())
         block[roastIsIso ? "roastDate" : "roastDateText"] = roastDate;
     if (!frozenDate.isEmpty()) block["frozenDate"] = frozenDate;
@@ -377,12 +390,12 @@ inline QJsonObject buildBeanFreshness(const QString& roastDate,
         block["openedDate"] = openedDate;
     if (!referenceDate.isEmpty()) block["referenceDate"] = referenceDate;
     block["freshnessKnown"] = known;
-    if (known && roastIsIso) {
-        const int age = restAgeDays(roastDate, frozenDate, defrostDate, referenceDate);
-        if (age >= 0) block["restAgeDays"] = age;
-    }
+    const int age = known && roastIsIso ? restAgeDays(roastDate, frozenDate, defrostDate, referenceDate) : -1;
+    if (age >= 0) block["restAgeDays"] = age;
     if (known) {
-        block["instruction"] = QString::fromUtf8(kBeanFreshnessKnownInstruction);
+        block["instruction"] = QString::fromUtf8(kBeanFreshnessKnownInstruction)
+            + QString::fromUtf8(age >= 0 ? kBeanFreshnessRestAgeClause : kBeanFreshnessNoRestAgeClause)
+            + QString::fromUtf8(kBeanFreshnessKnownTail);
     } else {
         // No aging-anchor date. Teach the upper-bound asymmetry (ask only when
         // the roast is old); when the storage TYPE is known but the date isn't,

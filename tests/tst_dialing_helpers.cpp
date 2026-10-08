@@ -227,6 +227,12 @@ void TstDialingHelpers::buildBeanFreshness_emptyRoastButFrozen_stillEmitsKnownBl
              "roastDate must be omitted when not supplied");
     QCOMPARE(block["freshnessKnown"].toBool(), true);
     QCOMPARE(block["frozenDate"].toString(), QStringLiteral("2026-04-16"));
+    // No roast date, no rest age: the instruction must not tell the AI to quote one.
+    QVERIFY(!block.contains(QStringLiteral("restAgeDays")));
+    QVERIFY(!block["instruction"].toString().contains(QStringLiteral("Quote it")));
+    // A roast date with anything after the date is text, not a date to compute with.
+    const QJsonObject timed = buildBeanFreshness(QStringLiteral("2026-04-15T10:00:00"));
+    QVERIFY(timed.contains(QStringLiteral("roastDateText")) && !timed.contains(QStringLiteral("roastDate")));
 }
 
 void TstDialingHelpers::buildBeanFreshness_defrostOnly_isKnown()
@@ -378,6 +384,7 @@ void TstDialingHelpers::restAgeDays_data()
     QTest::newRow("thaw before freeze") << "2026-09-01" << "2026-09-03" << "2026-09-02" << -1;
     QTest::newRow("thaw without freeze") << "2026-09-01" << "" << "2026-10-07" << -1;
     QTest::newRow("roast not ISO") << "Sept 1" << "" << "" << -1;
+    QTest::newRow("roast with a time suffix") << "2026-09-01T10:00:00" << "" << "" << -1;
 }
 
 void TstDialingHelpers::restAgeDays()
