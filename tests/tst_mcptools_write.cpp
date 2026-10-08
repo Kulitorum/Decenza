@@ -862,7 +862,10 @@ private slots:
         QJsonObject t1; t1["bagId"] = coffeeId; t1["teaType"] = "black";
         QVERIFY(f.callAsyncTool("bag", withAction("update", t1)).contains("error"));
 
-        // roastLevel/grinderSetting/rpm on a tea bag: rejected.
+        // roastLevel/grinderSetting/rpm on a tea bag: refused in storage.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: roastLevel"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: grinderSetting"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: rpm"));
         QJsonObject t2; t2["bagId"] = teaId; t2["roastLevel"] = "Light";
         QVERIFY(f.callAsyncTool("bag", withAction("update", t2)).contains("error"));
         QJsonObject t3; t3["bagId"] = teaId; t3["grinderSetting"] = "12";

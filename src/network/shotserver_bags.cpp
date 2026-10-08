@@ -471,7 +471,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 return;
             }
         }
-        if (const QString err = CoffeeBag::lifecycleError({}, fields, QDate::currentDate()); !err.isEmpty()) {
+        if (const QString err = CoffeeBag::writeError({}, fields, QDate::currentDate()); !err.isEmpty()) {
             respondJson(QJsonObject{{"error", err}}, 400);
             return;
         }
@@ -675,7 +675,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;
             }
-            if (const QString err = CoffeeBag::lifecycleError(opened, fields, QDate::currentDate()); !err.isEmpty()) {
+            if (const QString err = CoffeeBag::writeError(opened, fields, QDate::currentDate()); !err.isEmpty()) {
                 respondJson(QJsonObject{{"error", err}}, 400);
                 return;
             }

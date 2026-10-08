@@ -436,8 +436,27 @@ QVariantMap CoffeeBag::restockTemplate(QVariantMap bag, const QDate& today)
 }
 
 // static
-QString CoffeeBag::lifecycleError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today)
+QString CoffeeBag::kindFieldError(const QVariantMap& stored, const QVariantMap& changes)
 {
+    const QString kind = (changes.contains(QStringLiteral("kind")) ? changes : stored)
+                             .value(QStringLiteral("kind")).toString();
+    if (kind != QLatin1String("tea"))
+        return {};
+    QStringList offending;
+    for (const QString& key : coffeeOnlyKeys()) {
+        const QString v = changes.value(key).toString().trimmed();
+        if (!v.isEmpty() && v != QLatin1String("0"))
+            offending << key;
+    }
+    return offending.isEmpty() ? QString()
+        : QStringLiteral("%1 do not apply to tea bags").arg(offending.join(QStringLiteral(", ")));
+}
+
+// static
+QString CoffeeBag::writeError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today)
+{
+    if (const QString err = kindFieldError(stored, changes); !err.isEmpty())
+        return err;
     const QString fieldError = lifecycleFieldError(changes, today);
     return fieldError.isEmpty() ? lifecycleOrderError(stored, changes) : fieldError;
 }
@@ -675,7 +694,7 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
     auto created = std::make_shared<QVariantMap>();
     runAsync("bags_create",
         [bagMap, newId, created](QSqlDatabase& db) {
-            const QString fieldError = CoffeeBag::lifecycleError({}, bagMap, QDate::currentDate());
+            const QString fieldError = CoffeeBag::writeError({}, bagMap, QDate::currentDate());
             if (!fieldError.isEmpty()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "create refused:" << fieldError;
                 return;
@@ -1188,28 +1207,25 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db, bo
 bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
                                              const QVariantMap& inFields, QString* refusal)
 {
-    const QString fieldError = CoffeeBag::lifecycleFieldError(inFields, QDate::currentDate());
-    if (!fieldError.isEmpty()) {
-        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << fieldError;
-        if (refusal)
-            *refusal = fieldError;
-        return false;
-    }
     QVariantMap fields = inFields;
     // A thaw only means something on a frozen bag, so unfreezing clears it on
     // every surface (the app's freeze toggle always did).
     if (fields.contains(QStringLiteral("frozenDate")) && fields.value(QStringLiteral("frozenDate")).toString().isEmpty())
         fields.insert(QStringLiteral("defrostDate"), QString());
-    static const QStringList kDateKeys = {QStringLiteral("roastDate"), QStringLiteral("frozenDate"),
-                                          QStringLiteral("defrostDate"), QStringLiteral("openedDate")};
-    if (std::any_of(kDateKeys.cbegin(), kDateKeys.cend(), [&](const QString& k) { return fields.contains(k); })) {
-        const QString orderError = CoffeeBag::lifecycleOrderError(loadBagStatic(db, bagId).toVariantMap(), fields);
-        if (!orderError.isEmpty()) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << orderError;
-            if (refusal)
-                *refusal = orderError;
-            return false;
-        }
+    // The stored row is read only when a check needs it: the kind for a
+    // coffee-only field, the other dates for a date.
+    static const QStringList kStoredKeys = QStringList{QStringLiteral("roastDate"), QStringLiteral("frozenDate"),
+                                                       QStringLiteral("defrostDate"), QStringLiteral("openedDate")}
+                                           + CoffeeBag::coffeeOnlyKeys();
+    const bool needsStored = std::any_of(kStoredKeys.cbegin(), kStoredKeys.cend(),
+                                         [&](const QString& k) { return fields.contains(k); });
+    const QString writeError = CoffeeBag::writeError(
+        needsStored ? loadBagStatic(db, bagId).toVariantMap() : QVariantMap(), fields, QDate::currentDate());
+    if (!writeError.isEmpty()) {
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << writeError;
+        if (refusal)
+            *refusal = writeError;
+        return false;
     }
     // beanBaseDataPatch: blob keys to set ("" or null removes), merged into the
     // STORED blob here, so an editor's untouched keys never overwrite values a

@@ -55,7 +55,6 @@ int scaledSettingValue(double realWorldValue, double scale)
 #include "../screensaver/screensavervideomanager.h"
 
 #include <QDateTime>
-#include <algorithm>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1987,22 +1986,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
 
-            // Kind-gate both directions, mirroring action=update's rule.
-            QStringList offending;
+            // Tea vocabulary on a coffee bag; the reverse (coffee-only columns on
+            // tea) is CoffeeBag::writeError's, below.
             if (kind == QLatin1String("coffee")) {
+                QStringList offending;
                 for (const QString& key : CoffeeBag::teaOnlyKeys())
                     if (args.contains(key)) offending << key;
                 if (!offending.isEmpty()) {
                     respond(QJsonObject{{"error", offending.join(", ")
                         + " only apply to tea bags (this create has kind coffee)"}});
-                    return;
-                }
-            } else {
-                for (const QString& key : CoffeeBag::coffeeOnlyKeys())
-                    if (args.contains(key)) offending << key;
-                if (!offending.isEmpty()) {
-                    respond(QJsonObject{{"error", offending.join(", ")
-                        + " do not apply to tea bags"}});
                     return;
                 }
             }
@@ -2028,7 +2020,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
             if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
             bag.insert("inInventory", true);
-            if (const QString err = CoffeeBag::lifecycleError({}, bag, QDate::currentDate()); !err.isEmpty()) {
+            if (const QString err = CoffeeBag::writeError({}, bag, QDate::currentDate()); !err.isEmpty()) {
                 respond(QJsonObject{{"error", err}});
                 return;
             }
@@ -2276,13 +2268,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // bag must not conjure one).
             const bool identityEdit = fields.contains("roasterName")
                 || fields.contains("coffeeName") || fields.contains("roastLevel");
-            // Coffee-only columns must reach the kind gate in the merge thread
-            // (the bag's kind isn't known until it's loaded); derived from the
-            // gate's own list so a new coffee-only key can't short-circuit past it.
-            const bool coffeeOnlyEdit = std::any_of(
-                CoffeeBag::coffeeOnlyKeys().cbegin(), CoffeeBag::coffeeOnlyKeys().cend(),
-                [&fields](const QString& key) { return fields.contains(key); });
-            if (blobEdits.isEmpty() && !identityEdit && !coffeeOnlyEdit) {
+            // Coffee-only columns on a tea bag are refused in storage
+            // (CoffeeBag::writeError), so they need no detour through here.
+            if (blobEdits.isEmpty() && !identityEdit) {
                 proceed(fields);
                 return;
             }
@@ -2325,22 +2313,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             respond(QJsonObject{{"error",
                                 QString("%1 only apply to tea bags; bag %2 is a coffee bag "
                                         "(kind is set at creation and immutable)")
-                                    .arg(offending.join(", ")).arg(bagId)}});
-                            return;
-                        }
-                    } else {
-                        // Reverse gate (symmetry with action=create): roast level and
-                        // grinder setting are meaningless on a tea bag — reject
-                        // rather than store a value tea surfaces hide anyway.
-                        QStringList offending;
-                        for (const QString& key : CoffeeBag::coffeeOnlyKeys()) {
-                            const QString v = fields.value(key).toString().trimmed();
-                            if (fields.contains(key) && !v.isEmpty() && v != QLatin1String("0"))
-                                offending << key;
-                        }
-                        if (!offending.isEmpty()) {
-                            respond(QJsonObject{{"error",
-                                QString("%1 do not apply to tea bags; bag %2 is a tea bag")
                                     .arg(offending.join(", ")).arg(bagId)}});
                             return;
                         }

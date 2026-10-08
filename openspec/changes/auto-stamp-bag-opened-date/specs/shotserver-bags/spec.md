@@ -13,6 +13,11 @@ The web `/beans` page SHALL NOT carry its own copy of a bag rule the app also ap
 - **THEN** it SHALL offer Delete, as the app's card does
 - **AND** neither surface SHALL ask for confirmation before Bag finished or Delete
 
+#### Scenario: A tea bag refuses coffee-only fields on every surface
+- **WHEN** the app, the web API or MCP writes a non-empty roast level, grinder setting or rpm to a tea bag
+- **THEN** storage SHALL refuse the write and the caller SHALL receive the reason
+- **AND** clearing those fields SHALL be allowed
+
 ## MODIFIED Requirements
 
 ### Requirement: /beans web management page

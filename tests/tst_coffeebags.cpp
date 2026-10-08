@@ -258,6 +258,30 @@ private slots:
         });
     }
 
+    // Storage refuses a coffee-only value on a tea bag, so the web API and MCP
+    // can't store one; clearing it (what the forms send for tea) is allowed.
+    void teaBagRefusesCoffeeOnlyFields() {
+        const QString path = freshDb();
+        withRawDb(path, "teakind", [&](QSqlDatabase& db) {
+            CoffeeBag tea;
+            tea.roasterName = "Harney";
+            tea.kind = "tea";
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, tea);
+            QVERIFY(id > 0);
+
+            for (const auto& [key, value] : {std::pair<QString, QVariant>{"grinderSetting", "12"},
+                                             {"roastLevel", "Light"}, {"rpm", 800}}) {
+                QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: .*do not apply to tea"));
+                QString refusal;
+                QVERIFY(!CoffeeBagStorage::updateBagFieldsStatic(db, id, {{key, value}}, &refusal));
+                QVERIFY2(refusal.contains(key), qPrintable(refusal));
+            }
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", ""}, {"rpm", 0}}));
+            QVERIFY(!CoffeeBag::writeError({}, {{"kind", "tea"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+            QVERIFY(CoffeeBag::writeError({}, {{"kind", "coffee"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+        });
+    }
+
     // loadBagStatic materializes the bag's grinder identity from its equipment
     // package (the bag no longer stores brand/model/burrs — migration 23), so
     // MCP bag_list etc. still surface the grinder. Burrs comes from the item's

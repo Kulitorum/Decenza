@@ -216,8 +216,12 @@ struct CoffeeBag {
     // message; "" when in order. Only pairs that `changes` touches are checked,
     // so an unrelated edit never trips over an old record.
     static QString lifecycleOrderError(const QVariantMap& stored, const QVariantMap& changes);
-    // Both checks: each changed field, then the order against `stored`.
-    static QString lifecycleError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today);
+    // A non-empty coffee-only field on a tea bag (`changes` overlaid on `stored`
+    // decides the kind); clearing one is fine. "" when none.
+    static QString kindFieldError(const QVariantMap& stored, const QVariantMap& changes);
+    // Every check a bag write must pass: the kind's fields, each changed lifecycle
+    // field, then the order against `stored`.
+    static QString writeError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today);
 
     // What an edit changed: the keys of `current` that differ from `opened`. The
     // detail blob goes key by key as beanBaseDataPatch (a removed key as null)
@@ -345,8 +349,8 @@ public:
     static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db, bool finished = false,
                                                      QString* readError = nullptr);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
-    // `refusal`, when given, receives why a write was refused for its dates or
-    // storage type (CoffeeBag::lifecycleError), "" for any other failure.
+    // `refusal`, when given, receives why CoffeeBag::writeError refused the
+    // write, "" for any other failure.
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields,
                                       QString* refusal = nullptr);
 
@@ -472,7 +476,7 @@ signals:
     // acts on a missing bag (SettingsDye clears the selection) must not act on this.
     void bagReadFailed(qint64 bagId);
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
-    // `refusal`: why the write was refused for its dates or storage type ("" otherwise).
+    // `refusal`: why CoffeeBag::writeError refused the write ("" otherwise).
     void bagUpdated(qint64 bagId, bool success, const QString& refusal);
     // A write failed in a way the user must know about. bagUpdated carries the
     // same status, but it is a terminal signal for programmatic callers (the
