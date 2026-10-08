@@ -25,6 +25,20 @@ jobs:
       issues: read
       id-token: write
     steps:
+      - name: Check federation configuration
+        env:
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_FIX_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FIX_FEDERATION_RULE_ID }}
+        run: |
+          for name in ANTHROPIC_ORGANIZATION_ID ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID ANTHROPIC_FIX_FEDERATION_RULE_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Set the $name repository Actions variable; see docs/CLAUDE_REVIEW_SETUP.md."
+              exit 1
+            fi
+          done
+
       - name: Check out trusted workflow tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -72,7 +86,11 @@ jobs:
       - name: Prepare requested fix
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FIX_FEDERATION_RULE_ID }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          anthropic_workspace_id: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          anthropic_oidc_audience: https://api.anthropic.com
           # The official Claude App supplies the write token only for this opt-in job.
           additional_permissions: |
             contents: write
@@ -121,7 +139,7 @@ jobs:
             --add-dir fix-head
             --tools "Read,Glob,Grep,Edit,Write,Bash"
             --allowedTools "Read,Glob,Grep,Edit(./fix-head/**),Write(./fix-head/**),Bash(python3 ${{ github.workspace }}/scripts/claude_publish_fix.py)"
-            --disallowedTools "Agent,Task,Skill,NotebookEdit,mcp__*,Edit(**/.git/**),Write(**/.git/**),Edit(**/.github/**),Write(**/.github/**),Edit(**/.claude/**),Write(**/.claude/**),Read(**/.git/**),Read(**/.claude/**),Read(**/.mcp.json),Read(**/.claude.json),Read(//proc/**),Read(//sys/**),Read(//dev/**)"
+            --disallowedTools "Agent,Task,Skill,NotebookEdit,mcp__*,Edit(**/.git/**),Write(**/.git/**),Edit(**/.github/**),Write(**/.github/**),Edit(**/.claude/**),Write(**/.claude/**),Read(/${{ runner.temp }}/claude-workload-identity/**),Read(**/.git/**),Read(**/.claude/**),Read(**/.mcp.json),Read(**/.claude.json),Read(//proc/**),Read(//sys/**),Read(//dev/**)"
 
       - name: Verify publication
         run: |
