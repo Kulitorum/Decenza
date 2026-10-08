@@ -23,6 +23,12 @@ Column {
     // unchanged, because that means the knowledge applies unqualified), a base
     // with rows (list them).
     property var diff: ({})
+    // Replaces the "Your changes from X" wording for a caller whose base is not a
+    // bundled profile — the shot comparison diffs one shot's profile against another's.
+    property string headingOverride: ""
+    readonly property string heading: headingOverride.length > 0 ? headingOverride
+        : unchanged ? TranslationManager.translate("profilediff.unchanged", "Unchanged copy of %1").arg(baseTitle)
+        : TranslationManager.translate("profilediff.heading", "Your changes from %1").arg(baseTitle)
 
     readonly property bool hasBase: !!diff && diff.hasBase === true
     readonly property bool unchanged: hasBase && diff.unchanged === true
@@ -149,20 +155,13 @@ Column {
         var parts = []
         for (let i = 0; i < root.rows.length; i++)
             parts.push(root.labelFor(root.rows[i]) + " " + root.changeText(root.rows[i]))
-        return TranslationManager.translate("profilediff.heading",
-                   "Your changes from %1").arg(root.baseTitle) + ": " + parts.join(", ")
+        return root.heading + ": " + parts.join(", ")
     }
 
     Accessible.role: Accessible.Grouping
-    // Same ternary as the visible heading below. It used to be unconditionally
-    // "Your changes from X" while the screen said "Unchanged copy of X" — the
-    // two states the design calls load-bearing, told to a screen-reader user in
-    // reverse.
-    Accessible.name: root.unchanged
-        ? TranslationManager.translate("profilediff.unchanged",
-              "Unchanged copy of %1").arg(root.baseTitle)
-        : TranslationManager.translate("profilediff.heading",
-              "Your changes from %1").arg(root.baseTitle)
+    // The same `heading` the visible text shows, so the two cannot disagree again
+    // (it once said "Your changes from X" while the screen said "Unchanged copy of X").
+    Accessible.name: root.heading
     Accessible.description: root.accessibleSummary
 
     Rectangle {
@@ -182,11 +181,7 @@ Column {
 
             Text {
                 width: parent.width
-                text: root.unchanged
-                    ? TranslationManager.translate("profilediff.unchanged",
-                          "Unchanged copy of %1").arg(root.baseTitle)
-                    : TranslationManager.translate("profilediff.heading",
-                          "Your changes from %1").arg(root.baseTitle)
+                text: root.heading
                 font: Theme.subtitleFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap

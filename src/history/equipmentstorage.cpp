@@ -238,6 +238,18 @@ QVariantMap EquipmentPackageView::toVariantMap() const
 // ---------------------------------------------------------------------------
 // EquipmentStorage
 // ---------------------------------------------------------------------------
+QVariantList EquipmentStorage::puckPrepFlags()
+{
+    QVariantList out;
+    for (const auto& f : PuckPrep::flagLabels())
+        out.append(QVariantMap{
+            { QStringLiteral("key"), QLatin1String(f.key) },
+            { QStringLiteral("labelKey"), QLatin1String(f.translationKey) },
+            { QStringLiteral("label"), QLatin1String(f.english) },
+        });
+    return out;
+}
+
 EquipmentStorage::EquipmentStorage(QObject* parent)
     : QObject(parent)
 {

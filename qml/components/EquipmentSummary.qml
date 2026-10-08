@@ -36,11 +36,6 @@ ColumnLayout {
         return grinderName.length > 0 ? grinderName : combined
     }
 
-    // Puck-prep set flags as a "WDT · Shaker" summary, parsed from the canonical
-    // string. MIRRORS PuckPrep::flagKeys() display order (src/core/puckprep.h).
-    readonly property var _puckFlags: puckPrepCanonical.split(",")
-    function _hasPuck(key) { return _puckFlags.indexOf(key) >= 0 }
-
     readonly property string basketLine: {
         var _ = TranslationManager.translationVersion
         var b = [basketBrand, basketModel]
@@ -50,16 +45,7 @@ ColumnLayout {
 
     // Plain joins feed accessibleSummary; the *Rich forms (styled bold dot, parts
     // HTML-escaped by joinWithBullet) are what the Texts display.
-    readonly property var _puckLabels: {
-        var _ = TranslationManager.translationVersion
-        var labels = []
-        if (_hasPuck("wdt")) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
-        if (_hasPuck("shaker")) labels.push(TranslationManager.translate("equipment.dialog.puckShaker", "Shaker"))
-        if (_hasPuck("puckScreen")) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
-        if (_hasPuck("paperFilter")) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
-        if (_hasPuck("rdt")) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
-        return labels
-    }
+    readonly property var _puckLabels: PuckPrepLabels.labelsFor(puckPrepCanonical)
     readonly property string puckPrepLine: _puckLabels.length > 0
         ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(_puckLabels.join(" · ")) : ""
     readonly property string puckPrepLineRich: _puckLabels.length > 0

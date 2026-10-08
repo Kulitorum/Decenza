@@ -1,6 +1,8 @@
 #include "core/diagnosticlogging.h"
 #include "settings_network.h"
 #include "settings.h"
+#include "history/shotcomparisontext.h"
+#include "core/puckprep.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1346,6 +1348,11 @@ QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationString
     }
     for (const auto& c : widgetCategoryTable())
         out.append({ QString::fromLatin1(c.key), QString::fromLatin1(c.fallback) });
+    // The shot comparison's wording and the puck-prep flag names, aggregated here so
+    // the registry keeps one loop.
+    out.append(ShotComparisonText::translationStrings());
+    for (const auto& f : PuckPrep::flagLabels())
+        out.append({ QString::fromLatin1(f.translationKey), QString::fromLatin1(f.english) });
     return out;
 }
 

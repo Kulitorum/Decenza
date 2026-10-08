@@ -14,16 +14,6 @@
 
 namespace {
 
-QVector<QPointF> toPoints(const QVariantList& points) {
-    QVector<QPointF> out;
-    out.reserve(points.size());
-    for (const QVariant& p : points) {
-        const QVariantMap m = p.toMap();
-        out.append(QPointF(m.value(QStringLiteral("x")).toDouble(), m.value(QStringLiteral("y")).toDouble()));
-    }
-    return out;
-}
-
 // ISO 8601 with the device's UTC offset ("…T09:15:38.000-06:00"): the same instant as
 // UTC with "Z", but decentespresso.com shows a "Z" time as UTC, and Decent asked for the
 // zone (2026-10-06). One offset per shot, taken at its start.
@@ -81,18 +71,18 @@ QByteArray DecentShotRecord::build(const ShotProjection& shot, const DecentMachi
 
     // Pressure is the master timeline (as in the Visualizer payload); every other
     // series is resampled onto it so the measurement columns stay aligned.
-    const QVector<QPointF> pressure = toPoints(shot.pressure);
-    const QJsonArray flow = interpolateGoalData(toPoints(shot.flow), pressure);
-    const QJsonArray basket = interpolateGoalData(toPoints(shot.temperature), pressure);
-    const QJsonArray mix = interpolateGoalData(toPoints(shot.temperatureMix), pressure);
-    const QJsonArray pressureGoal = interpolateGoalData(toPoints(shot.pressureGoal), pressure);
-    const QJsonArray flowGoal = interpolateGoalData(toPoints(shot.flowGoal), pressure);
-    const QJsonArray tempGoal = interpolateGoalData(toPoints(shot.temperatureGoal), pressure);
+    const QVector<QPointF> pressure = curveToPoints(shot.pressure);
+    const QJsonArray flow = interpolateGoalData(curveToPoints(shot.flow), pressure);
+    const QJsonArray basket = interpolateGoalData(curveToPoints(shot.temperature), pressure);
+    const QJsonArray mix = interpolateGoalData(curveToPoints(shot.temperatureMix), pressure);
+    const QJsonArray pressureGoal = interpolateGoalData(curveToPoints(shot.pressureGoal), pressure);
+    const QJsonArray flowGoal = interpolateGoalData(curveToPoints(shot.flowGoal), pressure);
+    const QJsonArray tempGoal = interpolateGoalData(curveToPoints(shot.temperatureGoal), pressure);
     const QJsonArray mixGoal = shot.temperatureMixGoal.isEmpty()
-        ? tempGoal : interpolateGoalData(toPoints(shot.temperatureMixGoal), pressure);
+        ? tempGoal : interpolateGoalData(curveToPoints(shot.temperatureMixGoal), pressure);
     const bool hasScale = !shot.weight.isEmpty();
-    const QJsonArray weight = interpolateGoalData(toPoints(shot.weight), pressure);
-    const QJsonArray weightFlow = interpolateGoalData(toPoints(shot.weightFlowRate), pressure);
+    const QJsonArray weight = interpolateGoalData(curveToPoints(shot.weight), pressure);
+    const QJsonArray weightFlow = interpolateGoalData(curveToPoints(shot.weightFlowRate), pressure);
     const QVector<int> frames = frameForSamples(shot.phases, pressure);
 
     QJsonArray measurements;

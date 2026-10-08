@@ -55,7 +55,6 @@ pragma ComponentBehavior: Bound
 // Replaces: Qt Charts `ChartView.legend`.
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
@@ -152,6 +151,8 @@ Item {
                 Accessible.focusable: legendRoot.toggleEnabled
                 Accessible.description: (legendRoot.toggleEnabled && entryTip !== "") ? TranslationManager.translate("graph.tip.longPressHint", "Long-press to view description.") : ""
                 Accessible.onPressAction: _toggle()
+                // VoiceOver delivers a CheckBox press as toggle (see AccessibleMouseArea).
+                Accessible.onToggleAction: _toggle()
 
                 function _toggle() {
                     if (!legendRoot.toggleEnabled) return
@@ -200,38 +201,10 @@ Item {
                     onTriggered: entryDelegate.longPressShowing = false
                 }
 
-                // Built the first time it is shown: one per legend entry on every graph, and
-                // rarely shown (#1976). Kept once built, so later shows behave as before.
-                Loader {
-                    id: entryTipLoader
-                    anchors.fill: parent
-                    readonly property bool tipShown: entryDelegate.entryTip !== ""
-                        && ((entryArea.containsMouse && entryArea.pressedButtons === 0) || entryDelegate.longPressShowing)
-                    active: false
-                    onTipShownChanged: if (tipShown) active = true
-                    sourceComponent: Component {
-                        ToolTip {
-                            id: entryTipPopup
-                            text: entryDelegate.entryTip
-                            visible: entryTipLoader.tipShown
-                            delay: entryDelegate.longPressShowing ? 0 : 500
-                            width: Math.min(Theme.scaled(280), Theme.windowWidth * 0.7)
-
-                            contentItem: Text {
-                                text: entryTipPopup.text
-                                font: Theme.captionFont
-                                color: Theme.textColor
-                                wrapMode: Text.Wrap
-                            }
-
-                            background: Rectangle {
-                                color: Theme.surfaceColor
-                                border.color: Theme.borderColor
-                                border.width: Theme.scaled(1)
-                                radius: Theme.cardRadius
-                            }
-                        }
-                    }
+                HoverTip {
+                    text: entryDelegate.entryTip
+                    shown: (entryArea.containsMouse && entryArea.pressedButtons === 0) || entryDelegate.longPressShowing
+                    immediate: entryDelegate.longPressShowing
                 }
             }
         }

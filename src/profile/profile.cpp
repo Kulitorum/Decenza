@@ -1761,6 +1761,21 @@ QString Profile::shapeSignature() const
     return parts.join(QLatin1Char('~'));
 }
 
+QVariantMap ProfileFieldDelta::toVariantMap() const
+{
+    return QVariantMap{
+        { QStringLiteral("kind"),       kind },
+        { QStringLiteral("unit"),       unit },
+        { QStringLiteral("frameIndex"), frameIndex },
+        { QStringLiteral("frameName"),  frameName },
+        { QStringLiteral("numeric"),    numeric },
+        { QStringLiteral("oldValue"),   oldValue },
+        { QStringLiteral("newValue"),   newValue },
+        { QStringLiteral("oldText"),    oldText },
+        { QStringLiteral("newText"),    newText },
+    };
+}
+
 QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile& b)
 {
     QVector<ProfileFieldDelta> out;

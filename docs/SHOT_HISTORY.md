@@ -78,8 +78,8 @@ Imports legacy `.shot` files from de1app and JSON files exported by other Decenz
 ### Graph & comparison components (`qml/components/`)
 
 - **`HistoryShotGraph.qml`** — static graph for a single historical shot. Binds to the `QVector<QPointF>` series returned via `shotReady`.
-- **`ComparisonGraph.qml`** — multi-shot overlay. Takes a `ShotComparisonModel` and renders 2–3 color-coded series.
-- **`ComparisonDataTable.qml`, `ComparisonShotTable.qml`, `ComparisonInspectBar.qml`** — side-by-side metrics tables and scrub-to-inspect UI.
+- **`ComparisonGraph.qml`** — multi-shot overlay. Takes a `ShotComparisonModel`; column 0 is the base shot, drawn heavier. Holds the crosshair readout and the pour-start alignment.
+- **`ComparisonShotTable.qml`** (with `ComparisonRow`, `ComparisonSectionHeader`, `ComparisonLineSwatch`) — the comparison against the base: summary sentence, "What you changed", "What happened". Lays out `ShotComparisonModel.comparison`, which `ShotComparison::compare()` (`src/history/shotcomparison.h`) builds for the app, the web `/compare/` page and MCP `shots_compare` alike.
 - **`ShotAnalysisDialog.qml`** — AI-driven analysis triggered from the detail or post-shot pages. See `docs/CLAUDE_MD/AI_ADVISOR.md`.
 - **`GraphInspectBar.qml`, `GraphLegend.qml`** — shared inspect/legend widgets.
 

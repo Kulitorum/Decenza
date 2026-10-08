@@ -33,6 +33,10 @@ MouseArea {
         // Screen reader activation = primary action
         root.accessibleClicked()
     }
+    // VoiceOver's press on a CheckBox, RadioButton or Switch role arrives as the TOGGLE
+    // action, not press (qtbase/src/plugins/platforms/cocoa/qcocoaaccessibility.mm:336-341),
+    // so without this every toggle built on this area was dead under VoiceOver.
+    Accessible.onToggleAction: root.accessibleClicked()
 
     // Clear lastAnnouncedItem when this item is destroyed to prevent dangling pointer crash
     Component.onDestruction: {

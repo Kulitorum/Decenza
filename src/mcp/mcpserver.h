@@ -127,7 +127,10 @@ struct PendingConfirmation {
 // Not visible to the fingerprint below.
 // 1.14.0: settings_get/settings_set drop openrouterModel; OpenRouter's model is aiModel,
 // validated against its catalog like the other cloud providers. Not visible to the fingerprint.
-inline constexpr const char* McpSurfaceVersion = "1.14.0";
+// 1.15.0: shots_compare compares against the oldest requested shot: `comparison` replaces the
+// consecutive-shot `changes[]`. dialing_get_context's changeFromPrev/changeFromBest use the
+// same {inputs, outcomes} shape.
+inline constexpr const char* McpSurfaceVersion = "1.15.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";

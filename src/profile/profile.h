@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QStringList>
 #include <QJsonValue>
+#include <QVariantMap>
 #include <QByteArray>
 #include <QDebug>
 #include "profileframe.h"
@@ -102,6 +103,10 @@ struct ProfileFieldDelta {
     // a portability defect.
     bool inDeveloperReport = false;
     bool inDialIn = false;
+
+    // The row shape ProfileDialInDiffBlock.qml reads, for every surface that
+    // shows one: the knowledge dialog and the shot comparison.
+    QVariantMap toVariantMap() const;
 };
 
 class Profile {

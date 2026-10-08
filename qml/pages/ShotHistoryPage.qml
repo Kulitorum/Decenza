@@ -410,9 +410,8 @@ T.Page {
 
     function openComparison() {
         MainController.shotComparison.clearAll()
-        // Sort selected shots chronologically, then batch-add in one DB load
-        var sortedShots = selectedShots.slice().sort(function(a, b) { return a - b })
-        MainController.shotComparison.addShots(sortedShots)
+        // One DB load; the model orders the shots by when they were pulled.
+        MainController.shotComparison.addShots(selectedShots)
         AppShell.shotComparisonRequested()
     }
 

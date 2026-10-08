@@ -404,13 +404,14 @@ private:
     // `### Shot (date)` wrappers.
     QString renderShotAnalysisProse(const ShotSummary& summary, RenderMode mode) const;
 
-    // Curve helpers — pure functions, kept static so they can be called from
-    // file-scope helpers (e.g. makeWholeShotPhase) without a ShotSummarizer
-    // instance.
+public:
+    // Curve helpers — pure functions, static so file-scope helpers here
+    // (makeWholeShotPhase) and ShotComparison's metrics share one implementation.
     static double findValueAtTime(const QVector<QPointF>& data, double time);
     static double calculateAverage(const QVector<QPointF>& data, double startTime, double endTime);
     static double calculateMax(const QVector<QPointF>& data, double startTime, double endTime);
     static double calculateMin(const QVector<QPointF>& data, double startTime, double endTime);
+private:
     static QString profileTypeDescription(const QString& editorType);
     // Build a synthetic single-phase PhaseSummary spanning the full shot.
     // Used as a fallback for shots with no phase markers (legacy shots, or

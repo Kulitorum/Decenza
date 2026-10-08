@@ -352,6 +352,8 @@ T.Page {
                             Accessible.checked: stringModel.filterMode === filterChip.modelData.mode
                             Accessible.focusable: true
                             Accessible.onPressAction: filterMa.clicked(null)
+                            // VoiceOver delivers a RadioButton press as toggle (see AccessibleMouseArea).
+                            Accessible.onToggleAction: filterMa.clicked(null)
 
                             Text {
                                 anchors.centerIn: parent

@@ -302,13 +302,17 @@ private slots:
             // The second shot's diff should mention the grinder change 4.0->4.2.
             const QJsonObject diff1 = sessionAShots[1].toObject()
                 .value(QStringLiteral("changeFromPrev")).toObject();
-            QCOMPARE(diff1.value(QStringLiteral("grinderSetting")).toString(),
-                     QStringLiteral("4.0 -> 4.2"));
+            const QJsonObject diff1Grind = diff1.value(QStringLiteral("inputs")).toObject()
+                .value(QStringLiteral("grinderSetting")).toObject();
+            QCOMPARE(diff1Grind.value(QStringLiteral("from")).toString(), QStringLiteral("4.0"));
+            QCOMPARE(diff1Grind.value(QStringLiteral("to")).toString(), QStringLiteral("4.2"));
             // Third shot: 4.2->4.4.
             const QJsonObject diff2 = sessionAShots[2].toObject()
                 .value(QStringLiteral("changeFromPrev")).toObject();
-            QCOMPARE(diff2.value(QStringLiteral("grinderSetting")).toString(),
-                     QStringLiteral("4.2 -> 4.4"));
+            const QJsonObject diff2Grind = diff2.value(QStringLiteral("inputs")).toObject()
+                .value(QStringLiteral("grinderSetting")).toObject();
+            QCOMPARE(diff2Grind.value(QStringLiteral("from")).toString(), QStringLiteral("4.2"));
+            QCOMPARE(diff2Grind.value(QStringLiteral("to")).toString(), QStringLiteral("4.4"));
 
             // Identity hoisting: the per-shot block should NOT carry
             // grinderModel etc. (they live on the session context).
@@ -646,8 +650,10 @@ private slots:
 
             const QJsonObject diff = best_.value(QStringLiteral("changeFromBest")).toObject();
             QVERIFY2(!diff.isEmpty(), "changeFromBest must capture grind/yield/duration shifts");
-            QCOMPARE(diff.value(QStringLiteral("grinderSetting")).toString(),
-                     QStringLiteral("4.0 -> 4.4"));
+            const QJsonObject diffGrind = diff.value(QStringLiteral("inputs")).toObject()
+                .value(QStringLiteral("grinderSetting")).toObject();
+            QCOMPARE(diffGrind.value(QStringLiteral("from")).toString(), QStringLiteral("4.0"));
+            QCOMPARE(diffGrind.value(QStringLiteral("to")).toString(), QStringLiteral("4.4"));
         });
     }
 

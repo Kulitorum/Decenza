@@ -8,6 +8,8 @@
 // Full type needed: loadFromStorage calls existingShotIds() to forget turn
 // shot references that no longer resolve.
 #include "../history/shothistorystorage.h"
+#include "../history/shotcomparison.h"
+#include "../history/shotprojection.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -769,6 +771,35 @@ QString AIConversation::getConversationText() const
     return text;
 }
 
+namespace {
+
+// The fields of a stored advisor turn that ShotComparison diffs. Turns keep the
+// shot payload, not the shot row, so this reads the same keys extractShotFields
+// does: per-shot values on `shot`, the setup on `currentBean`.
+ShotProjection projectionFromPayload(const QString& content)
+{
+    ShotProjection p;
+    const QJsonObject obj = QJsonDocument::fromJson(content.toUtf8()).object();
+    const QJsonObject shot = obj.value(QStringLiteral("shot")).toObject();
+    const QJsonObject bean = obj.value(QStringLiteral("currentBean")).toObject();
+    auto pick = [&](const char* shotKey, const char* beanKey) {
+        const QString k = QLatin1String(shotKey);
+        return shot.contains(k) ? shot.value(k) : bean.value(QLatin1String(beanKey));
+    };
+    p.doseWeightG = pick("doseG", "doseWeightG").toDouble();
+    p.finalWeightG = shot.value(QStringLiteral("yieldG")).toDouble();
+    p.durationSec = shot.value(QStringLiteral("durationSec")).toDouble();
+    p.enjoyment0to100 = shot.value(QStringLiteral("enjoyment0to100")).toInt();
+    p.grinderSetting = pick("grinderSetting", "grinderSetting").toString();
+    p.rpm = pick("rpm", "rpm").toInt();
+    p.grinderBrand = bean.value(QStringLiteral("grinderBrand")).toString();
+    p.grinderModel = bean.value(QStringLiteral("grinderModel")).toString();
+    p.grinderBurrs = bean.value(QStringLiteral("grinderBurrs")).toString();
+    return p;
+}
+
+} // namespace
+
 QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
                                                     const QString& shotPayload) const
 {
@@ -781,29 +812,20 @@ QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
     // that read it are gone, and the key change wipes anything stored in the old
     // shape (clearAllConversationsOnce("equipment_scoped_conversations_v2")).
     //
-    // No equipment arm below, and one cannot be written: the conversation key
-    // holds the package id, so every shot in a thread shares it and the diff
-    // would compare a value with itself. `grinder` is not that value — it is
-    // "<brand> <model> (<burrs>) at <setting>", and the setting is what moves.
-    const ShotFields curr = extractShotFields(shotPayload);
-    const ShotFields prevFields = extractShotFields(prev.content);
-
-    QJsonObject changed;
-    auto diffField = [&changed](const QString& a, const QString& b, const char* key) {
-        if (a.isEmpty() || b.isEmpty() || a == b) return;
-        changed[QLatin1String(key)] = QJsonObject{{"from", a}, {"to", b}};
-    };
-    diffField(prevFields.doseG, curr.doseG, "doseG");
-    diffField(prevFields.yieldG, curr.yieldG, "yieldG");
-    diffField(prevFields.durationSec, curr.durationSec, "durationSec");
-    diffField(prevFields.grinder, curr.grinder, "grinder");
+    // Equipment never shows as a change here: the conversation key holds the
+    // package id, so both turns share it. The grinder identity is read only so the
+    // grind Δ knows both settings are on one dial.
+    const ShotProjection curr = projectionFromPayload(shotPayload);
+    const ShotProjection prevShot = projectionFromPayload(prev.content);
+    const QJsonObject changes = ShotComparison::pairChanges(prevShot, curr);
 
     // "Nothing changed" is a fact the model needs as much as a diff is — it is the
-    // difference between "your change did nothing" and "you changed nothing".
+    // difference between "your change did nothing" and "you changed nothing". So
+    // it is about INPUTS only; the outcomes moving is the shot's answer.
     QJsonObject out;
     out["comparedToShot"] = prev.shotLabel;
-    out["changed"] = changed;
-    out["anyChange"] = !changed.isEmpty();
+    out["changes"] = changes;
+    out["anyChange"] = changes.contains(QStringLiteral("inputs"));
     return out;
 }
 

@@ -160,18 +160,6 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
 }
 
-// Helper to convert QVariantList of {x, y} maps to QVector<QPointF>
-static QVector<QPointF> variantListToPoints(const QVariantList& list)
-{
-    QVector<QPointF> points;
-    points.reserve(list.size());
-    for (const QVariant& v : list) {
-        QVariantMap p = v.toMap();
-        points.append(QPointF(p.value("x", 0.0).toDouble(), p.value("y", 0.0).toDouble()));
-    }
-    return points;
-}
-
 ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData) const
 {
     ShotSummary summary;
@@ -265,13 +253,13 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.stoppedBy = shotData.stoppedBy;
 
     // Convert curve data
-    summary.pressureCurve = variantListToPoints(shotData.pressure);
-    summary.flowCurve = variantListToPoints(shotData.flow);
-    summary.tempCurve = variantListToPoints(shotData.temperature);
-    summary.weightCurve = variantListToPoints(shotData.weight);
-    summary.pressureGoalCurve = variantListToPoints(shotData.pressureGoal);
-    summary.flowGoalCurve = variantListToPoints(shotData.flowGoal);
-    summary.tempGoalCurve = variantListToPoints(shotData.temperatureGoal);
+    summary.pressureCurve = curveToPoints(shotData.pressure);
+    summary.flowCurve = curveToPoints(shotData.flow);
+    summary.tempCurve = curveToPoints(shotData.temperature);
+    summary.weightCurve = curveToPoints(shotData.weight);
+    summary.pressureGoalCurve = curveToPoints(shotData.pressureGoal);
+    summary.flowGoalCurve = curveToPoints(shotData.flowGoal);
+    summary.tempGoalCurve = curveToPoints(shotData.temperatureGoal);
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
@@ -367,7 +355,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
     const QStringList analysisFlags = getAnalysisFlags(kbIds);
 
-    const QVector<QPointF> derivCurve = variantListToPoints(shotData.conductanceDerivative);
+    const QVector<QPointF> derivCurve = curveToPoints(shotData.conductanceDerivative);
 
     // Per-shot targetWeight drives both arms of the grind-vs-yield check
     // (the choked-puck yield arm and the gusher arm added in PR #910) —

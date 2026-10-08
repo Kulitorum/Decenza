@@ -36,7 +36,12 @@ inline QString generateVitalStatsScript()
             '.vital-battery-icon { display: inline-block; width: 1.1em; height: 0.7em; border: 1.5px solid currentColor; border-radius: 2px; position: relative; vertical-align: middle; margin-right: 0.15em; }' +
             '.vital-battery-icon::after { content: ""; position: absolute; right: -3.5px; top: 25%; width: 2px; height: 50%; background: currentColor; border-radius: 0 1px 1px 0; }' +
             '.vital-battery-fill { position: absolute; left: 1px; top: 1px; bottom: 1px; border-radius: 1px; }' +
-            '@media (max-width: 600px) { .vital-stats { gap: 0.4rem; font-size: 0.7rem; } .vital-state-text { display: none; } }';
+            '@media (max-width: 600px) { .vital-stats { gap: 0.4rem; font-size: 0.7rem; } .vital-state-text { display: none; } }' +
+            // A phone header has no room for title, readout and menu on one line: the
+            // readout takes its own line below rather than pushing the menu off-screen.
+            '@media (max-width: 600px) { .header-content, .header-right { flex-wrap: wrap; row-gap: 0.25rem; }' +
+            ' .header-right { flex: 1; min-width: 0; justify-content: flex-end; }' +
+            ' .vital-stats { order: 1; flex-basis: 100%; justify-content: flex-end; } }';
         document.head.appendChild(style);
     }
 

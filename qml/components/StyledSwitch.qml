@@ -90,5 +90,8 @@ T.Switch {
     Accessible.name: control.accessibleName || control.text || TranslationManager.translate("switch.accessibility.toggle", "Toggle")
     Accessible.checked: control.checked
     Accessible.focusable: true
-    Accessible.onPressAction: control.toggle()
+    // No press or toggle handler: Qt's own (accessiblePressAction / accessibleToggleAction)
+    // call click(), which emits clicked and toggled. A handler calling toggle() flipped the
+    // switch WITHOUT toggled (qquickabstractbutton.cpp:1163-1167 vs :468-475), so every
+    // caller saving its setting in onToggled ignored a screen-reader activation.
 }

@@ -42,17 +42,7 @@ DecenzaDialog {
 
     // Puck-prep set flags as a "WDT · Shaker" summary (add-puckprep-equipment),
     // empty when the package has no puck prep.
-    readonly property string puckPrepSummary: {
-        var _ = TranslationManager.translationVersion
-        if (!pkg) return ""
-        var labels = []
-        if (pkg.puckPrep_wdt) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
-        if (pkg.puckPrep_shaker) labels.push(TranslationManager.translate("equipment.dialog.puckShaker", "Shaker"))
-        if (pkg.puckPrep_puckScreen) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
-        if (pkg.puckPrep_paperFilter) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
-        if (pkg.puckPrep_rdt) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
-        return labels.join(" · ")
-    }
+    readonly property string puckPrepSummary: pkg ? PuckPrepLabels.labelsFor(pkg.puckPrepCanonical || "").join(" · ") : ""
 
     background: Rectangle {
         color: Theme.surfaceColor

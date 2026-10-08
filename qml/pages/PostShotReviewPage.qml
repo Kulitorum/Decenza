@@ -2480,6 +2480,10 @@ T.Page {
             onClicked: postShotReviewPage.undoLastChange()
         }
 
+        ComparePreviousButton {
+            shotId: postShotReviewPage.editShotId
+        }
+
         // The one Upload button: sends the shot to every destination switched on
         // and connected (Visualizer, the Decent account, or both).
         AccessibleButton {

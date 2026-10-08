@@ -6,15 +6,15 @@ import Decenza
 // tooltip, and the visibility gates (advanced, post-shot and PORTAL data).
 //
 // This list existed four times in four shapes — as the legend's model, as a name→key map in
-// ComparisonDataTable, as a key+default array in LastShotChartSource, and as eleven property
+// the comparison page's old readout table, as a key+default array in LastShotChartSource, and as eleven property
 // declarations repeated in each of the three graphs. Nothing kept them in agreement, and the
 // LastShotChartSource copy had already shipped with an entry missing, which left the home
 // screen chart rendering a stale image whenever the right axis was toggled.
 //
 // `key` is both the SettingsGraph property name and, prefixed with `graph/`, its storage key.
 // `dataKey` names the series in the comparison model's per-shot value objects, and
-// `shortLabel` is the abbreviated column heading the comparison table needs — both live here
-// so that table derives its columns rather than restating the list.
+// `shortLabel` is the abbreviated label the comparison readout and chips show — both live
+// here so those derive their rows rather than restating the list.
 QtObject {
     id: graphSeries
 

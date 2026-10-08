@@ -3,10 +3,12 @@
 #include "mcplogging.h"
 #include "mcptools_shots_helpers.h"
 #include "mcplogfilter.h"
+#include "../history/shotcomparison.h"
 #include "../history/shothistorystorage.h"
 #include "../core/dbutils.h"
 
 #include <QDateTime>
+#include <algorithm>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -463,12 +465,12 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
     // shots_compare
     registry->registerAsyncTool(
         "shots_compare",
-        "Side-by-side comparison of 2 or more shots. Default detail='summary' returns "
-        "scalars + phase summaries per shot plus a changes diff between consecutive shots "
-        "(~3K chars/shot). When all shots share a profile, profileName/profileKbId/"
-        "profileNotes are hoisted to a top-level `sharedProfile` block and omitted from "
-        "each shot. Pass detail='full' to include time-series curves and debug logs "
-        "(~85K chars/shot — exceeds typical LLM context with more than 1-2 shots).",
+        "Compare 2 or more shots against the OLDEST one (the base). `comparison` lists, per "
+        "other shot, the inputs it changed and its outcome deltas ({from,to,delta}), whether "
+        "the profile version changed, and measured metrics per shot. Default detail='summary' "
+        "also returns scalars + phase summaries per shot (~3K chars/shot); detail='full' adds "
+        "time-series and debug logs (~85K chars/shot). A profile shared by all shots is "
+        "hoisted to `sharedProfile`.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -589,53 +591,13 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["count"] = shots.size();
                 }
 
-                // Compute changes between consecutive shots. Field-pointer
-                // accessors keep the diff loop compile-time-safe — renaming
-                // ShotProjection::doseWeightG turns the diffNum() call into a
-                // compile error rather than a silent missed-rename bug. The
-                // outKey strings are the MCP-facing schema (doseG, yieldG,
-                // enjoyment0to100), distinct from the projection's field names.
+                // Against the oldest shot, the same comparison the Compare page shows.
                 if (projections.size() >= 2) {
-                    QJsonArray changes;
-                    for (qsizetype i = 1; i < projections.size(); ++i) {
-                        const ShotProjection& prev = projections[i-1];
-                        const ShotProjection& curr = projections[i];
-                        QJsonObject diff;
-                        diff["fromShotId"] = prev.id;
-                        diff["toShotId"] = curr.id;
-
-                        auto diffStr = [&](QString ShotProjection::*field, const QString& outKey) {
-                            const QString& a = prev.*field;
-                            const QString& b = curr.*field;
-                            if (!a.isEmpty() && !b.isEmpty() && a != b)
-                                diff[outKey] = QString("%1 -> %2").arg(a, b);
-                        };
-                        auto diffNum = [&](double a, double b, const QString& outKey, const QString& unit) {
-                            if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
-                                diff[outKey] = QString("%1 -> %2 %3 (%4%5)")
-                                    .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
-                                    .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
-                        };
-
-                        diffStr(&ShotProjection::grinderSetting, "grinderSetting");
-                        diffStr(&ShotProjection::profileName, "profileName");
-                        diffStr(&ShotProjection::beanBrand, "beanBrand");
-                        // RPM half of the dial-in — whole-number diff so a
-                        // variable-RPM change between shots is visible.
-                        if (prev.rpm > 0 && curr.rpm > 0 && prev.rpm != curr.rpm)
-                            diff["rpm"] = QString("%1 -> %2 rpm (%3%4)")
-                                .arg(prev.rpm).arg(curr.rpm)
-                                .arg(curr.rpm > prev.rpm ? "+" : "").arg(curr.rpm - prev.rpm);
-                        diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
-                        diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
-                        diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");
-                        diffNum(prev.enjoyment0to100, curr.enjoyment0to100, "enjoyment0to100", "");
-
-                        if (diff.size() > 2)
-                            changes.append(diff);
-                    }
-                    if (!changes.isEmpty())
-                        result["changes"] = changes;
+                    std::stable_sort(projections.begin(), projections.end(),
+                                     [](const ShotProjection& x, const ShotProjection& y) {
+                                         return x.timestamp < y.timestamp;
+                                     });
+                    result["comparison"] = ShotComparison::compare(projections, 0);
                 }
 
                 QMetaObject::invokeMethod(qApp, [respond, result]() {

@@ -1280,19 +1280,8 @@ QVariantMap ProfileManager::dialInDiffFor(const Profile& p) {
 
     QVariantList rows;
     rows.reserve(cmp.deltas.size());
-    for (const ProfileFieldDelta& d : cmp.deltas) {
-        rows.append(QVariantMap{
-            { QStringLiteral("kind"),       d.kind },
-            { QStringLiteral("unit"),       d.unit },
-            { QStringLiteral("frameIndex"), d.frameIndex },
-            { QStringLiteral("frameName"),  d.frameName },
-            { QStringLiteral("numeric"),    d.numeric },
-            { QStringLiteral("oldValue"),   d.oldValue },
-            { QStringLiteral("newValue"),   d.newValue },
-            { QStringLiteral("oldText"),    d.oldText },
-            { QStringLiteral("newText"),    d.newText },
-        });
-    }
+    for (const ProfileFieldDelta& d : cmp.deltas)
+        rows.append(d.toVariantMap());
 
     out[QStringLiteral("hasBase")]   = true;
     out[QStringLiteral("baseTitle")] = cmp.baseTitle;

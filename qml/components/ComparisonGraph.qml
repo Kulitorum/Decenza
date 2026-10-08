@@ -9,8 +9,8 @@ import QtGraphs
 import Decenza
 import "GraphUtils.js" as GraphUtils
 
-// Outer Item wraps the GraphsView so all 30 trace overlays (3 shots × 10
-// curves), the Canvas phase markers, the crosshair, and phase labels render
+// Outer Item wraps the GraphsView so every trace overlay (visible shots × curves),
+// the Canvas phase markers, the crosshair and the phase labels render
 // as siblings on top of the chart. GraphsView's scene-graph paints over any
 // direct QQuickItem children — overlays must be siblings, not children.
 Item {
@@ -27,10 +27,26 @@ Item {
     // Factor applied to the flow-family traces before plotting (1, 2 or 3).
     property int flowMultiplier: Settings.graph.flowMultiplier
 
-    // Per-shot visibility (window slot 0/1/2)
-    property bool showShot0: true
-    property bool showShot1: true
-    property bool showShot2: true
+    // Columns hidden from the graph, by visible index. Column 0 is the base.
+    property var hiddenShots: ({})
+    function shotVisible(i) { return !hiddenShots[i] }
+    function toggleShot(i) {
+        var h = Object.assign({}, hiddenShots)
+        h[i] = !h[i]
+        hiddenShots = h
+    }
+
+    // Line each shot's pour start up with the base's, so a longer preinfusion does
+    // not offset every later curve. Shots with no pour marker stay where they are.
+    property bool alignAtPourStart: false
+    function _offsetFor(i) {
+        var _ = _dataVersion
+        if (!alignAtPourStart || !comparisonModel || i === 0) return 0
+        var base = comparisonModel.getShotInfo(0).pourStartSec || 0
+        var own = comparisonModel.getShotInfo(i).pourStartSec || 0
+        return base > 0 && own > 0 ? base - own : 0
+    }
+    onAlignAtPourStartChanged: _refreshAll()
 
     // Phase marker data: [{shotIdx, time, label, phaseIndex}]
     property var phaseData: []
@@ -133,14 +149,13 @@ Item {
             case "temperatureMixGoal":    data = comparisonModel.getTemperatureMixGoalData(shotIdx); break
             default:                      return []
         }
-        if (key === "weight") {
-            let scaled = []
-            for (let i = 0; i < data.length; i++) {
-                scaled.push(Qt.point(data[i].x, data[i].y / 5.0))
-            }
-            return scaled
-        }
-        return data
+        var dx = _offsetFor(shotIdx)
+        var dy = key === "weight" ? 5.0 : 1.0
+        if (dx === 0 && dy === 1.0) return data
+        let moved = []
+        for (let i = 0; i < data.length; i++)
+            moved.push(Qt.point(data[i].x + dx, data[i].y / dy))
+        return moved
     }
 
     // Monotonic counter bumped on every shotsChanged emission — used as a
@@ -158,10 +173,12 @@ Item {
         for (let pmi = 0; pmi < comparisonModel.shotCount; pmi++) {
             let pmMarkers = comparisonModel.getPhaseMarkers(pmi)
             for (let pmj = 0; pmj < pmMarkers.length; pmj++) {
-                if (pmMarkers[pmj].time > markerMaxTime) markerMaxTime = pmMarkers[pmj].time
+                if (pmMarkers[pmj].time + _offsetFor(pmi) > markerMaxTime) markerMaxTime = pmMarkers[pmj].time + _offsetFor(pmi)
             }
         }
-        var axisEnd = Math.max(comparisonModel.maxTime, markerMaxTime)
+        var maxOffset = 0
+        for (let oi = 0; oi < comparisonModel.shotCount; oi++) maxOffset = Math.max(maxOffset, _offsetFor(oi))
+        var axisEnd = Math.max(comparisonModel.maxTime + maxOffset, markerMaxTime)
         // Fit to data with a 5 s floor — short shots still fill the plot. Match
         // ShotGraph/SteamGraph dynamic tickInterval so labels stay readable from
         // a 5 s pour through a 60 s+ extraction.
@@ -205,7 +222,7 @@ Item {
                 if (lbl === "Start") continue  // redundant — always 0.0s
                 if (lbl === "End") continue    // only added on SAW stops; inconsistent
                 if (phaseIndexMap[lbl] === undefined) phaseIndexMap[lbl] = nextPhaseIndex++
-                phases.push({ shotIdx: pi, time: markers[mi].time, label: lbl, phaseIndex: phaseIndexMap[lbl] })
+                phases.push({ shotIdx: pi, time: markers[mi].time + _offsetFor(pi), label: lbl, phaseIndex: phaseIndexMap[lbl] })
             }
         }
         phaseData = phases
@@ -259,11 +276,7 @@ Item {
 
         inspectTime = time
 
-        var shotValues = []
-        for (let i = 0; i < comparisonModel.shotCount; i++) {
-            shotValues.push(_buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
-                                              comparisonModel.getShotInfo(i)))
-        }
+        var shotValues = _valuesAt(time)
         inspectShotValues = shotValues
         inspecting = true
 
@@ -283,6 +296,14 @@ Item {
             AccessibilityManager.announce(parts.join(". "), true)
     }
 
+    function _valuesAt(time) {
+        var out = []
+        for (let i = 0; i < comparisonModel.shotCount; i++)
+            out.push(_buildShotValues(i, comparisonModel.getValuesAtTime(i, time - _offsetFor(i)),
+                                      comparisonModel.getShotInfo(i)))
+        return out
+    }
+
     function _buildShotValues(i, vals, info) {
         return {
             dateTime:       info.dateTime,
@@ -295,19 +316,15 @@ Item {
             hasConductance: vals.hasConductance,conductance:    vals.conductance,
             hasDarcyResistance:        vals.hasDarcyResistance,        darcyResistance:        vals.darcyResistance,
             hasConductanceDerivative:  vals.hasConductanceDerivative,  conductanceDerivative:  vals.conductanceDerivative,
-            hasTemperatureMix:         vals.hasTemperatureMix,         temperatureMix:         vals.temperatureMix
+            hasTemperatureMix:         vals.hasTemperatureMix,         temperatureMix:         vals.temperatureMix,
+            hasTemperatureMixGoal:     vals.hasTemperatureMixGoal,     temperatureMixGoal:     vals.temperatureMixGoal
         }
     }
 
     function inspectAtTime(time) {
         if (!comparisonModel || time < 0 || time > timeAxis.max) return
         inspectTime = time
-        var shotValues = []
-        for (let i = 0; i < comparisonModel.shotCount; i++) {
-            shotValues.push(_buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
-                                              comparisonModel.getShotInfo(i)))
-        }
-        inspectShotValues = shotValues
+        inspectShotValues = _valuesAt(time)
         inspecting = true
     }
 
@@ -404,22 +421,17 @@ Item {
         max: 20
     }
 
-    // === 30 traces (3 shots × 10 curves), one native series each ===
+    // === One native series per (visible shot slot × curve) ===
 
     readonly property var _allTraces: {
         var out = []
-        for (let s = 0; s < 3; s++) {
+        var slots = comparisonModel ? comparisonModel.otherWindowSize + 1 : 0
+        for (let s = 0; s < slots; s++) {
             for (let c = 0; c < _curves.length; c++) {
                 out.push({ shotIdx: s, curveIdx: c })
             }
         }
         return out
-    }
-
-    function _shotVisibleAt(shotIdx) {
-        return shotIdx === 0 ? showShot0
-             : shotIdx === 1 ? showShot1
-                             : showShot2
     }
 
     GraphSeriesInstantiator {
@@ -433,10 +445,13 @@ Item {
             axisY: chart._axisFor(curveDef.axisKey)
             values: chart._curvePoints(modelData.shotIdx, curveDef.key)
             color: curveDef.color
-            width: curveDef.width
+            // The base is drawn heavier, as Decent's comparison does: the reference reads
+            // as the reference without a legend.
+            width: curveDef.width + (modelData.shotIdx === 0 ? Theme.scaled(1) : 0)
             strokeStyle: shotStyle.dashed ? LineSeries.StrokeStyle.DashLine : LineSeries.StrokeStyle.SolidLine
             dashPattern: shotStyle.pattern
-            visible: chart._shotVisibleAt(modelData.shotIdx)
+            visible: chart.shotVisible(modelData.shotIdx)
+                     && modelData.shotIdx < (chart.comparisonModel ? chart.comparisonModel.shotCount : 0)
                      && Settings.graph[curveDef.showFlag]
                      && (!curveDef.advanced || chart.advancedMode)
         }
@@ -459,13 +474,14 @@ Item {
             target: chart
             function onPhaseDataChanged()         { phaseCanvas.requestPaint() }
             function onHiddenPhaseLabelsChanged() { phaseCanvas.requestPaint() }
+            function onHiddenShotsChanged()       { phaseCanvas.requestPaint() }
         }
         onPaint: {
             var ctx = getContext("2d")
             ctx.clearRect(0, 0, width, height)
             for (let i = 0; i < chart.phaseData.length; i++) {
                 let pd = chart.phaseData[i]
-                if (chart.hiddenPhaseLabels[pd.label]) continue
+                if (chart.hiddenPhaseLabels[pd.label] || !chart.shotVisible(pd.shotIdx)) continue
                 let x = (pd.time / timeAxis.max) * width
                 ctx.strokeStyle = chart.phaseColors[pd.phaseIndex % chart.phaseColors.length]
                 ctx.globalAlpha = 0.7
@@ -478,14 +494,38 @@ Item {
         }
     }
 
+    // Phase labels sit on line 0 unless they would run into the label before
+    // them, then drop a line: two phases a second apart used to print on top of
+    // each other ("Infu" over "Pouring").
+    FontMetrics { id: phaseLabelMetrics; font: Theme.captionFont }
+    readonly property var phaseLabelLines: {
+        var shown = []
+        for (let i = 0; i < phaseData.length; i++) {
+            let pd = phaseData[i]
+            if (pd.shotIdx === 0 && !hiddenPhaseLabels[pd.label]) shown.push({ i: i, time: pd.time, label: pd.label })
+        }
+        shown.sort(function(a, b) { return a.time - b.time })
+        var lines = {}, lineEnds = []
+        for (let k = 0; k < shown.length; k++) {
+            let x = (shown[k].time / timeAxis.max) * graphsView.plotArea.width
+            let w = phaseLabelMetrics.advanceWidth(shown[k].label) + Theme.scaled(6)
+            let line = 0
+            while (line < lineEnds.length && lineEnds[line] > x) line++
+            lineEnds[line] = x + w
+            lines[shown[k].i] = line
+        }
+        return { lines: lines, count: lineEnds.length }
+    }
+
     // Phase label text (shown at top of plot area, shot 0 only to avoid duplicates)
     Repeater {
         model: chart.phaseData
         Text {
             required property var modelData
+            required property int index
             visible: modelData.shotIdx === 0 && !chart.hiddenPhaseLabels[modelData.label]
             x: graphsView.plotArea.x + (modelData.time / timeAxis.max) * graphsView.plotArea.width + Theme.scaled(2)
-            y: graphsView.plotArea.y
+            y: graphsView.plotArea.y + (chart.phaseLabelLines.lines[index] || 0) * phaseLabelMetrics.height
             text: modelData.label
             font: Theme.captionFont
             color: chart.phaseColors[modelData.phaseIndex % chart.phaseColors.length]
@@ -504,5 +544,40 @@ Item {
         height: graphsView.plotArea.height
         color: Theme.textColor
         opacity: 0.6
+    }
+
+    // === Crosshair values, read by ComparisonReadout under the plot ===
+
+    // The curves currently drawn, from the one series table the chips also read.
+    readonly property var readoutCurves: {
+        var out = []
+        var all = GraphSeries.entries
+        for (let i = 0; i < all.length; i++) {
+            if (all[i].portal) continue  // PORTAL is shown on single-shot graphs only
+            if (all[i].advanced && !advancedMode) continue
+            if (!Settings.graph[all[i].key]) continue
+            out.push(all[i])
+        }
+        return out
+    }
+
+    // "" when the shot has no value there (not inspecting, or the shot had ended).
+    function readoutText(shotIdx, dataKey) {
+        if (!inspecting || shotIdx >= inspectShotValues.length) return ""
+        var sv = inspectShotValues[shotIdx]
+        switch (dataKey) {
+            case "pressure":    return sv.hasPressure    ? sv.pressure.toFixed(1)    : ""
+            case "flow":        return sv.hasFlow        ? sv.flow.toFixed(1)        : ""
+            case "temp":        return sv.hasTemperature ? Theme.cToDisplay(sv.temperature).toFixed(1) : ""
+            case "weight":      return sv.hasWeight      ? sv.weight.toFixed(1)      : ""
+            case "weightFlow":  return sv.hasWeightFlow  ? sv.weightFlow.toFixed(1)  : ""
+            case "resistance":  return sv.hasResistance  ? sv.resistance.toFixed(1)  : ""
+            case "conductance": return sv.hasConductance ? sv.conductance.toFixed(1) : ""
+            case "dCdt":        return sv.hasConductanceDerivative ? sv.conductanceDerivative.toFixed(1) : ""
+            case "darcyR":      return sv.hasDarcyResistance       ? sv.darcyResistance.toFixed(1)       : ""
+            case "mixTemp":     return sv.hasTemperatureMix        ? Theme.cToDisplay(sv.temperatureMix).toFixed(1) : ""
+            case "mixTempGoal": return sv.hasTemperatureMixGoal    ? Theme.cToDisplay(sv.temperatureMixGoal).toFixed(1) : ""
+        }
+        return ""
     }
 }

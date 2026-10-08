@@ -1669,6 +1669,10 @@ T.Page {
         // page that can produce the metadata overrides an upload should carry).
         // Upload state is still shown, read-only, by the Visualizer status card above.
 
+        ComparePreviousButton {
+            shotId: shotDetailPage.shotId
+        }
+
         // AI Advice button
         AccessibleButton {
             id: aiButton

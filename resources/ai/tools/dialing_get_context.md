@@ -15,6 +15,8 @@ shot and suggest a change.
 | `bestRecentShot` | The highest-rated past shot on the same profile within the last 90 days, with a `changeFromBest` diff, so advice can reference what success looked like rather than only what changed since the last pull. Omitted when no rated shot exists in that window |
 | `sawPrediction` | Predicted post-cut drip in grams from the stop-at-weight learner. Espresso only; `sourceTier` says which model is active so confidence can be weighted. Omitted with no scale configured or no usable flow data |
 
+`changeFromPrev` and `changeFromBest` share the shape `shots_compare` returns per comparison: `inputs` (what the user dialled — profile, brew temperature, dose, target yield, grind, RPM; bean and equipment changes are in each shot's own fields, and `shots_compare` lists them here too) and `outcomes` (what the shot did — duration, yield, ratio, first drop, peak pressure, mean flow, rating), each field as `{from, to, delta}`. A `from` or `to` of null means that shot did not record the value. Inputs within measurement noise (dose ±0.3 g, target ±0.5 g, grind ±0.25 step, RPM ±25) are not listed.
+
 The 90-day window on `bestRecentShot` keeps the anchor inside the user's current setup era.
 
 ## includeFullKnowledge
