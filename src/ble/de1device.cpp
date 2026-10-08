@@ -315,6 +315,9 @@ void DE1Device::onTransportDisconnected() {
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
+    // A deferred maintenance request belongs to this connection. A late/new
+    // state notification must not start it after the link has been lost.
+    m_pendingMaintenanceState = DE1::State::NoRequest;
 
     // Restore the permissive default so a GHC machine's "false" doesn't carry
     // into the next connection and block its start buttons until (or unless)
@@ -1588,6 +1591,15 @@ void DE1Device::flushPendingMaintenanceState() {
 
 void DE1Device::startAirPurge() {
     requestMaintenanceState(DE1::State::AirPurge);
+}
+
+bool DE1Device::cancelPendingAirPurge() {
+    if (m_pendingMaintenanceState != DE1::State::AirPurge) {
+        return false;
+    }
+    m_pendingMaintenanceState = DE1::State::NoRequest;
+    DEVICE_INFO(QStringLiteral("Cancelled deferred AirPurge request"));
+    return true;
 }
 
 void DE1Device::stopOperation() {

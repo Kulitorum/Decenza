@@ -28,12 +28,22 @@ T.Page {
                                        MachineState.phase === MachineState.Phase.Ready))
 
     Component.onDestruction: {
+        DE1Device.cancelPendingAirPurge()
         // Restore the selected brew profile after the cold-maintenance profile,
         // as DescalingPage does. Never upload over an operation that replaced us.
         if (MachineState.phase === MachineState.Phase.Idle ||
             MachineState.phase === MachineState.Phase.Heating ||
             MachineState.phase === MachineState.Phase.Ready)
             ProfileManager.uploadCurrentProfile()
+    }
+
+    // Cancel at the start of navigation, before the outgoing transition.
+    StackView.onDeactivating: DE1Device.cancelPendingAirPurge()
+
+    function leaveTransport() {
+        DE1Device.cancelPendingAirPurge()
+        transportPage.showComplete = false
+        AppShell.dismissRequested()
     }
 
     onIsPurgingChanged: {
@@ -258,10 +268,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("common.button.done", "Done")
                     _customFontSize: Theme.scaled(18)
                     _customFontWeight: Font.Bold
-                    onClicked: {
-                        transportPage.showComplete = false
-                        AppShell.dismissRequested()
-                    }
+                    onClicked: transportPage.leaveTransport()
                 }
             }
 
@@ -415,9 +422,6 @@ T.Page {
     BottomBar {
         visible: !transportPage.isPurging
         title: transportPage.pageTitle
-        onBackClicked: {
-            transportPage.showComplete = false
-            AppShell.backRequested()
-        }
+        onBackClicked: transportPage.leaveTransport()
     }
 }

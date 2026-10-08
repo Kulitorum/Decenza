@@ -99,6 +99,70 @@ private slots:
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{airPurge});
     }
 
+    void cancelledColdTransportDoesNotStartOnTheNextReadyNotification_data() {
+        QTest::addColumn<int>("firmwareBuild");
+        QTest::newRow("unknown-ghc") << 0;
+        QTest::newRow("stable-ghc") << 1352;
+    }
+
+    void cancelledColdTransportDoesNotStartOnTheNextReadyNotification() {
+        QFETCH(int, firmwareBuild);
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = firmwareBuild;
+        f.device.setIsHeadless(false);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.startAirPurge();
+        f.transport.ackAllWritesInOrder();
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::AirPurge);
+
+        QVERIFY(f.device.cancelPendingAirPurge());
+        QVERIFY(!f.device.cancelPendingAirPurge()); // repeated exit is a no-op
+        f.device.parseStateInfo(QByteArray::fromHex("0200")); // Idle / Ready
+        QVERIFY(requestedStates(f.transport).isEmpty());
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
+
+        // Cancellation does not poison a later explicit Start.
+        f.device.startAirPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 QList<QByteArray>{QByteArray(1, static_cast<char>(DE1::State::AirPurge))});
+    }
+
+    void transportExitDoesNotCancelAnotherMaintenanceRequest() {
+        TestFixture f;
+        f.device.setIsHeadless(false);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.startDescale();
+        f.transport.ackAllWritesInOrder();
+        QVERIFY(!f.device.cancelPendingAirPurge());
+        f.device.parseStateInfo(QByteArray::fromHex("0200"));
+        QCOMPARE(requestedStates(f.transport),
+                 QList<QByteArray>{QByteArray(1, static_cast<char>(DE1::State::Descale))});
+    }
+
+    void disconnectCancelsDeferredMaintenance_data() {
+        QTest::addColumn<int>("maintenanceState");
+        QTest::newRow("air-purge") << static_cast<int>(DE1::State::AirPurge);
+        QTest::newRow("descale") << static_cast<int>(DE1::State::Descale);
+        QTest::newRow("clean") << static_cast<int>(DE1::State::Clean);
+    }
+
+    void disconnectCancelsDeferredMaintenance() {
+        QFETCH(int, maintenanceState);
+        TestFixture f;
+        f.device.setIsHeadless(false);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.requestMaintenanceState(static_cast<DE1::State>(maintenanceState));
+        f.transport.ackAllWritesInOrder();
+        QVERIFY(f.device.m_pendingMaintenanceState != DE1::State::NoRequest);
+        f.transport.setConnectedSim(false);
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
+        f.device.parseStateInfo(QByteArray::fromHex("0200"));
+        QVERIFY(requestedStates(f.transport).isEmpty());
+    }
+
     // ---- Water level filtering (see DE1Device::parseWaterLevel) ----
 
     // The first sample IS the level. Without the seed the EMA ramps from zero and every connect

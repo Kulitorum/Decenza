@@ -122,3 +122,28 @@ After leaving Transport in an idle/heating/ready phase, the app SHALL restore th
 #### Scenario: Another operation replaces Transport
 - **WHEN** another active operation replaces Transport
 - **THEN** Transport's exit SHALL NOT upload a brew profile over that operation
+
+### Requirement: Leaving Transport cancels a deferred cold start
+
+Leaving or covering Transport during cold preparation SHALL cancel its deferred AirPurge before navigation/teardown can finish. A later ready notification SHALL NOT revive that request. Cancellation SHALL be idempotent, preserve other pending maintenance operations, and allow a later explicit Transport start. Losing the connection SHALL discard deferred maintenance requests belonging to it.
+
+#### Scenario: Back during cold preparation
+- **GIVEN** an old or unknown-firmware GHC machine has a deferred AirPurge
+- **WHEN** the user leaves Transport through Back, system navigation or another page
+- **THEN** the deferred AirPurge SHALL be cancelled before profile restoration
+- **AND** a later ready notification SHALL NOT start that cancelled purge
+
+#### Scenario: Repeated cancellation or another operation
+- **WHEN** Transport exit is handled more than once, or another maintenance request is pending
+- **THEN** Transport cancellation SHALL be a no-op for requests other than its deferred AirPurge
+
+#### Scenario: Later explicit start
+- **GIVEN** the deferred Transport request was cancelled
+- **WHEN** the user later explicitly starts Transport while eligible
+- **THEN** the new AirPurge request SHALL be accepted normally
+
+#### Scenario: Connection lost during preparation
+- **GIVEN** a maintenance request is deferred on the current connection
+- **WHEN** that connection is lost
+- **THEN** the deferred request SHALL be discarded
+- **AND** later state notifications SHALL NOT start it
