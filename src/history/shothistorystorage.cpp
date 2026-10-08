@@ -3579,13 +3579,22 @@ void ShotHistoryStorage::requestPreviousShot(qint64 shotId)
 
             // Same profile the way advisor threads key it — the knowledge-base id
             // when the shot resolved one, else its name — same drink, same package.
+            // A row with no kb id (saved before migration 9 added it) is matched by
+            // name, so a new shot still finds an old one of the same profile.
             QSqlQuery p(db);
             p.prepare(QStringLiteral(
-                "SELECT id FROM shots WHERE %1 = ? AND COALESCE(beverage_type, '') = ? "
+                "SELECT id FROM shots WHERE %1 AND COALESCE(beverage_type, '') = ? "
                 "AND COALESCE(equipment_id, 0) = ? "
                 "AND timestamp < ? AND id != ? ORDER BY timestamp DESC LIMIT 1")
-                .arg(kbId.isEmpty() ? QStringLiteral("profile_name") : QStringLiteral("profile_kb_id")));
-            p.addBindValue(kbId.isEmpty() ? name : kbId);
+                .arg(kbId.isEmpty() ? QStringLiteral("profile_name = ?")
+                                    : QStringLiteral("(profile_kb_id = ? OR (COALESCE(profile_kb_id, '') = '' "
+                                                     "AND profile_name = ?))")));
+            if (kbId.isEmpty()) {
+                p.addBindValue(name);
+            } else {
+                p.addBindValue(kbId);
+                p.addBindValue(name);
+            }
             p.addBindValue(beverage);
             p.addBindValue(equipmentId);
             p.addBindValue(timestamp);

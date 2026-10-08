@@ -88,6 +88,7 @@ inline const QVector<Entry>& entries()
         { "phrase.badgeAppeared",       "comparison.summary.badgeAppeared",  "%1 appeared" },
         { "phrase.badgeGone",           "comparison.summary.badgeGone",      "%1 gone" },
         { "phrase.noNotable",           "comparison.summary.noNotable",      "No notable difference" },
+        { "phrase.sameSetup",           "comparison.summary.sameSetup",      "Same setup" },
 
         { "unit.gPerSec",               "comparison.unit.gramsPerSec",       "g/s" },
         { "unit.rpm",                   "comparison.unit.rpm",               "RPM" },

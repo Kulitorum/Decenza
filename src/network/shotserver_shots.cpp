@@ -2795,7 +2795,7 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
             if (phaseLabels.length > 0) h += "<span class='chip-sep'></span>";
             phaseLabels.forEach(function(p, i) {
                 var color = phaseColors[i % phaseColors.length], on = !hiddenPhases[p];
-                h += "<button class='chip" + (on ? " on" : "") + "' title='" + escapeHtml(txt("tip.phase").replace("%1", p)) + "' onclick=''togglePhase(" + i + ")'"
+                h += "<button class='chip" + (on ? " on" : "") + "' title='" + escapeHtml(txt("tip.phase").replace("%1", p)) + "' onclick='togglePhase(" + i + ")'"
                    + (on ? " style='border-color:" + color + "'" : "") + "><span class='dot' style='background:" + color + "'></span>" + escapeHtml(p) + "</button>";
             });
             h += "<button class='chip" + (alignPours ? " on" : "") + "' title='" + escapeHtml(txt("tip.alignPours"))
@@ -2847,7 +2847,9 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
         function summaryFor(c) {
             var out = [];
             (c.summary || []).forEach(function(f) {
-                if (f.kind === "input") out.push(txt("input." + f.key, f.key) + " " + plain(f.key, f.from) + " → " + plain(f.key, f.to));
+                if (f.kind === "sameSetup") out.push(txt("phrase.sameSetup"));
+                else if (f.kind === "noNotable") out.push(txt("phrase.noNotable"));
+                else if (f.kind === "input") out.push(txt("input." + f.key, f.key) + " " + plain(f.key, f.from) + " → " + plain(f.key, f.to));
                 else if (f.kind === "inputChanged") out.push(txt("phrase.changed").replace("%1", txt("input." + f.key, f.key)));
                 else if (f.kind === "moreInputs") out.push(txt("phrase.moreInputs").replace("%1", f.count));
                 else if (f.kind === "metric") {

@@ -252,7 +252,9 @@ void TstShotComparison::comparisonJsonShape()
     const QStringList metrics = metricFacts(summary);
     QCOMPARE(metrics.first(), QStringLiteral("yieldG"));
     QVERIFY(!metrics.contains(QStringLiteral("ratio")));
-    const QJsonObject yield = summary[0].toObject();
+    // Nothing changed in the setup, and the summary says so first.
+    QCOMPARE(summary[0].toObject()[QStringLiteral("kind")].toString(), QStringLiteral("sameSetup"));
+    const QJsonObject yield = summary[1].toObject();
     QCOMPARE(yield[QStringLiteral("phrase")].toString(), QStringLiteral("phrase.less"));
     QCOMPARE(yield[QStringLiteral("delta")].toDouble(), -40.0);
     // Then how it stopped, then the badge that went away.
@@ -266,6 +268,12 @@ void TstShotComparison::summaryIgnoresNoise()
 {
     ShotProjection a = shot(1), b = shot(2);
     a.durationSec = 30.0; b.durationSec = 30.4;   // under the 1 s floor
+    // Only noise moved: the summary says nothing notable rather than nothing at all.
+    const QJsonArray quiet = compare({ a, b }, 0)[QStringLiteral("comparisons")].toArray()
+        .first().toObject()[QStringLiteral("summary")].toArray();
+    QCOMPARE(quiet.size(), 2);
+    QVERIFY(!factOf(quiet, "sameSetup").isEmpty());
+    QVERIFY(!factOf(quiet, "noNotable").isEmpty());
     a.finalWeightG = 36.0; b.finalWeightG = 40.0; // 4 floors
     const QStringList top = metricFacts(compare({ a, b }, 0)[QStringLiteral("comparisons")].toArray()
         .first().toObject()[QStringLiteral("summary")].toArray());

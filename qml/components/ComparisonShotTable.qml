@@ -122,6 +122,12 @@ ColumnLayout {
         let out = []
         for (const f of (c.summary || [])) {
             switch (f.kind) {
+            case "sameSetup":
+                out.push(txt("phrase.sameSetup"))
+                break
+            case "noNotable":
+                out.push(txt("phrase.noNotable"))
+                break
             case "input":
                 out.push(inputLabel(f.key) + " " + _plain(f.key, f.from) + " \u2192 " + _plain(f.key, f.to))
                 break

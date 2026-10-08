@@ -599,9 +599,12 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex)
         ranked << hidden;
         // The summary as ordered facts, each naming the words it is told in, so the
         // app and the web page say the same thing and only format the numbers.
-        // What the user changed comes first (at most two, then a count), then what
-        // the shot did differently, then how it stopped and which badges moved.
+        // What the user changed comes first (at most two, then a count, or "same
+        // setup" when nothing did), then what the shot did differently, then how it
+        // stopped and which badges moved, or "no notable difference" when none did.
         QJsonArray facts;
+        if (changedInputs.isEmpty())
+            facts.append(QJsonObject{ { QStringLiteral("kind"), QStringLiteral("sameSetup") } });
         int namedInputs = 0, moreInputs = 0;
         auto addInput = [&](QJsonObject fact) {
             if (namedInputs == 2) { ++moreInputs; return; }
@@ -629,6 +632,7 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex)
         if (moreInputs > 0)
             facts.append(QJsonObject{ { QStringLiteral("kind"), QStringLiteral("moreInputs") },
                                       { QStringLiteral("count"), moreInputs } });
+        const qsizetype outcomeStart = facts.size();
 
         for (qsizetype r = 0; r < std::min<qsizetype>(3, ranked.size()); ++r) {
             const QString key = ranked[r].second;
@@ -669,6 +673,9 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex)
             if (!shotBadges.contains(b))
                 facts.append(QJsonObject{ { QStringLiteral("kind"), QStringLiteral("badgeGone") },
                                           { QStringLiteral("badge"), b } });
+
+        if (facts.size() == outcomeStart)
+            facts.append(QJsonObject{ { QStringLiteral("kind"), QStringLiteral("noNotable") } });
 
         comparisons.append(QJsonObject{
             { QStringLiteral("shotId"), shot.id },

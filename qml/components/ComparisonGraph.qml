@@ -27,12 +27,19 @@ Item {
     // Factor applied to the flow-family traces before plotting (1, 2 or 3).
     property int flowMultiplier: Settings.graph.flowMultiplier
 
-    // Columns hidden from the graph, by visible index. Column 0 is the base.
+    // Shots hidden from the graph, by shot id: paging and re-basing reuse column
+    // indices, and a hidden shot must not hand its state to whichever lands there.
     property var hiddenShots: ({})
-    function shotVisible(i) { return !hiddenShots[i] }
+    function _shotIdAt(i) {
+        var _ = _dataVersion
+        return comparisonModel ? comparisonModel.getShotInfo(i).id : undefined
+    }
+    function shotVisible(i) { return !hiddenShots[_shotIdAt(i)] }
     function toggleShot(i) {
+        var id = _shotIdAt(i)
+        if (id === undefined) return
         var h = Object.assign({}, hiddenShots)
-        h[i] = !h[i]
+        h[id] = !h[id]
         hiddenShots = h
     }
 
