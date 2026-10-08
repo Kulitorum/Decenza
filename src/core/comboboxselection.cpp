@@ -1,5 +1,7 @@
 #include "comboboxselection.h"
 
+#include <QVariant>
+
 ComboBoxSelection::ComboBoxSelection(QObject* parent)
     : QObject(parent)
 {
