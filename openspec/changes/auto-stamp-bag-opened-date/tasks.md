@@ -15,8 +15,8 @@
 ## 2. Verification
 
 - [x] 2.1 Build and run the full test suite in Qt Creator
-- [ ] 2.2 On device: first shot from an unopened bag shows "Opened <today>" on its card; a second shot leaves it alone
-- [ ] 2.3 Thaw a frozen bag, pull a shot, and confirm the opened date moves to today
+- [ ] 2.2 HELD for the next beta (platform-independent code, already exercised on the Mac build): first shot from an unopened bag shows "Opened <today>" on its card; a second shot leaves it alone
+- [ ] 2.3 HELD for the next beta: thaw a frozen bag, pull a shot, and confirm the opened date moves to today
 - [x] 2.4 Web /beans: edit a bag (details, dates, storage type), restock, thaw, finish and delete; confirm each matches the app (unchanged save writes nothing; storage and detail edits write only themselves; future thaw refused)
 - [x] 2.6 App Beans page: lifecycle line and buttons from the shared rules; Thaw picker blocks future days; typed future date reverts; a storage edit writes only storageHint
 - [x] 2.7 App, after a restart: pick a storage type in Edit, then open Restock — the combo shows "Not specified"
