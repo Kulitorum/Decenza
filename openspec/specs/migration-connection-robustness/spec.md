@@ -1,11 +1,13 @@
 # migration-connection-robustness Specification
 
 ## Purpose
-TBD - created by archiving change add-migration-multihoming-robustness. Update Purpose after archive.
+
+Covers how a migration client reaches a peer device across a multi-homed local network: a reachability preflight over every candidate interface, bounded retry of transient neighbour-resolution failures, and connection failure messages that report unreachable only when every candidate interface fails.
+
 ## Requirements
 ### Requirement: Interface-aware reachability preflight
 
-When establishing a connection to a migration peer, the client SHALL determine reachability from the local host across every candidate network interface rather than relying on the operating system's default source-address selection. A candidate is a local IPv4 source address whose interface subnet contains the target address; when the target is not on any directly-connected subnet, the default-route interface SHALL be treated as the sole candidate. Candidates SHALL be probed in order with the default-route interface first, and the first candidate that completes a TCP connection to the peer's `host:port` SHALL be selected as the reachable path. The preflight SHALL apply to both the discovered-device connection path and the manually-entered `IP:port` path.
+When connecting to a migration peer, the client SHALL check reachability over every candidate local interface, not by default source-address selection. A candidate is a local IPv4 source address whose interface subnet contains the target. Candidates SHALL be probed with the default-route interface first, and the first to complete a TCP connection to the peer's `host:port` SHALL be selected. This SHALL apply to discovered and manually entered `IP:port` connections.
 
 #### Scenario: Multi-homed host with two interfaces on the target subnet
 - **WHEN** the local host has two active interfaces addressed on the same subnet as the peer and the peer's server is up
@@ -18,6 +20,14 @@ When establishing a connection to a migration peer, the client SHALL determine r
 #### Scenario: Peer genuinely offline
 - **WHEN** no candidate interface can establish a TCP connection to the peer within the preflight window
 - **THEN** the client reports the peer as unreachable and does not attempt the HTTP manifest fetch
+
+### Requirement: Off-subnet targets use the default route
+
+When the target is on no directly-connected subnet, the default-route interface SHALL be the sole candidate.
+
+#### Scenario: Off-subnet peer probes only the default route
+- **WHEN** the target address is not on any directly-connected subnet
+- **THEN** only the default-route interface is probed
 
 ### Requirement: Bounded retry on transient connection errors
 

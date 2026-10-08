@@ -29,8 +29,7 @@ The layout editors SHALL let a user open a zone-options panel for **any** zone �
 - **AND** other zones SHALL be unaffected
 
 ### Requirement: Populate a zone from a built-in preset
-
-The zone-options panel SHALL offer a "populate from preset" action that fills a zone with a built-in widget arrangement in one step. The set of presets SHALL include a **"Brew bar"** preset that reproduces the PR Kulitorum/Decenza#1364 view: the `profileName`, `scaleWeight` (context-aware data mode), `ratioQuickSelect`, `doseWeight`, and `milkWeight` widgets, with `equalWidth` distribution and the `accentBar` zone style. Populating SHALL set the zone's widgets and the relevant zone options together, and SHALL be available for the `lowerMidBar` zone.
+The zone-options panel SHALL offer a "populate from preset" action that fills a zone with a built-in widget arrangement in one step, setting the zone's widgets and relevant zone options together. The presets SHALL include a "Brew bar" preset, and populating SHALL be available for the `lowerMidBar` zone.
 
 #### Scenario: Populate the lower-mid bar with the brew-bar preset
 
@@ -50,11 +49,9 @@ The zone-options panel SHALL offer a "populate from preset" action that fills a 
 - **WHEN** a zone has been populated from a preset
 - **THEN** each widget SHALL be individually removable, reorderable, and (where applicable) per-instance configurable, like any manually added widget
 
+
 ### Requirement: Item distribution option
-
-Each **bar** zone SHALL support an item-distribution option with at least the values `packed` (default, current behaviour), `equalWidth` (every widget gets an equal-width cell regardless of content width), and `spaced` (evenly spaced / justified). The default SHALL preserve current behaviour so existing layouts are unchanged.
-
-The **center** zones (`centerStatus`, `centerTop`, `centerMiddle`) SHALL NOT support item distribution, and the editors SHALL NOT offer the control for them. A center zone sizes every item from a fixed cell (capped so its action buttons never stretch), which is exactly what `equalWidth` and `spaced` require it to abandon; with the cap kept, both values would be indistinguishable from each other and would have no effect at all on a zone containing only action buttons.
+Each **bar** zone SHALL support an item-distribution option with at least `packed` (default, current behaviour), `equalWidth` (an equal-width cell per widget) and `spaced` (evenly spaced, justified). The default SHALL preserve current behaviour so existing layouts are unchanged. The **center** zones (`centerStatus`, `centerTop`, `centerMiddle`) SHALL NOT support item distribution, and the editors SHALL NOT offer the control for them.
 
 #### Scenario: Default preserves current behaviour
 
@@ -120,12 +117,7 @@ This forbids the dead-control state in which a user sets an option, sees it conf
 - **AND** neither preview SHALL depict an effect for it
 
 ### Requirement: Theme-defined zone style presets
-
-Each zone SHALL support a **zone style** option chosen from named presets defined in `Theme.qml` (never hardcoded colors in the zone or widgets). At minimum the presets SHALL include:
-- `standard` — the default; transparent background with the normal theme text styling (matches today's look).
-- `accentBar` — matches the PR Kulitorum/Decenza#1364 bar: an accent-filled background with contrasting text and emphasised (bold) values.
-
-Each preset SHALL bundle the zone background and the text/value treatment so widgets in the zone stay readable on the chosen background across light, dark, and custom palettes. Themes SHALL be able to define their own preset values so the styles track the active theme.
+Each zone SHALL support a **zone style** option chosen from named presets defined in `Theme.qml`, never hardcoded colours in the zone or widgets. The presets SHALL include `standard` (the default) and `accentBar` (accent-filled background, contrasting text, bold values). Each preset SHALL bundle background and text treatment so widgets stay readable on light, dark and custom palettes. Themes SHALL be able to define their own preset values.
 
 #### Scenario: Standard preset by default
 

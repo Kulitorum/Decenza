@@ -1,7 +1,11 @@
 # belka-portal Specification
 
 ## Purpose
-TBD - created by archiving change add-belka-portal. Update Purpose after archive.
+
+Defines the optional PORTAL (Belka) measurement peripheral, which supplies raw
+EC and outlet temperature alongside the DE1 and scale. Covers its independence
+from machine control, shot-timeline storage, display synchronization, discovery
+and connection settings, backup restore, and status-bar reconnect.
 
 ## Requirements
 
@@ -203,7 +207,9 @@ Both PORTAL curves SHALL be advanced-mode series on every graph. Their legend en
 
 ### Requirement: A nearby unpaired PORTAL does not change the connections screen
 
-Background discovery MAY observe a PORTAL that the user has never selected. Such a discovery SHALL NOT change the Connections screen or the shared discovered-devices list until that screen has started a scan. Whether the user owns a PORTAL SHALL have one definition, exposed as `BelkaPortal.owned`, that every PORTAL-specific QML control reads; the web theme editor derives the same fact from the saved pairing. Forgetting a PORTAL SHALL also stop the transport from reconnecting to it after a Bluetooth power-cycle, and no other device's reconnect target SHALL be affected by PORTAL.
+Background discovery MAY observe a PORTAL the user has never selected. Such a
+discovery SHALL NOT change the Connections screen or the shared discovered-
+devices list until that screen has started a scan.
 
 #### Scenario: A PORTAL is nearby but the user never scans
 
@@ -219,6 +225,28 @@ Background discovery MAY observe a PORTAL that the user has never selected. Such
 
 - **WHEN** a scale's transport is disconnected by a timeout or retry
 - **THEN** its reconnect target SHALL be retained so it can reconnect after a Bluetooth power-cycle
+
+### Requirement: PORTAL ownership has one definition
+
+Whether the user owns a PORTAL SHALL have one definition, `BelkaPortal.owned`,
+that every PORTAL-specific QML control reads. The web theme editor SHALL derive
+the same fact from the saved pairing.
+
+#### Scenario: PORTAL controls read one ownership fact
+
+- **WHEN** a PORTAL-specific control decides whether to show its PORTAL state
+- **THEN** it reads `BelkaPortal.owned`, and the web theme editor reaches the same answer from the saved pairing
+
+### Requirement: Forgetting a PORTAL stops its reconnects
+
+Forgetting a PORTAL SHALL stop the transport from reconnecting to it after a
+Bluetooth power-cycle. No other device's reconnect target SHALL be affected by
+PORTAL.
+
+#### Scenario: A forgotten PORTAL is not reconnected
+
+- **WHEN** the user forgets the PORTAL and the Bluetooth stack is power-cycled
+- **THEN** no reconnect to that PORTAL is attempted, and a scale's reconnect target is unchanged
 
 ### Requirement: Restoring a partial backup preserves omitted PORTAL fields
 

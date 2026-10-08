@@ -1,7 +1,7 @@
 # steam-heater-policy Specification
 
 ## Purpose
-TBD - created by archiving change steam-heater-policy. Update Purpose after archive.
+Governs the steam heater's standing state: the two Settings toggles (Keep warm when idle and Let the recipe decide), the permission and veto model that decides whether the heater is warm, the built-in "Heater off" pitcher entry, the single derivation of the steam target, the steam readout and wake behaviour, and the migration off user-created heater-off presets.
 ## Requirements
 ### Requirement: Two independent steam heater settings
 
@@ -38,17 +38,7 @@ They SHALL be independently settable. Both SHALL default to on, for a fresh inst
 
 ### Requirement: Permission and veto model
 
-The steam heater SHALL be warm if and only if permission is granted AND no veto applies.
-
-Permission SHALL come from exactly three sources and no others: **Keep warm when idle** while the machine is awake; **Let the recipe decide** being on and the shot starting while a recipe that uses steam is active; and the user starting a steam operation. A veto SHALL be either the effective pitcher being the "Heater off" entry, or the transient steam-off toggle.
-
-Permission granted by a state SHALL persist while that state holds. Permission granted by an event (a shot starting, a steam operation) SHALL be revoked when the machine returns to Idle.
-
-Selecting a recipe SHALL NOT grant permission. It MAY change the effective pitcher, and therefore MAY apply or lift a veto, taking effect immediately.
-
-Selecting a pitcher in the pitcher row SHALL NOT grant permission either. The row expresses what the user would steam with, not whether the heater is warm: selecting the "Heater off" entry applies the veto, and selecting a real pitcher only removes it. A user may therefore leave a real pitcher selected while the heater is off, which is the normal resting state when Keep warm when idle is off.
-
-Steaming while the "Heater off" entry is selected SHALL use the live steam settings (duration, flow, temperature), which hold the values of the last real pitcher selected. The "Heater off" entry SHALL NOT carry steam values of its own.
+The steam heater SHALL be warm if and only if permission is granted AND no veto applies. A veto SHALL be either the effective pitcher being the "Heater off" entry, or the transient steam-off toggle. Permission granted by a state SHALL persist while that state holds. Permission granted by an event SHALL be revoked when the machine returns to Idle.
 
 #### Scenario: A veto beats permission
 - **WHEN** Keep warm when idle is on and the standing pitcher is "Heater off"
@@ -78,11 +68,42 @@ Steaming while the "Heater off" entry is selected SHALL use the live steam setti
 - **WHEN** both settings are off and the user starts a steam operation
 - **THEN** the steam heater is commanded on
 
+#### Scenario: Recipe selection that lifts no veto changes nothing
+
+- **WHEN** a recipe is activated while no veto applies and permission is absent
+- **THEN** the steam heater SHALL stay off
+
+### Requirement: Permission SHALL come from exactly three sources
+
+Permission SHALL come from exactly three sources: Keep warm when idle while the machine is awake; Let the recipe decide, when a shot starts while a steam-using recipe is active; and the user starting a steam operation. Selecting a recipe or a pitcher SHALL NOT grant permission.
+
+#### Scenario: Recipe activation alone grants nothing
+
+- **WHEN** both settings are off and a recipe carrying a real pitcher is activated
+- **THEN** the steam heater SHALL stay off
+
+### Requirement: Recipe selection SHALL re-resolve the effective pitcher and veto
+
+Selecting a recipe SHALL re-resolve the effective pitcher immediately, so a veto MAY be applied or lifted. The pitcher row expresses what the user would steam with, not whether the heater is warm: selecting "Heater off" SHALL apply the veto, and selecting a real pitcher SHALL only remove it.
+
+#### Scenario: A real pitcher may stay selected while the heater is off
+
+- **WHEN** Keep warm when idle is off and a real pitcher is selected with no permission granted
+- **THEN** the pitcher SHALL remain selected and the heater SHALL be off
+
+### Requirement: Steaming with Heater off selected SHALL use the live steam settings
+
+Steaming while the "Heater off" entry is selected SHALL use the live steam settings (duration, flow, temperature), which hold the values of the last real pitcher selected. The "Heater off" entry SHALL NOT carry steam values of its own.
+
+#### Scenario: Steam start with Heater off selected uses the last real pitcher's values
+
+- **GIVEN** the "Heater off" entry is selected
+- **WHEN** the user starts a steam operation
+- **THEN** the machine SHALL be commanded with the live steam duration, flow and temperature
+
 ### Requirement: The steam readout says when the heater is off
 
-Every surface that displays the steam temperature SHALL show that the heater is off, rather than a temperature, whenever the resolved target is off. This SHALL be driven by the resolved state, never by the measured boiler temperature — a heater that has just been turned off keeps reporting a high temperature for many minutes as it cools, so the measured value cannot distinguish "hot" from "cooling because it is off".
-
-This is the only indication a user gets that the heater is off while a real pitcher is still selected, which is the normal resting state for anyone who is not keeping it warm when idle.
+Every surface that displays the steam temperature SHALL show that the heater is off, rather than a temperature, whenever the resolved target is off. This SHALL be driven by the resolved state, never by the measured boiler temperature, which keeps reporting heat while the heater cools.
 
 #### Scenario: The widget reads Off, not a stale temperature
 - **WHEN** the resolved target is off and the boiler is still at 130 °C on its way down
@@ -98,11 +119,7 @@ This is the only indication a user gets that the heater is off while a real pitc
 
 ### Requirement: Waking restores the pre-sleep heater state
 
-Going to sleep SHALL NOT change any of the persistent inputs to the heater decision (the settings, the selected pitcher, the active recipe). On waking, the system SHALL re-assert the resolved target to the machine so that the heater returns to the state it was in before sleeping.
-
-When an auto-load recipe is configured, the recipe activated on wake decides the heater instead, exactly as any activation would.
-
-Permission granted by an event (a shot starting, a steam operation) SHALL NOT survive sleep.
+Going to sleep SHALL NOT change the persistent heater inputs (settings, selected pitcher, active recipe). On waking, the system SHALL re-assert the resolved target to the machine. When an auto-load recipe is configured, the recipe it activates SHALL decide the heater. Permission granted by an event SHALL NOT survive sleep.
 
 #### Scenario: A cold machine stays cold
 - **WHEN** the machine slept with the heater off and no auto-load recipe is configured
@@ -122,9 +139,7 @@ Permission granted by an event (a shot starting, a steam operation) SHALL NOT su
 
 ### Requirement: A single derivation of the steam target
 
-Exactly one function SHALL compute the steam heater state and target temperature from the settings, the effective pitcher, the transient flag, and the active recipe. Every path that writes shot settings to the machine — machine-settings sends, profile uploads, starting steam heating, turning the heater off, recipe activation — and every path that reports heater state SHALL call it. No second derivation of the steam target SHALL exist in the codebase.
-
-The target temperature SHALL be the effective pitcher's own temperature, falling back to the global steam temperature when the pitcher carries none.
+Exactly one function SHALL compute the steam heater state and target temperature from the settings, effective pitcher, transient flag and active recipe. Every path that writes shot settings to the machine or reports heater state SHALL call it, and no second derivation SHALL exist. The target SHALL be the effective pitcher's temperature, falling back to the global steam temperature when it has none.
 
 #### Scenario: A profile upload cannot contradict the heater state
 - **WHEN** a recipe activation warms the heater and a deferred profile upload completes afterwards
@@ -158,9 +173,7 @@ Its identity SHALL be an off marker, never its displayed name, so that a recipe 
 
 ### Requirement: Migration off user-created heater-off presets
 
-On first run after this change, the system SHALL remove every steam pitcher preset marked as disabled, remap `selectedSteamPitcher` so that surviving presets keep their identity, and rewrite any recipe whose steam block names a removed preset to carry the off marker. A user whose selection was a removed disabled preset SHALL end up on the built-in "Heater off" entry.
-
-The migration SHALL be idempotent and safe to re-run. Shot history SHALL NOT be rewritten; a steam snapshot naming a preset that no longer exists SHALL be tolerated without creating a preset.
+On first run, the system SHALL remove every disabled steam pitcher preset, remap `selectedSteamPitcher` so surviving presets keep their identity, and rewrite any recipe whose steam block names a removed preset to carry the off marker. A selection that was a removed preset SHALL end on the built-in "Heater off" entry. The migration SHALL be idempotent and SHALL NOT rewrite shot history.
 
 #### Scenario: The heater does not silently turn on at upgrade
 - **WHEN** a user's selected pitcher was their own Off preset
@@ -177,4 +190,9 @@ The migration SHALL be idempotent and safe to re-run. Shot history SHALL NOT be 
 #### Scenario: History is preserved
 - **WHEN** a stored shot's steam snapshot names a removed preset
 - **THEN** the shot is unchanged, and promoting it to a recipe does not create a preset
+
+#### Scenario: A stored snapshot naming a removed preset is tolerated
+
+- **WHEN** a stored shot's steam snapshot names a preset that no longer exists
+- **THEN** the shot SHALL display without error and no preset SHALL be created
 

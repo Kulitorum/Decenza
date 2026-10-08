@@ -140,16 +140,7 @@ requirement.
   across the whole catalogue
 
 ### Requirement: Palette colours that carry meaning stay readable on the page
-The semantic palette — the primary and accent colours and the warning, error and success colours,
-plus the modified and simulation indicators — carries meaning in its hue, so it SHALL NOT be
-derived from the preset the way text and card fills are. It SHALL instead be moved along its own
-axis by the smallest step that reaches a 4.5:1 contrast ratio against the page, and left untouched
-where it already clears that floor. Chart series colours are exempt: they are read against the
-chart's own surface, not the page.
-
-The reference page for this SHALL be the preset colour as the DENSEST pattern renders it, not the
-bare colour and not the pattern actually selected, so that changing pattern never repaints the
-palette.
+The semantic palette (primary, accent, warning, error, success, modified and simulation) SHALL NOT be derived from the preset. Each colour SHALL instead move along its own axis by the smallest step that reaches a 4.5:1 contrast ratio against the page, and be left untouched where it already clears that floor. The reference page SHALL be the preset colour as the DENSEST pattern renders it, so changing pattern never repaints the palette.
 
 #### Scenario: A warning is visible on a pale preset
 - **WHEN** a light preset is active
@@ -164,6 +155,10 @@ palette.
 - **WHEN** a palette colour is adjusted for a preset
 - **THEN** its hue moves by no more than 3 degrees and it stays saturated, so an amber warning
   reads as amber rather than as black
+
+#### Scenario: Chart series are exempt from the page floor
+- **WHEN** a chart series colour is evaluated
+- **THEN** it is read against the chart's own surface and is not adjusted to the page contrast floor
 
 ### Requirement: A preset is a colour, not an image
 A preset SHALL NOT be stored as a background image, and SHALL NOT be encoded as a sentinel value

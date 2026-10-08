@@ -34,31 +34,7 @@ The server SHALL NOT advertise a revision it does not serve.
 
 ### Requirement: MCP-Protocol-Version Request Header
 
-For every HTTP request other than `initialize`, the server SHALL accept the
-`MCP-Protocol-Version` request header.
-
-A request naming a version the server does not support SHALL be rejected with
-HTTP 400. A request naming a version the server DOES support SHALL be served,
-whether or not it matches the version negotiated for the session, and SHALL be
-answered under the version the header names.
-
-This narrows a previous requirement that rejected any header differing from the
-negotiated version. The protocol licenses 400 for an "invalid or unsupported"
-version only, and makes matching the negotiated one a client-side SHOULD; the
-old rule refused versions the server plainly serves, which the official
-conformance suite fails on.
-
-Honouring the header SHALL NOT alter the session's negotiated version: it
-answers one request, it does not re-version a live session.
-
-A request naming `2025-03-26` is neither of those cases: it SHALL be accepted
-and treated as an ABSENT header, selecting nothing, so the session's version
-stands. That value and a supported version SHALL NOT be handled alike — the
-former selects nothing, the latter selects itself. Honouring `2025-03-26` as a
-version would claim semantics the server does not implement.
-
-When the header is absent, the server SHALL assume the lowest revision it
-supports.
+For every HTTP request other than `initialize`, the server SHALL accept `MCP-Protocol-Version`. A supported version SHALL be served under that version even when it differs from the negotiated one, without re-versioning the session. An unsupported version SHALL get HTTP 400. `2025-03-26` SHALL be treated as an absent header. An absent header SHALL assume the lowest supported revision.
 
 #### Scenario: Header matches negotiated version
 
@@ -121,9 +97,7 @@ The server SHALL validate the `Origin` request header on every `/mcp` HTTP reque
 
 ### Requirement: Structured Tool Output
 
-Every successful `tools/call` response SHALL include a `structuredContent` field carrying the tool's result payload as a JSON object. This SHALL NOT be conditional on the negotiated version: the field is defined at the lowest revision the server serves, so no negotiable revision lacks it.
-
-The `content` array with a text content block SHALL also be emitted, for two independent reasons that both hold: `content` is required on a tool result at every revision, and the protocol separately states that a tool returning structured content SHOULD also return the serialized JSON in a text block for backwards compatibility. Either reason alone would leave the current behaviour under-specified.
+Every successful `tools/call` response SHALL include a `structuredContent` field carrying the tool's result payload as a JSON object, at every negotiable revision. The `content` array with a text content block SHALL also be emitted, because `content` is required on a tool result and the protocol asks for serialized JSON in a text block for backwards compatibility.
 
 #### Scenario: Tool returns structured payload
 - **WHEN** a client calls a tool that returns a JSON payload
@@ -168,7 +142,7 @@ Every tool record returned by `tools/list` and every resource record returned by
 
 ### Requirement: Icons on Tools and Resources
 
-Every resource record returned by `resources/list` SHALL include an `icons` array with at least one entry. Each icon entry SHALL contain `src` (a `data:image/svg+xml;base64,...` URI), `mimeType: "image/svg+xml"`, and a `sizes` field. Icon assignment SHALL be driven by resource kind. Tool records returned by `tools/list` SHALL NOT include icons: the field is optional in the protocol and cosmetic in effect, while inline base64 SVGs were 87% of the `tools/list` payload (~216 KB), 41 of 97 of them the same generic fallback.
+Every resource record returned by `resources/list` SHALL include an `icons` array with at least one entry. Each entry SHALL contain `src` (a `data:image/svg+xml;base64,...` URI), `mimeType: "image/svg+xml"`, and `sizes`, and icon assignment SHALL be driven by resource kind. Tool records returned by `tools/list` SHALL NOT include icons.
 
 #### Scenario: Tool list omits icons
 - **WHEN** a client calls `tools/list`
@@ -192,7 +166,7 @@ Every tool's `inputSchema` SHALL be a valid JSON Schema 2020-12 document and SHA
 
 ### Requirement: Set Scale Connection-Priority Mode Tool
 
-The MCP server SHALL expose a `devices_set_scale_priority_mode` tool that sets the persistent backoff policy mode to `enforce` or `observe`. It MUST require an explicit confirmation argument before applying. The change is eventually-consistent: it MUST be queued onto the BLE-manager thread and the response MUST NOT assert the persist has completed; the HIGH-forcing effect of `observe` additionally only applies on the next scale (re)connect and does NOT tear down the current connection. The response MUST state this queued, eventually-consistent contract explicitly. An unrecognized mode value MUST be rejected without changing state.
+The MCP server SHALL expose a `devices_set_scale_priority_mode` tool that sets the persistent backoff policy to `enforce` or `observe`, and MUST require an explicit confirmation argument before applying. The change is queued onto the BLE-manager thread and is eventually consistent: the response MUST NOT assert the persist has completed and MUST state that contract. An unrecognized mode MUST be rejected without changing state.
 
 #### Scenario: Set observe mode
 - **WHEN** the tool is called with `mode: "observe"` and `confirmed: true`
@@ -211,6 +185,10 @@ The MCP server SHALL expose a `devices_set_scale_priority_mode` tool that sets t
 #### Scenario: Invalid mode value
 - **WHEN** the tool is called with a `mode` other than `enforce` or `observe`
 - **THEN** the call is rejected and the persisted mode is unchanged
+
+#### Scenario: Observe takes effect on the next connect
+- **WHEN** an MCP client sets mode `observe` while a scale is connected
+- **THEN** the HIGH-forcing effect applies only on the next scale (re)connect, and the current connection is not torn down
 
 ### Requirement: Connection Status Reports Mode And Observe Events
 
@@ -247,11 +225,16 @@ The `devices_connection_status` tool SHALL report the current detection epoch an
 - **THEN** it clears the latch as before (the in-session escape hatch is unchanged by epoch scoping)
 
 ### Requirement: MCP grinder reads SHALL resolve via the equipment package
-MCP surfaces that report grinder identity — the `de1://dialing` resource (`mcpresources.cpp`), `dialing_get_context`, `dialing_get_grinder_calibration`, and `ai_advisor_invoke` — SHALL resolve grinder brand/model/burrs through the equipment package (the active bag's package for live snapshots; the resolved shot's `equipment_id` for shot-derived blocks). They SHALL additionally expose the package identity (`id`, display `name`, `rpmAdjustable`) and the `rpm` dial-in. All fields SHALL follow MCP data conventions (units in field names, `kind` as a string enum, ISO-8601 timestamps).
+
+MCP surfaces reporting grinder identity (the `de1://dialing` resource in `mcpresources.cpp`, `dialing_get_context`, `dialing_get_grinder_calibration`, `ai_advisor_invoke`) SHALL resolve brand, model and burrs through the equipment package: the active bag's package for live snapshots, the shot's `equipment_id` for shot-derived blocks. They SHALL also expose the package `id`, `name`, `rpmAdjustable` and the `rpm` dial-in.
 
 #### Scenario: Dialing resource reports the package
 - **WHEN** the `de1://dialing` resource is read
 - **THEN** the grinder block SHALL include the resolved brand/model/setting plus `rpm` and `rpmAdjustable`, sourced from the active bag's equipment package
+
+#### Scenario: Data conventions on grinder reads
+- **WHEN** a dialing MCP surface reports grinder identity
+- **THEN** units are in field names, `kind` is a string enum, and timestamps are ISO-8601
 
 ### Requirement: equipment_list tool
 The MCP server SHALL provide an `equipment` tool with an `action: "list"` (modeled on the `bag` tool's `list` action) returning equipment packages: `id`, display `name`, grinder `brand`/`model`/`burrs`, `rpmAdjustable`, `inInventory`, and the last-used grind setting and `rpm`.
@@ -326,7 +309,7 @@ flags with self-describing names (`wdt`, `shaker`, `puckScreen`, `paperFilter`,
 
 ### Requirement: Bag tools carry bean-detail fields
 
-The `bag_update` tool SHALL accept the bean-detail parameters `origin`, `region`, `farm`, `producer`, `variety`, `elevation`, `process`, `harvest`, `qualityScore`, `placeOfPurchase`, `tastingNotes`, and `link` (product URL), merging them into the bag's `beanBaseData` blob with the same merge semantics as the bag editor (preserve link identity keys; clearing a value removes the key). A `bag_update` carrying detail fields SHALL trigger the same Visualizer edit-push as an editor save. `bag_list` and the `bag_update` response SHALL emit the stored detail fields as human-readable strings.
+The `bag_update` tool SHALL accept `origin`, `region`, `farm`, `producer`, `variety`, `elevation`, `process`, `harvest`, `qualityScore`, `placeOfPurchase`, `tastingNotes` and `link`, merging them into `beanBaseData` with the editor's merge semantics. Such an update SHALL trigger the same Visualizer edit-push as an editor save. `bag_list` and `bag_update` SHALL emit stored detail fields as human-readable strings.
 
 #### Scenario: Agent adds a URL and tasting notes
 - **WHEN** an agent calls `bag_update` with `link` and `tastingNotes` for a bag
@@ -341,8 +324,13 @@ The `bag_update` tool SHALL accept the bean-detail parameters `origin`, `region`
 - **WHEN** an agent calls `bag_update` with `region` set to an empty string
 - **THEN** the `region` key SHALL be removed from the blob and absent from subsequent reads
 
+#### Scenario: Merge preserves link identity keys
+- **WHEN** a `bag_update` sets detail fields on a bag whose `link` identity keys are stored
+- **THEN** the link identity keys are preserved by the merge
+
 ### Requirement: Recipe tool family
-The MCP server SHALL register a recipe tool family (`mcptools_recipes.cpp`): `recipe_list`, `recipe_get`, `recipe_create`, `recipe_update`, `recipe_create_from_shot`, `recipe_clone`, `recipe_archive`, and `recipe_activate`. Read tools SHALL register at the read access level; mutating tools (create/update/clone/archive/activate/create_from_shot) at the write access level, matching the preset tools. `recipe_activate` SHALL invoke the same shared controller activation path as the UI. Lifecycle rules SHALL be enforced (archive-only for used recipes).
+
+The recipe tool family (`mcptools_recipes.cpp`) SHALL register `recipe_list`, `recipe_get`, `recipe_create`, `recipe_update`, `recipe_create_from_shot`, `recipe_clone`, `recipe_archive` and `recipe_activate`. Read tools SHALL register at the read access level, mutating tools at the write level. `recipe_activate` SHALL use the same shared controller path as the UI, and lifecycle rules (archive-only for used recipes) SHALL be enforced.
 
 #### Scenario: AI saves a dialed-in shot
 - **WHEN** an MCP client calls `recipe_create_from_shot` with a shot id and a name
@@ -353,7 +341,8 @@ The MCP server SHALL register a recipe tool family (`mcptools_recipes.cpp`): `re
 - **THEN** an independent recipe exists and the source recipe is unchanged
 
 ### Requirement: Recipe fields follow the data conventions
-Recipe tool responses and inputs SHALL use the house conventions: unit-suffixed field names (`doseG`, `yieldG`, `milkWeightG`, `tempOffsetC`), ISO 8601 timestamps with timezone, human-readable enum strings, and grind expressed explicitly as an object `{"mode": "inherited"|"pinned", "value": <string>}` plus the resolved effective value, so a client never guesses where grind lives. Inherited grind SHALL resolve from the recipe's linked bag. Recipe responses SHALL expose the linked bag (`bagId` plus its display identity) and a human-readable staleness indication when the linked bag is no longer in inventory; `recipe_create` and `recipe_update` SHALL accept `bagId`. The optional hot-water block SHALL be accepted on create/update and returned on read via a tool schema that mirrors the steam block's pass-through handling — the same block the recipe stores, with each field's unit documented in its schema description (as the steam block does for `flow`), and with an `order` of `before` (long black) or `after` (Americano).
+
+Recipe tool responses and inputs SHALL follow the house data conventions. Grind SHALL be an object carrying `mode` (`inherited` or `pinned`), `value`, and the resolved effective value, with inherited grind resolving from the linked bag. Responses SHALL expose the linked bag (`bagId` and display identity), and create and update SHALL accept `bagId`. The hot-water block SHALL round-trip as the steam block does.
 
 #### Scenario: Grind representation
 - **WHEN** `recipe_get` returns a recipe that inherits grind from its linked bag
@@ -371,8 +360,17 @@ Recipe tool responses and inputs SHALL use the house conventions: unit-suffixed 
 - **WHEN** a recipe holding a −3° temperature offset is returned by any recipe tool
 - **THEN** the response carries `tempOffsetC: -3` (a signed delta in °C against the recipe's profile) and no absolute recipe-temperature field
 
+#### Scenario: Hot-water order and units
+- **WHEN** a client sends a hot-water block on `recipe_create`
+- **THEN** each field's unit is documented in the tool schema, and `order` is `before` (long black) or `after` (Americano)
+
+#### Scenario: House conventions applied
+- **WHEN** a recipe response is read
+- **THEN** field names carry unit suffixes, timestamps are ISO 8601 with timezone, and enum values are human-readable strings
+
 ### Requirement: Recipe tools carry drink type and accept profile-less hot-water recipes
-The recipe tool family SHALL expose `drinkType` (human-readable string per the data conventions) on `recipe_list` and `recipe_get`, and accept it on `recipe_create`/`recipe_update` (derived from blocks when omitted; re-derived on update only when blocks change and the caller did not set it). Derivation SHALL resolve an installed profile's `beverage_type` from the profile catalog — recipes referencing installed profiles embed no profile JSON, and without the catalog a tea profile would derive as espresso. `recipe_create` and `recipe_update` SHALL accept a recipe with no profile when the payload carries a hot-water block with `hasWater` true, and SHALL reject a profile-less payload without one. `recipe_activate` on a profile-less recipe SHALL follow the shared profile-less activation path.
+
+The recipe tools SHALL expose `drinkType` on `recipe_list` and `recipe_get`, and accept it on `recipe_create` and `recipe_update`. When omitted on create it SHALL be derived from the blocks, using the installed profile's `beverage_type` from the profile catalog. A profile-less recipe SHALL be accepted only with a hot-water block whose `hasWater` is true, and `recipe_activate` SHALL follow the shared profile-less activation path.
 
 #### Scenario: Create hot-water tea recipe via MCP
 - **WHEN** an MCP client calls `recipe_create` with a name, a tea bean link, and a hot-water block but no profile
@@ -381,6 +379,14 @@ The recipe tool family SHALL expose `drinkType` (human-readable string per the d
 #### Scenario: Profile-less without hot water rejected
 - **WHEN** an MCP client calls `recipe_create` with no profile and no hot-water block
 - **THEN** the tool returns a validation error naming the rule
+
+#### Scenario: Drink type re-derived on update
+- **WHEN** `recipe_update` changes the blocks and does not set `drinkType`
+- **THEN** `drinkType` is re-derived from the new blocks
+
+#### Scenario: Tea profile derives as tea
+- **WHEN** a recipe references an installed tea profile whose embedded JSON is absent
+- **THEN** its `drinkType` derives as tea, not espresso
 
 ### Requirement: Bag tools expose kind
 `bag_list` and bag detail payloads SHALL include the bag's `kind` (`"coffee"` or `"tea"`); `bag_update` SHALL NOT accept changing it (kind is set at creation). Tea bags' structured brewing fields (teaType, brewTempC, leafGramsPer100Ml, steepTime) SHALL appear in bag payloads following the data conventions (units in field names), and `bag_update` SHALL reject tea-vocabulary writes on a coffee bag with an error naming the rule (never a silent drop).
@@ -394,7 +400,8 @@ The recipe tool family SHALL expose `drinkType` (human-readable string per the d
 - **THEN** the update is rejected or the field ignored with the response noting kind is creation-time only
 
 ### Requirement: Bags are creatable via MCP with kind stamped at creation
-The MCP server SHALL provide `bag_create` (write access level): kind `coffee` (default) or `tea`, at least one of roasterName/coffeeName required, kind-gated vocabularies in both directions (tea fields rejected on coffee creates; roastLevel/grinderSetting rejected on tea creates), details landing in the bag blob via the shared merge helper. The created bag SHALL enter the inventory but SHALL NOT become the active bag (a remote client must not silently switch what the next shot is pulled with; `bag_select` activates).
+
+The MCP server SHALL provide `bag_create` at the write access level, with kind `coffee` (default) or `tea` and at least one of roasterName or coffeeName required. Kind-gated fields SHALL be rejected in both directions, and details SHALL land in the bag blob via the shared merge helper. The created bag SHALL enter the inventory but SHALL NOT become the active bag; `bag_select` activates it.
 
 #### Scenario: Create a tea bag with brewing data
 - **WHEN** an MCP client calls `bag_create` with kind "tea", a brand/name, teaType, and brewTempC
@@ -403,6 +410,10 @@ The MCP server SHALL provide `bag_create` (write access level): kind `coffee` (d
 #### Scenario: Kind-gated create
 - **WHEN** an MCP client calls `bag_create` with kind "coffee" and a teaType
 - **THEN** the create is rejected with an error naming the tea-only fields
+
+#### Scenario: Coffee-only fields rejected on tea
+- **WHEN** an MCP client calls `bag_create` with kind "tea" and a roastLevel or grinderSetting
+- **THEN** the create is rejected with an error naming the coffee-only fields
 
 ### Requirement: Page extraction is drivable and diagnosable via MCP
 The MCP server SHALL provide `bag_extract_details` (control tier): runs the exact in-app two-stage extraction for a bag's product URL (kind selects the coffee/tea vocabulary) and returns the extracted fields WITHOUT writing them, plus diagnostics — which stage ran, the stage-1 failure when the fallback fired, the provider and model, and the fetched text size. Applying fields is the caller's explicit `bag_update`.
@@ -413,37 +424,7 @@ The MCP server SHALL provide `bag_extract_details` (control tier): runs the exac
 
 ### Requirement: Capability-URL Authorization for Remote Access
 
-When remote MCP is enabled, the remote surface SHALL authorize
-requests solely by an unguessable capability token carried as a URL
-path segment (`/mcp/<token>`), where the token is a 128-bit
-cryptographically random value generated on-device. Token comparison
-SHALL be constant-time.
-
-A request that does not carry the current token — wrong token, missing
-token, or malformed framing on a request line that names neither —
-SHALL be refused without revealing that an MCP server exists. Behind an
-embedded tunnel the refusal SHALL be no response at all, with the
-connection closed; on a bring-your-own-proxy listener it SHALL be a
-bare HTTP `404`, because there the response goes to the user's own
-reverse proxy, where a silent drop reads as a broken backend.
-
-Whether the caller holds the token SHALL be decided from the request
-line, which arrives before the header block terminates. A framing
-failure is therefore NOT by itself grounds for silence: a request line
-carrying the current token SHALL receive the `404` in either mode,
-since a silent drop is indistinguishable from a network failure and
-would leave a legitimate client retrying forever, while a caller who
-already knows the token learns nothing from the reply.
-
-Silence here SHALL NOT be described as making the endpoint invisible.
-The tunnel edge terminates TLS and serves its own error for a backend
-that hangs up, so the hostname remains visibly configured; what the
-silence withholds is any confirmation from this application.
-
-A request that DOES carry the current token SHALL receive the bare
-`404` in either mode when its method or path is not served — its
-caller has already proved it knows the token, so silence would buy
-nothing but a confused client.
+When remote MCP is enabled, requests SHALL be authorized solely by an unguessable 128-bit random token generated on-device, carried as `/mcp/<token>` and compared in constant time. A request without the current token SHALL be refused without revealing an MCP server. A request line carrying the current token SHALL receive a bare `404` in either mode, even with malformed framing, as SHALL a token holder's request for an unserved method or path.
 
 #### Scenario: Valid token
 - **WHEN** a client POSTs a JSON-RPC request to `/mcp/<token>` with the current token
@@ -476,6 +457,15 @@ nothing but a confused client.
 #### Scenario: Valid token, unserved method
 - **WHEN** a client sends a method other than `POST`, `GET` or `DELETE` to `/mcp/<token>` with the current token
 - **THEN** the server returns `404` in either mode
+
+#### Scenario: Refusal form depends on the listener
+- **WHEN** a request without the current token arrives behind an embedded tunnel
+- **THEN** the connection is closed with no response
+- **AND** on a bring-your-own-proxy listener the response is a bare HTTP `404`, because a silent drop there reads as a broken backend
+
+#### Scenario: Silence does not hide the hostname
+- **WHEN** a stranger's request is silently dropped behind the tunnel
+- **THEN** the tunnel edge still serves its own error for a backend that hangs up, so the hostname stays visibly configured, and this application confirms nothing
 
 ### Requirement: Token Rotation as Revocation
 
@@ -537,25 +527,7 @@ attempted path.
 
 ### Requirement: Reachability Mode — Embedded Tailscale Funnel
 
-In Tailscale mode, the app SHALL run an embedded tsnet node
-(userspace, no system VPN interface) that joins the user's tailnet
-and exposes the remote surface via Tailscale Funnel at a stable
-`https://<node>.<tailnet>.ts.net` URL with a certificate managed by
-Tailscale. Setup SHALL surface the tsnet login URL (link and QR) and
-any required Funnel-approval URL. Disabling remote MCP SHALL bring
-the tsnet listener down.
-
-The app SHALL provide an explicit **sign-out (forget) action** in the
-settings UI that wipes the tsnet node state directory. The action
-SHALL be reachable whenever a tsnet node exists in Tailscale mode —
-including while the node is unauthorized and waiting for login (the
-state in which a stale nodekey produces an unrecoverable login loop),
-not only when the connector is active. The action SHALL be
-confirmation-gated, warning that it clears this device's tailnet
-identity and that re-enabling requires a fresh login. After the action
-runs, re-enabling Tailscale mode SHALL bring the node up with no prior
-identity and issue a fresh tailnet login URL rather than reusing the
-wiped nodekey.
+In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet and expose the remote surface via Tailscale Funnel at `https://<node>.<tailnet>.ts.net`. Setup SHALL surface the tsnet login URL (link and QR) and any Funnel-approval URL, and disabling remote MCP SHALL stop the tsnet listener. A confirmation-gated sign-out (forget) action SHALL wipe the tsnet node state, reachable whenever a tsnet node exists, even before login.
 
 #### Scenario: First-time Tailscale setup
 - **WHEN** the user selects Tailscale mode and enables remote MCP with no prior tsnet state
@@ -580,6 +552,14 @@ wiped nodekey.
 #### Scenario: Confirmation required
 - **WHEN** the user invokes the sign-out action
 - **THEN** a confirmation dialog is shown warning that the device's tailnet identity will be cleared, and the state is wiped only if the user confirms
+
+#### Scenario: Forget warns before wiping
+- **WHEN** the user invokes sign-out (forget)
+- **THEN** a confirmation warns that the device's tailnet identity is cleared and re-enabling requires a fresh login
+
+#### Scenario: Re-enable after forget
+- **WHEN** Tailscale mode is re-enabled after forget
+- **THEN** the node starts with no prior identity and issues a fresh login URL, without reusing the wiped nodekey
 
 ### Requirement: Reachability Mode — Bring-Your-Own URL
 
@@ -625,9 +605,7 @@ connector.
 
 ### Requirement: Stateful Sessions Are Established Only by an SSE Stream
 
-The MCP server SHALL treat a session as **stateful** only once the client establishes a Server-Sent Events (SSE) stream for that session (a `GET /mcp` that succeeds and is retained for notifications). A session created solely by a `POST` `initialize` handshake, with no subsequent SSE stream, SHALL be treated as **ephemeral** and SHALL NOT retain durable server-side state beyond what is needed to answer the requests on its own connection.
-
-Access-level, confirmation-level, origin, protocol-version, and rate-limit gating SHALL apply identically to ephemeral and stateful sessions; this requirement changes only session retention, not the security surface.
+The MCP server SHALL treat a session as **stateful** only once the client establishes an SSE stream for it (a successful `GET /mcp` retained for notifications). A session created solely by a `POST` `initialize` with no SSE stream SHALL be **ephemeral** and SHALL NOT retain durable server-side state beyond answering its own connection. Access-level, confirmation-level, origin, protocol-version and rate-limit gating SHALL apply identically to both.
 
 #### Scenario: POST-only client is served without a durable session
 
@@ -659,7 +637,7 @@ The `MaxSessions` concurrency limit SHALL count only stateful (SSE-backed) sessi
 
 ### Requirement: Total Session Pool Is Bounded Against Churn Without Rejecting Clients
 
-Because ephemeral sessions are no longer bounded by the stateful concurrency limit and the `initialize` handshake is not rate-limited, the server SHALL enforce an absolute backstop on the total number of retained sessions to bound memory. When creating a session would exceed that backstop, the server SHALL evict the least-recently-active ephemeral session (never a stateful session, and never one holding a pending in-app confirmation) rather than rejecting the new session. A burst of per-request re-initialization SHALL NOT cause any client's request to be rejected.
+The server SHALL enforce an absolute backstop on the total number of retained sessions to bound memory. When creating a session would exceed it, the server SHALL evict the least-recently-active ephemeral session, never a stateful session or one holding a pending in-app confirmation, rather than rejecting the new session. A burst of per-request re-initialization SHALL NOT cause any client's request to be rejected.
 
 #### Scenario: Tight-loop initialize is bounded by eviction, not rejection
 
@@ -687,11 +665,8 @@ Ephemeral (non-SSE) session state SHALL be released by a reaping pass bounded we
 - **THEN** the server does not release that session's state until the request completes and any confirmation resolves
 
 ### Requirement: Debug log tools support substring/regex filtering
-`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `filter` string parameter and an optional `regex` boolean parameter. When `filter` is provided, only lines matching it are eligible for pagination/tail; matching is case-insensitive substring containment by default, or a case-insensitive regular expression match when `regex` is `true`. Filtering SHALL be applied before offset/limit or tail is applied.
 
-`debug_get_log`'s tool description SHALL name the subsystem markers a caller can filter on (`[Scale]`, `[DE1]`) and the severity convention that separates each subsystem's user-facing narrative from its developer detail, so retrieving what a device panel shows requires no knowledge of the source. The description SHALL also warn that a bracketed marker is a substring, not a regular expression — passed with `regex: true` it is a character class that matches almost every line, which fails by returning too much rather than erroring.
-
-No dedicated preset parameter is provided: `filter` plus `minLevel` already express these queries in a single call, and a second way to say the same thing would need precedence rules against them.
+`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `filter` string and `regex` boolean. A given `filter` makes only matching lines eligible for pagination or tail, applied before offset, limit or tail: case-insensitive substring by default, or case-insensitive regex when `regex` is `true`. The `debug_get_log` description SHALL name the markers (`[Scale]`, `[DE1]`) and warn that a marker is a substring, not a regex.
 
 #### Scenario: Substring filter narrows an app-log request
 - **WHEN** an MCP client calls `debug_get_log` with `filter: "R2 error"`
@@ -715,11 +690,7 @@ No dedicated preset parameter is provided: `filter` plus `minLevel` already expr
 
 ### Requirement: Debug log discloses what its markers do not cover
 
-`debug_get_log` SHALL accept an optional `families` boolean. When `true`, it SHALL return a census of the addressed log's line prefixes instead of log lines, computed from the file in hand rather than from any list in the source, partitioning every line into exactly one of: a REGISTERED subsystem marker, an unregistered bracketed prefix, a bare `ClassName:` prefix, or no prefix at all. Each reported prefix SHALL carry its line count and a ready-to-use `filter` expression, ordered by line count descending.
-
-The requirement exists because the tool's description names only the registered markers. A caller that searches `[Scale]`, gets a complete answer, and infers the log is marker-organised has been misled by a tool that told it only the true part — most of the log carries no registered marker, and a subsystem absent from the description is not absent from the log. The census converts "this subsystem does not exist" into "this subsystem is not searchable by marker", which is a cheaper mistake to recover from.
-
-The response SHALL state that the census describes THAT FILE and not the current build, because the log is a ring buffer spanning app versions and an unregistered prefix in it may be one since converted. An empty census SHALL name its cause — no such file, a file that could not be opened, or a file that is genuinely empty — rather than report zeros that read as a quiet log.
+`debug_get_log` SHALL accept a boolean `families` parameter that, when `true`, returns a census of the addressed file's line prefixes instead of log lines. The census SHALL partition every line into exactly one of: a registered subsystem marker, an unregistered bracketed prefix, a bare `ClassName:` prefix, or no prefix. An empty census SHALL name its cause rather than report zeros.
 
 #### Scenario: A caller with no prior knowledge finds the subsystems that exist
 
@@ -736,8 +707,17 @@ The response SHALL state that the census describes THAT FILE and not the current
 - **WHEN** an MCP client calls `debug_get_log` with `families: true` and the log file is missing or cannot be opened
 - **THEN** the response names the path and which of those states it is in, rather than returning all-zero counts
 
+#### Scenario: Census entries carry counts and filters
+- **WHEN** a census is returned
+- **THEN** each prefix carries its line count and a ready-to-use `filter` expression, ordered by line count descending
+
+#### Scenario: Census describes the file, not the build
+- **WHEN** a census is returned
+- **THEN** the response states that it describes that file, because the log is a ring buffer spanning app versions
+
 ### Requirement: App debug log supports a minimum-severity filter
-`debug_get_log` SHALL accept an optional `minLevel` parameter (`"DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL"`, ordered ascending) that restricts returned lines to that level or higher, based on the level tag already present on every persisted log line. `minLevel` SHALL combine with `filter` (a line must satisfy both to be returned). An unrecognized `minLevel` value SHALL be rejected with an `{"error": ...}` response rather than silently matching every line. `shots_get_debug_log` SHALL accept `minLevel` without error but ignore it, since the shot debug log carries no level tagging.
+
+`debug_get_log` SHALL accept an optional `minLevel` (`"DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL"`) that restricts returned lines to that level or higher, based on the level tag on every persisted line. It SHALL combine with `filter`, so a line must satisfy both. An unrecognized value SHALL be rejected with an `{"error": ...}` response. `shots_get_debug_log` SHALL accept `minLevel` without error and ignore it.
 
 #### Scenario: Only warnings and errors from the current session
 - **WHEN** an MCP client calls `debug_get_log` with `session: -1, minLevel: "WARN"`
@@ -756,7 +736,8 @@ The response SHALL state that the census describes THAT FILE and not the current
 - **THEN** the response is `{"error": ...}` naming the invalid value, rather than returning every line unfiltered
 
 ### Requirement: Debug log tools support a tail mode
-`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `tail` integer parameter. When its value (after clamping negatives to zero) is greater than zero, the response contains the last `tail` qualifying lines (after any `filter`/`minLevel` is applied) of the addressed range — the whole log, the addressed session, or the shot's debug log — without requiring a prior call to determine the total line count, and `hasMore` SHALL be reported as `false`. When both a positive `tail` and `offset` are supplied, `tail` SHALL take precedence and `offset` SHALL be ignored. A `tail` of zero or a negative value SHALL be treated identically to `tail` being omitted — in particular, `hasMore` SHALL continue to reflect whether more qualifying lines exist beyond the returned page, not be forced to `false`.
+
+`debug_get_log` and `shots_get_debug_log` SHALL accept an optional integer `tail` that returns the last `tail` qualifying lines (after `filter` and `minLevel`) of the addressed range, with `hasMore` `false`, without needing the total line count. A positive `tail` SHALL take precedence over `offset`. A `tail` of zero or less SHALL behave as if omitted, with `hasMore` still reflecting lines beyond the page.
 
 #### Scenario: Tail of the current session
 - **WHEN** an MCP client calls `debug_get_log` with `session: -1, tail: 100`
@@ -782,7 +763,8 @@ The response SHALL state that the census describes THAT FILE and not the current
 - **THEN** each entry in the response's `lines` array carries the absolute line number of that match within the addressed range, in addition to the existing `log` string
 
 ### Requirement: Debug log tools support consecutive-line deduplication
-`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `dedupe` boolean parameter. When `true`, consecutive lines within the already-filtered/leveled candidate list that are identical once each line's own leading `[<elapsed>]` timestamp field is stripped SHALL be collapsed into a single entry, applied before `tail`/`offset`/`limit`. Each collapsed entry in the `lines` array SHALL carry `count` (the number of consecutive occurrences collapsed) and `lastLine` (the absolute line number of the last occurrence), in addition to the existing `line`/`text` (describing the first occurrence). Non-consecutive occurrences of the same message elsewhere in the addressed range SHALL NOT be collapsed together. When `dedupe` is omitted or `false`, `count`/`lastLine` SHALL NOT appear and the response is unaffected.
+
+`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `dedupe` boolean. When `true`, consecutive lines that are identical once their leading `[<elapsed>]` timestamp is stripped SHALL collapse into one entry, applied before `tail`, `offset` and `limit`. Each collapsed entry SHALL carry `count` and `lastLine` (the absolute line number of the last occurrence) alongside `line` and `text`. Non-consecutive repeats SHALL NOT be collapsed.
 
 #### Scenario: A repeated burst collapses to one entry
 - **WHEN** an MCP client calls `debug_get_log` with `dedupe: true` over a range where the same warning fires 3 times consecutively (identical text apart from each line's own timestamp)
@@ -817,26 +799,7 @@ The app debug log's session-boundary index (used by `debug_get_log`'s `sessions=
 
 ### Requirement: A Terminated Session Is Rejected With HTTP 404
 
-When a client ends a session with an explicit `DELETE`, the server SHALL
-remember that session ID and SHALL respond HTTP 404 to any subsequent request
-carrying it — on any HTTP method, not only POST — so the client learns to start
-a new session.
-
-Sessions the server ends on its own initiative — idle expiry, orphan collection,
-or eviction under a pool limit — SHALL NOT be recorded. Each of those ends a
-session belonging to a client that is expected to return, and rejecting it would
-defeat the recovery path described below. This is a deliberate shortfall against
-the specification, which does not distinguish who ended the session; it SHALL be
-revisited only against evidence from live clients.
-
-A session ID the server does not recognize and has not recorded as terminated
-SHALL continue to be served by the existing recovery path rather than rejected,
-because the server cannot distinguish an ID it issued before a restart from one
-it never issued, and per-request re-initializing clients depend on that path.
-
-The record of terminated session IDs SHALL be bounded. When the bound is
-reached, the oldest record SHALL be dropped, and the ID it described SHALL
-thereafter be treated as unrecognized.
+After an explicit `DELETE`, the server SHALL record the session ID and respond HTTP 404 to any later request carrying it, on any method. Sessions the server ends itself (idle expiry, orphan collection, pool eviction) SHALL NOT be recorded. An unrecognized session ID SHALL continue to be served by the recovery path rather than rejected. The record SHALL be bounded, and when full the oldest record SHALL be dropped.
 
 #### Scenario: Request after explicit termination
 
@@ -862,6 +825,14 @@ thereafter be treated as unrecognized.
 
 - **WHEN** a client POSTs `initialize` carrying a terminated session ID
 - **THEN** the server creates a new session and responds normally
+
+#### Scenario: Bounded record drops the oldest
+- **WHEN** the record of terminated session IDs reaches its bound
+- **THEN** the oldest record is dropped, and its ID is thereafter treated as unrecognized
+
+#### Scenario: Server-ended sessions stay recoverable
+- **WHEN** the server ends a session on its own initiative
+- **THEN** the ID is not recorded, a deliberate shortfall against the specification that is revisited only against evidence from live clients
 
 ### Requirement: Resource Contents Carry Only Schema-Defined Fields
 
@@ -911,19 +882,7 @@ insufficient for the caller — SHALL continue to return `-32603`.
 
 ### Requirement: SSE Streams Prime Clients For Reconnection
 
-On opening an SSE stream, the server SHALL immediately send a `retry` field
-giving the interval a client should wait before reconnecting, and one event
-carrying an event ID and NO `data` field. The `data` field SHALL be omitted: a
-`data` field appends its value and a newline to the event buffer, so an event
-carrying an empty `data` is dispatched to the client as a message with empty
-content, which a client parsing message data as JSON cannot consume.
-
-Every subsequent event on the stream SHALL carry an event ID unique across all
-streams within the session.
-
-The server SHALL NOT be required to replay missed events: a `Last-Event-ID`
-request header MAY be ignored, and the client recovers by re-reading the
-resource named in any notification it missed.
+On opening an SSE stream the server SHALL immediately send a `retry` field and one event carrying an event ID and NO `data` field, since an empty `data` would be dispatched as an empty message. Every later event SHALL carry an event ID unique across all streams in the session. The server MAY ignore `Last-Event-ID` and is not required to replay missed events.
 
 #### Scenario: Stream opens
 
@@ -942,21 +901,7 @@ resource named in any notification it missed.
 
 ### Requirement: The Server Conforms To Every Protocol Revision It Advertises
 
-Advertising a protocol revision is a claim to implement it. The server SHALL
-conform to every revision it advertises, legacy revisions included.
-
-Where the protocol's own conformance suite covers a revision, conformance SHALL
-be verified against it rather than against this project's tests alone. Where it
-does not — the suite does not cover every revision this server advertises — a
-green run SHALL NOT be reported as evidence about the revisions it did not
-exercise.
-
-Where the server deviates from a revision it advertises, the deviation SHALL be
-deliberate, SHALL be recorded at the point in the code where it occurs, and
-SHALL state what it protects. A deviation that exists to keep a real client
-working is permitted; an unexamined one is not.
-
-A revision the server cannot conform to SHALL NOT be advertised.
+The server SHALL conform to every protocol revision it advertises, legacy revisions included, and SHALL NOT advertise a revision it cannot conform to. Where the protocol's conformance suite covers a revision, conformance SHALL be verified against it, and a green run SHALL NOT be reported as evidence about revisions it did not exercise. Any deviation SHALL be deliberate, recorded where it occurs, and state what it protects.
 
 #### Scenario: An advertised revision is exercised
 
@@ -977,6 +922,10 @@ A revision the server cannot conform to SHALL NOT be advertised.
 
 - **WHEN** the server cannot conform to a revision
 - **THEN** that revision is absent from the list of versions the server advertises
+
+#### Scenario: Permitted deviation
+- **WHEN** a deviation exists to keep a real client working
+- **THEN** it is permitted, while an unexamined deviation is not
 
 ### Requirement: Session Requirements Govern The Legacy Era Only
 
@@ -1046,17 +995,7 @@ marked cacheable beyond that caller.
 
 ### Requirement: A Remote Caller Is Named By Something A Proxy Cannot Collapse
 
-Where the remote listener is one an embedded tunnel proxies into, every
-client reaches it from loopback and the peer address identifies nobody.
-Log lines and rate-limiter keys for such a caller SHALL use a label that
-says the request came from the public internet, never the proxied
-loopback address. That label SHALL be produced once, by the listener
-that knows its own exposure, and supplied to any other component that
-keys or reports on the caller — a second derivation is free to drift
-from the first, and the two would then disagree about who was refused.
-
-A listener that is NOT tunnel-proxied SHALL keep the peer address,
-where it is a genuine peer.
+Where an embedded tunnel proxies the remote listener, every client arrives from loopback, so log lines and rate-limiter keys for such a caller SHALL use a label stating the request came from the public internet. That label SHALL be produced once by the listener that knows its exposure and supplied to every other component that keys or reports on the caller. A listener that is not tunnel-proxied SHALL keep the peer address.
 
 #### Scenario: Rejection behind a tunnel
 - **WHEN** an unauthorized request arrives on a tunnel-proxied listener
@@ -1068,21 +1007,7 @@ where it is a genuine peer.
 
 ### Requirement: An Unauthenticated Caller Cannot Fill The Debug Log
 
-The debug log is a fixed-size buffer shared by every subsystem, and the
-remote surface is reachable by anyone who finds the public URL. The
-number of log lines a caller that fails authorization can cause SHALL
-be bounded well below one per request.
-
-The per-source failed-token budget SHALL be small enough to reflect
-that nothing is learned from repetition: a client holding a valid token
-never fails the check, and a person who pasted a truncated URL retries
-once or twice. Beyond the budget, the connection SHALL be dropped
-rather than answered.
-
-Bounding SHALL NOT mean going silent about scale. After the
-per-request lines stop, the system SHALL still record the running
-count at increasing intervals, so a submitted log distinguishes a
-single stray probe from sustained hammering.
+The number of log lines an unauthorized caller can cause SHALL be bounded well below one per request. The per-source failed-token budget SHALL be small, and beyond it the connection SHALL be dropped rather than answered. Bounding SHALL NOT mean going silent about scale: after per-request lines stop, the running count SHALL still be recorded at increasing intervals.
 
 #### Scenario: Sustained rejection
 - **WHEN** one source sends many more unauthorized requests than the budget within a minute
@@ -1092,17 +1017,13 @@ single stray probe from sustained hammering.
 - **WHEN** unauthorized requests from one source continue past the point where per-request logging stops
 - **THEN** the log still receives lines carrying the running count for that minute
 
+#### Scenario: A valid token never counts toward the budget
+- **WHEN** a client holding a valid token makes requests
+- **THEN** no request fails the check, so the budget never applies to it
+
 ### Requirement: settings_set applies Brew Settings values as brew overrides
 
-`settings_set` SHALL apply the Brew Settings fields the way Brew Settings OK does, without starting a shot and without editing the profile:
-
-- `targetWeight` (grams) SHALL arm an absolute yield override; `yieldRatio` SHALL arm a ratio yield override. Sending both SHALL be rejected. `0` for either SHALL clear the yield override. An absolute equal to the profile's own target SHALL NOT count as an override.
-- `espressoTemperature` SHALL set the temperature override, or clear it when the value equals the profile's temperature, and re-upload the profile. Values outside 70-100 °C SHALL be rejected.
-- A `targetWeight`, `yieldRatio` or `espressoTemperature` that is not a non-negative number SHALL be rejected, with nothing written.
-- `clearBrewOverrides: true` SHALL restore the baseline: the yield anchor of the active recipe or bag when one designs a yield (otherwise no yield override), and the recipe's temperature (profile temperature plus its offset) or the profile's.
-- `dyeBeanWeight`, `dyeGrinderSetting` and `dyeGrinderRpm` keep their meaning; a dose written in the same call SHALL apply before a ratio resolves.
-- `ratioPreset1`-`ratioPreset3`, `doseCupTareWeight` and `doseCaptureSoundEnabled` SHALL write those settings. Non-numeric values and a non-boolean `clearBrewOverrides` SHALL be rejected; `clearBrewOverrides` SHALL be refused while the active recipe is still loading.
-- The reply SHALL carry a `brew` object read after the change applied — `targetWeightG`, `brewYieldMode`, `brewYieldValue`, `espressoTemperatureC` — with a `note` when the result differs from the request.
+`settings_set` SHALL apply Brew Settings fields as Brew Settings OK does, without starting a shot or editing the profile. Sending both `targetWeight` and `yieldRatio` SHALL be rejected, and `0` for either SHALL clear the yield override. `espressoTemperature` SHALL be 70-100 °C. A non-numeric or negative value SHALL be rejected with nothing written. The reply SHALL carry a `brew` object read after the change, with a `note` when it differs.
 
 #### Scenario: Dialing a ratio over MCP
 - **WHEN** the dose is 18 g and a client calls `settings_set` with `yieldRatio: 2.5`
@@ -1124,13 +1045,49 @@ single stray probe from sustained hammering.
 - **WHEN** the active bag saves `{2.0, ratio}`, the session anchor is `{40, absolute}`, and a client calls `settings_set` with `clearBrewOverrides: true`
 - **THEN** the session anchor is `{2.0, ratio}`
 
+#### Scenario: Target equal to the profile is not an override
+- **WHEN** `targetWeight` equals the profile's own target
+- **THEN** no yield override is armed
+
+#### Scenario: Temperature equal to the profile clears the override
+- **WHEN** `espressoTemperature` equals the profile's temperature
+- **THEN** the temperature override is cleared and the profile is re-uploaded
+
+#### Scenario: Clear restores the recipe temperature
+- **WHEN** `clearBrewOverrides` is `true` and a recipe is active
+- **THEN** the temperature returns to the recipe's (profile temperature plus offset), or the profile's if no recipe is active, and the yield returns to the recipe or bag anchor when it designs one
+
+#### Scenario: Dose applies before the ratio resolves
+- **WHEN** `dyeBeanWeight` is written in the same call as `yieldRatio`
+- **THEN** the dose applies before the ratio resolves, and `dyeGrinderSetting` and `dyeGrinderRpm` keep their meaning
+
+#### Scenario: Preset and tare settings write
+- **WHEN** `ratioPreset1`-`ratioPreset3`, `doseCupTareWeight` or `doseCaptureSoundEnabled` is sent
+- **THEN** the setting is written, a non-numeric value or non-boolean `clearBrewOverrides` is rejected, and `clearBrewOverrides` is refused while the active recipe is loading
+
 ### Requirement: settings_get reports Brew Settings state
 
-`settings_get` category `espresso` SHALL report: `targetWeightG` as the target the machine will stop at and `espressoTemperatureC` as the temperature it will brew at; `brewYieldMode` and `brewYieldValue` (the session anchor); `yieldRatio` (the effective ratio, or 0); `hasTemperatureOverride` and `temperatureOverrideC`; `baselineYieldMode`, `baselineYieldValue`, `baselineYieldSource` (`recipe`, `bag` or `profile`), `baselineTemperatureC`; `yieldIsRealOverride` and `temperatureIsRealOverride`; `yieldPersistTarget` (`recipe`, `bag` or empty — where Update Recipe/Bag would write); `lastUsedRatio`, `ratioPreset1`-`ratioPreset3`, `doseCupTareWeightG` and `doseCaptureSoundEnabled`.
+`settings_get` category `espresso` SHALL report `targetWeightG` (the stop target), `espressoTemperatureC` (the brew temperature), `brewYieldMode` and `brewYieldValue` (the session anchor), `yieldRatio` (the effective ratio, or 0), `hasTemperatureOverride` and `temperatureOverrideC`, and `yieldIsRealOverride` and `temperatureIsRealOverride`.
 
 #### Scenario: A ratio-anchored session reads back
 - **WHEN** the session anchor is `{2.5, ratio}` and the dose is 18 g
 - **THEN** `settings_get` category `espresso` returns `brewYieldMode: "ratio"`, `brewYieldValue: 2.5`, `targetWeightG: 45`
+
+### Requirement: settings_get reports the baseline and persist target
+
+`settings_get` SHALL report `baselineYieldMode`, `baselineYieldValue`, `baselineYieldSource` (`recipe`, `bag` or `profile`) and `baselineTemperatureC`, and `yieldPersistTarget` (`recipe`, `bag` or empty, where Update Recipe or Update Bag would write).
+
+#### Scenario: Persist target names where Update would write
+- **WHEN** a recipe supplies the session's yield anchor
+- **THEN** `yieldPersistTarget` is `recipe`
+
+### Requirement: settings_get reports ratio presets and dose settings
+
+`settings_get` SHALL report `lastUsedRatio`, `ratioPreset1`-`ratioPreset3`, `doseCupTareWeightG` and `doseCaptureSoundEnabled`.
+
+#### Scenario: Presets read back
+- **WHEN** an MCP client calls `settings_get` for category `espresso`
+- **THEN** the three ratio presets, the cup tare weight and the capture-sound flag are present
 
 ### Requirement: profiles_edit_params saves a profile temperature like Update Profile
 

@@ -76,21 +76,8 @@ The post-shot review's bean summary SHALL show the shot's frozen, thaw and opene
 ## MODIFIED Requirements
 
 ### Requirement: Bag tracks current freeze/defrost state
-A bag SHALL store `frozenDate` (nullable date), `defrostDate` (nullable date), `storageHint` (nullable enum: `counter` / `airtight` / `vacuum-sealed` / `fridge`), and `openedDate` (nullable date) representing the bag's current portion's lifecycle. These fields do NOT accumulate — only the current portion is tracked. The full defrost/open history is reconstructable from the shot snapshot fields.
 
-`openedDate` is the non-frozen analogue of `defrostDate`: the day the current portion started being actively used at room temperature. A bag may carry `openedDate` with no `frozenDate`/`defrostDate` at all (never frozen), or may carry both (frozen, later thawed, then opened by that portion's first shot) — the two pairs are independent.
-
-These fields describe **three orthogonal axes**, and no axis SHALL gate, hide, or clear another:
-
-| Axis | Fields | Question answered |
-|---|---|---|
-| Freezer | `frozenDate`, `defrostDate` | Is it in the freezer; when did this portion leave? |
-| Container | `storageHint` | How is it kept when NOT in the freezer? |
-| Use | `openedDate` | When did this portion start being used at room temperature? |
-
-`storageHint` is the **out-of-freezer storage plan** — forward-looking on a frozen bag ("when this is thawed, it goes in a vacuum jar"), descriptive on a thawed or never-frozen one. It SHALL be settable and retained in every freeze state. The enum has no `"frozen"` value, and whether a bag is frozen SHALL remain determined solely by `frozenDate` being set; because the two fields answer different questions, they cannot disagree, and no clearing or hiding is required to keep them consistent.
-
-**Beans are frozen in portions and pulled out one at a time.** A frozen bag therefore keeps portions in the freezer indefinitely: `frozenDate` describes how the BAG is stored, and `defrostDate` records when the CURRENT PORTION left the freezer — not the bag. `isFrozen` staying true after a thaw is correct, and "Thaw" SHALL remain available on a thawed bag to record the next portion coming out (see "Multiple portions over time"). A gate needing "beans are in use at room temperature right now" SHALL test `frozenDate` empty **OR** `defrostDate` set — it SHALL NOT be expressed as "nothing is in the freezer", which is never true of a frozen bag.
+A bag SHALL store, for its current portion only, `frozenDate`, `defrostDate`, `storageHint` (`counter`, `airtight`, `vacuum-sealed` or `fridge`) and `openedDate`, all nullable; shot snapshots keep the history. These are three independent axes (freezer, container, use), and none SHALL gate, hide or clear another. Whether a bag is frozen SHALL be decided by `frozenDate` alone; beans are frozen in portions, so a thawed bag stays frozen.
 
 #### Scenario: Bag with active frozen portion
 - **WHEN** a bag has `frozenDate` set and `defrostDate` set
@@ -119,8 +106,20 @@ These fields describe **three orthogonal axes**, and no axis SHALL gate, hide, o
 - **THEN** all three values SHALL coexist
 - **AND** the freshness aging anchor SHALL remain unaffected — `storageHint` contributes no date, so a plan with no thaw date yields no aging anchor
 
+#### Scenario: Storage hint is a plan on a frozen bag
+
+- **WHEN** a frozen bag carries `storageHint = "vacuum-sealed"`
+- **THEN** it SHALL mean where a thawed portion goes, and SHALL be settable and kept in every freeze state; the enum has no `"frozen"` value
+
+#### Scenario: Beans in use are tested by portion, not by freezer contents
+
+- **WHEN** any feature needs "beans are in use at room temperature right now"
+- **THEN** it SHALL test `frozenDate` empty OR `defrostDate` set, never "nothing is in the freezer", which is never true of a frozen bag
+- **AND** "Thaw" SHALL stay available on a thawed bag for the next portion
+
 ### Requirement: Freeze toggle available in Change Beans dialog
-The bag creation form (in the Change Beans dialog) SHALL include a freeze toggle (always visible — no expander). A `storageHint` dropdown (values: Counter / Airtight container / Vacuum-sealed / Fridge) SHALL be **always visible, regardless of the freeze toggle**, because it records the out-of-freezer storage plan rather than present state — a plan is meaningful, and most useful, precisely while the bag is frozen. The freeze toggle SHALL NOT hide, disable, or clear `storageHint` or `openedDate`; the fields lie on independent axes and there is no state in which the control has nothing to say.
+
+The bag creation form (in the Change Beans dialog) SHALL include an always-visible freeze toggle and an always-visible `storageHint` dropdown (Counter / Airtight container / Vacuum-sealed / Fridge), since a storage plan matters most while the bag is frozen. The freeze toggle SHALL NOT hide, disable or clear `storageHint` or `openedDate`.
 
 #### Scenario: Creating a bag with freeze enabled
 - **WHEN** the user enables the freeze toggle

@@ -1,20 +1,11 @@
 # layout-widget-gesture-overrides Specification
 
 ## Purpose
-TBD - created by archiving change add-widget-gesture-overrides. Update Purpose after archive.
+Lets each built-in action widget (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites and Settings) carry a per-instance long-press or double-click action drawn from the Custom-widget catalog. Covers the reserved-gesture rule for widgets whose tap runs an operation, unchanged default behaviour, identical rendering in both widget formats, and matching gesture editing in both layout editors.
 ## Requirements
 ### Requirement: Built-in action widgets accept per-instance gesture overrides
 
-The following widget types SHALL accept a per-instance long-press and/or double-click
-action chosen from the Custom-widget action catalog: Recipes, Beans, Steam, Hot Water,
-Equipment, Flush, Profiles, History, Favorites, Settings.
-
-An override SHALL be stored per widget INSTANCE, so two copies of the same widget type can
-carry different gestures. It SHALL be stored through the existing item-property mechanism,
-requiring no new settings and no schema change.
-
-The set of actions offered SHALL be the same catalog the Custom widget uses, filtered by
-the same page contexts, so an action available on one is available on the other.
+The ten built-in action widgets (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites and Settings) SHALL accept a per-instance long-press and/or double-click action. An override SHALL be stored per widget INSTANCE through the existing item-property mechanism, with no new settings and no schema change, so two copies of one type MAY carry different gestures.
 
 #### Scenario: Long-press override on a built-in widget
 
@@ -32,22 +23,18 @@ the same page contexts, so an action available on one is available on the other.
 - **WHEN** the gesture picker is opened for a built-in widget
 - **THEN** it offers the same actions, with the same labels and context filtering, as the Custom widget's picker
 
+### Requirement: The gesture picker SHALL offer the Custom widget's action catalog
+
+The actions offered for a built-in widget SHALL be the same catalog the Custom widget uses, with the same labels and the same page-context filtering, so an action available on one is available on the other.
+
+#### Scenario: Built-in and Custom pickers match
+
+- **WHEN** the gesture picker is opened for a built-in widget and for the Custom widget in the same context
+- **THEN** both SHALL offer the same action labels
+
 ### Requirement: A widget whose page is only reachable by gesture keeps one gesture for it
 
-Widget types whose tap runs an operation rather than opening a page — Recipes, Beans,
-Steam, Hot Water, Equipment, Flush, Profiles — reach their page ONLY through long-press and
-double-click, both of which open it today. For these, EXACTLY ONE of the two gestures SHALL
-be overridable. Once the user overrides one, the other SHALL remain bound to opening the
-widget's page and SHALL NOT be overridable.
-
-The editor SHALL show the reserved gesture as reserved — visibly present, not offered for
-editing, and labelled with the destination it opens — rather than accepting an override and
-discarding it, or silently omitting the slot.
-
-Widget types whose TAP already opens their page — History, Favorites, Settings — have no
-such constraint, and BOTH gestures SHALL be overridable.
-
-The user SHALL choose WHICH of the two gestures carries the override; neither is fixed.
+Widgets whose tap runs an operation (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles) reach their page ONLY through long-press and double-click. Exactly ONE of those two gestures SHALL be overridable. Once the user overrides one, the other SHALL stay bound to opening the page and SHALL NOT be overridable. The user SHALL choose which of the two gestures carries the override.
 
 #### Scenario: Overriding one gesture reserves the other
 
@@ -74,6 +61,24 @@ The user SHALL choose WHICH of the two gestures carries the override; neither is
 - **WHEN** any one-slot widget carries a gesture override
 - **THEN** its page remains reachable from that widget by the reserved gesture
 
+### Requirement: History, Favorites and Settings SHALL keep both gestures overridable
+
+Widgets whose tap already opens their page (History, Favorites and Settings) SHALL have BOTH gestures overridable, with no reserved slot.
+
+#### Scenario: Settings widget takes both gestures
+
+- **WHEN** a user assigns actions to both long-press and double-click on the Settings widget
+- **THEN** both SHALL be accepted and neither SHALL be reserved
+
+### Requirement: The editor SHALL show the reserved gesture as reserved
+
+The editor SHALL show the reserved gesture visibly, labelled with the destination it opens. It SHALL NOT offer the reserved gesture for editing, and SHALL NOT accept and discard an override or silently omit the slot.
+
+#### Scenario: Reserved gesture names its destination
+
+- **WHEN** a one-slot widget carries an override on one gesture
+- **THEN** the other gesture SHALL be shown as reserved and labelled with the page it opens
+
 ### Requirement: Defaults are unchanged until an override is stored
 
 A widget instance with no stored gesture override SHALL behave exactly as it does today, on
@@ -95,14 +100,7 @@ appearance, live state and highlight rules SHALL be unaffected.
 
 ### Requirement: Overrides apply in both render formats
 
-These widgets render two ways: compiled to the Custom widget's renderer in the center and
-action zones, and as their own dedicated component elsewhere. A stored gesture override
-SHALL take effect in BOTH, identically.
-
-In the compiled path, stored per-instance properties SHALL take precedence over the
-compiled defaults. (Today the compiled merge rebuilds the item from its type and id and
-copies only compiled keys, so a stored property is discarded — that is the specific defect
-this requirement closes.)
+These widgets render two ways: compiled through the Custom widget's renderer in the center and action zones, and as their own dedicated component elsewhere. A stored gesture override SHALL take effect identically in both. In the compiled path, stored per-instance properties SHALL take precedence over the compiled defaults, and the compiled merge SHALL NOT discard them.
 
 #### Scenario: Compiled format honours the override
 

@@ -2,9 +2,7 @@
 
 ### Requirement: Standalone shot block carries stoppedBy
 
-The standalone shot JSON block emitted by `ShotSummarizer::buildShotBlock` (as part of the `shot` field on `buildUserPromptObject`'s output) SHALL include `stoppedBy` when the saved value is one of `"manual"`, `"weight"`, or `"volume"`. This mirrors the field's allowlist on dialing-context surfaces (`bestRecentShot`, `dialInSessions[].history`), giving the LLM a stop-reason anchor on every shot-analysis prompt rather than only on dial-in surfaces.
-
-The allowlist intentionally omits `"profileEnd"` and the empty string. The system-prompt rubric already documents how the model should treat an absent field (profile-end vs DE1 hardware button — the BLE protocol cannot distinguish), and emitting `"profileEnd"` explicitly would conflict with the rubric's "ABSENT" branch.
+The standalone shot block from `ShotSummarizer::buildShotBlock` (the `shot` field of `buildUserPromptObject`) SHALL include `stoppedBy` when the saved value is `"manual"`, `"weight"` or `"volume"`, the same allowlist as the dialing-context surfaces. It SHALL NOT emit `"profileEnd"` or an empty value: the system-prompt rubric already defines what an absent field means.
 
 #### Scenario: SAW-stopped shot emits stoppedBy: "weight"
 

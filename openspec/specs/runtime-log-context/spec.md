@@ -6,10 +6,7 @@ Retain available origin context and message boundaries so framework diagnostics 
 ## Requirements
 
 ### Requirement: Available diagnostic context survives persistence
-
-The persisted log SHALL retain supplied category and source location information for warning-or-higher runtime diagnostics when available. File paths SHALL be normalized to a portable source or QML location where possible. A diagnostic lacking origin information SHALL retain its message and original severity without inventing a file, line, component, active page or stack.
-
-Unattributed incoming messages SHALL be retrievable under a registered runtime-diagnostic marker. Applying that fallback SHALL NOT be accepted as proof that first-party source logging conforms to the subsystem convention.
+The persisted log SHALL retain supplied category and source location for warning-or-higher runtime diagnostics when available, normalized to a portable source or QML location where possible. A diagnostic lacking origin information SHALL keep its message and original severity without inventing a file, line, component, active page or stack.
 
 #### Scenario: A QML warning includes a source location
 
@@ -26,11 +23,13 @@ Unattributed incoming messages SHALL be retrievable under a registered runtime-d
 - **WHEN** an app-owned call is captured through the unattributed runtime fallback
 - **THEN** it remains a source-conformance failure rather than being counted as a successfully migrated subsystem event
 
+#### Scenario: Unattributed message uses the runtime marker
+- **WHEN** an incoming message carries no origin information
+- **THEN** it is retrievable under the registered runtime-diagnostic marker
+- **AND** applying that fallback SHALL NOT be accepted as proof that first-party source logging conforms to the subsystem convention
+
 ### Requirement: Every physical diagnostic line is independently filterable
-
-Each persisted physical line of a runtime message SHALL carry the elapsed-time prefix, severity and registered subsystem marker, plus its emitter context where applicable. Multiline message content SHALL retain its order and subsystem membership when filtered or paginated. Content resembling a session marker SHALL remain message content and SHALL NOT introduce a session.
-
-Rows emitted as part of a multi-event diagnostic dump SHALL identify their dump and owner, so concurrent dumps or a page beginning after the header do not make attribution ambiguous.
+Each persisted physical line of a runtime message SHALL carry the elapsed-time prefix, severity and registered subsystem marker, plus emitter context where applicable. Multiline content SHALL keep its order and subsystem membership when filtered or paginated. Content resembling a session marker SHALL remain message content and SHALL NOT introduce a session.
 
 #### Scenario: A multiline warning is filtered by severity
 
@@ -46,6 +45,10 @@ Rows emitted as part of a multi-event diagnostic dump SHALL identify their dump 
 
 - **WHEN** a multiline diagnostic contains text resembling a session-start banner
 - **THEN** session enumeration treats it as prefixed message content rather than a new session
+
+#### Scenario: Dump rows identify their dump
+- **WHEN** rows are emitted as part of a multi-event diagnostic dump
+- **THEN** each row identifies its dump and owner, so concurrent dumps or a page starting after the header stay unambiguous
 
 ### Requirement: Formatting preserves existing readers and logging lifecycle
 

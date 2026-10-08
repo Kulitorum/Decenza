@@ -5,9 +5,12 @@ The single source of truth for which per-instance option keys (display mode, col
 ## Requirements
 ### Requirement: Widget option capabilities are declared in one schema
 
-The set of per-instance option keys each layout widget type supports (for example `displayMode`, `color`, `dataMode`, `showRatio`) SHALL be declared in a single capability schema, defined in exactly one place in the codebase. The schema SHALL map widget type → list of supported option keys. A widget type absent from the schema (or mapped to an empty list, for types whose editor is bespoke, such as `custom`, `sleep`, and screensavers, which the schema SHALL still gate as configurable) has no readout options.
-
-Adding a new option to an existing readout type, or adding a new readout type with standard options, SHALL require changing only the schema plus the code that renders the option's effect — no editor, gate, or web-mirror edits.
+Per-instance option keys for each layout widget type (for example `displayMode`,
+`color`, `dataMode`, `showRatio`) SHALL be declared in one capability schema
+mapping type to option keys. A type absent from the schema has no readout
+options. Bespoke-editor types with no keys (`custom`, `sleep`, screensavers)
+SHALL still be gated as configurable. Adding an option SHALL change only the
+schema and the code that renders its effect.
 
 #### Scenario: Schema declares scale weight's full option set
 
@@ -56,7 +59,12 @@ A single readout options editor SHALL replace the per-type readout popups (`Disp
 
 ### Requirement: The schema declares each type's default display mode
 
-The readout capability schema SHALL additionally declare, for each type that supports `displayMode`, which mode an absent stored value means (the type's "today's rendering" default — `icon` for `batteryLevel` and `scaleBattery`, `text` for the rest). All consumers — the unified readout options editor, the web editor's option forms, and the widget item components — SHALL derive the default from the schema instead of hand-coding the type list. The invariant is unchanged: an absent stored `displayMode` always renders exactly as the widget did before per-instance display modes existed.
+The schema SHALL declare, for each `displayMode`-capable type, the mode an
+absent stored value means: `icon` for `batteryLevel` and `scaleBattery`, `text`
+for the rest. Every consumer (the unified options editor, the web editor's
+option forms and the widget item components) SHALL take that default from the
+schema, not a hand-coded list. An absent `displayMode` SHALL render exactly as
+before per-instance display modes existed.
 
 #### Scenario: Battery default comes from the schema
 

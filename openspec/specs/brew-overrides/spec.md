@@ -6,10 +6,7 @@ Defines the persistent per-brew overrides (temperature, dose, ratio, yield, grin
 ## Requirements
 
 ### Requirement: Persistent Brew Overrides
-
-Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature, defined as the profile scalar `espressoTemperature`. The delta is computed as `override - espressoTemperature` and added to each frame's individual temperature, preserving relative temperature differences between frames. The same anchor (`espressoTemperature`) SHALL be used by every path that applies a temperature override as a delta — both the live-brew upload path and the Brew Dialog "Update Profile" (save-to-profile) path — so that a given override value produces an identical result whether it is brewed or saved.
-
-**Storage:** Temperature overrides are persistent (stored in QSettings) and survive app restarts. They are stored in shot history as dedicated `temperature_override` database columns.
+Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature `espressoTemperature`: the delta `override - espressoTemperature` SHALL be added to each frame's temperature, preserving relative differences between frames. Every path that applies a temperature override as a delta, including the live-brew upload and the Brew Dialog "Update Profile" path, SHALL use the same anchor.
 
 #### Scenario: User sets temperature override with multi-temp profile
 - **WHEN** the profile has frames with temperatures [93, 93, 88, 88] (espressoTemperature = 93)
@@ -30,11 +27,15 @@ Temperature overrides SHALL be applied as a delta offset relative to the profile
 - **THEN** the delta applied by the live-brew upload path equals the delta applied by the "Update Profile" save path (both computed as `T - espressoTemperature`)
 - **AND** the temperatures previewed in the Brew Dialog match the temperatures that are brewed and the temperatures that are saved
 
+### Requirement: Temperature overrides survive restarts and are stored per shot
+Temperature overrides SHALL persist across app restarts in QSettings. Shot history SHALL store them in dedicated `temperature_override` database columns.
+
+#### Scenario: Temperature override is stored on the shot
+- **WHEN** a shot is saved while a temperature override is active
+- **THEN** its `temperature_override` column records the override value
+
 ### Requirement: Brew Dialog
-
-The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot. The temperature control SHALL be presented as a temperature **offset** (labeled "Temp Delta:") applied uniformly to the whole profile: it reads `0°` at the active baseline and `+N°`/`-N°` when adjusted. The active baseline SHALL be the active recipe's offset-derived temperature (the profile's `espressoTemperature` + the recipe's stored `tempOffsetC`) when a recipe is active and carries a non-zero offset, otherwise the profile default. Because the control shows an offset rather than an absolute temperature, the dialog SHALL display below it the **resulting** temperature(s) — the profile frames shifted by the dialed offset — rendered adaptively (single value / spaced mid-dot list / first…last ellipsis) and updating live as the offset changes. It SHALL NOT append a signed delta tag (the stepper already carries the offset), and SHALL highlight the sub-indicator when the dialed value deviates from the baseline.
-
-The Clear action SHALL reset each field to its active baseline — the value defined by the override-highlight scheme in `recipe-aware-brew-settings`. For Temp Delta and Stop-at (yield) this baseline is the active recipe's offset-derived temperature / its `yieldG` when a recipe is active, and the profile default otherwise; Dose, Ratio, and grind reset to their existing defaults unchanged. Clear SHALL only strip per-brew deviations from the active baseline; when a recipe is active it SHALL NOT wipe the recipe's own designed yield/temperature back to the profile default.
+The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL show the profile name and bean info as a "Base Recipe" header and allow editing temperature, dose, ratio, yield and grind, in that order, for the next shot.
 
 #### Scenario: Opening the BrewDialog
 - **WHEN** the user taps the shot plan text on IdlePage
@@ -77,15 +78,29 @@ The Clear action SHALL reset each field to its active baseline — the value def
 - **THEN** Stop-at returns to 36 and the Temp Delta returns to `0°` (the recipe's temperature)
 - **AND** the recipe's stored `yieldG` / `tempOffsetC` are unchanged (Clear does not edit the recipe)
 
+### Requirement: Temperature control is an offset from the active baseline
+The temperature control SHALL be a uniform offset labelled "Temp Delta:" applied to the whole profile, reading `0°` at the active baseline and `+N°` or `-N°` when adjusted. The active baseline SHALL be the active recipe's offset-derived temperature when a recipe is active and carries a non-zero offset, otherwise the profile default.
+
+#### Scenario: Recipe offset sets the baseline
+- **WHEN** a recipe with a non-zero `tempOffsetC` is active and the dialog opens
+- **THEN** Temp Delta reads `0°` at the recipe-derived temperature
+
+### Requirement: The dialog shows the resulting temperatures
+Below the control the dialog SHALL display the **resulting** temperature(s), the profile frames shifted by the dialed offset, rendered adaptively as a single value, a spaced mid-dot list, or a first-to-last ellipsis, and updating live. It SHALL NOT append a signed delta tag, and SHALL highlight the sub-indicator when the dialed value deviates from the baseline.
+
+#### Scenario: Resulting temperatures update with the offset
+- **WHEN** the user adjusts Temp Delta
+- **THEN** the resulting temperature(s) update live using the adaptive notation
+
+### Requirement: Clear resets to the active baseline
+The Clear action SHALL reset each field to its active baseline, as defined in `recipe-aware-brew-settings`. For Temp Delta and Stop-at (yield) this is the active recipe's offset-derived temperature and `yieldG` when a recipe is active, otherwise the profile default. Dose, Ratio and grind SHALL reset to their existing defaults. Clear SHALL NOT wipe a recipe's designed yield or temperature back to the profile default.
+
+#### Scenario: Clear keeps the recipe's designed yield
+- **WHEN** the user taps Clear while a recipe is active
+- **THEN** Stop-at returns to the recipe's `yieldG`, not the profile default
+
 ### Requirement: Shot Plan Display
-The system SHALL display a summary line showing the configured shot parameters: profile name with temperature, bean name with grind setting, and dose/yield weights. The line SHALL be clickable to open the BrewDialog. Visibility SHALL be controlled by a "Show shot plan" setting (default: enabled). When a "Show on all screens" setting is enabled, the shot plan line SHALL appear in the top status bar on all pages; otherwise it SHALL appear only on the IdlePage.
-
-The temperature portion SHALL render the resulting temperature(s) adaptively based on the number of distinct frame temperatures (N), so that multi-temperature profiles are not misrepresented as a single value:
-- **N = 1:** a single value (e.g. `90°C`).
-- **N = 2:** both distinct temperatures listed with a spaced mid-dot separator (e.g. `88 · 93°C`).
-- **N ≥ 3:** the first-step temperature and last-step temperature joined by an ellipsis, preserving trajectory order rather than sorting (e.g. `84…52°C`).
-
-When a temperature override (or a recipe's offset) is active, the temperature portion SHALL render the **resulting** temperature(s) — every frame shifted by the effective offset — using the same adaptive N=1/2/3 notation, and SHALL highlight the temperature portion (per the plan-widgets per-item override scheme) to mark the deviation from the baseline. It SHALL NOT append a signed delta tag, and SHALL NOT render the override as a from→to arrow. Multi-temperature profiles (N ≥ 2) SHALL render with the list/ellipsis notation even when no override is active.
+The system SHALL display a summary line of the configured shot parameters: profile name with temperature, bean name with grind setting, and dose/yield weights. The line SHALL open the BrewDialog when clicked. It SHALL be controlled by a "Show shot plan" setting, default enabled. With "Show on all screens" enabled it SHALL appear in the top status bar on all pages; otherwise only on the IdlePage.
 
 #### Scenario: Shot plan with single-temperature profile, no overrides
 - **WHEN** no overrides are active, the profile has one distinct frame temperature, and DYE metadata is populated
@@ -121,6 +136,20 @@ When a temperature override (or a recipe's offset) is active, the temperature po
 - **WHEN** "Show shot plan" is enabled and "Show on all screens" is enabled
 - **THEN** the shot plan line appears in the top status bar between the page title and the indicators
 - **AND** tapping it opens the BrewDialog from any page
+
+### Requirement: The shot plan temperature adapts to distinct frame temperatures
+The temperature portion SHALL render by the number N of distinct frame temperatures. N = 1 SHALL show a single value. N = 2 SHALL show both values with a spaced mid-dot separator. N of 3 or more SHALL show the first-step and last-step temperatures joined by an ellipsis, in trajectory order rather than sorted. Multi-temperature profiles (N of 2 or more) SHALL use this notation even when no override is active.
+
+#### Scenario: Multi-temperature profile without an override
+- **WHEN** a profile has two or more distinct frame temperatures and no override is active
+- **THEN** the temperature portion uses the list or ellipsis notation
+
+### Requirement: An active override shows the resulting temperatures
+When a temperature override or a recipe offset is active, the temperature portion SHALL render the **resulting** temperature(s), with every frame shifted by the effective offset, using the same notation. It SHALL highlight the temperature portion to mark the deviation from baseline. It SHALL NOT append a signed delta tag, and SHALL NOT render the override as a from-to arrow.
+
+#### Scenario: Override shifts every displayed frame temperature
+- **WHEN** a temperature override is active on a multi-temperature profile
+- **THEN** each displayed temperature is shifted by the effective offset and the portion is highlighted
 
 ### Requirement: Brew Overrides History Recording
 The system SHALL record the active brew overrides (temperature, yield) as dedicated database columns in the shot history when a shot is saved. This enables traceability of per-shot adjustments.
@@ -158,15 +187,7 @@ The system SHALL populate brew parameters (dose, yield, grind) from shot history
 - **AND** the ratio is calculated from the effective dose and yield
 
 ### Requirement: Persistent Override Storage
-The system SHALL store temperature and yield overrides in QSettings for persistence across app sessions. The yield override SHALL be stored as a `YieldSpec` — a value plus a `none` | `absolute` | `ratio` mode (`yield-anchor`) — not as a bare gram number.
-
-"Active" is tracked by a genuine boolean flag (`hasTemperatureOverride`, `hasBrewYieldOverride`) that reflects whether a deliberate override is currently in effect — not merely whether an override value has ever been set during the session. For the yield, "active" SHALL be defined as `mode != none` and SHALL NEVER be inferred by comparing a resolved gram value against the profile's target weight — a ratio that happens to derive exactly the profile's target is still a deliberate, active anchor.
-
-Overrides SHALL be cleared — the flag set false, not just the value resynced to a new default — when a recipe is activated (before its own overrides apply), or when the user taps "Clear" in the BrewDialog.
-
-**On a profile switch the yield override SHALL be cleared when its mode is `absolute`, or when its mode is `ratio` and the new profile's beverage group differs from the previous profile's** (`yield-anchor`). A gram target describes the profile it was set against; a ratio fits one kind of drink, so it survives a switch within its group and re-derives against the current dose. A switch that leaves no yield override SHALL arm a saved yield as `yield-anchor` specifies; a maintenance profile clears nothing. The temperature override SHALL continue to clear on a profile switch, except that reloading the drink profile loaded before a maintenance run SHALL keep every override.
-
-Loading a shot or favorite that carries its own frozen override value SHALL only mark the flag active when that frozen value genuinely differs from the freshly-loaded profile's own default (the same threshold the Shot Plan display uses), so a frozen value that happens to already match the current profile never falsely reports as an active override.
+The system SHALL store temperature and yield overrides in QSettings for persistence across app sessions. The yield override SHALL be stored as a `YieldSpec`, a value plus a `none`, `absolute` or `ratio` mode (`yield-anchor`), not as a bare gram number.
 
 #### Scenario: Overrides persist between app sessions
 - **WHEN** the user sets temperature or yield overrides in the BrewDialog
@@ -222,6 +243,34 @@ Loading a shot or favorite that carries its own frozen override value SHALL only
 - **WHEN** a shot or favorite is loaded whose saved `temperatureOverride` happens to equal the freshly-loaded profile's own default temperature
 - **THEN** `hasTemperatureOverride` is false and the Shot Plan shows no highlight
 
+### Requirement: Active flags reflect deliberate overrides only
+Active state SHALL be tracked by genuine boolean flags (`hasTemperatureOverride`, `hasBrewYieldOverride`) that reflect whether a deliberate override is in effect, not whether a value was ever set. For the yield, active SHALL mean `mode != none` and SHALL NEVER be inferred by comparing a resolved gram value against the profile's target weight.
+
+#### Scenario: Ratio deriving the profile target is still active
+- **WHEN** a ratio anchor derives exactly the profile's target weight
+- **THEN** the yield override still reads as active
+
+### Requirement: Overrides are cleared by flag, not by resync
+Overrides SHALL be cleared, with the flag set false rather than the value resynced to a new default, when a recipe is activated (before its own overrides apply) or when the user taps "Clear" in the BrewDialog.
+
+#### Scenario: Recipe activation clears the flags
+- **WHEN** a recipe is activated
+- **THEN** the override flags are set false before the recipe's own overrides apply
+
+### Requirement: Profile switches clear overrides by mode
+On a profile switch the yield override SHALL clear when its mode is `absolute`, or when it is `ratio` and the beverage group changes. Where no yield override remains, a saved yield SHALL be armed as `yield-anchor` specifies. The temperature override SHALL clear on a profile switch, except when returning from a maintenance run to the drink profile loaded before it, which SHALL keep every override. A maintenance profile clears nothing.
+
+#### Scenario: Maintenance run does not clear overrides
+- **WHEN** the user starts a maintenance profile and then returns to the drink profile loaded before it
+- **THEN** every override is kept
+
+### Requirement: Frozen override values count as active only when they differ
+Loading a shot or favorite that carries its own frozen override value SHALL mark the flag active only when that value genuinely differs from the freshly-loaded profile's own default, using the same threshold as the Shot Plan display.
+
+#### Scenario: Frozen value matching the profile is not active
+- **WHEN** a loaded shot's frozen override equals the current profile's default
+- **THEN** the override flag stays false
+
 ### Requirement: Profile Editor Global Temperature Delta
 The Profile Editor's global temperature field ("All temps") SHALL apply temperature changes as a delta offset relative to the current first frame temperature, preserving relative differences between frames. The `espressoTemperature` profile-level field SHALL be updated to the new first frame value.
 
@@ -238,11 +287,7 @@ The Profile Editor's global temperature field ("All temps") SHALL apply temperat
 - **THEN** all frames become [92, 92, 92] (delta and absolute produce same result)
 
 ### Requirement: The ratio widget sets the session anchor
-The Ratio quick-select widget and its preset dialog SHALL write a **ratio anchor** to the session — identical in effect to editing the ratio control in Brew Settings — rather than flattening `dose × ratio` into an absolute yield.
-
-Picking a ratio SHALL NOT write to any recipe or bag: like the Brew Settings ratio control, it arms the session only. Persisting it remains the job of the Update button in Brew Settings.
-
-`Settings.brew.lastUsedRatio` SHALL be demoted to preset memory — which preset is highlighted in the picker, and the seed for a fresh brew with no recipe or bag anchor. It SHALL NOT be read to derive any yield.
+The Ratio quick-select widget and its preset dialog SHALL write a **ratio anchor** to the session, identical in effect to editing the ratio control in Brew Settings, rather than flattening `dose × ratio` into an absolute yield. Picking a ratio SHALL NOT write to any recipe or bag; it arms the session only, and persisting it remains the Update button's job in Brew Settings.
 
 #### Scenario: Tapping a ratio preset arms a ratio anchor
 - **WHEN** the user taps the 1:2 preset with an 18 g dose
@@ -261,3 +306,10 @@ Picking a ratio SHALL NOT write to any recipe or bag: like the Brew Settings rat
 #### Scenario: No yield is ever derived from lastUsedRatio
 - **WHEN** any dose capture, recipe activation, or bag selection occurs
 - **THEN** no code path SHALL compute a yield as `dose × lastUsedRatio`
+
+### Requirement: lastUsedRatio is preset memory only
+`Settings.brew.lastUsedRatio` SHALL be preset memory only: which preset is highlighted in the picker, and the seed for a fresh brew with no recipe or bag anchor. It SHALL NOT be read to derive any yield.
+
+#### Scenario: Fresh brew seeds from lastUsedRatio
+- **WHEN** a brew starts with no recipe or bag anchor
+- **THEN** the ratio is seeded from `lastUsedRatio` and no yield is derived from it

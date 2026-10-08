@@ -1,7 +1,8 @@
 # refractometer-averaged-measurement Specification
 
 ## Purpose
-TBD - created by archiving change expand-difluid-r2-protocol. Update Purpose after archive.
+Covers the DiFluid R2 averaged-measurement path: requesting multi-test averages, interpreting result packets by their action, delivering readings as they converge, keeping long runs alive, and why averaging stays off the TDS capture control.
+
 ## Requirements
 ### Requirement: The driver can request an averaged reading over multiple tests
 
@@ -32,9 +33,7 @@ The DiFluid R2 driver SHALL be able to request an averaged measurement (Device A
 
 ### Requirement: Responses are interpreted according to the action they belong to
 
-During an averaged run the R2 emits a complete packet set per individual test — including the single-test result packet, which carries that one test's concentration rather than the average. The driver SHALL therefore interpret result packets according to the action code carried in the response, treating the single-test result packet as a final reading only when it belongs to a single-test action.
-
-Any action code the driver does not recognise SHALL fall back to the existing single-test interpretation. The driver does not know what action code a physical-button measurement carries, and the cost of guessing wrong must be "no better than today", never a path that goes silent.
+During an averaged run the R2 emits a complete packet set per individual test. The driver SHALL interpret result packets according to the action code in the response, treating the single-test result packet as a final reading only when it belongs to a single-test action. Any unrecognised action code SHALL fall back to the existing single-test interpretation.
 
 #### Scenario: Per-test result during an averaged run is not a final reading
 
@@ -57,9 +56,7 @@ Any action code the driver does not recognise SHALL fall back to the existing si
 
 ### Requirement: An averaged reading is delivered as it converges
 
-The averaged-result packet arrives once per constituent test, each carrying the average so far. The driver SHALL emit each of them, so the last emission is the completed average and the delivery of a reading never depends on a terminal packet arriving. Consumers take the most recent value.
-
-Withholding a reading until a terminal status would make a working path contingent on a single packet: a dropped terminal status would mean the user gets nothing where today they get a value. Delivering as it converges cannot lose a reading.
+The averaged-result packet arrives once per constituent test, each carrying the average so far. The driver SHALL emit each one, so delivery never depends on a terminal packet arriving. Consumers take the most recent value.
 
 #### Scenario: Each averaged result is delivered
 
@@ -140,10 +137,6 @@ The measurement liveness watchdog exists to recover from a device that stops res
 
 The averaged-measurement entry point SHALL exist and behave as specified above, but SHALL NOT be offered as a user action. The TDS capture control SHALL take a single test.
 
-This is a judgement about magnitude, not about whether averaging works. Measured on a physical R2 across three runs (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08), single-reading scatter is σ ≈ 0.011% TDS — genuine random scatter, which averaging does reduce, to σ ≈ 0.007%. But the ≈0.005% gained is smaller than the 0.01% step the device reports in, so it cannot be represented in the answer at all, and it is an order of magnitude below sample-prep variance. The cost is 12–22 seconds against ~3.5 for a single test.
-
-The device also refuses to report until the prism is thermally settled, so a single reading is already a settled reading.
-
 #### Scenario: The TDS control takes a single test
 
 - **WHEN** the user presses the TDS read control on the post-shot review page
@@ -160,3 +153,6 @@ The device also refuses to report until the prism is thermally settled, so a sin
 - **WHEN** the device performs a multi-reading run of its own accord and reports its progress
 - **THEN** the interface reflects that a measurement is underway rather than appearing hung
 
+#### Scenario: Averaging gain is below the reporting step
+- **WHEN** averaging is considered for the TDS capture control
+- **THEN** the measured gain (about 0.005% TDS) is smaller than the device's 0.01% reporting step, and an average costs 12-22 seconds against about 3.5 seconds for a single test

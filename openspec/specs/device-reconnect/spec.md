@@ -34,12 +34,7 @@ At intentional foreground triggers — selecting/switching to a BT scale in the 
 - **THEN** the system aborts the attempt and falls back to passive scanning (it does not retry the direct-connect on the background timer)
 
 ### Requirement: Direct-connect timeout aborts the controller
-
-When a scale connect attempt times out, the system SHALL abort it by calling `disconnectFromDevice()` and destroying the `QLowEnergyController`, not merely clearing an in-progress flag. The radio MUST NOT be left to reach Android's own ~30-second supervision timeout.
-
-This SHALL apply to every scale connect attempt still held in `Connecting` at the timeout, regardless of how the attempt was initiated. A connect started from scan discovery is covered identically to a foreground direct-connect: a teardown gated on the attempt having been a direct-connect, or on the transport reporting itself connected, leaves a scan-initiated attempt pending, and while it is pending every retry is rejected as a duplicate connect to a busy transport.
-
-Destroying a controller that is still in `Connecting` SHALL first request its disconnection, so the platform can release the underlying connection resource. Deleting such a controller outright leaves the platform connection attempt outstanding.
+When a scale connect attempt times out, the system SHALL abort it by calling `disconnectFromDevice()` and destroying the `QLowEnergyController`, not merely clearing an in-progress flag. This SHALL apply to every scale attempt still in `Connecting` at the timeout, however it was initiated. A controller still in `Connecting` SHALL request disconnection before it is destroyed.
 
 #### Scenario: Timeout tears down the connecting controller
 - **WHEN** a scale direct-connect attempt reaches its timeout deadline without connecting
@@ -50,6 +45,11 @@ Destroying a controller that is still in `Connecting` SHALL first request its di
 - **WHEN** a scale connect that was started from scan discovery is still in `Connecting` at the connection timeout
 - **THEN** it is torn down on the same terms as a direct-connect
 - **AND** the next retry is able to start a fresh connect rather than being rejected as a duplicate
+
+#### Scenario: Radio is not left to the supervision timeout
+
+- **WHEN** a scale connect attempt times out
+- **THEN** the controller is torn down rather than left for Android's own roughly 30-second supervision timeout
 
 ### Requirement: Concurrent connect attempts to the same scale are prevented
 
@@ -68,12 +68,7 @@ The DE1 SHALL continue to be pursued by direct `connectToDevice()` while disconn
 - **THEN** the system issues a direct `connectToDevice()` to the saved DE1 address to wake and reconnect it
 
 ### Requirement: Recovery from a DE1 connect that hangs in Connecting
-
-If a DE1 connect attempt enters `Connecting` and neither reaches a connected state nor reports an error within a bounded time, the system SHALL tear down the connection attempt (close and recreate the controller) and continue retrying. The reconnect logic SHALL NOT permanently stop retrying solely because the controller reports `isConnecting()`.
-
-The system SHALL NOT attempt to power-cycle the Bluetooth adapter as an automatic remedy on platforms where a non-privileged application cannot control adapter power. On those platforms the call has no effect, and the recovery completes through its own fallback path, which is indistinguishable from a real recovery unless the outcome is checked.
-
-Any automatic remedy SHALL report its true outcome. It SHALL NOT report that the stack recovered when the state it acted on did not change.
+If a DE1 connect stays in `Connecting` for a bounded time without connecting or erroring, the system SHALL tear down the attempt (closing and recreating the controller) and continue retrying. Reconnect logic SHALL NOT stop retrying solely because the controller reports `isConnecting()`. Any automatic remedy SHALL report its true outcome, and SHALL NOT report recovery when the state it acted on did not change.
 
 #### Scenario: DE1 connect wedges with no error
 - **WHEN** a DE1 connect attempt remains in `Connecting` past the bounded deadline without connecting or erroring
@@ -92,11 +87,16 @@ Any automatic remedy SHALL report its true outcome. It SHALL NOT report that the
 - **WHEN** an automatic recovery attempt completes without the state it acted on having changed
 - **THEN** the outcome recorded is that the attempt did not take effect, not that the stack recovered
 
+### Requirement: No adapter power-cycle remedy
+The system SHALL NOT power-cycle the Bluetooth adapter as an automatic remedy on platforms where a non-privileged app cannot control adapter power. There the call has no effect, and the recovery completes through its fallback path, which looks like a real recovery unless the outcome is checked.
+
+#### Scenario: Adapter power is not attempted without control
+
+- **WHEN** the platform denies the app control of adapter power
+- **THEN** no power-cycle is attempted as a recovery step
+
 ### Requirement: Retiring the adapter remedy preserves the reconnect-ladder re-arm
-
-Removing the adapter power-cycle SHALL NOT remove the reconnect-ladder reset that accompanied it. The system SHALL retain an explicit path that, on concluding a recovery attempt while the DE1 is disconnected, resets the DE1 reconnect attempt counter and promptly re-attempts.
-
-On platforms where the adapter power-cycle was already ineffective, this reset is the only effect the recovery mechanism had; losing it would move affected devices from the fast retry tier onto the slow one. Because the existing reset is reached only through the adapter-power state transitions being removed, retiring the remedy SHALL include naming the path that reaches it instead.
+Removing the adapter power-cycle SHALL NOT remove the reconnect-ladder reset that accompanied it. The system SHALL retain an explicit path that, on concluding a recovery attempt while the DE1 is disconnected, resets the DE1 reconnect attempt counter and promptly re-attempts. Retiring the remedy SHALL name the path that now reaches this reset.
 
 #### Scenario: Recovery attempt concludes and the ladder is re-armed
 - **WHEN** an automatic BLE recovery attempt concludes while the DE1 is disconnected
@@ -111,11 +111,13 @@ On platforms where the adapter power-cycle was already ineffective, this reset i
 - **WHEN** the adapter power-cycle no longer runs, so no adapter state transition occurs
 - **THEN** the re-arm still occurs, driven by a path that does not depend on those transitions
 
+#### Scenario: Fast retry tier is kept where the power-cycle was ineffective
+
+- **WHEN** a recovery attempt concludes on a platform where the adapter power-cycle had no effect
+- **THEN** the reconnect ladder is re-armed, so the device stays on the fast retry tier
+
 ### Requirement: Peripheral connect ordering is established by GATT serialization, not by a timer
-
-The system SHALL order a scale or refractometer connect against an in-progress DE1 connect through the GATT serialization guarantee, and SHALL NOT gate it on an elapsed-time cap. A fixed cap releases the second connect on a clock rather than on the DE1's actual readiness, so a DE1 connect that is slower than the cap — which happens on a slow scan or a slow characteristic discovery, with nothing wrong — produces exactly the concurrent GATT traffic the gate exists to prevent.
-
-Ordering SHALL cover every non-DE1 peripheral, not only scales, and SHALL cover a connect initiated at any time, not only at startup.
+The system SHALL order a scale or refractometer connect against an in-progress DE1 connect through the GATT serialization guarantee, and SHALL NOT gate it on an elapsed-time cap. This ordering SHALL cover every non-DE1 peripheral and any connect initiated at any time, not only at startup.
 
 #### Scenario: The DE1 connect takes longer than any previously fixed cap
 

@@ -5,7 +5,12 @@ Defines the scale BLE connection-priority behavior: the dual-HIGH backoff policy
 ## Requirements
 ### Requirement: Backoff Policy Mode
 
-The scale connection-priority dual-HIGH backoff SHALL have a persistent policy mode with exactly two values: `enforce` (default) and `observe`. The mode SHALL be readable and settable via MCP. When the persisted mode is absent or unrecognized, the system MUST treat it as `enforce`. In `enforce` mode the backoff MUST always latch skip-HIGH on a confirmed trigger but MUST honor "Backoff Does Not Disconnect The Scale During A Shot" — it does NOT unconditionally disconnect/reconnect the scale mid-shot. `observe` mode runs detection inert (for tuning the engage point on weak hardware) and never latches or reconnects.
+The dual-HIGH backoff SHALL have a persistent policy mode with exactly two
+values: `enforce` (default) and `observe`. The mode SHALL be readable and
+settable via MCP. An absent or unrecognized persisted mode MUST be treated as
+`enforce`. In `enforce` mode a confirmed trigger MUST always latch skip-HIGH,
+subject to "Backoff Does Not Disconnect The Scale During A Shot". In `observe`
+mode the backoff SHALL never latch or reconnect.
 
 #### Scenario: Default mode on a fresh install
 - **WHEN** the app starts with no persisted `connectionPriority/policyMode` key
@@ -58,9 +63,10 @@ In `observe` mode the scale link SHALL be forced to HIGH on connect. Entering ob
 
 ### Requirement: Scale-Feed Recovery Is Observable
 
-The system SHALL emit an event-based recovery signal when a stalled scale feed resumes: after `WeightProcessor` has signalled an in-cycle scale-feed stall, the first subsequent genuine weight sample MUST emit a resume event carrying the stall gap duration. A DE1-fault-cluster window that elapses without reaching the fire threshold MUST be logged (observe mode) as the cluster subsiding. No timer may be used to detect recovery — it MUST be driven by the sample/window edge.
-
-The weight a write-failed cascade contributes to the DE1-fault-cluster threshold SHALL be derived from what that cascade actually represents under the current retry budget, and MUST NOT be stated as a constant tied to a budget that has changed. The existing weighting treats a cascade as two faults on the reasoning that a ten-retry cascade is several seconds of sustained write starvation; a shorter budget makes a cascade both briefer and more frequent, so both the weight and the resulting fire rate MUST be re-derived rather than inherited. A single write failure MUST NOT reach the fire threshold on its own unless it genuinely represents sustained starvation.
+The system SHALL emit a resume event when a stalled scale feed resumes: the
+first genuine weight sample after an in-cycle scale-feed stall signal MUST emit
+it, carrying the stall gap duration. Recovery SHALL be detected from the sample
+and window edges, never from a timer.
 
 #### Scenario: Stalled feed recovers on its own
 - **WHEN** a scale-feed stall has been signalled during an extraction/preheat cycle
@@ -81,6 +87,29 @@ The weight a write-failed cascade contributes to the DE1-fault-cluster threshold
 - **THEN** the fault weight assigned to a write-failed cascade is re-derived from the starvation that cascade now represents
 - **AND** the rate at which the fire threshold is reached on a given real-world fault pattern is not increased merely because cascades became shorter and more frequent
 
+### Requirement: Observe logs a subsiding fault cluster
+
+In `observe` mode, a DE1-fault-cluster window that elapses without reaching the
+fire threshold MUST be logged as the cluster subsiding.
+
+#### Scenario: Subsiding cluster is logged in observe
+
+- **WHEN** in observe mode a DE1-fault-cluster window elapses below the fire threshold
+- **THEN** a log line records that the cluster subsided
+
+### Requirement: Write-failure cascades are weighted against the retry budget
+
+The weight a write-failed cascade contributes to the DE1-fault-cluster threshold
+MUST be derived from the starvation it represents under the current retry
+budget, and MUST NOT be a constant tied to a budget that has changed. A single
+write failure MUST NOT reach the fire threshold on its own unless it genuinely
+represents sustained starvation.
+
+#### Scenario: A lone write failure does not fire
+
+- **WHEN** a single write failure occurs and no sustained starvation follows
+- **THEN** the fault cluster does not reach the fire threshold on that failure alone
+
 ### Requirement: Latch Clear Preserves The Mode
 
 Clearing the connection-priority latch SHALL remove only the latch record (the `latched`, `triggerKind`, `setTimeIso`, and `buildCode` keys) and MUST NOT remove the persisted `policyMode`.
@@ -92,7 +121,12 @@ Clearing the connection-priority latch SHALL remove only the latch record (the `
 
 ### Requirement: Classification Is Epoch-Scoped, Not Build-Scoped
 
-The persisted dual-HIGH-incapable classification SHALL be scoped to a deliberate detection epoch, not to the application build/version code. The system MUST rehydrate the persisted latch when the stored epoch equals the current `kBleDetectionEpoch` source constant, and MUST discard it and re-detect when they differ. `kBleDetectionEpoch` MUST NOT be derived from or coupled to the build/version code and MUST change only by a deliberate source edit. The build/version code at set-time MAY still be persisted but only as a diagnostic and MUST NOT gate rehydration.
+The persisted dual-HIGH-incapable classification SHALL be scoped to
+`kBleDetectionEpoch`, not to the application build or version. The latch MUST be
+rehydrated when the stored epoch equals `kBleDetectionEpoch`, and discarded when
+they differ. `kBleDetectionEpoch` MUST change only by a deliberate source edit
+and MUST NOT be derived from build or version code. A stored build code MAY be
+kept for diagnostics but MUST NOT gate rehydration.
 
 #### Scenario: Latch survives an ordinary app update
 - **WHEN** a device is latched, then the app is updated to a build with the same `kBleDetectionEpoch`
@@ -124,9 +158,12 @@ A persisted record that is latched and carries a build code but has no stored de
 
 ### Requirement: Android SDK<30 Devices Are Seeded on First Launch
 
-On Android devices whose runtime `Build$VERSION.SDK_INT` is below 30, the first launch on a build that ships this seed AND has no persisted connection-priority record (no latch and no record at all under the current epoch) SHALL pre-seed the dual-HIGH-incapable classification with a trigger kind of `seed:sdk<30`. The seed MUST be written through the normal persisted-latch path so subsequent launches rehydrate it identically to a detector-set latch. While the persisted record exists, the seed MUST NOT re-evaluate the SDK predicate — the record alone determines behavior. The seed MUST NOT fire when a persisted record already exists. A manual MCP clear wipes the persisted record and re-arms the runtime detector for the remainder of the current app run; on the **next launch** the seed re-applies because `SDK_INT` is a permanent OS property — there is no in-app way to permanently restore HIGH on SDK<30 hardware (the only exit is an OS upgrade to SDK≥30). The seed MUST NOT fire on non-Android platforms or when the SDK query returns a non-positive value. A deliberate epoch bump MUST discard the seed along with all other prior-epoch records and re-evaluate from scratch (which may re-seed if SDK<30 still holds).
-
-This seed is NOT a gate: it bypasses the first-launch detection window for the population that the retired SDK<30 gate (PR Kulitorum/Decenza#1097) used to cover, and the runtime detector continues to handle SDK≥30 devices on weak chipsets unchanged. The intent is to spare devices in the known-incapable cohort the ~minutes of broken scale discovery and the ~70 s DE1 GATT collapse that the detector observes before it can latch.
+On Android devices whose runtime `Build$VERSION.SDK_INT` is below 30, the first
+launch with no persisted connection-priority record under the current epoch MUST
+pre-seed the dual-HIGH-incapable classification with trigger kind `seed:sdk<30`.
+The seed MUST be written through the normal persisted-latch path so later
+launches rehydrate it identically. The seed MUST NOT fire on non-Android
+platforms or when the SDK query returns a non-positive value.
 
 #### Scenario: First launch on Android SDK<30 with no record
 - **WHEN** the app starts on Android with `SDK_INT < 30` and no persisted connection-priority record exists under the current epoch
@@ -148,9 +185,47 @@ This seed is NOT a gate: it bypasses the first-launch detection window for the p
 - **WHEN** the app starts on iOS / macOS / Windows / Linux with no persisted connection-priority record
 - **THEN** no seed is written and the runtime detector arms on the next scale connect as before
 
+### Requirement: The seed never overrides an existing record
+
+Once a persisted record exists, the seed MUST NOT fire and MUST NOT re-evaluate
+the SDK predicate; the record alone determines behaviour. A deliberate epoch
+bump MUST discard the seed with all other prior-epoch records and re-evaluate
+from scratch.
+
+#### Scenario: Existing record suppresses the seed
+
+- **WHEN** a persisted connection-priority record exists under the current epoch
+- **THEN** no seed is written and the SDK predicate is not consulted
+
+### Requirement: An MCP clear re-arms detection until the next launch
+
+A manual MCP clear MUST wipe the seed record and re-arm the runtime detector for
+the rest of the current app run. The seed MUST re-apply on the next launch while
+`SDK_INT` stays below 30, because `SDK_INT` is a permanent OS property.
+
+#### Scenario: Next launch re-seeds after a clear
+
+- **WHEN** a user has cleared the seed record and the app restarts on SDK below 30
+- **THEN** the seed is written again with trigger kind `seed:sdk<30`
+
+### Requirement: The seed does not gate the runtime detector
+
+The seed bypasses the first-launch detection window only for the SDK below 30
+cohort. It is not a gate: the runtime detector MUST continue to handle SDK 30
+and later devices on weak chipsets unchanged.
+
+#### Scenario: SDK 30 device still uses the detector
+
+- **WHEN** the app runs on Android SDK 30 or later on weak hardware
+- **THEN** the runtime detector arms as it did before the seed existed
+
 ### Requirement: Scale-Feed Stall Must Be Confirmed Before Latching
 
-The scale-feed-stall backstop SHALL distinguish a *suspected* stall from a *confirmed* stall. A gap exceeding the existing suspected threshold MUST still emit the existing suspected-stall signal (unchanged — observe logging and diagnostics rely on it) but MUST NOT by itself cause a backoff latch. The stall MUST only become confirmed — and thus eligible to latch in enforce mode and to be reported as the observe "would back off" — if the feed remains stalled past a larger persistence threshold AND no scale-feed recovery occurred since the suspected edge. A stall that recovers before confirmation MUST NOT latch. Confirmation MUST be evaluated event/edge-based on the existing DE1 shot-sample cadence and the recovery edge, with no timer. The DE1-fault-cluster trigger MUST be unchanged.
+The scale-feed-stall backstop SHALL distinguish a suspected stall from a
+confirmed stall. A gap past the existing suspected threshold MUST still emit the
+existing suspected-stall signal, but MUST NOT by itself cause a backoff latch.
+Confirmation MUST be evaluated on the existing DE1 shot-sample cadence and the
+recovery edge, with no timer.
 
 #### Scenario: Transient stall self-recovers and never latches
 - **WHEN** the feed stalls past the suspected threshold and then a recovery occurs before the confirmation threshold
@@ -172,11 +247,35 @@ The scale-feed-stall backstop SHALL distinguish a *suspected* stall from a *conf
 - **WHEN** the device never produces a sustained stall or a fault cluster
 - **THEN** it never latches, never re-detects, and its behavior is byte-identical to before this change regardless of epoch or confirmation
 
+### Requirement: A stall is confirmed only when it persists
+
+A stall MUST become confirmed, and so be eligible to latch in enforce mode or to
+be reported as observe's would-back-off, only if the feed remains stalled past a
+larger persistence threshold and no scale-feed recovery occurred since the
+suspected edge. A stall that recovers before confirmation MUST NOT latch.
+
+#### Scenario: Recovery before confirmation blocks the latch
+
+- **WHEN** the feed recovers after the suspected edge but before the persistence threshold
+- **THEN** the stall is not confirmed and no latch occurs
+
+### Requirement: DE1-fault cluster trigger is independent of stall confirmation
+
+The DE1-fault-cluster trigger MUST be unchanged and MUST NOT be subject to
+scale-feed-stall confirmation.
+
+#### Scenario: Fault cluster fires without a scale stall
+
+- **WHEN** DE1-link faults cluster at the existing rate and window with no scale-feed stall
+- **THEN** the existing cluster trigger fires unchanged
+
 ### Requirement: Weight-Sample Delivery Drives The Pipeline, Not Value Change
 
-The weight-processing pipeline — per-frame weight-exit, stop-at-weight (SAW), and the scale-feed stall detector — SHALL be driven by scale-sample *arrival*, not by scale-value *change*. `ScaleDevice` MUST expose an unconditional per-sample signal that fires for every accepted weight sample including ones whose value equals the previous reading; `WeightProcessor::processWeight` and the connection-priority stall detector MUST be fed from that signal. The deduped value-change signal (which backs the `weight` Q_PROPERTY / QML bindings / MQTT) MUST NOT be the pipeline's input. The synthetic `setSimulationMode` reset MUST also emit the unconditional signal so the contract has no bypass.
-
-This is **root cause 1** of #1176: a static or slowly-changing reading during preheat/infuse, deduped away by `ScaleDevice::setWeight()`'s long-standing `if (m_weight != weight)` guard (present since the repository's initial commit), starved the weight-gated frame-exit so it blew through on the first delayed sample (reported "Infusing abandoned at ~6 s / 9.6 g"). Priority-independent. Shipped: PR Kulitorum/Decenza#1224.
+The weight pipeline (per-frame weight-exit, stop-at-weight and the scale-feed
+stall detector) SHALL be driven by scale-sample arrival, not value change.
+`ScaleDevice` MUST expose an unconditional per-sample signal that fires for
+every accepted sample, including repeats of the previous value, and
+`WeightProcessor::processWeight` and the stall detector MUST be fed from it.
 
 #### Scenario: Constant weight during preheat does not blind the pipeline
 - **WHEN** the scale reports a static (unchanging) weight through an EspressoPreheating / early-extraction window
@@ -188,9 +287,26 @@ This is **root cause 1** of #1176: a static or slowly-changing reading during pr
 - **THEN** the value-change signal stays deduped (the `weight` Q_PROPERTY / QML / MQTT do not churn)
 - **AND** only the unconditional per-sample signal feeds the processing pipeline
 
+### Requirement: The deduplicated value signal stays out of the pipeline
+
+The deduplicated value-change signal, which backs the `weight` property, QML
+bindings and MQTT, MUST NOT be the pipeline's input. The synthetic
+`setSimulationMode` reset MUST also emit the unconditional signal, so the
+contract has no bypass.
+
+#### Scenario: Simulation reset emits the per-sample signal
+
+- **WHEN** simulation mode resets the weight
+- **THEN** the unconditional per-sample signal is emitted
+
 ### Requirement: Genuine Dual-HIGH Contention On Weak Hardware Is Mitigated By The BALANCED Latch
 
-The connection-priority skip-HIGH → BALANCED latch SHALL be specified as the warranted mitigation for **root cause 2** of #1176: genuine dual-HIGH BLE radio contention on weak hardware, which drops *changing* weight samples mid-shot and is independent of, and not fixed by, root cause 1. This cause is confirmed (not hypothetical) from the reporter's Samsung SM-X200 / Tab A8 logs: on a build with zero backoff code the cup reached 9.6 g by 6.3 s of active extraction with **zero** samples delivered while pressure was building — a monotonic climb of distinct values that the value-dedup provably cannot suppress; and on a later build the same device, once reconnected at BALANCED, delivered changing weight cleanly to shot end. Therefore the spec MUST state that the PR Kulitorum/Decenza#1224 weight-sample-delivery fix is **necessary but not sufficient on weak hardware**, and the BALANCED latch remains required for cause 2. The latch decision MUST be made by **runtime self-identification** (a genuine sustained stall / DE1-fault cluster while at HIGH); the system MUST NOT gate connection priority on a device-model allow/block list.
+The skip-HIGH → BALANCED latch SHALL be the mitigation for root cause 2 of
+#1176: genuine dual-HIGH BLE radio contention on weak hardware, which drops
+changing weight samples mid-shot. The weight-sample delivery fix is necessary
+but not sufficient on such hardware, so the latch remains required. The latch
+decision MUST be made by runtime self-identification: a genuine sustained stall
+or DE1-fault cluster while at HIGH.
 
 #### Scenario: Specs attribute #1176 to two causes
 - **WHEN** the `ble-connection-priority` capability is read
@@ -206,9 +322,24 @@ The connection-priority skip-HIGH → BALANCED latch SHALL be specified as the w
 - **WHEN** deciding scale connection priority for any device
 - **THEN** the decision MUST NOT consult a hardcoded device-model allow/block list (runtime self-identification only)
 
+### Requirement: Connection priority never consults a device-model list
+
+Connection priority MUST NOT consult a hardcoded device-model allow or block
+list for any device.
+
+#### Scenario: Decision uses only runtime signals
+
+- **WHEN** deciding scale connection priority for any device
+- **THEN** the decision uses runtime detection only and no model list is read
+
 ### Requirement: Backoff Does Not Disconnect The Scale During A Shot
 
-A triggered connection-priority backoff SHALL always latch skip-HIGH (epoch-scoped persistence), but it MUST NOT disconnect/reconnect the scale while an espresso cycle is in progress (from EspressoPreheating through shot end). During a shot the decision MUST be latch-only and take effect at the next natural (re)connect. A mid-shot scale teardown is forbidden because it loses several seconds of weight and cannot rescue the in-progress shot (it caused the user-visible "no scale — estimating" failures); the `scale-feed-stall` trigger is in-shot by construction and therefore MUST always defer. Only when no shot/preheat is in progress (e.g. a DE1-fault cluster shortly after connect at idle) MAY the backoff disconnect and reconnect immediately so the next shot starts at BALANCED. This fixes the remediation *mechanism*, not the *need* for the latch. (Shipped: PR Kulitorum/Decenza#1226.)
+A triggered backoff SHALL always latch skip-HIGH. During an espresso cycle (from
+EspressoPreheating through shot end) it MUST NOT disconnect or reconnect the
+scale: the latch takes effect at the next natural (re)connect, and a scale-feed-
+stall trigger MUST always defer. Only when no shot or preheat is in progress MAY
+the backoff disconnect and reconnect immediately, so the next shot starts at
+BALANCED.
 
 #### Scenario: Stall confirmed during a shot — latch only, no bounce
 - **WHEN** a confirmed scale-feed stall (or a fault cluster) triggers the backoff while a shot/preheat is in progress
@@ -218,6 +349,12 @@ A triggered connection-priority backoff SHALL always latch skip-HIGH (epoch-scop
 #### Scenario: Fault cluster at idle — reconnect now
 - **WHEN** the backoff triggers while no espresso cycle is in progress
 - **THEN** the scale is disconnected and reconnected at BALANCED immediately so the upcoming shot starts at BALANCED
+
+#### Scenario: A mid-shot teardown would lose weight
+
+- **WHEN** a stall confirms while a shot or preheat is in progress
+- **THEN** the scale is not torn down, because a teardown loses several seconds of weight and cannot rescue the shot
+
 
 ### Requirement: The backoff trigger is calibrated against observed fault patterns, not restated constants
 

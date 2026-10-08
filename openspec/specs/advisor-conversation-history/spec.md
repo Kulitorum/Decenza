@@ -6,16 +6,7 @@ Defines how `AIConversation` binds each user/assistant turn pair to the shot it 
 ## Requirements
 
 ### Requirement: `AIConversation` SHALL persist a per-turn `shotId`
-
-`AIConversation` SHALL extend each turn entry in `m_messages` to optionally carry a `shotId` (qint64) recording which shot the advisor was asked about for that turn. The field SHALL be a soft-schema extension:
-
-- New entries created by `AIConversation::addUserMessage` / `addAssistantMessage` SHALL carry `shotId` only when explicitly set via `setShotIdForCurrentTurn(qint64)` (or equivalent) — set once the resolved shot for the turn is known.
-- A turn without `shotId` (e.g., a free-form "general question" follow-up that does not target a specific shot) SHALL persist without the key. Omission is the documented null state — there SHALL NOT be a placeholder `shotId: 0`.
-- Loading older conversations (saved before this change) — entries without `shotId` — SHALL succeed without error, with `shotId` reading as absent / `0`.
-
-A reader `qint64 shotIdForTurn(qsizetype index) const` SHALL return the stored value or `0` for a turn without a recorded shot.
-
-A reader `QList<HistoricalAssistantTurn> recentAssistantTurns(qsizetype max) const` SHALL return up to `max` assistant turns (most-recent first), each carrying `(shotId, content, structuredNext)`. Turns without `structuredNext` or with `shotId == 0` SHALL be SKIPPED, not returned with empty fields.
+`AIConversation` SHALL extend each turn entry in `m_messages` with an optional `shotId` (qint64) naming the shot the advisor was asked about. A turn SHALL carry `shotId` only when set through `setShotIdForCurrentTurn(qint64)`, and a turn without one SHALL omit the key rather than store `shotId: 0`. Conversations saved before this change SHALL load without error, reading as absent.
 
 #### Scenario: shotId round-trips across save / load
 
@@ -40,13 +31,16 @@ A reader `QList<HistoricalAssistantTurn> recentAssistantTurns(qsizetype max) con
 - **THEN** the returned list SHALL contain exactly one entry — turn 0
 - **AND** SHALL NOT contain turn 1 (no shotId) or turn 2 (no structuredNext)
 
+### Requirement: Shot-id readers
+`qint64 shotIdForTurn(qsizetype index) const` SHALL return the stored value or `0` for a turn without a recorded shot. `QList<HistoricalAssistantTurn> recentAssistantTurns(qsizetype max) const` SHALL return up to `max` assistant turns, most recent first, each as `(shotId, content, structuredNext)`, and SHALL skip turns without `structuredNext` or with `shotId == 0`.
+
+#### Scenario: Reader reports zero for an untargeted turn
+
+- **WHEN** `shotIdForTurn` is called for a turn that has no `shotId`
+- **THEN** it returns `0`
+
 ### Requirement: `setShotIdForCurrentTurn` SHALL bind the shot id to the current user/assistant turn pair
-
-When `AIManager` resolves a shot and is about to ask the advisor about it, it SHALL call `setShotIdForCurrentTurn(shotId)` BEFORE the assistant response is appended. The implementation SHALL apply the id to the most recent user turn and to the assistant turn appended next (so a user/assistant pair share the same `shotId`).
-
-If `setShotIdForCurrentTurn` is called after the assistant message has already been appended, it SHALL apply the id to that latest pair. Calling it twice for the same pair SHALL overwrite the prior id (last-write-wins).
-
-This requirement applies to EVERY surface that drives `AIConversation` turns for a resolved shot, not only the MCP `ai_advisor_invoke` path — including the in-app conversation overlay (`ConversationOverlay.qml`'s `sendFollowUp()` on both the desktop inline input and the mobile fullscreen input dialog), which resolves a `shotId` (`overlay.shotId`) before calling `ask()`/`followUp()`.
+When `AIManager` resolves a shot, it SHALL call `setShotIdForCurrentTurn(shotId)` before the assistant response is appended, so the most recent user turn and the assistant turn appended next share the same `shotId`. If it is called after the assistant message is appended, it SHALL apply the id to that latest pair. A second call on the same pair SHALL overwrite the id (last write wins).
 
 #### Scenario: User and assistant of the same turn pair share shotId
 
@@ -63,13 +57,16 @@ This requirement applies to EVERY surface that drives `AIConversation` turns for
 - **THEN** the resulting user/assistant turn pair SHALL carry `shotId == overlay.shotId`
 - **AND** a subsequent call to `recentAssistantTurns()` SHALL be able to find this turn (given it also carries `structuredNext`)
 
+### Requirement: Every shot-driven surface stamps shotId
+This binding SHALL apply to every surface that drives turns for a resolved shot, not only MCP `ai_advisor_invoke`. The in-app `ConversationOverlay.qml` `sendFollowUp()` on both the desktop inline input and the mobile fullscreen input SHALL stamp `overlay.shotId` before calling `ask()` or `followUp()`.
+
+#### Scenario: MCP invoke stamps the shot
+
+- **WHEN** `ai_advisor_invoke` resolves a shot and asks the advisor about it
+- **THEN** the user and assistant turns of that pair share the resolved `shotId`
+
 ### Requirement: A turn's `shotId` SHALL survive an import that renumbers shots
-
-`shotId` binds a conversation turn to the shot it discussed. Importing a conversation alongside a shot history SHALL rewrite each turn's `shotId` to the destination id of the same shot, so the binding continues to name the shot the turn is actually about. Where the import preserved the shot's id the rewrite is an identity and the turn is unchanged; the guarantee is about the binding remaining correct, not about the id changing.
-
-A turn whose source shot is not present in the destination after the import SHALL have its `shotId` removed, leaving the turn in the documented null state — the same state as a free-form turn that never targeted a shot. It SHALL NOT retain the source id.
-
-This applies wherever conversations are imported: backup restore, device-to-device migration, and the backup endpoint.
+Importing conversations alongside a shot history SHALL rewrite each turn's `shotId` to the destination id of the same shot, so the binding still names the shot the turn discussed. A turn whose source shot is absent after the import SHALL have its `shotId` removed, never keeping the source id. This SHALL apply to backup restore, device-to-device migration and the backup endpoint.
 
 #### Scenario: Imported turns point at the destination's shots
 
@@ -104,26 +101,7 @@ This applies wherever conversations are imported: backup restore, device-to-devi
 - **AND** no write SHALL be addressed to an unresolvable id, including after the database's assigned ids grow past it
 
 ### Requirement: Advisor conversation threads SHALL be identified by equipment package
-
-An advisor conversation thread SHALL be identified by the equipment package a shot was pulled on
-in addition to the bean and the profile. Two shots on the same bean and profile but different
-equipment packages SHALL open different threads; a shot returning to a package that already has
-a thread SHALL resume that thread.
-
-A saved conversation is replayed to the model on every request, so its stored turns carry
-whatever context they were built with. Scoping the payload alone would leave older turns
-describing shots from other equipment inside the same transcript, where they continue to inform
-every subsequent answer. Threading on equipment is what keeps a transcript describing one
-equipment set for its whole life.
-
-Threads saved before this requirement SHALL be cleared once, at the upgrade. They cannot be
-resumed — their key does not carry a package, so no shot on this device derives it — and they
-cannot be read either: their turns are stored in the prose format whose only readers were deleted
-with it. Retaining them would hold slots in a five-thread limit for transcripts nothing can
-render.
-
-Threads created under this requirement SHALL be retained unchanged: they age out under the same
-limit as any other, and nothing is deleted eagerly.
+An advisor conversation thread SHALL be identified by the equipment package a shot was pulled on, in addition to the bean and profile. Shots on the same bean and profile with different equipment packages SHALL open different threads, and a shot returning to a package that has a thread SHALL resume it. Threads created under this requirement SHALL be retained unchanged and age out under the usual limit.
 
 #### Scenario: First advisor use after upgrading starts a fresh thread
 
@@ -146,3 +124,19 @@ limit as any other, and nothing is deleted eagerly.
 - **AND** neither has aged out under the retention limit
 - **WHEN** the user pulls another shot on package A and opens the advisor
 - **THEN** the package A thread SHALL resume with its existing turns
+
+### Requirement: Pre-upgrade threads are cleared once
+Threads saved before this requirement SHALL be cleared once, at the upgrade. They cannot be resumed, since their key carries no package, and cannot be read, since their prose-format turns have no reader.
+
+#### Scenario: Old thread is removed at upgrade
+
+- **WHEN** the app upgrades while a thread saved before this requirement exists
+- **THEN** that thread is cleared and the next advisor use starts a fresh thread
+
+### Requirement: A thread keeps one equipment set for its life
+A saved conversation is replayed to the model on every request, so its equipment scope SHALL hold for its whole life. Scoping only the payload would leave older turns describing other equipment inside the transcript.
+
+#### Scenario: Older turns from other equipment stay out of the transcript
+
+- **WHEN** a shot pulled on a different equipment package is discussed in a thread
+- **THEN** that shot is answered in its own thread, not appended to the existing transcript

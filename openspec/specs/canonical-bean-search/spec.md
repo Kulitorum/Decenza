@@ -17,8 +17,7 @@ Specifies `BeanBaseClient`'s use of Visualizer's documented, public JSON API (`/
 - **THEN** the client emits `searchFailed(query, status)` with a status token and never throws
 
 ### Requirement: A single search request returns full descriptive attributes
-
-Because the API returns each canonical bag's full descriptive block in the search response, each entry emitted via `searchResults` SHALL carry both the identity fields (`id`, `visualizerCanonicalId`, `source = "visualizer"`, `roasterName`, `roastName`) and the descriptive blob (`degree`, `origin`, `region`, `producer`, `variety`, `process`, `harvest`, `tastingNotes`, `elevation`) plus `canonicalRoasterId`, remapped from the API's column names. No second or third request SHALL be required to obtain attributes.
+Each entry emitted via `searchResults` SHALL carry the identity fields (`id`, `visualizerCanonicalId`, `source = "visualizer"`, `roasterName`, `roastName`), the descriptive fields (`degree`, `origin`, `region`, `producer`, `variety`, `process`, `harvest`, `tastingNotes`, `elevation`) and `canonicalRoasterId`, remapped from the API's column names. No second or third request SHALL be required to obtain attributes.
 
 #### Scenario: Search entries include descriptive attributes
 - **WHEN** a search returns a canonical coffee bag with origin data
@@ -58,12 +57,7 @@ The client SHALL respect the API's documented rate limit (50 requests/minute per
 - **THEN** the client emits `searchFailed(query, ...)` (a reach failure), not an empty `searchResults`
 
 ### Requirement: Keyless canonical identity round-trips to Visualizer
-
-The search path SHALL remain keyless (no account or API key), and the `id` / `visualizerCanonicalId` of an entry SHALL be the Visualizer canonical UUID that Decenza stores locally and sends back on shot upload as `shot[canonical_coffee_bag_id]`, so the same canonical id links the bean in both systems.
-
-That round-trip carries a precondition, because the id is an IDENTITY claim and not a details pointer: a canonical record is a ROASTER'S PRODUCT, and visualizer.coffee rewrites a shot's `bean_brand` and `bean_type` from the linked record. Decenza SHALL store and export the id only while the local bag's own roaster and coffee still name that record. When they do not — the **borrowed record** case, where the same coffee scraped from another roaster was the only match because the user's roaster is absent from the canonical database — the link SHALL be dropped rather than corrected: the canonical endpoints are read-only, so no correct id exists for such a bag and unlinked is the only correct state.
-
-A shot's stored snapshot is a historical record and SHALL NOT be rewritten to match, so the export path SHALL apply the same check independently and withhold a borrowed id at upload time.
+The search path SHALL remain keyless. An entry's `id` and `visualizerCanonicalId` SHALL be the Visualizer canonical UUID that Decenza stores locally and sends on shot upload as `shot[canonical_coffee_bag_id]`, so both systems link the same bean.
 
 #### Scenario: Canonical UUID is the stored and uploaded identity
 
@@ -88,3 +82,19 @@ A shot's stored snapshot is a historical record and SHALL NOT be rewritten to ma
 - **WHEN** the stored snapshot cannot be parsed
 - **THEN** the link SHALL be treated as conflicted and withheld, because the permissive answer exports an unverified identity claim into the user's cloud history
 
+
+### Requirement: The canonical id is stored only for a matching roaster
+The id SHALL be stored and exported only while the local bag's roaster and coffee still name that canonical record, because visualizer.coffee rewrites a shot's `bean_brand` and `bean_type` from the linked record. A borrowed record, where the same coffee scraped from another roaster was the only match, SHALL be dropped rather than corrected, since the canonical endpoints are read-only and unlinked is the only correct state.
+
+#### Scenario: Borrowed record is not corrected
+
+- **WHEN** a bag's roaster is absent from the canonical database and the only match is another roaster's record
+- **THEN** the bag is left unlinked rather than given a corrected id
+
+### Requirement: Export withholds a borrowed id
+A shot's stored snapshot is historical and SHALL NOT be rewritten. The export path SHALL apply the same check independently and SHALL withhold a borrowed id at upload time.
+
+#### Scenario: Snapshot is left unchanged but its id is withheld
+
+- **WHEN** a shot snapshot holds a borrowed canonical id
+- **THEN** the snapshot is not rewritten, and the id is withheld from the upload

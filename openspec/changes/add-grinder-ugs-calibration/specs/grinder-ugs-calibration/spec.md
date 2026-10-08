@@ -2,15 +2,13 @@
 
 ### Requirement: The system SHALL support an opt-in deliberate UGS calibration per grinder + burrs
 
-The system SHALL let a user deliberately calibrate their grinder by recording two anchor shots on profiles that are far apart on the UGS scale (e.g. a UGS-0 fine anchor and a high-UGS coarse anchor). From the two recorded grinder settings the system SHALL compute and persist a Conversion Key for that grinder + burrs:
+The system SHALL let a user calibrate a grinder by recording two anchor shots on profiles far apart on the UGS scale, and SHALL compute and persist a Conversion Key for that grinder + burrs:
 
 ```
 conversionKey = (coarseAnchorSetting − fineAnchorSetting) / (coarseAnchorUGS − fineAnchorUGS)
 ```
 
-The calibration SHALL be stored per `(grinderModel, grinderBurrs)` in a settings domain sub-object (per the settings-architecture rules — a new `SettingsGrinder` sub-object, not a property on `Settings` directly). The stored record SHALL include both anchor profiles, their UGS values, the recorded settings, the computed Conversion Key, and the calibration timestamp.
-
-The calibration SHALL be entirely opt-in. Absence of a stored calibration SHALL NOT degrade Phase 1 behavior in any way.
+It SHALL be stored per `(grinderModel, grinderBurrs)` in a `SettingsGrinder` sub-object with both anchors' profiles, UGS values and settings, the Conversion Key and a timestamp. It SHALL be opt-in; without one, Phase 1 behaviour SHALL NOT degrade.
 
 #### Scenario: User completes a two-anchor calibration
 
@@ -43,7 +41,7 @@ When a deliberate calibration is stored for the resolved shot's grinder + burrs,
 
 ### Requirement: Long-hop numeric output from deliberate calibration SHALL be validation-gated
 
-Numeric recommendations for profiles far outside the Phase 1 mined window (long-hop, e.g. lever → turbo) that are enabled by a stored deliberate calibration SHALL sit behind a default-off gate until the deliberate-calibration mechanism has been validated against at least one independent real shot database in the `shot_eval` regression corpus. With the gate off, a stored calibration MAY still report `confidence: "calibrated"` within the Phase 1 window but SHALL fall back to directional output beyond it.
+Numeric recommendations far outside the Phase 1 mined window (long-hop, e.g. lever → turbo) enabled by a deliberate calibration SHALL sit behind a default-off gate until validated against at least one independent real shot database in the `shot_eval` corpus. With the gate off, a calibration MAY report `confidence: "calibrated"` within the Phase 1 window but SHALL fall back to directional output beyond it.
 
 #### Scenario: Gate off — long-hop stays directional even with a stored calibration
 

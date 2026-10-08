@@ -24,12 +24,7 @@ A transient idle-page panel SHALL open at its natural anchored position — a bo
 
 ### Requirement: Content yields directionally by the opening widget's zone
 
-When a transient panel opens, the panel itself SHALL NOT move; the **other** idle content SHALL yield out of its way, in a direction determined by the opening widget's zone, and only when the space the panel needs is actually occupied. When that space is already free, nothing SHALL move.
-
-The yield direction SHALL be:
-- widget in a **top** zone → content **below** it moves down;
-- widget in a **center** zone → content **below** it moves down;
-- widget in a **bottom** zone → content **above** it moves up.
+When a transient panel opens, the panel itself SHALL NOT move. The other idle content SHALL yield, and only when the space the panel needs is occupied. The yield direction is set by the opening widget's zone: content below a top or center widget SHALL move down, and content above a bottom widget SHALL move up. When that space is free, nothing SHALL move.
 
 #### Scenario: Bottom-zone panel pushes content above upward
 
@@ -89,7 +84,7 @@ The slide SHALL be a transient view offset only. It SHALL NOT modify, re-center,
 
 ### Requirement: Panel appearance is unchanged
 
-Making room SHALL be achieved by moving or hiding the yielding content alone — a transient offset where the content has somewhere to go, otherwise hiding it (see "Content that has nowhere to yield is hidden instead"). No scrim, dim, backdrop, or dialog chrome (header, footer, or frame) SHALL be added to any transient idle panel; the existing lightweight floating-card and inline-carousel appearances SHALL be preserved. Hiding a piece of yielding content is not a scrim: nothing is drawn over the panel or the page, and every other zone renders untouched.
+Making room SHALL be achieved by moving or hiding the yielding content alone. No scrim, dim, backdrop or dialog chrome (header, footer or frame) SHALL be added to any transient idle panel, and the existing lightweight floating-card and inline-carousel appearances SHALL be preserved. Hiding yielding content is not a scrim: nothing is drawn over the panel or the page.
 
 #### Scenario: No scrim or backdrop is introduced
 

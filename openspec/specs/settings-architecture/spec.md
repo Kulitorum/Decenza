@@ -5,13 +5,7 @@ Defines the decomposition of the monolithic `Settings` class into domain sub-obj
 ## Requirements
 ### Requirement: Settings Domain Decomposition
 
-The `Settings` class SHALL be decomposed into domain sub-objects. Each domain sub-object SHALL be a standalone `QObject` subclass owning its own `QSettings` instance and containing only the properties, signals, and methods for its domain. `Settings` SHALL own the domain objects, construct them as children, and expose each via a `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT)` accessor declared with the **concrete sub-object type**. `settings.h` SHALL `#include` each domain header, because a pointer `Q_PROPERTY` requires a complete type for moc to build a metatype. The same typed accessor (`Settings<Domain>* <domain>() const`) serves both the `Q_PROPERTY` READ and C++ callers; no parallel `QObject*` accessor SHALL exist. The final `settings.h` SHALL contain only sub-object accessors and cross-domain methods (`sync`, `factoryReset`, cross-domain `connect()` declarations).
-
-The complete domain set SHALL be: `SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`.
-
-**This reverses the original requirement**, which mandated `Q_PROPERTY(QObject* domain READ domainQObject CONSTANT)` with forward declarations, to keep `settings.h` free of domain includes. That erasure was measured to be the wrong trade: a property behind a `QObject*` is opaque to `qmllint`, `qmlcachegen` and the QML language server, so **1,310 QML call sites across 281 settings** could not be checked at all. `Settings.brew.slectedFlushPreset` compiled, linted clean, and failed silently at runtime — the defect class that shipped in 2.0.1 and was fixed in PR Kulitorum/Decenza#1661. The rebuild saving the erasure bought is paid by developers and absorbed by caching; the defects it hid are paid by users.
-
-`Q_DECLARE_OPAQUE_POINTER` SHALL NOT be used to satisfy moc without the include. It compiles and satisfies the linter, then hands QML a `QVariant(Settings<Domain>*)` rather than an object, so every property and method under `Settings.<domain>` fails at runtime.
+The `Settings` class SHALL be decomposed into domain sub-objects, each a `QObject` subclass owning its own `QSettings` instance and only its domain's properties, signals and methods. `Settings` SHALL construct them as children and expose each through a typed accessor `Settings<Domain>* <domain>() const`, used as the `CONSTANT` `Q_PROPERTY` READ. The final `settings.h` SHALL contain only sub-object accessors and cross-domain methods.
 
 #### Scenario: Domain sub-object is independently includable
 - **WHEN** a component depends only on a single domain's settings
@@ -49,9 +43,29 @@ The complete domain set SHALL be: `SettingsMqtt`, `SettingsAutoWake`, `SettingsH
 - **AND** the value SHALL be written to the shot record at the point a person supplies it instead
 - **AND** the reason SHALL be understood as concrete rather than stylistic: the removed `setDefaultShotRating` → `setDyeEspressoEnjoyment` wiring is what made a deleted setting keep rating shots, because the mirrored field outlived the setting that fed it
 
+### Requirement: Domain sub-object set
+
+The complete domain set SHALL be `SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp` and `SettingsCalibration`.
+
+#### Scenario: Every domain is reachable from the facade
+- **WHEN** the `Settings` façade is constructed
+- **THEN** each of the twelve domain sub-objects is reachable through its accessor
+
+### Requirement: Domain accessors stay typed
+
+Domain accessors SHALL be typed as the concrete sub-object, never erased to `QObject*`, and `settings.h` SHALL `#include` each domain header so moc has a complete type. `Q_DECLARE_OPAQUE_POINTER` SHALL NOT be used to satisfy moc without that include.
+
+#### Scenario: Opaque pointer is rejected
+- **WHEN** `Q_DECLARE_OPAQUE_POINTER` satisfies moc without the include
+- **THEN** QML receives a `QVariant` rather than the object, so every `Settings.<domain>` member fails at runtime
+
+#### Scenario: Erased types hide QML call sites
+- **WHEN** a domain accessor is erased to `QObject*`
+- **THEN** `qmllint`, `qmlcachegen` and the language server cannot check the `Settings.<domain>.<prop>` call sites
+
 ### Requirement: QML Sub-Object Access
 
-All QML code that accesses settings SHALL use the domain sub-object accessor (e.g., `Settings.calibration.sawLearnedLag`) rather than the flat `Settings` property (e.g., `Settings.sawLearnedLag`). `Connections` blocks that target settings properties SHALL target the domain sub-object (`Connections { target: Settings.calibration }`). The flat `Settings.X` form is valid only for properties that genuinely remain on `Settings` itself (currently: only the 12 sub-object accessors plus any cross-domain coordinator state).
+All QML code that accesses settings SHALL use the domain sub-object accessor (e.g., `Settings.calibration.sawLearnedLag`), never the flat `Settings` property. `Connections` blocks targeting settings properties SHALL target the sub-object (`Connections { target: Settings.calibration }`). The flat `Settings.X` form SHALL be used only for properties that remain on `Settings`, such as the accessors and coordinator state.
 
 #### Scenario: QML reads a setting via domain sub-object
 - **WHEN** `SettingsCalibrationTab.qml` reads the SAW learned lag
@@ -70,9 +84,7 @@ All QML code that accesses settings SHALL use the domain sub-object accessor (e.
 
 ### Requirement: Narrow Consumer Header Isolation
 
-Each domain-specific C++ consumer (a class that reads only one domain's settings) SHALL include only the domain header, not `settings.h`. Its constructor SHALL accept the domain sub-object pointer instead of `Settings*`. `main.cpp` SHALL pass the sub-object accessor (e.g., `settings.brew()`) at the call site. Wide consumers (classes that touch multiple domains, e.g., `MainController`, `settingsserializer.cpp`) MAY keep `Settings*` and access domains via `settings->domain()->X()`.
-
-Narrowing consumers is now the **only** sanctioned lever for reducing the recompile blast of a domain-header edit. Re-erasing the property types SHALL NOT be used for that purpose, whatever the measured saving.
+A domain-specific C++ consumer SHALL include only its domain header, not `settings.h`, and its constructor SHALL accept the domain sub-object pointer, which `main.cpp` passes (e.g., `settings.brew()`). Wide consumers that touch multiple domains MAY keep `Settings*`. Narrowing consumers is the only sanctioned lever for reducing the recompile blast of a domain-header edit; re-erasing property types SHALL NOT be used for that purpose.
 
 #### Scenario: Narrow consumer does not include settings.h
 - **WHEN** a domain-specific consumer's header is compiled
@@ -89,9 +101,13 @@ Narrowing consumers is now the **only** sanctioned lever for reducing the recomp
 - **THEN** the proposal is rejected, and the measured figures are the ones on record: a domain-header edit takes ~60 s against ~26 s before, of which the marginal cost attributable to this decision is +129 C++ translation units (the 218 QML cache units in the dirty set rebuild either way, because a domain header carries `Q_OBJECT`)
 - **AND** `tst_settings::qmlChainsThroughDomainSubObjects` remains in the suite to catch a reintroduction that compiles and lints clean
 
+#### Scenario: Wide consumers keep the façade
+- **WHEN** a class reads several domains, such as `MainController` or `settingsserializer.cpp`
+- **THEN** it MAY keep `Settings*` and access domains through `settings->domain()->X()`
+
 ### Requirement: Shot History Types Extraction
 
-The data structures defined in `shothistorystorage.h` (`ShotRecord`, `HistoryShotSummary`, `ShotFilter`, `ShotSaveData`, `GrinderContext`, `HistoryPhaseMarker`) SHALL be extracted to `shothistory_types.h`. `shothistorystorage.h` SHALL `#include "shothistory_types.h"`. Components that only store a `ShotHistoryStorage*` pointer and call simple accessors (`databasePath()`, `totalShots()`, `isReady()`) SHALL forward-declare `ShotHistoryStorage` in their headers and include `shothistorystorage.h` only in their `.cpp`.
+The data structures in `shothistorystorage.h` (`ShotRecord`, `HistoryShotSummary`, `ShotFilter`, `ShotSaveData`, `GrinderContext`, `HistoryPhaseMarker`) SHALL live in `shothistory_types.h`, which `shothistorystorage.h` SHALL include. Components that only hold a `ShotHistoryStorage*` and call simple accessors SHALL forward-declare it and include `shothistorystorage.h` only in their `.cpp`.
 
 #### Scenario: Pointer-only consumer avoids full header
 - **WHEN** `DatabaseBackupManager` is compiled
@@ -106,21 +122,7 @@ The data structures defined in `shothistorystorage.h` (`ShotRecord`, `HistorySho
 
 ### Requirement: Storage Key Stability
 
-Each domain sub-object's `QSettings` operations SHALL use the same key strings the property used
-before being migrated to the sub-object. Key strings SHALL remain byte-identical across the
-settings-store consolidation.
-
-Domain sub-objects SHALL NOT construct their own store handle. Each SHALL obtain its handle from
-the shared `AppSettings` type, which names the canonical store identity in exactly one place
-(see the `settings-store-identity` capability). This replaces the previous arrangement in which
-each sub-object opened `QSettings("DecentEspresso", "DE1Qt")` directly.
-
-Existing user settings SHALL survive the consolidation, but — unlike the original domain split —
-they do so by **migration** rather than by the store being untouched: the one-time legacy-store
-migration copies every key from `("DecentEspresso", "DE1Qt")` into the canonical store before any
-sub-object reads it. Domain sub-objects therefore SHALL NOT assume the canonical store is
-pre-populated at construction on an upgrading installation; the migration SHALL run before the
-`Settings` façade and its sub-objects are constructed.
+Each domain sub-object's `QSettings` operations SHALL use the same key strings the property used before migration. Key strings SHALL remain byte-identical across the settings-store consolidation.
 
 #### Scenario: Existing user settings persist across the migration
 - **WHEN** a user upgrades from a build with `Settings::sawLearnedLag` to a build with `SettingsCalibration::sawLearnedLag`
@@ -142,13 +144,25 @@ pre-populated at construction on an upgrading installation; the migration SHALL 
 - **THEN** the legacy-store migration completes before the `Settings` façade is constructed
 - **AND** every domain sub-object's first read observes the migrated values rather than defaults
 
+### Requirement: Domain sub-objects share one store handle
+
+Domain sub-objects SHALL NOT construct their own store handle. Each SHALL obtain it from the shared `AppSettings` type, which names the canonical store identity in exactly one place (see the `settings-store-identity` capability).
+
+#### Scenario: Store identity is named once
+- **WHEN** a domain sub-object needs its `QSettings` handle
+- **THEN** it obtains the handle from `AppSettings` and does not open `QSettings("DecentEspresso", "DE1Qt")` itself
+
+### Requirement: Legacy store migrates before sub-objects read it
+
+Existing user settings SHALL survive the consolidation by migration. The one-time legacy-store migration SHALL copy every key from `("DecentEspresso", "DE1Qt")` into the canonical store before any sub-object reads it, and domain sub-objects SHALL NOT assume the canonical store is pre-populated at construction.
+
+#### Scenario: Upgrading install reads migrated values
+- **WHEN** an upgrading installation constructs the `Settings` façade
+- **THEN** each sub-object reads values that the legacy-store migration has already copied
+
 ### Requirement: Calibration Domain Surface
 
-The `SettingsCalibration` domain sub-object SHALL own the auto flow calibration surface and the SAW (stop-at-weight) learning surface in their entirety. No calibration or SAW-related property, invokable, signal, cache, or static helper SHALL remain on `Settings` itself after Tier 3 lands.
-
-The auto flow calibration surface comprises: `flowCalibrationMultiplier`, `autoFlowCalibration`, `profileFlowCalibration`, `setProfileFlowCalibration`, `clearProfileFlowCalibration`, `effectiveFlowCalibration`, `hasProfileFlowCalibration`, `allProfileFlowCalibrations`, `perProfileFlowCalVersion`, `flowCalPendingIdeals`, `appendFlowCalPendingIdeal`, `clearFlowCalPendingIdeals`, plus the `flowCalibrationMultiplierChanged`, `autoFlowCalibrationChanged`, and `perProfileFlowCalibrationChanged` signals.
-
-The SAW learning surface comprises: `sawLearnedLag`, `sawLearnedLagFor`, `getExpectedDrip`, `getExpectedDripFor`, `sawLearningEntries`, `sawLearningEntriesFor`, `sawModelSource`, `addSawLearningPoint`, `resetSawLearning`, `resetSawLearningForProfile`, `isSawConverged`, `perProfileSawHistory`, `allPerProfileSawHistory`, `sawPendingBatch`, `globalSawBootstrapLag`, `setGlobalSawBootstrapLag`, the static `sensorLag(scaleType)` helper, plus the `sawLearnedLagChanged` signal and the file-scope constants `kSawMinMediansForGraduation`, `kBatchSize`, `kMaxPairHistory`, `kBatchMaxIqr`, `kBatchMaxDeviation`.
+The `SettingsCalibration` domain sub-object SHALL own the auto flow calibration surface and the SAW (stop-at-weight) learning surface in their entirety. No calibration or SAW-related property, invokable, signal, cache or static helper SHALL remain on `Settings` after Tier 3 lands.
 
 #### Scenario: Calibration surface lives on the sub-object
 - **WHEN** a developer searches `src/core/settings.h` for `flowCalibrationMultiplier`, `sawLearnedLag`, `profileFlowCalibration`, `addSawLearningPoint`, `getExpectedDrip`, `sawModelSource`, or any other listed name
@@ -160,20 +174,33 @@ The SAW learning surface comprises: `sawLearnedLag`, `sawLearnedLagFor`, `getExp
 - **THEN** the sub-object emits a `sawLearningResetRequested` signal (or equivalent) and does not directly call `SettingsBrew` setters
 - **AND** the hot-water SAW offset and sample count are reset on `SettingsBrew` via a `connect()` established in the `Settings::Settings()` constructor body
 
+### Requirement: Auto flow calibration surface
+
+The auto flow calibration surface SHALL comprise `flowCalibrationMultiplier`, `autoFlowCalibration`, `profileFlowCalibration`, `setProfileFlowCalibration`, `clearProfileFlowCalibration`, `effectiveFlowCalibration`, `hasProfileFlowCalibration`, `allProfileFlowCalibrations` and `perProfileFlowCalVersion`.
+
+#### Scenario: Flow calibration members are on the sub-object
+- **WHEN** QML or C++ reads any member of the auto flow calibration surface
+- **THEN** it is reached through `Settings.calibration`, not `Settings`
+
+### Requirement: Auto flow calibration pending ideals and signals
+
+The auto flow calibration surface SHALL also comprise `flowCalPendingIdeals`, `appendFlowCalPendingIdeal` and `clearFlowCalPendingIdeals`, and the signals `flowCalibrationMultiplierChanged`, `autoFlowCalibrationChanged` and `perProfileFlowCalibrationChanged`.
+
+#### Scenario: Pending ideals are on the sub-object
+- **WHEN** a flow calibration pending ideal is appended or cleared
+- **THEN** it is done through `Settings.calibration`, not `Settings`
+
+### Requirement: SAW learning surface
+
+The SAW learning surface SHALL comprise `sawLearnedLag`, `sawLearnedLagFor`, `getExpectedDrip`, `getExpectedDripFor`, `sawLearningEntries`, `sawLearningEntriesFor`, `sawModelSource`, `addSawLearningPoint`, `resetSawLearning`, `resetSawLearningForProfile`, `isSawConverged`, `perProfileSawHistory`, `allPerProfileSawHistory`, `sawPendingBatch`, `globalSawBootstrapLag`, `setGlobalSawBootstrapLag` and the static `sensorLag(scaleType)`, with the `sawLearnedLagChanged` signal.
+
+#### Scenario: SAW constants stay file-scope
+- **WHEN** the SAW learning surface is moved to the sub-object
+- **THEN** the constants `kSawMinMediansForGraduation`, `kBatchSize`, `kMaxPairHistory`, `kBatchMaxIqr` and `kBatchMaxDeviation` remain file-scope constants, not members
+
 ### Requirement: Removing a setting SHALL remove its stored key
 
-When a setting is removed, deleting its property and accessors SHALL NOT be
-considered sufficient. Every key the removed feature wrote SHALL also be evicted
-from the settings store, including keys written by fields the setting fed, so an
-upgraded store carries no orphaned value from the removed feature.
-
-Eviction SHALL be idempotent — a removal of an absent key is a no-op — so it can
-run unconditionally on construction without a version counter or migration
-framework.
-
-This requirement exists because a store is shared mutable state with an unbounded
-lifetime: an orphaned value is only inert for as long as nothing reads it, and the
-next reader is written by someone who never knew the feature existed.
+Removing a setting SHALL evict every key the removed feature wrote from the settings store, including keys written by fields the setting fed, because deleting its property and accessors is not sufficient. Eviction SHALL be idempotent, so it can run unconditionally on construction without a version counter or migration framework.
 
 #### Scenario: Removed setting leaves no key behind
 

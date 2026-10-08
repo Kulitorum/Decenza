@@ -6,11 +6,7 @@ Governs how `AccessibilityManager.announce()` delivers spoken feedback: routing 
 ## Requirements
 ### Requirement: Announcements SHALL route through the platform screen reader whenever one is active
 
-The application SHALL deliver accessibility announcements through the platform accessibility framework (TalkBack on Android, VoiceOver on iOS/macOS, Narrator/UIA on Windows) using `QAccessibleAnnouncementEvent` whenever `QAccessible::isActive()` reports a screen reader as active. In that case the application SHALL NOT additionally speak via `QTextToSpeech`, even if the user has the `ttsEnabled` toggle on. When no screen reader is detected, the application SHALL fall back to its existing `QTextToSpeech` path, gated by `ttsEnabled`.
-
-The existing `AccessibilityManager.announce(text, interrupt)` API SHALL be preserved without changes to its signature or semantics from the caller's perspective. The `interrupt` parameter SHALL map to assertive announcement politeness; the default SHALL map to polite.
-
-There SHALL NOT be a user-visible delivery-mode setting (e.g. a "platform / tts / both" picker). Routing is automatic based on the screen reader's active state.
+Announcements SHALL be delivered through `QAccessibleAnnouncementEvent` whenever `QAccessible::isActive()` reports a screen reader. In that case `QTextToSpeech` SHALL NOT also speak, even when `ttsEnabled` is on. When no screen reader is detected, the application SHALL fall back to `QTextToSpeech`, gated by `ttsEnabled`. The `AccessibilityManager.announce(text, interrupt)` signature SHALL be preserved.
 
 #### Scenario: Active screen reader routes through TalkBack only
 
@@ -51,11 +47,28 @@ There SHALL NOT be a user-visible delivery-mode setting (e.g. a "platform / tts 
 
 ---
 
+### Requirement: Delivery mode SHALL NOT be a user setting
+
+Routing SHALL be automatic, based on the screen reader's active state. There SHALL NOT be a user-visible delivery-mode setting such as a platform / tts / both picker.
+
+#### Scenario: No delivery picker exists
+
+- **WHEN** the user searches the settings for an announcement delivery mode
+- **THEN** no delivery-mode picker SHALL be offered
+
+### Requirement: Announcement politeness SHALL follow the interrupt argument
+
+The `interrupt` parameter SHALL map to assertive announcement politeness, and the default SHALL map to polite.
+
+#### Scenario: Default announcement is polite
+
+- **GIVEN** a screen reader is active
+- **WHEN** a caller invokes `AccessibilityManager.announce("Shot complete")`
+- **THEN** the dispatched `QAccessibleAnnouncementEvent` SHALL carry polite politeness
+
 ### Requirement: Announcement delivery SHALL be observable via the application log
 
-The application SHALL log every announcement: the text content, the chosen delivery path (`"platform"`, `"tts"`, `"silent"`, or `"dropped"`), and the `QAccessible::isActive()` reading at dispatch time. Logging uses the existing async logger so it is visible in transcripts and in the web debug log.
-
-This requirement exists because there is no automated accessibility test coverage and user reports of "missed" announcements (a real risk with platform-mode delivery on Android during window transitions, or with `QAccessible::isActive()` lag) are otherwise un-debuggable.
+The application SHALL log every announcement with its text, its delivery path (`"platform"`, `"tts"`, `"silent"` or `"dropped"`), and the `QAccessible::isActive()` reading at dispatch. Logging SHALL use the existing async logger so entries appear in transcripts and the web debug log.
 
 #### Scenario: Successful platform delivery is logged
 

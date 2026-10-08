@@ -1,15 +1,24 @@
+## ADDED Requirements
+
+### Requirement: Two bundled firmware channels
+The system SHALL bundle two channels: Stable (the default, DE1 build 1352 from `decentespresso/decaid` `assets/firmware/de1/de1-1352.bin`) and Early access (opt-in, build 1358 from decentespresso/decaid#594 `assets/firmware/de1/de1-1358.bin`). The selected image SHALL expose its version, channel label, release notes, expected header fields, byte length, digest and provenance.
+
+#### Scenario: Stable is the default channel
+- **WHEN** the user has never opted into Early access
+- **THEN** availability is computed against the bundled Stable build 1352
+
+### Requirement: The Early access opt-in is a fresh preference
+The Early access opt-in SHALL be persisted as `firmware/EA`, and the selected channel SHALL be Stable when that key is absent or false. A one-time upgrade SHALL remove the historical `firmware/nightlyChannel` preference, set `firmware/EA` to false, and record completion, so a prior nightly selection does not opt the user into Early access.
+
+#### Scenario: The upgrade runs once
+- **WHEN** the one-time upgrade has recorded completion and the user later enables Early access
+- **THEN** a later launch does not reset `firmware/EA`
+
 ## MODIFIED Requirements
 
 ### Requirement: Firmware availability detection
 
-The system SHALL determine DE1 firmware availability from firmware images bundled with the installed Decenza application and compare the selected bundled firmware version against the connected DE1's installed version. Two bundled channels are supported:
-
-- **Stable** (default): bundled DE1 firmware build 1352, sourced from `decentespresso/decaid` `assets/firmware/de1/de1-1352.bin`
-- **Early access** (opt-in): bundled DE1 firmware build 1358, sourced from `decentespresso/decaid` PR decentespresso/decaid#594 `assets/firmware/de1/de1-1358.bin`
-
-The selected bundled image SHALL expose enough metadata for the UI and update flow to identify its version, channel label, release notes, expected header fields, expected byte length, digest, and provenance. Availability checks SHALL NOT require network access. The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running so existing cadence, banners, and dismissal behavior remain stable across the source change.
-
-The Early access opt-in SHALL be persisted as `firmware/EA`. When that key is absent or false, the selected channel SHALL be Stable. A one-time upgrade SHALL remove the historical `firmware/nightlyChannel` preference, set `firmware/EA` to `false`, and record completion so prior nightly selections do not opt users into Early access.
+The system SHALL determine DE1 firmware availability from firmware images bundled with the installed application and compare the selected bundled version with the connected DE1's installed version. Availability checks SHALL NOT require network access. The check SHALL run at app startup (30 s after the main window is shown) and once per 168 hours while the app is running, so cadence, banners and dismissal behave as before.
 
 #### Scenario: Newer firmware available
 
@@ -86,7 +95,7 @@ The Early access opt-in SHALL be persisted as `firmware/EA`. When that key is ab
 
 ### Requirement: Firmware download and validation
 
-The system SHALL load the selected bundled firmware file only when the user initiates an update and SHALL validate the bundled file's 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven `u32` header fields in little-endian, confirm that `BoardMarker` at offset 4 equals `0xDE100001`, confirm that the on-disk file size matches the selected bundled entry's expected byte length, confirm that the file is at least `ByteCount + 64` bytes and within the accepted firmware size ceiling, and confirm the file digest matches the bundled catalog. The DE1's own verify-phase response (`FirstError == {0xFF, 0xFF, 0xFD}`) remains the authoritative correctness check for the written firmware.
+The system SHALL load the selected bundled firmware file only when the user initiates an update and SHALL validate its 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven little-endian u32 header fields, confirm BoardMarker at offset 4 equals 0xDE100001, confirm the file size matches the bundled entry's expected length, is at least ByteCount + 64 and within the size ceiling, and confirm the digest matches the bundled catalog.
 
 #### Scenario: Successful download and validation
 
@@ -117,3 +126,9 @@ The system SHALL load the selected bundled firmware file only when the user init
 - **THEN** the flow enters a failed state with retry unavailable
 - **AND** the user sees "The firmware file is not valid. Please report this."
 - **AND** no BLE write is issued
+
+## REMOVED Requirements
+
+### Requirement: Availability checks are scheduled and bandwidth-light
+**Reason**: Availability now comes from firmware bundled with the app, so there is no CDN request to make light.
+**Migration**: The startup and 168-hour cadence moves into "Firmware availability detection".

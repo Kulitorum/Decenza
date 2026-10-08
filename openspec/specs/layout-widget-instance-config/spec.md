@@ -4,10 +4,7 @@
 Defines how individual layout widget instances hold their own persistent, per-instance configuration — opened via an explicit visible affordance (plus long-press) in the in-app and web editors — covering the Scale Weight data mode, readout display mode, Sleep widget's quit/icon options, the Shot Plan display-item list and its sentence/stacked/steam-plan toggles, and the visible has-options indicator that marks which widget types are configurable.
 ## Requirements
 ### Requirement: Per-instance widget configuration in the editors
-
 The layout editors SHALL allow a configurable widget instance to be opened for editing and SHALL persist per-instance settings using the existing item-property mechanism (`setItemProperty` / `getItemProperties` and the `/api/layout/item` endpoints). Two instances of the same widget type SHALL be able to hold different settings.
-
-The instance editor SHALL be openable through an **explicit, visible affordance** — not a hidden gesture alone. In the in-app editor this affordance SHALL be visible on the widget (for example an options control on the chip), and long-press SHALL be retained as an additional shortcut. In the web editor the has-options indicator (gear) SHALL itself be an activatable control that opens the instance editor directly. Activating the options affordance SHALL open the editor regardless of the chip's current selection state — selection toggling SHALL NOT swallow or invert the open action. An open instance editor SHALL close when its widget is deselected or removed, so the editor is never open for a widget that is no longer selected.
 
 #### Scenario: Visible affordance opens the instance editor in-app
 
@@ -40,6 +37,20 @@ The instance editor SHALL be openable through an **explicit, visible affordance*
 - **WHEN** a user changes a configurable property on one instance and saves
 - **THEN** that instance SHALL retain its setting across app restarts
 - **AND** other instances of the same widget type SHALL be unaffected
+
+### Requirement: The instance editor has an explicit affordance
+The instance editor SHALL be openable through an explicit, visible affordance, not a hidden gesture alone. In the in-app editor the affordance SHALL be visible on the widget, and long-press SHALL be retained as an additional shortcut. In the web editor the has-options gear SHALL itself be an activatable control that opens the instance editor. Activating the affordance SHALL open the editor regardless of the chip's selection state.
+
+#### Scenario: Options affordance works on a repeated click
+- **WHEN** the user clicks a chip's options affordance repeatedly
+- **THEN** each click opens the instance editor and selection toggling does not swallow or invert the open action
+
+### Requirement: An open instance editor closes with its widget
+An open instance editor SHALL close when its widget is deselected or removed, so the editor is never open for a widget that is no longer selected.
+
+#### Scenario: Deselecting the widget closes its editor
+- **WHEN** the widget of an open instance editor is deselected or removed
+- **THEN** the editor closes
 
 ### Requirement: Configurable data mode for the scale weight widget
 
@@ -82,8 +93,7 @@ The existing `scaleWeight` widget SHALL gain a per-instance `dataMode` property 
 - **THEN** the widget SHALL display a placeholder ("—") regardless of `dataMode`
 
 ### Requirement: Per-instance display mode for readout widgets
-
-The `machineStatus`, `temperature`, `steamTemperature`, `waterLevel`, `clock`, `scaleWeight`, `batteryLevel`, `scaleBattery`, `doseWeight`, and `milkWeight` widgets SHALL each support a per-instance `displayMode` property with values `text` (default) and `icon`, as declared in the layout readout capability schema. In `icon` mode the widget SHALL render a tinted icon ahead of its value, using its existing icon asset; in `text` mode it SHALL render exactly as it does today. Widgets whose default rendering already includes an icon (`batteryLevel`, `scaleBattery`) SHALL treat their current rendering as the default and offer the other form via the mode. `profileName` SHALL NOT expose `displayMode` (no meaningful icon form) — the capability schema declares it color-only. The mode SHALL be read from the item's stored properties (`modelData`), persist per instance, and apply in any zone the widget is placed in.
+The `machineStatus`, `temperature`, `steamTemperature`, `waterLevel`, `clock`, `scaleWeight`, `batteryLevel`, `scaleBattery`, `doseWeight` and `milkWeight` widgets SHALL each support a per-instance `displayMode` of `text` (default) or `icon`, as declared in the layout readout capability schema. In `icon` mode the widget SHALL render a tinted icon ahead of its value. In `text` mode it SHALL render exactly as it does today.
 
 #### Scenario: Default is today's rendering
 
@@ -120,6 +130,20 @@ The `machineStatus`, `temperature`, `steamTemperature`, `waterLevel`, `clock`, `
 
 - **WHEN** the widget's device is disconnected
 - **THEN** it SHALL show its existing placeholder ("—"/"--") in either mode, without errors
+
+### Requirement: Icon-default readouts keep their default and profileName has no mode
+Widgets whose default rendering already includes an icon (`batteryLevel`, `scaleBattery`) SHALL treat that rendering as the default and offer the other form via the mode. `profileName` SHALL NOT expose `displayMode`, because the capability schema declares it color-only.
+
+#### Scenario: profileName offers no display mode
+- **WHEN** a `profileName` widget is configured
+- **THEN** no `displayMode` option is offered for it
+
+### Requirement: The display mode is stored per instance and applies in any zone
+The mode SHALL be read from the item's stored properties (`modelData`), SHALL persist per instance, and SHALL apply in any zone the widget is placed in.
+
+#### Scenario: Mode is read from stored properties
+- **WHEN** a readout widget with `displayMode` set to `icon` is placed in any zone
+- **THEN** it renders in icon mode from its stored item properties
 
 ### Requirement: Configurable quit option for the sleep widget
 
@@ -168,10 +192,7 @@ Both editors SHALL show a persistent visual indicator on every widget instance w
 - **THEN** the has-options indicator SHALL still be visible on its chip
 
 ### Requirement: Single source of truth for configurable widget types
-
-Which widget types have configurable options, and which option keys each type supports, SHALL be defined by the layout readout capability schema (see `layout-readout-capability-schema`) and consumed by every site that needs it — the in-app has-options indicator, the in-app open-options gesture/affordance, the in-app options editor's section selection, and the web editor's indicator, open affordance, and option forms. Adding a new configurable widget type or a new option key SHALL require updating only the schema for the editors' behavior to stay consistent.
-
-The built-in ACTION widgets — Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites, Settings — SHALL be configurable types under this rule, carrying gesture-override option keys (see `layout-widget-gesture-overrides`). Their per-type slot rule — how many gestures may be overridden, and which destination the reserved gesture opens — SHALL be declared in the same schema rather than hard-coded in either editor, so the reserved-slot presentation is derived and cannot drift between surfaces.
+Which widget types have configurable options, and which option keys each type supports, SHALL be defined by the layout readout capability schema (`layout-readout-capability-schema`) and consumed by every site that needs them, in both editors. Adding a configurable widget type or option key SHALL require updating only the schema.
 
 #### Scenario: Indicator and open behavior agree
 
@@ -198,22 +219,15 @@ The built-in ACTION widgets — Recipes, Beans, Steam, Hot Water, Equipment, Flu
 - **WHEN** a one-slot widget's reserved gesture is presented in either editor
 - **THEN** both surfaces derive the rule and the destination name from the schema, and neither carries its own list of which widgets reserve which gesture
 
+### Requirement: Action widgets are configurable with schema-derived slot rules
+The built-in ACTION widgets (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites and Settings) SHALL be configurable types under this rule, carrying gesture-override option keys (`layout-widget-gesture-overrides`). Their per-type slot rule, meaning how many gestures may be overridden and which destination the reserved gesture opens, SHALL be declared in the same schema and not hard-coded in either editor.
+
+#### Scenario: Reserved slot presentation follows the schema
+- **WHEN** an action widget's reserved slot is shown in either editor
+- **THEN** the slot is derived from the schema, so the two editors cannot drift
+
 ### Requirement: Shot plan display option set
-
-The `shotPlan` widget type SHALL expose, in both editors (in-app popup and web layout editor):
-
-- An **ordered display-item list** (`shotPlanItems`): a JSON array of item keys drawn from `doseYield`, `profile`, `temperature`, `roaster`, `coffee`, `grind`, `roastDate`. The list defines both which items are shown and their order. Profile and Temperature SHALL be independent items.
-- A **Sentence style** boolean (`shotPlanSentence`, default ON) selecting sentence vs fragment rendering.
-- A **Stacked details** boolean (`shotPlanStacked`, default OFF) that, in sentence mode, moves the detail tail onto its own line(s); the in-app toggle SHALL be disabled while Sentence style is OFF (the option has no meaning for fragments).
-- A **Steam plan** boolean (`shotPlanShowSteamPlan`, default ON) gating the page-aware steam swap, unchanged.
-
-The default item list SHALL be `["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]` (Roast date not shown by default, matching the only legacy toggle that defaulted OFF), which — together with Sentence style ON — SHALL reproduce the widget's previous default rendering.
-
-**In-app editor**: the Shot Plan settings popup SHALL present the item list as a "Shown" row of chips (drag to reorder, with an explicit remove affordance per chip) and an "Available" row of the unused items (activate to add), plus the two toggles. Reordering SHALL have an accessible fallback (per-chip move controls) when a screen reader is active. Edits SHALL apply only on Save; Cancel SHALL discard them. The popup SHALL show a live preview of the plan as configured.
-
-**Web editor**: the web layout editor SHALL present the same item list with add, remove, and reorder controls plus the two toggles, reading and writing the same keys.
-
-**Migration**: derivation from legacy booleans SHALL apply only when the `shotPlanItems` property is absent — a stored empty list is a valid "show nothing" configuration and SHALL be honored, not treated as unset. When an instance has no `shotPlanItems` property, both editors and the widget SHALL derive the list from the legacy booleans in canonical order — `shotPlanShowDoseYield` → `doseYield`; `shotPlanShowProfile` → `profile` **and** `temperature`; `shotPlanShowRoaster` → `roaster`; `shotPlanShowCoffee` → `coffee`; `shotPlanShowGrind` → `grind`; `shotPlanShowRoastDate` (default OFF) → `roastDate` — honoring each legacy default. The legacy display booleans SHALL be read but never written by the new editors. Both editors and the C++ configurable-type gate SHALL accept the same keys so a configuration set in one editor round-trips through the other.
+The `shotPlan` widget SHALL expose, in both editors, an **ordered display-item list** (`shotPlanItems`): a JSON array of keys drawn from `doseYield`, `profile`, `temperature`, `roaster`, `coffee`, `grind` and `roastDate`. The list SHALL define both which items are shown and their order. Profile and Temperature SHALL be independent items.
 
 #### Scenario: Defaults reproduce the previous rendering
 
@@ -275,9 +289,50 @@ The default item list SHALL be `["doseYield", "profile", "temperature", "roaster
 - **WHEN** a screen reader is active and the Shot Plan settings popup is open
 - **THEN** each Shown chip exposes move controls that reorder it without drag gestures
 
-### Requirement: Web readout options match the in-app editor's presentation
+### Requirement: Shot plan defaults reproduce the previous rendering
+The default item list SHALL be `["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]`, with Roast date off by default. With Sentence style on, that default SHALL reproduce the widget's previous default rendering.
 
-The web layout editor SHALL present readout widget options in a dedicated editor with the same structure and wording as the in-app readout options editor: labeled sections per option key (for example "Scale data mode", "Display", "Color"), the same descriptive choice labels (for example "Net beans (minus dose tare)", "Context-aware (milk while steaming, else beans)"), and the same explanatory hints (for example the show-ratio hint). The sections shown SHALL continue to derive from the shared readout capability schema. Unlabeled inline controls on the chip SHALL NOT be the only way to edit readout options.
+#### Scenario: Defaults reproduce the previous rendering
+- **WHEN** a shot plan widget has no stored item list and no legacy overrides
+- **THEN** it renders as before the option set existed
+
+### Requirement: Sentence and stacked shot plan options
+A **Sentence style** boolean (`shotPlanSentence`, default ON) SHALL select sentence or fragment rendering. A **Stacked details** boolean (`shotPlanStacked`, default OFF) SHALL, in sentence mode, move the detail tail onto its own line or lines, and the in-app toggle SHALL be disabled while Sentence style is OFF. A **Steam plan** boolean (`shotPlanShowSteamPlan`, default ON) SHALL gate the page-aware steam swap, unchanged.
+
+#### Scenario: Stacked details is disabled for fragments
+- **WHEN** Sentence style is OFF
+- **THEN** the in-app Stacked details toggle is disabled
+
+### Requirement: In-app shot plan editor
+The Shot Plan settings popup SHALL present the item list as a "Shown" row of chips, reorderable by drag with an explicit remove affordance per chip, and an "Available" row of unused items, activated to add. Reordering SHALL have an accessible fallback of per-chip move controls when a screen reader is active. Edits SHALL apply only on Save, and Cancel SHALL discard them. The popup SHALL show a live preview of the plan as configured.
+
+#### Scenario: Cancel discards chip edits
+- **WHEN** the user reorders or removes chips and then taps Cancel
+- **THEN** the stored item list is unchanged
+
+### Requirement: Web shot plan editor
+The web layout editor SHALL present the same item list with add, remove and reorder controls, plus the same toggles, reading and writing the same keys.
+
+#### Scenario: Web editor round-trips the item list
+- **WHEN** an item list is saved in the web editor and opened in the in-app editor
+- **THEN** the same items appear in the same order
+
+### Requirement: Legacy booleans derive the item list
+When `shotPlanItems` is absent, both editors and the widget SHALL derive the list from the legacy booleans in canonical order, honoring each legacy default: `shotPlanShowDoseYield` maps to `doseYield`, `shotPlanShowProfile` to `profile` and `temperature`, `shotPlanShowRoaster` to `roaster`, `shotPlanShowCoffee` to `coffee`, `shotPlanShowGrind` to `grind`, and `shotPlanShowRoastDate` (default OFF) to `roastDate`.
+
+#### Scenario: Legacy profile boolean expands to two chips
+- **WHEN** `shotPlanItems` is absent and `shotPlanShowProfile` is ON
+- **THEN** the derived list contains both `profile` and `temperature`
+
+### Requirement: Legacy keys are read-only and editors round-trip
+Derivation SHALL apply only when `shotPlanItems` is absent. A stored empty list is a valid show-nothing configuration and SHALL be honored. The legacy display booleans SHALL be read but never written by the new editors. Both editors and the C++ configurable-type gate SHALL accept the same keys, so a configuration set in one editor round-trips through the other.
+
+#### Scenario: An emptied item list stays empty
+- **WHEN** the user removes every item from the shot plan list
+- **THEN** the stored list is empty and no legacy boolean is used to repopulate it
+
+### Requirement: Web readout options match the in-app editor's presentation
+The web layout editor SHALL present readout widget options in a dedicated editor with the same structure, wording and explanatory hints as the in-app readout options editor: labelled sections per option key, and the same choice labels. Its sections SHALL continue to derive from the shared readout capability schema. Unlabelled inline chip controls SHALL NOT be the only way to edit readout options.
 
 #### Scenario: Web readout editor shows labeled sections
 

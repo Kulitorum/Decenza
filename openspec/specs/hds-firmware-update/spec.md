@@ -6,8 +6,7 @@ Lets Decenza identify and present signed, compatible Half Decent Scale firmware 
 ## Requirements
 
 ### Requirement: HDS release availability is lifecycle-driven
-
-Decenza SHALL retrieve the OpenScale release manifest used by HDS at application launch and after each genuine return from suspension, on every platform. On platforms other than iOS, and only while the user's auto-check-for-updates setting is enabled, Decenza SHALL also refresh it on the same shared periodic timer the app's own update checker uses (a 30-second post-startup check and hourly thereafter) rather than running a second, separate polling timer. A manual check-for-updates action SHALL refresh it unconditionally, on every platform and regardless of that setting. Decenza SHALL retain the latest successfully parsed manifest for the app session. When a connected HDS is the selected scale on any supported transport, Decenza SHALL compare its known installed firmware version with releases eligible for that scale.
+Decenza SHALL retrieve the OpenScale release manifest used by HDS at application launch and after each genuine return from suspension, on every platform. A manual check-for-updates action SHALL refresh it unconditionally, on every platform. Decenza SHALL retain the latest successfully parsed manifest for the app session.
 
 #### Scenario: Selected HDS has a newer eligible release
 
@@ -36,11 +35,22 @@ Decenza SHALL retrieve the OpenScale release manifest used by HDS at application
 - **WHEN** the application becomes active without first entering the suspended state
 - **THEN** Decenza SHALL NOT issue another HDS manifest request
 
+### Requirement: Periodic refresh uses the shared update timer
+On platforms other than iOS, and only while the auto-check-for-updates setting is enabled, Decenza SHALL also refresh the manifest on the shared periodic timer the app's update checker uses. It SHALL NOT run a second polling timer for this.
+
+#### Scenario: Periodic refresh runs on non-iOS when enabled
+- **WHEN** the auto-check-for-updates setting is enabled on a non-iOS platform
+- **THEN** the manifest is refreshed on the shared update timer, and no separate timer is started
+
+### Requirement: Selected HDS is compared with eligible releases
+When a connected HDS is the selected scale on any supported transport, Decenza SHALL compare its known installed firmware version with the releases eligible for that scale.
+
+#### Scenario: Comparison runs on WiFi as on Bluetooth
+- **WHEN** the selected HDS is connected over WiFi and a newer eligible release exists
+- **THEN** the release is marked available for the selected scale, as on any other transport
+
 ### Requirement: An HDS update installs without interaction at the scale
-
-When the user confirms an available HDS update, Decenza SHALL start the update by naming the target release version in the start command, so the scale installs that release without presenting its on-device release picker and without requiring a hold-to-confirm gesture. Decenza SHALL support this on every transport an HDS can be selected over: Bluetooth, USB, and WiFi.
-
-Decenza SHALL contribute only a version number. The scale SHALL remain responsible for retrieving and verifying its signed manifest and update assets, and for resolving the requested version against its own eligibility rules.
+When the user confirms an available HDS update, Decenza SHALL start it by naming the target release version in the start command, so the scale installs that release with no on-device prompt. This SHALL work over Bluetooth, USB and WiFi. Decenza SHALL contribute only a version number. The scale SHALL remain responsible for retrieving and verifying its signed manifest and assets, and for resolving the version against its own eligibility rules.
 
 #### Scenario: User confirms an available update
 

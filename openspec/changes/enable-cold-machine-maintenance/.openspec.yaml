@@ -1,4 +1,2 @@
 schema: spec-driven
 created: 2026-07-19
-status: on-hold
-blocked-by: DE1 firmware release that natively honors cold maintenance on GHC hardware (reaprime estimates build 1356)

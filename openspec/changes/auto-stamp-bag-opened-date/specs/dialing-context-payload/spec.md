@@ -2,15 +2,7 @@
 
 ### Requirement: dialInSessions SHALL hoist common shot identity to a session-level context
 
-Each session in `dialInSessions` SHALL carry a `context` object holding the identity fields shared by every shot in the session: `grinderBrand`, `grinderModel`, `grinderBurrs`, `basketBrand`, `basketModel`, `puckPrep`, `beanBrand`, `beanType`, `frozenDate`, `defrostDate`, `storageHint`, `openedDate`. When a field's value is identical across all shots in the session, it SHALL appear in `context` only — not on the per-shot entries. When a field's value differs on a particular shot in the session, that shot's entry SHALL carry the field directly, overriding the session context for that shot.
-
-The basket and puck-prep fields SHALL be present so the model can name the equipment the session's shots were pulled on. Because the history is scoped to one equipment package, they are shared across every shot in a session by construction and hoist to `context` in practice; the per-shot override mechanism SHALL still apply to them, so no reader depends on that being true.
-
-The first shot of every session SHALL be the reference for the `context` object's values when at least one shot in the session has a non-empty value for the field. When no shot in the session has a non-empty value, the field SHALL be omitted from `context` entirely.
-
-An empty storage date (`frozenDate`, `defrostDate`, `openedDate`) on a shot is a recorded fact, not a gap: when the context carries a value for one, a shot that recorded none SHALL carry that field as an explicit `null` rather than inheriting the context's date. Other fields keep inheriting (a legacy shot with no recorded burrs reads as the session's).
-
-The session's `shotCount`, `sessionStart`, `sessionEnd`, and `shots[]` array SHALL remain. Per-shot entries SHALL continue to carry shot-variable fields (`id`, `timestamp`, `doseG`, `yieldG`, `durationSec`, `grinderSetting`, `notes`, `enjoyment0to100`, `temperatureOverrideC`, `targetWeightG`, `changeFromPrev`).
+Each session in `dialInSessions` SHALL carry a `context` object holding the shot-identity fields (grinder, basket, puck prep, bean, roast date and storage dates). A field identical across the session SHALL appear only in `context`; a shot whose value differs SHALL carry it as an override; a field no shot recorded SHALL be omitted. A shot with no storage date where the context has one SHALL carry it as `null`.
 
 #### Scenario: All shots share identity → context has all fields, shots have no overrides
 
@@ -64,25 +56,22 @@ The session's `shotCount`, `sessionStart`, `sessionEnd`, and `shots[]` array SHA
 - **THEN** `session.context.defrostDate` SHALL be `"2026-05-01"`
 - **AND** the last shot's entry SHALL carry `defrostDate: null`
 
+#### Scenario: Context takes the first recorded value
+
+- **GIVEN** a session whose first shot has no recorded `grinderBurrs` and whose later shots do
+- **WHEN** `dialing_get_context` builds the session
+- **THEN** `session.context.grinderBurrs` SHALL be the first non-empty value, and only shots that differ from it SHALL carry an override
+
+#### Scenario: Per-shot entries keep the shot-variable fields
+
+- **WHEN** `dialing_get_context` builds a session
+- **THEN** the session SHALL keep `shotCount`, `sessionStart`, `sessionEnd` and `shots[]`
+- **AND** each shot entry SHALL carry its shot-variable fields (`id`, `timestamp`, `doseG`, `yieldG`, `durationSec`, `grinderSetting`, `notes`, `enjoyment0to100`, `temperatureOverrideC`, `targetWeightG`, `changeFromPrev`)
+- **AND** the basket and puck-prep fields SHALL use the same override mechanism, although history scoped to one equipment package shares them by construction
+
 ### Requirement: currentBean SHALL expose a beanFreshness block instead of precomputed days-since-roast
 
-`currentBean.daysSinceRoast` and `currentBean.daysSinceRoastNote` SHALL NOT be present in the response. They are replaced by `currentBean.beanFreshness`, a structured block built from the resolved shot's snapshotted `roastDate`, `frozenDate`, `defrostDate`, `storageHint`, and `openedDate`:
-
-- `roastDate` — the resolved shot's saved `roastDate` string, surfaced verbatim, when non-empty.
-- `frozenDate` / `defrostDate` — surfaced verbatim when set.
-- `storageHint` / `openedDate` — surfaced verbatim when set (`storageHint` never has a "frozen" value — see `bag-freeze-lifecycle`).
-- `referenceDate` — the local date the shot was pulled (today for a live snapshot), the date every age is measured to.
-- `freshnessKnown` — boolean. `true` when `frozenDate` or `defrostDate` is set, or `openedDate` is set together with a `storageHint`; `false` otherwise. An `openedDate` alone does not count: every bag gets one from its first shot.
-- `restAgeDays` — present only when `freshnessKnown` is `true` and the dates allow it: the beans' age at `referenceDate` with frozen time removed (`roastDate`→`frozenDate` plus `defrostDate`→`referenceDate`), computed once in C++ (`DialingHelpers::restAgeDays`).
-- `roastDateText` — instead of `roastDate` when the stored roast date is not `yyyy-MM-dd` (legacy free text), so it is never computed with.
-- `instruction` — selected by `freshnessKnown` and the presence of a `storageHint`, in three states:
-  - When `false` and no `storageHint`: an imperative teaching the freshness ASYMMETRY — `roastDate` is the UPPER BOUND on staleness because freezing/airtight/vacuum storage only pauses staling, so beans are never older than their calendar age since roast, only fresher. Therefore the AI SHALL treat a *recent* roast as fresh WITHOUT asking about storage (nothing storage could reveal makes recently-roasted beans stale), and SHALL ask about storage ONLY when the roast date is old (the sole case where freshness is genuinely ambiguous: frozen-since-roast-and-fresh vs left-out-and-stale). The AI judges "recent vs old" itself — the block ships no day count.
-  - When `false` and a `storageHint` IS set: the same upper-bound imperative PLUS a clause stating the storage TYPE is already known (naming the hint). The AI SHALL NOT re-ask how the beans are stored; at most — and only when the roast is old — it SHALL ask solely for the aging-start date. `freshnessKnown` stays `false` because a hint without a date is not a precise aging anchor.
-  - When `true`: an imperative telling the AI storage history is known — do NOT ask about it — and that only freezing pauses aging. With `frozenDate`, age = days from `roastDate` to `frozenDate` plus days from `defrostDate` to `referenceDate`; with no `defrostDate` the beans are ground straight from the freezer and age = `roastDate` to `frozenDate`. Without `frozenDate`, age runs from `roastDate` to `referenceDate`. `openedDate` SHALL be described as air exposure for this portion, NOT a reset of age. This instruction SHALL also teach that low age (about a week or less) means under-rested/gassy beans (choke, run long, over-extract, may want a coarser grind that settles back over the following days) — including a portion frozen soon after roast and just thawed — so the AI SHALL NOT treat a recent date as unconditionally meaning "fresher is better."
-
-The block SHALL be omitted entirely when `roastDate` is empty AND no lifecycle field (`frozenDate`, `defrostDate`, `storageHint`, `openedDate`) is set. When storage is NOT known the block SHALL NOT contain a day count under any field name: without storage history a calendar age misleads. An `openedDate` earlier than `defrostDate` belongs to the previous portion and SHALL be omitted.
-
-The `shotAnalysis` prose SHALL NOT contain the parenthetical "(N days since roast, not necessarily freshness — ask about storage)" that previously rendered next to the bean name. It is replaced by the lighter "(roasted YYYY-MM-DD; ask user about storage before reasoning about age)" — same caveat, no day count.
+`currentBean` SHALL carry `beanFreshness` instead of `daysSinceRoast`/`daysSinceRoastNote`: the resolved shot's roast and storage dates (each verbatim when set), `referenceDate` (the shot's local date, today when live), `freshnessKnown` (a freeze or thaw date, or an opened date with a storage hint), `restAgeDays` only when known, and an `instruction` matching what is known. It SHALL be omitted when no roast date or storage field is set.
 
 #### Scenario: beanFreshness emits with freshnessKnown false and the upper-bound instruction
 - **GIVEN** a resolved shot with `roastDate = "2026-04-15"` and no `frozenDate`/`defrostDate`/`storageHint`/`openedDate`
@@ -133,15 +122,27 @@ The `shotAnalysis` prose SHALL NOT contain the parenthetical "(N days since roas
 - **AND** SHALL contain a phrase pointing at storage uncertainty (e.g., `"ask user about storage"`)
 - **AND** SHALL NOT contain any phrase of the form `"N days since roast"` or `"N days post-roast"` or any standalone integer adjacent to a roast-date string
 
+#### Scenario: Rest age is sent only when storage is known
+
+- **GIVEN** a shot with `roastDate` `2026-09-01`, `frozenDate` `2026-09-03`, `defrostDate` `2026-10-07` and `referenceDate` `2026-10-08`
+- **WHEN** the response is built
+- **THEN** `restAgeDays` SHALL be `3` (roast to freeze, plus thaw to reference), computed once in C++
+- **AND** a block whose storage is not known SHALL carry no day count under any name
+- **AND** the known-storage instruction SHALL say to quote `restAgeDays`, or, when none could be computed, that no age is available
+
+#### Scenario: A legacy roast date goes as text
+
+- **WHEN** the stored roast date is not exactly `yyyy-MM-dd`
+- **THEN** it SHALL be sent as `roastDateText`, not `roastDate`, and no age SHALL be computed from it
+
+#### Scenario: An opened date from a previous portion is dropped
+
+- **WHEN** `openedDate` is earlier than `defrostDate`
+- **THEN** `openedDate` SHALL be omitted, since it belongs to the portion before the latest thaw
+
 ### Requirement: dialing_get_context response SHALL contain a single canonical surface for the user's roast date
 
-Roast-date keys SHALL appear only at `currentBean.beanFreshness.roastDate` (or `roastDateText`), `dialInSessions[].context.roastDate` with its per-shot override, and `bestRecentShot.roastDate`. The history and anchor copies identify WHICH roast a shot was (two roasts of one coffee are different beans); bean age reaches the AI only as `restAgeDays`, and only where storage is known.
-
-This requirement is verifiable by structural inspection — independent of which parts of the payload are populated for any given call. When `currentBean.beanFreshness` is omitted (no roast date entered), the requirement is satisfied trivially.
-
-The `shotAnalysis` prose body is also subject to this requirement at the *content* level: the prose SHALL NOT contain any phrase of the form `"N days since roast"`, `"N days post-roast"`, `"N-day-old"`, or any standalone integer immediately adjacent to a roast date string. **[PR 1, in effect now]**
-
-**[PR 2 scope]** Per the canonical-source separation requirement above, the prose SHALL NOT contain the literal `"roasted YYYY-MM-DD"` string either — the date lives exclusively in `currentBean.beanFreshness.roastDate`. PR 1 still carries `, roasted YYYY-MM-DD (ask user about storage before reasoning about age)` in the prose Coffee line; this strict-strip rule activates with PR 2's prose Coffee/Grinder removal. The system prompt teaches the AI that bean-age reasoning starts from `currentBean.beanFreshness`, never from the prose.
+Roast-date keys SHALL appear only at `currentBean.beanFreshness.roastDate` (or `roastDateText`), `dialInSessions[].context.roastDate` with its per-shot override, and `bestRecentShot.roastDate`; these identify which roast a shot was. Bean age SHALL reach the AI only as `restAgeDays`, where storage is known. The `shotAnalysis` prose SHALL NOT contain a day count next to a roast date ("N days since roast", "N-day-old").
 
 #### Scenario: Single canonical roast key in JSON
 
@@ -161,11 +162,16 @@ The `shotAnalysis` prose body is also subject to this requirement at the *conten
 - **AND** the `shotAnalysis` prose SHALL NOT contain `"## Profile Recipe"` (it lives in `result.profile.recipe`)
 - **AND** the `shotAnalysis` prose SHALL NOT contain a `"Coffee:"`, `"Beans:"`, or `"Grinder:"` line for the resolved shot (these live in `currentBean` and `dialInSessions[].context`)
 
+#### Scenario: Prose carries no roasted date once PR 2 lands
+
+- **GIVEN** PR 2's prose Coffee/Grinder removal is in effect
+- **WHEN** `shotAnalysis` is rendered
+- **THEN** it SHALL NOT contain `"roasted YYYY-MM-DD"`; until then the Coffee line MAY carry `, roasted YYYY-MM-DD (ask user about storage before reasoning about age)`
+- **AND** with no roast date entered and `beanFreshness` omitted, the requirement is satisfied trivially
+
 ### Requirement: bestRecentShot SHALL carry its own snapshotted lifecycle state
 
-`bestRecentShot` (a single candidate object, not a session list — no hoisting concept applies) SHALL carry the candidate shot's own snapshotted `frozenDate`/`defrostDate`/`storageHint`/`openedDate` directly, unconditionally when set, the same way it already carries `grinderModel`/`beanBrand`/`beanType` directly.
-
-It SHALL also carry its `roastDate`, its `restAgeDays` at the time it was pulled when its storage was known (as `beanFreshness`), and `sameBagAsCurrent` when both shots record a bag, so the AI can tell whether the anchor's beans were comparable. History shots in `dialInSessions` SHALL carry their own `restAgeDays` the same way.
+`bestRecentShot` SHALL carry the candidate shot's own snapshotted `frozenDate`, `defrostDate`, `storageHint`, `openedDate` and `roastDate` when set, its `restAgeDays` at the time it was pulled when its storage was known, and `sameBagAsCurrent` when both shots record a bag, so the AI can tell whether the anchor's beans were comparable. History shots in `dialInSessions` SHALL carry their own `restAgeDays` the same way.
 
 #### Scenario: A best-recent-shot anchor predates the current portion's thaw
 - **GIVEN** the resolved shot has `defrostDate = "2026-05-13"` and the `bestRecentShot` candidate has `defrostDate = "2026-05-01"` (a different, longer-rested portion)
@@ -184,8 +190,44 @@ It SHALL also carry its `roastDate`, its `restAgeDays` at the time it was pulled
 - **WHEN** the response is built
 - **THEN** `bestRecentShot.roastDate` SHALL be `"2026-07-22"` and `bestRecentShot.sameBagAsCurrent` SHALL be `false`
 
+### Requirement: A known storage history ages from the latest lifecycle date
+
+When `freshnessKnown` is true, the instruction SHALL say storage history is known and SHALL NOT ask about it. It SHALL tell the AI to quote `restAgeDays` (roast to freeze plus thaw to reference date for a frozen bag; roast to reference date otherwise, since opening does not reset it), or say no age is available when none was computed. It SHALL teach that a recent thaw can mean an under-rested, gassy portion.
+
+#### Scenario: Recent thaw is not treated as fresher
+- **WHEN** `freshnessKnown` is true and the `defrostDate` is recent
+- **THEN** the instruction includes the under-rested guidance and does not call the recent date fresher
+
+### Requirement: Lifecycle fields add no instruction or day count
+
+No instruction block or "different portion" boolean SHALL be added for `bestRecentShot` or for the `dialInSessions` lifecycle hoisting. The only day count SHALL be `restAgeDays`, sent where storage is known, and the only added boolean SHALL be `bestRecentShot.sameBagAsCurrent`.
+
+#### Scenario: Raw dates only
+- **WHEN** the response is built with lifecycle dates present
+- **THEN** no instruction accompanies those dates, and the only day count is `restAgeDays` where storage is known
+
 ## REMOVED Requirements
 
 ### Requirement: dialInSessions[].shots[] SHALL NOT include roastDate
 **Reason**: Its rationale no longer holds. Bean rotation is not carried in `changeFromPrev` (the dial-in comparison drops the bean group), so a restock of the same coffee was invisible; and history shots now carry their storage dates and `restAgeDays`, so a roast date identifies the roast without inviting calendar-age guesses.
 **Migration**: `roastDate` is hoisted to `dialInSessions[].context` like the other shot-identity fields, with a per-shot override when it differs.
+
+### Requirement: A differing shot carries its own identity field
+**Reason**: Merged back into "dialInSessions SHALL hoist common shot identity to a session-level context", which now states the override rule.
+**Migration**: None; the override behaviour is unchanged.
+
+### Requirement: Session context takes its value from the first shot
+**Reason**: Superseded: the context takes the first recorded value, not the first shot's, and a shot missing a storage date carries `null`. Both rules live in the hoist requirement.
+**Migration**: None.
+
+### Requirement: Sessions keep shot-variable fields on each shot
+**Reason**: Merged back into the hoist requirement's "Per-shot entries keep the shot-variable fields" scenario.
+**Migration**: None.
+
+### Requirement: beanFreshness carries the snapshotted dates verbatim
+**Reason**: Superseded by the rewritten beanFreshness requirement: an opened date alone no longer makes storage known, an opened date older than the thaw is dropped, and a non-ISO roast date goes as `roastDateText`.
+**Migration**: None; readers use the fields that are present.
+
+### Requirement: The roast date leaves the prose under PR 2
+**Reason**: Merged back into the single-surface requirement's "Prose carries no roasted date once PR 2 lands" scenario; history shots now legitimately carry their roast date.
+**Migration**: None.

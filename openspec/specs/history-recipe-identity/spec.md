@@ -1,18 +1,13 @@
 # history-recipe-identity Specification
 
 ## Purpose
-TBD - created by archiving change history-recipe-identity. Update Purpose after archive.
+
+Covers how Shot History rows identify the recipe that made a drink: the recipe name and drink-type icon in the identity position, live resolution of recipe identity, dimmed and announced archived recipes, the metrics layout that keeps grind visible, suppression of promote-to-recipe on recipe-driven shots, and matching identity on the web and MCP shot lists.
+
 ## Requirements
 ### Requirement: Shot History rows show the recipe that made the drink
 
-A Shot History row for a shot with a recipe (`recipe_id > 0`) SHALL show that recipe's
-name and a drink-type icon in the row's identity position — where the profile name is
-shown on rows without a recipe — and SHALL demote the profile name to the head of the
-row's secondary line. A row for a shot with no recipe SHALL keep the profile name in the
-identity position and SHALL NOT show a drink-type icon.
-
-The recipe name SHALL NOT replace or suppress the profile: both are visible on a
-recipe-driven row.
+A Shot History row for a shot with a recipe (`recipe_id > 0`) SHALL show that recipe's name and a drink-type icon in the identity position, demoting the profile name to the head of the secondary line. A row for a shot with no recipe SHALL keep the profile name in the identity position and SHALL NOT show a drink-type icon. The recipe name SHALL NOT replace or suppress the profile.
 
 #### Scenario: Shot pulled with a recipe
 

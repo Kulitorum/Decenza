@@ -5,12 +5,20 @@ The single source of truth for the layout widget catalog — each placeable widg
 ## Requirements
 ### Requirement: The widget catalog is declared in one place
 
-The layout widget catalog — the set of placeable widget types with, per type: its palette category (Actions, Readouts, Utility, Screensavers), its palette label (translation key + English fallback), its short chip label (translation key + English fallback), and its display flag (`special` / `screensaver` chip coloring) — SHALL be declared in a single C++ table. Adding, renaming, or removing a widget type in the catalog SHALL require no per-surface list edits beyond that table (rendering code for a genuinely new widget is still separate).
+The layout widget catalog SHALL be declared in a single C++ table. Per widget type, the table SHALL hold its palette label, its short chip label (each a translation key with English fallback), and its display flag (`special` or `screensaver` chip coloring). Adding, renaming or removing a widget type SHALL require no per-surface list edits beyond that table.
 
 #### Scenario: One edit updates every catalog surface
 
 - **WHEN** a widget type's entry is added to or changed in the catalog table
 - **THEN** the in-app add-widget palette, the in-app chip labels, the library card display names, and the web editor's palette and chip names all reflect it without any of those surfaces being edited
+
+### Requirement: Catalog entries belong to one palette category
+
+Each catalog entry SHALL belong to exactly one palette category: Actions, Readouts, Utility or Screensavers.
+
+#### Scenario: Palette groups by category
+- **WHEN** the in-app palette is shown
+- **THEN** each widget appears under its single declared category
 
 ### Requirement: All catalog consumers derive from the single table
 

@@ -17,7 +17,8 @@ The app SHALL persist a favorites order mode with values `custom`, `alpha` and `
 - **THEN** the mode resolves to `usage`
 
 ### Requirement: Stored list is the display order
-Every consumer of the favorites list — the idle-page profile pills in both rendering paths and the picker's Favorites view — SHALL display the stored list order as-is. The mode SHALL govern who writes that order: `custom` — only the reorder dialog; `alpha` — the app re-sorts by title (case-insensitive, locale-aware) whenever a favorite is added or renamed; `usage` — the app re-sorts by each favorite's most recent shot descending, never-used favorites last alphabetically, at startup and after every shot save. The selected-favorite index SHALL keep pointing at the same profile across any re-sort.
+
+Every consumer of the favorites list, including the idle-page profile pills in both rendering paths and the picker's Favorites view, SHALL display the stored list order as-is. The selected-favorite index SHALL keep pointing at the same profile across any re-sort.
 
 #### Scenario: Usage mode after a shot
 - **WHEN** the mode is `usage` and a shot completes on a favorite that was third
@@ -30,6 +31,15 @@ Every consumer of the favorites list — the idle-page profile pills in both ren
 #### Scenario: Custom is never rewritten
 - **WHEN** the mode is `custom` and a shot completes
 - **THEN** the favorites order is unchanged
+
+### Requirement: The order mode SHALL govern who writes the stored order
+
+Under `custom`, order SHALL be written only through the reorder dialog. Under `alpha`, the app SHALL re-sort by title (case-insensitive, locale-aware) whenever a favorite is added or renamed. Under `usage`, the app SHALL re-sort by each favorite's most recent shot, descending, with never-used favorites last alphabetically, at startup and after every shot save.
+
+#### Scenario: Alpha mode re-sorts on rename
+
+- **WHEN** the mode is `alpha` and a favorite is renamed
+- **THEN** the stored list SHALL be re-sorted by title
 
 ### Requirement: Favorites order dialog
 The picker's Favorites… button SHALL open a dialog that states it sets the order of the idle-screen profile pills and offers A–Z, Recently used and Custom. Under Custom the favorites list SHALL be drag-reorderable with a remove control per row; under A–Z and Recently used the list SHALL show, read-only, the order the app will keep. Done SHALL write the chosen mode and, under Custom, the dragged order; Cancel SHALL write nothing.

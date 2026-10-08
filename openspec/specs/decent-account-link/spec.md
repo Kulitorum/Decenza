@@ -7,7 +7,7 @@ Lets the user link Decenza to their decentespresso.com account so Decent API fea
 
 ### Requirement: Linking exchanges the password for the server's encrypted password
 
-When the user links an account, the system SHALL send the entered email and plaintext password once to `GET https://decentespresso.com/support/api/login_test` using HTTP Basic authentication. If the response is HTTP 200 with a trimmed body that is non-empty and not `0`, the system SHALL store the email and that body (the encrypted password) as the linked account, and SHALL switch uploads to Decent on. The system SHALL NOT persist the plaintext password anywhere, and SHALL clear it from the input field once the request completes, whether it succeeded or failed.
+When the user links an account, the system SHALL send the entered email and plaintext password once to `GET https://decentespresso.com/support/api/login_test` with HTTP Basic authentication. On HTTP 200 with a trimmed, non-empty body other than `0`, the system SHALL store the email and that body (the encrypted password) as the linked account and switch uploads to Decent on.
 
 #### Scenario: Successful link
 - **WHEN** the user enters a valid email and password and confirms
@@ -30,6 +30,14 @@ When the user links an account, the system SHALL send the entered email and plai
 - **WHEN** `login_test` returns a non-200 status, or a 200 whose body is not a token (e.g. a captive portal's page)
 - **THEN** no credentials are stored
 - **AND** the user is told the server had a problem and to try again later
+
+### Requirement: The plaintext password is never kept
+
+The system SHALL NOT persist the plaintext password, and SHALL clear it from the input field once the request completes, whether it succeeded or failed.
+
+#### Scenario: Password cleared after a failed link
+- **WHEN** a link attempt fails with a wrong password or a network error
+- **THEN** the password input is cleared and nothing is stored
 
 ### Requirement: Authenticated calls use HTTP Basic with the encrypted password
 

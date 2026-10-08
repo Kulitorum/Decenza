@@ -6,9 +6,7 @@ Defines the arbiter that decides, on profile frames carrying both a tablet-owned
 ## Requirements
 ### Requirement: Arbitrate tablet weight-exit against firmware exit on mixed frames
 
-When a profile frame carries both a tablet-owned weight exit (`exitWeight > 0`) and a firmware-owned exit condition (`exitIf` true with a pressure/flow over/under threshold), the app SHALL decide whether to send the tablet `SkipToNext` immediately or defer to the firmware, so that the frame advances exactly once. The decision SHALL be based on the live sensor reading's proximity to the firmware exit threshold and whether the reading is trending toward that threshold.
-
-A frame's weight exit SHALL fire at most once per frame occurrence (the existing per-frame skip-once guarantee is preserved).
+When a frame carries both a tablet-owned weight exit (`exitWeight > 0`) and a firmware-owned exit (`exitIf` with a pressure or flow threshold), the app SHALL decide whether to send `SkipToNext` now or defer to the firmware, so that the frame advances exactly once. The decision SHALL use the live sensor reading's proximity to the firmware threshold and its trend toward it. A frame's weight exit SHALL fire at most once per frame occurrence.
 
 #### Scenario: Firmware far from its threshold — fire immediately
 

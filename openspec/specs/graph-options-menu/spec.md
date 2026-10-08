@@ -1,7 +1,8 @@
 # graph-options-menu Specification
 
 ## Purpose
-TBD - created by archiving change add-graph-flow-scale-menu. Update Purpose after archive.
+Adds a Graph Options menu to the shot graph, with a flow-scale option that also appears on the live espresso screen, sharing one setting between the two surfaces. The menu control is accessible: it announces that it opens a menu, exposes its options' role and state, and is keyboard reachable.
+
 ## Requirements
 ### Requirement: Graph Options Menu
 

@@ -1,7 +1,9 @@
 # graph-flow-scale Specification
 
 ## Purpose
-TBD - created by archiving change add-graph-flow-scale-menu. Update Purpose after archive.
+
+Covers the flow-scale multiplier on the shot graph: how the flow series is scaled and persisted, the right-axis display mode and its setting migration, axis titling under a multiplier, and the rule that readouts and the home-screen widget keep reporting true values.
+
 ## Requirements
 ### Requirement: Flow Scale Multiplier
 

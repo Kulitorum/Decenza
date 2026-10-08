@@ -81,7 +81,12 @@ Each milestone cue (stretch, roll, almost, completion) SHALL fire at most once p
 
 ### Requirement: Coaching requires a milk-derived duration
 
-Coaching cues SHALL be emitted only when the session's steam duration was derived from the actual milk weight (weight-timed steaming enabled, calibrated, and the milk captured on the scale this session). A fixed preset duration says nothing about the milk in the pitcher, and pacing cues off it would endorse ruining the milk (e.g. 200 mL against a 60 s preset is destroyed long before "almost"). When coaching is enabled but the duration is not milk-derived, the coach SHALL emit a single informational pill explaining why ("no coaching — milk weight not captured") — shown on the banner and, when the audio setting is on, announced once politely so an audio-only user is not left with unexplained silence — and SHALL otherwise behave as if the feature were off. Untimed/manual steams are never milk-derived.
+Coaching cues SHALL be emitted only when the steam duration was derived from
+captured milk weight (weight-timed steaming on, calibrated, milk captured this
+session). Untimed and manual steams are never milk-derived. When coaching is on
+but the duration is not milk-derived, the coach SHALL show one informational
+pill ("no coaching — milk weight not captured") and otherwise act as if off.
+With audio on, the pill SHALL also be announced once.
 
 #### Scenario: Captured milk enables full coaching
 
@@ -106,6 +111,12 @@ Coaching cues SHALL be emitted only when the session's steam duration was derive
 - **WHEN** coaching is active and the user switches pitcher presets during the pour (re-basing the duration on the fixed preset)
 - **THEN** coaching stops for the remainder of the operation — the active cue is cleared and no further cue (including completion) is emitted or spoken
 - **AND** the "milk weight not captured" pill is NOT shown (the milk was captured; the user changed the plan deliberately)
+
+#### Scenario: A fixed preset duration never paces cues
+
+- **WHEN** coaching is on and the steam runs against a fixed pitcher preset duration, whatever milk is in the pitcher
+- **THEN** no milestone cue is emitted, because the preset says nothing about the milk
+
 
 ### Requirement: Milestone pacing and manual-steam behavior
 

@@ -1,7 +1,9 @@
 # shot-recipe-card Specification
 
 ## Purpose
-TBD - created by archiving change shot-pages-card-cleanup. Update Purpose after archive.
+
+Covers the recipe card on shot pages: when it appears for a shot that used a recipe, how recipe identity is resolved live while the dial-in stays the shot's own snapshot, which fields each card shows, and its accessibility.
+
 ## Requirements
 ### Requirement: Shot pages show a recipe card when the shot used a recipe
 The Shot Detail and Shot Review pages SHALL display a recipe card when, and only when, the opened shot references a recipe (`recipeId > 0`). The card SHALL show the recipe's identity — name, drink type, and profile — so the user can see which recipe the shot was pulled with.

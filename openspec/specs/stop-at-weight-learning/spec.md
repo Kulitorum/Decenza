@@ -30,20 +30,7 @@ The system SHALL predict drip after the SAW stop trigger as a recency-weighted G
 - **AND** the convergence test SHALL NOT be consulted (per-pair history is treated as already representative)
 
 ### Requirement: Per-Pair Prediction After Graduation
-
-For a `(profile, scale, basket)` triple that has at least `kSawMinMediansForGraduation`
-committed medians, the predictor SHALL fit the weighted-average smoother over those medians
-(newest-first, bounded by the per-pair trim). The documented value of `kSawMinMediansForGraduation` SHALL match the
-value the code uses.
-
-A committed median SHALL represent a `(drip, flow)` pair that a single shot in the batch
-actually produced. The system SHALL NOT commit a pair assembled from the drip of one shot
-and the flow of another, because the lag such a pair implies is one no shot exhibited and
-every reader of the entry derives from that lag — the entries reader that feeds the live
-stop threshold, the smoother, the learned-lag reader, and the global bootstrap recompute.
-
-Where no shot in the batch has a usable flow, the system SHALL drop the batch rather than
-commit a pair, since there is no real pair available to commit.
+For a `(profile, scale, basket)` triple with at least `kSawMinMediansForGraduation` committed medians, the predictor SHALL fit the weighted-average smoother over those medians, newest first, bounded by the per-pair trim. The documented value of `kSawMinMediansForGraduation` SHALL match the value the code uses. A committed median SHALL represent a `(drip, flow)` pair that a single shot in the batch actually produced.
 
 #### Scenario: Graduated pair uses its committed medians
 
@@ -71,13 +58,15 @@ commit a pair, since there is no real pair available to commit.
 - **THEN** the committed entry SHALL still be a single shot's `(drip, flow)` pair
 - **AND** the entry's implied lag SHALL NOT be the quotient of the two independent medians
 
-### Requirement: Pre-Graduation Bootstrap Falls Through to Existing Scalar Path
+### Requirement: A committed pair comes from one shot
+The system SHALL NOT commit a pair assembled from the drip of one shot and the flow of another, because the implied lag is one no shot exhibited. Where no shot in the batch has a usable flow, the system SHALL drop the batch rather than commit a pair.
 
-For a triple that has not graduated, the predictor SHALL retain the existing scalar-bootstrap behavior (`flow × globalSawBootstrapLag(scale)`,
-capped at 8 g) followed by the scale-default lag fallback. Phase 0 evaluation showed that replacing
-this path with a Gaussian-weighted aggregated pool fails the gate (overall MAE delta below threshold
-and shot-887-class predictions get worse), so the bootstrap path is unchanged: its key stays the
-per-transport scale type and only its contributor set widens to cover per-basket buckets.
+#### Scenario: A committed pair is one the batch contained
+- **WHEN** a batch reaches its commit size and passes the outlier gate
+- **THEN** the committed entry's drip and flow both come from the same shot, the one whose lag is nearest the median of the batch's per-shot lags
+
+### Requirement: Pre-Graduation Bootstrap Falls Through to Existing Scalar Path
+For a triple that has not graduated, the predictor SHALL retain the scalar bootstrap, `flow × globalSawBootstrapLag(scale)` capped at 8 g, followed by the scale-default lag fallback. A Gaussian-weighted aggregated pool SHALL NOT replace this path. The bootstrap key SHALL stay the per-transport scale type, and only its contributor set widens to cover per-basket buckets.
 
 #### Scenario: Non-graduated pair queries existing scalar bootstrap
 
@@ -162,20 +151,7 @@ direction.
   from two baskets
 
 ### Requirement: Pre-Basket History Is Copied Once Into The Combinations Actually Pulled
-
-History recorded before the basket dimension existed carries no basket. For each profile, the
-system SHALL copy that profile's pre-basket history exactly once into a bucket for every basket
-the recent shot history shows THAT PROFILE was pulled with, so each such combination predicts
-what the single shared model predicted before the upgrade and then diverges as it earns its own
-committed medians. The system SHALL NOT retain a permanent basket-blind fallback tier, SHALL NOT
-attribute the history to a single basket, and SHALL NOT seed a combination that was never
-pulled.
-
-Because no reader consults pre-basket keys once the copy is marked complete, the system SHALL
-treat any answer it cannot distinguish from failure as failure: it SHALL mark the copy complete
-only on a history read that demonstrably succeeded, and SHALL leave it open — to retry on a later
-launch — on a failed read, an unavailable store, or an empty result over a store that still holds
-pre-basket buckets.
+For each profile, the system SHALL copy that profile's pre-basket history exactly once into a bucket for every basket the recent shot history shows that profile was pulled with. The system SHALL NOT retain a permanent basket-blind fallback tier, SHALL NOT attribute the history to a single basket, and SHALL NOT seed a combination that was never pulled.
 
 #### Scenario: Every basket in recent use keeps predicting what it predicted before
 
@@ -260,6 +236,27 @@ pre-basket buckets.
 - **THEN** it SHALL be carried into the basket-keyed bucket
 - **AND** it SHALL NOT be committed as a median by the seed, so the dispersion gate and the
   auto-reset check still apply on the next shot
+
+### Requirement: The copy closes only on a successful read
+The system SHALL mark the copy complete only on a history read that demonstrably succeeded. It SHALL treat any answer it cannot distinguish from failure as failure. On a failed read, an unavailable store, or an empty result over a store still holding pre-basket buckets, the copy SHALL stay open to retry on a later launch.
+
+#### Scenario: A successful read closes the copy
+- **WHEN** the basket-set query succeeds and the copy step runs
+- **THEN** the copy is marked complete
+
+### Requirement: Copied buckets do not vote in the bootstrap
+Buckets holding only copied history SHALL NOT contribute to the cross-basket bootstrap lag. Neither SHALL the pre-basket bucket the copies came from, since nothing updates it again and it would vote a frozen snapshot of its own past forever.
+
+#### Scenario: Copied buckets are excluded from the bootstrap
+- **WHEN** the cross-basket bootstrap lag is recomputed
+- **THEN** buckets holding only copied history contribute nothing to it
+
+### Requirement: Each copy outcome is recorded
+The copy step SHALL emit a user-visible record of its outcome whether or not it created buckets. The record SHALL include how many pre-basket buckets were left behind, since after closing they are no longer read.
+
+#### Scenario: Outcome is recorded with buckets left behind
+- **WHEN** the copy step finishes without copying every pre-basket bucket
+- **THEN** the emitted record states how many pre-basket buckets were left behind
 
 ### Requirement: Batch Dispersion Gate
 

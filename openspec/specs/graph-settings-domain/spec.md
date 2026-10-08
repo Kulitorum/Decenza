@@ -1,7 +1,8 @@
 # graph-settings-domain Specification
 
 ## Purpose
-TBD - created by archiving change add-graph-flow-scale-menu. Update Purpose after archive.
+Covers the graph settings domain (`SettingsGraph`): how graph display preferences notify every consumer, the single shared definition of graph series, advanced mode as a graph preference, and the presentation components shared by the graphs and their pages.
+
 ## Requirements
 ### Requirement: Graph Settings Domain
 

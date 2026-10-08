@@ -1,18 +1,13 @@
 # last-shot-chart-background Specification
 
 ## Purpose
-TBD - created by archiving change add-last-shot-chart-background. Update Purpose after archive.
+
+Covers the Last Shot entries in the app background chooser, which draw the most recent completed shot's chart as a static, non-interactive, dimmed wallpaper. Covers entry and visibility rules, when the render refreshes, render caching and invalidation, legibility treatment, and the plain-background fallback when no shot can be drawn.
+
 ## Requirements
 ### Requirement: Two shot-chart background entries
-The background chooser SHALL offer two entries that draw the most recent completed shot's chart
-as the app background: **Last Shot**, which draws the basic curves, and **Last Shot (Advanced)**,
-which additionally draws the curves the review page treats as advanced (resistance, conductance,
-Darcy resistance, mix temperature and its goal). The two entries SHALL be mutually exclusive with
-each other and with every other background.
 
-The advanced split SHALL be a property of the chosen entry, NOT a mirror of
-`shotReview/advancedMode`. Toggling Advanced on a shot review page SHALL NOT change the
-background, because that toggle is used to inspect a single shot and must not repaint the app.
+The background chooser SHALL offer two mutually exclusive entries, and no other background: **Last Shot**, which draws the basic curves, and **Last Shot (Advanced)**, which also draws the curves the review page treats as advanced. The advanced split SHALL be a property of the chosen entry, NOT a mirror of `shotReview/advancedMode`, so toggling Advanced on a review page SHALL NOT change the background.
 
 #### Scenario: Basic draws basic curves only
 - **WHEN** Last Shot is the active background
@@ -126,14 +121,8 @@ exactly as it does with any other background.
 - **THEN** no crosshair, inspect bar or tooltip appears
 
 ### Requirement: Legibility treatment
-The chart SHALL be drawn dimmed — at a fixed wallpaper opacity over the theme's own background
-colour, applied at draw time so changing it costs no re-render — because at full strength thin
-bright curves under white text read worse than a photo does. The glass chrome SHALL be forced on
-while a RENDER EXISTS, not merely while the source is selected: with nothing drawn (a fresh
-install, an empty history) the chrome stays opaque over the flat colour, since scrimming chrome
-over a flat page cancels its elevation for nothing. Foreground colours SHALL NOT be derived from
-the chart's content: the chart's canvas is the theme's own background colour, and deriving from
-the drawn pixels would shift the whole UI's text colour every time a shot finished.
+
+The chart SHALL be drawn dimmed at a fixed wallpaper opacity over the theme's background colour, applied at draw time so changing it costs no re-render. The glass chrome SHALL be forced on only while a render exists, not merely while the source is selected. Foreground colours SHALL NOT be derived from the chart's content.
 
 #### Scenario: Glass is forced on when the chart is drawn
 - **WHEN** a shot-chart background is active, a render exists, and the glass option is off

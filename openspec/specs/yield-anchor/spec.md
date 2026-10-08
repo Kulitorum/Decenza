@@ -6,16 +6,7 @@ Defines the `YieldSpec` — a yield target as a value plus a `none` | `absolute`
 ## Requirements
 
 ### Requirement: Yield is a spec, not a number
-
-The system SHALL represent a yield target as a `YieldSpec`: a `value` (double) plus a `mode` enum of `none` | `absolute` | `ratio`.
-
-- `none` — no yield of its own; the next rung of the ladder answers.
-- `absolute` — `value` is a gram target.
-- `ratio` — `value` is a multiplier of the dose (2.0 renders as `1:2`).
-
-A `YieldSpec` SHALL be stored as one value column plus an explicit mode column, never as two parallel value columns. Holding both an absolute and a ratio at once SHALL be **unrepresentable** rather than an invariant enforced by convention — writing a ratio *is* setting the mode, so no stale sibling value can survive a partial write from any surface.
-
-`mode = ratio` SHALL be the only definition of "this yield is ratio-anchored". No code SHALL infer it by comparing a resolved gram value against the profile's target weight.
+A yield target SHALL be a `YieldSpec`: a `value` (double) and a `mode` of `none`, `absolute` or `ratio`. `none` means no yield of its own; `absolute` makes `value` a gram target; `ratio` makes it a dose multiplier. The spec SHALL be one value column plus one mode column, so an absolute and a ratio cannot coexist. `mode = ratio` SHALL be the only definition of ratio-anchored; no code SHALL infer it from grams.
 
 #### Scenario: A ratio and an absolute cannot coexist
 - **WHEN** a recipe holding `{2.0, ratio}` is updated with an absolute yield of 36 g
@@ -30,13 +21,13 @@ A `YieldSpec` SHALL be stored as one value column plus an explicit mode column, 
 - **AND** the active profile's `target_weight` is also 36 g
 - **THEN** the anchor SHALL still report as ratio-anchored, and a later dose change SHALL still re-derive the target
 
+#### Scenario: A ratio renders as a bare ratio
+
+- **WHEN** a yield is stored as `value` 2.0 with mode `ratio`
+- **THEN** it is displayed as `1:2`
+
 ### Requirement: The anchor is whichever quantity was last written
-
-For any surface presenting both a ratio and a yield, the system SHALL treat the **last written** of the two as the anchor. The other SHALL be derived through the dose and presented as a consequence; only the anchor SHALL be stored as the spec. (A saved shot additionally records the gram target that actually ran — that is outcome, not spec; see "Shots record the anchor that produced their target".)
-
-Writing a ratio SHALL set `mode = ratio`; writing an absolute yield SHALL set `mode = absolute`. The mode SHALL NOT be a separate control the user selects, and SHALL NOT be a user setting.
-
-Deriving the non-anchored quantity SHALL NOT mark it as deviating from its baseline: when the dose moves, the derived value and its derived baseline move together, so neither the ratio nor the yield reads as an override purely because the dose changed.
+For any surface presenting both a ratio and a yield, the system SHALL treat the last written of the two as the anchor, derive the other through the dose, and store only the anchor as the spec. Writing a ratio SHALL set `mode = ratio`, and writing an absolute yield SHALL set `mode = absolute`. The mode SHALL NOT be a user-selected control or setting. Deriving the non-anchored quantity SHALL NOT mark it as an override when the dose moves.
 
 #### Scenario: Editing the ratio anchors the ratio
 - **WHEN** the user edits the ratio control
@@ -57,16 +48,7 @@ Deriving the non-anchored quantity SHALL NOT mark it as deviating from its basel
 - **AND** neither the ratio nor the yield renders as deviating from its baseline
 
 ### Requirement: Yield resolves through a recipe → bag → profile ladder
-
-The system SHALL resolve the effective yield spec in this order:
-
-1. The active recipe's spec, when a recipe is active and its mode is not `none`.
-2. The active bag's spec, when a bag is active and its mode is not `none`.
-3. The active profile's `target_weight`, always `absolute`.
-
-A persist action SHALL write back to the **same store the ladder resolved from** — *Update Recipe* when the recipe supplied the spec, *Update Bag* when the bag did. When a recipe is active but its own mode is `none`, the ladder has fallen through to the bag, so the button SHALL read *Update Bag* and write the bag: the store being edited is always the store being shown. A profile SHALL never store a ratio — `target_weight` is absolute and profiles are shared and exported.
-
-The ladder SHALL be enforced explicitly and SHALL NOT emerge from the ordering of signal delivery. In particular, applying a bag's spec on a bean switch SHALL NOT overwrite an active recipe's anchor.
+The system SHALL resolve the effective yield spec from, in order: the active recipe's spec when its mode is not `none`; the active bag's spec when its mode is not `none`; then the active profile's `target_weight`, always `absolute`. The ladder SHALL be enforced explicitly, not by signal ordering. A profile SHALL never store a ratio.
 
 #### Scenario: Recipe outranks bag
 - **WHEN** a `{2.0, ratio}` recipe is activated and activation selects that recipe's own linked bag, which holds `{40.0, absolute}`
@@ -81,6 +63,19 @@ The ladder SHALL be enforced explicitly and SHALL NOT emerge from the ordering o
 #### Scenario: Profile answers when neither has a spec
 - **WHEN** no recipe is active and the active bag's mode is `none`
 - **THEN** the effective yield is the profile's `target_weight`, absolute
+
+#### Scenario: Bean switch leaves the recipe anchor alone
+
+- **WHEN** a bag's spec is applied on a bean switch while a recipe is active
+- **THEN** the active recipe's anchor is unchanged
+
+### Requirement: Persist writes back to the resolved store
+A persist action SHALL write back to the same store the ladder resolved from: Update Recipe when the recipe supplied the spec, and Update Bag otherwise. The store being edited SHALL always be the store being shown.
+
+#### Scenario: Recipe with mode none persists to the bag
+
+- **WHEN** a recipe is active with mode `none` and the bag supplies the spec
+- **THEN** the persist action reads Update Bag and writes the bag
 
 ### Requirement: A measurement never changes the anchor
 
@@ -103,10 +98,7 @@ A recipe's or bag's stored `doseG` SHALL be a seed, not a pin: it seeds the live
 - **THEN** no yield SHALL be computed from `Settings.brew.lastUsedRatio`; only the active anchor's own ratio can re-derive a target
 
 ### Requirement: A ratio anchor survives a profile change within its beverage group; an absolute one does not
-
-When a profile is loaded, the system SHALL clear a session anchor whose mode is `absolute` (a gram target describes the profile it was set against). It SHALL preserve one whose mode is `ratio` when the new profile's beverage group matches the previous profile's, and SHALL clear it when the group changes. The groups are espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`) and tea (`tea`, `tea_portafilter`), compared trimmed and case-insensitively. A maintenance profile (`cleaning`, `descale`, `calibrate`) SHALL neither use nor clear any brew override and SHALL NOT count as a group change: its own target and temperatures apply. Reloading the drink profile loaded before a maintenance run SHALL keep every brew override.
-
-When the load leaves no anchor, the system SHALL arm the active recipe's saved yield, else the active bag's, except on a maintenance profile. A recipe's gram yield equal to the profile's own `target_weight` SHALL NOT be armed. A ratio the user sets after the load SHALL apply normally.
+When a profile is loaded, the system SHALL clear a session anchor whose mode is `absolute`. It SHALL keep a `ratio` anchor when the new profile is in the same beverage group as the previous one, and clear it when the group changes. Groups are espresso (including an empty or unrecognised `beverage_type`), filter (`filter`, `pourover`) and tea (`tea`, `tea_portafilter`), compared trimmed and case-insensitively.
 
 #### Scenario: Ratio persists across a profile switch
 - **WHEN** the session anchor is `{2.0, ratio}` and the user loads a different espresso profile
@@ -144,6 +136,22 @@ When the load leaves no anchor, the system SHALL arm the active recipe's saved y
 - **WHEN** a shot pulled at its profile's own target is loaded from history while the active bag saves a ratio
 - **THEN** the session has no yield anchor and the profile's `target_weight` applies
 
+### Requirement: Maintenance profiles neither use nor clear overrides
+A maintenance profile (`cleaning`, `descale`, `calibrate`) SHALL neither use nor clear any brew override, and SHALL NOT count as a group change. Reloading the drink profile loaded before a maintenance run SHALL keep every brew override.
+
+#### Scenario: Maintenance run does not clear the ratio
+
+- **WHEN** a maintenance profile is loaded between two drink shots with a ratio set
+- **THEN** the ratio is still in effect when the drink profile is reloaded
+
+### Requirement: Saved yield arms when no anchor remains
+When a load leaves no anchor, the system SHALL arm the active recipe's saved yield, else the active bag's, except on a maintenance profile. A recipe's gram yield equal to the profile's own `target_weight` SHALL NOT be armed. A ratio set after the load SHALL apply normally.
+
+#### Scenario: Recipe yield equal to the profile target is not armed
+
+- **WHEN** the active recipe's gram yield equals the loaded profile's `target_weight`
+- **THEN** no yield is armed from the recipe
+
 ### Requirement: A ratio never reaches the machine
 
 The system SHALL resolve the effective yield spec to grams **before** `MachineState::setTargetWeight`. `MachineState`, `WeightProcessor`, the MQTT `target_weight` entity, and the shot's `yield_override` column SHALL only ever see resolved grams.
@@ -158,16 +166,7 @@ The system SHALL resolve the effective yield spec to grams **before** `MachineSt
 - **THEN** the yield-overshoot and yield-shortfall arms compute against the resolved gram target exactly as for an absolute anchor, with no ratio-specific branch
 
 ### Requirement: The resolved target is latched for the duration of a shot
-
-The system SHALL latch the **resolved gram target** — not merely the dose — when the espresso cycle starts, and SHALL release it when the espresso cycle **ends**. While latched, a write to ANY input of the resolution ladder (the dose, the session anchor, an anchor clear, a bag switch, a recipe activation, a profile load) SHALL NOT move the live stop-at-weight target. The latch SHALL be event-driven, never a timer.
-
-Latching only the dose is insufficient and SHALL NOT be treated as satisfying this requirement: every *other* ladder input stays live during a shot, and each re-resolves and pushes a new value at the machine. This is not hypothetical — a bag switch during a pour dropped a 45 g target to 36 g and cut the shot short.
-
-The release SHALL be driven by the espresso cycle's **exit**, not by extraction ending. The two are different events: a cycle can be entered and left without ever flowing (the user stops during preheat, the machine aborts, the connection drops), and a release gated on flow having started never fires for such a cycle — leaving the latch armed and every subsequent shot pinned to a stale target. The release SHALL therefore also fire when the connection is lost mid-cycle, which likewise leaves the cycle.
-
-Latching SHALL resolve the target against live state, never through a still-armed latch: an implementation that reads its own latched value while re-arming turns a one-shot leak into a permanent one.
-
-The latched target SHALL be pushed to the machine at latch time, so the value the machine stops at and the value the shot records cannot disagree.
+The system SHALL latch the resolved gram target, not merely the dose, when the espresso cycle starts. While latched, a write to any input of the ladder (dose, session anchor, anchor clear, bag switch, recipe activation or profile load) SHALL NOT move the live stop-at-weight target. The latched target SHALL be pushed to the machine at latch time. The latch SHALL be event-driven, never a timer.
 
 #### Scenario: A mid-shot dose write does not move the target
 - **WHEN** a shot is running under a `{2.0, ratio}` anchor latched at an 18 g dose
@@ -188,11 +187,29 @@ The latched target SHALL be pushed to the machine at latch time, so the value th
 - **WHEN** that shot ends and a new dose of 20 g stands
 - **THEN** the next shot's target derives as 40 g
 
+#### Scenario: Bag switch during a pour does not move the target
+
+- **WHEN** a bag switch during a pour would re-resolve a 45 g target to 36 g
+- **THEN** the live stop-at-weight target stays at 45 g, because latching only the dose is not sufficient
+
+### Requirement: The latch releases when the espresso cycle exits
+The latch SHALL be released when the espresso cycle exits, not when extraction ends, and also when the connection is lost mid-cycle, which likewise leaves the cycle.
+
+#### Scenario: Cycle left without flowing releases the latch
+
+- **WHEN** the user stops during preheat, so the cycle exits without any flow
+- **THEN** the latch is released and the next shot resolves a fresh target
+
+### Requirement: Latching resolves against live state
+Latching SHALL resolve the target against live state, never through a still-armed latch.
+
+#### Scenario: Re-arming does not reuse the previous latch
+
+- **WHEN** a new cycle latches while a previous latch is still armed
+- **THEN** the new target is resolved from live inputs, not from the old latched value
+
 ### Requirement: Shots record the anchor that produced their target
-
-The system SHALL record, on every saved shot, both the resolved gram target (existing behaviour) and the anchor that produced it: the anchor's mode and its value. The anchor value SHALL be stored, never derived at read time from the recorded target and dose.
-
-These values SHALL be read from the shot's **start-of-shot snapshot**, not from live session state at save time. The save path runs after stop-at-weight settling — i.e. after the latch has released — so a live read would record whatever the dial drifted to during the pour rather than what the shot actually ran at. The snapshot SHALL therefore outlive the latch it was taken with.
+The system SHALL record, on every saved shot, the resolved gram target and the anchor that produced it: the anchor's mode and value. The anchor value SHALL be stored, never derived at read time. These values SHALL be read from the shot's start-of-shot snapshot, not from live session state at save time, so the snapshot outlives the latch it was taken with.
 
 #### Scenario: A mid-shot dose write does not reach the shot record
 - **WHEN** a shot runs at a latched 45 g target and a dose capture lands while the cup is still filling

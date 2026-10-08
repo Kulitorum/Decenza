@@ -1,13 +1,13 @@
 # recipe-editor-parity Specification
 
 ## Purpose
-TBD - created by archiving change verify-recipe-editor-parity. Update Purpose after archive.
+
+Verifies Decenza's D-Flow and A-Flow recipe editors against the upstream de1app plugins, which are the parity oracle. It covers frame generation, parameter extraction from frames, round-trip stability of stock profiles, byte-identical packing for the machine, and the rules for repairing stored recipe data without overwriting values a user set.
+
 ## Requirements
 ### Requirement: The upstream plugins are the parity oracle
 
-Decenza's D-Flow and A-Flow implementations SHALL be verified against the upstream de1app plugins — `Damian-AU/D_Flow_Espresso_Profile` and `Jan3kJ/A_Flow` — as the source of truth. Every expected value in the parity suite SHALL trace to a named proc in the plugin source or to a profile the plugin itself ships. No expected value SHALL be derived from Decenza's own code or from Decenza's built-in profile JSONs.
-
-Fixtures SHALL come from the plugin's own profile directory. The copies under de1app's `de1plus/profiles/` SHALL NOT be used as the reference, because four A-Flow profiles there are a stale 6-frame snapshot that shadows the plugin's 9-frame originals (issue decentespresso/de1app#350).
+Decenza's D-Flow and A-Flow implementations SHALL be verified against the upstream de1app plugins, `Damian-AU/D_Flow_Espresso_Profile` and `Jan3kJ/A_Flow`, as the source of truth. Every expected value SHALL trace to a named plugin proc or a plugin-shipped profile, never to Decenza's own code or built-in JSON. Fixtures SHALL come from the plugin's own `profiles/` directory, not de1app's `de1plus/profiles/` copies, which are stale.
 
 #### Scenario: Expected values are traceable
 
@@ -236,14 +236,7 @@ Frames sent to the machine SHALL encode to the bytes de1app's `de1_packed_shot` 
 
 ### Requirement: Repairs do not rewrite values a user set
 
-Correcting extraction SHALL apply to how a profile is read and saved from now on. A stored
-recipe block's values SHALL NOT be rewritten in place on the grounds that they disagree with the
-frames, because a disagreeing value may be one the user set deliberately.
-
-Removing the block entirely is not such a rewrite, and is permitted: every field it holds is
-either re-derived from the frames on read, duplicated by a top-level key, or unread by any code
-path — except `dose`, which is preserved as `recommended_dose` rather than discarded. No value a
-user set is lost.
+Correcting extraction SHALL apply to how a profile is read and saved from now on. A stored recipe block's values SHALL NOT be rewritten in place, because a disagreeing value may be one the user set deliberately. Removing the block entirely is permitted, provided no value a user set is lost: `dose` SHALL be preserved as `recommended_dose`.
 
 #### Scenario: Stored profiles are not migrated
 
@@ -263,4 +256,9 @@ user set is lost.
 
 - **WHEN** the upgrade removes a recipe block that carried a dose the user set
 - **THEN** that dose is preserved as the profile's recommended dose
+
+#### Scenario: Removed block fields are not user values
+
+- **WHEN** the upgrade removes a recipe block
+- **THEN** each field it held other than `dose` SHALL be re-derived from the frames on read, duplicated by a top-level key, or unread by any code path
 

@@ -1,8 +1,7 @@
 # shot-plan-snapshot-line Specification
 
 ## Purpose
-TBD - created by archiving change shot-pages-card-cleanup. Update Purpose after archive.
-
+Defines the one-line Shot Plan snapshot shown beneath the title on shot pages: the frozen dial-in of that shot, the fields it shows (following the user's Shot Plan configuration), when RPM appears, and its accessible presentation.
 ## Requirements
 
 ### Requirement: Shot pages show a Shot Plan snapshot line

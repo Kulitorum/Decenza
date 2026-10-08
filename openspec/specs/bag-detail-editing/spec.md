@@ -7,11 +7,7 @@ Governs the bag editor's "Bean details" section: every bag field stays editable 
 
 ### Requirement: All bag fields are editable in the bag editor, linked or not
 
-The bag editor (ChangeBeansDialog form, create and edit modes) SHALL expose a "Bean details" section with editable fields: product URL, origin, region, farm, producer, variety, elevation, process, harvest, quality score, place of purchase, and tasting notes. Every field — including identity (roaster, coffee name) and roast level — SHALL be editable regardless of canonical link state: a canonical link autofills and shows a "verified" badge, but never locks a field (matching Visualizer's own bag editor).
-
-A **detail** edit SHALL never break the link. An **identity** edit MAY: the canonical id is a claim that this bag IS that roaster's product, so when an edit leaves the bag's roaster or coffee naming a different coffee than the record does, the link SHALL be dropped rather than kept and corrected. The comparison SHALL use the record's pristine names (the `canonical` snapshot where present, since the working identity keys are themselves user-editable), and an empty name on either side SHALL NOT be treated as a disagreement. Dropping the link removes only the link keys; every descriptive field and the product URL — the data the user linked FOR — SHALL be kept as the user's own.
-
-This is not a UI restriction. visualizer.coffee rewrites a shot's `bean_brand` and `bean_type` from the linked canonical record, so a bag that keeps a record naming another roaster's coffee renames every shot it has ever pulled, in the cloud, while the app keeps showing the right name.
+Every field in the bag editor's "Bean details" section SHALL stay editable regardless of canonical link state, including roaster, coffee name and roast level. A canonical link autofills and shows a "verified" badge but never locks a field. A detail edit SHALL never break the link.
 
 #### Scenario: Editing a canonical-linked bag's details
 
@@ -42,6 +38,22 @@ This is not a UI restriction. visualizer.coffee rewrites a shot's `bean_brand` a
 - **WHEN** the bag carries canonical-supplied detail values
 - **THEN** the Bean details fields SHALL open prefilled with those values as editable text, not read-only confirmation
 
+#### Scenario: Every detail field is editable on a linked bag
+
+- **GIVEN** a linked bag
+- **WHEN** the user edits product URL, origin, farm, producer, quality score, place of purchase or roast level
+- **THEN** every edit SHALL be accepted and the link SHALL remain
+
+### Requirement: An identity edit SHALL drop the link only when it names a different coffee
+
+An identity edit (roaster or coffee name) SHALL drop the canonical link when it leaves the bag naming a different coffee than the record's pristine `canonical` names. An empty name on either side is not a disagreement. Dropping the link SHALL remove only the link keys and SHALL keep every descriptive field and the product URL.
+
+#### Scenario: An empty record name is not a disagreement
+
+- **GIVEN** a linked bag whose record has an empty coffee name
+- **WHEN** the user edits the roaster only
+- **THEN** the canonical link SHALL be kept
+
 ### Requirement: Bean details section is collapsed by default
 
 The Bean details section SHALL render collapsed, showing the existing one-line summary (origin · variety · process) when any detail value exists, and SHALL expand to the full field set on demand. An empty section header SHALL still be shown so details can be added to a bag that has none.
@@ -52,26 +64,7 @@ The Bean details section SHALL render collapsed, showing the existing one-line s
 
 ### Requirement: A product URL can be added or corrected
 
-The Bean details section SHALL include the product URL (`link`). When saved, the URL SHALL feed the existing bag-image resolution (`og:image` fetch and file cache) and the details popup's open-at-roaster affordance.
-
-A write that changes `link` SHALL re-open the link check for the new URL, whatever wrote it — the
-user typing one, a confirmed AI suggestion, or a restore of the Bean Base data. The marks that
-describe a link's state (`linkChecked`, `linkDead`) describe ONE URL, so a write that replaces the
-URL SHALL drop them; leaving them standing describes the old URL and silently exempts the new one
-from ever being probed or archive-recovered. For the same reason the once-per-run guards on link
-validation and on the archive lookup SHALL be keyed by URL, not by bag: their purpose is to stop
-asking the same question about the same URL twice, and a bag whose URL has changed is a different
-question.
-
-A URL found dead SHALL be RETAINED on the bag, not removed. The user typed it, or the Bean Base
-record supplied it, and it is the only record of where the bag came from; deleting it destroys
-data on a manual bag, where no `canonical` snapshot exists to re-derive it from. Consumers SHALL
-therefore gate on whether the link is USABLE rather than on whether the key is present: a dead
-link SHALL NOT drive photo resolution and SHALL NOT be offered to "Get info from page".
-
-The details popup SHALL still show a retained dead URL, marked as no longer resolving. Hiding it
-would be indistinguishable from having deleted it, and the roaster's page may return. Once the URL
-is recovered or replaced the marking SHALL disappear and the row SHALL render as any working link.
+The Bean details section SHALL include the product URL (`link`), which feeds bag-image resolution and the details popup's open-at-roaster affordance. A write that changes `link` SHALL re-open the link check for the new URL, whatever wrote it, and SHALL drop the `linkChecked` and `linkDead` marks that describe the old URL. Once-per-run guards on link validation and archive lookup SHALL be keyed by URL, not by bag.
 
 #### Scenario: Adding a URL to a bag without one
 - **WHEN** the user enters a product URL for a bag whose blob has no `link` and saves
@@ -106,6 +99,16 @@ is recovered or replaced the marking SHALL disappear and the row SHALL render as
 - **WHEN** a bag's `link` is rewritten to the value it already held
 - **THEN** no additional link check or archive lookup SHALL be issued
 
+### Requirement: A dead product URL SHALL be retained and marked, not removed
+
+A URL found dead SHALL be retained on the bag, marked dead, because it may be the only record of where the bag came from. Consumers SHALL gate on whether the link is usable, not on whether the key is present: a dead link SHALL NOT drive photo resolution or be offered to "Get info from page".
+
+#### Scenario: The details popup marks a retained dead URL
+
+- **WHEN** a bag holds a retained dead `link`
+- **THEN** the details popup SHALL show the URL marked as no longer resolving
+- **AND** once the URL is recovered or replaced, the marking SHALL disappear
+
 ### Requirement: Pristine canonical snapshot enables revert
 
 On the first edit-save of a linked blob without a `canonical` key, the pre-edit flat values SHALL be copied into a `canonical` sub-object before edits apply — the working values are pristine until the first edit by construction, so this single lazy-capture path covers new links and bags linked before this feature alike. Flat top-level keys remain the working copy consumers read; the `canonical` sub-object is never modified by edits.
@@ -138,7 +141,7 @@ When a bag is linked and its working values differ from the `canonical` snapshot
 
 ### Requirement: Edited details merge into the beanBaseData blob
 
-Saving the bag editor SHALL merge edited fields into the bag's existing `beanBaseData` blob, preserving untouched keys (`id`, `visualizerCanonicalId`, `canonicalRoasterId`, the `canonical` snapshot, `description`, legacy `image`). Identity edits SHALL update the blob's working `roasterName`/`roastName` alongside the bag columns. Fields cleared by the user SHALL be removed from the blob (absent, not empty string). New blob keys `farm`, `qualityScore`, and `placeOfPurchase` complement the existing detail keys.
+Saving the bag editor SHALL merge edited fields into the bag's existing `beanBaseData` blob, preserving untouched keys (`id`, `visualizerCanonicalId`, `canonicalRoasterId`, the `canonical` snapshot, `description`, legacy `image`). Identity edits SHALL also update the blob's working `roasterName` and `roastName`. Cleared fields SHALL be removed from the blob, not stored as empty strings.
 
 #### Scenario: Merge preserves the link and snapshot
 - **WHEN** a linked bag's fields are edited and saved
@@ -153,6 +156,11 @@ Saving the bag editor SHALL merge edited fields into the bag's existing `beanBas
 #### Scenario: Downstream consumers see edited data
 - **WHEN** a shot is saved after bag details were edited
 - **THEN** the shot's `beanbase_json` snapshot, the AI advisor bean context, and MCP `shots_get_detail` SHALL carry the edited values
+
+#### Scenario: New detail keys are stored
+
+- **WHEN** the user enters a farm, a quality score and a place of purchase and saves
+- **THEN** the blob SHALL carry the `farm`, `qualityScore` and `placeOfPurchase` keys
 
 ### Requirement: Manual bags resolve a photo from their product URL
 
@@ -172,28 +180,7 @@ A bag without a canonical link but with a `link` SHALL resolve its photo through
 
 ### Requirement: Get info from page (AI extraction)
 
-When an AI provider is configured, the bag editor SHALL offer a "Get info from page" action. The action SHALL be shown when the bag has a product URL, and ALSO when it has none but the configured provider supports web search — in that second state the action first finds the product page (under the product-page-search requirement, including its confirmation step) and then extracts from the page it found. The action SHALL be hidden only when no AI provider is configured, or when the bag has no URL and the provider cannot search. Stage 1: fetch the page locally (following redirects), reduce it to plain text (scripts/styles/svg/img dropped, tags stripped, whitespace squished, length-capped at 48k characters), and have the configured AI extract the details. Stage 2 (fallback): when stage 1 fails with an empty or blocked page, the extraction request SHALL instead ask the configured provider to fetch the URL itself via its web-fetch/web-search tool and return the same JSON contract plus an `imageUrl` key (the main product photo's absolute URL, when the page shows one); when the provider has no web tool, the stage-1 failure surfaces unchanged. The extraction system prompt SHALL be selected by the bag's kind: coffee bags extract `origin, region, farm, producer, variety, elevation, process, harvest, roastLevel, tastingNotes`; tea bags extract `teaType, origin, region, garden, cultivar, flush, tastingNotes, brewTempC, leafGramsPer100Ml, steepTime`, with temperatures normalized to Celsius (°F converted; "boiling"/"freshly-boiled" → 100) and leaf ratio normalized to grams per 100 ml. Extracted values SHALL never be guessed beyond what the page states. The extraction SHALL complete via dedicated signals, never via the advisor's `recommendationReceived`. Failures (unreachable page, unreadable response, AI busy/unconfigured) SHALL surface as an inline status message.
-
-An extracted value SHALL be applied according to what the field currently holds, which the blob
-already distinguishes: a flat working value equal to its `canonical` counterpart came from Bean
-Base, and one that differs from it was edited by the user.
-
-| Current field state | Page states a different value | Behaviour |
-|---|---|---|
-| Empty | — | Filled |
-| Matches the `canonical` snapshot (Bean Base's own value) | yes | **Replaced**, and reported |
-| Differs from the `canonical` snapshot (user-edited) | yes | Left alone |
-| No `canonical` snapshot (manual bag, user-entered) | yes | Left alone |
-
-The roaster's product page SHALL be treated as more authoritative than the Bean Base record for
-that roaster's own coffee: a canonical value the page contradicts is stale or wrong, and correcting
-it is the point of reading the page. A user-entered value SHALL NEVER be overwritten — the user
-knows something the page does not, and silently discarding that is worse than leaving a field
-stale.
-
-Every replacement SHALL be reported to the user: which fields changed, and from what to what. The
-existing pristine `canonical` sub-object SHALL be left untouched by extraction, so "Revert to Bean
-Base data" undoes a correction exactly as it undoes a manual edit.
+When an AI provider is configured, the bag editor SHALL offer a "Get info from page" action, and SHALL hide it only when no provider is configured or the bag has no URL and the provider cannot search. Extracted values SHALL never be guessed beyond what the page states. Extraction SHALL complete via dedicated signals, never `recommendationReceived`. Failures SHALL surface as an inline status message.
 
 #### Scenario: Extraction fills empty fields only
 - **WHEN** the user taps Get info with tasting notes the user entered and origin empty, and the page states both
@@ -256,55 +243,36 @@ Base data" undoes a correction exactly as it undoes a manual edit.
 - **WHEN** a tea bag's page states "Brewing Temp: 212º" and "5 minutes"
 - **THEN** the blob receives brewTempC 100 and steepTime "5 minutes"
 
+### Requirement: Extracted values SHALL be applied by the field's current state
+
+An extracted value SHALL fill an empty field. It SHALL replace a field that matches its `canonical` value, and the replacement SHALL be reported. It SHALL NEVER overwrite a field that differs from `canonical` (user-edited) or a bag with no `canonical` snapshot. The roaster's page SHALL outrank Bean Base, and extraction SHALL leave `canonical` untouched.
+
+#### Scenario: A manual bag's user-entered value is never replaced
+
+- **WHEN** a manual bag holds a user-entered value that the page contradicts
+- **THEN** that field SHALL NOT be replaced
+
+### Requirement: Extraction SHALL request the field set for the bag's kind
+
+The extraction prompt SHALL be chosen by bag kind. Coffee bags SHALL extract origin, region, farm, producer, variety, elevation, process, harvest, roastLevel and tastingNotes. Tea bags SHALL extract teaType, origin, region, garden, cultivar, flush, tastingNotes, brewTempC, leafGramsPer100Ml and steepTime, with temperatures in Celsius and leaf ratio in grams per 100 ml.
+
+#### Scenario: Coffee bag requests coffee fields
+
+- **WHEN** Get info runs for a coffee bag
+- **THEN** the extraction SHALL request the coffee field set and no tea fields
+
+### Requirement: Get info SHALL fetch the page locally, then fall back to provider fetch
+
+Stage 1 SHALL fetch the page locally, following redirects, and reduce it to plain text with scripts, styles, svg and img dropped and length capped at 48k characters. When stage 1 fails with an empty or blocked page, the request SHALL ask the provider to fetch the URL with its web tool and return the same JSON plus an `imageUrl`. With no web tool, the stage-1 failure SHALL surface unchanged.
+
+#### Scenario: Boiling water is normalised to 100 C
+
+- **WHEN** a tea page states "boiling" as the brewing temperature
+- **THEN** the blob SHALL receive brewTempC 100
+
 ### Requirement: A dead product URL is replaced by its most recent working form
 
-`link` SHALL mean "the most recent URL known to serve this bag's product page". EVERY bag holding
-a URL SHALL be subject to the once-per-bag link check, whether or not it is linked to a Bean Base
-record: a URL the user typed on a manual bag can be retired by its roaster exactly as a canonical
-one can, and a bag that is never checked never gets a photo again and is never told why. The check
-and the signals that answer it SHALL therefore be keyed by the BAG — its canonical id when it has
-one, otherwise the same `bag-<rowid>` key its photo cache already uses — rather than by a canonical
-id that a manual bag does not have.
-
-When the check finds the stored URL dead, it SHALL query the Internet Archive for a snapshot of
-that URL before treating the link as lost. When a snapshot exists, the snapshot URL
-SHALL replace `link` and the bag SHALL NOT be marked dead. No additional blob key SHALL be
-introduced for the archived form — every consumer of `link` (photo resolution, "Get info from
-page", the open-at-roaster affordance) SHALL use the recovered URL exactly as it used the original.
-
-**Replacing a dead URL with its archived copy is the outcome to reach whenever it is reachable at
-all.** A dead verdict is therefore not final: the retained URL is itself the retry source, so the
-archive SHALL be asked again for a bag holding a link marked dead — a MANUAL bag included, which
-today can never recover because the retry reads `canonical.link` and a manual bag has none. A retry
-that succeeds replaces the link and clears the mark.
-
-The retry SHALL run when the bag is USED — when it is the active bag — and NOT when its card is
-merely drawn. A retryable link has no persisted marker to settle it the way `linkChecked` settles
-the once-per-bag link check, so a retry on card construction would query the archive for every dead
-bag every time the inventory is shown. The URL matters when the user reaches for that bag, and that
-is when the cost belongs.
-
-**The link check's own result decides the mark; the archive only ever upgrades it.** A 404 or 410
-from the roaster is proof the URL no longer serves the page, so it SHALL set the dead mark on its
-own. The archive is then asked one question — can this be replaced with a capture — and only a
-capture changes anything. Every other outcome, an empty envelope included, SHALL mean "no
-replacement yet" and SHALL leave the bag marked dead and retryable.
-
-The availability API SHALL NOT be asked to decide absence, because it cannot express it: it answers
-a URL it never archived and a URL it cannot look up right now with the same empty `archived_snapshots`
-envelope, and was observed returning that envelope with HTTP 200 for a URL whose capture fetched
-successfully in the same session. Making the dead mark depend on telling those apart let a degraded
-service settle a bag's fate.
-
-Reading a page for extraction SHALL reach the archive on its own, not only through the link check.
-When the page fetch for extraction finds the URL gone, it SHALL query the Internet Archive for a
-snapshot of that URL and, when one exists, extract from the snapshot instead of failing. This holds
-however the URL reached the field — restored from the Bean Base record, typed by the user, or
-suggested by the AI — because a URL that never passed the once-per-bag link check would otherwise
-have no route to the archive at all.
-
-A link already pointing at an archive snapshot SHALL NOT be re-probed or re-recovered: it is
-terminal, and a snapshot that later becomes unreachable leaves the bag as it would have been.
+`link` SHALL mean the most recent URL known to serve the bag's product page. Every bag holding a URL, linked or manual, SHALL get the once-per-bag link check, keyed by the bag (its canonical id, or `bag-<rowid>`). When the stored URL is dead, the Internet Archive SHALL be queried for a snapshot. A snapshot SHALL replace `link` and SHALL NOT mark the bag dead, with no extra blob key.
 
 #### Scenario: A manual bag's URL is checked like any other
 - **WHEN** a bag with no `canonical` snapshot holds a product URL
@@ -362,29 +330,36 @@ terminal, and a snapshot that later becomes unreachable leaves the bag as it wou
 - **WHEN** the page fetch for extraction finds the URL gone and the archive has no capture of it
 - **THEN** the failure SHALL surface as an inline status message naming the page as unreadable
 
+### Requirement: Extraction SHALL reach the archive when the page is gone
+
+When the page fetch for extraction finds the URL gone, it SHALL query the archive and extract from a snapshot when one exists. This SHALL hold however the URL reached the field, restored, typed or suggested. A link already pointing at an archive snapshot is terminal and SHALL NOT be re-probed or re-recovered.
+
+#### Scenario: Extraction from a snapshot is attempted for an unchecked URL
+
+- **WHEN** Get info runs on a URL not stored on the bag and the page returns 404
+- **THEN** extraction SHALL be attempted from the archive snapshot when one exists
+
+### Requirement: The link check SHALL decide the dead mark, and the archive only upgrades it
+
+A 404 or 410 from the roaster SHALL set the dead mark on its own. The archive SHALL then be asked whether a capture exists, and only a capture SHALL change anything. Every other outcome, including an empty envelope, SHALL leave the bag marked dead and retryable. The availability API SHALL NOT be used to decide absence.
+
+#### Scenario: A 404 with no capture is marked dead on its own
+
+- **WHEN** the link check returns 404 and the archive has no capture
+- **THEN** the bag SHALL be marked dead and the URL retained
+
+### Requirement: A dead verdict SHALL be retried when the bag is used
+
+The archive SHALL be asked again for a bag holding a dead link, manual bags included. A successful retry SHALL replace the link and clear the mark. The retry SHALL run when the bag becomes the active bag, not when its card is drawn.
+
+#### Scenario: Retry is not repeated for a bag whose card is drawn
+
+- **WHEN** the bag inventory is drawn with a dead-marked bag that is not active
+- **THEN** no archive lookup SHALL be issued for that bag
+
 ### Requirement: A bag pursues its photo and details through every available source
 
-Resolving a bag's photo and detail fields SHALL NOT stop at the first source that fails. The app
-SHALL work down an ordered ladder until something succeeds or the ladder is exhausted:
-
-1. The bag's `link`, when live — `og:image` for the photo, page text for the details.
-2. The Internet Archive snapshot of that link, when the link is dead.
-3. A product page found by the configured AI, when there is no usable link by either route above.
-4. The AI's own `imageUrl`, when a page was read but stated no `og:image`.
-
-Each rung SHALL be attempted at most once per bag. A rung that fails SHALL fall through to the next
-rather than ending the attempt, and a rung that succeeds SHALL end it. When the ladder is exhausted
-the bag keeps its placeholder and empty fields exactly as today — the ladder adds attempts, never
-failure modes.
-
-Details and photo SHALL be pursued together: a rung that yields a readable page satisfies both,
-and a photo found without details (or the reverse) SHALL NOT stop the other from continuing.
-
-**Rungs 1 and 2 require no AI.** The photo comes from the page's own `og:image`, live or archived,
-which is a plain fetch. With no AI provider configured the app SHALL still work those two rungs and
-SHALL still recover the artwork — only the detail extraction, which is an AI call, is unavailable,
-exactly as it is today. An unconfigured provider SHALL never reduce what the deterministic rungs
-deliver.
+A bag's photo and detail resolution SHALL work down an ordered ladder until one rung succeeds or the ladder is exhausted: (1) the live `link`, (2) its Internet Archive snapshot when dead, (3) an AI-found product page when no usable link exists, (4) the AI's `imageUrl` when a page was read with no `og:image`. Each rung SHALL be attempted at most once per bag, and a failed rung SHALL fall through to the next.
 
 #### Scenario: Live page satisfies both
 - **WHEN** a bag's link is live and its page states an `og:image` and detail fields
@@ -413,35 +388,27 @@ deliver.
 - **WHEN** a bag has already attempted a rung in an earlier session
 - **THEN** that rung SHALL NOT be attempted again for that bag
 
+### Requirement: Photo and details SHALL be pursued together
+
+A rung that yields a readable page SHALL satisfy both photo and details. A photo found without details, or the reverse, SHALL NOT stop the other from continuing.
+
+#### Scenario: A photo without details does not stop details
+
+- **WHEN** a rung yields an `og:image` but no readable detail fields
+- **THEN** the detail fields SHALL still be pursued through the next rung
+
+### Requirement: Rungs 1 and 2 SHALL work without an AI provider
+
+Rungs 1 and 2 SHALL require no AI: the photo SHALL come from the page's `og:image`, live or archived. With no provider configured the app SHALL still recover the artwork, and only detail extraction is unavailable. An unconfigured provider SHALL never reduce what the deterministic rungs deliver.
+
+#### Scenario: Unconfigured provider keeps the artwork rungs
+
+- **WHEN** no AI provider is configured and the bag's link is live
+- **THEN** the photo SHALL resolve from the page's `og:image`
+
 ### Requirement: A missing product URL can be found by the configured AI
 
-When a bag has no usable product URL, the app SHALL ask the **configured** AI provider — the one
-the user selected, never another, and only when one is configured — to find the roaster's product
-page for that coffee, using the provider's own web tool. "No usable URL" SHALL mean the bag has no
-URL at all, OR holds one already known to be dead: a bag whose stored URL died is exactly the bag
-this rung exists for, so the presence of a dead string in the field SHALL NOT lock the search out.
-The request SHALL be made at most once per bag automatically: a search that returns nothing SHALL
-NOT be repeated on a later launch, so the feature cannot bill the user twice for the same question.
-A search the user asks for explicitly SHALL always be performed — the once-per-bag marker governs
-automatic spending only, and refusing a user who pressed the button is not what it protects.
-
-The provider's **web-search** tool SHALL be used, not its fetch-a-named-URL tool: only one
-provider's tool does both, and a fetch tool asked to FIND a page answers from memory, which is a
-hallucinated URL wearing a tool's credibility. A provider with no search tool SHALL report that
-rather than answer.
-
-A returned URL SHALL be probed before it is offered, and SHALL be discarded only when the probe
-PROVES it dead. An inconclusive probe is not evidence, so the URL SHALL still be offered — the
-user, who is shown the host and must accept, is the check that matters. The user SHALL confirm it
-before it is stored as the bag's `link`: a model's guess is not evidence either, and an unconfirmed
-guess written into `link` would be read by every downstream consumer as fact.
-
-Once confirmed, the URL SHALL feed photo resolution and detail extraction exactly as a URL the user
-typed. A URL that is itself dead SHALL fall through to archive recovery like any other.
-
-An automatic search that is declined by any of its conditions SHALL record which condition declined
-it, so a session log answers whether the rung was attempted. A rung that leaves no trace cannot be
-diagnosed from a submitted log, which is the only evidence available for a bag on a user's device.
+When a bag has no usable product URL, the app SHALL ask the configured AI provider, and only the one the user selected, to find the roaster's product page using its web-search tool. "No usable URL" SHALL mean no URL at all, or one already known dead. An automatic search SHALL run at most once per bag. A search the user explicitly requests SHALL always be performed.
 
 #### Scenario: Search finds the page
 - **WHEN** a bag has no URL, an AI provider is configured, and the search returns a resolving URL
@@ -500,6 +467,24 @@ exists for, and one key cannot mean both "the URL died" and "stop looking".
 Recording it SHALL patch the STORED blob only — a bag editor holding unsaved
 edits must not have them persisted by a background search completing.
 
+### Requirement: A declined automatic search SHALL be logged with its condition
+
+An automatic search declined by any condition SHALL record in the session log which condition declined it. A provider with no web-search tool SHALL report that, and SHALL NOT answer from memory.
+
+#### Scenario: A provider without a search tool reports it
+
+- **WHEN** the selected provider has no web-search tool
+- **THEN** the search SHALL report that condition and no URL SHALL be taken from the model's memory
+
+### Requirement: A found URL SHALL be probed and confirmed before it is stored
+
+A returned URL SHALL be probed and discarded only when the probe proves it dead; an inconclusive probe SHALL still offer it. The user SHALL confirm the URL before it is stored as `link`. Once confirmed it SHALL feed photo and detail resolution exactly like a typed URL.
+
+#### Scenario: A confirmed URL that the probe cannot settle is stored
+
+- **WHEN** the returned URL's probe is inconclusive and the user confirms it
+- **THEN** the URL SHALL be stored as the bag's `link`
+
 ### Requirement: Bags already marked dead recover from their pristine snapshot
 
 A linked bag whose working `link` was cleared as dead still carries the original URL in its
@@ -526,12 +511,7 @@ mark.
 
 ### Requirement: Photo resolution prefers the original asset a snapshot names
 
-When a bag's photo is resolved from an archive snapshot, the snapshot's `og:image` metadata names
-both an archive-proxied asset URL and the original asset URL it was captured from. Resolution
-SHALL attempt the original URL first — roaster asset hosts commonly outlive the product pages that
-referenced them, and the original is the higher-fidelity, lower-latency source — and SHALL fall
-back to the archive-proxied URL when the original is unreachable. All existing image-cache rules
-(cache key, size cap, atomic write, eviction) SHALL apply unchanged to whichever URL succeeds.
+When a photo is resolved from an archive snapshot, resolution SHALL attempt the original asset URL named in the snapshot first, and SHALL fall back to the archive-proxied URL when the original is unreachable. All existing image-cache rules (cache key, size cap, atomic write, eviction) SHALL apply to whichever URL succeeds.
 
 #### Scenario: Original asset still served
 - **WHEN** a bag's photo resolves from an archive snapshot whose original asset URL is reachable

@@ -7,16 +7,7 @@ The single source of truth for the JSON-shaped user prompt `ShotSummarizer` and 
 
 ### Requirement: AI advisor user prompt SHALL be JSON-shaped
 
-`ShotSummarizer::buildUserPrompt(summary)` SHALL return a JSON-encoded string (indented, deterministic field ordering) carrying the structured fields the shot-analysis system prompt references. The shape mirrors `dialing_get_context`'s response for the fields available without DB / MainController scope:
-
-- `currentBean` — DYE-resolved bean and grinder identity. SHALL include `brand`, `type`, `roastLevel`, `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG`. SHALL include `beanFreshness` (with `roastDate`, `freshnessKnown: false`, and the storage-mode `instruction`) when DYE roastDate is non-empty. SHALL include `inferredFromShotId` and `inferredFields[]` when grinder/dose fields fell back to the resolved shot's values.
-- `currentProfile` — `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, `recommendedDoseG` (when set).
-- `tastingFeedback` — `hasEnjoymentScore`, `hasNotes`, `hasRefractometer`, plus a `recommendation` string when any of the three is missing.
-- `shotAnalysis` — the existing prose markdown (Shot Summary + Phase Data + Detector Observations) preserved verbatim as a string field.
-
-`ShotSummarizer` SHALL also expose `buildUserPromptObject(summary, mode)` returning the unwrapped `QJsonObject` so DB-scoped callers (the in-app advisor's background-thread closure, `ai_advisor_invoke`'s background-thread closure) can append the four enrichment blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) before serializing. The serialized output of `buildUserPrompt(summary, mode)` SHALL be `QJsonDocument(buildUserPromptObject(summary, mode)).toJson(QJsonDocument::Indented)`.
-
-The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) SHALL be added to the user prompt by callers with DB scope (the in-app advisor and `ai_advisor_invoke`), via the shared block-builder helpers. Synchronous callers without DB scope (e.g. the plain prose / history-block path) SHALL continue to ship the four-key envelope from `buildUserPrompt` without enrichment, and SHALL NOT use `null` placeholders for the absent fields.
+`ShotSummarizer::buildUserPrompt(summary)` SHALL return indented JSON with deterministic field ordering carrying `currentBean`, `currentProfile`, `tastingFeedback` and `shotAnalysis`, mirroring `dialing_get_context`. `buildUserPromptObject(summary, mode)` SHALL return the unwrapped `QJsonObject` that DB-scoped callers enrich before serializing. Callers without DB scope SHALL omit the four enrichment keys, not use `null`.
 
 #### Scenario: User prompt carries currentBean with inferred fields
 
@@ -63,14 +54,17 @@ The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 - **AND** SHALL NOT contain a `grinderContext` key
 - **AND** SHALL NOT use `null` placeholders for any of these field names
 
+#### Scenario: Envelope carries the required field set
+
+- **WHEN** `buildUserPrompt(summary)` runs for a populated `ShotSummary`
+- **THEN** `currentBean` SHALL include `brand`, `type`, `roastLevel`, `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting` and `doseWeightG`
+- **AND** `currentBean.beanFreshness` SHALL be present with `roastDate`, `freshnessKnown: false` and the storage-mode `instruction` whenever the DYE roastDate is non-empty
+- **AND** `currentProfile` SHALL include `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` when set
+- **AND** `tastingFeedback` SHALL include `hasEnjoymentScore`, `hasNotes` and `hasRefractometer`, plus a `recommendation` string when any of the three is missing
+
 ### Requirement: User prompt output SHALL be byte-stable for identical inputs
 
-`buildUserPrompt(summary)` SHALL produce byte-for-byte identical output across calls for identical `ShotSummary` inputs. This is the load-bearing precondition for prompt caching: Anthropic's `cache_control` cache lookup compares the cached prefix to the incoming request bytes, so any drift busts the cache. Specifically:
-
-- JSON SHALL be serialized via `QJsonDocument(payload).toJson(QJsonDocument::Indented)` (Qt's QJsonObject is alphabetically ordered, satisfying the determinism requirement).
-- The payload SHALL NOT carry any wall-clock value, request id, monotonic counter, or anything else that varies across calls for the same shot. `currentDateTime` and similar dialing-context-only fields SHALL NOT appear.
-- All string-formatted floats SHALL use fixed precision (matching the existing prose path: 1 decimal for grams, 2 decimals for ratios).
-- Field encoding SHALL not depend on locale (no `QLocale::toString` for numbers in the payload — use `QString::number(d, 'f', n)` or `QJsonValue(d)` directly).
+`buildUserPrompt(summary)` SHALL produce byte-identical output for identical `ShotSummary` inputs, because Anthropic's `cache_control` lookup compares request bytes. The JSON SHALL be serialized with `QJsonDocument(payload).toJson(QJsonDocument::Indented)`. The payload SHALL carry no wall-clock value, request id or per-call counter, and number encoding SHALL NOT depend on locale.
 
 #### Scenario: Two calls with identical ShotSummary produce identical bytes
 
@@ -84,11 +78,15 @@ The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 - **WHEN** `buildUserPrompt(summary)` runs
 - **THEN** the returned JSON SHALL NOT contain `currentDateTime`, `requestId`, `nowMs`, or any other key whose value varies with wall-clock or per-call state
 
+#### Scenario: Float precision matches the prose path
+
+- **GIVEN** a `ShotSummary` with a dose, a yield and a ratio
+- **WHEN** `buildUserPrompt(summary)` runs
+- **THEN** grams SHALL be formatted with 1 decimal and ratios with 2 decimals, matching the prose path
+
 ### Requirement: User prompt SHALL be cacheable in multi-turn Anthropic conversations
 
-When the user's conversation with the AI advisor extends beyond the first turn (the in-app conversation overlay's follow-up flow), `AnthropicProvider::sendAnalysisRequest` SHALL apply `cache_control: {"type": "ephemeral"}` to the first user message (carrying the JSON shot payload). Subsequent follow-up messages SHALL NOT carry `cache_control` (they are the variable portion).
-
-The single-shot `ai_advisor_invoke` MCP path (no follow-up expected) MAY skip the user-message cache_control to avoid the cache-write surcharge — implementation chooses based on a "expect follow-ups" signal from the caller.
+When a conversation extends beyond the first turn, `AnthropicProvider::sendAnalysisRequest` SHALL set `cache_control: {"type": "ephemeral"}` on the first user message, which carries the JSON shot payload. Follow-up user messages SHALL NOT carry `cache_control`. The single-shot `ai_advisor_invoke` path MAY omit it, based on the caller's expect-follow-ups signal.
 
 #### Scenario: Multi-turn conversation reuses cached per-shot context
 
@@ -106,42 +104,7 @@ The single-shot `ai_advisor_invoke` MCP path (no follow-up expected) MAY skip th
 
 ### Requirement: User-prompt envelope SHALL carry an optional `recentAdvice` block
 
-The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext`/`emitRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array (or, for the in-app advisor's prose-rendered `historicalContext`, an equivalent `## Recent Advice Tracking` section carrying the same data). The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from PR Kulitorum/Decenza#1041).
-
-The block SHALL be derived from the active `AIConversation` (matched by storage key — bean+profile hash) and from the user's shot history.
-
-`recentAdvice` SHALL be an array of up to 3 entries, ordered most-recent-first, each derived from a prior advisor turn satisfying ALL of:
-
-- The prior turn has a non-zero `shotId` recorded in the conversation.
-- The prior turn has a non-null `structuredNext` (per #1054). Question-only turns SHALL NOT enter `recentAdvice`.
-- A *later* shot exists in the user's saved history that postdates the prior turn's shot, on the same `profile_kb_id` as the current shot.
-- The prior turn's `shotId` is on the same `profile_kb_id` as the current shot. Cross-profile advice SHALL NOT enter the block.
-
-When zero entries qualify, the `recentAdvice` key SHALL be ABSENT from the envelope. There SHALL NOT be `recentAdvice: []` placeholders.
-
-Each entry in the array SHALL carry:
-
-- `turnsAgo` (number, 1-indexed) — the entry's position in the qualifying-turn sequence (1 = most recent qualifying assistant turn, etc.). Skipped non-qualifying turns SHALL NOT consume a `turnsAgo` slot.
-- `recommendation` (string) — short summary, sourced verbatim from the prior turn's `structuredNext.reasoning` when present. When `reasoning` is absent, the field SHALL be a synthesized one-line summary derived from the recommended fields (e.g., `"Try grinder 4.75; expect 32-38s, 1.0-1.5 ml/s"`).
-- `structuredNext` (object) — the verbatim `structuredNext` block from the prior turn. The LLM uses this to re-read its own predicted ranges.
-- `userResponse` (object) — the follow-up shot attribution computed by the app, with these fields:
-  - `actualNextShotId` (number) — the immediate next shot in the user's history postdating the prior turn's shot, on the same profile.
-  - `grinderSetting` (string) — actual grinder setting on that shot.
-  - `doseG` (number) — actual dose on that shot.
-  - `adherence` (`"followed" | "partial" | "ignored" | "unclear"`):
-    - `"followed"` — every recommended field present in `structuredNext` (grinderSetting, rpm, doseG, profileTitle) matches the actual within tolerance: grinderSetting equal as string, equal as compound notation ignoring spacing, OR within 0.25 of a numeric step (comparing the leading dial number, so a recorded annotation such as `"23.5 1400rpm"` matches a recommended `"23.5"`); rpm within ±25; doseG within ±0.3g; profileTitle equal.
-    - `"partial"` — at least one but not all recommended fields match.
-    - `"ignored"` — none of the recommended fields match.
-    - `"unclear"` — at least one recommended field was present but **unscoreable**, so adherence cannot be determined. A field is unscoreable when its JSON type is wrong for the schema (e.g. `grinderSetting` emitted as a bare number rather than a string, `rpm` as a string rather than a number), when a numeric field is present but non-positive, or when `grinderSetting` is prose rather than a dial value (e.g. `"a touch coarser than 9"`). `"unclear"` SHALL take precedence over the other three values whenever any field is unscoreable.
-    - When `structuredNext` had no parameter recommendations (only ranges/successCondition), `adherence` SHALL be `"ignored"` only when the actual shot is on different parameters from the prior turn's shot; otherwise `"followed"`. The comparison SHALL use the same tolerances as scoring (grinderSetting equal as string, as compound notation ignoring spacing, or within 0.25 of a step on the leading dial number; rpm within ±25; doseG within ±0.3g; profileTitle equal), so measurement noise does not read as a deliberate change. A field SHALL be compared only when BOTH shots record it — a blank grinder setting or an unrecorded dose is missing data, and SHALL NOT be reported as a change. An unscoreable field is NOT "no parameter recommendation" — it SHALL yield `"unclear"`, never fall through to this rule.
-  - `outcomeRating0to100` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot's enjoyment is `<= 0`.
-  - `outcomeNotes` (string) — `espressoNotes` from the actual shot. OMITTED when empty.
-  - `outcomeInPredictedRange` (object) — booleans for each range that was on the prior turn's `structuredNext`:
-    - `duration` (bool) — REQUIRED.
-    - `flow` (bool) — REQUIRED.
-    - `pressure` (bool) — REQUIRED iff `expectedPeakPressureBar` was on the prior turn; otherwise omitted.
-
-The block SHALL be stable across calls for identical inputs (same conversation, same `(currentShotId, profile_kb_id)`).
+The user-prompt envelope SHALL include an optional top-level `recentAdvice` array derived from the active `AIConversation` and shot history. It SHALL hold up to 3 entries, most recent first, from prior turns with a non-zero `shotId` and non-null `structuredNext` whose shot is on the current shot's `profile_kb_id` and which have a later saved shot on that profile. When none qualify, the key SHALL be absent, never `[]`.
 
 #### Scenario: Single qualifying prior turn renders with adherence=followed and outcome in range
 
@@ -241,13 +204,49 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 - **AND** that section SHALL carry the same `turnsAgo` / `recommendation` / `structuredNext` / `userResponse` data `DialingBlocks::buildRecentAdviceBlock` would produce for the same inputs
 - **AND** when zero entries qualify, `historicalContext` SHALL NOT contain a `## Recent Advice Tracking` section at all
 
+### Requirement: Recent advice entries SHALL carry turn, recommendation and outcome fields
+
+Each entry SHALL carry `turnsAgo` (1-indexed over qualifying turns), `recommendation` (verbatim `structuredNext.reasoning`, or a synthesized one-line summary when absent), the verbatim `structuredNext`, and `userResponse` with `actualNextShotId`, `grinderSetting`, `doseG`, `adherence` and `outcomeInPredictedRange`. `outcomeRating0to100` and `outcomeNotes` SHALL be omitted when the rating is `<= 0` or the notes are empty.
+
+#### Scenario: Skipped turns do not consume a slot
+
+- **GIVEN** three qualifying prior turns with one non-qualifying turn between the first and second
+- **WHEN** the envelope is built
+- **THEN** the entries SHALL carry `turnsAgo` 1, 2 and 3 in order
+- **AND** the non-qualifying turn SHALL NOT consume a `turnsAgo` value
+
+#### Scenario: outcomeInPredictedRange carries pressure only when recorded
+
+- **GIVEN** a qualifying entry whose prior turn did not record `expectedPeakPressureBar`
+- **WHEN** the envelope is built
+- **THEN** `userResponse.outcomeInPredictedRange` SHALL carry `duration` and `flow` booleans
+- **AND** SHALL NOT carry a `pressure` key
+
+### Requirement: Recent advice adherence SHALL be scored against recommended fields
+
+`userResponse.adherence` SHALL be `"followed"` when every recommended field in `structuredNext` (`grinderSetting`, `rpm`, `doseG`, `profileTitle`) matches the actual shot within tolerance, `"partial"` when some match, and `"ignored"` when none do. Grind matches as an equal string, equal compound notation ignoring spacing, or within 0.25 of the leading dial number. rpm within ±25, doseG within ±0.3 g, profileTitle exactly.
+
+#### Scenario: Dose within tolerance counts as a match
+
+- **GIVEN** a prior turn recommending `doseG = 19` and a follow-up shot with `doseG = 19.2`
+- **AND** the recommended grinder setting and profile also match the follow-up shot
+- **WHEN** the follow-up shot is attributed
+- **THEN** `adherence` SHALL be `"followed"`
+
+### Requirement: Unscoreable recommendations SHALL yield adherence unclear
+
+`adherence` SHALL be `"unclear"`, taking precedence over the other values, when a recommended field is unscoreable: wrong JSON type, a non-positive numeric value, or prose instead of a dial value. A `structuredNext` with no parameter recommendations SHALL be `"ignored"` only when the actual shot differs beyond tolerance, otherwise `"followed"`. A field SHALL be compared only when both shots record it.
+
+#### Scenario: A numeric doseG emitted as a string yields unclear
+
+- **GIVEN** a prior turn whose `structuredNext.doseG` is the JSON string `"19"`
+- **WHEN** the follow-up shot is attributed
+- **THEN** `adherence` SHALL be `"unclear"`
+- **AND** SHALL NOT be `"ignored"` even if the follow-up dose differs
+
 ### Requirement: System prompt SHALL teach the LLM to read `recentAdvice` and weight it
 
-The espresso `shotAnalysisSystemPrompt` SHALL include teaching for the `recentAdvice` block in its "How to read structured fields" section. The teaching SHALL cover:
-
-- How to interpret `adherence`: `"followed"` + worse outcome ⇒ revise direction; `"ignored"` ⇒ stay the course; `"partial"` ⇒ ask before revising; `"unclear"` ⇒ the prior recommendation named nothing checkable, so treat it like `"ignored"`, do not assume the experiment ran, and restate the recommendation as a concrete value.
-- How to interpret omitted `outcomeRating0to100`: do not assume good or bad — fall back to `outcomeInPredictedRange` for a curve-shape signal, or ask the user about taste.
-- That `recentAdvice` is the LLM's own prior recommendations + observed outcomes — it can self-correct based on it.
+The espresso `shotAnalysisSystemPrompt` SHALL teach the LLM to read `recentAdvice` in its "How to read structured fields" section. The teaching SHALL cover how to react to each `adherence` value, how to treat an omitted `outcomeRating0to100` (do not assume good or bad), and that `recentAdvice` holds the model's own prior recommendations and observed outcomes, so it can self-correct from them.
 
 #### Scenario: System prompt contains recentAdvice teaching
 
@@ -257,13 +256,19 @@ The espresso `shotAnalysisSystemPrompt` SHALL include teaching for the `recentAd
 - **AND** SHALL describe the four `adherence` values and how to react to each
 - **AND** SHALL describe the omitted-rating fallback
 
+#### Scenario: Reactions to each adherence value are taught
+
+- **GIVEN** the espresso `shotAnalysisSystemPrompt` output
+- **WHEN** the prompt is rendered
+- **THEN** `"followed"` with a worse outcome SHALL be taught as a reason to revise direction
+- **AND** `"ignored"` SHALL be taught as a reason to stay the course
+- **AND** `"partial"` SHALL be taught as a reason to ask before revising
+- **AND** `"unclear"` SHALL be taught as "named nothing checkable": treat it like `"ignored"`, do not assume the experiment ran, and restate the recommendation as a concrete value
+- **AND** an omitted rating SHALL be taught as a reason to fall back to `outcomeInPredictedRange` or to ask about taste
+
 ### Requirement: User-prompt envelope SHALL remain byte-stable for identical inputs after `recentAdvice` is added
 
-The byte-stability requirement on `buildUserPromptObject`'s output SHALL extend to cover `recentAdvice`. Specifically:
-
-- For an identical `(AIConversation snapshot, current shot id, DB state)` triple, the serialized `recentAdvice` bytes SHALL be identical across calls.
-- The block SHALL NOT carry any wall-clock value, monotonic counter, or per-call unique id. `actualNextShotId` is a stable database id.
-- Numeric formatting (`durationSec`, `doseG`, `grinderSetting` when numeric) SHALL match the existing fixed-precision rules used elsewhere in the envelope.
+For an identical `(AIConversation snapshot, current shot id, DB state)` triple, the serialized `recentAdvice` bytes SHALL be identical across calls. The block SHALL carry no wall-clock value, monotonic counter or per-call unique id. Numeric fields (`durationSec`, `doseG`, numeric `grinderSetting`) SHALL use the envelope's fixed-precision rules.
 
 #### Scenario: Two consecutive builds with identical inputs produce identical recentAdvice bytes
 
@@ -273,14 +278,7 @@ The byte-stability requirement on `buildUserPromptObject`'s output SHALL extend 
 
 ### Requirement: Advisor user prompt SHALL carry dialInSessions / bestRecentShot / sawPrediction / grinderContext when DB scope is available
 
-When the in-app advisor (via `AIManager::requestRecentShotContext`) and the MCP `ai_advisor_invoke` tool (via `AIManager::enrichUserPromptObject`) assemble the user prompt, they SHALL enrich the JSON envelope with up to four additional top-level fields, matching `dialing_get_context`'s shape exactly:
-
-- `dialInSessions` — runs of consecutive shots on the same profile within ~60 minutes of each other, with hoisted session-level `context` and per-shot `changeFromPrev` diffs. Same shape `dialing_get_context` produces.
-- `bestRecentShot` — the highest-rated shot on the same profile within the last 90 days (excluding the current shot), with a `changeFromBest` diff against the current shot. Omitted entirely (no key, no `null`) when no rated shot exists in that window.
-- `sawPrediction` — predicted post-cut drip in grams from the SAW learner, with `sourceTier` reporting the active model. Omitted (no key) when the resolved shot is not espresso, when no scale is configured, when no profile is configured, or when the shot lacks usable flow samples in the last 2 seconds.
-- `grinderContext` — observed settings range and step size for the resolved shot's grinder model. Omitted (no key) when the resolved shot has no grinder model OR when both the bean-scoped and cross-bean queries return no rows.
-
-These four fields SHALL be produced by shared block-builder helpers exported from `src/mcp/mcptools_dialing_blocks.h`. Both `dialing_get_context` and the in-app advisor / `ai_advisor_invoke` SHALL call the same helpers, so divergence between the two surfaces is impossible by construction.
+When the in-app advisor or `ai_advisor_invoke` has DB scope, it SHALL add top-level `dialInSessions`, `bestRecentShot`, `sawPrediction` and `grinderContext` in the shape `dialing_get_context` produces. All four SHALL come from the shared block-builder helpers in `src/mcp/mcptools_dialing_blocks.h`. A field without data SHALL be omitted, never `null`.
 
 #### Scenario: User prompt carries dialInSessions when shots exist on the resolved shot's profile
 
@@ -317,6 +315,19 @@ These four fields SHALL be produced by shared block-builder helpers exported fro
 - **THEN** the JSON envelope SHALL contain `grinderContext.model`, `.beverageType`, `.settingsObserved`, `.isNumeric`
 - **AND** when the bean-scoped query has < 2 distinct settings AND the cross-bean fallback has data, SHALL also contain `grinderContext.allBeansSettings` tagged as cross-bean
 
+#### Scenario: Each block is omitted when its data is absent
+
+- **GIVEN** a resolved shot that is not espresso, a resolved shot with no grinder model, and a shot with no rated shot in the 90-day window
+- **WHEN** the user prompt is enriched
+- **THEN** the envelope SHALL NOT contain `sawPrediction`, `grinderContext` or `bestRecentShot`
+- **AND** SHALL NOT contain any of them as a `null` value
+
+#### Scenario: Both surfaces call the same block builders
+
+- **WHEN** `dialing_get_context` and the in-app advisor each build the four blocks for the same shot
+- **THEN** both SHALL call the helpers in `src/mcp/mcptools_dialing_blocks.h`
+- **AND** the block contents SHALL be identical between the two
+
 ### Requirement: Enriched user prompt SHALL be byte-equivalent across in-app and MCP surfaces
 
 The user prompt assembled by the in-app advisor (`AIManager::requestRecentShotContext`) and the user prompt echoed by `ai_advisor_invoke` (MCP, via `AIManager::enrichUserPromptObject`) SHALL be byte-for-byte identical for the same resolved `ShotProjection` + DB state + Settings state. Both surfaces SHALL call the same block-builder helpers and the same `ShotSummarizer::buildUserPromptObject` envelope builder.
@@ -329,11 +340,7 @@ The user prompt assembled by the in-app advisor (`AIManager::requestRecentShotCo
 
 ### Requirement: Enriched user prompt SHALL preserve cache stability
 
-The enriched user prompt SHALL NOT introduce any per-call wall-clock value, request id, monotonic counter, or anything else that varies across calls for the same resolved shot. Specifically:
-
-- `currentDateTime` (a top-level field on `dialing_get_context`'s response) SHALL NOT appear in the user prompt — the AI advisor doesn't need it and including it would bust the prompt cache on every call.
-- `daysSinceShot` (inside `bestRecentShot`) is acceptable — it changes on day boundaries, not per call, and is already shipped by `dialing_get_context`.
-- All field encodings SHALL match the existing `dialing_get_context` shape exactly (same float precisions, same JSON key ordering via Qt's alphabetical default).
+The enriched user prompt SHALL NOT carry any per-call value. `currentDateTime` SHALL NOT appear, because it would bust the prompt cache on every call. `daysSinceShot` inside `bestRecentShot` is acceptable, since it changes only on day boundaries. Field encodings SHALL match `dialing_get_context` exactly, including float precision and Qt's alphabetical key order.
 
 #### Scenario: Enriched user prompt has no currentDateTime
 
@@ -349,19 +356,7 @@ The enriched user prompt SHALL NOT introduce any per-call wall-clock value, requ
 
 ### Requirement: Rendered calibration section SHALL constrain how the model uses UGS
 
-When the enriched user prompt includes a `grinderCalibration` block, the rendered calibration section SHALL carry explicit usage constraints that prevent the model from using UGS in ways it was not intended. The constraints SHALL be stated as directives, not background prose, and SHALL be byte-stable and present on both the in-app advisor and `dialing_get_context` surfaces.
-
-The rendered section SHALL state, at minimum:
-
-- UGS is a **relative ordering** of profiles by grind coarseness, not a grinder click count or an absolute dial position.
-- Numeric grinder settings are valid **only within the stated `calibratedUgsRange`**. The model SHALL NOT compute, infer, or quote a grinder number for any profile reported with `source: "directional"`.
-- For a `"directional"` profile the model SHALL give only relative direction (finer/coarser) and SHALL recommend pulling a reference shot on the target profile to establish a number.
-- The model SHALL NOT multiply a UGS distance by any factor of its own to produce a setting; the only sanctioned arithmetic is the system-provided `conversionKey` applied within the validated range.
-- When `confidence` is `"directional"`, the model SHALL NOT present any grinder number for a profile switch and SHALL say a number cannot be given without more dial-in data on the current coffee.
-- Directional guidance SHALL be expressed only as a grind-size term (finer/coarser). The model SHALL NOT translate it into a dial-number change ("go up N", "turn coarser by 2") — that needs the grinder's numeric convention and reintroduces the #1223 sign risk; the `direction` field is anchor-free and already correct as finer/coarser.
-- When a directional entry has no `direction` field (the current profile is not UGS-placed), the model SHALL state it cannot order the two profiles rather than guess.
-
-The section SHALL repeat the block's `usageConstraint` string verbatim so a single directive governs every provider (Claude, Gemini, GPT, OpenRouter, Ollama) identically.
+The rendered `grinderCalibration` section SHALL state that UGS is a relative coarseness ordering, not a click count, and that numbers hold only within `calibratedUgsRange`. It SHALL NOT give a grinder number for a directional profile or a switch when `confidence` is `directional`. The model SHALL NOT scale a UGS distance itself; only the system `conversionKey` within range is sanctioned. The section SHALL repeat `usageConstraint` verbatim.
 
 #### Scenario: Out-of-range profile renders as directional with no number
 
@@ -393,11 +388,20 @@ The section SHALL repeat the block's `usageConstraint` string verbatim so a sing
 - **WHEN** rendered via the in-app advisor enrichment path and via `dialing_get_context`
 - **THEN** the calibration section text including the usage constraints SHALL be byte-identical between the two surfaces
 
+### Requirement: Directional calibration guidance SHALL use grind-size terms only
+
+For a `"directional"` profile the model SHALL give only a finer or coarser direction and SHALL recommend pulling a reference shot on the target profile. It SHALL NOT translate direction into a dial-number change, because that needs the grinder's numeric convention. When the current profile is not UGS-placed, the section SHALL say the two profiles cannot be ordered.
+
+#### Scenario: No direction field states the profiles cannot be ordered
+
+- **GIVEN** a `grinderCalibration` block where the current profile is not UGS-placed and a target profile entry has no `direction` field
+- **WHEN** the calibration section is rendered
+- **THEN** the section SHALL state that the model cannot order the two profiles
+- **AND** SHALL NOT state a direction for them
+
 ### Requirement: System prompt SHALL require taste feedback before declaring dial-in success across repeated untasted shots
 
-The shared espresso system prompt SHALL instruct the model: when tasting feedback (score or notes) has been absent for the last 2 or more shots in the current conversation, the model SHALL ask the user for a taste score before using success/quality language (e.g. "successful", "optimal", "excellent", "dialed in") to characterize those shots from pressure/flow curve data alone. Curve-based observations MAY still be described, but SHALL be framed as preliminary pending taste feedback rather than as a conclusion.
-
-This extends (does not replace) the existing `tastingFeedback`-driven rule that asks for taste feedback when ALL of `hasEnjoymentScore`/`hasNotes`/`hasRefractometer` are false for the CURRENT shot — this new rule additionally triggers on a run of consecutive shots each missing feedback, even if earlier shots in the conversation did have a score.
+When tasting feedback (score or notes) has been absent for the last two or more shots in the conversation, the shared espresso system prompt SHALL instruct the model to ask for a taste score before using success or quality language (such as "dialed in") about those shots. Curve-based observations MAY still be described, framed as preliminary pending taste feedback. This extends, and does not replace, the single-shot `tastingFeedback` rule.
 
 #### Scenario: Two consecutive untasted shots gates success language
 
@@ -416,16 +420,7 @@ This extends (does not replace) the existing `tastingFeedback`-driven rule that 
 
 ### Requirement: In-app advisor shot history SHALL be scoped to the shot's equipment package
 
-The in-app advisor's historical context SHALL include a prior shot only when that shot's
-equipment package matches the current shot's, in addition to the bean, profile and time-window
-match it already applies. "No package recorded" SHALL be treated as a package value in its own
-right, so shots with no equipment package match each other and nothing else — a user who has
-never created a package SHALL see no change in which shots qualify.
-
-An equipment package identifies grinder, basket and puck prep together, and changing any one of
-them yields a different package. The same numeric grind setting on a different basket does not
-describe the same extraction, so a prior shot on different equipment SHALL be excluded however
-closely its bean, profile and setting match.
+The in-app advisor's historical context SHALL include a prior shot only when its equipment package matches the current shot's, in addition to the existing bean, profile and time-window match. "No package recorded" SHALL count as a package value of its own, so a user with no packages sees no change. A different basket or grinder is a different package and SHALL be excluded even when bean, profile and setting match.
 
 #### Scenario: History excludes shots pulled on a different basket
 
@@ -445,19 +440,7 @@ closely its bean, profile and setting match.
 
 ### Requirement: Both advisor surfaces SHALL send one payload in one format
 
-The in-app advisor and `ai_advisor_invoke` build their system prompt from one function and send
-it to the same model. They SHALL therefore send the same user-prompt format, assembled by the
-same code: the structured payload whose field paths that shared system prompt names. Neither
-surface SHALL carry a second renderer of the same data.
-
-A system prompt that instructs the model to read `dialInSessions[].context` and a payload that
-delivers markdown are a contract and a breach of it. Two renderers of one dataset also drift by
-construction — the identity fields are defined once in `ShotIdentity::fields()`, and a hand-
-written second copy is what left the basket and puck prep out of one surface while the other
-picked them up from a single table row.
-
-The user's question SHALL travel as its own field rather than concatenated into the payload, so
-that recovering it for display is a field read and not a parse of prose.
+The in-app advisor and `ai_advisor_invoke` SHALL send the same user-prompt format, assembled by the same code: the structured payload whose field paths the shared system prompt names. Neither surface SHALL carry a second renderer of the same data. The user's question SHALL travel as its own field, not concatenated into the payload, so displaying it is a field read.
 
 #### Scenario: The in-app advisor sends the structured blocks its system prompt names
 
@@ -480,14 +463,7 @@ that recovering it for display is a field read and not a parse of prose.
 
 ### Requirement: The advisor payload SHALL name the equipment set its shots were pulled on
 
-The advisor payload SHALL name the equipment set shared by the history's shots: the grinder
-(brand, model, burrs), the basket (brand, model), and the puck-prep technique set. Components
-with no recorded value SHALL be omitted rather than emitted empty.
-
-A filter the model cannot see is a silent one: without the equipment named in the payload, the
-model can neither attribute the history to the gear it came from nor recognise that a user has
-changed baskets. The equipment set SHALL come from a single shared definition so the session
-context and the no-history block below cannot describe the same package differently.
+The advisor payload SHALL name the equipment set shared by the history's shots: the grinder (brand, model, burrs), the basket (brand, model) and the puck-prep technique set. A component with no recorded value SHALL be omitted rather than emitted empty. The set SHALL come from a single shared definition, so the session context and the no-history block cannot describe the same package differently.
 
 #### Scenario: The payload names grinder, basket and puck prep
 
@@ -507,15 +483,7 @@ context and the no-history block below cannot describe the same package differen
 
 ### Requirement: In-app advisor SHALL state an empty history rather than omitting it
 
-When no prior shot matches the current shot's bean, profile, time window and equipment package,
-the in-app advisor's historical context SHALL emit a block that states no prior shots matched
-and names the equipment set that was matched on, together with the reason equipment-mismatched
-shots were excluded. It SHALL NOT emit an empty historical context in this case.
-
-An absent history block is indistinguishable from "this user has no history at all", and a model
-given no anchor in context is a model that supplies one: the reported failure cited a "70/100
-shot" that appears nowhere in its context and then reasoned from it. A stated absence is a fact
-the model can use in place of an invented one.
+When no prior shot matches the current shot's bean, profile, time window and equipment package, the in-app advisor's historical context SHALL state that no prior shots matched, name the equipment set matched on, and give the reason equipment-mismatched shots were excluded. It SHALL NOT emit an empty historical context in this case.
 
 #### Scenario: First shot on a new equipment package states the empty history
 
@@ -535,17 +503,7 @@ the model can use in place of an invented one.
 
 ### Requirement: Shot-to-shot change detection SHALL compare only within one equipment package
 
-Change detection compares the current shot with the previous shot IN THE SAME THREAD. A thread is
-identified by its equipment package, so both shots necessarily share one, and an equipment change
-cannot appear in that comparison — a basket switch opens a different thread instead. Change
-detection SHALL continue to report dose, yield, duration and grind setting, and SHALL NOT report
-an equipment change: the arm would compare a value with itself and could never emit.
-
-This requirement is recorded rather than dropped because an earlier draft of this change asked
-for the opposite, and the reasoning is not obvious from the code. It was written when a thread
-was keyed on bean and profile alone, where a swap genuinely could land two packages in one
-transcript and narrating it was the mitigation on the table. Keying on the package removed the
-condition instead of describing it.
+Change detection SHALL compare the current shot with the previous shot in the same thread, and a thread SHALL be keyed by equipment package, so both shots share one. Change detection SHALL continue to report dose, yield, duration and grind setting. It SHALL NOT report an equipment change, because a thread never spans two packages.
 
 #### Scenario: Switching basket does not appear as a change within a thread
 
@@ -562,13 +520,7 @@ condition instead of describing it.
 
 ### Requirement: System prompt SHALL scope grind-setting comparability to one equipment set
 
-The shared espresso system prompt SHALL instruct the model that a numeric grind setting is
-comparable only among shots pulled on the same equipment set, and that a change of grinder,
-burrs or basket makes two settings incommensurable even on the same dial. When the model
-observes a setting that does not fit the ordering the rest of the history implies, it SHALL
-consider an equipment difference before concluding anything about the grinder's mechanism.
-
-This complements the existing rule that settings are never comparable across grinder models.
+The shared espresso system prompt SHALL state that a numeric grind setting is comparable only among shots on the same equipment set, since a change of grinder, burrs or basket makes settings incommensurable even on the same dial. When a setting does not fit the ordering the history implies, the model SHALL consider an equipment difference before theorising about the grinder's mechanism.
 
 #### Scenario: An out-of-order setting prompts an equipment question, not a mechanism theory
 

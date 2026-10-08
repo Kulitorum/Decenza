@@ -1,24 +1,12 @@
 # grind-value-entry Specification
 
 ## Purpose
-TBD - created by archiving change replace-grind-inputs-with-picker. Update Purpose after archive.
+
+Governs how grind and RPM values are entered and edited on every surface, in the app and the ShotServer. One shared picker control serves all surfaces, steps resolve against the grinder that owns each value, and an emptied grind is treated as an explicit commit.
+
 ## Requirements
 ### Requirement: A single shared control SHALL accept grind and RPM on every surface
-
-Every surface that accepts a grinder dial-in value SHALL use one shared control
-rather than a per-site text field. The control SHALL offer two presentations:
-`pill` (the brew bar's existing capsule) and `field` (a bordered control sized to
-drop in where a text input sits today). Both presentations are **tap-to-open**:
-the control displays the current value and activating it opens the picker.
-Adopting hosts SHALL NOT retain inline grind/RPM text inputs — all typing happens
-inside the picker's text mode. The value, its writer, **and the grinder
-identity the value belongs to** SHALL all be supplied by the host; the control
-SHALL NOT read or write `Settings.dye` directly, so the same control serves the
-live dial-in, a past shot's recorded value, a bag's default, and a recipe's
-pinned value.
-
-The four QML surfaces are `BrewDialog`, `PostShotReviewPage`,
-`ChangeBeansDialog`, and `RecipeWizardPage`.
+Every surface that accepts a grinder dial-in value SHALL use one shared control rather than a per-site text field. The control SHALL offer `pill` (the brew bar's capsule) and `field` (a bordered control sized to drop in where a text input sits today). Both SHALL be tap-to-open, displaying the current value and opening the picker when activated.
 
 #### Scenario: Field presentation opens the picker
 
@@ -40,27 +28,22 @@ The four QML surfaces are `BrewDialog`, `PostShotReviewPage`,
 - **WHEN** it is rendered after adopting the shared control
 - **THEN** its appearance, zone handling, background-image treatment and write-through path SHALL be unchanged
 
+### Requirement: Hosts own the value and grinder identity
+The value, its writer and the grinder identity the value belongs to SHALL all be supplied by the host. The control SHALL NOT read or write `Settings.dye` directly, so one control serves the live dial-in, a past shot's value, a bag's default and a recipe's pinned value. Adopting hosts SHALL NOT retain inline grind or RPM text inputs; all typing SHALL happen inside the picker's text mode.
+
+#### Scenario: Past shot value uses the same control
+- **WHEN** a past shot's grind value is edited
+- **THEN** the shared control opens with the host's value and grinder identity, not the live dial-in
+
+### Requirement: Adopting surfaces
+The adopting QML surfaces SHALL be `BrewDialog`, `PostShotReviewPage`, `ChangeBeansDialog` and `RecipeWizardPage`.
+
+#### Scenario: Each adopting surface opens the shared picker
+- **WHEN** a grind or RPM value is edited on any of the four surfaces
+- **THEN** the shared picker control is used
+
 ### Requirement: Every grinder-derived behaviour SHALL resolve against the value's own grinder
-
-The grinder is a property of the value being edited, not of the application. Each
-surface SHALL resolve step size, observed-setting suggestions, notation, and
-RPM-capability against the grinder that **owns the value**, never against the
-globally-active grinder:
-
-| Surface | Grinder context |
-|---|---|
-| Brew bar pill / `BrewDialog` | the active grinder — it edits the live dial-in |
-| `PostShotReviewPage` | the grinder recorded on **that shot** |
-| `ChangeBeansDialog` | the **bag's** linked equipment |
-| `RecipeWizardPage` | the **package selected for that recipe** |
-
-Notation makes this stricter than a preference: stepping a compound value such as
-`"3+2"` with a plain-numeric grinder's rules produces a wrongly *formatted*
-result, not merely a wrong increment.
-
-RPM-capability SHALL be determined by `Settings.dye.grinderRpmCapable(brand, model)`
-on every surface — one function, called with each surface's own context — rather
-than by a per-package boolean flag that can drift from it.
+The grinder is a property of the value being edited, not of the application. Each surface SHALL resolve step size, observed-setting suggestions, notation and RPM capability against the grinder that **owns the value**, never against the globally-active grinder.
 
 #### Scenario: Reviewing an old shot uses that shot's grinder
 
@@ -82,21 +65,29 @@ than by a per-package boolean flag that can drift from it.
 - **WHEN** the RPM half's visibility is decided
 - **THEN** it SHALL follow `grinderRpmCapable()` called with that surface's own grinder identity
 
+### Requirement: Each surface resolves against its owning grinder context
+The brew bar pill and `BrewDialog` SHALL use the active grinder, since they edit the live dial-in. `PostShotReviewPage` SHALL use the grinder recorded on that shot. `ChangeBeansDialog` SHALL use the bag's linked equipment. `RecipeWizardPage` SHALL use the package selected for that recipe.
+
+#### Scenario: Reviewing an old shot uses that shot's grinder
+- **WHEN** an old shot's grind is edited in `PostShotReviewPage`
+- **THEN** steps and suggestions resolve against the grinder recorded on that shot
+
+### Requirement: Notation resolves against the owning grinder
+Notation SHALL be resolved against the owning grinder. Stepping a compound value such as `"3+2"` with a plain-numeric grinder's rules produces a wrongly formatted result, not merely a wrong increment.
+
+#### Scenario: Compound value stepped with the owning grinder's notation
+- **WHEN** a compound value such as `"3+2"` is stepped on a compound-notation grinder
+- **THEN** the result keeps the compound format
+
+### Requirement: RPM capability comes from one function
+RPM capability SHALL be determined by `Settings.dye.grinderRpmCapable(brand, model)` on every surface, called with each surface's own context, rather than by a per-package boolean flag that can drift from it.
+
+#### Scenario: Capability is asked per context
+- **WHEN** RPM capability is needed on a surface
+- **THEN** `grinderRpmCapable` is called with that surface's own grinder context
+
 ### Requirement: The picker SHALL offer keyboard entry behind a visible toggle
-
-`GrindPickerDialog` SHALL provide a single control in its header that switches
-both wheels to text fields and back. The control SHALL be visible whenever the
-dialog is open; the dialog SHALL NOT require a hidden gesture (double-tap,
-long-press) to reach text entry. The icon SHALL indicate the destination — a
-keyboard glyph while the wheels are shown, a picker glyph while the fields are
-shown.
-
-One toggle SHALL switch both halves together, and the grind and RPM fields SHALL
-remain separate inputs: grind SHALL accept free text, RPM SHALL accept digits
-only.
-
-Text entry SHALL NOT change the dialog's commit contract: typing SHALL apply
-nothing, and the existing Done action SHALL remain the only commit path.
+`GrindPickerDialog` SHALL provide a single control in its header that switches both wheels to text fields and back. The control SHALL be visible whenever the dialog is open, and SHALL NOT require a hidden gesture (double-tap, long-press) to reach text entry. Its icon SHALL show the destination: a keyboard glyph while the wheels are shown, a picker glyph while the fields are shown.
 
 #### Scenario: Toggle is visible and reversible
 
@@ -119,33 +110,22 @@ nothing, and the existing Done action SHALL remain the only commit path.
 - **THEN** the grind field SHALL accept arbitrary text
 - **AND** the RPM field SHALL accept digits only
 
+### Requirement: One toggle switches separate grind and RPM fields
+One toggle SHALL switch both halves together. The grind and RPM fields SHALL remain separate inputs: grind SHALL accept free text, and RPM SHALL accept digits only.
+
+#### Scenario: RPM field rejects non-digits
+- **WHEN** the user types a non-digit into the RPM field
+- **THEN** the input does not accept it
+
+### Requirement: Typing never commits
+Text entry SHALL NOT change the commit contract: typing SHALL apply nothing, and the existing Done action SHALL remain the only commit path.
+
+#### Scenario: Done commits typed text
+- **WHEN** the user types a value in text mode and presses Done
+- **THEN** the typed value is committed by Done, and not before
+
 ### Requirement: The wheel SHALL NOT gate what a grind value can be
-
-A typed value SHALL be accepted verbatim and stored unchanged. The control SHALL
-NOT round, snap, clamp, or reject a typed grind value on the basis of the step
-size, the candidate rows, a grinder's printed dial maximum, a grinder's printed
-dial minimum, or a notation it cannot parse.
-
-Row generation SHALL NOT refuse a candidate for being negative on a
-plain-numeric grinder. A grinder whose zero is a user-set calibration reference
-(a stepless collar such as the Niche Zero) can legitimately be dialled finer than
-zero, and both the numeric and compound parsers already accept a leading `-`.
-
-The wheel's window SHALL be wide enough that spinning is effectively unbounded:
-the user SHALL never have to close and reopen the picker to keep spinning toward
-a reachable value (hundreds of steps in each direction, anchored on the current
-value — a Niche `9` → `-1` move is 40 steps at 0.25 and must be one continuous
-spin). The window size is an implementation buffer, not a limit; the only real
-limits are semantic and live in the stepper — grinders whose **registry notation
-is Compound** floor at zero (keyed on the grinder's notation and NOT on the
-current value's written form: a negative linear position has no meaning on
-click-indexed hardware, so negative candidates SHALL continue to be skipped —
-including when the current value is logged as a plain number, e.g. `"2.5"` on a
-Mignon), and letter notations clamp at their alphabet.
-
-On returning from text mode to the wheels, the wheels SHALL re-seed centred on
-the typed value, generating candidates around it rather than returning to the
-previous lattice.
+A typed value SHALL be accepted verbatim and stored unchanged. The control SHALL NOT round, snap, clamp or reject a typed grind value on the basis of the step size, the candidate rows, a grinder's printed dial maximum or minimum, or a notation it cannot parse.
 
 #### Scenario: Off-step value survives
 
@@ -192,36 +172,36 @@ previous lattice.
 - **THEN** it SHALL be stored unchanged
 - **AND** the wheel SHALL fall back to observed history rather than refusing the value
 
+### Requirement: Plain-numeric candidates may be negative
+Row generation SHALL NOT refuse a candidate for being negative on a plain-numeric grinder. A stepless collar grinder whose zero is a user-set calibration reference (such as the Niche Zero) can legitimately be dialled finer than zero, and both parsers already accept a leading `-`.
+
+#### Scenario: Finer than zero is reachable on a stepless collar
+- **WHEN** a stepless-collar grinder's value is stepped below zero
+- **THEN** negative candidates are offered and stored
+
+### Requirement: The wheel window is effectively unbounded
+The wheel's window SHALL be wide enough that spinning is effectively unbounded. The user SHALL never have to close and reopen the picker to keep spinning toward a reachable value, so the window spans hundreds of steps each way, anchored on the current value. The window is an implementation buffer, not a limit.
+
+#### Scenario: Spinning across the window does not require reopening
+- **WHEN** the user spins the wheel toward a reachable value far from the current one
+- **THEN** the spin continues without closing the picker
+
+### Requirement: Stepper floors are keyed on the grinder's notation
+The only real limits SHALL live in the stepper. Grinders whose registry notation is Compound SHALL floor at zero, keyed on the grinder's notation and NOT on the current value's written form, so negative candidates are still skipped even when the current value is logged as a plain number. Letter notations SHALL clamp at their alphabet.
+
+#### Scenario: Compound grinder logged as a plain number still floors at zero
+- **WHEN** a Compound-notation grinder's current value is logged as a plain number such as `2.5`
+- **THEN** negative candidates are still skipped
+
+### Requirement: Returning from text mode re-seeds the wheel
+On returning from text mode to the wheels, the wheels SHALL re-seed centred on the typed value, generating candidates around it rather than returning to the previous lattice.
+
+#### Scenario: Re-seed centres on the typed value
+- **WHEN** the user returns from text mode to the wheels after typing a value
+- **THEN** the wheels are centred on the typed value
+
 ### Requirement: The picker SHALL open in text mode when the wheel cannot express the value
-
-When the dialog opens and the grind wheel has no lattice to spin AND the grinder
-has **no numeric basis**, it SHALL open with the text fields already shown and
-focused rather than displaying an empty or unusable wheel. This applies exactly
-when both a lattice and a numeric basis are absent: either there is no current
-value and no observed history, or the current value cannot be parsed by the
-stepper AND there is no observed history to anchor on.
-
-An **empty** current value WHEN the grinder **has** observed numeric history
-SHALL stay on the wheels — but as a wide, median-anchored wheel, not a short
-observed-history list (see the wide-wheel requirement below). A **non-empty but
-unparseable** current value SHALL also stay on the wheels when observed history
-exists, but SHALL keep the user's OWN value as the centred row (via the
-observed-history fallback), never re-anchored on the median — re-centring on a
-different value would let an untouched Done silently overwrite a value the user
-actually set. Text mode is reserved for the case where the wheel genuinely has
-nothing to offer: no lattice and no observed history.
-
-Because the grind wheel's candidate history is loaded asynchronously, the mode
-decision at open MAY resolve to text mode on a cold cache even when a wide wheel
-will become available. When the history warms while the dialog is open, an
-auto-entered text mode SHALL be promoted to the wheel (text → wheel only, never
-the reverse), so the first open after app start is not left stranded in text
-mode with the keyboard up. A user who has themselves switched to, or begun
-typing in, text mode SHALL NOT be promoted.
-
-The RPM half SHALL NOT decide the mode (its rows always generate, seeded from
-the neutral anchor when unset): the grind half is the trigger, and both halves
-SHALL switch together, matching the single toggle.
+When the dialog opens and the grind wheel has no lattice to spin AND the grinder has **no numeric basis**, it SHALL open with the text fields already shown and focused, rather than an empty or unusable wheel. This applies exactly when a lattice and a numeric basis are both absent: no current value and no observed history, or an unparseable current value with no observed history to anchor on.
 
 #### Scenario: New bag opens ready to type
 
@@ -243,21 +223,29 @@ SHALL switch together, matching the single toggle.
 - **WHEN** the user types a value and switches to the wheels
 - **THEN** the wheels SHALL generate candidates centred on the typed value
 
+### Requirement: Empty or unparseable values with history stay on the wheel
+An **empty** current value, when the grinder has observed numeric history, SHALL stay on the wheels as a wide, median-anchored wheel. A **non-empty but unparseable** value SHALL also stay on the wheels when history exists, keeping the user's own value as the centred row via the observed-history fallback. It SHALL NOT be re-anchored on the median.
+
+#### Scenario: Unparseable value keeps its own value
+- **WHEN** a non-empty unparseable value is opened and observed history exists
+- **THEN** the user's value is the centred row and is not replaced by the median
+
+### Requirement: Text mode is reserved for a wheel with nothing to offer
+Text mode SHALL be reserved for when the wheel has nothing to offer: no lattice and no observed history. Because candidate history loads asynchronously, an auto-entered text mode SHALL be promoted to the wheel when history warms while the dialog is open, text to wheel only and never the reverse. A user who has switched to or begun typing in text mode SHALL NOT be promoted.
+
+#### Scenario: Cold cache is promoted when history warms
+- **WHEN** the dialog opened in auto-entered text mode and candidate history then loads
+- **THEN** the picker promotes to the wheel
+
+### Requirement: The RPM half does not decide the picker mode
+The RPM half SHALL NOT decide the mode, since its rows always generate, seeded from the neutral anchor when unset. The grind half is the trigger, and both halves SHALL switch together.
+
+#### Scenario: Grind half triggers the mode for both halves
+- **WHEN** the grind half falls back to text mode
+- **THEN** the RPM half switches to text mode with it
+
 ### Requirement: Grind and RPM entry semantics SHALL be uniform across surfaces
-
-All surfaces accepting a dial-in SHALL agree on the following, by inheriting them
-from the shared control rather than restating them per site:
-
-- RPM "unset" SHALL be represented as `0`, not an empty string.
-- Observed grind settings SHALL be offered as picker candidates (via the
-  observed-history fallback), resolved against the surface's own grinder context
-  (see the grinder-context requirement above).
-- Soft-keyboard avoidance SHALL be owned once, by the picker — which contains the
-  only text inputs — rather than by per-field registration on each host surface.
-
-These are uniform in *mechanism*. They are deliberately NOT uniform in *result*:
-two surfaces showing different suggestions because they own different grinders is
-correct behaviour, not drift.
+All surfaces accepting a dial-in SHALL agree on the following by inheriting them from the shared control, not restating them per site. RPM "unset" SHALL be represented as `0`, not an empty string. Soft-keyboard avoidance SHALL be owned once, by the picker, which contains the only text inputs.
 
 #### Scenario: Unset RPM is uniform
 
@@ -278,15 +266,15 @@ correct behaviour, not drift.
 - **THEN** the typing SHALL happen inside the picker, whose keyboard avoidance keeps the focused field and the commit actions visible
 - **AND** no host surface SHALL require its own grind/RPM keyboard registration
 
-### Requirement: Committing an emptied grind SHALL clear the value where blank is meaningful
+### Requirement: Observed settings are candidates in the owning grinder's context
+Observed grind settings SHALL be offered as picker candidates via the observed-history fallback, resolved against the surface's own grinder context. Results MAY differ between surfaces only because they own different grinders.
 
-Committing Done with an emptied grind or RPM field SHALL clear the stored value
-(grind to empty, RPM to `0`) on EVERY host, with no exceptions: the picker SHALL
-treat an empty commit as explicit input, not as input to be ignored. Blank is
-load-bearing — a recipe with no pinned grind adopts the linked bag's dial on
-create, and a bag's or a shot's grind may simply be unset — and even where blank
-carries no special meaning, emptying a field and pressing Done is a deliberate
-act that SHALL NOT be silently discarded.
+#### Scenario: Two surfaces with different grinders show different suggestions
+- **WHEN** two surfaces own different grinders
+- **THEN** their suggestions may differ, and that difference is correct
+
+### Requirement: Committing an emptied grind SHALL clear the value where blank is meaningful
+Committing Done with an emptied grind or RPM field SHALL clear the stored value (grind to empty, RPM to `0`) on EVERY host, with no exceptions. The picker SHALL treat an empty commit as explicit input, which SHALL NOT be silently discarded.
 
 #### Scenario: Recipe blank-adopts-bag survives the picker
 
@@ -307,35 +295,15 @@ act that SHALL NOT be silently discarded.
 - **THEN** the live dial-in's RPM SHALL be cleared to `0`
 - **AND** the pill SHALL stop showing the RPM half
 
+### Requirement: Blank is a valid stored grind value
+Blank SHALL remain a valid stored grind value. A recipe with no pinned grind adopts the linked bag's dial on create, and a bag's or a shot's grind may simply be unset.
+
+#### Scenario: Unset bag grind stays unset
+- **WHEN** a bag has no grind value
+- **THEN** the grind stays empty and nothing is substituted
+
 ### Requirement: Web grind and RPM inputs SHALL offer the same stepped candidates
-
-The ShotServer shot, bag, and recipe edit forms SHALL offer the stepped candidate
-values through a native `<input list>` + `<datalist>` pair rather than a
-free-standing text input. Free text SHALL remain accepted, so values the
-candidate list does not contain — including non-numeric notations — SHALL still be
-enterable and saved. The markup SHALL be produced by a shared helper rather than
-inlined per page.
-
-Candidates SHALL be computed server-side by the existing C++ stepping machinery,
-resolved against **each record's own grinder** — the shot's, the bag's linked
-package, the recipe's selected package — never the active one. The stepping
-logic SHALL NOT be reimplemented in JavaScript. They are served by a dedicated
-`GET /api/grind-candidates` endpoint taking the grinder identity as parameters,
-rather than embedded per record in the list payloads: the bag and recipe dialogs
-let the user switch equipment mid-edit, and embedded candidates would go stale —
-the page re-requests when the selected equipment changes, so candidates follow
-the grinder the value will actually be ground on.
-
-The web surfaces SHALL NOT reproduce the wheel. This is a deliberate divergence
-from the in-app control: the wheel is a touch-first affordance, while the web
-forms are used with a keyboard where a text input with candidates is the better
-control.
-
-The web RPM input SHALL follow the same capability gate as the app forms,
-sourced from the same function: the candidates endpoint fills RPM candidates
-only when `grinderRpmCapable()` holds for the record's grinder, and an empty
-RPM candidate list SHALL hide the RPM field's row (the input stays in the DOM,
-loaded and saved, so a stale stored RPM is never silently cleared).
+The ShotServer shot, bag and recipe edit forms SHALL offer stepped candidate values through a native `<input list>` and `<datalist>` pair, not a free-standing text input. Free text SHALL remain accepted, so values outside the candidate list, including non-numeric notations, SHALL still be enterable and saved. The markup SHALL be produced by a shared helper, not inlined per page.
 
 #### Scenario: RPM field hidden for a non-RPM grinder on the web
 
@@ -366,6 +334,34 @@ loaded and saved, so a stale stored RPM is never silently cleared).
 - **WHEN** the three forms render their grind inputs
 - **THEN** the markup SHALL come from one shared helper in the common ShotServer layer
 
+### Requirement: Web candidates are computed server-side per record
+Candidates SHALL be computed server-side by the existing C++ stepping machinery, resolved against each record's own grinder (the shot's, the bag's linked package, the recipe's selected package), never the active one. The stepping logic SHALL NOT be reimplemented in JavaScript.
+
+#### Scenario: Candidates for a bag follow the bag's linked package
+- **WHEN** a bag's candidates are requested
+- **THEN** they are computed against the bag's linked package
+
+### Requirement: Candidates come from a dedicated endpoint
+Candidates SHALL be served by a dedicated `GET /api/grind-candidates` endpoint taking the grinder identity as parameters, not embedded per record in list payloads. The page SHALL re-request when the selected equipment changes, so candidates follow the grinder the value will be ground on.
+
+#### Scenario: Changing equipment refreshes candidates
+- **WHEN** the user changes the selected equipment in a bag or recipe dialog
+- **THEN** the page re-requests candidates for the new grinder
+
+### Requirement: The web does not reproduce the wheel
+The web surfaces SHALL NOT reproduce the wheel. The wheel is a touch-first affordance, and the web forms are used with a keyboard, where a text input with candidates is the better control.
+
+#### Scenario: Web grind input is a text input with candidates
+- **WHEN** a grind value is edited on the web
+- **THEN** a text input with candidates is used instead of a wheel
+
+### Requirement: The web RPM input follows the capability gate
+The web RPM input SHALL follow the same capability gate as the app forms, sourced from `grinderRpmCapable()`. The candidates endpoint SHALL fill RPM candidates only when that gate holds for the record's grinder. An empty RPM candidate list SHALL hide the RPM field's row, while the input stays in the DOM, loaded and saved, so a stale stored RPM is never silently cleared.
+
+#### Scenario: Stale stored RPM survives a hidden row
+- **WHEN** the RPM row is hidden because the grinder is not RPM-capable
+- **THEN** the stored RPM value is still loaded and saved
+
 ### Requirement: The picker's text mode SHALL be accessible and usable on touch devices
 
 The header toggle SHALL expose a Button role, an accessible name reflecting its
@@ -394,34 +390,7 @@ keyboard is shown.
 - **AND** the commit actions SHALL remain reachable
 
 ### Requirement: An empty grind SHALL open a wide wheel when the grinder has observed numeric history
-
-When the grind value the picker opens on is **empty**, but the grinder has
-observed **numeric** settings in the user's history, the wheel SHALL synthesise
-the same wide, effectively-unbounded window a set value would (hundreds of steps
-in each direction), rather than a short list of observed settings.
-
-The window SHALL be anchored on a numeric **anchor value**: the **median** of the
-grinder's observed numeric settings (computed over the numeric subset, so a stray
-text setting cannot skew it). Because the wheel's step is itself derived from the
-same observed history, the user's habitual settings fall on the generated lattice
-and appear naturally within the window; the window's width guarantees any value
-is reachable by spinning. When the grinder has **no** observed numeric history
-(including a grinder whose entire history is compound `a+b` notation) there is no
-anchor and the picker opens on the observed-history fallback, or in text mode
-when there is nothing to offer (see the text-mode requirement above).
-
-The median anchor applies ONLY to an empty value; a non-empty unparseable value
-keeps its own value via the observed-history fallback (see that requirement). The
-observed-history fallback SHALL NOT be capped to a fixed number of rows.
-
-The wheel SHALL open centred on the anchor. Because grind commits the centred
-value on Done (grind has no neutral-anchor placeholder gate), pressing Done
-without spinning SHALL commit the anchor (the median) as the grind — an empty
-grind SHALL NOT be committed from this state.
-
-This behaviour SHALL be inherited from the shared control by every adopting
-surface; in practice only the empty-open case (a new recipe with no grind yet)
-changes, since the other surfaces edit a value that already exists.
+When the grind value the picker opens on is **empty** but the grinder has observed **numeric** settings in the user's history, the wheel SHALL synthesise the same wide, effectively-unbounded window a set value would. The window SHALL be anchored on the **median** of the grinder's observed numeric settings, computed over the numeric subset, and the wheel SHALL open centred on the anchor.
 
 #### Scenario: New recipe with grinder history opens on a wide wheel
 
@@ -450,4 +419,32 @@ changes, since the other surfaces edit a value that already exists.
 - **WHEN** the picker opens
 - **THEN** the wheel SHALL keep that value as its centred, selectable row
 - **AND** the offered observed settings SHALL NOT be truncated to a fixed count
+
+### Requirement: The wheel step comes from the same observed history
+The wheel's step SHALL be derived from the same observed history, so the user's habitual settings fall on the generated lattice and appear within the window.
+
+#### Scenario: Habitual settings appear on the wide wheel
+- **WHEN** the wide wheel opens for a grinder with observed numeric history
+- **THEN** the habitual settings are on the lattice within the window
+
+### Requirement: No numeric history means no anchor
+A grinder with **no** observed numeric history, including one whose entire history is compound `a+b` notation, SHALL have no anchor. The picker SHALL open on the observed-history fallback, or in text mode when there is nothing to offer. The median anchor SHALL apply ONLY to an empty value. The observed-history fallback SHALL NOT be capped to a fixed number of rows.
+
+#### Scenario: Compound-only history has no anchor
+- **WHEN** a grinder's entire history is compound notation and the value is empty
+- **THEN** there is no median anchor and the picker opens on the fallback or text mode
+
+### Requirement: Done without spinning commits the anchor
+Pressing Done without spinning SHALL commit the median anchor as the grind. An empty grind SHALL NOT be committed from this state.
+
+#### Scenario: Done commits the anchor not an empty value
+- **WHEN** the wide wheel opens on the median and Done is pressed without spinning
+- **THEN** the median is committed as the grind
+
+### Requirement: The wide-wheel behaviour is inherited by every surface
+This behaviour SHALL be inherited from the shared control by every adopting surface. In practice only the empty-open case, a new recipe with no grind yet, changes, since the other surfaces edit a value that already exists.
+
+#### Scenario: Other surfaces keep their existing value
+- **WHEN** an existing grind value is edited on any adopting surface
+- **THEN** the wide-wheel anchor is not applied
 

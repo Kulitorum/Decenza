@@ -47,7 +47,7 @@ The layout palette SHALL provide a `milkWeight` widget that displays the most re
 
 ### Requirement: Ratio quick-select widget
 
-The layout palette SHALL provide a `ratioQuickSelect` widget that displays the current coffee-to-water ratio as a `1:X.X` pill and, when tapped, opens the ratio chooser (`RatioPresetDialog`). Selecting a preset SHALL apply the ratio live: record `Settings.brew.lastUsedRatio` and recompute the stop-at-weight target (`brewYieldOverride = dose × ratio`, using the measured dose) so the new ratio is reflected immediately in the scale widget, Brew Settings, and the machine target. The pill SHALL follow the transparent-over-background-image rendering convention defined by the "Brew quick-select pills render transparently over a background image" requirement.
+The layout palette SHALL provide a `ratioQuickSelect` widget showing the current ratio as a `1:X.X` pill, which opens the ratio chooser (`RatioPresetDialog`) when tapped. Selecting a preset SHALL apply it live: record `Settings.brew.lastUsedRatio` and set the stop-at-weight target to `dose × ratio` using the measured dose, so the scale, Brew Settings and machine target reflect it at once. The pill SHALL follow the Brew pill transparency rule.
 
 #### Scenario: Displays the current ratio
 
@@ -79,11 +79,7 @@ The layout palette SHALL provide a `ratioQuickSelect` widget that displays the c
 
 ### Requirement: Grind quick-select widget
 
-The layout palette SHALL provide a `grindQuickSelect` widget that displays the current grinder dial-in as a pill and, when tapped, opens a value picker (`GrindPickerDialog`). For a variable-RPM grinder the dial-in has two components — the burr grind setting AND the motor RPM — and the widget SHALL present BOTH rather than toggling between them. The pill SHALL display the grind setting alone for a non-RPM grinder (or when no RPM is recorded), and both values as `"<grind> · <rpm>"` when the grinder is RPM-capable and an RPM is set. The picker SHALL contain a Grind section and, when the grinder is RPM-capable, an RPM section; committing a value in a section — whether by picking a candidate row or by typing it in the picker's text mode (see `grind-value-entry`) — SHALL write only that half — `Settings.dye.dyeGrinderSetting` or `Settings.dye.dyeGrinderRpm` — using the same write-through path as the Brew Settings controls. RPM-capability SHALL be determined by the broad `Settings.dye.grinderRpmCapable(brand, model)` (matching the Brew dialog), not the narrower catalog-confirmed check.
-
-Each section's step between candidate values SHALL be derived from the user's own shot history rather than a user-configured constant: the Grind step from the grinder's observed settings, the RPM step from the grinder's observed RPMs, via the same noise-filtered estimator. The widget SHALL request each step from the shot-history store scoped to the currently selected grinder, and SHALL NOT read any `grindQuickSelectStep` setting (that setting is removed by this change). When history is too thin to derive, the Grind step SHALL default to `1.0` and the RPM step to `50`.
-
-The widget SHALL obtain its candidate rows and its stepping behaviour from the shared grind-entry components rather than owning that logic itself, and SHALL NOT display a message directing the user to set a grind value elsewhere when no rows can be generated — that state opens the picker in text mode instead (see `grind-value-entry`).
+The layout palette SHALL provide a `grindQuickSelect` widget that displays the current grinder dial-in as a pill and, when tapped, opens a value picker (`GrindPickerDialog`). For a variable-RPM grinder the widget SHALL present both the burr grind setting and the motor RPM, not toggle between them. The pill SHALL show the grind setting alone for a non-RPM grinder or when no RPM is recorded, and `"<grind> · <rpm>"` otherwise.
 
 #### Scenario: Step reflects the grinder's observed increments
 
@@ -136,9 +132,39 @@ The widget SHALL obtain its candidate rows and its stepping behaviour from the s
 - **THEN** the picker SHALL open in text mode with the grind field focused
 - **AND** it SHALL NOT show the previous "set a grind value in Brew Settings first" message
 
+### Requirement: Grind picker writes one half per section
+
+The picker SHALL contain a Grind section and, when the grinder is RPM-capable, an RPM section. Committing a value in a section, by picking a row or typing it (see `grind-value-entry`), SHALL write only that half, `Settings.dye.dyeGrinderSetting` or `Settings.dye.dyeGrinderRpm`, through the Brew Settings write-through path. RPM capability SHALL be determined by `Settings.dye.grinderRpmCapable(brand, model)`, matching the Brew dialog.
+
+#### Scenario: Typed value writes only its half
+
+- **GIVEN** the picker is in text mode for a variable-RPM grinder
+- **WHEN** the user types an RPM value and commits it
+- **THEN** `Settings.dye.dyeGrinderRpm` SHALL change
+- **AND** `Settings.dye.dyeGrinderSetting` SHALL NOT change
+
+### Requirement: Grind and RPM steps derive from shot history
+
+Each section's step between candidate values SHALL be derived from the user's own shot history, not from a configured constant: the Grind step from the selected grinder's observed settings and the RPM step from its observed RPMs, using the same noise-filtered estimator. The widget SHALL NOT read `grindQuickSelectStep`. When history is too thin to derive a step, the Grind step SHALL default to `1.0` and the RPM step to `50`.
+
+#### Scenario: Step is scoped to the selected grinder
+
+- **GIVEN** two grinders whose histories step by different increments
+- **WHEN** the widget derives the Grind step with the first grinder selected
+- **THEN** the step SHALL come only from the first grinder's history
+
+### Requirement: Grind widget reuses the shared grind-entry components
+
+The widget SHALL obtain its candidate rows and stepping behaviour from the shared grind-entry components rather than owning that logic. When no rows can be generated it SHALL NOT display a message directing the user to set a grind value elsewhere; it SHALL open the picker in text mode instead (see `grind-value-entry`).
+
+#### Scenario: Shared components supply the rows
+
+- **WHEN** the widget builds its candidate rows
+- **THEN** the rows SHALL come from the shared grind-entry component, not from logic inside the widget
+
 ### Requirement: Brew quick-select pills render transparently over a background image
 
-The Grind and Ratio quick-select pills SHALL render with a transparent fill when a background image is set (`Settings.theme.backgroundImagePath` is non-empty), so the value reads directly on the background like the Beans and Milk widgets. When no background image is set, the pills SHALL keep their existing solid capsule (zone-color fill, accent-colored value text) unchanged. When rendered transparently, the pill's value text SHALL use a color that reads against the background (the zone text color) rather than the accent color chosen for contrast against the solid fill; any override-highlight state on the value SHALL continue to take precedence in both modes.
+The Grind and Ratio quick-select pills SHALL render with a transparent fill when a background image is set (`Settings.theme.backgroundImagePath` is non-empty), like the Beans and Milk widgets. With no background image they SHALL keep their solid capsule unchanged. When transparent, the value text SHALL use the zone text colour rather than the accent colour. Any override-highlight state on the value SHALL take precedence in both modes.
 
 #### Scenario: Transparent over a background image
 

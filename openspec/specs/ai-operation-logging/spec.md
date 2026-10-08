@@ -7,9 +7,7 @@ Make AI-backed user actions diagnosable from the persisted application log, incl
 
 ### Requirement: Each AI-backed operation has a correlated terminal outcome
 
-Each advisor request, product-page search and bag-details extraction SHALL have a session-unique diagnostic identifier that relates any necessary retry/error records to exactly one terminal outcome. A request rejected before execution SHALL have an explicit rejection outcome. Cancellation and supersession SHALL be distinguishable from success and failure.
-
-The terminal event SHALL identify the operation, relevant bag or shot when known, elapsed time for a started operation, the stage reached, and its result or bounded failure reason. Provider and model SHALL identify the selection actually used when a provider was invoked; a local failure SHALL state that no provider was invoked. Retries SHALL remain associated with their original operation.
+Each advisor request, product-page search and bag-details extraction SHALL have a session-unique diagnostic identifier that relates its retries and errors to exactly one terminal outcome. A request rejected before execution SHALL have an explicit rejection outcome. Cancellation and supersession SHALL be distinguishable from success and failure.
 
 #### Scenario: A local archive fetch fails
 
@@ -36,11 +34,18 @@ The terminal event SHALL identify the operation, relevant bag or shot when known
 - **WHEN** a started operation ends through cancellation or supersession
 - **THEN** it records that outcome once and a late callback does not produce a second completion
 
+### Requirement: The terminal event SHALL name the stage, and the provider only when invoked
+
+The terminal event SHALL identify the operation, the relevant bag or shot when known, elapsed time for a started operation, the stage reached, and a result or bounded failure reason. When a provider was invoked, it SHALL name the provider and model actually used. A local failure SHALL state that no provider was invoked. Retries SHALL stay associated with their original operation.
+
+#### Scenario: Terminal event names the stage reached
+
+- **WHEN** an operation ends at a stage before provider invocation
+- **THEN** the terminal event SHALL name that stage and state that no provider was invoked
+
 ### Requirement: An outcome describes the usable result
 
-Successful receipt or saving of a provider response SHALL NOT by itself be reported as successful search, extraction or advice. The terminal result SHALL reflect the validation and interpretation required by that operation. An empty valid result SHALL be distinguishable from invalid output or a failed request. An archive availability lookup with no returned capture SHALL describe that observed result rather than assert that no capture exists.
-
-Success or a valid empty outcome SHALL be readable at INFO; terminal failure and actionable rejection SHALL be readable at WARN or above. User cancellation SHALL NOT be represented as a fault. Successful prompt/response file-write receipts SHALL NOT be emitted automatically. File-write failures SHALL remain diagnosable.
+A successful receipt or save of a provider response SHALL NOT by itself be reported as a successful search, extraction or advice. The terminal result SHALL reflect the validation that operation requires. An empty valid result SHALL be distinguishable from invalid output or a failed request. An archive lookup with no returned capture SHALL describe that observed result rather than assert that no capture exists.
 
 #### Scenario: Invalid extraction JSON
 
@@ -61,6 +66,15 @@ Success or a valid empty outcome SHALL be readable at INFO; terminal failure and
 
 - **WHEN** an archive availability request returns no capture
 - **THEN** the log records that lookup result without asserting permanent absence of an archived page
+
+### Requirement: Outcome log levels SHALL follow outcome severity
+
+Success or a valid empty outcome SHALL be logged at INFO. Terminal failure and actionable rejection SHALL be logged at WARN or above. User cancellation SHALL NOT be represented as a fault. Successful prompt or response file-write receipts SHALL NOT be emitted automatically, while file-write failures SHALL remain diagnosable.
+
+#### Scenario: User cancellation is not a fault
+
+- **WHEN** the user cancels an operation in flight
+- **THEN** the outcome SHALL NOT be logged as a fault
 
 ### Requirement: A bag query includes its AI stages
 

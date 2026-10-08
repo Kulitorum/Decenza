@@ -1,13 +1,11 @@
 # recipe-aware-brew-settings Specification
 
 ## Purpose
-TBD - created by archiving change recipe-aware-brew-settings. Update Purpose after archive.
+Governs the Brew Settings dialog while a recipe is active: the recipe-mode layout and Recipe row, the single override-highlight colour rule and its baselines, how yield, ratio and temperature overrides stay per brew and reach a store only through an explicit Update button, dose and grind write-through, and how the live Shot Plan and Shot Review show recipe baselines and overrides.
+
 ## Requirements
 ### Requirement: Brew Settings layout branches on active-recipe state
-
-`BrewDialog.qml` SHALL detect whether a recipe is currently active (an active recipe exists when `Settings.dye.activeRecipeId >= 0`, equivalently `MainController.activeRecipe` is non-empty) and choose its layout accordingly. The detection SHALL be reactive: if the active-recipe state changes while the dialog is open (e.g. the user switches recipes from within the dialog), the layout SHALL update without requiring the dialog to be reopened.
-
-When no recipe is active, the dialog SHALL retain its existing layout and behavior — the Profile row, Beans row, and Equipment row are all present, and every dial-in field behaves identically — with the sole exception of the value-color cleanup below (the override-highlight scheme), which applies uniformly in both modes. This change SHALL NOT otherwise alter the behavior of the no-recipe dialog.
+`BrewDialog.qml` SHALL detect whether a recipe is active (`Settings.dye.activeRecipeId >= 0`) and choose its layout accordingly. The detection SHALL be reactive, so the layout updates without the dialog being reopened. With no recipe active, the dialog SHALL keep its existing Profile, Beans and Equipment rows and dial-in behaviour, apart from the value-colour cleanup below.
 
 #### Scenario: No recipe active — dialog unchanged
 - **WHEN** the Brew Settings dialog is opened with no recipe active (`Settings.dye.activeRecipeId < 0`)
@@ -24,29 +22,7 @@ When no recipe is active, the dialog SHALL retain its existing layout and behavi
 - **THEN** the dialog returns to the no-recipe layout (Profile, Beans, Equipment rows) without being reopened
 
 ### Requirement: Brew Settings values use a single override-highlight color scheme
-
-Brew Settings SHALL color each editable numeric value by a single rule instead of the current mix of per-value-type semantic colors (weight amber-brown, temperature red, ratio blue) and manual-vs-calculated state: a value SHALL render in the default text color (`Theme.textColor`) when it holds its baseline, and in the override-highlight color (`Theme.highlightColor` — the same highlight the Shot Plan uses for an active override, and the amber of the Clear button) when it deviates from that baseline. The invariant SHALL be: **a value is highlighted if and only if the Clear action would change it.** The per-value-type colors (`weightColor`, `temperatureColor`, `primaryColor` on the value text) and the `targetManuallySet` blue/amber distinction SHALL be removed.
-
-The baseline for each field is the value the Clear handler restores, resolved through the `yield-anchor` ladder — the active recipe's own stored value when a recipe is active, else the active bag's, else the profile default:
-
-- **Temp Delta** → when a recipe is active, the recipe's offset-derived temperature (the profile's espresso_temperature + the recipe's `tempOffsetC`, i.e. the delta reads `0°` at the recipe's design temperature); when no recipe is active — or the active recipe carries offset 0 — the profile temperature (delta `0°`). Unchanged by this change; the bag holds no temperature.
-- **Dose** → the dose Clear restores (the bean's remembered dose `Settings.dye.dyeBeanWeight`, else 18) — unchanged, not recipe-relative.
-- **Stop-at (yield)** and **Ratio** → see the anchor table below. This supersedes the previous rule, in which Stop-at's baseline was the recipe's `yieldG` and Ratio's was always that baseline ÷ the dose.
-
-Because a recipe's or bag's yield and temperature are its design, not deviations from it, a recipe's own anchor / offset-derived temperature SHALL render in the default color (no highlight) when the dial sits on it; only a per-brew deviation *from that stored value* SHALL be highlighted. The Dose cup field is NOT reset by Clear, so it SHALL always use the default text color. The "Profile: …" sub-indicators MAY use the same highlight color when their field is overridden for visual consistency.
-
-The +/- stepper accent SHALL be unified to a single accent across all fields rather than per-value-type colors (recommended: the override-highlight color when the field deviates from its baseline, otherwise the app accent), so a field reads as a whole when it is holding a deviation.
-
-For the yield/ratio pair the baseline SHALL be expressed in the **stored anchor's own unit**, with the other row's baseline derived from it through the current dose:
-
-| Stored mode | Ratio row baseline | Stop-at row baseline |
-|---|---|---|
-| `absolute` (36 g) | `36 ÷ dose` (derived) | `36` (stored) |
-| `ratio` (1:2) | `2.0` (stored) | `2.0 × dose` (derived) |
-
-Because the derived row's baseline moves with the dose exactly as its value does, **neither row SHALL highlight merely because the dose changed** — in either mode.
-
-The override tolerance for the two rows SHALL be expressed in a single unit and converted through the dose, so the rows can never disagree about whether the user has deviated. (Today the ratio row uses `> 0.05` and the Stop-at row `> 0.1 g`; at an 18 g dose a 0.05 ratio nudge is 0.9 g — under one threshold and nine times over the other.)
+Brew Settings SHALL colour each editable numeric value by one rule: a value SHALL render in `Theme.textColor` when it holds its baseline, and in `Theme.highlightColor` when it deviates from it. A value is highlighted if and only if the Clear action would change it. The per-value-type colours (`weightColor`, `temperatureColor`, `primaryColor` on the value text) and the `targetManuallySet` blue/amber distinction SHALL be removed.
 
 #### Scenario: Values at their baseline render in the default color
 - **WHEN** no recipe is active, and Temp Delta is 0°, Dose equals the bean's remembered dose (or 18), Ratio equals the profile ratio, and Stop-at equals the profile target
@@ -80,14 +56,33 @@ The override tolerance for the two rows SHALL be expressed in a single unit and 
 - **WHEN** any value renders highlighted
 - **THEN** tapping Clear returns exactly that value to its baseline, and the highlight clears
 
+### Requirement: Override baselines resolve through the yield-anchor ladder
+The baseline for each field SHALL be the value the Clear handler restores, resolved through the `yield-anchor` ladder: the active recipe's stored value when a recipe is active, else the active bag's, else the profile default. Temp Delta's baseline is the recipe's offset-derived temperature when a recipe with a non-zero offset is active, else the profile temperature. Dose's baseline is the bean's remembered dose, else 18, not recipe-relative.
+
+#### Scenario: Temp Delta baseline follows the recipe
+- **WHEN** a recipe with `tempOffsetC` of −3 on a 90° profile is active and the dial reads 87°
+- **THEN** the Temp Delta baseline is 87°, so the field reads `0°` in the default colour
+
+### Requirement: A recipe's own yield and temperature are not highlighted
+A recipe's or bag's yield and offset-derived temperature SHALL render in the default colour when the dial sits on it. Only a per-brew deviation from that stored value SHALL be highlighted. The Dose cup field is not reset by Clear, so it SHALL always use the default text colour. The "Profile: …" sub-indicators MAY use the highlight colour when their field is overridden.
+
+#### Scenario: Dose cup is never highlighted
+- **WHEN** any dose-cup value is shown
+- **THEN** it renders in the default color regardless of value
+
+### Requirement: Stepper accent and yield/ratio baselines
+The +/- stepper SHALL use a single accent across all fields: the highlight colour when the field deviates from its baseline, otherwise the app accent. For the yield/ratio pair the baseline SHALL be expressed in the stored anchor's own unit, with the other row's baseline derived through the current dose. Neither row SHALL highlight merely because the dose changed. The override tolerance for both rows SHALL be one unit, converted through the dose.
+
+#### Scenario: Stored absolute anchor sets the baselines
+- **WHEN** the stored anchor is `{36 g, absolute}`
+- **THEN** the Stop-at baseline is 36 and the Ratio baseline is 36 ÷ dose
+
+#### Scenario: Stored ratio anchor sets the baselines
+- **WHEN** the stored anchor is `{2.0, ratio}`
+- **THEN** the Ratio baseline is 2.0 and the Stop-at baseline is 2.0 × dose
+
 ### Requirement: Shot Review and Shot Detail show which values were overridden at shot time
-
-The top of the Shot Review and Shot Detail pages SHALL indicate which per-brew values (temperature, yield) were overridden **at the time the shot was taken**, using the override-highlight color (`Theme.highlightColor`), derived from the shot's frozen snapshot — never from the current live dial:
-
-- **Temperature:** when the shot recorded a temperature override (`temperatureOverrideC > 0`), the temperature SHALL be shown in the highlight color where the header presents it (the "{profile} ({temp})" title parenthetical, which already appears only when an override was recorded).
-- **Yield:** when the shot's target weight deviated from the profile default recorded in the shot's own profile snapshot (`profileJson`), the yield item in the plan snapshot line SHALL be highlighted (per the plan-widgets per-item scheme), sourced from the shot's frozen values.
-
-Values that were not overridden, and every other item, SHALL remain the default color. Dose and grind are recorded dial-in values, not overrides, and SHALL NOT be highlighted here.
+The top of Shot Review and Shot Detail SHALL indicate, in `Theme.highlightColor`, which per-brew values were overridden at the time the shot was taken. This SHALL derive from the shot's frozen snapshot, never the live dial. Temperature SHALL be highlighted when the shot recorded a temperature override. Yield SHALL be highlighted when the shot's target weight deviated from its snapshot's profile default. Other values SHALL keep the default colour.
 
 #### Scenario: Shot taken with a temperature override
 - **WHEN** a shot whose snapshot has `temperatureOverrideC > 0` is opened in Shot Review or Shot Detail
@@ -102,8 +97,7 @@ Values that were not overridden, and every other item, SHALL remain the default 
 - **THEN** nothing at the top of the page is highlighted
 
 ### Requirement: Recipe row replaces the Profile row in recipe mode
-
-In recipe mode, the top row of the dialog SHALL be a Recipe row that replaces the Profile row. The Recipe control SHALL let the user quick-switch the active recipe by choosing from the list of selectable (non-archived) recipes. The control SHALL be presented as a `SuggestionField` seeded with the active recipe's name, mirroring the Profile `SuggestionField` it replaces, so it inherits the app's existing accessibility affordance: with `AccessibilityManager.enabled` off it is an inline type-to-filter dropdown; with it on, the inline overlay is hidden and a labeled "Open suggestions" button opens a modal `SelectionDialog` list.
+In recipe mode the top row SHALL be a Recipe row that replaces the Profile row. It SHALL let the user quick-switch the active recipe from the selectable (non-archived) recipes. It SHALL be a `SuggestionField` seeded with the active recipe's name, mirroring the Profile field it replaces.
 
 #### Scenario: Recipe row seeded with the active recipe
 - **WHEN** the dialog opens in recipe mode
@@ -119,9 +113,15 @@ In recipe mode, the top row of the dialog SHALL be a Recipe row that replaces th
 - **THEN** the inline dropdown overlay is not shown
 - **AND** a labeled "Open suggestions" button is shown that opens a modal `SelectionDialog` list of recipes
 
-### Requirement: Selecting a different recipe re-activates it through the single activation path
+### Requirement: Recipe row follows the accessibility affordance
+With `AccessibilityManager.enabled` off, the Recipe control SHALL be an inline type-to-filter dropdown. With it on, the inline overlay SHALL be hidden and a labelled "Open suggestions" button SHALL open a modal `SelectionDialog` list of recipes.
 
-When the user picks a recipe from the Recipe control that differs from the currently active recipe, `BrewDialog.qml` SHALL re-activate it by calling the existing single activation path `MainController.activateRecipe(id)` — it SHALL NOT introduce a separate activation mechanism. Because activation applies the recipe's profile, bag, equipment, dose, yield, temperature, and grind, the dialog's dial-in fields SHALL be re-seeded from the resulting DYE/profile state so the editable values reflect the newly activated recipe. Re-selecting the already-active recipe SHALL be a no-op (no redundant re-activation).
+#### Scenario: Recipe row seeded with the active recipe
+- **WHEN** the dialog opens in recipe mode
+- **THEN** the Recipe control displays the active recipe's name, and its suggestion list contains the selectable non-archived recipes
+
+### Requirement: Selecting a different recipe re-activates it through the single activation path
+Picking a recipe that differs from the active one SHALL re-activate it by calling `MainController.activateRecipe(id)`, with no separate activation mechanism. The dial-in fields SHALL then be re-seeded from the resulting DYE and profile state. Re-selecting the already-active recipe SHALL be a no-op.
 
 #### Scenario: Switching recipes re-activates and re-seeds
 - **WHEN** the user selects a recipe in the Recipe control that is not the active one
@@ -133,33 +133,7 @@ When the user picks a recipe from the Recipe control that differs from the curre
 - **THEN** the recipe is not re-activated and the dial-in fields are not reset
 
 ### Requirement: "Update Profile" becomes "Update Recipe" in recipe mode
-
-Brew Settings SHALL carry **two** persist actions: one for Temp Delta, and **one** for the yield/ratio pair.
-
-**Temp Delta** keeps its existing button. When a recipe is active it SHALL be labeled "Update Recipe" and persist the shown value into the active recipe's `tempOffsetC` as the delta between the dialed temperature and the profile's espresso_temperature, via `MainController.recipeStorage.requestUpdateRecipe(...)`, and SHALL NOT modify the profile. When no recipe is active it SHALL remain "Update Profile" with its existing behavior unchanged (a profile can hold a temperature).
-
-**Yield/ratio** SHALL have a **single** persist button, not one per row. It SHALL sit on whichever of the Ratio / Stop-at rows is currently anchored (`yield-anchor`: the last written of the two), and SHALL move to the other row when the user edits that row. Its location is therefore the anchor indicator — no separate mode chip, toggle, or setting is required, and the override-highlight color channel stays free for its existing meaning.
-
-The button's **destination follows the resolution ladder**, and its label states it:
-
-| State | Label | Writes |
-|---|---|---|
-| Recipe active | "Update Recipe" | the active recipe's yield spec |
-| No recipe, bag active | "Update Bag" | the active bag's yield spec |
-| No recipe and no bag | *(hidden)* | — (nothing to persist; the session anchor still applies to the brew) |
-
-A profile SHALL never be a destination for the yield button: `target_weight` is absolute and profiles are shared and exported, so a ratio has nowhere to live there. Setting a profile's default target weight remains available in the Profile Editor and Simple Profile Editor.
-
-When the anchor's mode is `none` — no recipe/bag yield designed and the user has not yet edited either row — **neither row SHALL show a button**. The first edit anchors that row and the button appears on it.
-
-The persist button SHALL be the **sole** way a yield/ratio change reaches a recipe or bag: yield and ratio are per-brew overrides (see the overrides requirement below), so committing the dialog with OK SHALL NOT write them to either.
-
-Both buttons' enabled state SHALL gate on the shown value differing from **the active store's own stored value**, NOT on differing from the profile default:
-
-- **Temp Delta** → the shown dialed-minus-profile delta vs the stored `tempOffsetC` (unchanged by this change).
-- **Yield/ratio** → the shown anchor vs the stored spec, comparing like with like: a ratio anchor against a stored ratio, an absolute against a stored absolute. **A mode change alone SHALL enable it**, since persisting it genuinely changes behaviour on the next dose change even when the gram value is identical.
-
-This makes the stored baseline movable to any value, including back to the profile default: resetting a dial to the profile default while the store holds a different value SHALL leave the button enabled so the user can persist the reset (for temperature, persisting the reset stores offset 0). When no recipe is active, the Temp Delta "Update Profile" button MAY continue to gate on the value differing from the profile default. The action persists immediately (like "Update Profile" does today) and is independent of OK.
+Brew Settings SHALL carry two persist actions: one for Temp Delta and one for the yield/ratio pair. When a recipe is active, the Temp Delta button SHALL be labelled "Update Recipe" and SHALL persist the offset from the profile's espresso_temperature into the active recipe's `tempOffsetC` via `MainController.recipeStorage.requestUpdateRecipe(...)`, never modifying the profile. With no recipe active it SHALL remain "Update Profile", unchanged.
 
 #### Scenario: The button sits on the anchored row
 
@@ -225,9 +199,29 @@ This makes the stored baseline movable to any value, including back to the profi
 - **THEN** the anchor becomes `{36.0, absolute}` — the same gram target but a different mode
 - **AND** the button is enabled, because persisting it genuinely changes the recipe's behaviour on the next dose change
 
-### Requirement: Dial-in editing and OK/Cancel are unchanged in recipe mode
+### Requirement: The yield persist button sits on the anchored row
+The yield/ratio persist SHALL be a single button, placed on whichever of the Ratio or Stop-at rows is the current yield anchor, and it SHALL move when the user edits the other row. Its label and destination SHALL follow the resolution ladder: "Update Recipe" writes the recipe's yield spec when a recipe is active, "Update Bag" writes the bag's when only a bag is active, and the button is hidden with neither. A profile SHALL never be a destination.
 
-In recipe mode, the dial-in fields SHALL remain editable and the OK and Cancel actions SHALL behave as they do today: OK commits the dose/yield/temperature/grind values via `ProfileManager.activateBrewWithOverrides(...)` and saves grind/RPM to `Settings.dye`, and Cancel discards the dialog's edits. Removing the Profile/Beans/Equipment rows SHALL NOT change how the dial-in values are applied. Yield and temperature are applied as per-brew overrides only (see the overrides requirement below); OK SHALL NOT persist them to the recipe.
+#### Scenario: No yield button for an undesigned anchor
+- **WHEN** the anchor's mode is `none` and the user has not yet edited either row
+- **THEN** neither row shows a button, and the first edit anchors that row and its button appears on it
+
+### Requirement: Persist buttons gate on the stored value
+Both persist buttons SHALL be enabled only when the shown value differs from the active store's own stored value, not from the profile default. Yield/ratio SHALL compare like with like, and a mode change alone SHALL enable it. A persist SHALL take effect immediately and independently of OK. With no recipe active, the Temp Delta "Update Profile" button MAY keep gating on the profile default.
+
+#### Scenario: Temp Delta reset to offset zero is persistable
+- **WHEN** a recipe with `tempOffsetC` of −3 is active and the user dials the temperature back to the profile default
+- **THEN** the Temp Delta button is enabled, and tapping it stores offset 0
+
+### Requirement: The persist button is the only yield write path
+The persist button SHALL be the sole way a yield or ratio change reaches a recipe or bag. Committing the dialog with OK SHALL NOT write them to either.
+
+#### Scenario: OK does not persist the yield
+- **WHEN** the user changes the Stop-at value and taps OK while a recipe is active
+- **THEN** the recipe's yield spec is unchanged
+
+### Requirement: Dial-in editing and OK/Cancel are unchanged in recipe mode
+In recipe mode the dial-in fields SHALL remain editable. OK SHALL commit dose, yield, temperature and grind via `ProfileManager.activateBrewWithOverrides(...)` and save grind and RPM to `Settings.dye`, as today. Cancel SHALL discard the dialog's edits. Yield and temperature SHALL apply only as per-brew overrides.
 
 #### Scenario: OK applies values in recipe mode
 - **WHEN** the user edits dial-in fields in recipe mode and taps OK
@@ -240,12 +234,7 @@ In recipe mode, the dial-in fields SHALL remain editable and the OK and Cancel a
 - **THEN** the dialog's dial-in edits are discarded and the active recipe is unchanged by the cancel
 
 ### Requirement: Yield and temperature are per-brew overrides, never auto-written to the recipe
-
-Yield (Stop-at), ratio, and temperature (Temp Delta) set in Brew Settings are per-brew **overrides**: editing them adjusts the next brew relative to the baseline and SHALL NOT modify that baseline. A yield/ratio/temp change SHALL apply only as an override in `Settings.brew` (persisted per-brew; cleared on recipe switch, and on a profile switch per the mode asymmetry in `brew-overrides`) and SHALL NOT be written into the active recipe **or the active bag**. The recipe's yield spec / `tempOffsetC`, and the bag's yield spec, SHALL change only via the explicit persist button.
-
-To honor this, the existing auto-stamps SHALL be removed — the `MainController` write-through watchers on `SettingsBrew::brewOverridesChanged` (→ recipe `yieldG`) and `SettingsBrew::temperatureOverrideChanged` (→ the recipe temperature), **and** the bag write-through `persistYieldOverrideToBag` called from `ProfileManager::activateBrewWithOverrides` (see `coffee-bag-model`). `RECIPES.md` SHALL be updated to drop yield/temp from the "tweaks stamp the active recipe" description.
-
-On recipe activation, the recipe's stored values SHALL still be applied as the starting overrides — its yield spec verbatim (mode included), and the temperature as `profile espresso_temperature + tempOffsetC` (offset 0 arms no override; see `recipe-activation`) — so an activated recipe still opens with its saved yield/temperature.
+Yield (Stop-at), ratio and temperature (Temp Delta) set in Brew Settings are per-brew **overrides** and SHALL NOT modify their baseline. A change SHALL apply only as an override in `Settings.brew`, persisted per brew and cleared on recipe switch, and SHALL NOT be written into the active recipe or bag. The recipe's yield spec and `tempOffsetC`, and the bag's yield spec, SHALL change only via the explicit persist button.
 
 #### Scenario: One-off yield tweak does not change the recipe
 - **WHEN** a recipe holding `{36.0, absolute}` is active, the user sets Stop-at to 40 and taps OK
@@ -272,17 +261,22 @@ On recipe activation, the recipe's stored values SHALL still be applied as the s
 - **WHEN** the user wants the shown yield, ratio, or temperature to persist
 - **THEN** they tap the persist button, which writes the recipe's or bag's spec (or `tempOffsetC`); no other Brew Settings action writes those fields
 
+### Requirement: Yield and temperature auto-stamp watchers are removed
+The auto-stamp watchers on `SettingsBrew::brewOverridesChanged` and `SettingsBrew::temperatureOverrideChanged` SHALL be removed. So SHALL the bag write-through `persistYieldOverrideToBag`, called from `ProfileManager::activateBrewWithOverrides`. `RECIPES.md` SHALL drop yield and temperature from its description of tweaks that stamp the active recipe.
+
+#### Scenario: Tweaks no longer stamp the recipe
+- **WHEN** the user changes Stop-at or Temp Delta while a recipe is active
+- **THEN** no write reaches the recipe, and no bag write-through is triggered by the yield change
+
+### Requirement: Recipe activation starts the override from the stored values
+On recipe activation the recipe's stored yield spec SHALL be applied as the starting override verbatim, mode included. The temperature SHALL be profile espresso_temperature plus `tempOffsetC`. An activated recipe therefore opens with its saved yield and temperature.
+
+#### Scenario: Activated recipe opens with saved values
+- **WHEN** a recipe holding `{36.0, absolute}` with a `tempOffsetC` of −3 is activated on a 90° profile
+- **THEN** the session starts at a 36 g Stop-at and an 87° brew temperature
+
 ### Requirement: Dose and grind keep their existing dial write-through
-
-Dose and grind/RPM are dial-in values, not overrides: they have no per-brew "override vs. baseline" split and no "Update" button. This change SHALL leave their existing write-through untouched — dose continues to write through to the active bag and stamp the active recipe's `doseG`; grind/RPM continue to write through to the active bag and stamp the recipe's `grindPinned`/`rpmPinned` (per `fix-recipe-grind-integrity`, with the non-tea guard). This change SHALL NOT add or remove any write-back for dose or grind.
-
-Those two write-throughs are already the top two rungs of the `dose-source-precedence` ladder, so an edit lands on whichever source the ladder names — with one deliberate exception: **the profile is NOT a write target here.** Writing it means marking the profile modified, and this dialog commits on every OK, so a dose nudge would dirty the loaded profile. A dose dialed with neither a recipe nor a bag active therefore stays in `Settings.dye` (which persists), and the profile's recommendation is edited where the rest of the profile is.
-
-This split is the measurement/intent line of `yield-anchor`: dose, grind, and RPM are things the user physically did, so they are remembered automatically; the yield anchor is design intent, so it is button-protected. A dose capture therefore always updates the dose and never changes the yield mode.
-
-The re-seed performed on a recipe switch SHALL write only the dialog's local QML values (`root.*`), never `Settings`, so that re-seeding never triggers a dose/grind stamp into the newly activated recipe.
-
-Cup tare is NOT recipe-stored (it lives in DYE only). **Ratio is now recipe- and bag-stored** as the mode of the yield spec (`yield-anchor`) — superseding the previous rule that ratio lived only in `Settings.brew`; `Settings.brew.lastUsedRatio` survives only as preset memory. Steam and hot-water blocks are recipe-stored but are not edited by this dialog.
+Dose and grind/RPM are dial-in values, not overrides, and SHALL keep their existing write-through unchanged. Dose SHALL write through to the active bag and stamp the active recipe's `doseG`. Grind and RPM SHALL write through to the active bag and stamp the recipe's `grindPinned` and `rpmPinned`, with the non-tea guard. This change SHALL NOT add or remove any write-back for dose or grind.
 
 #### Scenario: Editing dose in recipe mode still writes through
 - **WHEN** a recipe is active and the user changes the dose and taps OK
@@ -313,13 +307,36 @@ Cup tare is NOT recipe-stored (it lives in DYE only). **Ratio is now recipe- and
 - **THEN** only local `root.*` values are written
 - **AND** no `Settings` mutation occurs from the re-seed, so the newly activated recipe is not stamped with re-seeded dose/grind values
 
+### Requirement: The profile is never a dose write target here
+The profile SHALL NOT be a write target for dose in this dialog. A dose dialed with neither a recipe nor a bag active SHALL stay in `Settings.dye` and SHALL NOT mark the loaded profile modified.
+
+#### Scenario: Dose with a recipe active leaves the profile alone
+- **WHEN** a recipe is active and the user changes the dose and taps OK
+- **THEN** the profile's recommended dose is not touched, because the recipe owns the dose
+
+### Requirement: Re-seeding a recipe switch writes only local values
+The re-seed performed on a recipe switch SHALL write only the dialog's local `root.*` values, never `Settings`, so that re-seeding never stamps the newly activated recipe.
+
+#### Scenario: Re-seed writes only local values
+- **WHEN** the user switches recipes in the dialog and the fields are re-seeded
+- **THEN** no `Settings` property is written by the re-seed
+
+### Requirement: Dose capture never changes the yield mode
+Dose, grind and RPM are things the user physically did, so they are remembered automatically. The yield anchor is design intent and is button-protected. A dose capture SHALL update the dose and SHALL NOT change the yield mode.
+
+#### Scenario: Yield mode is kept on dose capture
+- **WHEN** a recipe holding `{2.0, ratio}` is active and a scale dose capture lands
+- **THEN** the yield anchor remains `{2.0, ratio}`
+
+### Requirement: Ratio is stored in the yield spec
+Ratio SHALL be recipe- and bag-stored as the mode of the yield spec. `Settings.brew.lastUsedRatio` SHALL survive only as preset memory. Cup tare SHALL remain DYE-only. Steam and hot-water blocks SHALL NOT be edited by this dialog.
+
+#### Scenario: Ratio lives in the yield spec
+- **WHEN** the user dials a ratio of 1:3 with a bag active and no recipe
+- **THEN** the bag's yield spec is `{3.0, ratio}`, and `lastUsedRatio` is only preset memory
+
 ### Requirement: The live Shot Plan treats an active recipe's yield/temp as the baseline
-
-The idle-screen **Shot Plan** widget SHALL, when a recipe is active, treat that recipe's own `yieldG` / offset-derived temperature as the baseline rather than the profile's default — mirroring Brew Settings — so a recipe's designed values do not render as overrides. Specifically: the yield SHALL render as a plain effective target (e.g. "40.0g") with no "profile-default → target" arrow, and neither the yield nor the temperature segment SHALL be tinted with the override-highlight color, when the live values equal the active recipe's own. The override arrow (yield) and the amber highlight (yield and temperature) SHALL return only for a per-brew value dialed **beyond** the recipe's saved value.
-
-The temperature STRING SHALL show the recipe's OWN temperatures — the profile's frame temperatures shifted uniformly by the recipe's stored `tempOffsetC`, e.g. a recipe with offset −3 on an `84 · 94°C` profile reads **"81 · 91°C"** — with NO profile-relative offset tag. A signed delta tag SHALL appear only for a per-brew value dialed beyond the recipe (measured from the recipe temp). *A baseline is a baseline*: the Shot Plan temperature and the Brew Settings Temp Delta (which reads `0°` at the recipe) SHALL agree. This is provided by a `baselineShiftC` parameter on the shared temperature formatter; with no recipe active the shift is 0 and the profile temps + offset tag render as before.
-
-This recipe-as-baseline rendering applies to the live widget and its layout-editor preview using the currently-loaded profile's frames (via the shared temperature formatter's live state), and to recipe cards (the management list and the wizard's summary preview) using the same baseline decomposition resolved against **their own** recipe's profile instead — never the currently loaded one — since a card must render correctly even while a different profile is loaded (see `recipe-quick-switch`). The Shot Review / Shot Detail plan lines keep their own explicit shot-relative highlighting, showing what was overridden **at shot time** relative to the shot's own profile.
+When a recipe is active, the idle Shot Plan widget SHALL treat the recipe's own `yieldG` and offset-derived temperature as the baseline, not the profile default, mirroring Brew Settings. A recipe's designed values SHALL render as a plain target with no override arrow and no highlight. The override arrow and amber highlight SHALL return only for a per-brew value dialed beyond the recipe's saved value.
 
 #### Scenario: Active recipe's yield shows as a plain target, un-highlighted
 
@@ -347,4 +364,18 @@ This recipe-as-baseline rendering applies to the live widget and its layout-edit
 - **WHEN** a recipe with `tempOffsetC` = −3 on an 84 · 94°C profile is active
 - **THEN** the live Shot Plan reads "81 · 91°C" (recipe values only, untagged, untinted) while that recipe's card reads "84 · 94°C −3°" (source + highlighted delta)
 - **AND** a Shot Review / Shot Detail plan line still highlights what was overridden at shot time relative to the shot's own profile
+
+### Requirement: The Shot Plan temperature shows the recipe's own temperatures
+The temperature SHALL show the recipe's own temperatures: the profile's frame temperatures shifted by the recipe's `tempOffsetC`, with no profile-relative tag. A signed delta tag SHALL appear only for a per-brew value dialed beyond the recipe. The Shot Plan and the Brew Settings Temp Delta SHALL agree, via a `baselineShiftC` parameter on the shared temperature formatter.
+
+#### Scenario: Zero offset shows the profile temperatures
+- **WHEN** a recipe with `tempOffsetC` of 0 is active on a profile whose frames are 84 · 94°C
+- **THEN** the Shot Plan temperature reads "84 · 94°C" with no tag
+
+### Requirement: Recipe cards and Shot Review resolve their own baseline
+Recipe cards (the management list and the wizard's summary preview) SHALL resolve the same baseline decomposition against their own recipe's profile, never the currently loaded one. The live widget and its layout-editor preview SHALL use the loaded profile's frames. Shot Review and Shot Detail plan lines SHALL keep their explicit shot-relative highlighting.
+
+#### Scenario: Recipe card shows the relationship
+- **WHEN** a recipe with `tempOffsetC` of −3 on an 84 · 94°C profile is listed on its card
+- **THEN** the card reads "84 · 94°C −3°", with the source and the highlighted delta
 

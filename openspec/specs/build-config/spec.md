@@ -28,11 +28,8 @@ The build SHALL produce zero CMake Qt policy warnings during configuration.
   `CMakeLists.txt`
 
 ### Requirement: Verification Does Not Wait For A Release Tag
-The project SHALL verify changes before they reach a release tag: by failing the build on compiler diagnostics at every developer's keyboard, and by building all six platforms and running the sanitizer suite on a nightly schedule.
 
-The existing spec describes CI as the six tag-triggered platform workflows. That remains true for producing release artifacts, but as written it meant the first compile of a change on any platform other than the author's happened at release time — the wrong moment to discover that a change does not build, and how a build break reached a release tag (fixed in PR Kulitorum/Decenza#1558).
-
-Note what this requirement does **not** say: it does not require per-pull-request CI. That was built, measured, and rejected — see the `change-verification` capability for the evidence, which needs to be read before anyone reinstates it.
+The project SHALL verify changes before they reach a release tag: developer builds SHALL fail on compiler diagnostics, and all six platforms SHALL be built and the sanitizer suite run on a nightly schedule. This requirement does not require per-pull-request CI; the `change-verification` capability holds the evidence for that decision.
 
 #### Scenario: Change is verified before it reaches a tag
 - **WHEN** a change is developed
@@ -56,11 +53,8 @@ UBSan SHALL be in recovering mode for these auto-enabled builds (it reports and 
 - **THEN** no sanitizer flags are added and runtime performance is unaffected
 
 ### Requirement: Instrumented Builds Are Identifiable At Runtime
-The application SHALL report at startup which sanitizers are active, and SHALL make instrumentation state available to code that sizes memory thresholds.
 
-An instrumented build's memory profile differs enough to trip guards calibrated for Release — ASan alone raises this application's startup RSS to roughly 460 MB — so a fixed ceiling either fires spuriously under instrumentation or is too loose to be useful without it.
-
-Determining instrumentation state SHALL NOT rely on compiler macros alone: GCC defines no macro for UBSan at all, so a macro-only check reports "no sanitizers" on a fully instrumented binary.
+The application SHALL report at startup which sanitizers are active, and SHALL make instrumentation state available to code that sizes memory thresholds. Instrumentation state SHALL NOT be determined from compiler macros alone.
 
 #### Scenario: Startup on an instrumented build
 - **WHEN** the application starts in a build with sanitizers enabled
@@ -69,6 +63,10 @@ Determining instrumentation state SHALL NOT rely on compiler macros alone: GCC d
 #### Scenario: Memory ceiling under instrumentation
 - **WHEN** a subsystem enforces a memory ceiling
 - **THEN** the ceiling is scaled for instrumented builds rather than firing on ASan's overhead
+
+#### Scenario: Macro-only check is insufficient
+- **WHEN** a GCC build is instrumented with UBSan
+- **THEN** the state is still detected, because GCC defines no macro for UBSan
 
 ### Requirement: Qt 6.12 as Build Framework
 The system SHALL be built with the same released Qt 6.12 patch version across Windows, macOS, iOS, Android, Linux x64, and Linux arm64.
@@ -95,25 +93,8 @@ Every workflow, dev-machine install path, and active CMake reference SHALL agree
 - **AND** the build SHALL produce a signed APK with the intended version metadata
 
 ### Requirement: Decenza Ships Stock Qt Runtime Binaries
-The application SHALL be packaged against the Qt binaries the upstream installer provides. The
-project SHALL NOT ship a patched Qt runtime artifact — platform plugin, jar, framework or library —
-in place of a stock one.
 
-A patched runtime artifact carries costs that outlive the bug it fixes: it is ABI-locked to one Qt
-version, it must be rebuilt or deleted at every bump, and it is a binary in the tree that only its
-author can reproduce. Where an upstream bug is worth fixing, the fix belongs upstream, and the
-project's position is to wait for the release that carries it rather than to fork.
-
-This SHALL NOT be read as a claim that no upstream bug affects Decenza. It is a decision about where
-the fix lives.
-
-A Qt module that the open-source installer does not provide (Qt MQTT is one: Qt publishes its
-binaries only to commercial licensees) MAY be compiled into the application from its unmodified
-upstream source. The source SHALL be fetched at the release tag matching the Qt version found at
-configure time, never from a version written into the repository, so a Qt bump moves it with no
-edit. The build SHALL fail at configure time if the fetched source declares a different Qt version
-than the one found. The compiled module SHALL NOT be committed to the repository or placed in the
-installed Qt tree.
+The application SHALL be packaged against the Qt binaries the upstream installer provides, and SHALL NOT ship a patched Qt runtime artifact (platform plugin, jar, framework or library) in place of a stock one. Where an upstream bug is worth fixing, the fix belongs upstream, and the project SHALL wait for the release that carries it rather than fork.
 
 #### Scenario: An upstream Qt bug affects the app
 - **WHEN** a Qt defect is identified that degrades Decenza on some platform
@@ -149,15 +130,25 @@ installed Qt tree.
 - **WHEN** the Qt version found has no matching release tag for a module compiled from source
 - **THEN** configure SHALL fail with an error naming the Qt version and the module
 
-### Requirement: A Version Bump Records What It Inherits
-A change that moves the pinned Qt version SHALL record which upstream fixes it is relying on, with
-evidence taken from the released source or the upstream review system rather than from documentation
-pages or release-note prose.
+### Requirement: Unmodified upstream Qt modules may be compiled in
 
-This exists because two of this project's local Qt workarounds are deleted on the strength of "it is
-fixed upstream now", and that claim has a specific failure mode: a fix merged to `dev`, or to a
-series branch after the release branch was cut, is not in the release. The distinction is invisible
-in a release blog post.
+A Qt module the open-source installer does not provide (such as Qt MQTT) MAY be compiled into the application from its unmodified upstream source. The source SHALL be fetched at the release tag matching the Qt version found at configure time, never from a version written into the repository, and the build SHALL fail at configure time if the fetched source declares a different Qt version.
+
+#### Scenario: Module source follows the configured Qt
+- **WHEN** the configured Qt version changes
+- **THEN** the fetched module source moves with it, with no edit to the repository
+
+### Requirement: Compiled Qt modules stay out of the repository
+
+A compiled Qt module SHALL NOT be committed to the repository or placed in the installed Qt tree.
+
+#### Scenario: Compiled module is kept out of the tree
+- **WHEN** a Qt module is compiled from upstream source
+- **THEN** the artifact is not committed or copied into the installed Qt tree
+
+### Requirement: A Version Bump Records What It Inherits
+
+A change that moves the pinned Qt version SHALL record which upstream fixes it relies on, with evidence from the released source or the upstream review system rather than documentation pages or release-note prose.
 
 #### Scenario: A workaround is deleted because upstream fixed it
 - **WHEN** a change removes a local workaround on the grounds that the upstream fix has shipped
@@ -169,6 +160,10 @@ in a release blog post.
 - **WHEN** a bump is taken while some workaround's upstream fix is still outstanding
 - **THEN** the change SHALL state plainly what behaviour is given up and under what condition it
   would be restored, rather than removing the workaround silently
+
+#### Scenario: A fix merged after the release branch was cut
+- **WHEN** an upstream fix is merged to `dev` or a series branch after the release branch was cut
+- **THEN** it is not in the release and SHALL NOT be treated as shipped
 
 ### Requirement: macOS Minimum Deployment Target
 The macOS build SHALL set macOS 14.4 as its minimum deployment target, matching Qt 6.12's minimum.

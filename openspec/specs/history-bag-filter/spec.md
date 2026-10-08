@@ -1,7 +1,8 @@
 # history-bag-filter Specification
 
 ## Purpose
-TBD - created by archiving change add-history-filter-widget-actions. Update Purpose after archive.
+Covers filtering Shot History to a single coffee bag, both by exact bag id (from tap-through and the Custom widget) and by the typed `bag:` search keyword.
+
 ## Requirements
 ### Requirement: Shot History can be filtered to an exact coffee bag
 
@@ -34,21 +35,7 @@ coffee SHALL be excluded.
 - **THEN** the filter banner shows the bag's label — its coffee name, or its roaster name when the coffee name is empty — with the Clear control that removes the filter
 
 ### Requirement: A `bag:` search keyword scopes a search to bags
-
-The Shot History search field SHALL accept a `bag:` keyword that restricts results to
-shots whose bag matches the term, in the same two forms the `recipe:` keyword accepts:
-
-- `bag:ethiopia` — single unquoted token
-- `bag:"blue bottle"` — quoted, spaces allowed, unterminated quote running to end of string
-
-The match SHALL be a case-insensitive SUBSTRING against the bag's coffee name, roaster
-name and roast date, so a user can narrow by any of the three without knowing which field
-carries the words they remember. An incomplete `bag:` with no term SHALL be treated as
-not-a-keyword and left to free-text search. An explicitly empty quoted term (`bag:""`)
-SHALL match nothing.
-
-The keyword SHALL be strippable from the free-text remainder exactly as `recipe:` is, so
-its term never leaks into the FTS search.
+The Shot History search field SHALL accept a `bag:` keyword that restricts results to shots whose bag matches the term. It SHALL take a single unquoted token, or a quoted phrase such as `bag:"blue bottle"` whose unterminated quote runs to the end of the string. The match SHALL be a case-insensitive substring of the bag's coffee name, roaster name or roast date. The keyword SHALL be strippable from the free text exactly as `recipe:` is.
 
 #### Scenario: Keyword narrows by coffee name
 
@@ -79,6 +66,13 @@ its term never leaks into the FTS search.
 
 - **WHEN** a user searches `bag:ethiopia channeling:yes`
 - **THEN** the bag term is consumed by the keyword and the remaining free text is empty, so results are the channeling-flagged shots from matching bags
+
+### Requirement: An incomplete or empty bag keyword
+An incomplete `bag:` with no term SHALL be treated as not a keyword and left to free-text search. An explicitly empty quoted term (`bag:""`) SHALL match nothing.
+
+#### Scenario: A lone bag keyword is free text
+- **WHEN** a user searches `bag:` alone
+- **THEN** the text is treated as free-text search and is not consumed as a keyword
 
 ### Requirement: Exact bag id and the `bag:` keyword are distinct scopes
 

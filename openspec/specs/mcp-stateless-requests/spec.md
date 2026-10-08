@@ -1,20 +1,20 @@
 # mcp-stateless-requests Specification
 
 ## Purpose
-TBD - created by archiving change add-mcp-dual-era-2026. Update Purpose after archive.
+
+Defines how the MCP server serves modern-era clients: rate limiting of control
+and settings tools, session-independent resource notifications, and confirmation
+handling that keeps no per-session state. Legacy-era behaviour is unchanged.
 
 ## Requirements
 
 ### Requirement: Control Tools Are Rate-Limited In Every Era
 
-Tools in the control and settings categories SHALL be rate-limited in the
-modern era as they are in the legacy era. The limit SHALL be counted against a
-key that does not require retained protocol state, and SHALL be per-caller
-rather than global, so that one caller cannot exhaust another's allowance.
-
-Until such a limit exists, control- and settings-category tools SHALL NOT be
-reachable in the modern era. An unlimited path to the machine's control tools
-is a worse outcome than those tools being unavailable to modern clients.
+Tools in the control and settings categories SHALL be rate-limited in the modern
+era as they are in the legacy era. The limit SHALL be counted against a key that
+requires no retained protocol state, and SHALL be per-caller, not global. Until
+such a limit exists, control- and settings-category tools SHALL NOT be reachable
+in the modern era.
 
 #### Scenario: A modern caller exceeds the limit
 
@@ -38,25 +38,12 @@ is a worse outcome than those tools being unavailable to modern clients.
 
 ### Requirement: Modern Clients Receive Resource Notifications Without A Session
 
-Resource-update notifications SHALL be available to modern clients through a
-subscription mechanism that does not depend on a session or on a long-lived
-GET stream.
-
-Subscription SHALL be opt-in by notification type: a client names the types it
-wishes to receive, the server acknowledges which it will send, and each
-notification carries the identifier of the subscription that produced it. A
-client SHALL NOT receive a type it did not name.
-
-The per-resource subscribe and unsubscribe requests of the legacy era SHALL NOT
-be served to a modern caller; this mechanism replaces them. They SHALL continue
-to be served to legacy callers.
-
-Notifications scoped to a single request SHALL NOT be delivered on this stream;
-they belong to the response of the request that produced them.
-
-A modern client that has not subscribed SHALL still be able to read every
-resource on request. Absence of notifications SHALL degrade a client to
-polling, not prevent it from working.
+Resource-update notifications SHALL be available to modern clients through an
+opt-in subscription that depends on neither a session nor a long-lived GET
+stream. A client SHALL name the notification types it wants, the server SHALL
+acknowledge the types it will send, and each notification SHALL carry the
+identifier of the subscription that produced it. A client SHALL NOT receive a
+type it did not name.
 
 #### Scenario: A modern client subscribes
 
@@ -82,6 +69,39 @@ polling, not prevent it from working.
 
 - **WHEN** a legacy client holds its stream open and a resource changes
 - **THEN** it receives the notification exactly as it did before the modern era existed, through the same stream and the same per-resource subscribe requests
+
+### Requirement: Legacy Subscribe Verbs Are Withheld From Modern Callers
+
+The per-resource subscribe and unsubscribe requests of the legacy era SHALL NOT
+be served to a modern caller; the subscription mechanism replaces them. They
+SHALL continue to be served to legacy callers.
+
+#### Scenario: Legacy callers keep the per-resource verbs
+
+- **WHEN** a legacy client sends a per-resource subscribe request
+- **THEN** it is served as it was before the modern era existed
+
+### Requirement: Request-Scoped Notifications Stay On Their Response
+
+Notifications scoped to a single request SHALL NOT be delivered on the
+subscription stream. They SHALL be delivered in the response of the request that
+produced them.
+
+#### Scenario: A request-scoped notification arrives with its response
+
+- **WHEN** a modern request produces a notification scoped to that request
+- **THEN** the notification is part of that request's response and does not appear on the stream
+
+### Requirement: Unsubscribed Modern Clients Still Read Resources
+
+A modern client that has not subscribed SHALL still be able to read every
+resource on request. Absence of notifications SHALL degrade a client to polling,
+not prevent it from working.
+
+#### Scenario: Polling replaces notifications for an unsubscribed client
+
+- **WHEN** a modern client holds no subscription
+- **THEN** it reads each resource on request and is not blocked from using the server
 
 ### Requirement: A Tool Requiring Confirmation Is Never Silently Ungated
 

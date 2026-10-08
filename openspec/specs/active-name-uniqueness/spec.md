@@ -74,17 +74,7 @@ than a generic failure. This SHALL hold for renames as well as creations.
   reports a conflict that identifies the name as the cause
 
 ### Requirement: Only a name change can collide
-
-The system SHALL evaluate the uniqueness rule against what an operation actually
-CHANGES, not against which fields it submits. Saving an item under the name it
-already holds SHALL always be permitted, whatever other items exist. Restoring an
-archived item to active SHALL be treated as introducing its name.
-
-This is load-bearing because every save path submits the name on every save, and
-because an item whose name was auto-derived rather than typed (an equipment package
-created with a blank name derives "{brand} {model}") can legitimately already share
-a name with another. Testing the submitted name alone would refuse those saves and
-leave the affected items permanently uneditable.
+The uniqueness rule SHALL be evaluated against what an operation actually changes, not against the fields it submits. Saving an item under the name it already holds SHALL always be permitted, whatever other items exist. Restoring an archived item to active SHALL count as introducing its name.
 
 #### Scenario: Re-saving an item under its own name
 - **WHEN** the user edits any other field of an item and saves, leaving the name as it
@@ -95,6 +85,14 @@ leave the affected items permanently uneditable.
 - **WHEN** two active items of the same kind already share a name and the user opens
   either one and changes something other than the name
 - **THEN** the save control stays enabled and the save succeeds
+
+### Requirement: Auto-derived names stay editable
+An item whose name was auto-derived rather than typed, and which therefore already shares a name with another item, SHALL remain editable. The rule SHALL NOT refuse its saves on the submitted name alone.
+
+#### Scenario: Blank-name package stays editable
+
+- **WHEN** a package created with a blank name derives `{brand} {model}`, which matches another package, and the user saves an edit
+- **THEN** the save succeeds
 
 ### Requirement: Existing data is not rewritten
 

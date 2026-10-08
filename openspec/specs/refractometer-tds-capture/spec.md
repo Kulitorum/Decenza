@@ -51,10 +51,7 @@ The system SHALL reject incoming `tdsChanged` values that are below 3.0% as cali
 - **AND** `editDrinkEy` is recomputed from current dose/yield
 
 ### Requirement: TDS capture has no global side effects on the BLE signal path
-
-The BLE-level R2 signal handler in `MainController` SHALL NOT write to `Settings.dyeDrinkTds` or `Settings.dyeDrinkEy` from the `tdsChanged` callback. It MAY emit a non-mutating debug log to make device-side activity observable. The only writers to these settings SHALL be: (a) shot-end cleanup writes that reset to 0, (b) MCP tool writes (intentional, for AI dialing flows), and (c) PostShotReviewPage when it accepts a value into its local edit fields.
-
-Additionally, `Settings.dyeDrinkTds` and `Settings.dyeDrinkEy` SHALL be in-memory (session-scratch) values, not persisted to QSettings or written to settings backup files. A stale TDS reading from a previous app session MUST NOT be visible at the start of the next session.
+The BLE-level R2 signal handler in `MainController` SHALL NOT write `Settings.dyeDrinkTds` or `Settings.dyeDrinkEy` from the `tdsChanged` callback. It MAY emit a non-mutating debug log. The only writers to these settings SHALL be shot-end cleanup resets to 0, MCP tool writes, and PostShotReviewPage when it accepts a value into its local edit fields.
 
 #### Scenario: Connecting refractometer installs only a non-mutating log handler
 
@@ -75,6 +72,13 @@ Additionally, `Settings.dyeDrinkTds` and `Settings.dyeDrinkEy` SHALL be in-memor
 - **AND** the R2 emits subsequent `tdsChanged` signals (e.g., device-initiated button presses)
 - **AND** the next shot subsequently completes
 - **THEN** the next shot's metadata captures TDS as 0 (unmeasured), not as any leaked R2 value
+
+### Requirement: TDS settings are session-scratch
+`Settings.dyeDrinkTds` and `Settings.dyeDrinkEy` SHALL be in-memory values, not persisted to QSettings or written to settings backup files. A stale TDS reading from a previous session MUST NOT be visible at the start of the next session.
+
+#### Scenario: Backup restore does not bring back TDS
+- **WHEN** a settings backup is restored
+- **THEN** the TDS and EY values are not restored from it
 
 ### Requirement: Refractometer-driven EY values are computed from current page dose and yield
 

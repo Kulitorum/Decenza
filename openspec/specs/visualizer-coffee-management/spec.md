@@ -72,7 +72,13 @@ The server owns mass link/unlink: enabling CM auto-creates bags from the user's 
 
 ### Requirement: Bag edits auto-push to the linked Visualizer bag
 
-When a bag save (bag editor confirm or MCP `bag_update`) changes any Visualizer-mapped field and the bag carries a non-empty `visualizerBagId` and Visualizer credentials exist, the system SHALL send `PATCH /api/coffee_bags/{visualizerBagId}` carrying only the mapped fields whose local value differs from the value Visualizer was last known to hold (`coffee_bags.visualizer_seen`); a field cleared locally SHALL be sent as `null`, except the name and the canonical link, which SHALL NOT be sent as `null`. A field Visualizer has never been seen to hold SHALL be sent only when it is set locally, so a bag that predates this tracking never wipes a server-side value. After a 200 the sent values SHALL be recorded as seen. When nothing differs and no roaster or archive change is due, no PATCH SHALL be sent. The mapping: `coffeeName`→`name`, `roastDate`→`roast_date`, `roastLevel`→`roast_level`, `frozenDate`→`frozen_date`, `defrostDate`→`defrosted_date`, `notes`→`notes` (as HTML), `origin`→`country`, `region`→`region`, `farm`→`farm`, `producer`→`farmer`, `variety`→`variety`, `elevation`→`elevation`, `process`→`processing`, `harvest`→`harvest_time`, `qualityScore`→`quality_score`, `placeOfPurchase`→`place_of_purchase`, `tastingNotes`→`tasting_notes`, `link`→`url`, `beanBaseId`→`canonical_coffee_bag_id`. A roaster name change re-resolves the roaster and re-points `roaster_id` when it changed. Dose/grind write-through writes SHALL NOT trigger a push (they are not Visualizer-stored fields — the shipped `touchesVisualizerFields` gate).
+A bag save changing a mapped field SHALL send `PATCH
+/api/coffee_bags/{visualizerBagId}` when the bag has a `visualizerBagId` and
+Visualizer credentials exist. The PATCH SHALL carry only mapped fields whose
+local value differs from the value last seen on Visualizer
+(`coffee_bags.visualizer_seen`). After a 200, the sent values SHALL be recorded
+as seen. With nothing to send, including no roaster or archive change, no PATCH
+SHALL be sent.
 
 #### Scenario: Successful push on edit
 - **WHEN** the user edits a linked bag's tasting notes and URL in the bag editor and saves, and the PATCH returns 200
@@ -97,9 +103,62 @@ When a bag save (bag editor confirm or MCP `bag_update`) changes any Visualizer-
 - **WHEN** the user adjusts dose or grind setting (bean setters writing through to the bag row)
 - **THEN** no Visualizer PATCH SHALL be sent
 
+### Requirement: Cleared and never-seen bag fields
+
+A field cleared locally SHALL be sent as `null`, except the name and the
+canonical link, which SHALL NOT be sent as `null`. A field Visualizer has never
+been seen to hold SHALL be sent only when it is set locally, so a bag that
+predates this tracking never wipes a server-side value.
+
+#### Scenario: Never-seen field is not wiped
+
+- **WHEN** a bag that predates this tracking has an empty region and Visualizer holds a region
+- **THEN** no region is sent
+
+### Requirement: Bag field mapping for identity and dates
+
+The identity and date fields SHALL map as: `coffeeName` to `name`, `roastDate`
+to `roast_date`, `roastLevel` to `roast_level`, `frozenDate` to `frozen_date`,
+`defrostDate` to `defrosted_date`, `notes` to `notes` (as HTML), and
+`beanBaseId` to `canonical_coffee_bag_id`.
+
+#### Scenario: Identity and date fields reach Visualizer
+
+- **WHEN** a linked bag's frozen date and defrost date change in Decenza
+- **THEN** the PATCH carries `frozen_date` and `defrosted_date` with the new values
+
+### Requirement: Bag field mapping for descriptive fields
+
+The descriptive fields SHALL map as: `origin` to `country`, `region` to
+`region`, `farm` to `farm`, `producer` to `farmer`, `variety` to `variety`,
+`elevation` to `elevation`, `process` to `processing`, `harvest` to
+`harvest_time`, `qualityScore` to `quality_score`, `placeOfPurchase` to
+`place_of_purchase`, `tastingNotes` to `tasting_notes`, and `link` to `url`.
+
+#### Scenario: Descriptive fields reach Visualizer
+
+- **WHEN** a linked bag's origin and process change in Decenza
+- **THEN** the PATCH carries `country` and `processing` with the new values
+
+### Requirement: Roaster rename and dose or grind writes
+
+A roaster name change SHALL re-resolve the roaster and re-point `roaster_id`
+when it changed. Dose and grind write-throughs SHALL NOT trigger a push, because
+they are not Visualizer-stored fields (the shipped `touchesVisualizerFields`
+gate).
+
+#### Scenario: Roaster rename re-points the roaster
+
+- **WHEN** the roaster name of a linked bag changes
+- **THEN** the roaster is re-resolved and `roaster_id` is re-pointed when the roaster changed
+
 ### Requirement: Edit-push failure handling
 
-A retryable push failure (network error, 429, 5xx) SHALL set the bag's `visualizerSyncPending` flag; the bag SHALL be re-pushed after the next shot upload and at the end of each edit-pull pass, with the fields that still differ from what Visualizer was last seen to hold, and the flag cleared on success (event-driven, no timers). A 403 SHALL clear the flag and cache CM state as `NO_COFFEE_MANAGEMENT` (bag CRUD is premium-gated — same handling as the shipped create/enrich paths; a connection test resets it). A 404 SHALL clear the flag (stale remote id; the next shot upload re-creates and re-links). A 422 (e.g. name+roast_date uniqueness collision, defrost-before-frozen) SHALL clear the flag and surface a non-blocking notification with the server's message — local values stay as edited, no retry loop.
+A retryable push failure (network error, 429, 5xx) SHALL set the bag's
+`visualizerSyncPending` flag. The bag SHALL be re-pushed after the next shot
+upload and at the end of each edit-pull pass, sending only the fields that still
+differ, and the flag SHALL be cleared on success. Retries are event-driven, with
+no timer.
 
 #### Scenario: Offline edit retried at next upload
 - **WHEN** a bag edit's PATCH fails with a network error and a shot is later uploaded
@@ -117,14 +176,35 @@ A retryable push failure (network error, 429, 5xx) SHALL set the bag's `visualiz
 - **WHEN** the push returns 403
 - **THEN** the flag SHALL be cleared and CM state cached as `NO_COFFEE_MANAGEMENT`, suppressing further edit-time pushes until a connection test resets the state
 
+### Requirement: Bag push 403 and 404 responses
+
+A 403 SHALL clear the flag and cache CM state as `NO_COFFEE_MANAGEMENT`,
+suppressing edit-time pushes until a connection test resets it. A 404 SHALL
+clear the flag, since the remote id is stale and the next shot upload re-creates
+and re-links the bag.
+
+#### Scenario: Stale remote id is cleared
+
+- **WHEN** a bag push returns 404
+- **THEN** the flag is cleared and the next shot upload re-creates and re-links the bag
+
+### Requirement: A 422 is reported once and not retried
+
+A 422 (for example a name and roast-date collision, or defrost before frozen)
+SHALL clear the flag and surface a non-blocking notification with the server's
+message. The local values SHALL stay as edited, with no retry loop.
+
+#### Scenario: Validation refusal is shown once
+
+- **WHEN** a bag push returns 422
+- **THEN** the notification shows the server message once, the local values are kept, and no further retry is made
+
 ### Requirement: Shot endpoints of record
 
-These are the observable facts the bean-repair pass depends on, verified against the deployed server (`miharekar/visualizer`, `upstream/main`) and against a live account. They supersede the spike finding in `changes/archive/2026-06-20-bean-bag-inventory/design.md` that `GET /api/shots/{id}` does not return `coffee_bag_id`.
-
-- `GET /api/shots/{id}` SHALL be treated as returning `coffee_bag_id` **only when the shot has a bag**: the field is built as `coffee_bag_id: coffee_bag&.id` inside a hash that is compacted, so a bag-less shot OMITS the key rather than sending null. Absent and null both mean "no bag"; a value that is present but not a string means the response was not understood and SHALL NOT be read as "no bag".
-- `canonical_coffee_bag_id` SHALL NOT be expected in any shot response — it is not among the shot's serialized attributes — so no read can confirm that an unlink took effect.
-- `GET /api/shots` (the list) SHALL NOT be used to answer any question about a shot's bean identity: it renders only `{clock, id, updated_at}`, so the bean fields are absent rather than empty, and reading the missing keys as empty strings makes every uploaded shot look like a disagreement.
-- Requests SHALL be paced against the published limits of 50 per minute per IP and 200 per 10 minutes per IP and per user. Shot upload shares that budget, so an unpaced background pass can rate-limit a user's actual espresso uploads.
+`GET /api/shots/{id}` SHALL be treated as returning `coffee_bag_id` only when
+the shot has a bag. A bag-less shot OMITS the key, because the hash is
+compacted, so absent and null both mean no bag. A present value that is not a
+string SHALL NOT be read as no bag.
 
 #### Scenario: A bag-less shot omits the key
 
@@ -137,11 +217,42 @@ These are the observable facts the bean-repair pass depends on, verified against
 - **WHEN** `coffee_bag_id` is present but is not a string
 - **THEN** the system SHALL treat the response as unusable and leave the shot queued, rather than acting on an assumed absence
 
+### Requirement: No read confirms an unlink
+
+`canonical_coffee_bag_id` SHALL NOT be expected in any shot response, so no read
+can confirm that an unlink took effect.
+
+#### Scenario: Unlink cannot be read back
+
+- **WHEN** an unlink is sent for a shot
+- **THEN** no subsequent shot read is treated as confirming the unlink
+
+### Requirement: The shot list is not used for bean identity
+
+`GET /api/shots` (the list) SHALL NOT be used to answer any question about a
+shot's bean identity, because it renders only `clock`, `id` and `updated_at`.
+
+#### Scenario: List absence is not an empty bean
+
+- **WHEN** a shot is read from the list
+- **THEN** its missing bean fields are not treated as empty values
+
+### Requirement: Shot requests are paced against published limits
+
+Requests SHALL be paced against the published limits of 50 per minute and 200
+per 10 minutes per IP and per user. Shot upload shares that budget, so an
+unpaced background pass can rate-limit a user's espresso uploads.
+
+#### Scenario: Background pass stays within the limits
+
+- **WHEN** a background pass runs alongside shot uploads
+- **THEN** combined requests stay within the published limits
+
 ### Requirement: Borrowed-record shot repair is a recorded queue, not a library scan
 
-Shots renamed by a borrowed canonical record SHALL be repaired from the flag recorded at the unlink, never by comparing the local library against the server. A discovery pass built on the shot list read absent bean fields as empty, took that for a disagreement, and queued an entire library on a live account.
-
-The pass SHALL read each queued shot before writing anything, and SHALL write only on a real difference — trim- and case-insensitive, since a whitespace or capitalisation difference is not worth a write to a user's cloud account. It SHALL clear a shot's flag only when the server has confirmed that shot needs nothing further; nothing else SHALL clear a flag, so an interrupted or failed pass simply resumes later.
+Shots renamed by a borrowed canonical record SHALL be repaired only from the
+flag recorded at the unlink, never by comparing the local library against the
+server. The pass SHALL read each queued shot before writing anything.
 
 #### Scenario: Only flagged shots are considered
 
@@ -154,15 +265,32 @@ The pass SHALL read each queued shot before writing anything, and SHALL write on
 - **WHEN** a shot's read fails, or returns a body that cannot be parsed or lacks the bean fields
 - **THEN** no write SHALL be made for that shot and its flag SHALL remain set
 
+### Requirement: Repair writes only on a real difference
+
+The pass SHALL write only on a real difference, compared trim- and case-
+insensitively.
+
+#### Scenario: Case or whitespace difference is not written
+
+- **WHEN** the server and local bean names differ only by case or surrounding whitespace
+- **THEN** no write is made for that shot
+
+### Requirement: Only a server-confirmed shot clears its flag
+
+A shot's flag SHALL be cleared only when the server has confirmed that shot
+needs nothing further. Nothing else SHALL clear a flag, so an interrupted or
+failed pass resumes later.
+
+#### Scenario: Interrupted pass resumes on a later launch
+
+- **WHEN** a repair pass is interrupted before a queued shot is confirmed
+- **THEN** that shot stays flagged and a later launch resumes it
+
 ### Requirement: What the repair may write to a shot
 
-Before writing, the pass SHALL decide per shot from the read:
-
-- When the shot has a server-side coffee bag, the pass SHALL write NOTHING. Such a shot takes its identity from that bag on every touch, so nothing sent to the shot survives — and the attempt is not free, because the server re-derives the shot's roast date into the user's display format as a side effect. Any residual problem for such a shot belongs to the bag, not the shot.
-- When the shot's local bean brand or bean type is empty, the pass SHALL NOT send bean names — sending an empty name blanks a real value on the user's account — and SHALL instead clear the borrowed link alone, which needs no names and is what stops the server re-deriving that shot's identity.
-- Otherwise the pass SHALL send the local bean names together with an explicit clear of the canonical link.
-
-An HTTP success status SHALL NOT be taken as proof the values took: the server may overwrite them from a bag between the request and the save, and it answers with the assigned attributes either way. The pass SHALL read the response back and report a write the server discarded, rather than counting it as a repair.
+Before writing, the pass SHALL decide per shot from the read. When the shot has
+a server-side coffee bag, the pass SHALL write nothing, because such a shot
+takes its identity from that bag on every touch.
 
 #### Scenario: A shot with a server bag is declined
 
@@ -181,13 +309,44 @@ An HTTP success status SHALL NOT be taken as proof the values took: the server m
 - **THEN** the outcome SHALL be reported as not applied
 - **AND** the pass SHALL NOT claim the shot was corrected
 
+### Requirement: Empty local bean names never blank the server
+
+When the shot's local bean brand or bean type is empty, the pass SHALL NOT send
+bean names, since an empty name blanks a real value on the user's account. It
+SHALL clear the borrowed link alone, which needs no names.
+
+#### Scenario: Empty local name clears only the link
+
+- **WHEN** a queued shot has no server bag and its local bean brand is empty
+- **THEN** the request clears the canonical link and carries no bean names
+
+### Requirement: A repair sends names with an explicit link clear
+
+Otherwise the pass SHALL send the local bean names together with an explicit
+clear of the canonical link.
+
+#### Scenario: Full repair sends names and clears the link
+
+- **WHEN** a queued shot has no server bag and its local bean brand and type are set
+- **THEN** the request carries the bean names and clears the canonical link
+
+### Requirement: A success status is not proof the write took
+
+An HTTP success status SHALL NOT be taken as proof that the values took, because
+the server may overwrite them from a bag between the request and the save. The
+pass SHALL read the response back and report a write the server discarded,
+rather than counting it as a repair.
+
+#### Scenario: Read-back confirms the write
+
+- **WHEN** a write returns success and the response shows the server kept the names
+- **THEN** the shot is counted as repaired
+
 ### Requirement: Repair pass failure vocabulary
 
-A refusal that cannot differ per shot SHALL abandon the pass rather than repeat itself against every remaining shot; the flags keep the remainder for a later launch. Rate limiting and an invalid credential are such refusals. So is an authorization refusal on the READ, because the read path performs no per-shot authorization — a refusal there is account- or network-wide and settling shots against it would clear the whole queue for a condition unrelated to any shot.
-
-A refusal on the WRITE that names one shot — it is not this account's shot, or it no longer exists — SHALL settle that shot alone and continue, since it can never succeed and leaving it flagged re-sends the same refusal on every launch forever.
-
-A pass SHALL report itself incomplete only when work was genuinely left queued, and SHALL distinguish shots whose names were restored, shots whose link was cleared, and shots it declined to touch.
+A refusal that cannot differ per shot SHALL abandon the pass rather than repeat
+itself against every remaining shot; the flags keep the remainder for a later
+launch. Rate limiting and an invalid credential are such refusals.
 
 #### Scenario: Rate limiting stops the pass
 
@@ -205,11 +364,66 @@ A pass SHALL report itself incomplete only when work was genuinely left queued, 
 - **WHEN** a write is refused as unauthorized or the shot is gone
 - **THEN** that shot alone SHALL be settled and the pass SHALL continue
 
+### Requirement: An authorization refusal on the read is account-wide
+
+An authorization refusal on a read SHALL abandon the pass, because the read path
+authorizes nothing per shot, so the refusal is account- or network-wide.
+
+#### Scenario: Read refusal does not settle shots
+
+- **WHEN** a read is refused as unauthorized
+- **THEN** no shot is settled on the strength of that refusal
+
+### Requirement: A write refusal naming one shot settles that shot
+
+A refusal on a write that names one shot, because the shot is not this account's
+or no longer exists, SHALL settle that shot alone and continue, since it can
+never succeed.
+
+#### Scenario: Shot-specific write refusal is settled
+
+- **WHEN** a write is refused because the shot is not this account's or no longer exists
+- **THEN** that shot is settled and the pass continues with the next shot
+
+### Requirement: A pass reports incomplete only when work is left
+
+A pass SHALL report itself incomplete only when work was genuinely left queued.
+It SHALL distinguish shots whose names were restored, shots whose link was
+cleared, and shots it declined to touch.
+
+#### Scenario: Outcome reports each category
+
+- **WHEN** a repair pass finishes
+- **THEN** the report counts restored names, cleared links and declined shots separately
+
 ### Requirement: A bag edit is pushed without waiting for a shot upload
 
-A bag edit that changes a Visualizer-mapped field (from the bag editor, an AI fill or MCP `bag_update`) SHALL be pushed to the linked Visualizer bag at once unless Coffee Management is known to be off for the account. It SHALL NOT wait for a shot upload to confirm Coffee Management. While Coffee Management is unconfirmed, a roaster rename SHALL re-point only to an existing roaster and SHALL NOT create one. A bag whose push failed SHALL be retried after a shot upload and at the end of each edit-pull pass.
+A bag edit that changes a Visualizer-mapped field, from the bag editor, an AI
+fill or MCP `bag_update`, SHALL be pushed to the linked Visualizer bag at once,
+unless Coffee Management is known to be off. It SHALL NOT wait for a shot upload
+to confirm Coffee Management.
 
 #### Scenario: AI fill on a device that does not upload shots
 - **GIVEN** the desktop app, with no shot uploaded this session
 - **WHEN** the user fills a synced bag's details with AI and saves
 - **THEN** the bag's fields reach Visualizer without any shot being uploaded
+
+### Requirement: Unconfirmed CM does not create a roaster
+
+While Coffee Management is unconfirmed, a roaster rename SHALL re-point only to
+an existing roaster and SHALL NOT create one.
+
+#### Scenario: Rename with unconfirmed CM creates no roaster
+
+- **WHEN** a roaster is renamed while Coffee Management is unconfirmed and no existing roaster matches
+- **THEN** no roaster is created
+
+### Requirement: A failed bag push is retried later
+
+A bag whose push failed SHALL be retried after a shot upload and at the end of
+each edit-pull pass.
+
+#### Scenario: Failed push is retried after a pass
+
+- **WHEN** a bag push failed and an edit-pull pass completes
+- **THEN** the bag push is sent again

@@ -1,7 +1,8 @@
 # device-log-views Specification
 
 ## Purpose
-TBD - created by archiving change replace-scale-log-with-system-log-filter. Update Purpose after archive.
+Covers how device subsystems (DE1, scales and refractometers) write diagnostics to the system log: the single-log rule, subsystem markers, severity tiers, the filtered views on the Connections page, and sharing the log.
+
 ## Requirements
 ### Requirement: A single log backs every device diagnostic
 
@@ -26,9 +27,7 @@ A subsystem event SHALL be written exactly once per output. A call site SHALL NO
 
 ### Requirement: Every device log line carries its subsystem marker
 
-Each device subsystem SHALL prefix every line it logs with a stable marker naming that subsystem: `[Scale]` for scales (BLE, WiFi and USB drivers and their transports), `[Refractometer]` for the DiFluid R1/R2, and `[DE1]` for the DE1 subsystem (the machine, its BLE and serial transports, and USB DE1 discovery). The marker SHALL be applied inside the subsystem's logging helper, never written at a call site.
-
-A line MAY carry a further source tag after the marker (`[Scale][BLE AcaiaScale]`, `[DE1][USB]`) to name the specific source. One marker match SHALL be sufficient to retrieve the whole subsystem's narrative, so no subsystem line is reachable only through a source-specific pattern.
+Each device subsystem SHALL prefix every line it logs with a stable marker naming it: `[Scale]` for scales, `[Refractometer]` for the DiFluid R1/R2, and `[DE1]` for the DE1 subsystem. The marker SHALL be applied inside the subsystem's logging helper, never at a call site. A line MAY carry a further source tag after the marker, and one marker match SHALL retrieve the whole subsystem narrative.
 
 #### Scenario: One pattern retrieves a whole subsystem
 
@@ -50,15 +49,18 @@ A line MAY carry a further source tag after the marker (`[Scale][BLE AcaiaScale]
 - **WHEN** a subsystem source cannot emit for recording — a free function, static helper or JNI shim — and logs to stderr only
 - **THEN** its line still carries the subsystem marker
 
+#### Scenario: Subsystem membership
+- **WHEN** a BLE, WiFi or USB scale driver logs a line
+- **THEN** the line starts with `[Scale]`
+- **AND** a DiFluid refractometer line starts with `[Refractometer]`, and the DE1 machine, its BLE and serial transports, and USB DE1 discovery log with `[DE1]`
+
+#### Scenario: Source tag follows the marker
+- **WHEN** a scale driver logs with a source tag such as `[BLE AcaiaScale]`
+- **THEN** the line reads `[Scale][BLE AcaiaScale]` and still matches the `[Scale]` marker
+
 ### Requirement: Severity distinguishes the user-facing narrative from developer detail
 
-Device logging helpers SHALL offer three tiers, and each call site SHALL be assigned one deliberately:
-
-- **DEBUG** — developer detail. Frame-level protocol traffic, per-poll state, parsing internals. Not shown in the on-screen views.
-- **INFO** — the connection narrative a user may need to understand what the app is doing: permission outcomes, scan lifecycle, devices found, connect and disconnect, transport selection and fallback, reconnect scheduling.
-- **WARN** or above — problems: failures, timeouts, unreachable devices, rejected data.
-
-A line's tier SHALL be chosen for its audience, not its authorship: a driver may log at INFO when the event is part of the user-facing narrative, and the subsystem manager may log at DEBUG when the detail is only useful to a developer.
+Device logging helpers SHALL offer three tiers, and each call site SHALL be assigned one deliberately: DEBUG for developer detail, INFO for the user-facing connection narrative, and WARN or above for problems. A tier SHALL be chosen for its audience, not its authorship.
 
 #### Scenario: Frame-level traffic stays out of the narrative
 
@@ -75,15 +77,18 @@ A line's tier SHALL be chosen for its audience, not its authorship: a driver may
 - **WHEN** a WiFi scale host cannot be resolved and the app falls back to Bluetooth
 - **THEN** the failure is recorded at WARN or above, so a severity-only request that names no subsystem still surfaces it
 
+#### Scenario: Tier examples
+- **WHEN** a line reports a permission outcome, scan lifecycle, devices found, connect or disconnect, transport selection or fallback, or reconnect scheduling
+- **THEN** it is logged at INFO
+- **AND** frame-level traffic, per-poll state and parsing internals are logged at DEBUG, while failures, timeouts, unreachable devices and rejected data are WARN or above
+
+#### Scenario: Audience decides the tier
+- **WHEN** a driver event is part of the user-facing narrative
+- **THEN** the driver may log it at INFO, and a subsystem manager may log a developer-only detail at DEBUG
+
 ### Requirement: The connections page shows each subsystem as a filtered view of the log
 
-The Connections page SHALL present a DE1 view and a scale view. Each SHALL show the lines of the current session that carry any of its subsystem markers at INFO or above, in the order the log recorded them.
-
-The DE1 view SHALL match the `[DE1]` marker. The scale view SHALL match `[Scale]` and `[Refractometer]`: the refractometers are a separate subsystem for querying purposes but appear alongside the scale on screen, so a view MAY cover more than one marker while a marker belongs to exactly one subsystem.
-
-Each view SHALL populate with the session's qualifying lines already recorded when the view is built, and SHALL then append qualifying lines as they are recorded, without polling.
-
-The views SHALL be limited to the current session. Lines from earlier sessions SHALL NOT appear, so a long-lived log does not bury what is happening now.
+The Connections page SHALL present a DE1 view and a scale view. Each SHALL show the current session's lines carrying its markers at INFO or above, in recorded order: the DE1 view matches `[DE1]`, and the scale view matches `[Scale]` and `[Refractometer]`. Each view SHALL populate from already-recorded lines, then append new ones without polling.
 
 #### Scenario: The view populates from before it existed
 
@@ -109,6 +114,10 @@ The views SHALL be limited to the current session. Lines from earlier sessions S
 
 - **WHEN** the subsystem is logging DEBUG-tier detail during a connection
 - **THEN** the view shows only the INFO-and-above narrative, while the DEBUG lines remain in the system log
+
+#### Scenario: Earlier sessions are excluded
+- **WHEN** a view is built during a session
+- **THEN** lines from earlier sessions do not appear, so a long-lived log does not bury the current session
 
 ### Requirement: Clearing a view does not destroy the log
 
@@ -142,16 +151,7 @@ The Connections page share action SHALL export the system log — the artifact s
 
 ### Requirement: A narrative line reports the action taken, not the action attempted
 
-A device subsystem line at INFO or above SHALL describe what the subsystem actually did.
-Where a step can fall back — a resolution that fails onto a cached value, a transport that
-fails onto another transport — the narrative SHALL make the taken branch visible at INFO,
-either by deferring the line until the branch is known or by logging the fallback at the
-same tier as the attempt.
-
-A line SHALL NOT state an intention in the past tense when the following lines will show
-its failure only at DEBUG. The resulting narrative is worse than silence: it reads as a
-complete account, and the reader draws the wrong conclusion with no signal that anything
-is missing.
+A device subsystem line at INFO or above SHALL describe what the subsystem actually did. Where a step can fall back, the taken branch SHALL be visible at INFO, either by deferring the line until the branch is known or by logging the fallback at the same tier as the attempt. A line SHALL NOT state an intention in the past tense when its failure appears only at DEBUG.
 
 #### Scenario: A fallback is visible without dropping to DEBUG
 
@@ -171,19 +171,13 @@ is missing.
 - **WHEN** a subsystem's INFO lines are read alongside the same session's DEBUG lines
 - **THEN** the DEBUG detail elaborates the INFO account rather than reversing it
 
+#### Scenario: Deferred line reports the branch taken
+- **WHEN** a resolution fails onto a cached value
+- **THEN** the INFO line reports that the cached value was used
+
 ### Requirement: Repeat suppression covers a whole failing cycle, not one emitter
 
-Where a subsystem suppresses a repeating failure — warning for the first few occurrences
-and then dropping to DEBUG — that suppression SHALL apply to every line the failing cycle
-emits, across the manager, the driver and the transport alike.
-
-Partial suppression SHALL be treated as a defect rather than a partial improvement. When
-the counted lines go quiet and the uncounted ones do not, the reader is left with a
-repeating fragment carrying neither the attempt number nor the outcome: noisier than
-suppressing nothing and less informative than suppressing everything.
-
-Suppression SHALL remain counted per distinct message, so that a genuinely new failure
-arriving mid-run is not silenced by an unrelated one having spent the budget.
+Where a subsystem suppresses a repeating failure, that suppression SHALL apply to every line the failing cycle emits, across the manager, the driver and the transport. Partial suppression SHALL be treated as a defect. Suppression SHALL remain counted per distinct message, so an unrelated failure does not spend the budget for a new one.
 
 #### Scenario: A repeating cycle quiets as a whole
 
@@ -201,6 +195,10 @@ arriving mid-run is not silenced by an unrelated one having spent the budget.
 
 - **WHEN** a different failure occurs while an existing one is suppressed
 - **THEN** the new failure is warned about on its own budget
+
+#### Scenario: A new failure is not silenced
+- **WHEN** a new distinct failure arises after an earlier one has used its counted warnings
+- **THEN** the new failure is logged at WARN
 
 ### Requirement: A state-change line is emitted only when the state changed
 

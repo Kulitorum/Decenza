@@ -6,7 +6,8 @@ Defines the organization of the Settings page's tab bar and content: a live-filt
 ## Requirements
 
 ### Requirement: Settings Search Dialog
-The app SHALL provide a search function accessible via a search icon on the right end of the settings tab bar. Tapping the icon SHALL open a modal Dialog containing a text field and a scrollable list of matching settings. Results SHALL filter live as the user types, matching against setting titles, descriptions, and keyword synonyms. Each result SHALL be an AccessibleButton showing the setting name and parent tab name. Tapping a result SHALL close the dialog, switch to the correct tab, scroll to the target card, and briefly highlight it.
+
+The app SHALL provide a search icon on the right end of the settings tab bar that opens a modal Dialog. Results SHALL filter live as the user types, matching setting titles, descriptions and keyword synonyms. Each result SHALL be an AccessibleButton showing the setting name and parent tab. Tapping a result SHALL close the dialog, switch to its tab, scroll to the card and briefly highlight it.
 
 #### Scenario: User searches for a setting by name
 - **WHEN** user taps the search icon and types "wake"
@@ -42,7 +43,8 @@ The app SHALL provide a "Calibration" settings tab containing measurement tuning
 - **THEN** Flow Calibration appears first and Prefer Weight over Volume appears last
 
 ### Requirement: Machine Settings Tab
-The app SHALL provide a "Machine" settings tab (renamed from Preferences) containing: Theme Mode, Auto-Sleep, Auto-wake Schedule, Battery Charging, Shot Review Timer (renamed from "Close Shot Review Screen"), Edit After Shot, Clear Notes on Start, Refill Kit, Screen Zoom (renamed from "Per-Screen Scale"), Simulation Mode (renamed from "Unlock GUI"), Launcher Mode (Android), Shot Map, Water Level Status, and Water Refill Threshold. Cards SHALL be organized in three columns: Power & Schedule (left), App Behavior (middle), Water & Features (right). Shot Review Timer, Edit After Shot and Clear Notes on Start SHALL share one "Shot Review" card in the App Behavior column. The last two control the post-shot review, not uploading, and SHALL keep their existing settings keys so current values carry over. Edit After Shot's description SHALL read "Open shot review page after each extraction".
+
+The app SHALL provide a "Machine" settings tab (renamed from Preferences) with cards in three columns: Power & Schedule (left), App Behavior (middle), and Water & Features (right). It SHALL contain Theme Mode, Auto-Sleep, Auto-wake Schedule, Battery Charging, Refill Kit, Screen Zoom, Simulation Mode, Launcher Mode (Android), Shot Map, Water Level Status and Water Refill Threshold.
 
 #### Scenario: User finds Auto-Sleep in Machine tab
 - **WHEN** user navigates to Settings > Machine
@@ -56,6 +58,15 @@ The app SHALL provide a "Machine" settings tab (renamed from Preferences) contai
 - **WHEN** user opens the Machine tab
 - **THEN** a "Shot Review" card in the App Behavior column holds Shot Review Timer, "Edit After Shot" and "Clear Notes on Start", the last two with the values they had before the move
 - **AND** neither appears on the Shot Upload tab
+
+### Requirement: Shot Review card groups the post-shot options
+
+Shot Review Timer (renamed from "Close Shot Review Screen"), Edit After Shot and Clear Notes on Start SHALL share one "Shot Review" card in the App Behavior column. They control the post-shot review, not uploading, and SHALL keep their existing settings keys. Edit After Shot's description SHALL read "Open shot review page after each extraction".
+
+#### Scenario: Shot Review options keep their stored values
+
+- **WHEN** the user opens the Machine tab after updating
+- **THEN** Edit After Shot and Clear Notes on Start SHALL show the values they had before the move
 
 ### Requirement: Merged History and Data Tab
 The app SHALL provide a single "History & Data" tab combining shot history access, DE1 import, backup/restore, server enable with security, device migration, and factory reset. The server enable toggle SHALL appear exactly once. The tab SHALL use a three-column layout: Shot History (left), Backup (middle), Server & Data (right). Device Migration SHALL be accessible via a button that opens a stepped dialog.
@@ -122,9 +133,7 @@ The app SHALL rename the following setting card labels for clarity: "Per-Screen 
 
 ### Requirement: Auto-Update Shots toggle appears in Visualizer settings tab
 
-The Upload settings card of the Shot Upload settings tab SHALL display an **Auto-Update Shots** toggle positioned immediately below the **Auto-Upload Shots** toggle. The toggle SHALL be disabled (non-interactive, visually dimmed) when **Auto-Upload Shots** is off, reflecting that auto-update depends on the upload feature being active. It applies to every destination that is switched on and connected.
-
-The toggle SHALL bind to `Settings.upload.autoUpdate` (stored under the same key, `visualizer/autoUpdate`, as before) and use translation keys `"settings.visualizer.autoUpdate"` (label, fallback "Auto-Update Shots") and `"settings.upload.autoUpdateDesc"` (description, fallback "Re-send a shot after you edit it" — no longer naming Visualizer, since it applies to both destinations).
+The Upload settings card of the Shot Upload settings tab SHALL display an **Auto-Update Shots** toggle directly below the **Auto-Upload Shots** toggle. The toggle SHALL be disabled (non-interactive, visually dimmed) when **Auto-Upload Shots** is off, because auto-update depends on the upload feature being active. It applies to every destination that is switched on and connected.
 
 #### Scenario: Auto-Update toggle appears below Auto-Upload
 
@@ -143,11 +152,18 @@ The toggle SHALL bind to `Settings.upload.autoUpdate` (stored under the same key
 - **WHEN** the user views the Shot Upload settings tab
 - **THEN** the Auto-Update Shots toggle SHALL be interactive and reflect the current `autoUpdate` value
 
+### Requirement: Auto-Update Shots SHALL keep its stored key and shared translation keys
+
+The toggle SHALL bind to `Settings.upload.autoUpdate`, stored under the same key `visualizer/autoUpdate` as before. It SHALL use translation keys `"settings.visualizer.autoUpdate"` (label, fallback "Auto-Update Shots") and `"settings.upload.autoUpdateDesc"` (description, fallback "Re-send a shot after you edit it"). The description SHALL NOT name a single destination.
+
+#### Scenario: Description applies to both destinations
+
+- **WHEN** the user reads the Auto-Update Shots description
+- **THEN** it SHALL NOT name Visualizer
+
 ### Requirement: Conditional HDS update action in Connections
 
-Settings → Connections SHALL remain visually unchanged unless a newer eligible HDS firmware release is available for the currently selected connected HDS, on any supported transport. In that case, the selected-scale actions SHALL show an **Update** button immediately beside **Forget**. Activating it SHALL open an accessible confirmation dialog that displays the installed and available versions, the GitHub release notes for the available version, and an explicit action to start the update.
-
-The dialog SHALL describe the update as starting on the scale and SHALL NOT instruct the user to select a release or confirm anything on the scale's display.
+Settings → Connections SHALL remain visually unchanged unless a newer eligible HDS firmware release is available for the selected, connected HDS on any supported transport. In that case the selected-scale actions SHALL show an **Update** button immediately beside **Forget**. Activating it SHALL open an accessible confirmation dialog showing the installed and available versions, the GitHub release notes for the available version, and Cancel and Start update actions.
 
 #### Scenario: No HDS update is available
 
@@ -177,15 +193,18 @@ The dialog SHALL describe the update as starting on the scale and SHALL NOT inst
 - **WHEN** the selected scale changes or the HDS disconnects before Start update is confirmed
 - **THEN** the confirmation dialog SHALL close without sending an update command
 
+### Requirement: The HDS update dialog SHALL describe an update that starts on the scale
+
+The dialog SHALL describe the update as starting on the scale. It SHALL NOT direct the user to select a release or confirm anything on the scale's display. After Start update, it SHALL say the update was requested, and SHALL NOT claim the scale accepted or installed it, since two of the three transports carry no acknowledgement.
+
+#### Scenario: Dialog points to no scale display action
+
+- **WHEN** the user reads the HDS update confirmation dialog
+- **THEN** it SHALL NOT instruct the user to act on the scale's display
+
 ### Requirement: Shot Upload tab has a switch per destination and one set of upload settings
 
-The settings tab that holds upload settings SHALL be labelled "Shot Upload". It SHALL show the two upload destinations as two cards side by side, **Visualizer** (visualizer.coffee) on the left and **Decent account** (decentespresso.com) on the right, and below them ONE **Upload settings** card that applies to both. Each destination card SHALL use the same order:
-1. a header with the destination name and a large on/off switch for uploading to it — Visualizer on by default, Decent off by default;
-2. a one-line description and a status line (not connected / connected as `<name>` / sign in again);
-3. account controls, identical for both destinations — sign-in fields and a Connect button when not connected, the connected identity and a Disconnect button when connected. Connect checks the credentials with the service before anything is saved, so there is no separate Test Connection: credentials that were not accepted, or could not be checked, are not stored. Connecting switches that destination on; the user can switch it off afterwards;
-4. destination-specific actions — Visualizer: sign-up link and Recover Shots; Decent: "View my shots on decentespresso.com" and the most recent upload result.
-
-The Upload settings card SHALL hold "Auto-upload shots", "Auto-update shots" and "Minimum Duration". These are single settings shared by both destinations; no destination card SHALL carry its own copy. They SHALL keep the values the Visualizer tab's settings of the same names had (stored under the same keys), so nothing changes for an existing Visualizer user. A destination receives uploads only while its switch is on and its account is connected. On a narrow screen the cards SHALL stack — Visualizer, Decent account, Upload settings — and every card SHALL scroll fully into view.
+The settings tab that holds upload settings SHALL be labelled "Shot Upload". It SHALL show the two destinations as cards side by side, **Visualizer** (visualizer.coffee) on the left and **Decent account** (decentespresso.com) on the right, with one **Upload settings** card below them that applies to both. On a narrow screen the cards SHALL stack in that order, and every card SHALL scroll fully into view.
 
 #### Scenario: Two destinations, one set of settings
 - **WHEN** the user opens Settings → Shot Upload on a tablet
@@ -217,9 +236,45 @@ The Upload settings card SHALL hold "Auto-upload shots", "Auto-update shots" and
 - **WHEN** a TalkBack or VoiceOver user moves through the tab
 - **THEN** focus visits every control of the Visualizer card, then the Decent account card, then the Upload settings card
 
+### Requirement: Destination-specific actions SHALL stay on their own card
+
+Visualizer SHALL offer a sign-up link and Recover Shots. Decent SHALL offer "View my shots on decentespresso.com" and show the most recent upload result.
+
+#### Scenario: Decent card shows its last upload result
+
+- **WHEN** the user views the Decent account card after an upload
+- **THEN** the most recent upload result SHALL appear on that card
+
+### Requirement: Upload settings SHALL be single settings shared by both destinations
+
+The Upload settings card SHALL hold "Auto-upload shots", "Auto-update shots" and "Minimum Duration" as single settings shared by both destinations. No destination card SHALL carry its own copy. These SHALL keep the keys and values of the former Visualizer tab settings of the same names.
+
+#### Scenario: Shared setting changes apply to both destinations
+
+- **WHEN** the user changes Minimum Duration in the Upload settings card
+- **THEN** the new minimum SHALL apply to uploads for every switched-on destination
+
+### Requirement: Connect SHALL verify credentials before storing them
+
+Connect SHALL check the credentials with the service before anything is saved, so there is no separate Test Connection. Credentials that are not accepted, or could not be checked, SHALL NOT be stored. Connecting SHALL switch that destination on, and the user MAY switch it off afterwards.
+
+#### Scenario: Unreachable service stores nothing
+
+- **WHEN** the user taps Connect and the service cannot be reached
+- **THEN** nothing SHALL be saved and the card SHALL show the connection could not be checked
+
+### Requirement: Each destination card SHALL use one fixed layout
+
+Each destination card SHALL use this order: a header with the destination name and a large on/off switch (Visualizer on by default, Decent off by default); a one-line description and status line; account controls identical for both destinations; then destination-specific actions. A destination SHALL receive uploads only while its switch is on and its account is connected.
+
+#### Scenario: Account controls match across destinations
+
+- **WHEN** a destination account is not connected
+- **THEN** its card SHALL show sign-in fields and a Connect button, the same as the other destination
+
 ### Requirement: About tab shows the machine serial number
 
-The About tab's DE1 machine card (the card holding the DE1 firmware status) SHALL show the connected machine's serial number as read from the machine, labelled "Serial number". The value SHALL be selectable or copyable as text, so a user can quote it to Decent support. When no machine is connected, or the machine reported no serial, the line SHALL read "Serial number unknown — connect DE1". In simulation mode it SHALL show the serial the simulator reports — `SIM-DE1`, or the per-run test serial set over MCP.
+The About tab's DE1 machine card SHALL show the connected machine's serial number as selectable text, labelled "Serial number". With no machine connected, or none reported, the line SHALL read "Serial number unknown — connect DE1". In simulation mode it SHALL show the simulator's serial, `SIM-DE1` or the per-run test serial set over MCP.
 
 #### Scenario: Connected machine
 - **WHEN** a real DE1 is connected and the user opens Settings → About

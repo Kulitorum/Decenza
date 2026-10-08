@@ -2,7 +2,7 @@
 
 ### Requirement: Configurable ratio suffix for the scale weight widget
 
-The `scaleWeight` widget SHALL gain a per-instance `showRatio` boolean property controlling whether its weight reading is suffixed with the active brew-by-ratio value (`1:X.X`). The default SHALL preserve the widget's current behaviour (suffix shown when brew-by-ratio is active), so existing layouts are unchanged. When `showRatio` is disabled, the widget SHALL show only the weight (and its unit), letting layouts that already surface the ratio elsewhere — a `ratioQuickSelect` pill or the status bar — avoid showing it 2–3 times.
+The `scaleWeight` widget SHALL gain a per-instance `showRatio` boolean controlling whether its weight reading is suffixed with the active brew-by-ratio value (`1:X.X`). The default SHALL preserve current behaviour (suffix shown when brew-by-ratio is active). When `showRatio` is disabled, the widget SHALL show only the weight and its unit, so a layout that already shows the ratio elsewhere doesn't repeat it.
 
 #### Scenario: Default preserves current behaviour
 

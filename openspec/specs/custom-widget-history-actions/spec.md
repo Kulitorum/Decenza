@@ -1,27 +1,11 @@
 # custom-widget-history-actions Specification
 
 ## Purpose
-TBD - created by archiving change add-history-filter-widget-actions. Update Purpose after archive.
+Adds four History actions to the Custom layout widget's catalog: Go to History filtered to this recipe, this bean, this bag or this profile. Each resolves its filter from live app state at activation, falls back to unfiltered History when no context exists, re-filters an open History page rather than stacking another, and is offered identically by the in-app and web editors.
 ## Requirements
 ### Requirement: The Custom widget offers four context-filtered History actions
 
-The Custom layout widget's action catalog SHALL include four actions that open Shot
-History with a filter already applied, in addition to the existing unfiltered
-"Go to History":
-
-- **Go to History (this recipe)** — filtered to the currently active recipe.
-- **Go to History (this bean)** — filtered to the current bean's brand and type, so the
-  same coffee across every bag of it.
-- **Go to History (this bag)** — filtered to the active bag exactly.
-- **Go to History (this profile)** — filtered to the currently loaded profile.
-
-Each SHALL be assignable to a Custom widget's tap, long-press and double-click gesture on
-the same terms as every other action, and SHALL be available in the same page contexts as
-the existing "Go to History" action.
-
-The bean and bag actions SHALL remain distinct: the bean action answers "how does this
-coffee behave", the bag action answers "how is this bag behaving", and neither SHALL be
-implemented as the other.
+The Custom widget's action catalog SHALL include four actions that open Shot History with a filter applied, alongside the unfiltered "Go to History": **this recipe**, **this bean**, **this bag** and **this profile**. Each SHALL be assignable to tap, long-press or double-click, and SHALL be available in the same page contexts as "Go to History". The bean and bag actions SHALL remain distinct and SHALL NOT be implemented as one another.
 
 #### Scenario: Recipe action opens History filtered to the active recipe
 
@@ -54,15 +38,7 @@ implemented as the other.
 
 ### Requirement: Filter values are read from live app state at activation time
 
-Each action SHALL resolve its filter when the widget is activated, from the app's current
-state, never from a value stored on the widget. The widget's stored configuration SHALL be
-the action identifier alone, carrying no recipe, bean, bag or profile identity.
-
-The recipe action SHALL filter by the active recipe's **id** and the bag action by the
-active bag's **id**, so a rename cannot orphan the filter and two records sharing a name
-stay distinct; the corresponding names SHALL be passed for the banner label only, never as
-a query term. The bean action SHALL filter by the current bean's brand and type. The
-profile action SHALL filter by the loaded profile's name.
+Each action SHALL resolve its filter when the widget is activated, from current app state, never from a value stored on the widget; the stored configuration SHALL be the action identifier alone. The recipe and bag actions SHALL filter by record id, with names used only as the banner label. The bean action SHALL filter by brand and type, and the profile action by profile name.
 
 #### Scenario: Widget follows a change of active recipe
 

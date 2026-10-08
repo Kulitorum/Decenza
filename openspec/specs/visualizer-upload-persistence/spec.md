@@ -7,9 +7,12 @@ Defines the authoritative, UI-independent path by which a successful Visualizer 
 
 ### Requirement: A successful Visualizer upload SHALL persist its returned id to the originating local shot via a non-UI path
 
-When a Visualizer upload succeeds and returns a shot id, the application SHALL persist that id and its shot URL to the local `shots` row of the shot that was uploaded, through a code path that does NOT depend on any QML page being instantiated, visible, or still alive. The persistence SHALL be driven from `MainController` (C++), correlating the result to the originating shot by an explicit DB shot id threaded through the uploader — not by reading mutable shared state at signal time, and not by any timer or delay.
-
-There SHALL be exactly one authoritative writeback path. The pre-existing QML `onUploadSuccess` persistence calls in `PostShotReviewPage` and `ShotDetailPage` SHALL no longer perform the DB write (they may retain pure UI refresh on `visualizerInfoUpdated`).
+A successful Visualizer upload that returns a shot id SHALL persist that id and
+its shot URL to the local `shots` row of the uploaded shot. The write SHALL be
+driven from `MainController` (C++) and SHALL NOT depend on any QML page being
+instantiated, visible or alive. The result SHALL be correlated by an explicit DB
+shot id threaded through the uploader, not by reading shared state at signal
+time. There SHALL be one authoritative writeback path.
 
 #### Scenario: Auto-upload with the post-shot review page disabled still records the id
 
@@ -37,19 +40,25 @@ There SHALL be exactly one authoritative writeback path. The pre-existing QML `o
 - **THEN** no `visualizer_id` SHALL be written for the originating shot
 - **AND** the originating shot SHALL remain eligible for the reconciliation pass
 
+### Requirement: QML pages do not write the Visualizer id
+
+The QML `onUploadSuccess` handlers in `PostShotReviewPage` and `ShotDetailPage`
+SHALL NOT perform the DB write. They MAY keep a pure UI refresh on
+`visualizerInfoUpdated`.
+
+#### Scenario: Page absent at completion does not lose the id
+
+- **GIVEN** the post-shot review page is not on screen when the upload completes
+- **THEN** the id is still written to the originating local row
+
 ### Requirement: A one-time bounded reconciliation SHALL relink already-uploaded-but-unrecorded shots and correct stale cloud ratings
 
-The application SHALL run, at most once per device (guarded by an internal QSettings run-once flag), a reconciliation pass that lists the user's shots from the Visualizer API and links them to local shot rows that were uploaded before the authoritative writeback existed. The pass SHALL:
-
-- run only when Visualizer credentials are present; when absent it SHALL skip WITHOUT setting the run-once flag (so it retries on a later boot once configured);
-- be bounded to a recent time window (it SHALL NOT page through the user's entire cloud history);
-- consider only local rows whose `visualizer_id` is empty and whose shot timestamp is within the window;
-- match a local row to a Visualizer shot by shot start time within a tight tolerance (≤ 2 s), 1:1 — a Visualizer shot already linked to any local row, or already consumed in this pass, SHALL NOT be reused, and an ambiguous match SHALL be skipped (not guessed);
-- for each linked row, persist `visualizer_id`/`visualizer_url`, then push the local rating to Visualizer via the existing update path (which sends a cleared rating as JSON `null`). The push SHALL be unconditional per linked row — the Visualizer list endpoint does not return the cloud rating, and an unconditional idempotent PATCH over the bounded orphan set is preferred to an extra per-shot detail fetch;
-- run off the main thread for both the network call and the DB writes;
-- set the run-once flag only after a fully completed pass; a pass aborted by a network/parse error SHALL NOT set the flag, and any links already written SHALL be idempotent on the next attempt.
-
-This reconciliation SHALL be functionally independent of the migration-16 inferred-rating back-sync (change `remove-inferred-shot-ratings`): it SHALL fully repair an orphaned-and-stale shot on its own, in any boot order, without relying on that migration's queue.
+The application SHALL run, at most once per device, a reconciliation pass that
+links uploaded shots to local rows uploaded before the authoritative writeback
+existed. The run-once flag SHALL be an internal QSettings entry. The pass SHALL
+run only when Visualizer credentials are present; without them it SHALL skip
+without setting the flag. It SHALL set the flag only after a fully completed
+pass.
 
 #### Scenario: Orphaned upload is relinked by timestamp
 
@@ -83,6 +92,53 @@ This reconciliation SHALL be functionally independent of the migration-16 inferr
 - **GIVEN** cloud shot `V` is already recorded as `visualizer_id` on local row A
 - **WHEN** the reconciliation evaluates a different empty-id row B whose timestamp is also within tolerance of `V`'s start time
 - **THEN** `V` SHALL NOT be linked to B (no reuse); B is left for manual handling
+
+### Requirement: Reconciliation scope and matching
+
+The pass SHALL be bounded to a recent time window and SHALL NOT page through the
+user's entire cloud history. It SHALL consider only local rows with an empty
+`visualizer_id` inside the window, and SHALL match a row to a Visualizer shot by
+start time within 2 s, 1:1. A Visualizer shot already linked to a local row, or
+already consumed in this pass, SHALL NOT be reused. An ambiguous match SHALL be
+skipped, not guessed.
+
+#### Scenario: Ambiguous match is skipped
+
+- **WHEN** two Visualizer shots both start within 2 s of a local row
+- **THEN** the row is skipped and neither shot is linked to it
+
+### Requirement: Reconciled rows get their id and a rating push
+
+For each linked row the pass SHALL persist `visualizer_id` and `visualizer_url`,
+then push the local rating through the existing update path, which sends a
+cleared rating as JSON `null`. The push SHALL be unconditional per linked row,
+because the list endpoint does not return the cloud rating.
+
+#### Scenario: Each linked row is pushed
+
+- **WHEN** a row is linked by the reconciliation pass
+- **THEN** its local rating is pushed to Visualizer whatever the cloud previously held
+
+### Requirement: Reconciliation runs off the main thread and needs no migration
+
+The network call and the DB writes SHALL run off the main thread. The pass SHALL
+fully repair an orphaned and stale shot on its own, in any boot order, without
+relying on the migration-16 inferred-rating back-sync queue.
+
+#### Scenario: Repair does not depend on migration 16
+
+- **WHEN** the reconciliation pass runs and the migration-16 back-sync did not run
+- **THEN** an orphaned, stale shot is still linked and its rating corrected
+
+### Requirement: An aborted pass keeps its links idempotent
+
+A pass aborted by a network or parse error SHALL NOT set the run-once flag.
+Links already written SHALL be idempotent on the next attempt.
+
+#### Scenario: Aborted pass runs again on the next boot
+
+- **WHEN** a pass aborts on a network error
+- **THEN** the run-once flag stays unset and the next boot runs the pass again
 
 ### Requirement: Visualizer upload SHALL resolve grinder identity via the equipment package
 The Visualizer upload payload builders in `src/network/visualizeruploader.cpp` SHALL resolve grinder brand/model by following the shot's `equipment_id` to the package's grinder item, then combine them into the single `grinder_model` string Visualizer expects (`"brand model"`). The payload shape SHALL be otherwise unchanged: `grinder_model`, `grinder_setting`, `grinder_dose_weight` (and their `meta.grinder.*` / `settings.*` mirrors). Burrs SHALL remain unsent (Visualizer has no field for it).

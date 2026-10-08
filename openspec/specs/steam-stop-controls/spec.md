@@ -1,7 +1,9 @@
 # steam-stop-controls Specification
 
 ## Purpose
-TBD - created by archiving change remove-steam-purge-buttons. Update Purpose after archive.
+
+Governs the Steam page's stop controls. The page SHALL NOT offer a dedicated Purge button, so the firmware steam-wand purge runs only as a side effect of stopping steam, and keyboard and screen-reader focus stays coherent after removal.
+
 ## Requirements
 ### Requirement: Steam page SHALL NOT present a dedicated Purge control
 

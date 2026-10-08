@@ -1,18 +1,13 @@
 # recipe-block-retirement Specification
 
 ## Purpose
-TBD - created by archiving change replace-recipe-block-with-recommended-dose. Update Purpose after archive.
+
+Retires the `recipe` block from Decenza's profile format. Covers removing the block on write and on sight, the one-time upgrade of saved profiles, promoting a set dose to `recommended_dose`, and a single dose field across every surface, with retired spellings rejected rather than applied.
+
 ## Requirements
 ### Requirement: No recipe block is written
 
-A profile Decenza serializes SHALL NOT contain a `recipe` key. Editor parameters for D-Flow and
-A-Flow profiles are reconstructed from the frames on every read, so persisting them stores a copy
-that no reader consults and that drifts from the frames it duplicates.
-
-`recipe` SHALL remain listed as a key the serializer models. That list is the unknown-key
-passthrough's exclusion list, so a listed key is dropped while an unlisted one is captured and
-re-emitted verbatim — removing the entry would preserve every stale block permanently, the
-opposite of the intent.
+A profile Decenza serializes SHALL NOT contain a `recipe` key, because its editor parameters are reconstructed from the frames on every read. `recipe` SHALL remain listed as a key the serializer models, since that list is the unknown-key passthrough's exclusion list and removing the entry would re-emit stale blocks verbatim.
 
 #### Scenario: A serialized profile carries no block
 
@@ -39,17 +34,7 @@ opposite of the intent.
 
 ### Requirement: A stored block is removed on sight
 
-Encountering a profile that still carries a `recipe` block SHALL remove it and persist the
-removal, so that no profile retains a block once this change has shipped. The one-time upgrade
-covers what is already stored; this covers everything that arrives afterwards — an import, a
-share code, a device-to-device sync, a restored backup.
-
-Removing the block in memory alone is NOT sufficient: a profile the user never re-saves would
-keep its block on disk indefinitely.
-
-Where the profile cannot be written — a bundled resource, a read-only store — the block SHALL
-still be absent from everything the profile produces, and the failure to persist SHALL NOT
-prevent the profile from loading.
+A profile that still carries a `recipe` block SHALL have it removed and the removal persisted, so no profile retains a block once this change has shipped. Removing it in memory alone SHALL NOT be sufficient. Where the profile cannot be written, the block SHALL still be absent from everything the profile produces, and the failed write SHALL NOT prevent the profile from loading.
 
 #### Scenario: A profile imported after the upgrade is stripped
 
@@ -138,15 +123,7 @@ figure would tell a caller there is a recommendation when there is not.
 
 ### Requirement: A dose of zero clears the recommendation
 
-Setting a per-profile dose of zero SHALL disable the recommendation rather than store a
-recommendation of zero grams. The stored value SHALL be left as it was, so re-enabling restores
-the last real dose rather than a default.
-
-Zero is how the absence of a dose is expressed everywhere else this value travels: the `.tcl`
-importer reads de1app's `profile_grinder_dose_weight 0` as "not set" — de1app's Streamline skin
-writes the key on every save, so a zero there never means a deliberate zero — and a recommendation
-of zero grams would otherwise reach the dialing context, the AI advisor and any ratio arithmetic
-as if it were real.
+Setting a per-profile dose of zero SHALL disable the recommendation rather than store zero grams. The stored value SHALL be left unchanged, so re-enabling restores the last real dose rather than a default.
 
 #### Scenario: Zero disables rather than recommends
 
@@ -158,46 +135,13 @@ as if it were real.
 - **WHEN** a recommendation is disabled by setting zero and later re-enabled
 - **THEN** the dose last set is restored, not the default
 
+#### Scenario: A zero dose is absence everywhere
+- **WHEN** a de1app `.tcl` profile carries `profile_grinder_dose_weight 0`
+- **THEN** the importer treats it as not set, because de1app's Streamline skin writes that key on every save and a zero there never means a deliberate zero
+
 ### Requirement: One dose field, whichever surface sets it
 
-Every surface that offers a per-profile dose SHALL read and write the same profile field. No
-surface may keep its own copy.
-
-This is what the retired `recipe` block got wrong: it stored a second dose that the editors wrote
-and nothing else read, so the value shown in an editor and the value the advisor saw could differ
-without either being wrong. The Dose controls on the recipe editors, the advanced editor's
-control, the parameter surface, the dialing context and the advisor now all resolve to
-`recommended_dose` / `has_recommended_dose`.
-
-**One field, one spelling.** The profile parameter edit surface SHALL accept exactly one name for
-the per-profile dose — `dose`, which sets the value and enables the recommendation. The
-`recommended_dose` and `has_recommended_dose` spellings SHALL NOT be accepted as edit inputs;
-reporting still names both, because a reader needs the flag (see "A dose reported to a caller
-carries its enabled flag").
-
-This replaces the earlier rule that two spellings reaching one call must not both be discarded in
-silence. That rule assumed both spellings would stay. Keeping them was the mistake: they had
-different semantics — `dose` set-and-enable, `recommended_dose` set-only — so resolving a
-collision toward the "canonical" spelling stored a dose with the recommendation left disabled, a
-state no reader acts on. Removing the second spelling removes the collision rather than adjudicating
-it.
-
-A retired spelling is reported as RETIRED rather than merely unrecognised: it is not a typo, and
-"unrecognised" alone sends the caller hunting for one instead of telling them what replaced it. The
-report SHALL name the replacement, and SHALL appear in the response's human-readable message rather
-than only in a sibling field — a client that reads the message and the success flag must not be
-told a clean "updated" for a call that dropped an argument.
-
-A call whose only inputs were retired spellings SHALL change nothing and SHALL NOT report success.
-Reporting success there is not merely inaccurate: the surface's commit path marks the loaded profile
-modified on the way out, so a fully rejected edit would dirty the profile and then invite the caller
-to save the modification it never made.
-
-**The dose input is validated, not coerced.** A value that cannot be read as a number SHALL be
-rejected. `dose` is read directly as a number, and a failed read yields zero — which is the value
-that CLEARS the recommendation, so silently coercing would delete a profile's dose on a malformed
-call and report success. A value outside the accepted range is clamped, and the adjustment is
-reported rather than the caller's number being echoed back as if stored.
+Every surface that offers a per-profile dose SHALL read and write the same profile field, `recommended_dose` with `has_recommended_dose`. No surface may keep its own copy.
 
 #### Scenario: An editor's dose control persists
 
@@ -255,6 +199,30 @@ retired rather than as the loser of a conflict.
 
 - **WHEN** a caller sets `dose` on a profile with no recipe editor type
 - **THEN** the dose is applied and enabled, with no editor-type-specific handling
+
+### Requirement: One dose spelling on the edit surface
+
+The profile parameter edit surface SHALL accept exactly one name for the per-profile dose, `dose`, which sets the value and enables the recommendation. `recommended_dose` and `has_recommended_dose` SHALL NOT be accepted as edit inputs, though reporting still names both.
+
+#### Scenario: Retired spellings are not edit inputs
+- **WHEN** an edit call sends `recommended_dose` or `has_recommended_dose`
+- **THEN** the spelling is not applied as an edit input
+
+### Requirement: Retired spellings are reported as retired
+
+A retired spelling SHALL be reported as RETIRED rather than unrecognised, naming its replacement in the response's human-readable message and not only in a sibling field. A call whose only inputs were retired spellings SHALL change nothing and SHALL NOT report success.
+
+#### Scenario: Retired-only call reports failure and dirties nothing
+- **WHEN** an edit call carries only retired spellings
+- **THEN** nothing changes, the profile is not marked modified, and the response does not report success
+
+### Requirement: The dose input is validated, not coerced
+
+A dose value that cannot be read as a number SHALL be rejected, never coerced to zero, since zero clears the recommendation. A value outside the accepted range SHALL be clamped, and the adjustment SHALL be reported rather than the caller's number echoed back as stored.
+
+#### Scenario: Malformed dose leaves the profile untouched
+- **WHEN** a dose argument cannot be read as a number
+- **THEN** the call is rejected and the stored dose and its enabled flag are unchanged
 
 ### Requirement: A one-time upgrade brings saved profiles to the new shape
 

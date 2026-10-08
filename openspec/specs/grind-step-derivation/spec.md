@@ -1,17 +1,12 @@
 # grind-step-derivation Specification
 
 ## Purpose
-TBD - created by archiving change keep-grind-step-across-cache-refresh. Update Purpose after archive.
+
+Governs how the grind and RPM step for a grinder is derived. The step is computed from the live shot history on each call rather than from the distinct-value cache, and consumers of history are notified only on writes.
+
 ## Requirements
 ### Requirement: The grind step SHALL be derived from the live database, not a cache
-
-`grindStepForGrinder()` and `grindRpmStepForGrinder()` SHALL query the shot history directly on
-each call. They SHALL NOT read, populate, or depend on the async distinct-value cache, and SHALL
-NOT depend on `distinctCacheReady()` to deliver a correct answer.
-
-The derivation is small and bounded and runs on a discrete user action (the grind picker opening),
-so it MAY run inline on the calling thread. Measured: 3.3 ms median / 87 ms worst on a real
-18.5 MB database, 37 ms median / 41 ms worst on a 16× copy.
+`grindStepForGrinder()` and `grindRpmStepForGrinder()` SHALL query the shot history directly on each call. They SHALL NOT read, populate or depend on the async distinct-value cache, or on `distinctCacheReady()`. The derivation MAY run inline on the calling thread, because it is small, bounded and runs on a discrete user action.
 
 #### Scenario: A cache invalidation does not change the answer
 
@@ -38,15 +33,7 @@ from the same function over the same rows, so they cannot diverge.
 - **THEN** both SHALL be `0.25`
 
 ### Requirement: A write SHALL notify anything deriving from history
-
-A shot saved, deleted, metadata-edited, or a database imported SHALL emit
-`historyDataChanged()`. It SHALL be emitted on writes ONLY — never on the completion of a read —
-so a consumer cannot be woken for an answer that has not moved.
-
-Consumers SHALL NOT hold a history-derived value in a resident eager binding. A binding evaluated
-on construction and on every write re-runs its query across every live instance of the component,
-which for the grind step is a measured 3.3 ms median / 87 ms worst per evaluation on the main
-thread. Derive inside the snapshot or refresh that consumes the value instead.
+A shot saved, deleted, metadata-edited, or database imported SHALL emit `historyDataChanged()`, and SHALL do so on writes ONLY, never on completion of a read. Consumers SHALL NOT hold a history-derived value in a resident eager binding; they SHALL derive it inside the snapshot or refresh that consumes the value.
 
 #### Scenario: A write moves the derived step
 

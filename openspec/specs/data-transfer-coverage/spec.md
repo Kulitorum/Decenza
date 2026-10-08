@@ -100,12 +100,7 @@ The LAN device-migration client SHALL fetch and import the extra-settings bundle
 - **THEN** machine-specific flow calibration is not overwritten on the destination device
 
 ### Requirement: An import SHALL NOT renumber a shot whose id is free
-
-A shot's id is the handle every reference to it uses, including references the system does not own. Renumbering a shot invalidates all of them, so the system SHALL preserve each imported shot's own id wherever that id is not already taken in the destination.
-
-In replace mode the destination is cleared first, so every source id is free: a restored database SHALL hold the ids it was backed up with, and its id sequence SHALL be realigned so subsequent shots continue the restored history. In merge mode, shots already in the destination SHALL keep their ids, and an incoming shot SHALL keep its own id unless that id is occupied.
-
-An incoming shot whose id is occupied SHALL be assigned an id above every id in use in either database, so relocating one shot can never consume an id that another incoming shot is entitled to keep.
+An import SHALL preserve each imported shot's own id wherever that id is not already taken in the destination, since renumbering invalidates references. Replace mode SHALL restore the backed-up ids and realign the id sequence so later shots continue the restored history. Merge mode SHALL leave existing destination shots at their ids. An incoming shot whose id is occupied SHALL be assigned an id above every id in use in either database.
 
 #### Scenario: Restoring a backup returns the original ids
 
@@ -125,12 +120,7 @@ An incoming shot whose id is occupied SHALL be assigned an id above every id in 
 - **AND** the two incoming shots whose ids are occupied SHALL be assigned ids above every id in use
 
 ### Requirement: Shot ids are remapped for every reference that survives an import
-
-An import that cannot preserve a shot's id assigns it a new one. The system SHALL produce a mapping from each source shot id to the destination id it received — an identity mapping where the id was preserved — and SHALL apply that mapping to every reference to a shot id that is carried across by the same import, whether that reference lives inside `shots.db` or outside it.
-
-A reference whose source shot id is absent from the mapping — because the shot was skipped as a duplicate, failed to import, or was never in the source — SHALL be cleared rather than left holding the source id. An uncleared stale id is not inert: shot ids are assigned in increasing order, so a stale id eventually becomes a valid id belonging to an unrelated shot, at which point a write intended for one shot lands on another.
-
-This extends the existing remap guarantee, which today covers equipment packages, coffee bags and recipes, to shot ids themselves and to references held in settings.
+An import that cannot preserve a shot's id SHALL assign it a new one. The system SHALL produce a mapping from each source shot id to the destination id it received (an identity mapping where preserved) and SHALL apply it to every reference to a shot id carried across by the same import, whether inside `shots.db` or outside it. A reference whose source id is absent from the mapping SHALL be cleared rather than left holding the source id.
 
 #### Scenario: Settings-resident shot references follow the renumbering
 

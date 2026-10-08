@@ -9,14 +9,7 @@ how it measured, so a remote report can be attributed to a specific font rather 
 
 ## Requirements
 ### Requirement: Startup font resolution diagnostics
-
-The application SHALL record, at startup, the information needed to determine which font is
-rendering the UI and whether its metrics match a known-good reference, so that a font problem on a
-remote user's machine can be diagnosed from a submitted debug log alone.
-
-The diagnostics SHALL cover: host font families that could collide with the bundled family
-(recorded before registration), the resolved family name and exact-match status (recorded after
-registration), and a probe advance width measured from a fixed string at a fixed pixel size.
+The application SHALL log at startup which font renders the UI and whether its metrics match a known-good reference, so a font problem can be diagnosed from a debug log alone. The diagnostics SHALL cover host font families that could collide with the bundled family (recorded before registration), the resolved family and exact-match status (recorded after registration), and a probe advance width from a fixed string at a fixed pixel size.
 
 #### Scenario: Probe metric is comparable across machines
 
