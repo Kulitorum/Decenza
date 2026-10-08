@@ -1,36 +1,89 @@
 # Claude pull-request reviewer
 
 `.github/workflows/claude-review.yml` uses the official Anthropic action to post
-up to five inline findings on relevant, non-draft pull requests opened, updated,
-reopened, or marked ready for review. It focuses on Qt/C++ lifetimes, threading,
+up to five inline findings. Automatic reviews run on relevant, non-draft PRs
+opened by **skialpine** (GitHub account ID `1629894`), on open, new commits,
+reopen, or ready-for-review. Other PRs require skialpine's explicit request. It focuses on Qt/C++ lifetimes, threading,
 QML boundaries, BLE/machine-state regressions, database handling, and platform bugs.
 It reads source and existing tests; it never builds or runs the application.
 
 ## One-time setup
 
-1. In [Claude Console](https://platform.claude.com/), select the organization and
-   workspace that hold your Anthropic API credits. Create a dedicated API key for
-   Decenza reviews, and set an appropriate workspace spending limit. Check that
-   this workspace can use `claude-sonnet-5-5` before enabling reviews.
-2. A repository admin must open
-   [Decenza's Actions secrets](https://github.com/Kulitorum/Decenza/settings/secrets/actions),
-   choose **New repository secret**, and name it `ANTHROPIC_API_KEY`. Paste the key
-   directly into GitHub. Never put it in a PR, source file, chat, or screenshot.
-   This uses API billing/credits, rather than a Claude subscription OAuth token.
-3. Review and merge the workflow PR when ready. Do not make the Claude job a
-   required merge check: path filters and skipped runs make it advisory.
-4. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
-   and triggered by a human with repository write access. Include a relevant
-   source change. In **Actions → Claude PR review**, check that the Claude step
-   completes, and inspect any inline findings. The job should be skipped on
-   drafts, fork PRs, and other bots. A run with no findings posts no comment.
+Both workflows use **Workload Identity Federation (WIF)** for the Claude API.
+GitHub issues a short-lived OIDC identity token; the official action exchanges it
+for a short-lived Anthropic token and handles renewal. No stored Anthropic API key
+or subscription OAuth token is needed. The configured IDs below are not secrets
+and are included directly in both workflows; no Actions variables are required.
+
+| Federation setting | Configured value |
+| --- | --- |
+| Federation rule | `fdrl_01845VJkqDXmxfEeoz22VNyg` |
+| Organization | `e3971c6d-a39b-46fc-a5e9-d152d5f5d476` |
+| Service account | `svac_01Rjzffi5Zn9hAG3NSPrboZE` |
+| Workspace | `wrkspc_01CfPYtm6bgzXkKPucdyGATe` |
+| OIDC audience | `https://api.anthropic.com` |
+
+1. The Anthropic Console rule is configured for repository **Kulitorum/Decenza**,
+   with the branch left unrestricted. Confirm the service account belongs to the
+   selected workspace, that this is the organization/workspace holding your API
+   credits, and that it can use `claude-sonnet-5-5`. Set a workspace spending limit.
+2. Install the Claude App if requested fixes are needed, as described below.
+   Review and merge the federation workflow PR when ready. Keep the Claude review
+   job advisory: its path filters and skipped runs make it unsuitable as a required
+   merge check.
+3. Open a small, non-draft PR from a branch inside `Kulitorum/Decenza`, authored
+   by skialpine. In **Actions → Claude PR review**,
+   check completion and inspect any inline findings. Drafts, forks, and other bots
+   are skipped. A run with no findings posts no comment.
+
+### Verified token exchange
+
+[The federation test run](https://github.com/Kulitorum/Decenza/actions/runs/37706355051)
+successfully exchanged a GitHub identity token for an Anthropic bearer token with
+599 seconds of remaining lifetime. It made no model call and exported/logged
+neither token. This confirms authentication for the setup-branch push; it does
+not verify model access, credits, or the complete review/fix execution.
+
+`.github/workflows/anthropic-wif-test.yml` runs on changes to itself on the setup
+branch and can be dispatched manually after merge. It uses the same four IDs and
+audience as the production workflows. No checkout, API key, or Claude App is
+needed for this exchange-only test.
+
+### Trust scope and migration
+
+The rule's unrestricted branch setting permits authentication from all Decenza
+branches. Automatic reviews and fix requests reject forks; explicit read-only
+reviews accept forks only on skialpine's request. Anyone able to write Decenza workflows is a trust
+boundary, because they can request an identity token from another workflow.
+
+For stronger isolation, an Anthropic admin can additionally require immutable
+`repository_id: 1121207637` and `repository_owner_id: 175644`, plus the exact
+workflow/event pair. Automatic review tokens use `pull_request` with
+`Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/pull/<number>/merge`;
+Requested review tokens use `issue_comment` with
+`Kulitorum/Decenza/.github/workflows/claude-review.yml@refs/heads/main`;
+fix tokens use `issue_comment` with
+`Kulitorum/Decenza/.github/workflows/claude-fix.yml@refs/heads/main`.
+Separate rules can express those restrictions. If keeping this diagnostic test,
+its workflow/event must also be permitted. Such Console rule changes have not
+been applied by this PR.
+
+The workflows no longer pass `ANTHROPIC_API_KEY` and do not fall back to it.
+After a successful federated production run, remove any obsolete dedicated
+repository secret and revoke that dedicated key in Console if no other workload
+uses it. Federation changes authentication, not the API billing account: usage is
+attributed to the chosen service account's workspace under its normal limits.
+Tokens exist only at runtime; Claude's read tools deny access to the action's
+temporary identity-token and credential-cache directory.
 
 ## GitHub permissions and the Claude App
 
-The automatic review workflow requires **no Claude GitHub App installation, App private key,
-personal access token, OAuth token, or OIDC permission**. It explicitly passes
-GitHub's short-lived `GITHUB_TOKEN` to the official action. Its job grants only
-`contents: read` and `pull-requests: write`; all other permissions are disabled.
+The automatic review workflow requires **no Claude GitHub App installation, App
+private key, personal access token, or stored Anthropic credential**. It explicitly
+passes GitHub's short-lived `GITHUB_TOKEN` for repository operations. Its job grants
+`contents: read`, `pull-requests: write`, and `id-token: write`; all other
+permissions are disabled. OIDC permission allows Anthropic authentication and
+does not grant code-write permission.
 Comments appear as `github-actions[bot]`. The token cannot push code or merge PRs.
 
 For requested fixes, an admin must install the official
@@ -46,6 +99,33 @@ The App token is revoked when the action finishes. No App private key is needed.
 The review job still explicitly passes `GITHUB_TOKEN`, even after App installation.
 Its read-only contents restriction therefore continues to apply. Job permissions
 alone do not restrict a separate App token.
+
+## Requesting a review
+
+Automatic reviews run only on skialpine's same-repository, non-draft PRs touching
+the configured source paths. Commits pushed by the official Claude App can
+re-trigger a review on those PRs. PRs opened by anyone else, including Claude,
+do not receive automatic reviews.
+
+For any other open PR, skialpine can post this standalone **PR conversation
+comment**:
+
+```text
+@claude review
+```
+
+This requests one review of the current revision. Only skialpine's account ID
+can trigger it; other people's requests are skipped. It also works on draft PRs
+and public fork PRs, and bypasses the automatic path filter. Another push to
+someone else's PR requires another request. Edited comments, ordinary issue
+comments, and inline review replies do not trigger the command.
+
+The requested review is read-only. Its workflow runs from the default branch,
+checks out the trusted base at the workspace root, and reads the captured head
+in an isolated subdirectory without executing its code. A source update during
+context/diff fetching fails the stale run. Unrelated comments do not cancel a
+review in progress. The command becomes available after this workflow is merged
+to the default branch.
 
 ## Maintainer-requested fixes
 
@@ -73,8 +153,9 @@ Claude edits an isolated checkout and can invoke only the trusted publisher as a
 shell command. The publisher checks the PR's captured head SHA, accepts at most
 20 source files, rejects workflow/agent configuration and symlinks, and chooses
 the destination from the original command. It never force-pushes, approves, or
-merges. Same-PR fixes post a validation-status comment and trigger another review.
-Separate drafts are reviewed when a maintainer marks them ready.
+merges. Same-PR fixes on skialpine's eligible PRs trigger another review.
+Fixes on other PRs, including separate Claude-authored drafts, require skialpine
+to post `@claude review` when a review is wanted.
 
 Fixes have a $5 client-side cost limit, 30 turns, and 20 minutes. Qt builds and
 tests **do not run** on this hosted fix runner. Review the diff and validate fixes
@@ -85,10 +166,12 @@ to stop accepting fix requests.
 
 ## Limits and security
 
-- Reviews accept human PRs and the official `claude[bot]` so requested fixes can
-  be reviewed. Other bots are skipped. Human triggers must have write access;
-  no `allowed_non_write_users` bypass is configured. Fork reviews require a separate design, not switching
-  this job to `pull_request_target` or granting more permissions.
+- Automatic reviews accept only PRs opened by skialpine. Explicit review
+  requests accept only skialpine's conversation comment. Automatic triggers from
+  bots other than the official `claude[bot]` are skipped. Human triggers must have write access;
+  no `allowed_non_write_users` bypass is configured. Forks are reviewed only on
+  skialpine's explicit request, using the trusted `issue_comment` workflow and
+  read-only source access.
 - Base and head are checked out by immutable SHA, without persisted credentials.
   The head lives in a subdirectory, and Claude ignores project/local executable
   settings and discovers only the action's explicit inline-comment MCP server.
@@ -107,17 +190,28 @@ to stop accepting fix requests.
 
 ## Troubleshooting and disabling
 
-Missing key or authentication failure: have an admin add/rotate the repository
-secret, and confirm the key's organization, credits, and model access in Console.
+Authentication failure: check Console authentication history, issuer/audience,
+repository/branch restrictions, service-account workspace membership, credits,
+and model access. An API-key or OAuth credential injected elsewhere takes
+precedence over federation; remove that injection rather than storing an empty
+credential value. If reconfiguring the service account/workspace/rule, update
+the non-secret IDs in both production workflows and the diagnostic workflow.
 `Resource not accessible by integration`: check repository/organization Actions
 policies allow this action and PR review comments. Keep contents read-only.
-Fork/draft/bot PR: skipped by design. Review a same-repository human PR to test.
+Automatic run skipped: check the PR author is skialpine, the PR is non-draft,
+and the source paths match. For another author's PR, draft, or fork, skialpine
+can request a review with a new standalone `@claude review` conversation comment.
 
 To stop spending, disable **Claude PR review** from its Actions workflow menu.
-Deleting the `ANTHROPIC_API_KEY` repository secret also prevents future API runs;
-rotate/revoke the dedicated key in Console if it is no longer needed.
+Disable **Claude requested fix** separately to stop accepting fix requests.
+Archiving the configured federation rule in Console prevents future token exchanges;
+already-issued tokens remain subject to their expiry. Do not delete a shared
+issuer/service account used by another workload.
 
 Sources: [action setup](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md),
 [action security](https://github.com/anthropics/claude-code-action/blob/main/docs/security.md),
 [CLI limits/tools](https://code.claude.com/docs/en/cli-reference),
-[models](https://platform.claude.com/docs/en/models/overview).
+[models](https://platform.claude.com/docs/en/models/overview),
+[Anthropic federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation),
+[rule matching](https://platform.claude.com/docs/en/manage-claude/wif-reference#rule-matching-semantics),
+[GitHub OIDC claims](https://docs.github.com/en/actions/reference/security/oidc).

@@ -1,0 +1,69 @@
+name: Anthropic federation test
+
+on:
+  push:
+    branches: [codex/claude-workload-identity]
+    paths: ['.github/workflows/anthropic-wif-test.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: anthropic-wif-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  token-exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test GitHub identity token exchange
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const identityToken = await core.getIDToken('https://api.anthropic.com');
+            core.setSecret(identityToken);
+            let response;
+            try {
+              response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                  assertion: identityToken,
+                  federation_rule_id: 'fdrl_01845VJkqDXmxfEeoz22VNyg',
+                  organization_id: 'e3971c6d-a39b-46fc-a5e9-d152d5f5d476',
+                  service_account_id: 'svac_01Rjzffi5Zn9hAG3NSPrboZE',
+                  workspace_id: 'wrkspc_01CfPYtm6bgzXkKPucdyGATe'
+                }),
+                signal: AbortSignal.timeout(30000)
+              });
+            } catch {
+              core.setFailed('Anthropic token exchange could not be reached. No response body or token was logged.');
+              return;
+            }
+            if (!response.ok) {
+              core.setFailed(`Anthropic token exchange failed (HTTP ${response.status}). Check Claude Console authentication history for this rule.`);
+              return;
+            }
+            let result;
+            try {
+              result = await response.json();
+            } catch {
+              core.setFailed('Anthropic returned an invalid exchange response. The response body was not logged.');
+              return;
+            }
+            if (typeof result.access_token === 'string') core.setSecret(result.access_token);
+            if (!result.access_token || result.token_type?.toLowerCase() !== 'bearer' ||
+                !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
+              core.setFailed('Anthropic exchange response did not contain a valid expiring bearer token. No response body was logged.');
+              return;
+            }
+            core.info(`Federation succeeded. Anthropic token expires in ${result.expires_in} seconds.`);
+            await core.summary
+              .addHeading('Anthropic federation test')
+              .addRaw(`Token exchange succeeded. Lifetime: ${result.expires_in} seconds.\n\n`)
+              .addRaw('No model request was made; identity and access tokens were neither exported nor logged.\n')
+              .write();
