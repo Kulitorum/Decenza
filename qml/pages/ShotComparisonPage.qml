@@ -21,6 +21,11 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var comparisonModel: MainController.shotComparison
+    // Wording from the comparison's shared table (ShotComparisonText).
+    function txt(id) {
+        const e = (comparisonModel.texts || {})[id]
+        return e ? TranslationManager.translate(e.key, e.label) : id
+    }
 
     // Persisted plot height. The readout sits under the plot in the same card, so
     // inspecting never needs a scroll; the page scrolls as one for the comparison.
@@ -323,10 +328,10 @@ T.Page {
                     checkable: false
                     active: false
                     tip: shotComparisonPage.showAllCurves
-                        ? TranslationManager.translate("comparison.tip.fewerCurves", "Hide the chips for curves that are turned off")
-                        : TranslationManager.translate("comparison.tip.moreCurves", "Show the curves that are turned off, to turn them on")
+                        ? shotComparisonPage.txt("tip.fewerCurves")
+                        : shotComparisonPage.txt("tip.moreCurves")
                     label: shotComparisonPage.showAllCurves
-                        ? TranslationManager.translate("comparison.fewerCurves", "Fewer")
+                        ? shotComparisonPage.txt("ui.fewerCurves")
                         : "+" + shotComparisonPage.hiddenCurveCount
                     onToggled: shotComparisonPage.showAllCurves = !shotComparisonPage.showAllCurves
                 }
@@ -343,7 +348,7 @@ T.Page {
                     delegate: Chip {
                         required property var modelData
                         label: modelData.label
-                        tip: TranslationManager.translate("comparison.tip.phase", "Show or hide the %1 phase marker").arg(modelData.label)
+                        tip: shotComparisonPage.txt("tip.phase").arg(modelData.label)
                         dotColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
                         active: !comparisonGraph.hiddenPhaseLabels[modelData.label]
                         onToggled: comparisonGraph.togglePhaseLabel(modelData.label)
@@ -352,9 +357,8 @@ T.Page {
 
                 Chip {
                     visible: shotComparisonPage.comparisonModel.shotCount > 1
-                    label: TranslationManager.translate("comparison.alignPours", "Align pours")
-                    tip: TranslationManager.translate("comparison.tip.alignPours",
-                        "Line up each shot's pour start with the base shot's, so a longer preinfusion does not shift the rest of its curves")
+                    label: shotComparisonPage.txt("ui.alignPours")
+                    tip: shotComparisonPage.txt("tip.alignPours")
                     active: comparisonGraph.alignAtPourStart
                     onToggled: comparisonGraph.alignAtPourStart = !comparisonGraph.alignAtPourStart
                 }

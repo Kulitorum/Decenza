@@ -181,7 +181,9 @@ private:
     QString getLocalIpAddress() const;
     QString generateShotListPage(const QVariantList& shots) const;
     QString generateShotDetailPage(qint64 shotId, const ShotProjection& shot) const;
-    QString generateComparisonPage(const QList<ShotRecord>& shots) const;
+    // Worker thread: the shots and every base's comparison, as the page embeds them.
+    static QJsonObject comparisonPageData(const QList<ShotRecord>& shots);
+    QString generateComparisonPage(const QJsonObject& data) const;
     QString generateDebugPage() const;
     QString generateUploadPage() const;
     void handleUploadFromFile(QTcpSocket* socket, const QString& tempPath, const QString& headers);

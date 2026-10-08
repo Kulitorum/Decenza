@@ -1761,9 +1761,32 @@ QString Profile::shapeSignature() const
     return parts.join(QLatin1Char('~'));
 }
 
+// The decimal count both values render at. A row exists because the values differ,
+// so first spend enough places to keep them distinguishable, up to the precision the
+// field is authored at (ProfileJson writes temperature, pressure and flow at two
+// places, the rest at one): "9.00 -> 8.98 bar" shown at one place would read
+// "9 -> 9". Then drop a trailing place only when BOTH sides spare it, so a pair stays
+// symmetric ("2.00 -> 2.02", never "2 -> 2.02") yet the common case reads "36 -> 41".
+static int displayDecimals(const ProfileFieldDelta& d)
+{
+    if (!d.numeric) return 0;
+    const int max = (d.unit == QLatin1String("celsius") || d.unit == QLatin1String("bar")
+                     || d.unit == QLatin1String("mlPerSec")) ? 2 : 1;
+    auto fixed = [](double v, int places) { return QString::number(v, 'f', places); };
+    int places = max;
+    for (int i = 1; i < max; ++i) {
+        if (fixed(d.oldValue, i) != fixed(d.newValue, i)) { places = i; break; }
+    }
+    while (places > 0 && fixed(d.oldValue, places).endsWith(QLatin1Char('0'))
+           && fixed(d.newValue, places).endsWith(QLatin1Char('0')))
+        --places;
+    return places;
+}
+
 QVariantMap ProfileFieldDelta::toVariantMap() const
 {
     return QVariantMap{
+        { QStringLiteral("decimals"),   displayDecimals(*this) },
         { QStringLiteral("kind"),       kind },
         { QStringLiteral("unit"),       unit },
         { QStringLiteral("frameIndex"), frameIndex },

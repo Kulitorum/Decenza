@@ -1003,6 +1003,7 @@ set(HEADERS
     src/machine/weightprocessor.h
     src/machine/stepexitarbiter.h
     src/profile/profile.h
+    src/profile/profiledialintext.h
     src/profile/profileframe.h
     src/profile/profileconverter.h
     src/profile/profileimporter.h

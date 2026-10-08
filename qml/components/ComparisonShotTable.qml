@@ -203,10 +203,10 @@ ColumnLayout {
             if (it.key === "profile") {
                 let sameVersion = comparisons.length > 0
                 for (const c of comparisons) sameVersion = sameVersion && c.profile && c.profile.sameVersion === true
-                if (sameVersion) v += " " + TranslationManager.translate("comparison.sameVersion", "(same version)")
+                if (sameVersion) v += " " + root.txt("ui.sameVersion")
             } else if (it.key === "puckPrep") {
                 // Commas, not the line's own dots, so the prep reads as one item.
-                v = TranslationManager.translate("equipment.card.puckPrep", "Prep: %1")
+                v = root.txt("ui.prep")
                     .arg(puckLabels(it.text).join(", "))
             } else if (selfDescribing.indexOf(it.key) < 0 && it.unit !== "rpm") {
                 // A bare date or number says nothing on its own; name it.
@@ -275,7 +275,7 @@ ColumnLayout {
                     Text {
                         id: baseTag
                         anchors.centerIn: parent
-                        text: TranslationManager.translate("comparison.base", "Base")
+                        text: root.txt("ui.base")
                         font: Theme.captionFont
                         color: Theme.primaryColor
                         Accessible.ignored: true
@@ -296,8 +296,8 @@ ColumnLayout {
                     AccessibleMouseArea {
                         anchors.fill: parent
                         accessibleName: (headerCard.shownOnGraph
-                            ? TranslationManager.translate("comparison.hideOnGraph", "Hide on graph")
-                            : TranslationManager.translate("comparison.showOnGraph", "Show on graph"))
+                            ? root.txt("ui.hideOnGraph")
+                            : root.txt("ui.showOnGraph"))
                             + ", " + (headerCard.info.dateTime || "")
                         accessibleRole: Accessible.CheckBox
                         accessibleChecked: headerCard.shownOnGraph
@@ -311,8 +311,8 @@ ColumnLayout {
                 anchors.rightMargin: Theme.scaled(34)
                 enabled: !headerCard.isBase
                 accessibleName: headerCard.isBase
-                    ? TranslationManager.translate("comparison.baseShot", "Base shot, %1").arg(headerCard.info.dateTime || "")
-                    : TranslationManager.translate("comparison.makeBase", "Make %1 the base").arg(headerCard.info.dateTime || "")
+                    ? root.txt("ui.baseShot").arg(headerCard.info.dateTime || "")
+                    : root.txt("ui.makeBase").arg(headerCard.info.dateTime || "")
                 onAccessibleClicked: root.comparisonModel.setBaseShot(headerCard.modelData.shotId)
             }
         }
@@ -348,7 +348,7 @@ ColumnLayout {
 
     // ── What you changed ────────────────────────────────────────────────────
     ComparisonSectionHeader {
-        text: TranslationManager.translate("comparison.section.changed", "What you changed")
+        text: root.txt("ui.changed")
     }
 
     Repeater {
@@ -372,7 +372,7 @@ ColumnLayout {
     Text {
         visible: (root.cmp.inputs || []).length === 0 && root.comparisons.length > 0
         Layout.fillWidth: true
-        text: TranslationManager.translate("comparison.nothingChangedAll", "Nothing changed in your setup.")
+        text: root.txt("ui.nothingChanged")
         font: Theme.labelFont
         color: Theme.textSecondaryColor
         wrapMode: Text.WordWrap
@@ -382,8 +382,8 @@ ColumnLayout {
         visible: root.unchangedText.length > 0
         Layout.fillWidth: true
         text: (root.columnCount > 2
-               ? TranslationManager.translate("comparison.sameForAll", "Same for all")
-               : TranslationManager.translate("comparison.sameForBoth", "Same for both"))
+               ? root.txt("ui.sameForAll")
+               : root.txt("ui.sameForBoth"))
               + "  ·  " + root.unchangedText
         font: Theme.captionFont
         color: Theme.textSecondaryColor
@@ -400,7 +400,7 @@ ColumnLayout {
             readonly property var diffRows: modelData.profile ? (modelData.profile.rows || []) : []
             visible: diffRows.length > 0
             Layout.fillWidth: true
-            headingOverride: TranslationManager.translate("comparison.profileChanged", "Profile settings changed on %1")
+            headingOverride: root.txt("ui.profileChanged")
                              .arg(root.shotInfo(index + 1).dateTime || "")
             diff: ({ hasBase: true, unchanged: false, baseTitle: "", rows: diffRows })
         }
@@ -408,7 +408,7 @@ ColumnLayout {
 
     // ── What happened ───────────────────────────────────────────────────────
     ComparisonSectionHeader {
-        text: TranslationManager.translate("comparison.section.happened", "What happened")
+        text: root.txt("ui.happened")
     }
 
     Repeater {
@@ -453,8 +453,8 @@ ColumnLayout {
             cells: root.shots
             textFor: function(s) {
                 return (s.badges || []).indexOf(badgeRow.modelData) >= 0
-                    ? TranslationManager.translate("common.yes", "Yes")
-                    : TranslationManager.translate("common.no", "No")
+                    ? root.txt("ui.yes")
+                    : root.txt("ui.no")
             }
             warnFor: function(s) { return (s.badges || []).indexOf(badgeRow.modelData) >= 0 }
             numberFont: root.numberFont
@@ -477,8 +477,8 @@ ColumnLayout {
         Layout.alignment: Qt.AlignHCenter
         subtle: true
         text: root.showMore
-            ? TranslationManager.translate("comparison.showLess", "Show less")
-            : TranslationManager.translate("comparison.showMore", "Show %1 more").arg(root.hiddenMetricCount)
+            ? root.txt("ui.showLess")
+            : root.txt("ui.showMore").arg(root.hiddenMetricCount)
         accessibleName: text
         onClicked: root.showMore = !root.showMore
     }

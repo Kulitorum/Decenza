@@ -51,7 +51,8 @@
 - [x] 6.3 Side-by-side layout: graph left and sticky, sections right; single column below 1300 px; no horizontal scroll at phone width (labels on their own line, chip dates wrap)
 - [x] 6.4 The shot list, shot detail, debug and compare pages use the shared `WEB_CSS_VARIABLES` / `WEB_CSS_HEADER` / `WEB_CSS_MENU` instead of hand-copied header, menu and colour CSS; each keeps only its own overrides
 - [x] 6.5 Phone header: the injected status readout wraps to its own line below 600 px (shared, in `vital_stats.h`), so no page scrolls sideways
-- [ ] 6.6 Shot list on a phone: cards shrink to the screen (`minmax(0, 1fr)`), and the sort menu takes no width while closed and flips left only when right-aligned would leave the screen
+- [x] 6.6 Shot list on a phone: cards shrink to the screen (`minmax(0, 1fr)`), and the sort menu takes no width while closed and flips left only when right-aligned would leave the screen
+- [x] 6.7 One shared `escapeHtml` (`webtemplates/escape_js.h`) for every web page, escaping both quotes; the compare page embeds its data by concatenation with `<` written as `\u003c`, builds it on the worker thread, and takes puck-prep order, profile-diff labels/decimals (`ProfileDialInText`, `ProfileFieldDelta::toVariantMap`) and its UI wording from the tables the app reads
 
 ## 7. MCP
 
@@ -61,8 +62,8 @@
 ## 8. Verification and docs
 
 - [x] 8.1 Build and run the full suite through Qt Creator MCP (scope `all`); QML lint gate passes
-- [ ] 8.2 Open the compare page in the running app with 2 and 5 shots, portrait and wide: re-base, paging, Show more, in-graph readout with all curves on, alignment toggle, unrated rating, a grinder swap, a re-tuned profile
-- [ ] 8.3 Open `/compare/` in Chrome at desktop and phone widths and check it against the app for the same shots and base
+- [x] 8.2 Open the compare page in the running app with 2 and 5 shots, portrait and wide: re-base, paging, Show more, readout with all curves on, alignment toggle, unrated rating, a grinder swap, a re-tuned profile — the re-tuned profile (Blooming Espresso, Oct 1 → Oct 2, +0.5 °C on seven steps) was checked on `/compare/`, which renders the same `ShotComparison` JSON
+- [x] 8.3 Open `/compare/` in Chrome at desktop and phone widths and check it against the app for the same shots and base
 - [x] 8.4 Wiki manual: short Compare Shots entry (base shot, what the two sections mean, the one-tap entries) — written in the local wiki clone; pushed when this PR merges, since a wiki push is live at once
 
 ## Workflow follow-up

@@ -5,13 +5,11 @@
 #include <QString>
 #include <QVector>
 
-#include "core/puckprep.h"
-
 // The words a shot comparison is told in: what each input, metric, badge and stop
-// reason is called, and the phrases a summary is built from. One table, so the app
-// (which translates each key) and the web /compare/ page (which shows the English)
-// name the same thing the same way. Header-only so the translation registry can
-// declare these keys without linking the comparison code.
+// reason is called, the phrases a summary is built from, and the page's own
+// headings and controls. One table, so the app (which translates each key) and the
+// web /compare/ page (which shows the English) say the same thing. Header-only so
+// the translation registry can declare these keys without linking the comparison.
 namespace ShotComparisonText {
 
 struct Entry {
@@ -93,22 +91,42 @@ inline const QVector<Entry>& entries()
 
         { "unit.gPerSec",               "comparison.unit.gramsPerSec",       "g/s" },
         { "unit.rpm",                   "comparison.unit.rpm",               "RPM" },
+
+        { "ui.changed",                 "comparison.section.changed",        "What you changed" },
+        { "ui.happened",                "comparison.section.happened",       "What happened" },
+        { "ui.nothingChanged",          "comparison.nothingChangedAll",      "Nothing changed in your setup." },
+        { "ui.sameForAll",              "comparison.sameForAll",             "Same for all" },
+        { "ui.sameForBoth",             "comparison.sameForBoth",            "Same for both" },
+        { "ui.sameVersion",             "comparison.sameVersion",            "(same version)" },
+        { "ui.prep",                    "equipment.card.puckPrep",           "Prep: %1" },
+        { "ui.profileChanged",          "comparison.profileChanged",         "Profile settings changed on %1" },
+        { "ui.showMore",                "comparison.showMore",               "Show %1 more" },
+        { "ui.showLess",                "comparison.showLess",               "Show less" },
+        { "ui.yes",                     "common.yes",                        "Yes" },
+        { "ui.no",                      "common.no",                         "No" },
+        { "ui.base",                    "comparison.base",                   "Base" },
+        { "ui.baseShot",                "comparison.baseShot",               "Base shot, %1" },
+        { "ui.makeBase",                "comparison.makeBase",               "Make %1 the base" },
+        { "ui.hideOnGraph",             "comparison.hideOnGraph",            "Hide on graph" },
+        { "ui.showOnGraph",             "comparison.showOnGraph",            "Show on graph" },
+        { "ui.alignPours",              "comparison.alignPours",             "Align pours" },
+        { "ui.fewerCurves",             "comparison.fewerCurves",            "Fewer" },
+        { "tip.fewerCurves",            "comparison.tip.fewerCurves",        "Hide the chips for curves that are turned off" },
+        { "tip.moreCurves",             "comparison.tip.moreCurves",         "Show the curves that are turned off, to turn them on" },
+        { "tip.phase",                  "comparison.tip.phase",              "Show or hide the %1 phase marker" },
+        { "tip.alignPours",             "comparison.tip.alignPours",
+          "Line up each shot's pour start with the base shot's, so a longer preinfusion does not shift the rest of its curves" },
     };
     return e;
 }
 
-// {id: {key, label}}, what QML translates from and the web page reads. Puck-prep
-// flags come from PuckPrep::flagLabels() as "puck.<flag>", not a second list.
+// {id: {key, label}}, what QML translates from and the web page reads.
 inline QJsonObject toJson()
 {
     QJsonObject out;
-    auto add = [&](const QString& id, const char* key, const char* english) {
-        out[id] = QJsonObject{ { QStringLiteral("key"), QLatin1String(key) },
-                               { QStringLiteral("label"), QLatin1String(english) } };
-    };
-    for (const Entry& e : entries()) add(QLatin1String(e.id), e.key, e.english);
-    for (const auto& f : PuckPrep::flagLabels())
-        add(QStringLiteral("puck.") + QLatin1String(f.key), f.translationKey, f.english);
+    for (const Entry& e : entries())
+        out[QLatin1String(e.id)] = QJsonObject{ { QStringLiteral("key"), QLatin1String(e.key) },
+                                                { QStringLiteral("label"), QLatin1String(e.english) } };
     return out;
 }
 

@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "history/shotcomparisontext.h"
 #include "core/puckprep.h"
+#include "profile/profiledialintext.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1348,9 +1349,11 @@ QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationString
     }
     for (const auto& c : widgetCategoryTable())
         out.append({ QString::fromLatin1(c.key), QString::fromLatin1(c.fallback) });
-    // The shot comparison's wording and the puck-prep flag names, aggregated here so
-    // the registry keeps one loop.
+    // The shot comparison's wording, the profile-diff field names and the puck-prep
+    // flag names: C++ tables the registry cannot find by scanning QML.
     out.append(ShotComparisonText::translationStrings());
+    for (const auto& e : ProfileDialInText::entries())
+        out.append({ QString::fromLatin1(e.key), QString::fromLatin1(e.english) });
     for (const auto& f : PuckPrep::flagLabels())
         out.append({ QString::fromLatin1(f.translationKey), QString::fromLatin1(f.english) });
     return out;

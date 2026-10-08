@@ -7,6 +7,8 @@
 #include "../history/shotcomparison.h"
 #include "../history/shotcomparisontext.h"
 #include "../history/shotprojection.h"
+#include "../history/equipmentstorage.h"
+#include "../profile/profiledialintext.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
@@ -986,12 +988,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 )HTML";
 
     // Part 13: Script - saved searches
+    html += WEB_JS_ESCAPE_HTML;
     html += R"HTML(
-        function escapeHtml(str) {
-            var div = document.createElement('div');
-            div.appendChild(document.createTextNode(str));
-            return div.innerHTML;
-        }
 
         function loadSavedSearches() {
             fetch('/api/saved-searches')
@@ -1918,20 +1916,20 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                     '<textarea class="edit-textarea" id="editNotes">' + escapeHtml(shotData.espressoNotes) + '</textarea>' +
                 '</div>' +
                 '<div class="info-card"><h3>Beans</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeAttr(shotData.beanBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeAttr(shotData.beanType) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeAttr(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeHtml(shotData.beanBrand) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeHtml(shotData.beanType) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeHtml(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
                     '<div class="edit-row"><span class="label">Roast Level</span><div class="edit-field"><select class="edit-select" id="editRoastLevel">' + roastOptions + '</select></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Grinder</h3>' +
-                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeAttr(shotData.grinderBrand) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeAttr(shotData.grinderModel) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeAttr(shotData.grinderBurrs) + '"></div></div>' +
-                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeAttr(shotData.grinderSetting) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeHtml(shotData.grinderBrand) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeHtml(shotData.grinderModel) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeHtml(shotData.grinderBurrs) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeHtml(shotData.grinderSetting) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">RPM</span><div class="edit-field"><input type="number" class="edit-input" id="editRpm" step="1" min="0" value="' + (shotData.rpm > 0 ? shotData.rpm : '') + '"></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Additional</h3>' +
-                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeAttr(shotData.barista) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeHtml(shotData.barista) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Beverage</span><div class="edit-field"><select class="edit-select" id="editBeverageType">' + bevOptions + '</select></div></div>' +
                     '<div class="edit-row"><span class="label">TDS</span><div class="edit-field"><input type="number" class="edit-input" id="editTds" step="0.01" value="' + (shotData.drinkTds || '') + '" oninput="autoCalcEY()"></div></div>' +
                     '<div class="edit-row"><span class="label">EY (%)</span><div class="edit-field"><input type="number" class="edit-input" id="editEy" step="0.1" value="' + (shotData.drinkEy || '') + '" readonly style="opacity:0.7"></div></div>' +
@@ -2042,14 +2040,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             });
         }
 
-        function escapeAttr(s) {
-            if (!s) return '';
-            return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
-        function escapeHtml(s) {
-            if (!s) return '';
-            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
+        )HTML" + QString::fromLatin1(WEB_JS_ESCAPE_HTML) + R"HTML(
     </script>
 )HTML" R"HTML(
     <script>
@@ -2442,12 +2433,10 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     return rendered;
 }
 
-QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) const
+// Runs on the worker thread that loaded the shots: the comparison parses every
+// shot's profile once per base, which is no work for the thread carrying BLE.
+QJsonObject ShotServer::comparisonPageData(const QList<ShotRecord>& shotsIn)
 {
-    if (shotsIn.size() < 2) {
-        return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
-    }
-
     // Oldest first, by when each shot was pulled: the default base, as in the app.
     QList<ShotRecord> shots = shotsIn;
     std::stable_sort(shots.begin(), shots.end(), [](const ShotRecord& a, const ShotRecord& b) {
@@ -2491,12 +2480,30 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
     QJsonArray comparisons;
     for (qsizetype i = 0; i < projections.size(); ++i)
         comparisons.append(ShotComparison::compare(projections, i));
+    return QJsonObject{ { QStringLiteral("shots"), shotData }, { QStringLiteral("comparisons"), comparisons } };
+}
 
+QString ShotServer::generateComparisonPage(const QJsonObject& data) const
+{
+    const QJsonArray shots = data.value(QStringLiteral("shots")).toArray();
+    if (shots.size() < 2) {
+        return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
+    }
+
+    // JSON as a script literal. "<" only ever occurs inside a JSON string, where
+    // \u003c means the same, so no note or name can close the <script> or open a
+    // comment that swallows it.
     auto embed = [](const QJsonValue& v) {
-        QString s = QString::fromUtf8(v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
-                                                  : QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact));
-        s.replace(QStringLiteral("</"), QStringLiteral("<\\/"));   // never close the <script>
-        return s;
+        const QByteArray json = v.isArray() ? QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact)
+                                            : QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact);
+        return QString::fromUtf8(json).replace(QLatin1Char('<'), QStringLiteral("\\u003c"));
+    };
+    // The app's own icons, drawn in the text colour, so the two pages cannot drift.
+    auto icon = [&](const QString& path) {
+        QFile f(path);
+        QString svg = f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        svg.replace(QStringLiteral("\"white\""), QStringLiteral("\"currentColor\""));
+        return embed(QJsonArray{ svg }).mid(1).chopped(1);   // the JSON string literal alone
     };
 
     QString html = QStringLiteral(R"HTML(<!DOCTYPE html>
@@ -2594,7 +2601,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&#8592;</a>
-            <h1>Compare __COUNT__ Shots</h1>
+            <h1>Compare )HTML") + QString::number(shots.size()) + QStringLiteral(R"HTML( Shots</h1>
 )HTML");
     html += generateMenuHtml();
     html += QStringLiteral(R"HTML(
@@ -2611,17 +2618,20 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
         <section class="card" id="comparison"></section>
     </main>
     <script>
-        var shots = __SHOTS__;
-        var comparisons = __COMPARISONS__;
-        var texts = __TEXTS__;
-        var icons = { eye: __EYE__, eyeOff: __EYEOFF__ };
 )HTML");
+    html += QStringLiteral("        var shots = ") + embed(shots)
+          + QStringLiteral(";\n        var comparisons = ") + embed(data.value(QStringLiteral("comparisons")))
+          + QStringLiteral(";\n        var texts = ") + embed(ShotComparisonText::toJson())
+          + QStringLiteral(";\n        var dialInLabels = ") + embed(QJsonObject::fromVariantMap(ProfileDialInText::labelMap()))
+          + QStringLiteral(";\n        var puckFlags = ") + embed(QJsonArray::fromVariantList(EquipmentStorage::puckPrepFlags()))
+          + QStringLiteral(";\n        var icons = { eye: ") + icon(QStringLiteral(":/icons/eye.svg"))
+          + QStringLiteral(", eyeOff: ") + icon(QStringLiteral(":/icons/eye-off.svg")) + QStringLiteral(" };\n");
+    html += QString::fromLatin1(WEB_JS_ESCAPE_HTML);
     html += QString::fromLatin1(WEB_JS_MENU);
     html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
     html += QStringLiteral(R"HTML(
         // === Wording: ShotComparisonText, the table the app translates ===
         function txt(id, fb) { var e = texts[id]; return e ? e.label : (fb !== undefined ? fb : id); }
-        function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
         var DASH = "—";
 
         // === State ===
@@ -2777,18 +2787,19 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
             curves.forEach(function(c, i) {
                 if (!c.on) off++;
                 if (!c.on && !showAllCurves) return;
-                h += "<button class='chip" + (c.on ? " on" : "") + "' title='" + esc(c.name + ": " + c.tip) + "' onclick='toggleCurve(" + i + ")'"
+                h += "<button class='chip" + (c.on ? " on" : "") + "' title='" + escapeHtml(c.name + ": " + c.tip) + "' onclick='toggleCurve(" + i + ")'"
                    + (c.on ? " style='border-color:" + c.color + "'" : "") + "><span class='dot' style='background:" + c.color + "'></span>" + c.label + "</button>";
             });
-            if (off > 0) h += "<button class='chip' title='" + (showAllCurves ? "Hide the chips for curves that are turned off" : "Show the curves that are turned off, to turn them on")
-                            + "' onclick='showAllCurves=!showAllCurves;renderChips()'>" + (showAllCurves ? "Fewer" : "+" + off) + "</button>";
+            if (off > 0) h += "<button class='chip' title='" + escapeHtml(txt(showAllCurves ? "tip.fewerCurves" : "tip.moreCurves"))
+                            + "' onclick='showAllCurves=!showAllCurves;renderChips()'>" + (showAllCurves ? escapeHtml(txt("ui.fewerCurves")) : "+" + off) + "</button>";
             if (phaseLabels.length > 0) h += "<span class='chip-sep'></span>";
             phaseLabels.forEach(function(p, i) {
                 var color = phaseColors[i % phaseColors.length], on = !hiddenPhases[p];
-                h += "<button class='chip" + (on ? " on" : "") + "' title='Show or hide the " + esc(p) + " phase marker' onclick='togglePhase(" + i + ")'"
-                   + (on ? " style='border-color:" + color + "'" : "") + "><span class='dot' style='background:" + color + "'></span>" + esc(p) + "</button>";
+                h += "<button class='chip" + (on ? " on" : "") + "' title='" + escapeHtml(txt("tip.phase").replace("%1", p)) + "' onclick=''togglePhase(" + i + ")'"
+                   + (on ? " style='border-color:" + color + "'" : "") + "><span class='dot' style='background:" + color + "'></span>" + escapeHtml(p) + "</button>";
             });
-            h += "<button class='chip" + (alignPours ? " on" : "") + "' title=\"Line up each shot's pour start with the base shot's, so a longer preinfusion does not shift the rest of its curves\" onclick='alignPours=!alignPours;renderChips();redrawChart()'>Align pours</button>";
+            h += "<button class='chip" + (alignPours ? " on" : "") + "' title='" + escapeHtml(txt("tip.alignPours"))
+               + "' onclick='alignPours=!alignPours;renderChips();redrawChart()'>" + escapeHtml(txt("ui.alignPours")) + "</button>";
             document.getElementById("chips").innerHTML = h;
         }
         function toggleCurve(i) { curves[i].on = !curves[i].on; renderChips(); redrawChart(); }
@@ -2808,8 +2819,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
         }
         function puckLabels(canon) {
             var flags = (canon || "").split(",");
-            return Object.keys(texts).filter(function(id) { return id.indexOf("puck.") === 0 && flags.indexOf(id.slice(5)) >= 0; })
-                .map(function(id) { return texts[id].label; });
+            return puckFlags.filter(function(f) { return flags.indexOf(f.key) >= 0; }).map(function(f) { return f.label; });
         }
         function inputText(row, cell) {
             var has = cell.value !== null && cell.value !== undefined;
@@ -2850,13 +2860,25 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
             out = out.filter(function(t) { return t.length > 0; });
             return out.length > 0 ? out.join("  ·  ") : txt("phrase.noNotable");
         }
-        function humanize(kind) { var s = kind.replace(/([A-Z])/g, " $1").toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
+        // Profile-diff rows: ProfileDialInText's labels and the decimals C++ chose,
+        // as ProfileDialInDiffBlock.qml shows them.
+        function dialInLabel(id) { var e = dialInLabels[id]; return e ? e.label : id; }
+        function diffRowText(r) {
+            var name = dialInLabel(r.kind);
+            if (r.frameIndex >= 0) name = (r.frameName || dialInLabel("step").replace("%1", r.frameIndex + 1)) + " · " + name;
+            function val(v) {
+                var u = { celsius: " °C", celsiusTank: " °C", bar: " bar", mlPerSec: " mL/s", g: " g", ml: " mL" }[r.unit];
+                return v.toFixed(r.decimals) + (u !== undefined ? u : r.unit ? " " + r.unit : "");
+            }
+            return name + " " + (r.numeric ? val(r.oldValue) + " → " + val(r.newValue)
+                                           : (r.oldText || DASH) + " → " + (r.newText || DASH));
+        }
 )HTML");
     html += QStringLiteral(R"HTML(
         // === The comparison ===
         function rowHtml(label, unit, cells) {
-            var h = "<div class='row'><div class='label'>" + esc(label)
-                  + (unit ? "<span class='unit'>" + esc(unit) + "</span>" : "") + "</div>";
+            var h = "<div class='row'><div class='label'>" + escapeHtml(label)
+                  + (unit ? "<span class='unit'>" + escapeHtml(unit) + "</span>" : "") + "</div>";
             cells.forEach(function(c) { h += "<div" + (c.cls ? " class='" + c.cls + "'" : "") + ">" + c.html + "</div>"; });
             return h + "</div>";
         }
@@ -2866,67 +2888,64 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
             var h = "<div class='heads'><div class='spacer'></div>";
             cols.forEach(function(si, col) {
                 var s = shots[si], hidden = !!hiddenShots[s.id];
-                h += "<div class='head" + (col === 0 ? " base" : "") + "'><div title='" + esc(col === 0 ? "Base shot, " + s.date : "Make " + s.date + " the base") + "'"
+                h += "<div class='head" + (col === 0 ? " base" : "") + "'><div title='" + escapeHtml(txt(col === 0 ? "ui.baseShot" : "ui.makeBase").replace("%1", s.date)) + "'"
                    + (col === 0 ? "" : " onclick='setBase(" + si + ")'") + ">"
-                   + swatch(col) + "<span class='date'>" + esc(s.date) + "</span>"
-                   + (col === 0 ? "<span class='tag'>Base</span>" : "")
-                   + "<button class='eye" + (hidden ? " off" : "") + "' title='" + (hidden ? "Show on graph" : "Hide on graph")
+                   + swatch(col) + "<span class='date'>" + escapeHtml(s.date) + "</span>"
+                   + (col === 0 ? "<span class='tag'>" + escapeHtml(txt("ui.base")) + "</span>" : "")
+                   + "<button class='eye" + (hidden ? " off" : "") + "' title='" + escapeHtml(txt(hidden ? "ui.showOnGraph" : "ui.hideOnGraph"))
                    + "' aria-pressed='" + !hidden + "' onclick='event.stopPropagation();toggleShot(" + s.id + ")'>"
                    + (hidden ? icons.eyeOff : icons.eye) + "</button></div></div>";
             });
             h += "</div>";
 
             c.comparisons.forEach(function(cc, i) {
-                h += "<div class='summary'>" + swatch(i + 1) + "<span>" + esc(summaryFor(cc)) + "</span></div>";
+                h += "<div class='summary'>" + swatch(i + 1) + "<span>" + escapeHtml(summaryFor(cc)) + "</span></div>";
             });
 
-            h += "<div class='section'>What you changed</div>";
+            h += "<div class='section'>" + escapeHtml(txt("ui.changed")) + "</div>";
             (c.inputs || []).forEach(function(r) {
                 h += rowHtml(txt("input." + r.key, r.key), "", r.cells.map(function(cell) {
-                    return { cls: cell.state === "same" ? "muted" : "", html: esc(inputText(r, cell)) + pill(cell.delta, inputDelta(r, cell.delta)) };
+                    return { cls: cell.state === "same" ? "muted" : "", html: escapeHtml(inputText(r, cell)) + pill(cell.delta, inputDelta(r, cell.delta)) };
                 }));
             });
-            if ((c.inputs || []).length === 0) h += "<div class='note'>Nothing changed in your setup.</div>";
+            if ((c.inputs || []).length === 0) h += "<div class='note'>" + escapeHtml(txt("ui.nothingChanged")) + "</div>";
             var same = (c.unchanged || []).map(function(it) {
                 var v = it.text;
                 if (it.value !== null && it.value !== undefined && it.unit !== "") v = inputText(it, it);
                 if (it.key === "profile") {
-                    if (c.comparisons.every(function(cc) { return cc.profile && cc.profile.sameVersion === true; })) v += " (same version)";
-                } else if (it.key === "puckPrep") v = "Prep: " + puckLabels(it.text).join(", ");
+                    if (c.comparisons.every(function(cc) { return cc.profile && cc.profile.sameVersion === true; })) v += " " + txt("ui.sameVersion");
+                } else if (it.key === "puckPrep") v = txt("ui.prep").replace("%1", puckLabels(it.text).join(", "));
                 else if (["grinder", "burrs", "basket", "bean", "roast"].indexOf(it.key) < 0 && it.unit !== "rpm") v = txt("input." + it.key, it.key) + " " + v;
                 return v;
             });
-            if (same.length > 0) h += "<div class='note'>" + (cols.length > 2 ? "Same for all" : "Same for both") + "  ·  " + esc(same.join(" · ")) + "</div>";
+            if (same.length > 0) h += "<div class='note'>" + escapeHtml(txt(cols.length > 2 ? "ui.sameForAll" : "ui.sameForBoth")) + "  ·  " + escapeHtml(same.join(" · ")) + "</div>";
             c.comparisons.forEach(function(cc, i) {
                 var rows = cc.profile ? cc.profile.rows || [] : [];
                 if (rows.length === 0) return;
-                h += "<div class='diff'>Profile settings changed on " + esc(shots[cols[i + 1]].date) + ": "
-                   + esc(rows.map(function(r) {
-                        var name = (r.frameIndex >= 0 ? (r.frameName || "Step " + (r.frameIndex + 1)) + " · " : "") + humanize(r.kind);
-                        return name + " " + (r.numeric ? r.oldValue + " → " + r.newValue : (r.oldText || DASH) + " → " + (r.newText || DASH));
-                     }).join("; ")) + "</div>";
+                h += "<div class='diff'>" + escapeHtml(txt("ui.profileChanged").replace("%1", shots[cols[i + 1]].date) + ": "
+                   + rows.map(diffRowText).join("; ")) + "</div>";
             });
 
-            h += "<div class='section'>What happened</div>";
+            h += "<div class='section'>" + escapeHtml(txt("ui.happened")) + "</div>";
             var hidden = 0;
             (c.metrics || []).forEach(function(r) {
                 if (r.more) hidden++;
                 if (r.more && !showMore) return;
                 h += rowHtml(txt("metric." + r.key, r.key), unitLabel(r.unit), r.cells.map(function(cell) {
                     var d = cell.delta;
-                    return { html: esc(metricText(r, cell.value)) + (d !== null && d !== undefined ? pill(d, signed(d, r.decimals)) : "") };
+                    return { html: escapeHtml(metricText(r, cell.value)) + (d !== null && d !== undefined ? pill(d, signed(d, r.decimals)) : "") };
                 }));
             });
             var ss = c.shots;
             if (ss.some(function(s) { return s.stoppedBy !== ss[0].stoppedBy; }))
-                h += rowHtml(txt("row.stopped"), "", ss.map(function(s) { return { html: esc(s.stoppedBy ? txt("stop." + s.stoppedBy, DASH) : DASH) }; }));
+                h += rowHtml(txt("row.stopped"), "", ss.map(function(s) { return { html: escapeHtml(s.stoppedBy ? txt("stop." + s.stoppedBy, DASH) : DASH) }; }));
             var counts = {};
             ss.forEach(function(s) { (s.badges || []).forEach(function(b) { counts[b] = (counts[b] || 0) + 1; }); });
             Object.keys(counts).forEach(function(b) {
                 if (counts[b] === ss.length) return;
                 h += rowHtml(txt("badge." + b, b), "", ss.map(function(s) {
                     var on = (s.badges || []).indexOf(b) >= 0;
-                    return { cls: on ? "warn" : "muted", html: on ? "Yes" : "No" };
+                    return { cls: on ? "warn" : "muted", html: escapeHtml(txt(on ? "ui.yes" : "ui.no")) };
                 }));
             });
             if (ss.some(function(s) { return s.rating0to100 !== null || s.tasteBalance || s.tasteBody; }))
@@ -2935,11 +2954,11 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
                     if (s.rating0to100 !== null) p.push(s.rating0to100 + "%");
                     if (s.tasteBalance) p.push(s.tasteBalance);
                     if (s.tasteBody) p.push(s.tasteBody);
-                    return { html: esc(p.length ? p.join(" · ") : DASH) };
+                    return { html: escapeHtml(p.length ? p.join(" · ") : DASH) };
                 }));
-            if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderComparison()'>" + (showMore ? "Show less" : "Show " + hidden + " more") + "</button>";
+            if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderComparison()'>" + escapeHtml(showMore ? txt("ui.showLess") : txt("ui.showMore").replace("%1", hidden)) + "</button>";
             ss.forEach(function(s) {
-                if (s.notes) h += "<div class='quote'>" + esc(shots[indexById[s.shotId]].date) + "  “" + esc(s.notes) + "”</div>";
+                if (s.notes) h += "<div class='quote'>" + escapeHtml(shots[indexById[s.shotId]].date) + "  “" + escapeHtml(s.notes) + "”</div>";
             });
             document.getElementById("comparison").innerHTML = h;
         }
@@ -2955,19 +2974,6 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shotsIn) con
 </html>
 )HTML");
 
-    html.replace(QStringLiteral("__COUNT__"), QString::number(shots.size()));
-    html.replace(QStringLiteral("__SHOTS__"), embed(shotData));
-    html.replace(QStringLiteral("__COMPARISONS__"), embed(comparisons));
-    html.replace(QStringLiteral("__TEXTS__"), embed(ShotComparisonText::toJson()));
-    // The app's own icons, drawn in the text colour, so the two pages cannot drift.
-    auto icon = [&](const QString& path) {
-        QFile f(path);
-        QString svg = f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
-        svg.replace(QStringLiteral("\"white\""), QStringLiteral("\"currentColor\""));
-        return embed(QJsonArray{ svg }).mid(1).chopped(1);   // the JSON string literal alone
-    };
-    html.replace(QStringLiteral("__EYE__"), icon(QStringLiteral(":/icons/eye.svg")));
-    html.replace(QStringLiteral("__EYEOFF__"), icon(QStringLiteral(":/icons/eye-off.svg")));
     return html;
 }
 
@@ -3421,11 +3427,7 @@ R"HTML(        /* --- Memory section --- */
             return "<div class=\"log-line " + category + "\">" + escapeHtml(line) + "</div>";
         }
 
-        function escapeHtml(text) {
-            var div = document.createElement("div");
-            div.textContent = text;
-            return div.innerHTML;
-        }
+        )HTML" + QString::fromLatin1(WEB_JS_ESCAPE_HTML) + R"HTML(
 
         function fetchLogs() {
             fetch("/api/debug?after=" + lastIndex)

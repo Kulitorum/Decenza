@@ -9,6 +9,7 @@
 #include <QHash>
 #include <QSet>
 #include "../profile/profile.h"
+#include "../profile/profiledialintext.h"
 
 class Settings;
 class DE1Device;
@@ -95,6 +96,8 @@ class ProfileManager : public QObject {
     // enforces them.
     Q_PROPERTY(double defaultPressureFlowLimit READ defaultPressureFlowLimit CONSTANT)
     Q_PROPERTY(double maxSettableFlow READ maxSettableFlow CONSTANT)
+    // {kind: {key, label}} for profileDialInDiff rows (ProfileDialInText).
+    Q_PROPERTY(QVariantMap dialInLabels READ dialInLabels CONSTANT)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allProfilesList READ allProfilesList NOTIFY profilesChanged)
 
@@ -169,6 +172,7 @@ public:
     QString currentProfileName() const;
     double defaultPressureFlowLimit() const { return Profile::kDefaultPressureFlowLimit; }
     double maxSettableFlow() const { return Profile::kMaxSettableFlow; }
+    static QVariantMap dialInLabels() { return ProfileDialInText::labelMap(); }
     QString currentProfileTitle() const { return m_currentProfile.title(); }
     QString baseProfileName() const { return m_baseProfileName; }
     Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }
