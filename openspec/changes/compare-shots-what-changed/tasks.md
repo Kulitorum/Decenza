@@ -33,7 +33,7 @@
 - [x] 4.4 One wrapping chip row under the graph for curve and phase toggles, curves that are off collapsed to "+N"
 - [x] 4.5 `ComparisonGraph.qml`: base drawn at `graphLineWidth + 1`; replace the hard-coded 3 here and in `ShotComparisonPage.qml` with the model's visible count
 - [x] 4.6 Add the page-local "Align pours" chip, shifting each shot so its pour start meets the base's
-- [x] 4.7 Graph panel fixed above a scrolling comparison, plot capped at about half the height (side by side tried and dropped)
+- [x] 4.7 One scrolling column, graph panel first, plot height dragged between bounds (a pinned graph and side by side were both tried and dropped)
 - [x] 4.8 All new text through `TranslationManager.translate("comparison.*", …)`; translate the existing bare "TDS/EY" label
 - [x] 4.9 Fix pre-existing accessibility gaps in every comparison QML file touched (raw `Rectangle`+`MouseArea` window arrows, phase pills)
 - [x] 4.10 App-wide screen-reader toggle sweep (found reviewing the chips): `AccessibleMouseArea` and the hand-built CheckBox/RadioButton items handle `onToggleAction`, which VoiceOver sends for those roles on macOS; `StyledSwitch` and the firmware `Switch` drop their `toggle()` handlers, which skipped `onToggled` on every platform; rules added to `docs/CLAUDE_MD/ACCESSIBILITY.md`

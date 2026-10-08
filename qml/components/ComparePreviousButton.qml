@@ -15,16 +15,23 @@ AccessibleButton {
     accessibleName: TranslationManager.translate("comparison.compareWithPreviousLong", "Compare with previous shot")
 
     function _request() {
-        previousShotId = 0
         if (shotId > 0) MainController.shotHistory.requestPreviousShot(shotId)
     }
-    onShotIdChanged: _request()
+    onShotIdChanged: {
+        previousShotId = 0
+        _request()
+    }
     Component.onCompleted: _request()
 
     Connections {
         target: MainController.shotHistory
         function onPreviousShotReady(id, previousId) {
             if (id === root.shotId) root.previousShotId = previousId
+        }
+        // A saved edit can re-point the shot's equipment (or anything else the
+        // match keys on), so the previous shot is looked up again.
+        function onShotMetadataUpdated(id, success) {
+            if (success && id === root.shotId) root._request()
         }
     }
 

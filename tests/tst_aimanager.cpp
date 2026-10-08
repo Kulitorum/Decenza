@@ -177,6 +177,29 @@ private slots:
         }
         QVERIFY(!logs.lines().join('\n').contains("secret-"));
     }
+    // A turn's target yield and brew temperature live in its `profile` block, not
+    // its `shot` block: a turn that changed only those must still report a change,
+    // or the advisor is told the user changed nothing.
+    void previousShotDiffReadsTheProfileBlock()
+    {
+        AIConversation conv(nullptr);
+        auto turn = [](const char* label, double targetG, double tempC) {
+            const QJsonObject o{
+                { "shotLabel", label },
+                { "shot", QJsonObject{ { "doseG", 18.0 }, { "grinderSetting", "10" } } },
+                { "profile", QJsonObject{ { "targetWeightG", targetG }, { "targetTemperatureC", tempC } } },
+            };
+            return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+        };
+        conv.m_messages.append(QJsonObject{ { "role", "user" }, { "content", turn("A", 36.0, 93.0) } });
+
+        const QJsonObject c = conv.changesFromPreviousShot(QStringLiteral("B"), turn("B", 40.0, 94.0));
+        QCOMPARE(c[QStringLiteral("comparedToShot")].toString(), QStringLiteral("A"));
+        QVERIFY(c[QStringLiteral("anyChange")].toBool());
+        const QJsonObject inputs = c[QStringLiteral("changes")].toObject()[QStringLiteral("inputs")].toObject();
+        QVERIFY(inputs.contains(QStringLiteral("targetYieldG")));
+        QVERIFY(inputs.contains(QStringLiteral("temperatureOverrideC")));
+    }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
     // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
     // parseProductPageUrl: the last-rung search's reply contract. A model's

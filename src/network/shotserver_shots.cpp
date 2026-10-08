@@ -2910,7 +2910,7 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
                     return { cls: cell.state === "same" ? "muted" : "", html: escapeHtml(inputText(r, cell)) + pill(cell.delta, inputDelta(r, cell.delta)) };
                 }));
             });
-            if ((c.inputs || []).length === 0) h += "<div class='note'>" + escapeHtml(txt("ui.nothingChanged")) + "</div>";
+            if (c.comparisons.every(function(cc) { return cc.nothingChanged === true; })) h += "<div class='note'>" + escapeHtml(txt("ui.nothingChanged")) + "</div>";
             var same = (c.unchanged || []).map(function(it) {
                 var v = it.text;
                 if (it.value !== null && it.value !== undefined && it.unit !== "") v = inputText(it, it);

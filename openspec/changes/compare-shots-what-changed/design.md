@@ -162,10 +162,11 @@ metric table, e.g. 1 s, 1 g, 0.3 bar, 0.5 °C; below one floor a change is not n
 JS turn it into a sentence from translated fragments. Only the ranking lives in C++, so app and
 web pick the same three. No AI provider is involved.
 
-**D8c. Layout.** The graph panel (paging, plot, readout strip, chips) sits above a
-`Flickable` that holds the comparison; only the comparison scrolls. The plot is capped at about
-half the page height so a tall saved graph cannot squeeze the comparison out. Side by side was
-built and dropped after trying it: at half the width the plot was too small to read.
+**D8c. Layout.** The page is one `Flickable` column: paging, plot, readout strip, chips, then
+the comparison. Pinning the graph above a separately scrolling comparison was built first and
+dropped: on a short window it left almost no room for the comparison. Side by side was also
+built and dropped: at half the width the plot was too small to read. The plot's height is
+dragged between 180 and 600 (scaled) and remembered.
 
 **D8. Δ presentation.** A Δ uses the value's precision. Increase is `warningColor` (gold) and
 decrease `primaryColor` (blue), as on the decentespresso.com page; `accentColor` was rejected

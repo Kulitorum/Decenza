@@ -376,7 +376,10 @@ ColumnLayout {
     }
 
     Text {
-        visible: (root.cmp.inputs || []).length === 0 && root.comparisons.length > 0
+        // Per comparison, not by input rows: a profile-only retune has no input row
+        // and is still a change.
+        visible: root.comparisons.length > 0
+                 && root.comparisons.every(function(c) { return c.nothingChanged === true })
         Layout.fillWidth: true
         text: root.txt("ui.nothingChanged")
         font: Theme.labelFont

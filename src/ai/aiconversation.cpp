@@ -782,6 +782,7 @@ ShotProjection projectionFromPayload(const QString& content)
     const QJsonObject obj = QJsonDocument::fromJson(content.toUtf8()).object();
     const QJsonObject shot = obj.value(QStringLiteral("shot")).toObject();
     const QJsonObject bean = obj.value(QStringLiteral("currentBean")).toObject();
+    const QJsonObject profile = obj.value(QStringLiteral("profile")).toObject();
     auto pick = [&](const char* shotKey, const char* beanKey) {
         const QString k = QLatin1String(shotKey);
         return shot.contains(k) ? shot.value(k) : bean.value(QLatin1String(beanKey));
@@ -792,6 +793,10 @@ ShotProjection projectionFromPayload(const QString& content)
     p.enjoyment0to100 = shot.value(QStringLiteral("enjoyment0to100")).toInt();
     p.grinderSetting = pick("grinderSetting", "grinderSetting").toString();
     p.rpm = pick("rpm", "rpm").toInt();
+    // buildCurrentProfileBlock: the target, and the brew temperature (the override
+    // when one was set, else the profile's).
+    p.targetWeightG = profile.value(QStringLiteral("targetWeightG")).toDouble();
+    p.temperatureOverrideC = profile.value(QStringLiteral("targetTemperatureC")).toDouble();
     p.grinderBrand = bean.value(QStringLiteral("grinderBrand")).toString();
     p.grinderModel = bean.value(QStringLiteral("grinderModel")).toString();
     p.grinderBurrs = bean.value(QStringLiteral("grinderBurrs")).toString();
