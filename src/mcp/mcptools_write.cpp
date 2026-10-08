@@ -122,9 +122,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     // shots_update — replaces shots_set_feedback with full metadata editing (same as QML)
     registry->registerAsyncTool(
         "shots_update",
-        "Update any metadata field on a shot. Supports all fields the QML shot editor can change: "
-        "enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY, and the shot's "
-        "Bean Base snapshot (beanBase).",
+        "Update any metadata field on a shot: everything the app and web shot pages can change. "
+        "Rating, taste, notes, dose, yield, grind, barista, TDS, EY; the beans (bagId copies a bag's "
+        "details and dates, as the bean picker does; or set the fields and storage dates directly); "
+        "the equipment package; and the Bean Base snapshot (beanBase).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -147,6 +148,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type, e.g. 'espresso'. Saved locally only — it does not propagate to visualizer.coffee"}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}},
+                {"tasteBalance", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray::fromStringList(QStringList{QString()} + ShotHistoryStorage::tasteBalanceValues())},
+                    {"description", "Taste balance; empty clears"}}},
+                {"tasteBody", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray::fromStringList(QStringList{QString()} + ShotHistoryStorage::tasteBodyValues())},
+                    {"description", "Taste body; empty clears"}}},
+                {"bagId", QJsonObject{{"type", "integer"}, {"description",
+                    "Bag the shot used (bag action=list): copies its bean details and dates, like the bean picker; -1 unlinks"}}},
+                {"equipmentId", QJsonObject{{"type", "integer"}, {"description",
+                    "Equipment package the shot used (equipment tool); 0 clears"}}},
+                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "When the beans went in the freezer (YYYY-MM-DD; empty clears)"}}},
+                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "When this portion was thawed (YYYY-MM-DD; empty clears)"}}},
+                {"openedDate", QJsonObject{{"type", "string"}, {"description", "When this portion was opened (YYYY-MM-DD; empty clears)"}}},
+                {"storageHint", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray::fromStringList(QStringList{QString()} + CoffeeBag::storageHintValues())},
+                    {"description", "How the beans are kept out of the freezer; empty clears"}}},
                 {"beanBase", QJsonObject{{"type", "object"}, {"description",
                     "Replace this shot's stored Bean Base snapshot (the canonical bean record the shot "
                     "was pulled with — shown as `beanBase` in shots_get_detail). Pass a full entry object "
@@ -202,6 +219,47 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
                 metadata["drinkEy"] = args["drinkEy"].toDouble();
+            // Refused rather than left to storage, which drops a bad taste value
+            // and would let this report it as updated.
+            for (const auto& [key, allowed] : {std::pair{QStringLiteral("tasteBalance"), &ShotHistoryStorage::tasteBalanceValues()},
+                                               std::pair{QStringLiteral("tasteBody"), &ShotHistoryStorage::tasteBodyValues()}}) {
+                if (!args.contains(key))
+                    continue;
+                const QString v = args[key].toString().trimmed().toLower();
+                if (!v.isEmpty() && !allowed->contains(v)) {
+                    respond(QJsonObject{{"error", QStringLiteral("%1 must be one of: %2, or empty to clear")
+                        .arg(key, allowed->join(QStringLiteral(", ")))}});
+                    return;
+                }
+                metadata[key] = v;
+            }
+            static const QStringList kStorageKeys = {QStringLiteral("frozenDate"), QStringLiteral("defrostDate"),
+                                                     QStringLiteral("openedDate"), QStringLiteral("storageHint")};
+            for (const QString& key : kStorageKeys)
+                if (args.contains(key))
+                    metadata[key] = args[key].toString().trimmed();
+            if (args.contains("equipmentId"))
+                metadata["equipmentId"] = args["equipmentId"].toInteger();
+            if (args.contains("bagId") && !bagIdIsSet(args["bagId"].toInteger())) {
+                // No bag: the shot keeps the bean fields sent with it, as the
+                // bean picker does for a bean that isn't in the inventory.
+                metadata["bagId"] = -1;
+            } else if (args.contains("bagId")) {
+                // The bag supplies the bean snapshot, so a value sent alongside
+                // would be silently overwritten by the bag's.
+                QStringList clashing;
+                for (const QString& key : QStringList{QStringLiteral("beanBrand"), QStringLiteral("beanType"),
+                                                      QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
+                                                      QStringLiteral("beanBase")} + kStorageKeys)
+                    if (args.contains(key))
+                        clashing << key;
+                if (!clashing.isEmpty()) {
+                    respond(QJsonObject{{"error", QStringLiteral("bagId copies %1 from the bag; send them "
+                        "in a separate call to correct them").arg(clashing.join(QStringLiteral(", ")))}});
+                    return;
+                }
+                metadata["bagId"] = args["bagId"].toInteger();
+            }
             if (args.contains("beanBase")) {
                 // Snapshot semantics: we store the data, not a reference —
                 // an empty object clears the link, anything else is saved
@@ -223,6 +281,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["beanBaseJson"] = bean.isEmpty()
                     ? QString()
                     : QString::fromUtf8(QJsonDocument(bean).toJson(QJsonDocument::Compact));
+                // The indexed id the history search reads; the app's shot page
+                // keeps it in step with the snapshot the same way.
+                metadata["beanBaseId"] = bean.value("id").toVariant().toString();
             }
 
             if (metadata.isEmpty()) {
@@ -239,13 +300,56 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // with shots_list" — against a database shots_list cannot reach
                 // either, so the advice could only send it in a circle.
                 QStringList holding;
+                QString refusal;
                 const bool opened = withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
-                    ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
+                    // One write transaction, so the dates checked are the dates
+                    // the update lands on.
+                    DbWriteTxn txn = DbWriteTxn::begin(db, "MCP shots_update");
+                    if (!txn.ok()) {
+                        refusal = txn.lockTimedOut()
+                            ? QStringLiteral("The shot database is busy; try again")
+                            : QStringLiteral("The shot database could not start a write; see the app log");
+                        return;
+                    }
+                    // Storage dates follow the bag rules, checked against the
+                    // shot's own dates (CoffeeBag::writeError).
+                    static const QStringList kDateKeys = {QStringLiteral("roastDate"), QStringLiteral("frozenDate"),
+                                                          QStringLiteral("defrostDate"), QStringLiteral("openedDate"),
+                                                          QStringLiteral("storageHint")};
+                    QVariantMap dateChanges;
+                    for (const QString& key : kDateKeys)
+                        if (metadata.contains(key))
+                            dateChanges.insert(key, metadata.value(key));
+                    if (!dateChanges.isEmpty()) {
+                        QSqlQuery q(db);
+                        q.prepare(QStringLiteral("SELECT roast_date, frozen_date, defrost_date, opened_date "
+                                                 "FROM shots WHERE id = :id"));
+                        q.bindValue(QStringLiteral(":id"), shotId);
+                        QVariantMap stored;
+                        if (q.exec() && q.next())
+                            stored = {{QStringLiteral("roastDate"), q.value(0)}, {QStringLiteral("frozenDate"), q.value(1)},
+                                      {QStringLiteral("defrostDate"), q.value(2)}, {QStringLiteral("openedDate"), q.value(3)}};
+                        refusal = CoffeeBag::writeError(stored, dateChanges, QDate::currentDate());
+                        if (!refusal.isEmpty())
+                            return;
+                    }
+                    const qint64 equipmentId = metadata.value(QStringLiteral("equipmentId"), 0).toLongLong();
+                    if (equipmentId > 0 && EquipmentStorage::loadPackageStatic(db, equipmentId).id <= 0) {
+                        refusal = QStringLiteral("No equipment package with id %1").arg(equipmentId);
+                        return;
+                    }
+                    ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata, &refusal);
+                    if (ok && !txn.commit()) {
+                        ok = false;
+                        refusal = QStringLiteral("The update could not be saved: %1").arg(txn.commitError());
+                    }
                     if (ok && shotUploads) holding = shotUploads->destinationsHolding(db, shotId);
                 });
 
                 QJsonObject result;
-                if (ok) {
+                if (!ok && !refusal.isEmpty()) {
+                    result["error"] = refusal;
+                } else if (ok) {
                     result["success"] = true;
                     QStringList fields;
                     for (auto it = metadata.begin(); it != metadata.end(); ++it)
