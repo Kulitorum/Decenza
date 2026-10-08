@@ -25,4 +25,4 @@
 
 ## 3. Docs
 
-- [ ] 3.1 Update the wiki manual's Beans section: the opened date fills in on the first shot and is editable from Edit
+- [x] 3.1 Update the wiki manual's Beans section: the opened date fills in on the first shot and is editable from Edit (pushed to the wiki, Decenza.wiki 20b1cfc)
