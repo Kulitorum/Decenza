@@ -10,6 +10,7 @@
 #include "../history/equipmentstorage.h"
 #include "../history/decentuploadstate.h"
 #include "decentshotuploader.h"
+#include "beanbase_blob.h"
 #include "../profile/profiledialintext.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -1196,9 +1197,11 @@ QJsonObject ShotServer::shotPageData(QSqlDatabase& db, const ShotRecord& record)
     const qint64 id = record.summary.id;
     auto neighbour = [&](bool newer) -> qint64 {
         QSqlQuery q(db);
-        q.prepare(newer ? QStringLiteral("SELECT id FROM shots WHERE timestamp > ? ORDER BY timestamp ASC, id ASC LIMIT 1")
-                        : QStringLiteral("SELECT id FROM shots WHERE timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT 1"));
-        q.addBindValue(record.summary.timestamp);
+        // (timestamp, id) is the ordering key: two imported shots can share a second.
+        q.prepare(newer ? QStringLiteral("SELECT id FROM shots WHERE timestamp > :t OR (timestamp = :t AND id > :id) ORDER BY timestamp ASC, id ASC LIMIT 1")
+                        : QStringLiteral("SELECT id FROM shots WHERE timestamp < :t OR (timestamp = :t AND id < :id) ORDER BY timestamp DESC, id DESC LIMIT 1"));
+        q.bindValue(QStringLiteral(":t"), record.summary.timestamp);
+        q.bindValue(QStringLiteral(":id"), id);
         return q.exec() && q.next() ? q.value(0).toLongLong() : 0;
     };
     DecentUploadState decent;
@@ -1259,6 +1262,14 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         { "visualizerUrl", shot.visualizerUrl },
         { "equipmentId", shot.equipmentId },
         { "equipmentName", shot.equipmentName },
+        // The bag link and snapshot, so a bean pick can be undone to what was there.
+        { "bagId", shot.bagId },
+        { "beanBaseJson", shot.beanBaseJson },
+        { "beanBaseId", BeanBaseBlob::canonicalId(shot.beanBaseJson) },
+        { "frozenDate", shot.frozenDate },
+        { "defrostDate", shot.defrostDate },
+        { "storageHint", shot.storageHint },
+        { "openedDate", shot.openedDate },
         { "basketBrand", shot.basketBrand },
         { "basketModel", shot.basketModel },
         { "puckPrep", shot.puckPrep },
@@ -1544,7 +1555,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 h += "<div class='row'><div class='label'>" + escapeHtml(txt("metric." + r.key, r.key)) + "</div><div class='value'>" + v + "</div></div>";
             });
             var stop = cmpShots[me] && cmpShots[me].stoppedBy;
-            if (stop) h += "<div class='row'><div class='label'>" + escapeHtml(txt("row.stopped")) + "</div><div class='value'>" + escapeHtml(txt("stop." + stop, DASH)) + "</div></div>";
+            h += "<div class='row'><div class='label'>" + escapeHtml(txt("row.stopped")) + "</div><div class='value'>" + escapeHtml(stop ? txt("stop." + stop, DASH) : DASH) + "</div></div>";
             if (hidden > 0) h += "<button class='more-btn' onclick='showMore=!showMore;renderHappened()'>"
                                + escapeHtml(showMore ? txt("ui.showLess") : txt("ui.showMore").replace("%1", hidden)) + "</button>";
             document.getElementById("happened").innerHTML = h;
@@ -1671,6 +1682,10 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         }
         function setRating(v) { save({ enjoyment: Math.max(0, Math.min(100, v)) }); }
         function pickChip(key, v) { var c = {}; c[key] = shot[key] === v ? "" : v; save(c); }
+        // Saves go out one after another, in the order they were made, and the page
+        // shows each edit at once: an Undo pressed while a save is still in flight
+        // then reverts that edit rather than reading the value it replaced as current.
+        var saveChain = Promise.resolve();
         function save(changes, opts) {
             var data = {}, before = {}, any = false;
             Object.keys(changes).forEach(function(k) {
@@ -1680,18 +1695,31 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 before[k] = shot[k];
             });
             if (!any) return;
-            if (!(opts && opts.noUndo)) { undoStack.push(before); renderUndo(); }
-            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
-                .then(function(result) {
-                    if (!result.success) throw new Error(result.error || "Unknown error");
-                    Object.keys(changes).forEach(function(k) { shot[k] = changes[k]; });
-                    showToast("Saved");
-                    syncInputs();
-                    setHeader();
-                    refreshOutcome();
-                })
-                .catch(function(err) { showToast("Save failed: " + err.message, 4000); });
+            var undoable = !(opts && opts.noUndo);
+            if (undoable) { undoStack.push(before); renderUndo(); }
+            Object.keys(before).forEach(function(k) { shot[k] = changes[k]; });
+            syncInputs();
+            setHeader();
+            // A bag or package pick makes the server fill the shot's bean or grinder fields.
+            var linksChanged = "bagId" in before || "equipmentId" in before;
+            saveChain = saveChain.then(function() {
+                return fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
+                    .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
+                    .then(function(result) {
+                        if (!result.success) throw new Error(result.error || "Unknown error");
+                        showToast(opts && opts.toast ? opts.toast : "Saved");
+                        if (linksChanged) refreshShot(); else refreshOutcome();
+                    })
+                    .catch(function(err) {
+                        Object.keys(before).forEach(function(k) { shot[k] = before[k]; });
+                        var i = undoStack.lastIndexOf(before);
+                        if (undoable && i >= 0) undoStack.splice(i, 1);
+                        renderUndo();
+                        syncInputs();
+                        setHeader();
+                        showToast("Save failed: " + err.message, 4000);
+                    });
+            });
         }
         // Inputs show the saved values: EY after an auto-calculation, every field after Undo.
         function syncInputs() {
@@ -1739,7 +1767,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         function refreshShot() {
             fetch("/api/shot/" + shot.id).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
                 if (!s) return;
-                ["beanBrand", "beanType", "roastDate", "roastLevel", "grinderBrand", "grinderModel", "grinderBurrs", "basketBrand", "basketModel",
+                ["beanBrand", "beanType", "roastDate", "roastLevel", "bagId", "beanBaseJson", "beanBaseId", "frozenDate", "defrostDate", "storageHint", "openedDate",
+                 "grinderBrand", "grinderModel", "grinderBurrs", "basketBrand", "basketModel",
                  "puckPrep", "equipmentName", "equipmentId", "grinderSetting", "rpm"].forEach(function(k) { if (s[k] !== undefined) shot[k] = s[k]; });
                 renderDetails();
                 setHeader();
@@ -1774,7 +1803,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                     var data = { beanBrand: b.roasterName || "", beanType: b.coffeeName || "", roastDate: b.roastDate || "", roastLevel: b.roastLevel || "",
                                  beanBaseJson: b.beanBaseData || "", beanBaseId: b.beanBaseId ? String(b.beanBaseId) : "", bagId: b.id,
                                  frozenDate: b.frozenDate || "", defrostDate: b.defrostDate || "", storageHint: b.storageHint || "", openedDate: b.openedDate || "" };
-                    postMetadata(data, "Beans changed");
+                    save(data, { toast: "Beans changed" });
                 });
             }).catch(function(e) { showToast("Could not load bags: " + e.message, 4000); });
         }
@@ -1784,16 +1813,9 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                     return { pkg: p, active: p.isActive, label: p.name || [p.grinderBrand, p.grinderModel].filter(Boolean).join(" ") || "Package " + p.id,
                              sub: [p.grinderBurrs, [p.basketBrand, p.basketModel].filter(Boolean).join(" ")].filter(Boolean).join(" · ") };
                 });
-                pickerModal("Equipment", items, function(it) { postMetadata({ equipmentId: it.pkg.id }, "Equipment changed"); });
+                pickerModal("Equipment", items, function(it) { save({ equipmentId: it.pkg.id }, { toast: "Equipment changed" }); });
             }).catch(function(e) { showToast("Could not load equipment: " + e.message, 4000); });
         }
-        function postMetadata(data, done) {
-            fetch("/api/shot/" + shot.id + "/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                .then(function(r) { if (!r.ok) throw new Error("Server error (" + r.status + ")"); return r.json(); })
-                .then(function(result) { if (!result.success) throw new Error(result.error || "Unknown error"); showToast(done); refreshShot(); })
-                .catch(function(err) { showToast("Save failed: " + err.message, 4000); });
-        }
-
         // --- Actions ---
         function uploadNow() {
             fetch("/api/shot/" + shot.id + "/upload", { method: "POST" })

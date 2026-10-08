@@ -145,7 +145,6 @@ Rectangle {
         }
 
         ComparisonRow {
-            visible: !!root.shot.stoppedBy
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: column.width - root.labelColW - Theme.spacingSmall

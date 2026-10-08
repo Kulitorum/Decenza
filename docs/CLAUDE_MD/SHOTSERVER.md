@@ -42,13 +42,16 @@ When adding or restyling any of these pages, use these helpers — do not paste 
 ## Cross-site requests
 
 `WebRequestGuard::crossSiteReason()` (`src/network/webrequestguard.cpp`) runs in `onReadyRead()`
-as soon as a request's headers are complete, before any body is buffered. A browser request
-whose `Origin` names another host than `Host`, or whose `Sec-Fetch-Site` is `cross-site` on an
-`/api` or `/mcp` path, gets 403. Non-browser clients (curl, Home Assistant, MCP clients) send
-neither header and pass. A cross-site navigation to a page still opens, so a link or dashboard
-iframe keeps working. No response carries `Access-Control-Allow-Origin`, so a page on another
-site cannot read the server's JSON either. The web pages only ever fetch their own origin.
-`tests/tst_webrequestguard.cpp` holds the cases.
+as soon as a request's headers are complete, before any body is buffered, and refuses with 403:
+a `Host` that is not this machine (DNS rebinding: only IP literals, localhost, single labels,
+the machine's hostname and LAN/mDNS/Tailscale suffixes pass); an `Origin` naming another host;
+and on `/api` or `/mcp` paths any `Sec-Fetch-Site` other than `same-origin` or `none`, so an
+`<img>` or frame from another site or another port on this host cannot hit a GET with a side
+effect. A top-level navigation to a page from another site still opens; HTML responses carry
+`frame-ancestors 'self'`, so no other site can frame a page and click through it. Non-browser
+clients (curl, Home Assistant, MCP clients) send none of these headers and pass. No response
+carries `Access-Control-Allow-Origin`, so a page on another site cannot read the server's JSON.
+The web pages only ever fetch their own origin. `tests/tst_webrequestguard.cpp` holds the cases.
 
 ## JavaScript `fetch()` calls
 

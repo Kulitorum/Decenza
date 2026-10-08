@@ -28,6 +28,30 @@ private slots:
         QVERIFY(WebRequestGuard::headerValue(b, "POST /api/x HTTP/1.1").isEmpty());
     }
 
+    void hostIsOurs_data()
+    {
+        QTest::addColumn<QString>("host");
+        QTest::addColumn<bool>("ours");
+        QTest::newRow("IPv4 with port") << "192.168.1.5:8888" << true;
+        QTest::newRow("IPv6 with port") << "[fe80::1%en0]:8888" << true;
+        QTest::newRow("localhost") << "LocalHost:8888" << true;
+        QTest::newRow("single label from the router") << "tablet:8888" << true;
+        QTest::newRow("mDNS") << "tablet.local:8888" << true;
+        QTest::newRow("router suffix") << "tablet.lan" << true;
+        QTest::newRow("FRITZ!Box") << "tablet.fritz.box:8888" << true;
+        QTest::newRow("Tailscale MagicDNS") << "tablet.tail1234.ts.net:8888" << true;
+        QTest::newRow("no Host header, not a browser") << "" << true;
+        QTest::newRow("public domain pointed at the tablet") << "attacker.example:8888" << false;
+        QTest::newRow("public domain, no port") << "coffee.example.com" << false;
+    }
+
+    void hostIsOurs()
+    {
+        QFETCH(QString, host);
+        QFETCH(bool, ours);
+        QCOMPARE(WebRequestGuard::hostIsOurs(host), ours);
+    }
+
     void writes_data()
     {
         QTest::addColumn<QString>("method");
@@ -58,8 +82,9 @@ private slots:
             << "POST" << "/api/command" << block({host, "Content-Type: application/json"}) << false;
         QTest::newRow("browser without Origin but cross-site")
             << "POST" << "/api/shot/5/delete" << block({host, "Sec-Fetch-Site: cross-site"}) << true;
-        QTest::newRow("same-site fetch without Origin")
-            << "POST" << "/api/shot/5/metadata" << block({host, "Sec-Fetch-Site: same-site"}) << false;
+        QTest::newRow("DNS rebinding: Origin and Host both the attacker's name")
+            << "POST" << "/api/shot/5/metadata"
+            << block({"Host: attacker.example:8888", "Origin: http://attacker.example:8888", "Sec-Fetch-Site: same-origin"}) << true;
     }
 
     void writes()
@@ -89,15 +114,21 @@ private slots:
         QTest::newRow("iframe on another site aimed at the legacy wake GET")
             << "GET" << "/api/power/wake"
             << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << true;
+        QTest::newRow("img tag from another port on this host")
+            << "GET" << "/api/power/sleep"
+            << block({host, "Sec-Fetch-Site: same-site", "Sec-Fetch-Mode: no-cors", "Sec-Fetch-Dest: image"}) << true;
+        QTest::newRow("rebinding read of the shot list")
+            << "GET" << "/api/shots"
+            << block({"Host: attacker.example:8888", "Sec-Fetch-Site: same-origin", "Sec-Fetch-Mode: cors"}) << true;
         QTest::newRow("another site reading shots with CORS")
             << "GET" << "/api/shots"
             << block({host, "Origin: http://evil.example", "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: cors"}) << true;
         QTest::newRow("link from another site opening the shot page")
             << "GET" << "/shot/5"
             << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: document"}) << false;
-        QTest::newRow("dashboard iframe showing the history page")
+        QTest::newRow("another site framing the history page")
             << "GET" << "/"
-            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << false;
+            << block({host, "Sec-Fetch-Site: cross-site", "Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"}) << true;
         QTest::newRow("the page's own fetch of its JSON")
             << "GET" << "/api/shot/5/outcome" << block({host, "Sec-Fetch-Site: same-origin", "Sec-Fetch-Mode: cors"}) << false;
         QTest::newRow("typed into the address bar")

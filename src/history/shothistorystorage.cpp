@@ -3611,7 +3611,7 @@ QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotI
     return QVariantMap{
         { QStringLiteral("previousShotId"), pair.size() > 1 ? previousId : qint64(0) },
         { QStringLiteral("previousDateTime"), previousWhen },
-        { QStringLiteral("comparison"), ShotComparison::compare(pair, 0).toVariantMap() },
+        { QStringLiteral("comparison"), ShotComparison::compare(pair, 0, ShotComparison::MetricRows::Defaults).toVariantMap() },
     };
 }
 

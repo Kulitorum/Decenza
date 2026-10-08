@@ -105,8 +105,15 @@ QJsonObject pairChanges(const ShotProjection& from, const ShotProjection& to,
                         const QMap<QString, double>& toMetrics,
                         PairInputs inputs = PairInputs::All);
 
+// Which metric rows compare() emits: every metric at least one shot supports, or
+// also the default rows (those not behind "Show more") with empty cells, for a
+// page that always lists duration, yield and ratio and shows "—" for a shot
+// without weight data.
+enum class MetricRows { Supported, Defaults };
+
 // The whole comparison, base first and the other shots in the given order.
 // `baseIndex` indexes `shots`.
 QJsonObject compare(const QList<ShotProjection>& shots, qsizetype baseIndex);
+QJsonObject compare(const QList<ShotProjection>& shots, qsizetype baseIndex, MetricRows rows);
 
 } // namespace ShotComparison

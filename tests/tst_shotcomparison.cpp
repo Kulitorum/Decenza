@@ -76,6 +76,7 @@ private slots:
     void metricsFollowTheirDefinitions();
     void profileVersionIgnoresEncoding();
     void comparisonJsonShape();
+    void defaultMetricsStayWithoutData();
     void pairChangesReadsFromTo();
     void summaryIgnoresNoise();
     void deltaMatchesShownValues();
@@ -261,6 +262,27 @@ void TstShotComparison::comparisonJsonShape()
     // Then how it stopped, then the badge that went away.
     QCOMPARE(factOf(summary, "stopped")[QStringLiteral("stoppedBy")].toString(), QStringLiteral("manual"));
     QCOMPARE(factOf(summary, "badgeGone")[QStringLiteral("badge")].toString(), QStringLiteral("channeling"));
+}
+
+// The shot page always lists duration, yield and ratio, so a shot pulled without a
+// scale gets those rows with no value rather than no rows. The comparison keeps
+// only what some shot supports, and "Show more" metrics nobody has stay out.
+void TstShotComparison::defaultMetricsStayWithoutData()
+{
+    ShotProjection a = shot(1), b = shot(2);
+    a.finalWeightG = 0;
+    b.finalWeightG = 0;
+    const auto keys = [](const QJsonObject& out) {
+        QStringList k;
+        for (const QJsonValue& v : out[QStringLiteral("metrics")].toArray())
+            k << v.toObject()[QStringLiteral("key")].toString();
+        return k;
+    };
+    QVERIFY(!keys(compare({ a, b }, 0)).contains(QStringLiteral("yieldG")));
+    const QJsonObject out = compare({ a, b }, 0, MetricRows::Defaults);
+    const QJsonObject yield = row(out[QStringLiteral("metrics")].toArray(), QStringLiteral("yieldG"));
+    QVERIFY(yield[QStringLiteral("cells")].toArray()[1].toObject()[QStringLiteral("value")].isNull());
+    QVERIFY(!keys(out).contains(QStringLiteral("drinkTdsPct")));
 }
 
 // A change inside a metric's noise floor is not summary-worthy however large it is

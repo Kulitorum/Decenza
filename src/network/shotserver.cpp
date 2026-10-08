@@ -807,8 +807,8 @@ void ShotServer::onReadyRead()
                 const QString crossSite = WebRequestGuard::crossSiteReason(
                     requestParts.value(0), requestParts.value(1), pending.headerData.left(pending.headerEnd));
                 if (!crossSite.isEmpty()) {
-                    DIAG_WARN(NETWORK, "ShotServer") << "Refused cross-site request:" << crossSite;
-                    sendResponse(socket, 403, "application/json", R"({"error":"Cross-site request refused"})");
+                    DIAG_WARN(NETWORK, "ShotServer") << "Refused request:" << crossSite;
+                    sendResponse(socket, 403, "text/plain; charset=utf-8", ("Refused: " + crossSite).toUtf8());
                     cleanupPendingRequest(socket);
                     m_pendingRequests.remove(socket);
                     socket->close();
@@ -2913,6 +2913,10 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
     response.append(QString("HTTP/1.1 %1 %2\r\n").arg(statusCode).arg(statusText).toUtf8());
     response.append(QString("Content-Type: %1\r\n").arg(contentType).toUtf8());
     response.append(QString("Content-Length: %1\r\n").arg(body.size()).toUtf8());
+    // A page framed by another site can be clicked through an overlay, and its
+    // own fetches are same-origin, so the cross-site guard would let them pass.
+    if (contentType.startsWith(QLatin1String("text/html")))
+        response.append("X-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: frame-ancestors 'self'\r\n");
     response.append("Connection: keep-alive\r\n");
     response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
     if (!extraHeaders.isEmpty()) {
